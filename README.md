@@ -17,7 +17,7 @@ Requires a C compiler, OpenBLAS (or any BLAS/LAPACK), and Python 3.10+.
 
 ```bash
 mamba env create -f environment.yml
-mamba activate rexg
+mamba activate rexgraph
 pip install -e . --no-build-isolation
 ```
 
