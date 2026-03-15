@@ -1,0 +1,57 @@
+# RexGraph development environment.
+#
+#   mamba env create -f environment.yml
+#   mamba env update -f environment.yml
+#   mamba activate rexgraph
+
+name: rexgraph
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python
+  - python>=3.10
+
+  # Build tools (Cython compilation)
+  - meson>=1.3
+  - meson-python>=0.16
+  - ninja
+  - cython>=3.0
+  - pkg-config
+
+  # Compilers (provided by conda; no system install needed)
+  - c-compiler
+  - cxx-compiler
+  - libgomp          # OpenMP runtime (Linux)
+  # - llvm-openmp    # substitute for macOS
+
+  # BLAS/LAPACK (required by _linalg, _laplacians, _relational, _character)
+  - openblas
+  - libblas
+  - liblapack
+
+  # Core
+  - numpy>=1.24
+  - scipy>=1.10
+
+  # I/O
+  - zarr>=2.14
+  - h5py>=3.8
+  - pyarrow>=12.0
+  - sqlalchemy>=2.0
+  - pandas>=2.0
+
+  # Visualization
+  - flask>=2.0
+  - jinja2>=3.1
+
+  # Testing
+  - pytest>=7.0
+  - pytest-cov>=4.0
+  - pytest-benchmark>=4.0
+  - ruff>=0.3
+
+  # Editable install of rexgraph itself
+  - pip

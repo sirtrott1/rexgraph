@@ -1,0 +1,140 @@
+# RexGraph package configuration.
+#
+# Default build (Cython extensions via meson-python):
+#   pip install .
+#   pip install -e ".[dev]"
+#
+# CUDA build (GPU kernels via CMake; requires CUDA toolkit and cupy):
+#   REX_BUILD_CUDA=1 pip install .
+#
+# The meson backend compiles .pyx to .c to .so with OpenMP
+# parallelism. CMake is invoked separately for .cu compilation
+# when CUDA support is requested.
+
+[build-system]
+requires = [
+    "meson-python>=0.16",
+    "meson>=1.3",
+    "cython>=3.0",
+    "numpy>=1.24",
+]
+build-backend = "mesonpy"
+
+# Project metadata
+
+[project]
+name = "rexgraph"
+version = "0.2.0"
+description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
+readme = "README.md"
+license = {text = "GNU Affero General Public License"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Andrew Trotter"},
+]
+keywords = [
+    "graph", "topology", "hodge", "laplacian", "spectral",
+    "relational-complex", "network-analysis", "TDA",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bioinformatics",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Cython",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+]
+
+# Core dependencies
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+]
+
+# Optional dependency groups
+[project.optional-dependencies]
+
+# I/O: Zarr, HDF5, Arrow, Parquet, SQL
+io = [
+    "zarr>=2.14",
+    "h5py>=3.8",
+    "pyarrow>=12.0",
+    "sqlalchemy>=2.0",
+    "pandas>=2.0",
+]
+
+# Visualization dashboard
+viz = [
+    "jinja2>=3.1",
+    "flask>=2.0",
+]
+
+# GPU acceleration (requires CUDA toolkit)
+cuda = [
+    "cupy-cuda12x>=13.0",
+]
+
+# Development and testing
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-benchmark>=4.0",
+    "cython>=3.0",
+    "meson>=1.3",
+    "meson-python>=0.16",
+    "ruff>=0.3",
+    "mypy>=1.0",
+]
+
+# All optional dependencies except CUDA
+all = [
+    "rexgraph[io,viz,dev]",
+]
+
+# CLI entry points
+[project.scripts]
+rex-dashboard = "rexgraph.viz.dashboard:main"
+
+# URLs
+[project.urls]
+Homepage = "https://github.com/rexgraph/rexgraph"
+Documentation = "https://rexgraph.readthedocs.io"
+Repository = "https://github.com/rexgraph/rexgraph"
+Issues = "https://github.com/rexgraph/rexgraph/issues"
+
+# Meson-python: no extra arguments needed; meson.build default_options
+# sets buildtype=release and b_lto=true.
+
+# Testing
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-v", "--tb=short"]
+markers = [
+    "slow: marks tests as slow (run with --runslow)",
+    "cuda: marks tests requiring CUDA (run with --cuda)",
+    "benchmark: marks benchmark tests",
+]
+
+# Linting
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+# Type checking
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

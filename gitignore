@@ -1,0 +1,46 @@
+# Build artifacts
+build/
+builddir/
+dist/
+*.egg-info/
+.mesonpy-*/
+
+# Compiled extensions
+*.so
+*.pyd
+*.dll
+*.dylib
+*.o
+
+# Cython generated C files
+rexgraph/core/*.c
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# CUDA build (CMake)
+rexgraph/cuda/build/
+rexgraph/cuda/*.so
+
+# pip wheel cache
+*.whl
