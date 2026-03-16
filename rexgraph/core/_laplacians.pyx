@@ -402,9 +402,10 @@ def trace_normalize(L_in):
 # ---------------------------------------------------------------------------
 
 def build_all_laplacians(B1_in, B2_in, L_O_in,
+                          L_SG_in=None, L_C_in=None,
                           bint auto_alpha=True,
                           int k=-1):
-    """Build all Hodge Laplacians, eigendecompositions, and coupling constants.
+    """Build all Hodge Laplacians, eigendecompositions, and the relational Laplacian.
 
     This is the single call that graph.py's spectral_bundle invokes.
     Everything routes through LAPACK/BLAS; zero np.linalg calls.
@@ -417,6 +418,10 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
         Edge-face boundary operator. None if no faces.
     L_O_in : ndarray or None, shape (nE, nE)
         Overlap Laplacian. None if not computed.
+    L_SG_in : ndarray or None, shape (nE, nE)
+        Frustration Laplacian. None if not computed.
+    L_C_in : ndarray or None, shape (nE, nE)
+        Copath complex Laplacian. None if not computed.
     auto_alpha : bool
         If True, compute coupling constants and build RL_1.
     k : int
@@ -611,30 +616,63 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
         result['evals_RL_1'] = None
         result['evecs_RL_1'] = None
 
-    # ---- Trace-normalized hats for RCF pipeline ----
-    hats = []
-    trace_values = []
-    hat_names = []
-
+    # ---- K1 = |B1|^T |B1| (unweighted overlap matrix) ----
+    cdef np.ndarray[f64, ndim=2] absB1 = np.abs(B1)
+    cdef np.ndarray[f64, ndim=2] K1 = np.empty((nE, nE), dtype=np.float64)
     if nE > 0:
-        # hat(L1_down)
-        hat_L1d, tr_L1d = trace_normalize(L1d)
-        if tr_L1d > 1e-15:
-            hats.append(hat_L1d)
-            trace_values.append(tr_L1d)
-            hat_names.append('L1_down')
+        bl_gemm_tn(&absB1[0, 0], &absB1[0, 0], &K1[0, 0], nE, nE, nV)
+    else:
+        K1 = np.zeros((0, 0), dtype=np.float64)
+    result['K1'] = K1
 
-        # hat(L_O)
+    # ---- L_C from line graph of K1 (copath complex Laplacian) ----
+    L_C_computed = None
+    if L_C_in is not None:
+        L_C_computed = np.ascontiguousarray(L_C_in, dtype=np.float64)
+    elif nE > 0:
+        from rexgraph.core._relational import build_line_graph, build_L_coPC
+        lg = build_line_graph(K1, nE)
+        if lg['nE_L'] > 0:
+            L_C_candidate = build_L_coPC(lg)
+            if float(np.trace(L_C_candidate)) > 1e-15:
+                L_C_computed = L_C_candidate
+    result['L_C'] = L_C_computed
+
+    # ---- Relational Laplacian via build_RL ----
+    # Single computation point: assemble all available typed Laplacians,
+    # trace-normalize each once, sum into RL. No redundant normalization.
+    if nE > 0:
+        from rexgraph.core._relational import build_RL
+        from rexgraph.core._character import compute_chi
+
+        laplacians = [L1f]
+        lap_names = ['L1_down']
         if has_LO:
-            hat_LO, tr_LO = trace_normalize(L_O)
-            if tr_LO > 1e-15:
-                hats.append(hat_LO)
-                trace_values.append(tr_LO)
-                hat_names.append('L_O')
+            laplacians.append(L_O)
+            lap_names.append('L_O')
+        if L_SG_in is not None:
+            laplacians.append(
+                np.ascontiguousarray(L_SG_in, dtype=np.float64))
+            lap_names.append('L_SG')
+        if L_C_computed is not None:
+            laplacians.append(L_C_computed)
+            lap_names.append('L_C')
 
-    result['hats'] = hats
-    result['trace_values'] = np.array(trace_values, dtype=np.float64) if trace_values else np.empty(0, dtype=np.float64)
-    result['nhats'] = len(hats)
-    result['hat_names'] = hat_names
+        rcf = build_RL(laplacians, lap_names)
+        result['RL'] = rcf['RL']
+        result['hats'] = rcf['hats']
+        result['nhats'] = rcf['nhats']
+        result['trace_values'] = rcf['trace_values']
+        result['hat_names'] = rcf['hat_names']
+
+        result['chi'] = compute_chi(
+            rcf['RL'], rcf['hats'], rcf['nhats'], nE)
+    else:
+        result['RL'] = np.zeros((0, 0), dtype=np.float64)
+        result['hats'] = []
+        result['nhats'] = 0
+        result['trace_values'] = np.empty(0, dtype=np.float64)
+        result['hat_names'] = []
+        result['chi'] = np.zeros((0, 0), dtype=np.float64)
 
     return result

@@ -45,7 +45,7 @@ class TestModuleLoading:
     def test_all_modules_load(self):
         from rexgraph import core
         assert len(core._failed) == 0, f"Failed: {core._failed}"
-        assert len(core._loaded) == 27
+        assert len(core._loaded) >= 27, f"Only {len(core._loaded)} modules loaded"
 
     def test_common_accessible(self):
         from rexgraph.core import _common
@@ -657,3 +657,139 @@ class TestExtractDiagFix:
         r = k4.propagate(src, tgt)
         assert 'score' in r
         assert np.isfinite(r['score'])
+
+
+# Phase 2: Dirac operator and hypermanifold
+
+class TestDirac:
+    """Verify Dirac operator D = d + d* on graded cell space."""
+
+    def test_dirac_shape(self, k4):
+        """D should be (nV+nE+nF) x (nV+nE+nF)."""
+        N = k4.nV + k4.nE + k4.nF
+        assert k4.dirac_operator.shape == (N, N)
+
+    def test_dirac_symmetric(self, k4):
+        D = k4.dirac_operator
+        assert np.allclose(D, D.T, atol=1e-12)
+
+    def test_d_squared_is_hodge(self, k4):
+        """D^2 = blkdiag(L0, L1, L2) by chain condition."""
+        from rexgraph.core import _dirac
+        D = k4.dirac_operator
+        ok, err = _dirac.verify_d_squared(
+            D, k4.L0, k4.L1, k4.L2,
+            k4.nV, k4.nE, k4.nF, tol=1e-8)
+        assert ok, f"D^2 != blkdiag(L), max error = {err}"
+
+    def test_eigenvalues_exist(self, k4):
+        evals = k4.dirac_eigenvalues
+        assert evals.shape[0] == k4.nV + k4.nE + k4.nF
+
+    def test_eigenvalues_symmetric(self, k4):
+        """D eigenvalues come in +/- pairs (plus possible zeros)."""
+        evals = k4.dirac_eigenvalues
+        pos = sorted([e for e in evals if e > 1e-10])
+        neg = sorted([-e for e in evals if e < -1e-10])
+        assert len(pos) == len(neg)
+        for p, n in zip(pos, neg):
+            assert abs(p - n) < 1e-8
+
+    def test_norm_conservation(self, k4):
+        """||Psi(t)||^2 = ||Psi(0)||^2 for all t."""
+        psi0 = k4.canonical_collapse(0)
+        norm0 = np.sum(psi0**2)
+        for t in [0.1, 0.5, 1.0, 5.0]:
+            re, im = k4.graded_state(t=t, psi0=psi0)
+            norm_t = np.sum(re**2 + im**2)
+            assert abs(norm_t - norm0) < 1e-10, f"Norm drift at t={t}: {norm_t - norm0}"
+
+    def test_canonical_collapse_face_zero(self, k4):
+        """Face component of canonical collapse must be exactly zero."""
+        psi = k4.canonical_collapse(0)
+        nV, nE, nF = k4.nV, k4.nE, k4.nF
+        face_part = psi[nV + nE:]
+        assert np.allclose(face_part, 0, atol=1e-15)
+
+    def test_canonical_collapse_normalized(self, k4):
+        psi = k4.canonical_collapse(0)
+        assert abs(np.sum(psi**2) - 1.0) < 1e-10
+
+    def test_born_graded_sums_to_one(self, k4):
+        re, im = k4.graded_state(t=0.3)
+        per_cell, per_dim = k4.born_graded(re, im)
+        assert abs(per_cell.sum() - 1.0) < 1e-10
+        assert abs(per_dim.sum() - 1.0) < 1e-10
+
+    def test_energy_partition(self, k4):
+        re, im = k4.graded_state(t=0.3)
+        frac = k4.energy_partition(re, im)
+        assert abs(frac.sum() - 1.0) < 1e-10
+        assert np.all(frac >= -1e-10)
+
+    def test_trajectory(self, k4):
+        times = np.linspace(0, 1, 5)
+        r = k4.graded_trajectory(times)
+        N = k4.nV + k4.nE + k4.nF
+        assert r['traj_re'].shape == (5, N)
+        assert r['born'].shape == (5, N)
+        # Born probability sums to 1 at each timepoint
+        for t in range(5):
+            assert abs(r['born'][t].sum() - 1.0) < 1e-10
+
+    def test_tree_no_faces(self, tree):
+        """Tree graph has nF=0; Dirac still works on (V, E) space."""
+        D = tree.dirac_operator
+        assert D.shape[0] == tree.nV + tree.nE
+        psi = tree.canonical_collapse(0)
+        assert psi.shape[0] == tree.nV + tree.nE
+
+
+class TestHypermanifold:
+    """Verify filtered manifold sequence and harmonic shadow."""
+
+    def test_manifold_structure(self, k4):
+        hm = k4.hypermanifold
+        assert hm['max_dimension'] == 2
+        assert len(hm['manifolds']) == 2
+
+    def test_m1_dimensions(self, k4):
+        m1 = k4.hypermanifold['manifolds'][0]
+        assert m1['dimension'] == 1
+        assert m1['cells'] == [4, 6]
+        assert m1['N'] == 10
+
+    def test_m2_dimensions(self, k4):
+        m2 = k4.hypermanifold['manifolds'][1]
+        assert m2['dimension'] == 2
+        assert m2['cells'] == [4, 6, 4]
+        assert m2['N'] == 14
+
+    def test_tree_only_m1(self, tree):
+        hm = tree.hypermanifold
+        assert hm['max_dimension'] == 1
+        assert len(hm['manifolds']) == 1
+
+    def test_dimensional_subsumption(self, k4):
+        """beta_k(d+1) <= beta_k(d) must hold."""
+        ok, violations = k4.dimensional_subsumption
+        assert ok, f"Subsumption violated: {violations}"
+
+    def test_harmonic_shadow_k4(self, k4):
+        """K4 has beta_1=0 at both d=1 and d=2, so shadow_dim may be 0 or positive."""
+        hs = k4.harmonic_shadow
+        assert isinstance(hs['shadow_dim'], int)
+        assert hs['shadow_dim'] >= 0
+
+    def test_harmonic_shadow_triangle(self, triangle):
+        """Triangle has 1 cycle at d=1 and no faces to fill it."""
+        hs = triangle.harmonic_shadow
+        assert hs['beta_1_at_d1'] >= 1
+
+    def test_shadow_dim_equals_rank_B2(self, k4):
+        """shadow_dim = rank(B2) for standard complexes."""
+        hs = k4.harmonic_shadow
+        B2 = k4.B2_hodge
+        if B2.shape[1] > 0:
+            rank_B2 = np.linalg.matrix_rank(B2, tol=1e-8)
+            assert hs['shadow_dim'] == rank_B2

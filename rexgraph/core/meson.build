@@ -76,6 +76,8 @@ _cython_modules = [
     '_quotient',
     '_field',
     '_signal',
+    '_dirac',
+    '_hypermanifold',
 ]
 
 foreach mod : _cython_modules

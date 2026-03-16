@@ -1,5 +1,5 @@
 """
-Core Cython-accelerated algorithms for the relational complex framework.
+Core Cython-accelerated algorithms for rexgraph.
 
 Modules are imported with graceful fallback: uncompiled or
 unavailable extensions are silently skipped so the package
@@ -12,11 +12,14 @@ _MODULES = [
     # Shared infrastructure
     '_common',
     '_sparse',
+    '_linalg',
+
     # Chain complex construction
     '_rex',
     '_boundary',
     '_cycles',
     '_faces',
+
     # Laplacians and spectral
     '_overlap',
     '_frustration',
@@ -24,19 +27,25 @@ _MODULES = [
     '_relational',
     '_character',
     '_hodge',
-    # Topology
+
+    # Topology and curvature
     '_void',
     '_rcfe',
-    # Dynamics
+
+    # Dynamics and state
     '_state',
     '_wave',
     '_transition',
     '_field',
+    '_dirac',
+
     # Analysis
     '_standard',
     '_spectral',
     '_temporal',
     '_persistence',
+    '_hypermanifold',
+
     # RCF operations
     '_quotient',
     '_joins',
@@ -68,7 +77,6 @@ for _mod_name in _MODULES:
         )
 
 __all__ = []
-
 del _importlib, _warnings, _mod_name, _MODULES
 try:
     del _mod, _names, _e

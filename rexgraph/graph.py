@@ -66,6 +66,8 @@ _rcfe = getattr(_core, '_rcfe', None)
 _joins = getattr(_core, '_joins', None)
 _query = getattr(_core, '_query', None)
 _fiber = getattr(_core, '_fiber', None)
+_dirac = getattr(_core, '_dirac', None)
+_hypermanifold = getattr(_core, '_hypermanifold', None)
 
 _HAS_RCF = all(m is not None for m in (
     _frustration, _relational, _character, _void, _rcfe, _joins, _query, _fiber,
@@ -727,18 +729,25 @@ class RexGraph:
 
     @cached_property
     def spectral_bundle(self) -> dict:
-        """All Laplacians and spectral decompositions.
+        """All Laplacians, spectral decompositions, and relational Laplacian.
 
         Single call producing L0, L1, L2, eigenvalues, eigenvectors,
-        Betti numbers, coupling constants, RL_1, Lambda, and diagnostics.
+        Betti numbers, coupling constants, K1, RL, hats, nhats, chi.
 
-        Uses B2_hodge (self-loop faces filtered) for correct L_1 and
-        Betti numbers.
+        Passes L_SG when available. K1 and L_C are computed internally
+        by build_all_laplacians so that RL is built once with all
+        available hats and zero redundant trace normalization.
         """
+        L_SG = None
+        if _HAS_RCF:
+            src, tgt = self._ensure_src_tgt()
+            L_SG = _frustration.build_L_SG(
+                self._nV, self._nE, src, tgt, signs=self._edge_signs)
         return _laplacians.build_all_laplacians(
             self._B1_dual,
             self._B2_hodge_dual,
             self.L_overlap,
+            L_SG_in=L_SG,
             auto_alpha=True,
             k=-1,
         )
@@ -922,41 +931,22 @@ class RexGraph:
     def L_coPC(self) -> Optional[NDArray]:
         """Copath complex Laplacian L_C (line-graph Hodge).
 
-        None if the line graph has no edges (e.g. star graphs).
+        None if the line graph has no edges or trace is zero.
+        Read from spectral_bundle (computed once during build_all_laplacians).
         """
-        if not _HAS_RCF:
-            return None
-        K1 = self.spectral_bundle.get('K1')
-        if K1 is None:
-            return None
-        lg = _relational.build_line_graph(
-            np.asarray(K1, dtype=_f64), self._nE)
-        if lg['nE_L'] == 0:
-            return None
-        return _relational.build_L_coPC(lg)
+        return self.spectral_bundle.get('L_C')
 
     @cached_property
     def _rcf_bundle(self) -> dict:
         """Relational Laplacian, hat operators, structural character.
 
-        Assembles RL from all available typed Laplacians.
-        Uses 3 hats (RL3) when L_coPC is unavailable, 4 hats (RL4) otherwise.
-
+        Reads directly from spectral_bundle. No redundant computation.
         Keys: RL, hats, nhats, trace_values, hat_names, chi
         """
-        if not _HAS_RCF:
+        sb = self.spectral_bundle
+        if 'RL' not in sb or sb.get('nhats', 0) == 0:
             return {}
-        laplacians = [self.L1, self.L_overlap, self.L_frustration]
-        names = ['L1_down', 'L_O', 'L_SG']
-        L_C = self.L_coPC
-        if L_C is not None:
-            laplacians.append(L_C)
-            names.append('L_C')
-        result = _relational.build_RL(laplacians, names)
-        chi = _character.compute_chi(
-            result['RL'], result['hats'], result['nhats'], self._nE)
-        result['chi'] = chi
-        return result
+        return sb
 
     @cached_property
     def RL(self) -> NDArray:
@@ -1763,6 +1753,146 @@ class RexGraph:
         """
         F = np.ascontiguousarray(F, dtype=_f64)
         return _field.derive_vertex_state(F, self.B1, self._nE)
+
+    # Dirac operator and graded state (RCFE Sections 4, 8, 9)
+
+    @cached_property
+    def dirac_operator(self) -> NDArray:
+        """Dirac operator D = d + d* on R^(nV+nE+nF). Real symmetric.
+
+        D^2 = blkdiag(L0, L1, L2) by the chain condition B1 B2 = 0.
+        """
+        if _dirac is None:
+            raise RuntimeError("_dirac module not available")
+        D, _ = _dirac.build_dirac_operator(self.B1, self.B2_hodge)
+        return D
+
+    @cached_property
+    def _dirac_eigen(self) -> Tuple[NDArray, NDArray]:
+        """Cached eigendecomposition of the Dirac operator."""
+        if _dirac is None:
+            raise RuntimeError("_dirac module not available")
+        return _dirac.dirac_eigen(self.dirac_operator)
+
+    @cached_property
+    def dirac_eigenvalues(self) -> NDArray:
+        """Eigenvalues of the Dirac operator (positive and negative)."""
+        return self._dirac_eigen[0]
+
+    def graded_state(self, t: float = 0.0,
+                     psi0: NDArray = None,
+                     vertex_idx: int = 0) -> Tuple[NDArray, NDArray]:
+        """Evolve graded state: Psi(t) = exp(-iDt) Psi(0).
+
+        If psi0 is None, uses canonical collapse at vertex_idx.
+        Returns (psi_re, psi_im).
+        """
+        if _dirac is None:
+            raise RuntimeError("_dirac module not available")
+        evals, evecs = self._dirac_eigen
+        if psi0 is None:
+            psi0 = _dirac.canonical_collapse(
+                self.B1, self._nV, self._nE, self.nF_hodge, vertex_idx)
+        psi0 = np.ascontiguousarray(psi0, dtype=_f64)
+        return _dirac.schrodinger_evolve(evals, evecs, psi0, t)
+
+    def graded_trajectory(self, times: NDArray,
+                          psi0: NDArray = None,
+                          vertex_idx: int = 0) -> dict:
+        """Evolve graded state at multiple timepoints.
+
+        Returns dict with traj_re, traj_im, born.
+        """
+        if _dirac is None:
+            raise RuntimeError("_dirac module not available")
+        evals, evecs = self._dirac_eigen
+        if psi0 is None:
+            psi0 = _dirac.canonical_collapse(
+                self.B1, self._nV, self._nE, self.nF_hodge, vertex_idx)
+        psi0 = np.ascontiguousarray(psi0, dtype=_f64)
+        times = np.ascontiguousarray(times, dtype=_f64)
+        traj_re, traj_im, born = _dirac.schrodinger_trajectory(
+            evals, evecs, psi0, times)
+        return {
+            'traj_re': traj_re, 'traj_im': traj_im, 'born': born,
+            'times': times, 'nV': self._nV, 'nE': self._nE,
+            'nF': self.nF_hodge,
+        }
+
+    def canonical_collapse(self, vertex_idx: int = 0) -> NDArray:
+        """Canonical graded projection: (delta_v, B1^T delta_v, 0).
+
+        Face component is exactly zero by the chain condition.
+        """
+        if _dirac is None:
+            raise RuntimeError("_dirac module not available")
+        return _dirac.canonical_collapse(
+            self.B1, self._nV, self._nE, self.nF_hodge, vertex_idx)
+
+    def born_graded(self, psi_re: NDArray, psi_im: NDArray) -> Tuple[NDArray, NDArray]:
+        """Born probability per cell and per dimension.
+
+        Returns (per_cell, per_dim) where per_dim = [P_V, P_E, P_F].
+        """
+        if _dirac is None:
+            raise RuntimeError("_dirac module not available")
+        return _dirac.born_graded(psi_re, psi_im,
+                                   self._nV, self._nE, self.nF_hodge)
+
+    def energy_partition(self, psi_re: NDArray, psi_im: NDArray) -> NDArray:
+        """Fraction of energy in V, E, F sectors. Sums to 1."""
+        if _dirac is None:
+            raise RuntimeError("_dirac module not available")
+        return _dirac.energy_partition(psi_re, psi_im,
+                                        self._nV, self._nE, self.nF_hodge)
+
+    # Hypermanifold (RCFE Sections 7, 8, 9)
+
+    @cached_property
+    def hypermanifold(self) -> dict:
+        """Filtered manifold sequence M1 < M2 < M3.
+
+        Each level adds cells, DOF, Bianchi identities.
+        """
+        if _hypermanifold is None:
+            raise RuntimeError("_hypermanifold module not available")
+        sb = self.spectral_bundle
+        return _hypermanifold.build_manifold_sequence(
+            sb['evals_L0'], sb['evals_L1'],
+            sb.get('evals_L2', np.empty(0, dtype=_f64)),
+            self._nV, self._nE, self.nF_hodge)
+
+    @cached_property
+    def harmonic_shadow(self) -> dict:
+        """Cycles at d=1 that become boundaries at d=2.
+
+        shadow_dim = beta_1(1) - beta_1(2) = rank(B2).
+        """
+        if _hypermanifold is None:
+            raise RuntimeError("_hypermanifold module not available")
+        sb = self.spectral_bundle
+        L1_down = sb.get('L1_down')
+        if L1_down is None:
+            return {'shadow_dim': 0, 'beta_1_at_d1': 0, 'beta_1_at_d2': 0}
+        from rexgraph.core._linalg import eigh as _eigh
+        evals_L1_down = _eigh(np.asarray(L1_down, dtype=_f64))[0]
+        evals_L1_full = sb['evals_L1']
+        shadow_dim, beta_d, beta_d1 = _hypermanifold.harmonic_shadow(
+            evals_L1_down, evals_L1_full)
+        return {
+            'shadow_dim': shadow_dim,
+            'beta_1_at_d1': beta_d,
+            'beta_1_at_d2': beta_d1,
+        }
+
+    @cached_property
+    def dimensional_subsumption(self) -> Tuple[bool, list]:
+        """Verify beta_k(d+1) <= beta_k(d) (Theorem 8.1)."""
+        if _hypermanifold is None:
+            return True, []
+        hm = self.hypermanifold
+        betti_seq = [m['betti'] for m in hm['manifolds']]
+        return _hypermanifold.dimensional_subsumption(betti_seq)
 
     # Signal analysis pipeline (from _signal)
 
