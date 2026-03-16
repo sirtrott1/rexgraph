@@ -477,8 +477,39 @@ class GraphData:
             lines.append(f"\n  Negative flow types: {', '.join(self.negative_types)}")
         return "\n".join(lines)
 
+    def to_rex(self):
+        """Construct a RexGraph from the classified CSV data.
 
-def load_edge_csv(path: str) -> GraphData:
+        Wires edge weights (magnitude) and signs (polarity) into the
+        RexGraph via from_graph's contract. The resulting graph has:
+        - w_E from numeric/ordinal columns (magnitude only)
+        - signs from polarity column (+1/-1 per edge)
+
+        Returns
+        -------
+        RexGraph
+        """
+        from ..graph import RexGraph
+
+        w_mag = np.abs(self.w_E)
+        signs = np.sign(self.w_E).astype(np.float64)
+
+        w_E_arg = w_mag if not np.allclose(w_mag, 1.0) else None
+        signs_arg = signs if np.any(signs < 0) else None
+
+        return RexGraph(
+            sources=self.src_idx,
+            targets=self.tgt_idx,
+            w_E=w_E_arg,
+            signs=signs_arg,
+        )
+
+
+def load_edge_csv(
+    path: str,
+    *,
+    roles: Optional[Dict[str, str]] = None,
+) -> GraphData:
     """Load a CSV edge list with full column role classification.
 
     Parameters
@@ -486,6 +517,10 @@ def load_edge_csv(path: str) -> GraphData:
     path : str
         Path to the CSV file.  Expects at least two columns
         interpretable as source/target vertex names.
+    roles : dict, optional
+        Manual role overrides. Maps column name to role string
+        (e.g. {"effect": "polarity", "score": "numeric"}).
+        Overrides take priority over heuristic classification.
 
     Returns
     -------
@@ -493,7 +528,8 @@ def load_edge_csv(path: str) -> GraphData:
         Fully classified data ready for RexGraph construction and
         visualization.  Access `.edge_attrs` for analyze(),
         `.w_E` for signed weights, `.negative_types` for the
-        polarity-derived negative type list.
+        polarity-derived negative type list. Call `.to_rex()` to
+        get a RexGraph directly.
     """
     with open(path, newline="", encoding="utf-8-sig") as f:
         sample = f.read(8192)
@@ -539,6 +575,15 @@ def load_edge_csv(path: str) -> GraphData:
 
     # Column classification
     profiles = classify_columns(meta)
+
+    # Apply manual role overrides
+    if roles:
+        for col_name, role in roles.items():
+            if col_name in profiles:
+                profiles[col_name].role = role
+                profiles[col_name].name_matched = True
+                if role == ColumnRole.POLARITY:
+                    _detect_polarity(profiles[col_name])
     edge_attrs = build_edge_attrs(profiles)
     w_E, negative_types = build_weights(profiles, len(sources))
 

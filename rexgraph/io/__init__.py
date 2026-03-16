@@ -111,6 +111,17 @@ __all__ += ["HAS_ARROW", "HAS_PARQUET", "HAS_SQL"]
 from .csv_loader import load_edge_csv, classify_columns, GraphData, ColumnProfile
 __all__ += ["load_edge_csv", "classify_columns", "GraphData", "ColumnProfile"]
 
+from .json_loader import (
+    load_json, load_rexgraph_json, load_edge_list_json,
+    load_cytoscape_json, load_networkx_json, load_adjacency_json,
+    load_matrix_csv,
+)
+__all__ += [
+    "load_json", "load_rexgraph_json", "load_edge_list_json",
+    "load_cytoscape_json", "load_networkx_json", "load_adjacency_json",
+    "load_matrix_csv",
+]
+
 
 def save(path, obj, *, format=None, **kwargs):
     """Save a RexGraph or TemporalRex to disk."""
@@ -142,6 +153,8 @@ def load(path, *, format=None, **kwargs):
         return load_hdf5(path, **kwargs)
     elif fmt == "rex":
         return load_rex(path, **kwargs)
+    elif fmt == "json":
+        return load_json(path, **kwargs)
     else:
         raise ValueError(f"Unknown format {fmt!r}.")
 
@@ -156,6 +169,8 @@ def _detect_format(path, override=None):
         return "hdf5"
     if path.endswith(".rex"):
         return "rex"
+    if path.endswith(".json"):
+        return "json"
     if os.path.isdir(path):
         if os.path.exists(os.path.join(path, "MANIFEST.json")):
             return "rex"

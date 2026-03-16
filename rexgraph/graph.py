@@ -1083,6 +1083,51 @@ class RexGraph:
         rl_diag = np.ascontiguousarray(np.diag(self.RL))
         return float(_rcfe.compute_strain(self.rcfe_curvature, rl_diag, self._nE))
 
+    def attributed_curvature(self, w_e: NDArray = None,
+                              a_v: NDArray = None) -> dict:
+        """Attributed boundary curvature (Def 3.1-3.2)."""
+        if not _HAS_RCF:
+            raise RuntimeError("RCF modules not available.")
+        if w_e is None:
+            w_e = np.ones(self._nE, dtype=_f64)
+        if a_v is None:
+            a_v = np.ones(self._nV, dtype=_f64)
+        return _rcfe.attributed_curvature(
+            self.B1, self.B2_hodge,
+            np.ascontiguousarray(w_e, dtype=_f64),
+            np.ascontiguousarray(a_v, dtype=_f64),
+            self._nV, self._nE, self.nF_hodge)
+
+    def strain_equilibrium(self, born_face: NDArray = None,
+                            t: float = 0.0,
+                            vertex_idx: int = 0) -> dict:
+        """Full dynamic strain equilibrium analysis."""
+        if not _HAS_RCF:
+            raise RuntimeError("RCF modules not available.")
+        nF = self.nF_hodge
+        if nF == 0:
+            return {
+                'alpha': 0.0, 'delta': np.zeros(0, dtype=_f64),
+                'sigma': np.zeros(self._nE, dtype=_f64),
+                'bianchi_ok': True, 'bianchi_residual': 0.0,
+                'strain_norm': 0.0, 'kappa_f': np.zeros(0, dtype=_f64),
+            }
+        ac = self.attributed_curvature()
+        kappa_f = ac['kappa_f']
+        if born_face is None:
+            if _dirac is not None:
+                psi_re, psi_im = self.graded_state(t=t, vertex_idx=vertex_idx)
+                per_cell, _ = self.born_graded(psi_re, psi_im)
+                born_face = per_cell[self._nV + self._nE:]
+            else:
+                born_face = np.ones(nF, dtype=_f64) / nF
+        born_face = np.ascontiguousarray(born_face, dtype=_f64)
+        result = _rcfe.strain_equilibrium(
+            self.B1, self.B2_hodge, kappa_f, born_face,
+            self._nV, self._nE, nF)
+        result['kappa_f'] = kappa_f
+        return result
+
     # RCF methods
 
     def impute(self, observed_signal: NDArray, observed_mask: NDArray) -> dict:

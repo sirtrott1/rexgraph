@@ -38,7 +38,8 @@ def star():
 def drct():
     s = [0,0,0,0,0,0,0,1,1,2,3,4,5,6,1,2]
     t = [1,2,3,4,5,6,7,2,3,4,5,6,7,7,7,3]
-    return RexGraph.from_graph(s, t)
+    rex = RexGraph.from_graph(s, t)
+    return rex.promote()
 
 
 class TestModuleLoading:
@@ -793,3 +794,86 @@ class TestHypermanifold:
         if B2.shape[1] > 0:
             rank_B2 = np.linalg.matrix_rank(B2, tol=1e-8)
             assert hs['shadow_dim'] == rank_B2
+
+
+# Phase 3: Dynamic RCFE strain
+
+class TestDynamicRCFE:
+    """Verify attributed curvature, face deficit, strain, Bianchi conservation."""
+
+    def test_attributed_curvature_shape(self, k4):
+        ac = k4.attributed_curvature()
+        assert ac['kappa_f'].shape == (k4.nF,)
+        assert ac['R'].shape == (k4.nV, k4.nF)
+
+    def test_attributed_curvature_uniform(self, k4):
+        """Uniform weights and amplitudes give non-negative curvature."""
+        ac = k4.attributed_curvature()
+        assert np.all(ac['kappa_f'] >= -1e-10)
+
+    def test_face_deficit(self):
+        from rexgraph.core import _rcfe
+        kappa = np.array([0.5, 0.3, 0.2], dtype=np.float64)
+        born = np.array([0.4, 0.3, 0.3], dtype=np.float64)
+        delta = _rcfe.face_deficit(kappa, 1.0, born, 3)
+        assert np.allclose(delta, kappa - born)
+
+    def test_relational_strain_shape(self, k4):
+        from rexgraph.core import _rcfe
+        delta = np.ones(k4.nF, dtype=np.float64)
+        sigma = _rcfe.relational_strain_dynamic(k4.B2_hodge, delta, k4.nE, k4.nF)
+        assert sigma.shape == (k4.nE,)
+
+    def test_bianchi_conservation(self, k4):
+        """B1 @ sigma = 0 must hold for any delta because sigma = B2 @ delta."""
+        from rexgraph.core import _rcfe
+        delta = np.random.randn(k4.nF)
+        sigma = _rcfe.relational_strain_dynamic(
+            np.asarray(k4.B2_hodge, dtype=np.float64), delta, k4.nE, k4.nF)
+        ok, res = _rcfe.verify_bianchi_strain(
+            np.asarray(k4.B1, dtype=np.float64), sigma, k4.nV, k4.nE)
+        assert ok, f"Bianchi violated: residual = {res}"
+
+    def test_bianchi_random_delta(self, drct):
+        """Bianchi holds on a larger graph with random deficit."""
+        from rexgraph.core import _rcfe
+        nF = drct.nF
+        if nF == 0:
+            pytest.skip("No faces")
+        delta = np.random.randn(nF)
+        sigma = _rcfe.relational_strain_dynamic(
+            np.asarray(drct.B2_hodge, dtype=np.float64), delta, drct.nE, nF)
+        ok, res = _rcfe.verify_bianchi_strain(
+            np.asarray(drct.B1, dtype=np.float64), sigma, drct.nV, drct.nE)
+        assert ok, f"Bianchi violated: residual = {res}"
+
+    def test_optimal_alpha(self, k4):
+        from rexgraph.core import _rcfe
+        kappa = np.ones(k4.nF, dtype=np.float64)
+        born = np.ones(k4.nF, dtype=np.float64) * 0.25
+        alpha = _rcfe.optimal_alpha(
+            np.asarray(k4.B2_hodge, dtype=np.float64),
+            kappa, born, k4.nE, k4.nF)
+        assert np.isfinite(alpha)
+        assert alpha > 0
+
+    def test_strain_equilibrium(self, k4):
+        r = k4.strain_equilibrium()
+        assert 'alpha' in r
+        assert 'sigma' in r
+        assert r['bianchi_ok']
+        assert r['sigma'].shape == (k4.nE,)
+        assert np.isfinite(r['strain_norm'])
+
+    def test_strain_equilibrium_with_born(self, k4):
+        """Explicit Born face probabilities."""
+        born = np.ones(k4.nF, dtype=np.float64) / k4.nF
+        r = k4.strain_equilibrium(born_face=born)
+        assert r['bianchi_ok']
+
+    def test_no_faces(self, tree):
+        """Trees have no faces; strain equilibrium should return zeros."""
+        r = tree.strain_equilibrium()
+        assert r['alpha'] == 0.0
+        assert r['strain_norm'] == 0.0
+        assert r['bianchi_ok']

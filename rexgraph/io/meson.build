@@ -7,6 +7,7 @@ py.install_sources(
         'arrow_bridge.py',
         'bundle.py',
         'csv_loader.py',
+        'json_loader.py',
         'hdf5_format.py',
         'parquet_bridge.py',
         'sql_bridge.py',

@@ -296,3 +296,198 @@ def edge_weight_conjugation(np.ndarray[f64, ndim=2] L,
             lwv[i, j] = sv[i] * lv[i, j] * sv[j]
 
     return Lw
+
+
+# ═══ Phase 3: Dynamic RCFE strain (Sections 3, 5) ═══
+
+def attributed_curvature(np.ndarray[f64, ndim=2] B1,
+                          np.ndarray[f64, ndim=2] B2,
+                          np.ndarray[f64, ndim=1] w_e,
+                          np.ndarray[f64, ndim=1] a_v,
+                          Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF):
+    """Attributed boundary curvature (Def 3.1-3.2).
+
+    Build attributed boundary operators:
+        B1^w[v,e] = a_v * B1[v,e] * sqrt(w_e)
+        B2^w[e,f] = sqrt(w_e) * B2[e,f]
+
+    Then curvature residual R = B1^w @ B2^w, and
+        kappa_f = ||R[:,f]||_2
+
+    Parameters
+    ----------
+    B1 : f64[nV, nE]
+    B2 : f64[nE, nF]
+    w_e : f64[nE] - edge weights (> 0)
+    a_v : f64[nV] - vertex amplitudes (>= 0)
+    nV, nE, nF : dimensions
+
+    Returns
+    -------
+    dict with kappa_f, R, B1w, B2w
+    """
+    if nF == 0:
+        return {
+            'kappa_f': np.zeros(0, dtype=np.float64),
+            'R': np.zeros((nV, 0), dtype=np.float64),
+            'B1w': np.zeros((nV, nE), dtype=np.float64),
+            'B2w': np.zeros((nE, 0), dtype=np.float64),
+        }
+
+    cdef np.ndarray[f64, ndim=1] sqw = np.sqrt(np.maximum(w_e, 0))
+    cdef np.ndarray[f64, ndim=2] B1w = np.empty((nV, nE), dtype=np.float64)
+    cdef np.ndarray[f64, ndim=2] B2w = np.empty((nE, nF), dtype=np.float64)
+    cdef f64[:, ::1] b1v = B1, b2v = B2, b1wv = B1w, b2wv = B2w
+    cdef f64[::1] sv = sqw, av = a_v
+    cdef int v, e, f
+
+    # B1^w[v,e] = a_v * B1[v,e] * sqrt(w_e)
+    for v in range(nV):
+        for e in range(nE):
+            b1wv[v, e] = av[v] * b1v[v, e] * sv[e]
+
+    # B2^w[e,f] = sqrt(w_e) * B2[e,f]
+    for e in range(nE):
+        for f in range(nF):
+            b2wv[e, f] = sv[e] * b2v[e, f]
+
+    # R = B1^w @ B2^w
+    cdef np.ndarray[f64, ndim=2] R = np.asarray(B1w) @ np.asarray(B2w)
+
+    # kappa_f = ||R[:,f]||_2
+    cdef np.ndarray[f64, ndim=1] kappa_f = np.empty(nF, dtype=np.float64)
+    cdef f64[::1] kv = kappa_f
+    cdef f64 norm_sq
+    for f in range(nF):
+        norm_sq = 0
+        for v in range(nV):
+            norm_sq += R[v, f] * R[v, f]
+        kv[f] = sqrt(norm_sq)
+
+    return {
+        'kappa_f': kappa_f,
+        'R': R,
+        'B1w': B1w,
+        'B2w': B2w,
+    }
+
+
+def face_deficit(np.ndarray[f64, ndim=1] kappa_f,
+                  f64 alpha,
+                  np.ndarray[f64, ndim=1] born_face,
+                  Py_ssize_t nF):
+    """Face deficit: delta_f = kappa_f - alpha * |Psi_f|^2 (Def 5.1).
+
+    Parameters
+    ----------
+    kappa_f : f64[nF] - attributed curvature per face
+    alpha : float - coupling constant
+    born_face : f64[nF] - Born probability per face from Dirac state
+
+    Returns
+    -------
+    delta : f64[nF] - deficit per face
+    """
+    cdef np.ndarray[f64, ndim=1] delta = np.empty(nF, dtype=np.float64)
+    cdef f64[::1] dv = delta, kv = kappa_f, bv = born_face
+    cdef int f
+    for f in range(nF):
+        dv[f] = kv[f] - alpha * bv[f]
+    return delta
+
+
+def relational_strain_dynamic(np.ndarray[f64, ndim=2] B2,
+                                np.ndarray[f64, ndim=1] delta,
+                                Py_ssize_t nE, Py_ssize_t nF):
+    """Relational strain: sigma = B2 @ delta (Def 5.2).
+
+    sigma(e) measures the net face deficit across edge e.
+    B1 @ sigma = 0 by the chain condition (Bianchi conservation).
+
+    Returns f64[nE].
+    """
+    if nF == 0:
+        return np.zeros(nE, dtype=np.float64)
+
+    cdef np.ndarray[f64, ndim=1] sigma = np.zeros(nE, dtype=np.float64)
+    cdef f64[:, ::1] b2v = np.asarray(B2, dtype=np.float64)
+    cdef f64[::1] sv = sigma, dv = delta
+    cdef int e, f
+
+    for e in range(nE):
+        for f in range(nF):
+            sv[e] += b2v[e, f] * dv[f]
+
+    return sigma
+
+
+def optimal_alpha(np.ndarray[f64, ndim=2] B2,
+                   np.ndarray[f64, ndim=1] kappa_f,
+                   np.ndarray[f64, ndim=1] born_face,
+                   Py_ssize_t nE, Py_ssize_t nF):
+    """Optimal coupling: alpha = <B2 kappa, B2 pF> / ||B2 pF||^2 (Def 5.3).
+
+    Minimizes ||sigma||^2 = ||B2 (kappa - alpha pF)||^2.
+
+    Returns alpha (float). Returns 0 if denominator is zero.
+    """
+    if nF == 0:
+        return 0.0
+
+    B2_d = np.asarray(B2, dtype=np.float64)
+    B2_kappa = B2_d @ np.asarray(kappa_f, dtype=np.float64)
+    B2_pF = B2_d @ np.asarray(born_face, dtype=np.float64)
+
+    cdef f64 numer = 0, denom = 0
+    cdef f64[::1] bkv = B2_kappa, bpv = B2_pF
+    cdef int e
+    for e in range(nE):
+        numer += bkv[e] * bpv[e]
+        denom += bpv[e] * bpv[e]
+
+    if denom < 1e-15:
+        return 0.0
+    return float(numer / denom)
+
+
+def verify_bianchi_strain(np.ndarray[f64, ndim=2] B1,
+                           np.ndarray[f64, ndim=1] sigma,
+                           Py_ssize_t nV, Py_ssize_t nE,
+                           f64 tol=1e-10):
+    """Verify Bianchi conservation: B1 @ sigma = 0 (Theorem 6.1).
+
+    Since sigma = B2 @ delta and B1 @ B2 = 0, this must hold exactly.
+
+    Returns (is_valid, max_residual).
+    """
+    B1_d = np.asarray(B1, dtype=np.float64)
+    residual = B1_d @ np.asarray(sigma, dtype=np.float64)
+    cdef f64 max_res = float(np.max(np.abs(residual)))
+    return max_res < tol, max_res
+
+
+def strain_equilibrium(np.ndarray[f64, ndim=2] B1,
+                        np.ndarray[f64, ndim=2] B2,
+                        np.ndarray[f64, ndim=1] kappa_f,
+                        np.ndarray[f64, ndim=1] born_face,
+                        Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF):
+    """Full strain equilibrium analysis.
+
+    Computes optimal alpha, face deficit, relational strain, Bianchi check.
+
+    Returns dict with alpha, delta, sigma, bianchi_ok, bianchi_residual,
+    strain_norm.
+    """
+    alpha_opt = optimal_alpha(B2, kappa_f, born_face, nE, nF)
+    delta = face_deficit(kappa_f, alpha_opt, born_face, nF)
+    sigma = relational_strain_dynamic(B2, delta, nE, nF)
+    bianchi_ok, bianchi_res = verify_bianchi_strain(B1, sigma, nV, nE)
+
+    return {
+        'alpha': float(alpha_opt),
+        'delta': delta,
+        'sigma': sigma,
+        'bianchi_ok': bianchi_ok,
+        'bianchi_residual': float(bianchi_res),
+        'strain_norm': float(np.sqrt(np.dot(sigma, sigma))),
+    }
