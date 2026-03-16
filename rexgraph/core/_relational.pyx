@@ -70,22 +70,153 @@ cdef void _build_RL_3(const f64* L1, const f64* L_O, const f64* L_SG,
         RL[i] = h1[i] + hO[i] + hSG[i]
 
 
+cdef void _build_RL_4(const f64* L1, const f64* L_O, const f64* L_SG,
+                       const f64* L_C,
+                       f64* RL, f64* h1, f64* hO, f64* hSG, f64* hC,
+                       f64* traces, int n) noexcept nogil:
+    cdef int nn = n * n
+    cdef int i
+    memcpy(h1, L1, nn * sizeof(f64))
+    _trace_normalize_inplace(h1, &traces[0], n)
+    memcpy(hO, L_O, nn * sizeof(f64))
+    _trace_normalize_inplace(hO, &traces[1], n)
+    memcpy(hSG, L_SG, nn * sizeof(f64))
+    _trace_normalize_inplace(hSG, &traces[2], n)
+    memcpy(hC, L_C, nn * sizeof(f64))
+    _trace_normalize_inplace(hC, &traces[3], n)
+    for i in range(nn):
+        RL[i] = h1[i] + hO[i] + hSG[i] + hC[i]
+
+
+def build_RL(list laplacians, list names):
+    """Build the relational Laplacian from N typed Laplacians.
+
+    Each Laplacian is trace-normalized. Those with tr < epsilon are
+    skipped. The result is RL = sum of active hats, with
+    tr(RL) = nhats exactly.
+
+    For N=3 and N=4, C-level fast paths avoid Python overhead entirely.
+
+    Parameters
+    ----------
+    laplacians : list of f64[nE, nE]
+    names : list of str, same length
+
+    Returns
+    -------
+    dict with RL, hats, nhats, trace_values, hat_names
+    """
+    cdef int n_input = len(laplacians)
+    if n_input == 0:
+        raise ValueError("build_RL requires at least one Laplacian")
+    cdef int nE = laplacians[0].shape[0]
+
+    # Typed arrays declared at function scope (Cython 3 requirement).
+    # Used by 3-hat and 4-hat fast paths; unused in general path.
+    cdef np.ndarray[f64, ndim=2] _a0, _a1, _a2, _a3
+    cdef np.ndarray[f64, ndim=2] _h0, _h1, _h2, _h3
+    cdef np.ndarray[f64, ndim=2] _RL
+    cdef np.ndarray[f64, ndim=1] _tr
+    cdef np.ndarray[f64, ndim=2] hat_k
+    cdef f64 tr_k
+
+    # Fast path: exactly 3 inputs
+    if n_input == 3:
+        _a0 = np.ascontiguousarray(laplacians[0], dtype=np.float64)
+        _a1 = np.ascontiguousarray(laplacians[1], dtype=np.float64)
+        _a2 = np.ascontiguousarray(laplacians[2], dtype=np.float64)
+        _h0 = np.empty((nE, nE), dtype=np.float64)
+        _h1 = np.empty((nE, nE), dtype=np.float64)
+        _h2 = np.empty((nE, nE), dtype=np.float64)
+        _tr = np.empty(3, dtype=np.float64)
+        _RL = np.empty((nE, nE), dtype=np.float64)
+        _build_RL_3(&_a0[0, 0], &_a1[0, 0], &_a2[0, 0],
+                     &_RL[0, 0], &_h0[0, 0], &_h1[0, 0], &_h2[0, 0],
+                     &_tr[0], nE)
+        all_hats = [_h0, _h1, _h2]
+        active_hats = []
+        active_traces = []
+        active_names = []
+        for k in range(3):
+            if _tr[k] > 1e-15:
+                active_hats.append(all_hats[k])
+                active_traces.append(float(_tr[k]))
+                active_names.append(names[k])
+        if len(active_hats) < 3:
+            _RL = np.zeros((nE, nE), dtype=np.float64)
+            for h in active_hats:
+                _RL += h
+        return {
+            'RL': _RL, 'hats': active_hats,
+            'nhats': len(active_hats),
+            'trace_values': np.array(active_traces, dtype=np.float64),
+            'hat_names': active_names,
+        }
+
+    # Fast path: exactly 4 inputs
+    if n_input == 4:
+        _a0 = np.ascontiguousarray(laplacians[0], dtype=np.float64)
+        _a1 = np.ascontiguousarray(laplacians[1], dtype=np.float64)
+        _a2 = np.ascontiguousarray(laplacians[2], dtype=np.float64)
+        _a3 = np.ascontiguousarray(laplacians[3], dtype=np.float64)
+        _h0 = np.empty((nE, nE), dtype=np.float64)
+        _h1 = np.empty((nE, nE), dtype=np.float64)
+        _h2 = np.empty((nE, nE), dtype=np.float64)
+        _h3 = np.empty((nE, nE), dtype=np.float64)
+        _tr = np.empty(4, dtype=np.float64)
+        _RL = np.empty((nE, nE), dtype=np.float64)
+        _build_RL_4(&_a0[0, 0], &_a1[0, 0], &_a2[0, 0], &_a3[0, 0],
+                     &_RL[0, 0], &_h0[0, 0], &_h1[0, 0], &_h2[0, 0],
+                     &_h3[0, 0], &_tr[0], nE)
+        all_hats = [_h0, _h1, _h2, _h3]
+        active_hats = []
+        active_traces = []
+        active_names = []
+        for k in range(4):
+            if _tr[k] > 1e-15:
+                active_hats.append(all_hats[k])
+                active_traces.append(float(_tr[k]))
+                active_names.append(names[k])
+        if len(active_hats) < 4:
+            _RL = np.zeros((nE, nE), dtype=np.float64)
+            for h in active_hats:
+                _RL += h
+        return {
+            'RL': _RL, 'hats': active_hats,
+            'nhats': len(active_hats),
+            'trace_values': np.array(active_traces, dtype=np.float64),
+            'hat_names': active_names,
+        }
+
+    # General path: N inputs (N != 3, N != 4)
+    _RL = np.zeros((nE, nE), dtype=np.float64)
+    active_hats = []
+    active_traces = []
+    active_names = []
+
+    for k in range(n_input):
+        hat_k = np.ascontiguousarray(laplacians[k], dtype=np.float64).copy()
+        tr_k = 0
+        _trace_normalize_inplace(&hat_k[0, 0], &tr_k, nE)
+        if tr_k > 1e-15:
+            active_hats.append(hat_k)
+            active_traces.append(float(tr_k))
+            active_names.append(names[k])
+            _RL += hat_k
+
+    return {
+        'RL': _RL, 'hats': active_hats,
+        'nhats': len(active_hats),
+        'trace_values': np.array(active_traces, dtype=np.float64),
+        'hat_names': active_names,
+    }
+
+
 def build_RL_from_laplacians(np.ndarray[f64, ndim=2] L1,
                                np.ndarray[f64, ndim=2] L_O,
                                np.ndarray[f64, ndim=2] L_SG):
-    cdef int nE = L1.shape[0]
-    cdef np.ndarray[f64, ndim=2] RL = np.empty((nE, nE), dtype=np.float64)
-    cdef np.ndarray[f64, ndim=2] h1 = np.empty((nE, nE), dtype=np.float64)
-    cdef np.ndarray[f64, ndim=2] hO = np.empty((nE, nE), dtype=np.float64)
-    cdef np.ndarray[f64, ndim=2] hSG = np.empty((nE, nE), dtype=np.float64)
-    cdef np.ndarray[f64, ndim=1] traces = np.empty(3, dtype=np.float64)
-    _build_RL_3(&L1[0, 0], &L_O[0, 0], &L_SG[0, 0],
-                &RL[0, 0], &h1[0, 0], &hO[0, 0], &hSG[0, 0],
-                &traces[0], nE)
-    return {
-        'RL': RL, 'hats': [h1, hO, hSG], 'nhats': 3,
-        'trace_values': traces, 'hat_names': ['L1_down', 'L_O', 'L_SG'],
-    }
+    """Build RL3 from the three standard Laplacians. Alias for build_RL."""
+    return build_RL([L1, L_O, L_SG], ['L1_down', 'L_O', 'L_SG'])
 
 
 def rl_eigen(np.ndarray[f64, ndim=2] RL):
