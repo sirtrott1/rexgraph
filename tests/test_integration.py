@@ -41,6 +41,15 @@ def drct():
     rex = RexGraph.from_graph(s, t)
     return rex.promote()
 
+@pytest.fixture
+def k4_partial():
+    """K4 with only 3 of 4 triangles filled — creates 1 void."""
+    return RexGraph.from_simplicial(
+        sources=np.array([0, 0, 0, 1, 1, 2], dtype=np.int32),
+        targets=np.array([1, 2, 3, 2, 3, 3], dtype=np.int32),
+        triangles=np.array([[0,1,2],[0,1,3],[0,2,3]], dtype=np.int32),
+    )
+
 
 class TestModuleLoading:
     def test_all_modules_load(self):
@@ -877,3 +886,95 @@ class TestDynamicRCFE:
         assert r['alpha'] == 0.0
         assert r['strain_norm'] == 0.0
         assert r['bianchi_ok']
+
+class TestVoidSpectral:
+    """Void spectral theory: Prop 18.3 and 18.8."""
+
+    def test_void_exists(self, k4_partial):
+        """K4 with 3/4 faces should have at least 1 void."""
+        vc = k4_partial.void_complex
+        assert vc['n_voids'] >= 1
+
+    def test_void_boundary_in_kernel(self, k4_partial):
+        """B1 @ Bvoid = 0 (void boundaries are cycles)."""
+        vc = k4_partial.void_complex
+        Bvoid = vc.get('Bvoid')
+        if Bvoid is None or Bvoid.shape[1] == 0:
+            pytest.skip("No void boundary matrix")
+        residual = k4_partial.B1 @ Bvoid
+        assert np.max(np.abs(residual)) < 1e-10
+
+    def test_void_harmonic_content(self, k4_partial):
+        """Void fills harmonic cycles (eta >= 0)."""
+        vc = k4_partial.void_complex
+        eta = vc.get('eta')
+        if eta is not None and len(eta) > 0:
+            assert np.all(np.array(eta) >= -1e-10)
+            assert np.all(np.array(eta) <= 1.0 + 1e-10)
+
+    def test_full_k4_no_voids(self, k4):
+        """Fully filled K4 should have 0 voids."""
+        vc = k4.void_complex
+        assert vc['n_voids'] == 0
+
+
+class TestImputationEnergy:
+    """Signal imputation should minimize RL energy."""
+
+    def test_imputed_lower_energy(self, k4):
+        """Imputed signal has lower RL energy than random fill."""
+        observed = np.array([1.0, 0.5, -0.3, 0.0, 0.0, 0.0], dtype=np.float64)
+        mask = np.array([1, 1, 1, 0, 0, 0], dtype=np.uint8)
+        result = k4.impute(observed, mask)
+        imputed = result['imputed']
+
+        # Energy of imputed signal
+        energy_imputed = float(imputed @ k4.RL @ imputed)
+
+        # Energy of random fill
+        random_fill = observed.copy()
+        random_fill[3:] = np.random.RandomState(42).randn(3)
+        energy_random = float(random_fill @ k4.RL @ random_fill)
+
+        # Imputed should be lower or equal (it's the harmonic interpolant)
+        assert energy_imputed <= energy_random + 1e-6
+
+
+class TestSequentialRemoval:
+    """Removing edges tracks topology correctly."""
+
+    def test_removal_increases_components(self, triangle):
+        """Removing a bridge edge from a tree increases beta_0."""
+        tree = RexGraph.from_graph([0, 1, 2], [1, 2, 3])
+        assert tree.betti[0] == 1
+        # Remove middle edge -> disconnects
+        reduced = tree.delete_edges(np.array([0, 1, 0], dtype=np.int32))
+        assert reduced.betti[0] >= 2
+
+    def test_removal_preserves_chain(self, k4):
+        """Subgraph of K4 still satisfies chain condition."""
+        mask = np.array([1, 1, 1, 1, 0, 0], dtype=np.uint8)
+        sub, _, _ = k4.subgraph(mask)
+        if sub.nF > 0:
+            assert sub.chain_valid
+
+
+class TestFrustrationByType:
+    """Frustration rate varies by edge type."""
+
+    def test_signed_edges_affect_frustration(self):
+        """Edges with negative signs produce nonzero L_SG."""
+        rex = RexGraph(
+            sources=np.array([0, 1, 0], dtype=np.int32),
+            targets=np.array([1, 2, 2], dtype=np.int32),
+            signs=np.array([1.0, -1.0, 1.0]),
+        )
+        L_SG = rex.L_frustration
+        # With mixed signs, L_SG should differ from the unsigned case
+        rex_unsigned = RexGraph(
+            sources=np.array([0, 1, 0], dtype=np.int32),
+            targets=np.array([1, 2, 2], dtype=np.int32),
+        )
+        L_SG_unsigned = rex_unsigned.L_frustration
+        # They should NOT be identical (frustration from sign mismatch)
+        assert not np.allclose(L_SG, L_SG_unsigned)
