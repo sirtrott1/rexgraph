@@ -150,7 +150,7 @@ class TestHodge:
 
 class TestRelationalLaplacian:
     def test_rl_trace(self, k4):
-        assert abs(k4.RL.trace() - 3.0) < 1e-10
+        assert abs(k4.RL.trace() - float(k4.nhats)) < 1e-10
 
     def test_rl_symmetric(self, k4):
         assert np.allclose(k4.RL, k4.RL.T, atol=1e-12)
@@ -166,12 +166,14 @@ class TestRelationalLaplacian:
 class TestCharacter:
     def test_chi_simplex(self, k4):
         chi = k4.structural_character
+        assert chi.shape == (6, k4.nhats)
         for e in range(6):
             assert abs(chi[e].sum() - 1.0) < 1e-10
 
     def test_k4_uniform(self, k4):
         chi = k4.structural_character
-        assert np.allclose(chi, 1.0/3, atol=1e-10)
+        expected = 1.0 / k4.nhats
+        assert np.allclose(chi, expected, atol=1e-10)
 
     def test_phi_simplex(self, k4):
         for v in range(4):
@@ -204,7 +206,6 @@ class TestRCFE:
     def test_strain(self, k4):
         strain = k4.rcfe_strain
         assert strain >= -1e-10
-
 
 
 class TestLayout:
@@ -281,7 +282,6 @@ class TestField:
         ev, evec, fr = k4.field_eigen
         from rexgraph.core import _field
         m = _field.classify_modes(ev, evec, k4.nE, int(k4.nF_hodge))
-        # Returns a tuple; check first element has right length
         assert len(m[0]) == k4.nE + k4.nF_hodge
 
     def test_diffusion(self, k4):
@@ -363,19 +363,14 @@ class TestQuery:
         assert 'kappa' in k4.explain(dim=0, idx=0)
 
     def test_explain_edge(self, k4):
-        try:
-            r = k4.explain(dim=1, idx=0)
-            assert 'chi' in r
-        except ImportError:
-            pytest.skip("extract_diag not exported from _character")
+        r = k4.explain(dim=1, idx=0)
+        assert 'below' in r
+        assert 'chi' in r
 
     def test_propagate(self, k4):
         src = np.zeros(6); src[0] = 1.0
         tgt = np.zeros(6); tgt[5] = 1.0
-        try:
-            assert 'score' in k4.propagate(src, tgt)
-        except TypeError:
-            pytest.skip("rl_pinv_matvec arg mismatch")
+        assert 'score' in k4.propagate(src, tgt)
 
 
 class TestPersistence:
@@ -482,7 +477,7 @@ class TestFullPipeline:
     def test_drct(self, drct):
         assert drct.betti[0] == 1
         assert drct.layout.shape == (8, 2)
-        assert abs(drct.RL.trace() - 3.0) < 1e-10
+        assert abs(drct.RL.trace() - float(drct.nhats)) < 1e-10
         for e in range(16):
             assert abs(drct.structural_character[e].sum() - 1.0) < 1e-10
         assert np.all(drct.coherence >= -1e-10)
@@ -491,3 +486,174 @@ class TestFullPipeline:
         assert abs(h['pct_grad'] + h['pct_curl'] + h['pct_harm'] - 1.0) < 1e-6
         Ek, Ep, _ = drct.energy_kin_pot(np.ones(16))
         assert Ek >= 0 and Ep >= 0
+
+
+# RL4, coPC, and generic build_RL
+
+class TestRL4:
+    """Verify RL construction with dynamic hat count and coPC."""
+
+    def test_nhats_property(self, k4):
+        """nhats should be an integer >= 3."""
+        assert isinstance(k4.nhats, int)
+        assert k4.nhats >= 3
+
+    def test_trace_equals_nhats(self, k4):
+        """tr(RL) must equal nhats exactly."""
+        assert abs(k4.RL.trace() - float(k4.nhats)) < 1e-10
+
+    def test_trace_equals_nhats_drct(self, drct):
+        """tr(RL) = nhats on a larger graph too."""
+        assert abs(drct.RL.trace() - float(drct.nhats)) < 1e-10
+
+    def test_chi_shape_matches_nhats(self, k4):
+        """chi should have nhats columns, not hardcoded 3."""
+        assert k4.structural_character.shape == (k4.nE, k4.nhats)
+
+    def test_phi_shape_matches_nhats(self, k4):
+        """phi should have nhats columns."""
+        assert k4.vertex_character.shape == (k4.nV, k4.nhats)
+
+    def test_chi_on_simplex(self, drct):
+        """chi must sum to 1 per edge regardless of nhats."""
+        chi = drct.structural_character
+        for e in range(drct.nE):
+            assert abs(chi[e].sum() - 1.0) < 1e-10
+            assert np.all(chi[e] >= -1e-10)
+
+    def test_phi_on_simplex(self, drct):
+        """phi must sum to 1 per vertex regardless of nhats."""
+        phi = drct.vertex_character
+        for v in range(drct.nV):
+            assert abs(phi[v].sum() - 1.0) < 1e-8
+
+    def test_build_RL_generic(self):
+        """build_RL with a list of Laplacians produces correct trace."""
+        from rexgraph.core import _relational
+        nE = 5
+        L1 = np.eye(nE, dtype=np.float64) * 2.0
+        L2 = np.eye(nE, dtype=np.float64) * 3.0
+        L3 = np.eye(nE, dtype=np.float64) * 5.0
+        r = _relational.build_RL([L1, L2, L3], ['A', 'B', 'C'])
+        assert r['nhats'] == 3
+        assert abs(np.trace(r['RL']) - 3.0) < 1e-10
+        assert r['hat_names'] == ['A', 'B', 'C']
+
+    def test_build_RL_four_hats(self):
+        """build_RL with 4 Laplacians produces tr = 4."""
+        from rexgraph.core import _relational
+        nE = 5
+        Ls = [np.eye(nE, dtype=np.float64) * (k + 1) for k in range(4)]
+        names = ['L1', 'L_O', 'L_SG', 'L_C']
+        r = _relational.build_RL(Ls, names)
+        assert r['nhats'] == 4
+        assert abs(np.trace(r['RL']) - 4.0) < 1e-10
+
+    def test_build_RL_skips_zero_trace(self):
+        """build_RL skips Laplacians with zero trace."""
+        from rexgraph.core import _relational
+        nE = 5
+        L1 = np.eye(nE, dtype=np.float64)
+        L_zero = np.zeros((nE, nE), dtype=np.float64)
+        r = _relational.build_RL([L1, L_zero], ['A', 'B'])
+        assert r['nhats'] == 1
+        assert abs(np.trace(r['RL']) - 1.0) < 1e-10
+        assert r['hat_names'] == ['A']
+
+    def test_build_RL_backward_compat(self):
+        """build_RL_from_laplacians still works as alias."""
+        from rexgraph.core import _relational
+        nE = 4
+        L1 = np.eye(nE, dtype=np.float64)
+        L_O = np.eye(nE, dtype=np.float64) * 2
+        L_SG = np.eye(nE, dtype=np.float64) * 3
+        r = _relational.build_RL_from_laplacians(L1, L_O, L_SG)
+        assert r['nhats'] == 3
+        assert abs(np.trace(r['RL']) - 3.0) < 1e-10
+
+    def test_L_coPC_property(self, drct):
+        """L_coPC should be either None or a valid (nE, nE) matrix."""
+        L_C = drct.L_coPC
+        if L_C is not None:
+            assert L_C.shape == (drct.nE, drct.nE)
+            assert np.allclose(L_C, L_C.T, atol=1e-12)
+            assert np.all(np.linalg.eigvalsh(L_C) >= -1e-10)
+
+    def test_hat_names_in_bundle(self, drct):
+        """hat_names should list the active Laplacians."""
+        rcf = drct._rcf_bundle
+        assert 'hat_names' in rcf
+        assert 'L1_down' in rcf['hat_names']
+        assert len(rcf['hat_names']) == rcf['nhats']
+
+
+# Correlational coherence (phi_similarity, fiber_similarity)
+
+class TestCorrelationalCoherence:
+    """Verify cross-dimensional and fiber bundle similarity."""
+
+    def test_phi_similarity_shape(self, k4):
+        S = k4.phi_similarity
+        assert S.shape == (k4.nV, k4.nV)
+
+    def test_phi_similarity_diagonal(self, k4):
+        """Self-similarity must be 1.0."""
+        S = k4.phi_similarity
+        for v in range(k4.nV):
+            assert abs(S[v, v] - 1.0) < 1e-10
+
+    def test_phi_similarity_range(self, k4):
+        """All values in [0, 1]."""
+        S = k4.phi_similarity
+        assert np.all(S >= -1e-10) and np.all(S <= 1.0 + 1e-10)
+
+    def test_phi_similarity_symmetric(self, k4):
+        S = k4.phi_similarity
+        assert np.allclose(S, S.T, atol=1e-12)
+
+    def test_k4_uniform_similarity(self, k4):
+        """K4 is symmetric; phi similarity should be high for all pairs."""
+        S = k4.phi_similarity
+        assert np.all(S >= 0.5 - 1e-10)
+
+    def test_fiber_similarity_shape(self, drct):
+        S = drct.fiber_similarity
+        assert S.shape == (drct.nV, drct.nV)
+
+    def test_fiber_similarity_range(self, drct):
+        S = drct.fiber_similarity
+        assert np.all(S >= -1e-10) and np.all(S <= 1.0 + 1e-10)
+
+    def test_fiber_similarity_symmetric(self, drct):
+        S = drct.fiber_similarity
+        assert np.allclose(S, S.T, atol=1e-12)
+
+
+# extract_diag bug fix verification
+
+class TestExtractDiagFix:
+    """Verify that modules which previously used extract_diag now work."""
+
+    def test_rcfe_coupling_tensor(self, k4):
+        """coupling_tensor in _rcfe should not crash."""
+        from rexgraph.core import _rcfe
+        rcf = k4._rcf_bundle
+        tensor = _rcfe.coupling_tensor(
+            k4.B2, rcf['RL'], rcf['hats'], rcf['nhats'],
+            k4.nE, k4.nF)
+        assert tensor.shape == (k4.nF, rcf['nhats'])
+        assert np.all(np.isfinite(tensor))
+
+    def test_query_explain_edge(self, k4):
+        """explain_edge in _query should not crash."""
+        r = k4.explain(dim=1, idx=0)
+        assert 'chi' in r
+        assert len(r['chi']) == k4.nhats
+
+    def test_query_propagate(self, k4):
+        """spectral_propagate should not crash."""
+        src = np.zeros(6); src[0] = 1.0
+        tgt = np.zeros(6); tgt[5] = 1.0
+        r = k4.propagate(src, tgt)
+        assert 'score' in r
+        assert np.isfinite(r['score'])

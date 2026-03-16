@@ -919,15 +919,40 @@ class RexGraph:
             self._nV, self._nE, src, tgt, signs=self._edge_signs)
 
     @cached_property
+    def L_coPC(self) -> Optional[NDArray]:
+        """Copath complex Laplacian L_C (line-graph Hodge).
+
+        None if the line graph has no edges (e.g. star graphs).
+        """
+        if not _HAS_RCF:
+            return None
+        K1 = self.spectral_bundle.get('K1')
+        if K1 is None:
+            return None
+        lg = _relational.build_line_graph(
+            np.asarray(K1, dtype=_f64), self._nE)
+        if lg['nE_L'] == 0:
+            return None
+        return _relational.build_L_coPC(lg)
+
+    @cached_property
     def _rcf_bundle(self) -> dict:
         """Relational Laplacian, hat operators, structural character.
+
+        Assembles RL from all available typed Laplacians.
+        Uses 3 hats (RL3) when L_coPC is unavailable, 4 hats (RL4) otherwise.
 
         Keys: RL, hats, nhats, trace_values, hat_names, chi
         """
         if not _HAS_RCF:
             return {}
-        result = _relational.build_RL_from_laplacians(
-            self.L1, self.L_overlap, self.L_frustration)
+        laplacians = [self.L1, self.L_overlap, self.L_frustration]
+        names = ['L1_down', 'L_O', 'L_SG']
+        L_C = self.L_coPC
+        if L_C is not None:
+            laplacians.append(L_C)
+            names.append('L_C')
+        result = _relational.build_RL(laplacians, names)
         chi = _character.compute_chi(
             result['RL'], result['hats'], result['nhats'], self._nE)
         result['chi'] = chi
@@ -935,12 +960,18 @@ class RexGraph:
 
     @cached_property
     def RL(self) -> NDArray:
-        """Relational Laplacian RL = hat(L1) + hat(L_O) + hat(L_SG).
+        """Relational Laplacian RL = sum of trace-normalized typed Laplacians.
 
-        Trace-normalized sum. tr(RL) = nhats exactly.
+        tr(RL) = nhats. When L_coPC is available, nhats = 4 (RL4).
+        Otherwise nhats = 3 (RL3).
         """
         rcf = self._rcf_bundle
         return rcf.get('RL', np.zeros((self._nE, self._nE), dtype=_f64))
+
+    @cached_property
+    def nhats(self) -> int:
+        """Number of active hat operators in the relational Laplacian."""
+        return self._rcf_bundle.get('nhats', 3)
 
     @cached_property
     def _rl_eigen(self) -> Tuple[NDArray, NDArray]:
@@ -981,25 +1012,51 @@ class RexGraph:
     def structural_character(self) -> NDArray:
         """chi(sigma) in Delta^{nhats-1} per edge. Shape (nE, nhats)."""
         return self._rcf_bundle.get('chi',
-                                     np.zeros((self._nE, 3), dtype=_f64))
+                                     np.zeros((self._nE, self.nhats), dtype=_f64))
 
     @cached_property
     def vertex_character(self) -> NDArray:
         """phi(v) in Delta^{nhats-1} per vertex. Shape (nV, nhats)."""
         return self._vertex_bundle.get('phi',
-                                        np.zeros((self._nV, 3), dtype=_f64))
+                                        np.zeros((self._nV, self.nhats), dtype=_f64))
 
     @cached_property
     def star_character(self) -> NDArray:
         """chi*(v) = mean of chi(e) over incident edges. Shape (nV, nhats)."""
         return self._vertex_bundle.get('chi_star',
-                                        np.zeros((self._nV, 3), dtype=_f64))
+                                        np.zeros((self._nV, self.nhats), dtype=_f64))
 
     @cached_property
     def coherence(self) -> NDArray:
         """kappa(v) = 1 - 0.5 * ||phi(v) - chi*(v)||_1. Shape (nV,)."""
         return self._vertex_bundle.get('kappa',
                                         np.zeros(self._nV, dtype=_f64))
+
+    @cached_property
+    def phi_similarity(self) -> NDArray:
+        """Vertex character similarity S_phi[i,j] = 1 - 0.5*||phi_i - phi_j||_1.
+
+        Shape (nV, nV), values in [0, 1]. Measures cross-dimensional
+        coherence between vertex pairs.
+        """
+        if not _HAS_RCF:
+            return np.eye(self._nV, dtype=_f64)
+        return _fiber.phi_similarity_matrix(
+            self.vertex_character, self._nV, self.nhats)
+
+    @cached_property
+    def fiber_similarity(self) -> NDArray:
+        """Fiber bundle similarity S_fb[i,j] between vertices.
+
+        S_fb[i,j] = max(cos(chi*_i, chi*_j), 0) * phi_sim(i,j).
+        Shape (nV, nV), values in [0, 1]. Combines star character
+        alignment (fiber cosine) with vertex character agreement.
+        """
+        if not _HAS_RCF:
+            return np.eye(self._nV, dtype=_f64)
+        return _fiber.sfb_similarity_matrix(
+            self.star_character, self.vertex_character,
+            self._nV, self.nhats)
 
     @cached_property
     def void_complex(self) -> dict:
@@ -1122,7 +1179,7 @@ class RexGraph:
         return _character.structural_summary(
             self.structural_character, self.vertex_character,
             self.coherence, self._nE, self._nV,
-            self._rcf_bundle.get('nhats', 3),
+            self.nhats,
         )
 
     # Layout

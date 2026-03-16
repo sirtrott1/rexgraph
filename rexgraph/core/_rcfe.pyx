@@ -200,15 +200,14 @@ def coupling_tensor(B2, RL, hats, Py_ssize_t nhats,
 
     tensor[f, k] = sum_{e in boundary(f)} hat_k[e,e] / RL[e,e].
     """
-    from rexgraph.core._character import extract_diag
 
     if nF == 0:
         return np.zeros((0, nhats), dtype=np.float64)
 
     B2_d = np.asarray(B2, dtype=np.float64)
 
-    rl_diag = extract_diag(RL)
-    hat_diags = [extract_diag(hats[k]) for k in range(nhats)]
+    rl_diag = np.diag(np.asarray(RL, dtype=np.float64))
+    hat_diags = [np.diag(np.asarray(hats[k], dtype=np.float64)) for k in range(nhats)]
 
     tensor = np.zeros((nF, nhats), dtype=np.float64)
 
@@ -221,7 +220,7 @@ def coupling_tensor(B2, RL, hats, Py_ssize_t nhats,
     return tensor
 
 
-# ═══ Derived RCFE quantities ═══
+# Derived RCFE quantities
 
 def relational_integrity(np.ndarray[f64, ndim=1] curvature,
                           np.ndarray[f64, ndim=1] rl_diag,
