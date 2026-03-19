@@ -1,4 +1,4 @@
-# rexgraph/core/ — Module Documentation
+# rexgraph/core/
 
 
 
