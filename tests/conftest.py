@@ -1,6 +1,9 @@
-"""Shared test fixtures for rexgraph."""
+"""Shared test fixtures and configuration for rexgraph."""
 import pytest
 import numpy as np
+
+collect_ignore_glob = ["**/*.pyx"]
+
 
 @pytest.fixture
 def small_graph():

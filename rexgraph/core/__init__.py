@@ -52,6 +52,9 @@ _MODULES = [
     '_query',
     '_fiber',
     '_signal',
+    '_interfacing',
+    '_channels',
+    '_cross_complex',
 ]
 
 _loaded = []

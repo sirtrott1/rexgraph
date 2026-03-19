@@ -277,3 +277,180 @@ def sfb_similarity_matrix(np.ndarray[f64, ndim=2] fchi,
             sv[j, i] = sv[i, j]
 
     return sfb
+
+
+# Linkage complex from S_fb
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
+                          f64 threshold,
+                          Py_ssize_t n_entities):
+    """Build a relational complex from pairwise fiber bundle similarity.
+
+    1. Threshold S_fb to produce edges (1-skeleton).
+    2. Enumerate all triangles via adjacency intersection.
+    3. Build B1 and B2 from the triangle set.
+    4. Compute Betti numbers.
+
+    Edges connect entities with S_fb above threshold. Faces represent
+    three-way coherence: triples where all pairwise similarities
+    exceed the threshold simultaneously.
+
+    Parameters
+    ----------
+    sfb_matrix : f64[n_entities, n_entities]
+        Fiber bundle similarity matrix. S_fb[i,j] in [0, 1].
+    threshold : float
+        Minimum S_fb value for an edge. Typical range 0.7-0.95.
+    n_entities : int
+        Number of entities (vertices in the linkage complex).
+
+    Returns
+    -------
+    dict
+        src, tgt : i32 arrays, edge endpoints
+        weights : f64 array, S_fb values for each edge
+        n_edges : int
+        nV : int (= n_entities)
+        nF : int
+        B1 : f64[nV, nE] or None
+        B2 : f64[nE, nF] or None
+        beta : (beta_0, beta_1, beta_2)
+        triangles : i32[nF, 3], vertex triples per face
+    """
+    src, tgt, weights, n_edges = threshold_graph(sfb_matrix, n_entities, threshold)
+
+    if n_edges == 0:
+        return {
+            'src': src, 'tgt': tgt, 'weights': weights,
+            'n_edges': 0, 'nV': int(n_entities), 'nF': 0,
+            'B1': None, 'B2': None,
+            'beta': (int(n_entities), 0, 0),
+            'triangles': np.zeros((0, 3), dtype=np.int32),
+        }
+
+    from rexgraph.core._boundary import build_B1, build_B2_from_cycles
+    from rexgraph.core._cycles import build_symmetric_adjacency
+
+    cdef Py_ssize_t nV = n_entities
+    cdef Py_ssize_t nE = n_edges
+
+    B1_dual = build_B1(nV, nE, src, tgt)
+
+    from rexgraph.core._sparse import to_dense_f64
+    B1 = to_dense_f64(B1_dual)
+
+    # Build adjacency for triangle enumeration
+    adj_ptr, adj_idx, adj_edge = build_symmetric_adjacency(nV, nE, src, tgt)
+    cdef i32[::1] ap = adj_ptr, ai = adj_idx, ae = adj_edge
+
+    # Enumerate all triangles via sorted adjacency intersection.
+    # For each u, for each neighbor v > u, intersect N(u) and N(v)
+    # for w > v. Each triangle is found exactly once.
+    tri_list = []        # (e_uv, e_uw, e_vw) per triangle
+    tri_verts = []       # (u, v, w) per triangle
+
+    cdef Py_ssize_t u, v, w
+    cdef Py_ssize_t j_v, lo_v, hi_v, lo_w, hi_w
+    cdef Py_ssize_t p_u, p_w
+    cdef i32 e_uv, e_uw, e_vw
+
+    for u in range(nV):
+        lo_v = ap[u]
+        hi_v = ap[u + 1]
+        for j_v in range(lo_v, hi_v):
+            v = ai[j_v]
+            if v <= u:
+                continue
+            e_uv = ae[j_v]
+
+            lo_w = ap[v]
+            hi_w = ap[v + 1]
+            p_u = lo_v
+            p_w = lo_w
+
+            while p_u < hi_v and ai[p_u] <= v:
+                p_u += 1
+            while p_w < hi_w and ai[p_w] <= v:
+                p_w += 1
+
+            while p_u < hi_v and p_w < hi_w:
+                if ai[p_u] < ai[p_w]:
+                    p_u += 1
+                elif ai[p_u] > ai[p_w]:
+                    p_w += 1
+                else:
+                    w = ai[p_u]
+                    e_uw = ae[p_u]
+                    e_vw = ae[p_w]
+                    tri_list.append((int(e_uv), int(e_uw), int(e_vw)))
+                    tri_verts.append((int(u), int(v), int(w)))
+                    p_u += 1
+                    p_w += 1
+
+    cdef Py_ssize_t nF = len(tri_list)
+
+    if nF == 0:
+        # 1-skeleton only, no faces
+        from rexgraph.core._cycles import cycle_space_dimension
+        beta_1_nf = cycle_space_dimension(nV, nE, src, tgt)
+        beta_0 = beta_1_nf - nE + nV
+        return {
+            'src': src, 'tgt': tgt, 'weights': weights,
+            'n_edges': int(nE), 'nV': int(nV), 'nF': 0,
+            'B1': B1, 'B2': None,
+            'beta': (int(beta_0), int(beta_1_nf), 0),
+            'triangles': np.zeros((0, 3), dtype=np.int32),
+        }
+
+    # Build B2 from triangles: each triangle is a 3-cycle
+    cdef np.ndarray[i32, ndim=1] cycle_edges = np.empty(nF * 3, dtype=np.int32)
+    cdef np.ndarray[f64, ndim=1] cycle_signs = np.empty(nF * 3, dtype=np.float64)
+    cdef np.ndarray[i32, ndim=1] cycle_lengths = np.full(nF, 3, dtype=np.int32)
+    cdef np.ndarray[i32, ndim=2] triangles = np.empty((nF, 3), dtype=np.int32)
+
+    cdef Py_ssize_t fi
+    for fi in range(nF):
+        cycle_edges[fi * 3] = tri_list[fi][0]
+        cycle_edges[fi * 3 + 1] = tri_list[fi][1]
+        cycle_edges[fi * 3 + 2] = tri_list[fi][2]
+        # Standard orientation: d(u,v,w) = (u,v) - (u,w) + (v,w)
+        cycle_signs[fi * 3] = 1.0
+        cycle_signs[fi * 3 + 1] = -1.0
+        cycle_signs[fi * 3 + 2] = 1.0
+        triangles[fi, 0] = tri_verts[fi][0]
+        triangles[fi, 1] = tri_verts[fi][1]
+        triangles[fi, 2] = tri_verts[fi][2]
+
+    B2_dual = build_B2_from_cycles(nE, cycle_edges, cycle_signs, cycle_lengths)
+
+    # Convert DualCSR to dense for return
+    B2 = to_dense_f64(B2_dual)
+
+    # Betti numbers via Euler relation and rank computation.
+    # beta_0 from connected components via union-find.
+    from rexgraph.core._cycles import cycle_space_dimension
+    beta_1_no_faces = cycle_space_dimension(nV, nE, src, tgt)
+    beta_0 = beta_1_no_faces - nE + nV
+
+    # beta_1 = beta_1_no_faces - rank(B2)
+    # beta_2 = nF - rank(B2)
+    cdef int rank_B2 = 0
+    if B2 is not None:
+        sv = np.linalg.svd(B2, compute_uv=False)
+        rank_B2 = int(np.sum(sv > 1e-10))
+
+    cdef int beta_1 = beta_1_no_faces - rank_B2
+    cdef int beta_2 = nF - rank_B2
+    if beta_1 < 0:
+        beta_1 = 0
+
+    return {
+        'src': src, 'tgt': tgt, 'weights': weights,
+        'n_edges': int(nE), 'nV': int(nV), 'nF': int(nF),
+        'B1': B1, 'B2': B2,
+        'beta': (int(beta_0), int(beta_1), int(beta_2)),
+        'triangles': triangles,
+    }

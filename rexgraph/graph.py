@@ -68,6 +68,12 @@ _query = getattr(_core, '_query', None)
 _fiber = getattr(_core, '_fiber', None)
 _dirac = getattr(_core, '_dirac', None)
 _hypermanifold = getattr(_core, '_hypermanifold', None)
+_common = getattr(_core, '_common', None)
+
+# v0.4 modules
+_interfacing = getattr(_core, '_interfacing', None)
+_channels = getattr(_core, '_channels', None)
+_cross_complex = getattr(_core, '_cross_complex', None)
 
 _HAS_RCF = all(m is not None for m in (
     _frustration, _relational, _character, _void, _rcfe, _joins, _query, _fiber,
@@ -734,10 +740,33 @@ class RexGraph:
         Single call producing L0, L1, L2, eigenvalues, eigenvectors,
         Betti numbers, coupling constants, K1, RL, hats, nhats, chi.
 
+        For large graphs where nE exceeds the dense eigen limit, dispatches
+        to build_all_laplacians_sparse which computes Betti via union-find
+        and Fiedler via matrix-free ARPACK. Edge-space operators are None
+        in sparse mode; use subgraph() for edge-level spectral analysis.
+
         Passes L_SG when available. K1 and L_C are computed internally
         by build_all_laplacians so that RL is built once with all
         available hats and zero redundant trace normalization.
         """
+        # Check dense allocation limit from _common configuration
+        _use_dense = True
+        if _common is not None:
+            try:
+                cfg = _common.get_algorithm_config()
+                limit = cfg.get('eigen_dense_limit', 2000)
+                if self._nE > limit:
+                    _use_dense = False
+            except Exception:
+                pass
+
+        if not _use_dense:
+            return _laplacians.build_all_laplacians_sparse(
+                self._B1_dual,
+                self._B2_hodge_dual,
+                self._nV, self._nE, self._nF,
+            )
+
         L_SG = None
         if _HAS_RCF:
             src, tgt = self._ensure_src_tgt()
@@ -757,7 +786,11 @@ class RexGraph:
     @cached_property
     def L0(self) -> NDArray:
         """L_0 = B_1 B_1^T."""
-        return _ensure_dense(self.spectral_bundle['L0'])
+        L0_val = self.spectral_bundle['L0']
+        if L0_val is not None:
+            return _ensure_dense(L0_val)
+        # Sparse mode: build L0 on demand (nV x nV, usually feasible)
+        return _ensure_dense(_laplacians.build_L0(self._B1_dual))
 
     @cached_property
     def L1(self) -> NDArray:
@@ -1023,6 +1056,41 @@ class RexGraph:
                                         np.zeros(self._nV, dtype=_f64))
 
     @cached_property
+    def _hat_eigen_bundle(self) -> list:
+        """Per-hat eigendecompositions. List of (evals, evecs) per hat.
+
+        Computed once via _character.hat_eigen_all and reused by
+        per_channel_mixing_times and primal_signal_character.
+        """
+        if not _HAS_RCF:
+            return []
+        rcf = self._rcf_bundle
+        hats = rcf.get('hats', [])
+        nhats = rcf.get('nhats', 0)
+        if nhats == 0:
+            return []
+        return _character.hat_eigen_all(hats, nhats, self._nE)
+
+    @cached_property
+    def inverse_centrality_ratio(self) -> NDArray:
+        """mu(v) = median(degree) / degree(v) per vertex. Shape (nV,)."""
+        deg = self.degree.astype(_f64)
+        med = float(np.median(deg[deg > 0])) if np.any(deg > 0) else 1.0
+        return np.where(deg > 0, med / deg, 0.0)
+
+    @cached_property
+    def per_channel_mixing_times(self) -> NDArray:
+        """mu_X = ln(nE) / lambda_2(hat_L_X) per channel. Shape (nhats,)."""
+        if not _HAS_RCF:
+            return np.zeros(0, dtype=_f64)
+        hat_eigen = self._hat_eigen_bundle
+        if len(hat_eigen) == 0:
+            return np.zeros(0, dtype=_f64)
+        evals_list = [h[0] for h in hat_eigen]
+        return _character.per_channel_mixing_times_from_evals(
+            evals_list, self.nhats, self._nE)
+
+    @cached_property
     def phi_similarity(self) -> NDArray:
         """Vertex character similarity S_phi[i,j] = 1 - 0.5*||phi_i - phi_j||_1.
 
@@ -1216,6 +1284,294 @@ class RexGraph:
             self.coherence, self._nE, self._nV,
             self.nhats,
         )
+
+    # Interfacing vector
+
+    def interfacing_vector(
+        self,
+        target_indices: NDArray,
+        target_weights: NDArray,
+        target_signal: NDArray,
+        *,
+        vertex_weights: Optional[NDArray] = None,
+    ) -> dict:
+        """Full interfacing vector analysis for a source entity.
+
+        Parameters
+        ----------
+        target_indices : i32 array
+            Vertex indices of source targets.
+        target_weights : f64 array
+            Per-target weights.
+        target_signal : f64[nE]
+            Target/phenotype edge vector.
+        vertex_weights : f64[nV], optional
+            Per-vertex weights. Defaults to IDF: 1 / ln(degree + e).
+
+        Returns
+        -------
+        dict with rho, psi, scores, schrodinger, iv, sphere_pos,
+        signal_magnitude, coverage, efficiency, confidence.
+        """
+        if _interfacing is None:
+            raise RuntimeError("_interfacing module not available.")
+        if vertex_weights is None:
+            deg = self.degree.astype(_f64)
+            vertex_weights = 1.0 / np.log(deg + np.e)
+        sb = self.spectral_bundle
+        evals_rl, evecs_rl = self._rl_eigen
+        return _interfacing.build_interfacing_bundle(
+            _asarray(target_indices, _i32),
+            np.ascontiguousarray(target_weights, dtype=_f64),
+            np.ascontiguousarray(vertex_weights, dtype=_f64),
+            self.B1,
+            sb['evals_L0'],
+            np.ascontiguousarray(sb['evecs_L0'], dtype=_f64),
+            self.L_overlap,
+            self.L_frustration,
+            evals_rl, evecs_rl,
+            np.ascontiguousarray(target_signal, dtype=_f64),
+            self._nV, self._nE,
+        )
+
+    # Primal signal character
+
+    def primal_signal_character(self, psi: NDArray) -> NDArray:
+        """Energy decomposition of an edge signal across typed channels.
+
+        E_X = psi^T hat_X^+ psi per channel, normalized to sum to 1.
+
+        Parameters
+        ----------
+        psi : f64[nE]
+
+        Returns
+        -------
+        f64[nhats]
+        """
+        if _channels is None:
+            raise RuntimeError("_channels module not available.")
+        hat_eigen = self._hat_eigen_bundle
+        if len(hat_eigen) == 0:
+            return np.zeros(self.nhats, dtype=_f64)
+        evals_list = [h[0] for h in hat_eigen]
+        evecs_list = [h[1] for h in hat_eigen]
+        return _channels.primal_signal_character(
+            np.ascontiguousarray(psi, dtype=_f64),
+            evals_list, evecs_list, self.nhats, self._nE,
+        )
+
+    # Spectral channel score
+
+    def spectral_channel_score(self, source: NDArray, target: NDArray) -> float:
+        """Spectral propagation score: source through RL eigenmodes onto target.
+
+        Parameters
+        ----------
+        source : f64[nE]
+        target : f64[nE]
+
+        Returns
+        -------
+        float
+        """
+        if _channels is None:
+            raise RuntimeError("_channels module not available.")
+        evals_rl, evecs_rl = self._rl_eigen
+        return _channels.spectral_channel_score(
+            np.ascontiguousarray(source, dtype=_f64),
+            np.ascontiguousarray(target, dtype=_f64),
+            evals_rl, evecs_rl, self._nE,
+        )
+
+    # Face-void dipole
+
+    def face_void_dipole(self, psi: NDArray) -> dict:
+        """Face-void dipole of an edge signal.
+
+        Projects psi onto the realized face basis (B2) and the void
+        basis (Bvoid), returning face_affinity, void_affinity, and
+        dipole_ratio in [-1, 1].
+
+        Parameters
+        ----------
+        psi : f64[nE]
+
+        Returns
+        -------
+        dict
+        """
+        if not _HAS_RCF:
+            raise RuntimeError("RCF modules not available.")
+        vc = self.void_complex
+        Bvoid = vc.get('Bvoid')
+        return _character.face_void_dipole(
+            np.ascontiguousarray(psi, dtype=_f64),
+            self.B2_hodge,
+            Bvoid,
+            self._nE, self.nF_hodge,
+        )
+
+    # Context face selection
+
+    def context_face_selection(self, context_matrix: NDArray) -> 'RexGraph':
+        """Build a new RexGraph with faces selected by context matrix.
+
+        E = C^T |B1| > 0. Triangle included iff some context covers
+        all three boundary edges.
+
+        Parameters
+        ----------
+        context_matrix : uint8[n_contexts, nV]
+
+        Returns
+        -------
+        RexGraph with selected faces. Also stores per_context_face_count
+        and per_context_void_fraction as attributes.
+        """
+        adj_ptr, adj_idx, adj_edge = self._adjacency_bundle
+        result = _faces.context_face_selection(
+            self.B1,
+            np.ascontiguousarray(context_matrix, dtype=_u8),
+            adj_ptr, adj_idx, adj_edge,
+            self._nV, self._nE,
+        )
+        nF = result['nF']
+        if nF == 0:
+            rex = RexGraph(
+                boundary_ptr=self._boundary_ptr.copy(),
+                boundary_idx=self._boundary_idx.copy(),
+                w_E=self._w_E, directed=self._directed, signs=self._signs,
+            )
+        else:
+            from rexgraph.core._boundary import build_B2_from_cycles
+            B2_dual = build_B2_from_cycles(
+                self._nE, result['cycle_edges'],
+                result['cycle_signs'], result['cycle_lengths'])
+            B2_dense = _sparse.to_dense_f64(B2_dual)
+            from scipy import sparse as sp
+            B2_sp = sp.csc_matrix(B2_dense)
+            rex = RexGraph(
+                boundary_ptr=self._boundary_ptr.copy(),
+                boundary_idx=self._boundary_idx.copy(),
+                B2_col_ptr=np.asarray(B2_sp.indptr, dtype=_i32),
+                B2_row_idx=np.asarray(B2_sp.indices, dtype=_i32),
+                B2_vals=np.asarray(B2_sp.data, dtype=_f64),
+                w_E=self._w_E, directed=self._directed, signs=self._signs,
+            )
+        rex._context_face_result = result
+        return rex
+
+    # Typed face selection
+
+    def typed_face_selection(self, edge_type_labels: NDArray) -> 'RexGraph':
+        """Build a new RexGraph with faces from same-type triangles.
+
+        A triangle is a face iff all three boundary edges share the
+        same type label. Cross-type triangles become voids.
+
+        Parameters
+        ----------
+        edge_type_labels : i32[nE]
+
+        Returns
+        -------
+        RexGraph with realized faces. Also stores typed_face_result
+        with void data as an attribute.
+        """
+        adj_ptr, adj_idx, adj_edge = self._adjacency_bundle
+        n_types = int(np.max(edge_type_labels)) + 1
+        result = _faces.typed_face_selection(
+            _asarray(edge_type_labels, _i32),
+            adj_ptr, adj_idx, adj_edge,
+            self._nV, self._nE, n_types,
+        )
+        nF = result['nF_realized']
+        if nF == 0:
+            rex = RexGraph(
+                boundary_ptr=self._boundary_ptr.copy(),
+                boundary_idx=self._boundary_idx.copy(),
+                w_E=self._w_E, directed=self._directed, signs=self._signs,
+            )
+        else:
+            from rexgraph.core._boundary import build_B2_from_cycles
+            cycle_lengths = np.full(nF, 3, dtype=_i32)
+            B2_dual = build_B2_from_cycles(
+                self._nE, result['realized_edges'],
+                result['realized_signs'], cycle_lengths)
+            B2_dense = _sparse.to_dense_f64(B2_dual)
+            from scipy import sparse as sp
+            B2_sp = sp.csc_matrix(B2_dense)
+            rex = RexGraph(
+                boundary_ptr=self._boundary_ptr.copy(),
+                boundary_idx=self._boundary_idx.copy(),
+                B2_col_ptr=np.asarray(B2_sp.indptr, dtype=_i32),
+                B2_row_idx=np.asarray(B2_sp.indices, dtype=_i32),
+                B2_vals=np.asarray(B2_sp.data, dtype=_f64),
+                w_E=self._w_E, directed=self._directed, signs=self._signs,
+            )
+        rex._typed_face_result = result
+        return rex
+
+    # Quotient filtration
+
+    def quotient_filtration(self, channel: int, *, n_steps: int = 20) -> dict:
+        """Filtration by removing edges in order of decreasing chi[:, channel].
+
+        Parameters
+        ----------
+        channel : int
+        n_steps : int
+
+        Returns
+        -------
+        dict with thresholds, beta0, beta1, beta2, n_edges_remaining,
+        edges_removed_order, transition_index, transition_threshold.
+        """
+        if not _HAS_RCF:
+            raise RuntimeError("RCF modules not available.")
+        return _quotient.quotient_filtration_by_character(
+            self.structural_character, channel, n_steps,
+            self.B1, self.B2_hodge,
+            self._nV, self._nE, self.nF_hodge,
+        )
+
+    # Linkage complex
+
+    def linkage_complex(self, sfb_threshold: float = 0.85) -> 'RexGraph':
+        """Build a new RexGraph from fiber bundle similarity S_fb.
+
+        Thresholds the vertex-vertex S_fb matrix to produce edges,
+        enumerates all triangles as faces, and builds boundary operators.
+
+        Parameters
+        ----------
+        sfb_threshold : float
+
+        Returns
+        -------
+        RexGraph
+        """
+        if not _HAS_RCF:
+            raise RuntimeError("RCF modules not available.")
+        result = _fiber.linkage_complex(
+            self.fiber_similarity, sfb_threshold, self._nV)
+        if result['n_edges'] == 0:
+            return RexGraph(
+                sources=np.zeros(0, dtype=_i32),
+                targets=np.zeros(0, dtype=_i32),
+            )
+        B2 = result.get('B2')
+        if B2 is not None and result['nF'] > 0:
+            from scipy import sparse as sp
+            B2_sp = sp.csc_matrix(np.asarray(B2, dtype=_f64))
+            return RexGraph(
+                sources=result['src'], targets=result['tgt'],
+                B2_col_ptr=np.asarray(B2_sp.indptr, dtype=_i32),
+                B2_row_idx=np.asarray(B2_sp.indices, dtype=_i32),
+                B2_vals=np.asarray(B2_sp.data, dtype=_f64),
+            )
+        return RexGraph(sources=result['src'], targets=result['tgt'])
 
     # Layout
 
@@ -1555,55 +1911,55 @@ class RexGraph:
         )
 
     def evolve_coupled(
-        self,
-        state: NDArray,
-        t: float,
-        *,
-        n_steps: int = 100,
-        alpha0: float = 1.0,
-        alpha1: float = 1.0,
-        alpha2: float = 1.0,
-    ) -> Tuple[NDArray, NDArray, NDArray]:
-        """Coupled cross-dimensional diffusion via RK4 integration.
+            self,
+            state: NDArray,
+            t: float,
+            *,
+            n_steps: int = 100,
+            alpha0: float = 1.0,
+            alpha1: float = 1.0,
+            alpha2: float = 1.0,
+        ) -> Tuple[NDArray, NDArray, NDArray]:
+            """Coupled cross-dimensional diffusion via RK4 integration.
 
-        Uses RL_1 = alpha1 * L_1 + alpha_G * L_O on the edge tier,
-        and B2_hodge for the face coupling.
+            Uses RL_1 = alpha1 * L_1 + alpha_G * L_O on the edge tier,
+            and B2_hodge for the face coupling.
 
-        Parameters
-        ----------
-        state : f64[nV + nE + nF]
-            Packed state vector (f0, f1, f2).
-        t : float
-            Total integration time.
-        n_steps : int
-            Number of RK4 steps.
+            Parameters
+            ----------
+            state : f64[nV + nE + nF]
+                Packed state vector (f0, f1, f2).
+            t : float
+                Total integration time.
+            n_steps : int
+                Number of RK4 steps.
 
-        Returns
-        -------
-        y_final : f64[nV + nE + nF]
-        trajectory : f64[n_steps+1, nV+nE+nF]
-        times : f64[n_steps+1]
-        """
-        sizes = np.array([self._nV, self._nE, self._nF], dtype=_i32)
-        ag = self.alpha_G
-        if ag != ag:  # NaN check
-            ag = 0.0
+            Returns
+            -------
+            y_final : f64[nV + nE + nF]
+            trajectory : f64[n_steps+1, nV+nE+nF]
+            times : f64[n_steps+1]
+            """
+            sizes = np.array([self._nV, self._nE, self._nF], dtype=_i32)
+            ag = self.alpha_G
+            if ag != ag:  # NaN check
+                ag = 0.0
 
-        deriv = functools.partial(
-            _transition.coupled_derivative,
-            sizes=sizes,
-            L0=self.L0,
-            L1=self.L1,
-            L2=self.L2 if self._nF > 0 else np.zeros((0, 0), dtype=_f64),
-            L_O=self.L_overlap,
-            B1_dense=self.B1,
-            B2_dense=self.B2_hodge,
-            alpha0=alpha0,
-            alpha1=alpha1,
-            alpha2=alpha2,
-            alpha_G=ag,
-        )
-        return _transition.rk4_integrate(state, 0.0, t, n_steps, deriv)
+            _L0 = self.L0
+            _L1 = self.L1
+            _L2 = self.L2 if self._nF > 0 else np.zeros((0, 0), dtype=_f64)
+            _L_O = self.L_overlap
+            _B1 = self.B1
+            _B2 = self.B2_hodge
+
+            def deriv(y, _t):
+                return _transition.coupled_derivative(
+                    y, sizes,
+                    _L0, _L1, _L2, _L_O, _B1, _B2,
+                    alpha0, alpha1, alpha2, ag,
+                )
+
+            return _transition.rk4_integrate(state, 0.0, t, n_steps, deriv)
 
     # Wave mechanics
 
@@ -1785,8 +2141,7 @@ class RexGraph:
     def classify_modes(self) -> dict:
         """Classify field eigenmodes as edge-dominated, face-dominated, or coupled.
 
-        Returns dict with mode_type (int array), edge_weight, face_weight,
-        and frequency for each eigenmode.
+        Returns (mode_type, edge_weight, face_weight, n_resonant).
         """
         evals, evecs, freqs = self.field_eigen
         return _field.classify_modes(evals, evecs, self._nE, int(self.nF_hodge))
@@ -1799,7 +2154,7 @@ class RexGraph:
         F = np.ascontiguousarray(F, dtype=_f64)
         return _field.derive_vertex_state(F, self.B1, self._nE)
 
-    # Dirac operator and graded state (RCFE Sections 4, 8, 9)
+    # Dirac operator and graded state
 
     @cached_property
     def dirac_operator(self) -> NDArray:
@@ -1891,7 +2246,7 @@ class RexGraph:
         return _dirac.energy_partition(psi_re, psi_im,
                                         self._nV, self._nE, self.nF_hodge)
 
-    # Hypermanifold (RCFE Sections 7, 8, 9)
+    # Hypermanifold
 
     @cached_property
     def hypermanifold(self) -> dict:
@@ -3173,6 +3528,52 @@ class RexGraph:
 
     def __repr__(self) -> str:
         return f"RexGraph(nV={self._nV}, nE={self._nE}, nF={self._nF}, dim={self.dimension})"
+
+
+# Cross-complex bridge
+
+def cross_complex_bridge(
+    rex_A: RexGraph,
+    rex_B: RexGraph,
+    labels_A: list,
+    labels_B: list,
+    *,
+    channel_scores_A: Optional[NDArray] = None,
+    channel_scores_B: Optional[NDArray] = None,
+) -> dict:
+    """Cross-complex bridge analysis between two relational complexes.
+
+    Aligns by shared vertex labels and compares kappa, void fraction,
+    and optionally spectral channel scores.
+
+    Parameters
+    ----------
+    rex_A, rex_B : RexGraph
+    labels_A, labels_B : list of str
+        Vertex labels for each complex.
+    channel_scores_A, channel_scores_B : f64 arrays, optional
+        Per-group spectral scores for channel correlation.
+
+    Returns
+    -------
+    dict with kappa, void, channel sub-dicts, and n_shared.
+    """
+    if _cross_complex is None:
+        raise RuntimeError("_cross_complex module not available.")
+
+    shared, idx_A, idx_B = _cross_complex.align_by_labels(labels_A, labels_B)
+
+    vc_A = rex_A.void_complex
+    vc_B = rex_B.void_complex
+
+    return _cross_complex.cross_complex_bridge(
+        rex_A.coherence, rex_B.coherence,
+        idx_A, idx_B,
+        vc_A.get('n_voids', 0), vc_A.get('n_potential', 0),
+        vc_B.get('n_voids', 0), vc_B.get('n_potential', 0),
+        channel_scores_A=channel_scores_A,
+        channel_scores_B=channel_scores_B,
+    )
 
 
 # TemporalRex

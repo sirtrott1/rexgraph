@@ -3,7 +3,8 @@
 """
 rexgraph.core._character - Structural character decomposition.
 
-chi, phi, chi_star, kappa. All LAPACK/BLAS, zero Python in hot paths.
+chi, phi, chi_star, kappa, per-channel mixing times, face-void dipole.
+All LAPACK/BLAS, zero Python in hot paths.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ cimport cython
 from rexgraph.core._common cimport i32, i64, f64, idx_t
 from rexgraph.core._linalg cimport (
     bl_gemm_nn, bl_gemm_nt, bl_dot, bl_nrm2,
-    spectral_pinv, spectral_pinv_matvec, lp_lstsq,
+    spectral_pinv, spectral_pinv_matvec, lp_lstsq, lp_eigh,
 )
 
 np.import_array()
@@ -450,4 +451,330 @@ def derived_constants(int nV):
         'amp_coeff': float(nV - 1) / nV if nV > 0 else 0.0,
         'scaffold_floor': 1.0 / (nV * nV) if nV > 0 else 0.0,
         'probe_floor': 1.0 / (nV * nV * nV) if nV > 0 else 0.0,
+    }
+
+
+# Per-channel mixing time
+
+
+cdef f64 _lambda2_from_evals(const f64* evals, int n) noexcept nogil:
+    """Extract smallest positive eigenvalue (spectral gap) from sorted evals."""
+    cdef int k
+    for k in range(n):
+        if evals[k] > 1e-10:
+            return evals[k]
+    return 0.0
+
+
+def hat_eigen(np.ndarray[f64, ndim=2] hat, int nE):
+    """Eigendecompose a single hat operator via LAPACK dsyev_.
+
+    Parameters
+    ----------
+    hat : f64[nE, nE]
+        Trace-normalized typed Laplacian.
+    nE : int
+
+    Returns
+    -------
+    evals : f64[nE], ascending
+    evecs : f64[nE, nE], columns are eigenvectors
+    """
+    if nE == 0:
+        return np.empty(0, dtype=np.float64), np.empty((0, 0), dtype=np.float64)
+
+    cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(hat.copy())
+    cdef np.ndarray[f64, ndim=1] evals = np.empty(nE, dtype=np.float64)
+
+    lp_eigh(&A_F[0, 0], &evals[0], nE)
+
+    cdef int i
+    cdef f64[::1] ev = evals
+    for i in range(nE):
+        if fabs(ev[i]) < 1e-12:
+            ev[i] = 0.0
+        elif ev[i] < 0.0 and fabs(ev[i]) < 1e-9:
+            ev[i] = 0.0
+
+    cdef np.ndarray[f64, ndim=2] evecs = np.ascontiguousarray(A_F)
+    return evals, evecs
+
+
+def hat_eigen_all(list hats, int nhats, int nE):
+    """Eigendecompose all hat operators. Returns list of (evals, evecs).
+
+    Parameters
+    ----------
+    hats : list of f64[nE, nE]
+    nhats : int
+    nE : int
+
+    Returns
+    -------
+    list of (evals f64[nE], evecs f64[nE, nE]) per hat.
+    """
+    result = []
+    for k in range(nhats):
+        result.append(hat_eigen(hats[k], nE))
+    return result
+
+
+def per_channel_mixing_time(np.ndarray[f64, ndim=1] hat_evals, int nE):
+    """Per-channel mixing time from pre-computed hat eigenvalues.
+
+    mu_X = ln(nE) / lambda_2(hat_L_X).
+
+    Parameters
+    ----------
+    hat_evals : f64[nE]
+        Eigenvalues of a single hat operator (ascending).
+    nE : int
+
+    Returns
+    -------
+    float
+        Mixing time for this channel. inf if no spectral gap.
+    """
+    if nE <= 1:
+        return float('inf')
+
+    cdef f64[::1] ev = hat_evals
+    cdef int k
+    cdef f64 lambda2 = 0
+
+    for k in range(nE):
+        if ev[k] > 1e-10:
+            lambda2 = ev[k]
+            break
+
+    if lambda2 < 1e-15:
+        return float('inf')
+    return float(log(<f64>nE) / lambda2)
+
+
+def per_channel_mixing_times_from_evals(list hat_evals_list, int nhats, int nE):
+    """Per-channel mixing times from pre-computed hat eigenvalues.
+
+    Parameters
+    ----------
+    hat_evals_list : list of f64[nE]
+        Eigenvalues per hat from hat_eigen_all.
+    nhats : int
+    nE : int
+
+    Returns
+    -------
+    f64[nhats]
+    """
+    cdef np.ndarray[f64, ndim=1] times = np.empty(nhats, dtype=np.float64)
+    cdef int k
+    for k in range(nhats):
+        times[k] = per_channel_mixing_time(hat_evals_list[k], nE)
+    return times
+
+
+def per_channel_mixing_times(list hats, int nhats, int nE):
+    """Per-channel mixing times, eigendecomposing each hat internally.
+
+    Convenience wrapper when hat eigendata is not already cached.
+
+    Parameters
+    ----------
+    hats : list of f64[nE, nE]
+    nhats : int
+    nE : int
+
+    Returns
+    -------
+    f64[nhats]
+    """
+    cdef np.ndarray[f64, ndim=1] times = np.empty(nhats, dtype=np.float64)
+    cdef int k
+    for k in range(nhats):
+        evals, _ = hat_eigen(hats[k], nE)
+        times[k] = per_channel_mixing_time(evals, nE)
+    return times
+
+
+def mixing_time_anisotropy(np.ndarray[f64, ndim=1] channel_times,
+                            int nhats):
+    """Ratios between per-channel mixing times.
+
+    Computes pairwise ratios tau_i / tau_j, finds the fastest-mixing
+    and slowest channels, and returns the anisotropy ratio.
+
+    Parameters
+    ----------
+    channel_times : f64[nhats]
+        Per-channel mixing times from per_channel_mixing_times.
+    nhats : int
+        Number of channels.
+
+    Returns
+    -------
+    dict
+        ratios : f64[nhats, nhats] pairwise tau_i / tau_j
+        dominant_channel : int  (fastest, smallest finite tau)
+        slowest_channel : int   (slowest, largest finite tau)
+        anisotropy : float      max(finite tau) / min(finite tau)
+    """
+    cdef np.ndarray[f64, ndim=2] ratios = np.ones((nhats, nhats), dtype=np.float64)
+    cdef f64[::1] tv = channel_times
+    cdef f64[:, ::1] rv = ratios
+    cdef int i, j
+    cdef f64 ti, tj
+
+    for i in range(nhats):
+        for j in range(nhats):
+            ti = tv[i]
+            tj = tv[j]
+            if tj > 1e-15 and tj != float('inf'):
+                if ti == float('inf'):
+                    rv[i, j] = float('inf')
+                else:
+                    rv[i, j] = ti / tj
+            elif ti == float('inf') and tj == float('inf'):
+                rv[i, j] = 1.0
+            else:
+                rv[i, j] = float('inf')
+
+    # Find dominant (smallest finite) and slowest (largest finite)
+    cdef f64 best = float('inf')
+    cdef f64 worst = 0.0
+    cdef int dom = 0, slow = 0
+
+    for i in range(nhats):
+        ti = tv[i]
+        if ti < best and ti > 0:
+            best = ti
+            dom = i
+        if ti > worst and ti != float('inf'):
+            worst = ti
+            slow = i
+
+    cdef f64 aniso = worst / best if best > 1e-15 else float('inf')
+
+    return {
+        'ratios': ratios,
+        'dominant_channel': dom,
+        'slowest_channel': slow,
+        'anisotropy': float(aniso),
+    }
+
+
+# Face-void dipole
+
+
+cdef void _face_void_dipole(const f64* psi, const f64* B2,
+                             const f64* Bvoid,
+                             f64* face_aff, f64* void_aff,
+                             int nE, int nF, int n_voids,
+                             f64 psi_norm_sq) noexcept nogil:
+    """Face and void affinity of an edge signal.
+
+    face_affinity = sum_f |psi^T B2[:,f]|^2 / ||psi||^2
+    void_affinity = sum_v |psi^T Bvoid[:,v]|^2 / ||psi||^2
+    """
+    cdef int f, v, e
+    cdef f64 dot, inv_norm
+
+    face_aff[0] = 0.0
+    void_aff[0] = 0.0
+
+    if psi_norm_sq < 1e-30:
+        return
+
+    inv_norm = 1.0 / psi_norm_sq
+
+    for f in range(nF):
+        dot = 0.0
+        for e in range(nE):
+            dot += psi[e] * B2[e * nF + f]
+        face_aff[0] += dot * dot * inv_norm
+
+    if Bvoid != NULL and n_voids > 0:
+        for v in range(n_voids):
+            dot = 0.0
+            for e in range(nE):
+                dot += psi[e] * Bvoid[e * n_voids + v]
+            void_aff[0] += dot * dot * inv_norm
+
+
+def face_void_dipole(np.ndarray[f64, ndim=1] psi,
+                      np.ndarray[f64, ndim=2] B2,
+                      Bvoid_in,
+                      int nE, int nF):
+    """Face-void dipole of an edge signal.
+
+    Projects an edge signal onto the realized face basis (B2 columns)
+    and the void basis (Bvoid columns), measuring how much signal
+    energy flows through each. The dipole ratio separates signals
+    that operate through existing higher-order structure (face-mediated)
+    from those that operate through structural gaps (void-mediated).
+
+    face_affinity = sum_f |psi^T B2[:,f]|^2 / ||psi||^2
+    void_affinity = sum_v |psi^T Bvoid[:,v]|^2 / ||psi||^2
+    dipole_ratio  = (face - void) / (face + void)
+
+    Parameters
+    ----------
+    psi : f64[nE]
+        Edge signal.
+    B2 : f64[nE, nF]
+        Edge-face boundary operator (realized faces).
+    Bvoid_in : f64[nE, n_voids] or None
+        Void boundary operator. None if no voids.
+    nE : int
+        Number of edges.
+    nF : int
+        Number of realized faces.
+
+    Returns
+    -------
+    dict
+        face_affinity : float >= 0
+        void_affinity : float >= 0
+        dipole_ratio : float in [-1, 1]
+            +1 = entirely face-mediated, -1 = entirely void-mediated,
+            0 = balanced.
+        total_projection : float
+            face_affinity + void_affinity.
+    """
+    cdef f64[::1] pv = psi
+    cdef f64 psi_norm_sq = 0.0
+    cdef int e
+
+    for e in range(nE):
+        psi_norm_sq += pv[e] * pv[e]
+
+    cdef f64 fa = 0.0, va = 0.0
+    cdef int n_voids = 0
+    cdef np.ndarray[f64, ndim=2] Bvoid
+
+    if nF > 0:
+        if Bvoid_in is not None:
+            Bvoid = np.ascontiguousarray(Bvoid_in, dtype=np.float64)
+            n_voids = Bvoid.shape[1]
+            _face_void_dipole(&pv[0], &B2[0, 0], &Bvoid[0, 0],
+                               &fa, &va, nE, nF, n_voids, psi_norm_sq)
+        else:
+            _face_void_dipole(&pv[0], &B2[0, 0], NULL,
+                               &fa, &va, nE, nF, 0, psi_norm_sq)
+    elif Bvoid_in is not None:
+        Bvoid = np.ascontiguousarray(Bvoid_in, dtype=np.float64)
+        n_voids = Bvoid.shape[1]
+        if psi_norm_sq > 1e-30:
+            _face_void_dipole(&pv[0], NULL, &Bvoid[0, 0],
+                               &fa, &va, nE, 0, n_voids, psi_norm_sq)
+
+    cdef f64 total = fa + va
+    cdef f64 dipole = 0.0
+    if total > 1e-30:
+        dipole = (fa - va) / total
+
+    return {
+        'face_affinity': float(fa),
+        'void_affinity': float(va),
+        'dipole_ratio': float(dipole),
+        'total_projection': float(total),
     }

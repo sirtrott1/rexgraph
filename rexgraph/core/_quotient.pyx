@@ -1618,3 +1618,312 @@ def build_quotient(np.ndarray[f64, ndim=2] B1,
         result["RL1_quot"] = RL1q
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Sparse quotient builder for large graphs
+# ---------------------------------------------------------------------------
+
+def build_quotient_from_sparse(B1_scipy, B2_scipy,
+                                np.ndarray[np.uint8_t, ndim=1] v_mask,
+                                np.ndarray[np.uint8_t, ndim=1] e_mask,
+                                np.ndarray[np.uint8_t, ndim=1] f_mask,
+                                Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF):
+    """Build a quotient complex from sparse boundary operators.
+
+    Extracts surviving cells, densifies only the quotient (which is small),
+    and runs full dense spectral analysis on it. The parent is never
+    densified at the nE x nE scale.
+
+    Parameters
+    ----------
+    B1_scipy : scipy.sparse.csr_matrix, shape (nV, nE)
+    B2_scipy : scipy.sparse.csr_matrix or None, shape (nE, nF)
+    v_mask, e_mask, f_mask : uint8 arrays (1 = in subcomplex)
+    nV, nE, nF : int
+
+    Returns
+    -------
+    dict with same keys as build_quotient, plus spectral_bundle_quot
+    containing the full dense spectral analysis on the small quotient.
+    """
+    from scipy.sparse import csr_matrix, issparse
+
+    # Surviving cell indices
+    v_surv = np.where(~np.asarray(v_mask, dtype=bool))[0]
+    e_surv = np.where(~np.asarray(e_mask, dtype=bool))[0]
+    f_surv = np.where(~np.asarray(f_mask, dtype=bool))[0]
+
+    cdef Py_ssize_t nVq = len(v_surv)
+    cdef Py_ssize_t nEq = len(e_surv)
+    cdef Py_ssize_t nFq = len(f_surv)
+
+    if nEq == 0:
+        return {
+            "B1_quot": np.zeros((max(nVq, 1), 0), dtype=np.float64),
+            "B2_quot": np.zeros((0, 0), dtype=np.float64),
+            "L1_quot": np.zeros((0, 0), dtype=np.float64),
+            "betti_rel": (nVq, 0, 0),
+            "chain_valid": True,
+            "chain_error": 0.0,
+            "dims": (nVq, 0, nFq),
+            "v_surv": v_surv,
+            "e_surv": e_surv,
+            "f_surv": f_surv,
+        }
+
+    # Reindex: subcomplex vertices collapse to basepoint 0.
+    cdef np.ndarray[i32, ndim=1] v_reindex = np.full(nV, -1, dtype=np.int32)
+    cdef Py_ssize_t v_star = 0
+    cdef Py_ssize_t idx = 1
+    cdef Py_ssize_t i
+
+    for i in range(nV):
+        if v_mask[i]:
+            v_reindex[i] = 0
+        else:
+            v_reindex[i] = <i32>idx
+            idx += 1
+    cdef Py_ssize_t nVq_total = idx
+
+    # Edge reindex
+    cdef np.ndarray[i32, ndim=1] e_reindex = np.full(nE, -1, dtype=np.int32)
+    idx = 0
+    for i in range(nE):
+        if not e_mask[i]:
+            e_reindex[i] = <i32>idx
+            idx += 1
+
+    # Build quotient B1 from sparse parent
+    B1_dense_quot = np.zeros((nVq_total, nEq), dtype=np.float64)
+    if hasattr(B1_scipy, 'row_ptr'):
+        from rexgraph.core._sparse import to_scipy_csr
+        B1_scipy = to_scipy_csr(B1_scipy)
+    elif not issparse(B1_scipy):
+        B1_scipy = csr_matrix(B1_scipy)
+
+    for e_new in range(nEq):
+        e_old = int(e_surv[e_new])
+        col = B1_scipy.getcol(e_old).toarray().ravel()
+        for v_old in range(nV):
+            if abs(col[v_old]) > 1e-15:
+                v_new = v_reindex[v_old]
+                if v_new >= 0:
+                    B1_dense_quot[v_new, e_new] += col[v_old]
+
+    # Build quotient B2 from sparse parent
+    B2_dense_quot = np.zeros((nEq, nFq), dtype=np.float64)
+    if B2_scipy is not None and nFq > 0:
+        if hasattr(B2_scipy, 'row_ptr'):
+            from rexgraph.core._sparse import to_scipy_csr
+            B2_scipy = to_scipy_csr(B2_scipy)
+        elif not issparse(B2_scipy):
+            B2_scipy = csr_matrix(B2_scipy)
+        for f_new in range(nFq):
+            f_old = int(f_surv[f_new])
+            col = B2_scipy.getcol(f_old).toarray().ravel()
+            for e_old in range(nE):
+                if abs(col[e_old]) > 1e-15:
+                    e_new = e_reindex[e_old]
+                    if e_new >= 0:
+                        B2_dense_quot[e_new, f_new] += col[e_old]
+
+    # Chain condition
+    chain_ok = True
+    chain_err = 0.0
+    if nEq > 0 and nFq > 0:
+        product = B1_dense_quot @ B2_dense_quot
+        chain_err = float(np.max(np.abs(product)))
+        chain_ok = chain_err < 1e-10
+
+    # L1_quot
+    L1q = B1_dense_quot.T @ B1_dense_quot
+    if nFq > 0:
+        L1q = L1q + B2_dense_quot @ B2_dense_quot.T
+
+    # Relative Betti from SVD
+    betti_rel = relative_betti(B1_dense_quot, B2_dense_quot)
+
+    result = {
+        "B1_quot": B1_dense_quot,
+        "B2_quot": B2_dense_quot,
+        "L1_quot": L1q,
+        "betti_rel": betti_rel,
+        "chain_valid": chain_ok,
+        "chain_error": chain_err,
+        "dims": (nVq_total, nEq, nFq),
+        "v_surv": v_surv,
+        "e_surv": e_surv,
+        "f_surv": f_surv,
+    }
+
+    # Full dense spectral analysis on the small quotient
+    if nEq <= 5000:
+        try:
+            from rexgraph.core._laplacians import build_all_laplacians
+            sb = build_all_laplacians(B1_dense_quot, B2_dense_quot, None)
+            result["spectral_bundle_quot"] = sb
+        except Exception:
+            pass
+
+    return result
+
+
+# Character-based quotient filtration
+
+
+def quotient_filtration_by_character(np.ndarray[f64, ndim=2] chi,
+                                     int channel,
+                                     int n_steps,
+                                     np.ndarray[f64, ndim=2] B1,
+                                     np.ndarray[f64, ndim=2] B2,
+                                     Py_ssize_t nV, Py_ssize_t nE,
+                                     Py_ssize_t nF):
+    """Remove edges in order of decreasing chi[:, channel] and track topology.
+
+    At each of n_steps levels, the edges with the highest structural
+    character in the given channel are removed, and the Betti numbers
+    of the remaining subcomplex are computed. The step where beta_1
+    drops most sharply marks the backbone threshold for this channel.
+
+    Parameters
+    ----------
+    chi : f64[nE, nhats]
+        Structural character per edge.
+    channel : int
+        Column of chi to filter by.
+    n_steps : int
+        Number of filtration levels. Edges are removed in n_steps
+        equal-sized batches from highest to lowest chi[:, channel].
+    B1 : f64[nV, nE]
+        Signed incidence matrix.
+    B2 : f64[nE, nF]
+        Edge-face boundary operator.
+    nV, nE, nF : int
+
+    Returns
+    -------
+    dict
+        thresholds : f64[n_steps]
+            chi value at each filtration step.
+        beta0 : i32[n_steps]
+            Connected components at each step.
+        beta1 : i32[n_steps]
+            First Betti number at each step.
+        beta2 : i32[n_steps]
+            Second Betti number at each step.
+        n_edges_remaining : i32[n_steps]
+            Edges surviving at each step.
+        edges_removed_order : i32[nE]
+            Edge indices sorted by decreasing chi[:, channel].
+        transition_index : int
+            Step with the largest single-step drop in beta_1.
+            -1 if beta_1 is constant throughout.
+        transition_threshold : float
+            chi value at the transition point.
+    """
+    cdef np.ndarray[f64, ndim=1] chi_channel = np.ascontiguousarray(
+        chi[:, channel], dtype=np.float64)
+
+    # Sort edges by decreasing chi in this channel
+    cdef np.ndarray[i32, ndim=1] order = np.argsort(-chi_channel).astype(np.int32)
+
+    cdef np.ndarray[f64, ndim=1] thresholds = np.empty(n_steps, dtype=np.float64)
+    cdef np.ndarray[i32, ndim=1] beta0_arr = np.empty(n_steps, dtype=np.int32)
+    cdef np.ndarray[i32, ndim=1] beta1_arr = np.empty(n_steps, dtype=np.int32)
+    cdef np.ndarray[i32, ndim=1] beta2_arr = np.empty(n_steps, dtype=np.int32)
+    cdef np.ndarray[i32, ndim=1] n_remaining = np.empty(n_steps, dtype=np.int32)
+
+    cdef Py_ssize_t batch = max(1, nE // n_steps)
+    cdef Py_ssize_t step, n_removed, nE_sub, nF_sub
+
+    cdef np.ndarray[np.uint8_t, ndim=1] removed = np.zeros(nE, dtype=np.uint8)
+    cdef np.uint8_t[::1] rm = removed
+    cdef i32[::1] ord_v = order
+    cdef f64[::1] chi_v = chi_channel
+    cdef Py_ssize_t j, last_idx
+
+    for step in range(n_steps):
+        # Remove next batch of edges
+        n_removed = min((step + 1) * batch, nE)
+        for j in range(step * batch, n_removed):
+            if j < nE:
+                rm[ord_v[j]] = 1
+
+        # Threshold: chi of the last edge removed in this batch
+        last_idx = min(n_removed, nE) - 1
+        thresholds[step] = chi_v[ord_v[last_idx]] if last_idx >= 0 else 0.0
+
+        # Surviving edges
+        surv_e = np.where(~np.asarray(removed, dtype=bool))[0]
+        nE_sub = len(surv_e)
+        n_remaining[step] = nE_sub
+
+        if nE_sub == 0:
+            beta0_arr[step] = nV
+            beta1_arr[step] = 0
+            beta2_arr[step] = 0
+            continue
+
+        # Sub-boundary operators for surviving edges
+        B1_sub = np.ascontiguousarray(B1[:, surv_e], dtype=np.float64)
+
+        # Surviving faces: keep only faces whose boundary edges all survive
+        surv_f = []
+        if nF > 0:
+            e_set = set(surv_e.tolist())
+            for f in range(nF):
+                col = B2[:, f]
+                nz = np.nonzero(col)[0]
+                if all(int(e) in e_set for e in nz):
+                    surv_f.append(f)
+
+        nF_sub = len(surv_f)
+        if nF_sub > 0:
+            e_remap = np.full(nE, -1, dtype=np.int64)
+            for new_j in range(nE_sub):
+                e_remap[surv_e[new_j]] = new_j
+            B2_sub = np.zeros((nE_sub, nF_sub), dtype=np.float64)
+            for fi_new in range(nF_sub):
+                fi_old = surv_f[fi_new]
+                for e_old in range(nE):
+                    val = B2[e_old, fi_old]
+                    if fabs(val) > 1e-15:
+                        e_new = e_remap[e_old]
+                        if e_new >= 0:
+                            B2_sub[e_new, fi_new] = val
+        else:
+            B2_sub = np.zeros((max(nE_sub, 1), 0), dtype=np.float64)
+
+        # Betti via SVD rank on the subcomplex operators
+        b0, b1, b2 = relative_betti(B1_sub, B2_sub)
+        beta0_arr[step] = b0
+        beta1_arr[step] = b1
+        beta2_arr[step] = b2
+
+    # Transition: largest single-step drop in beta_1
+    cdef int trans_idx = -1
+    cdef i32 max_drop = 0
+    cdef i32 drop
+    cdef i32[::1] b1v = beta1_arr
+
+    for step in range(1, n_steps):
+        drop = b1v[step - 1] - b1v[step]
+        if drop > max_drop:
+            max_drop = drop
+            trans_idx = step
+
+    cdef f64 trans_thresh = 0.0
+    if trans_idx >= 0:
+        trans_thresh = float(thresholds[trans_idx])
+
+    return {
+        'thresholds': thresholds,
+        'beta0': beta0_arr,
+        'beta1': beta1_arr,
+        'beta2': beta2_arr,
+        'n_edges_remaining': n_remaining,
+        'edges_removed_order': order,
+        'transition_index': int(trans_idx),
+        'transition_threshold': trans_thresh,
+    }

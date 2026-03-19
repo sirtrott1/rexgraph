@@ -1,5 +1,5 @@
 """
-rexgraph.types - Typed containers for rex chain complex data structures.
+rexgraph.types - Typed containers for relational complex data structures.
 
 Enumerations mirror integer codes from the Cython layer so that
 Python-level code (graph.py, analysis.py) can refer to them without
@@ -16,11 +16,17 @@ Enumerations:
     FaceEvent - face tracking event codes (0-4)
     TransitionKind - transition operator types (0-3)
     EnergyRegime - E_kin/E_pot ratio classification (0-2)
+    OperatorChannel - relational Laplacian channel indices
+    PredicateOp - query predicate operations (0-6)
+    JoinType - chain complex join types (0-3)
 
 NamedTuples:
     HodgeDecomposition, HodgeAnalysis - Hodge decomposition results
-    SpectralBundle - eigendecomposition across all dimensions
-    RexLaplacianResult - Relational Laplacian RL_k = L_k + alpha_G * L_O
+    SpectralBundle - eigendecomposition across all dimensions + RL
+    RCFBundle - relational Laplacian RL = sum of trace-normalized hats
+    VertexBundle - vertex character phi, chi_star, kappa
+    VoidComplex - void spectral theory
+    RCFEResult - RCFE curvature and conservation
     FieldOperatorResult - field operator M on (E, F)
     FieldEigenResult - eigendecomposition of M
     EnergyDecomposition - E_kin, E_pot, E_RL from transition
@@ -41,6 +47,8 @@ NamedTuples:
     PersistenceDiagram, Filtration, PersistenceEnrichment
     BioesResult - unified BIOES pipeline output
     MeasurementResult, FaceData, CoupledEvolution, StandardMetrics
+    JoinResult, ImputeResult, CellExplanation, PropagationResult
+    RemovalStep, StructuralSummary
 """
 
 from __future__ import annotations
@@ -121,6 +129,40 @@ class EnergyRegime(IntEnum):
     POTENTIAL = 2
 
 
+class OperatorChannel(IntEnum):
+    """Channel indices for the relational Laplacian decomposition.
+
+    Maps to hat operator names from _relational.build_RL():
+        0 = L1_down (topological)
+        1 = L_O (geometric/overlap)
+        2 = L_SG (frustration)
+        3 = L_C (copath complex)
+    """
+    TOPOLOGICAL = 0
+    GEOMETRIC = 1
+    FRUSTRATION = 2
+    COPC = 3
+
+
+class PredicateOp(IntEnum):
+    """Predicate operations for the query engine (_query.pyx)."""
+    GT = 0
+    GE = 1
+    LT = 2
+    LE = 3
+    EQ = 4
+    NE = 5
+    BETWEEN = 6
+
+
+class JoinType(IntEnum):
+    """Join type for chain complex join operations (_joins.pyx)."""
+    INNER = 0
+    LEFT = 1
+    OUTER = 2
+    UNION = 3
+
+
 # Hodge decomposition
 
 
@@ -138,7 +180,12 @@ class HodgeDecomposition(NamedTuple):
 
 
 class HodgeAnalysis(NamedTuple):
-    """Full Hodge analysis with normalized components and energy fractions."""
+    """Full Hodge analysis from _hodge.build_hodge().
+
+    Keys match the dict returned by build_hodge: grad, curl, harm,
+    grad_norm, curl_norm, harm_norm, flow_norm, rho, pct_grad,
+    pct_curl, pct_harm, divergence, div_norm, face_curl, face_curl_norm.
+    """
 
     grad: NDArray
     """Raw gradient component, shape (nE,)."""
@@ -176,79 +223,181 @@ class HodgeAnalysis(NamedTuple):
 
 
 class SpectralBundle(NamedTuple):
-    """Eigendecomposition results from _laplacians.build_all_laplacians()."""
+    """Eigendecomposition results from _laplacians.build_all_laplacians().
 
-    # L0
-    L0: object
-    """Vertex Laplacian (dense or sparse)."""
+    This is the master spectral dict. Keys match the dict returned by
+    build_all_laplacians. Includes Hodge Laplacians (L0, L1, L2),
+    their eigendecompositions, Betti numbers, overlap/frustration
+    analysis, coupling constants, and the relational Laplacian RL
+    with its trace-normalized hat operators.
+    """
+
+    # L0 (vertex Laplacian)
+    L0: NDArray
+    """Vertex Laplacian B1 B1^T, f64[nV, nV]."""
     evals_L0: NDArray
-    """Eigenvalues of L0, shape (k,)."""
+    """Eigenvalues of L0, f64[nV]."""
     evecs_L0: NDArray
-    """Eigenvectors of L0, shape (nV, k)."""
-    fiedler_L0: float
-    """Fiedler value (algebraic connectivity)."""
+    """Eigenvectors of L0, f64[nV, nV]."""
+    fiedler_val_L0: float
+    """Fiedler value (algebraic connectivity) of L0."""
     fiedler_vec_L0: NDArray
-    """Fiedler vector, shape (nV,)."""
+    """Fiedler vector of L0, f64[nV]."""
 
-    # L1
-    L1_down: object
-    L1_up: object
-    L1_full: object
-    evals_L1: Optional[NDArray]
-    evecs_L1: Optional[NDArray]
-    diag_L1_down: NDArray
-    """Per-edge L1_down diagonal, shape (nE,)."""
-    diag_L1_up: NDArray
-    """Per-edge L1_up diagonal, shape (nE,)."""
+    # L1 (edge Laplacian)
+    L1_down: NDArray
+    """Lower edge Laplacian B1^T B1, f64[nE, nE]."""
+    L1_up: NDArray
+    """Upper edge Laplacian B2 B2^T, f64[nE, nE]."""
+    L1_full: NDArray
+    """Full Hodge Laplacian L1 = L1_down + L1_up, f64[nE, nE]."""
+    evals_L1: NDArray
+    """Eigenvalues of L1, f64[nE]."""
+    evecs_L1: NDArray
+    """Eigenvectors of L1, f64[nE, nE]."""
+    fiedler_val_L1: float
+    """Fiedler value of L1."""
 
-    # L2
-    L2: object
-    evals_L2: Optional[NDArray]
-    evecs_L2: Optional[NDArray]
+    # L2 (face Laplacian)
+    L2: NDArray
+    """Face Laplacian B2^T B2, f64[nF, nF]."""
+    evals_L2: NDArray
+    """Eigenvalues of L2, f64[nF]."""
 
-    # Betti and topology
+    # Betti numbers (from eigenvalue nullities)
     beta0: int
     beta1: int
     beta2: int
-    rank_B1: int
-    rank_B2: int
-    euler_char: int
 
-    # Overlap block (present when L_O is provided)
-    evals_L_O: Optional[NDArray]
-    evecs_L_O: Optional[NDArray]
-    fiedler_L_O: Optional[float]
-    fiedler_vec_L_O: Optional[NDArray]
-    alpha_G: Optional[float]
-    alpha_T: float
-    alpha_used: Optional[float]
+    # Overlap Laplacian
+    evals_L_O: NDArray
+    """Eigenvalues of L_O, f64[nE] (empty if L_O not provided)."""
+    fiedler_L_O: float
+    """Fiedler value of L_O."""
+    fiedler_vec_L_O: NDArray
+    """Fiedler vector of L_O, f64[nE]."""
 
-    # Relational Laplacian (present when L_O is provided)
-    RL1: object
-    """RL_1 = L_1 + alpha_G * L_O."""
-    evals_RL1: Optional[NDArray]
-    evecs_RL1: Optional[NDArray]
-    Lambda: object
-    evals_Lambda: Optional[NDArray]
-    evecs_Lambda: Optional[NDArray]
-
-
-# Relational Laplacian
-
-
-class RexLaplacianResult(NamedTuple):
-    """Relational Laplacian RL_k = L_k + alpha_G * L_O at a single dimension."""
-
-    RL: NDArray
-    """The composite operator, shape (n, n)."""
+    # Coupling constants
     alpha_G: float
-    """Coupling constant Fiedler(L_k) / Fiedler(L_O)."""
-    spectral_gap: float
-    """Fiedler(RL_k) - Fiedler(L_k)."""
-    evals: NDArray
-    """Eigenvalues of RL_k, shape (n,)."""
-    evecs: NDArray
-    """Eigenvectors of RL_k, shape (n, n)."""
+    """Geometric coupling: Fiedler(L1) / Fiedler(L_O)."""
+    alpha_T: float
+    """Total coupling: tr(L1) / tr(L_O)."""
+
+    # RL_1 = L1 + alpha_G * L_O (legacy 2-term relational Laplacian)
+    RL_1: object
+    """Two-term relational Laplacian, f64[nE, nE] or None."""
+    evals_RL_1: Optional[NDArray]
+    """Eigenvalues of RL_1."""
+    evecs_RL_1: Optional[NDArray]
+    """Eigenvectors of RL_1."""
+
+    # K1 overlap matrix
+    K1: NDArray
+    """Unweighted overlap matrix |B1|^T |B1|, f64[nE, nE]."""
+
+    # L_C copath complex Laplacian
+    L_C: object
+    """Copath complex Laplacian, f64[nE, nE] or None."""
+
+    # Relational Laplacian (from _relational.build_RL)
+    RL: NDArray
+    """Relational Laplacian RL = sum of trace-normalized hats.
+    tr(RL) = nhats. f64[nE, nE]."""
+    hats: list
+    """Trace-normalized hat operators, list of f64[nE, nE]."""
+    nhats: int
+    """Number of active hat operators (with nonzero trace)."""
+    trace_values: NDArray
+    """Pre-normalization trace of each input Laplacian, f64[nhats]."""
+    hat_names: list
+    """Human-readable names: ['L1_down', 'L_O', 'L_SG', 'L_C']."""
+
+    # Edge structural character (from _character.compute_chi)
+    chi: NDArray
+    """Structural character per edge, f64[nE, nhats]. On the simplex."""
+
+
+# Relational Laplacian (standalone RCF bundle)
+
+
+class RCFBundle(NamedTuple):
+    """Relational Laplacian bundle from _relational.build_RL().
+
+    This is the standalone RCF bundle dict wrapped as a NamedTuple.
+    The same data is also embedded in SpectralBundle.
+    """
+    RL: NDArray
+    """Relational Laplacian, f64[nE, nE]. tr(RL) = nhats."""
+    hats: list
+    """Trace-normalized hat operators, list of f64[nE, nE]."""
+    nhats: int
+    """Number of active hat operators."""
+    chi: NDArray
+    """Structural character per edge, f64[nE, nhats]. On the simplex."""
+    trace_values: NDArray
+    """Pre-normalization trace of each Laplacian, f64[nhats]."""
+    hat_names: list
+    """Human-readable names of each hat operator."""
+
+
+# Vertex character
+
+
+class VertexBundle(NamedTuple):
+    """Vertex character bundle from _character.build_character_bundle()."""
+    phi: NDArray
+    """Vertex character, f64[nV, nhats]. On the simplex."""
+    chi_star: NDArray
+    """Star character (mean of chi over incident edges), f64[nV, nhats]."""
+    kappa: NDArray
+    """Cross-dimensional coherence, f64[nV] in [0, 1]."""
+
+
+# Void complex
+
+
+class VoidComplex(NamedTuple):
+    """Void spectral theory from _void.build_void_complex().
+
+    Keys match the dict returned by build_void_complex: Bvoid, Lvoid,
+    n_voids, n_potential, tri_edges, void_indices, eta, chi_void,
+    fills_beta, void_strain.
+    """
+    Bvoid: object
+    """Void boundary operator, f64[nE, n_voids] or None."""
+    Lvoid: object
+    """Void Laplacian Bvoid @ Bvoid^T, f64[nE, nE] or None."""
+    n_voids: int
+    """Number of void triangles."""
+    n_potential: int
+    """Total potential triangles (realized + void)."""
+    tri_edges: NDArray
+    """Triangle edge triples, i32[n_potential, 3]."""
+    void_indices: NDArray
+    """Indices into tri_edges for void triangles, i32[n_voids]."""
+    eta: NDArray
+    """Harmonic content per void, f64[n_voids] in [0, 1]."""
+    chi_void: NDArray
+    """Void character per void, f64[n_voids, nhats]."""
+    fills_beta: NDArray
+    """Whether filling this void decreases beta_1, i32[n_voids]."""
+    void_strain: float
+    """Total void strain S^void = tr(Lvoid)."""
+
+
+# RCFE curvature
+
+
+class RCFEResult(NamedTuple):
+    """RCFE curvature and conservation from _rcfe."""
+    curvature: NDArray
+    """RCFE curvature per edge, f64[nE]."""
+    strain: float
+    """Total strain S = sum C(e) * RL[e,e]."""
+    bianchi_ok: bool
+    """Whether Bianchi identity B1 diag(C) B2 = 0 holds."""
+    bianchi_residual: float
+    """Max absolute entry of B1 diag(C) B2."""
 
 
 # Field operator (from _field.pyx)
@@ -258,7 +407,7 @@ class FieldOperatorResult(NamedTuple):
     """Field operator M on (E, F) from build_field_operator()."""
 
     M: NDArray
-    """Block matrix [[RL_1, -g*B_2], [-g*B_2^T, L_2]], shape (nE+nF, nE+nF)."""
+    """Block matrix [[RL, -g*B_2], [-g*B_2^T, L_2]], shape (nE+nF, nE+nF)."""
     g: float
     """Coupling strength used."""
     is_psd: bool
@@ -280,10 +429,9 @@ class FieldEigenResult(NamedTuple):
 
 
 class EnergyDecomposition(NamedTuple):
-    """Energy decomposition under the Relational Laplacian.
+    """Energy decomposition under the relational Laplacian.
 
-    From _transition.energy_decomposition(), which takes (f_re, f_im)
-    for complex signals (Schrodinger evolution).
+    From _transition.energy_decomposition().
     """
 
     E_kin: float
@@ -291,7 +439,7 @@ class EnergyDecomposition(NamedTuple):
     E_pot: float
     """Geometric energy <f|L_O|f>."""
     E_RL: float
-    """Total Rex energy E_kin + alpha_G * E_pot."""
+    """Total relational energy E_kin + alpha_G * E_pot."""
 
 
 class EnergyKinPot(NamedTuple):
@@ -326,7 +474,7 @@ class WaveEnergy(NamedTuple):
 
 
 class ModeClassification(NamedTuple):
-    """Mode classification from field_eigendecomposition.
+    """Mode classification from field eigendecomposition.
 
     From _field.classify_modes().
     """
@@ -426,7 +574,10 @@ class QuotientMaps(NamedTuple):
 
 
 class QuotientResult(NamedTuple):
-    """Full quotient pipeline output from _quotient.build_quotient()."""
+    """Full quotient pipeline output from _quotient.build_quotient().
+
+    Keys match the dict returned by build_quotient.
+    """
 
     B1_quot: NDArray
     """Quotient boundary B_1, f64[nV', nE']."""
@@ -764,96 +915,11 @@ class StandardMetrics(NamedTuple):
     """Louvain modularity score."""
 
 
-# RCF types (new in v2)
-
-
-class OperatorChannel(IntEnum):
-    """Channel indices for the relational Laplacian decomposition."""
-    TOPOLOGICAL = 0
-    GEOMETRIC = 1
-    FRUSTRATION = 2
-    COPC = 3
-
-
-class PredicateOp(IntEnum):
-    """Predicate operations for the query engine."""
-    GT = 0
-    GE = 1
-    LT = 2
-    LE = 3
-    EQ = 4
-    NE = 5
-    BETWEEN = 6
-
-
-class JoinType(IntEnum):
-    """Join type for chain complex join operations."""
-    INNER = 0
-    LEFT = 1
-    OUTER = 2
-    UNION = 3
-
-
-class RCFBundle(NamedTuple):
-    """Relational Laplacian bundle from _relational.build_RL_from_laplacians()."""
-    RL: NDArray
-    """Relational Laplacian, f64[nE, nE]. tr(RL) = nhats."""
-    hats: list
-    """Trace-normalized hat operators, list of f64[nE, nE]."""
-    nhats: int
-    """Number of active hat operators."""
-    chi: NDArray
-    """Structural character per edge, f64[nE, nhats]. On the simplex."""
-    trace_values: NDArray
-    """Trace of each raw Laplacian before normalization, f64[nhats]."""
-    hat_names: list
-    """Human-readable names of each hat operator."""
-
-
-class VertexBundle(NamedTuple):
-    """Vertex character bundle from _character.build_character_bundle()."""
-    phi: NDArray
-    """Vertex character, f64[nV, nhats]. On the simplex."""
-    chi_star: NDArray
-    """Star character (mean of chi over incident edges), f64[nV, nhats]."""
-    kappa: NDArray
-    """Cross-dimensional coherence, f64[nV] in [0, 1]."""
-
-
-class VoidComplex(NamedTuple):
-    """Void spectral theory from _void.build_void_complex()."""
-    Bvoid: object
-    """Void boundary operator, f64[nE, n_voids] or None."""
-    Lvoid: object
-    """Void Laplacian, f64[nE, nE] or None."""
-    n_voids: int
-    """Number of void triangles."""
-    n_potential: int
-    """Total potential triangles (realized + void)."""
-    eta: NDArray
-    """Harmonic content per void, f64[n_voids] in [0, 1]."""
-    chi_void: NDArray
-    """Void character per void, f64[n_voids, nhats]."""
-    fills_beta: NDArray
-    """Whether filling this void decreases beta_1, i32[n_voids]."""
-    void_strain: float
-    """Total void strain S^void = tr(Lvoid)."""
-
-
-class RCFEResult(NamedTuple):
-    """RCFE curvature and conservation from _rcfe."""
-    curvature: NDArray
-    """RCFE curvature per edge, f64[nE]."""
-    strain: float
-    """Total strain S = sum C(e) * RL[e,e]."""
-    bianchi_ok: bool
-    """Whether Bianchi identity B1 diag(C) B2 = 0 holds."""
-    bianchi_residual: float
-    """Max absolute entry of B1 diag(C) B2."""
+# Join operations
 
 
 class JoinResult(NamedTuple):
-    """Result of a chain complex join operation."""
+    """Result of a chain complex join operation from _joins."""
     B1j: NDArray
     """Joined boundary operator, f64[nVj, nEj]."""
     B2j: NDArray
@@ -870,8 +936,11 @@ class JoinResult(NamedTuple):
     """Max |B1j @ B2j| (should be ~0)."""
 
 
+# Query engine
+
+
 class ImputeResult(NamedTuple):
-    """Result of harmonic signal imputation."""
+    """Result of harmonic signal imputation from _query.signal_impute()."""
     imputed: NDArray
     """Full signal with imputed values, f64[nE]."""
     confidence: NDArray
@@ -901,7 +970,7 @@ class CellExplanation(NamedTuple):
 
 
 class PropagationResult(NamedTuple):
-    """Result of spectral propagation through RL."""
+    """Result of spectral propagation through RL from _query.spectral_propagate()."""
     score: float
     """Overall propagation score."""
     typed_scores: NDArray
@@ -910,6 +979,9 @@ class PropagationResult(NamedTuple):
     """Source energy in RL."""
     coverage: float
     """Fraction of spectral modes covered by source."""
+
+
+# Structural analysis
 
 
 class RemovalStep(NamedTuple):
@@ -948,3 +1020,86 @@ class StructuralSummary(NamedTuple):
     """Total void strain."""
     mean_eta: float
     """Mean harmonic content of voids."""
+
+
+# Interfacing (from _interfacing.pyx)
+
+
+class InterfacingResult(NamedTuple):
+    """Interfacing vector and confidence diagnostics from build_interfacing_bundle."""
+    rho: NDArray
+    """Vertex source vector, f64[nV]."""
+    psi: NDArray
+    """Edge signal, f64[nE]."""
+    scores: NDArray
+    """Per-channel scores (T, G, F), f64[3]."""
+    schrodinger: float
+    """Schrodinger channel score."""
+    iv: NDArray
+    """Interfacing vector (T, G, F, Sch), f64[4]."""
+    sphere_pos: NDArray
+    """Unit sphere position, f64[4]."""
+    signal_magnitude: float
+    """||psi||."""
+    coverage: float
+    """Spectral coverage in [0, 1]."""
+    efficiency: float
+    """Source efficiency in [0, 1]."""
+    confidence: dict
+    """Confidence flags: {flag, reasons}."""
+
+
+class ChannelProfile(NamedTuple):
+    """Multi-channel profile from multi_channel_profile."""
+    iv_T: float
+    """Interfacing vector topological component."""
+    iv_G: float
+    """Interfacing vector geometric component."""
+    iv_F: float
+    """Interfacing vector frustration component."""
+    iv_Sch: float
+    """Interfacing vector Schrodinger component."""
+    pc_T: float
+    """Primal character topological fraction."""
+    pc_G: float
+    """Primal character geometric fraction."""
+    pc_F: float
+    """Primal character frustration fraction."""
+    coverage: float
+    """Spectral coverage."""
+    kappa_mean: float
+    """Mean vertex coherence."""
+    efficiency: float
+    """Source efficiency."""
+
+
+class FiltrationResult(NamedTuple):
+    """Character-based quotient filtration from quotient_filtration_by_character."""
+    thresholds: NDArray
+    """Chi threshold at each step, f64[n_steps]."""
+    beta0: NDArray
+    """Connected components at each step, i32[n_steps]."""
+    beta1: NDArray
+    """First Betti number at each step, i32[n_steps]."""
+    beta2: NDArray
+    """Second Betti number at each step, i32[n_steps]."""
+    n_edges_remaining: NDArray
+    """Surviving edge count at each step, i32[n_steps]."""
+    edges_removed_order: NDArray
+    """Edge indices sorted by decreasing chi, i32[nE]."""
+    transition_index: int
+    """Step with largest beta_1 drop. -1 if constant."""
+    transition_threshold: float
+    """Chi value at the transition point."""
+
+
+class CrossComplexBridge(NamedTuple):
+    """Cross-complex bridge analysis from cross_complex_bridge."""
+    kappa: dict
+    """Kappa correlation: {correlation, n_shared, kappa_A_shared, kappa_B_shared, mean_A, mean_B}."""
+    void: dict
+    """Void fraction comparison: {void_fraction_A, void_fraction_B, difference}."""
+    n_shared: int
+    """Number of shared vertices."""
+    channel: Optional[dict] = None
+    """Channel score correlation if provided: {correlation, n_groups}."""

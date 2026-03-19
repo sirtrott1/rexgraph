@@ -676,3 +676,270 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
         result['chi'] = np.zeros((0, 0), dtype=np.float64)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Sparse spectral bundle for large graphs
+# ---------------------------------------------------------------------------
+
+def _sparse_betti(B1_in, B2_in, int nV, int nE, int nF):
+    """Betti numbers without dense eigendecomposition.
+
+    beta_0: connected components via union-find from _cycles. O(nE alpha(nV)).
+    beta_1: Euler relation beta_1 = beta_0 + beta_2 - (nV - nE + nF).
+    beta_2: rank(B2) via sparse SVD when nF > 0, else 0.
+
+    For graphs with no faces (nF=0), this is pure C with zero scipy calls.
+    """
+    # beta_0 via union-find (already implemented in _cycles)
+    from rexgraph.core._cycles import cycle_space_dimension
+
+    # cycle_space_dimension returns beta_1 = nE - nV + beta_0
+    # We need sources/targets from B1
+    if hasattr(B1_in, 'row_ptr'):
+        from rexgraph.core._sparse import to_scipy_csr
+        B1_sp = to_scipy_csr(B1_in)
+    else:
+        from scipy.sparse import issparse, csr_matrix
+        B1_sp = B1_in if issparse(B1_in) else csr_matrix(B1_in)
+
+    # Extract sources and targets from B1 columns
+    # Each column of B1 has exactly one -1 (source) and one +1 (target)
+    src_list = np.empty(nE, dtype=np.int32)
+    tgt_list = np.empty(nE, dtype=np.int32)
+    B1_csc = B1_sp.tocsc()
+    cdef int e, row_idx
+    cdef double val
+    for e in range(nE):
+        col_start = B1_csc.indptr[e]
+        col_end = B1_csc.indptr[e + 1]
+        s = -1
+        t = -1
+        for k in range(col_start, col_end):
+            row_idx = B1_csc.indices[k]
+            val = B1_csc.data[k]
+            if val < 0:
+                s = row_idx
+            else:
+                t = row_idx
+        if s < 0:
+            s = t  # self-loop or degenerate
+        if t < 0:
+            t = s
+        src_list[e] = s
+        tgt_list[e] = t
+
+    # beta_1 from cycle_space_dimension (uses union-find, O(nE alpha(nV)))
+    beta1_no_faces = cycle_space_dimension(nV, nE, src_list, tgt_list)
+    # This gives beta_1 for the 1-skeleton (no faces)
+
+    # beta_0 = nE - beta1_no_faces + nV - nE = nV - (nE - beta1_no_faces)
+    # Actually: beta1_no_faces = nE - nV + beta_0, so beta_0 = beta1_no_faces - nE + nV
+    cdef int beta0 = beta1_no_faces - nE + nV
+
+    cdef int rank_B2 = 0
+    cdef int beta2 = 0
+
+    if nF > 0:
+        # rank(B2) via sparse SVD
+        try:
+            from scipy.sparse.linalg import svds
+            from scipy.sparse import issparse as _issparse, csr_matrix as _csr
+            B2_sp = B2_in
+            if hasattr(B2_in, 'row_ptr'):
+                from rexgraph.core._sparse import to_scipy_csr
+                B2_sp = to_scipy_csr(B2_in)
+            elif not _issparse(B2_sp):
+                B2_sp = _csr(np.asarray(B2_in, dtype=np.float64))
+
+            k_B2 = min(min(nE, nF) - 1, 100)
+            if k_B2 > 0:
+                sv = svds(B2_sp.astype(np.float64), k=k_B2,
+                          return_singular_vectors=False)
+                rank_B2 = int(np.sum(sv > 1e-10))
+        except Exception:
+            rank_B2 = 0
+        beta2 = nF - rank_B2
+
+    # Euler relation: beta_0 - beta_1 + beta_2 = nV - nE + nF
+    cdef int euler = nV - nE + nF
+    cdef int beta1 = beta0 + beta2 - euler
+    if beta1 < 0:
+        beta1 = 0
+
+    return beta0, beta1, beta2, nV - beta0, rank_B2
+
+
+def _sparse_fiedler_L0(B1_in, int nV, int nE):
+    """Fiedler value and vector of L0 without materializing L0.
+
+    Uses scipy eigsh with a LinearOperator that applies L0 = B1 B1^T
+    via two Cython matvec calls through the DualCSR. No nV x nV matrix
+    is ever allocated.
+
+    For nV <= 2000, uses dense eigh (faster due to LAPACK constants).
+    For nV > 2000, uses matrix-free ARPACK with which='SM'.
+    """
+    from scipy.sparse.linalg import LinearOperator, eigsh
+
+    if nV <= 1:
+        return 0.0, np.zeros(nV, dtype=np.float64), \
+               np.empty(0, dtype=np.float64), np.empty((0, 0), dtype=np.float64)
+
+    # Check if we have a DualCSR (use fast Cython matvec)
+    cdef bint have_dual = hasattr(B1_in, 'row_ptr') and hasattr(B1_in, 'col_ptr')
+
+    if have_dual:
+        from rexgraph.core._sparse import matvec as _matvec, rmatvec as _rmatvec
+
+        B1_dual = B1_in
+
+        def _L0_matvec(x):
+            # L0 @ x = B1 @ (B1^T @ x)
+            # rmatvec: B1^T @ x via CSC path (nogil Cython)
+            # matvec: B1 @ tmp via CSR path (nogil Cython)
+            tmp = _rmatvec(B1_dual, x.astype(np.float64))
+            return _matvec(B1_dual, tmp)
+
+        L0_op = LinearOperator((nV, nV), matvec=_L0_matvec, dtype=np.float64)
+    else:
+        # Fallback: scipy sparse
+        from scipy.sparse import issparse, csr_matrix
+        B1_sp = B1_in if issparse(B1_in) else csr_matrix(B1_in)
+        B1_sp = B1_sp.astype(np.float64)
+
+        def _L0_matvec_sp(x):
+            return B1_sp @ (B1_sp.T @ x)
+
+        L0_op = LinearOperator((nV, nV), matvec=_L0_matvec_sp, dtype=np.float64)
+
+    # Dense path for small matrices
+    if nV <= 2000:
+        if have_dual:
+            from rexgraph.core._sparse import spmm_AAt_dense_f64
+            L0_dense = spmm_AAt_dense_f64(B1_in)
+        else:
+            L0_dense = np.asarray((B1_sp @ B1_sp.T).toarray(), dtype=np.float64)
+
+        evals_all, evecs_all = np.linalg.eigh(L0_dense)
+        evals_all[np.abs(evals_all) < 1e-10] = 0.0
+        evals_all[evals_all < 0] = 0.0
+
+        fiedler_val = 0.0
+        fiedler_vec = np.zeros(nV, dtype=np.float64)
+        for i in range(len(evals_all)):
+            if evals_all[i] > 1e-10:
+                fiedler_val = float(evals_all[i])
+                fiedler_vec = evecs_all[:, i].copy()
+                break
+
+        return fiedler_val, fiedler_vec, evals_all, evecs_all
+
+    # Large matrix: matrix-free ARPACK
+    k = min(nV - 1, 6)
+    try:
+        evals, evecs = eigsh(L0_op, k=k, which='SM', tol=1e-6, maxiter=500)
+        order = np.argsort(evals)
+        evals = evals[order]
+        evecs = evecs[:, order]
+        evals[np.abs(evals) < 1e-10] = 0.0
+        evals[evals < 0] = 0.0
+    except Exception:
+        # SM can fail on singular operators; try with small shift
+        try:
+            from scipy.sparse import eye as speye
+            L0_shifted = L0_op + 1e-8 * speye(nV, format='csr')
+            evals, evecs = eigsh(L0_shifted, k=k, which='SM', tol=1e-6, maxiter=500)
+            order = np.argsort(evals)
+            evals = evals[order]
+            evecs = evecs[:, order]
+            evals = evals - 1e-8
+            evals[np.abs(evals) < 1e-10] = 0.0
+            evals[evals < 0] = 0.0
+        except Exception:
+            evals = np.zeros(1, dtype=np.float64)
+            evecs = np.ones((nV, 1), dtype=np.float64) / np.sqrt(nV)
+
+    fiedler_val = 0.0
+    fiedler_vec = np.zeros(nV, dtype=np.float64)
+    for i in range(len(evals)):
+        if evals[i] > 1e-10:
+            fiedler_val = float(evals[i])
+            fiedler_vec = evecs[:, i].copy()
+            break
+
+    return fiedler_val, fiedler_vec, evals, evecs
+
+
+def build_all_laplacians_sparse(B1_in, B2_in, int nV, int nE, int nF):
+    """Sparse spectral bundle for large graphs where nE x nE is too big.
+
+    Computes Betti numbers via union-find + Euler (no L1 eigendecomposition).
+    Computes L0 Fiedler via matrix-free ARPACK (no L0 materialized).
+    Edge-space operators (L1, L_O, RL, hats, chi) are set to None.
+    Use subgraph() or quotient() to analyze edge-level structure.
+
+    Parameters
+    ----------
+    B1_in : DualCSR or scipy sparse or dense, shape (nV, nE)
+    B2_in : DualCSR or scipy sparse or dense or None, shape (nE, nF)
+    nV, nE, nF : int
+
+    Returns
+    -------
+    dict with the same key set as build_all_laplacians. Keys that
+    require dense nE x nE computation are set to None or empty.
+    """
+    result = {}
+    result['_sparse_mode'] = True
+
+    # Betti via union-find (passes B1_in directly, handles DualCSR internally)
+    beta0, beta1, beta2, rank_B1, rank_B2 = _sparse_betti(
+        B1_in, B2_in, nV, nE, nF)
+    result['beta0'] = beta0
+    result['beta1'] = beta1
+    result['beta2'] = beta2
+
+    # L0 Fiedler via matrix-free eigsh (passes B1_in directly)
+    fv, fvec, evals_L0, evecs_L0 = _sparse_fiedler_L0(B1_in, nV, nE)
+    result['fiedler_val_L0'] = fv
+    result['fiedler_vec_L0'] = fvec
+    result['evals_L0'] = evals_L0
+    result['evecs_L0'] = evecs_L0
+
+    # L0 stored as None (use matrix-free operator instead)
+    result['L0'] = None
+
+    # Edge-space operators: not computed at this scale
+    result['L1_down'] = None
+    result['L1_up'] = None
+    result['L1_full'] = None
+    result['evals_L1'] = np.empty(0, dtype=np.float64)
+    result['evecs_L1'] = None
+    result['fiedler_val_L1'] = 0.0
+
+    result['L2'] = None
+    result['evals_L2'] = np.empty(0, dtype=np.float64)
+
+    result['evals_L_O'] = np.empty(0, dtype=np.float64)
+    result['fiedler_L_O'] = 0.0
+    result['fiedler_vec_L_O'] = np.zeros(nE, dtype=np.float64)
+
+    result['alpha_G'] = float('nan')
+    result['alpha_T'] = float(beta1) / float(nE) if nE > 0 else 0.0
+
+    result['RL_1'] = None
+    result['evals_RL_1'] = None
+    result['evecs_RL_1'] = None
+
+    result['K1'] = None
+    result['L_C'] = None
+
+    result['RL'] = None
+    result['hats'] = []
+    result['nhats'] = 0
+    result['trace_values'] = np.empty(0, dtype=np.float64)
+    result['hat_names'] = []
+    result['chi'] = None
+
+    return result

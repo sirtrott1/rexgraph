@@ -1,38 +1,50 @@
 """
 rexgraph.analysis - Structural analysis for the visualization dashboard.
 
-Connects RexGraph to the dashboard JSON contract.  Accepts a rex with
+Connects RexGraph to the dashboard JSON contract. Accepts a rex with
 optional vertex labels and edge attributes, and returns a dict whose
-keys match what rex_dashboard_template.jsx reads.
+keys match what the dashboard templates read.
 
-Functions
----------
-analyze()          - Full structural analysis for the graph dashboard.
-analyze_signal()   - Signal/perturbation/field data for the signal dashboard.
-analyze_quotient() - Quotient presets for the quotient dashboard.
-analyze_all()      - Combined analysis for all three dashboards in one call.
+Functions:
+    analyze        - Full structural analysis for the graph dashboard.
+    analyze_signal - Signal/perturbation/field data for the signal dashboard.
+    analyze_quotient - Quotient presets for the quotient dashboard.
+    analyze_all    - Combined analysis for all three dashboards in one call.
 
-Computation is delegated to the Cython modules through RexGraph's
-cached bundles:
+Cached bundles:
 
-    spectral_bundle   - Laplacians, eigenvalues, Betti numbers, coupling constants.
+    spectral_bundle   - Laplacians, eigenvalues, Betti numbers, coupling
+                        constants, relational Laplacian RL with hat
+                        operators, structural character chi.
     _adjacency_bundle - Symmetric CSR for standard graph algorithms.
     _overlap_bundle   - L_O for overlap analysis.
+    _rcf_bundle       - RL, hats, nhats, hat_names (from spectral_bundle).
+    _vertex_bundle    - phi, chi_star, kappa from _character.
 
-And to:
+Methods called:
 
     rex.hodge_full()                   - Full Hodge decomposition.
-    rex.face_data()                    - Face extraction, counts, structural metrics.
-    rex.overlap_pairs                  - Top-k overlap pairs by Jaccard index.
+    rex.face_data()                    - Face extraction, counts, metrics.
+    rex.overlap_pairs                  - Top-k overlap pairs by Jaccard.
     rex.energy_kin_pot()               - E_kin / E_pot decomposition.
     rex.per_edge_energy()              - Per-edge kinetic/potential energy.
     rex.field_operator / field_eigen   - Coupled (E,F) field dynamics.
-    rex.classify_modes()               - Edge/face/coupled mode classification.
-    rex.analyze_perturbation()         - Signal propagation analysis pipeline.
+    rex.classify_modes()               - Edge/face/coupled mode labels.
+    rex.analyze_perturbation()         - Signal propagation pipeline.
     rex.signal_dashboard_data()        - Precomputed signal trajectories.
     rex.quotient_dashboard_data()      - Precomputed quotient presets.
     rex.partition_communities()        - Hierarchical graph partitioning.
-    _standard.build_standard_metrics() - PageRank, betweenness, clustering, Louvain.
+    rex.structural_character           - Per-edge chi on the simplex.
+    rex.vertex_character / coherence   - Per-vertex phi and kappa.
+    rex.phi_similarity / fiber_similarity - Fiber bundle similarity.
+    rex.rcfe_curvature / rcfe_strain   - RCFE curvature and strain.
+    rex.void_complex                   - Void spectral theory.
+    rex.dirac_eigenvalues              - Dirac spectrum.
+    rex.graded_state / born_graded     - Cross-dimensional Born probs.
+    rex.hypermanifold / harmonic_shadow - Manifold sequence.
+    rex.attributed_curvature           - Attributed boundary curvature.
+    rex.strain_equilibrium             - Dynamic strain equilibrium.
+    _standard.build_standard_metrics() - PageRank, betweenness, etc.
 
 Usage:
 
@@ -41,13 +53,10 @@ Usage:
 
     rex = RexGraph.from_graph(sources, targets)
     data = analyze(rex, vertex_labels=names, edge_attrs={"type": types})
-    # data is ready for generate_dashboard()
 
     sig_data = analyze_signal(rex, vertex_labels=names, edge_attrs={"type": types})
-    # sig_data is ready for signal dashboard template
 
     quot_data = analyze_quotient(rex, vertex_labels=names, edge_attrs={"type": types})
-    # quot_data is ready for quotient dashboard template
 """
 
 from __future__ import annotations
@@ -286,35 +295,33 @@ def analyze(
     eL_O_arr = sb.get('evals_L_O')
     eL_O = eL_O_arr if eL_O_arr is not None else np.array([])
 
-    eL1a_arr = sb.get('evals_L1a')
+    eL1a_arr = sb.get('evals_RL_1')
     eL1a = eL1a_arr if eL1a_arr is not None else np.array([])
 
-    eLam_arr = sb.get('evals_Lambda')
-    eLambda = eLam_arr if eLam_arr is not None else np.array([])
+    # RL eigenvalues (full relational Laplacian)
+    evals_RL_arr = sb.get('RL')
+    if evals_RL_arr is not None and evals_RL_arr.shape[0] > 0:
+        from rexgraph.core._linalg import eigh as _eigh_rl
+        evals_RL_full = _eigh_rl(evals_RL_arr)[0]
+    else:
+        evals_RL_full = np.array([])
 
     b0, b1, b2 = rex.betti
-    rank_B1 = sb.get('rank_B1', 0)
-    rank_B2 = sb.get('rank_B2', 0)
+    rank_B1 = nV - b0
+    rank_B2 = nF - b2
     alpha_G, alpha_T = rex.coupling_constants
     fiedler_LO_val, fiedler_LO_vec = rex.fiedler_overlap
 
     # Fiedler value of L1
-    if eL1_arr is not None and len(eL1_arr) > 1:
-        sorted_eL1 = np.sort(eL1_arr)
-        first_nonzero = sorted_eL1[sorted_eL1 > 1e-10]
-        fiedler_L1 = float(first_nonzero[0]) if len(first_nonzero) > 0 else 0.0
-    else:
-        fiedler_L1 = 0.0
+    fiedler_L1 = float(sb.get('fiedler_val_L1', 0.0))
 
     chain_ok = rex.chain_valid
 
-    # L1 diagonal values
-    L1_down_diag = sb.get('diag_L1_down', np.zeros(nE, dtype=_f64))
-    L1_up_diag = sb.get('diag_L1_up', np.zeros(nE, dtype=_f64))
-    if not isinstance(L1_down_diag, np.ndarray):
-        L1_down_diag = np.asarray(L1_down_diag, dtype=_f64)
-    if not isinstance(L1_up_diag, np.ndarray):
-        L1_up_diag = np.asarray(L1_up_diag, dtype=_f64)
+    # L1 diagonal values (compute from matrices)
+    L1_down_mat_diag = sb.get('L1_down')
+    L1_up_mat_diag = sb.get('L1_up')
+    L1_down_diag = np.diag(L1_down_mat_diag).astype(_f64) if L1_down_mat_diag is not None else np.zeros(nE, dtype=_f64)
+    L1_up_diag = np.diag(L1_up_mat_diag).astype(_f64) if L1_up_mat_diag is not None else np.zeros(nE, dtype=_f64)
 
     # Layout, scaled to SVG canvas
     layout = rex.layout  # (nV, 2)
@@ -525,15 +532,15 @@ def analyze(
         a_count = sum(1 for j in inc if e_part_LO[j] == "A")
         v_part_LO.append("A" if a_count >= len(inc) - a_count else "B")
 
-    # Edge partition from L1(alpha) Fiedler vector
-    evecs_L1a = sb.get('evecs_L1a')
-    evals_L1a_arr = sb.get('evals_L1a')
-    if evecs_L1a is not None and evals_L1a_arr is not None and evals_L1a_arr.shape[0] > 1:
-        sorted_idx = np.argsort(evals_L1a_arr)
-        fiedler_L1a = evecs_L1a[:, sorted_idx[1]] if sorted_idx.shape[0] > 1 else np.zeros(nE)
-        e_part_L1a = _partition_from_fiedler(fiedler_L1a)
+    # Edge partition from RL_1 Fiedler vector
+    evecs_RL1_part = sb.get('evecs_RL_1')
+    evals_RL1_part = sb.get('evals_RL_1')
+    if evecs_RL1_part is not None and evals_RL1_part is not None and evals_RL1_part.shape[0] > 1:
+        sorted_idx = np.argsort(evals_RL1_part)
+        fiedler_RL1_vec = evecs_RL1_part[:, sorted_idx[1]] if sorted_idx.shape[0] > 1 else np.zeros(nE)
+        e_part_L1a = _partition_from_fiedler(fiedler_RL1_vec)
     else:
-        fiedler_L1a = np.zeros(nE, dtype=_f64)
+        fiedler_RL1_vec = np.zeros(nE, dtype=_f64)
         e_part_L1a = ["A"] * nE
 
     # Standard graph metrics
@@ -940,9 +947,8 @@ def analyze(
             "L1_full": [_round(v, 6) for v in eL1_full],
             "L2": [_round(v, 6) for v in eL2],
             "LO": [_round(v, 6) for v in eL_O],
-            "L1_alpha": [_round(v, 6) for v in eL1a],
             "RL1": [_round(v, 6) for v in evals_RL1],
-            "Lambda": [_round(v, 6) for v in eLambda],
+            "RL": [_round(v, 6) for v in evals_RL_full],
             "field_M": [_round(v, 6) for v in field_evals],
             "fiedler_L0": _round(eL0[np.argsort(eL0)[1]]) if nV > 1 else 0,
             "fiedler_LO": _round(fiedler_LO_val),
@@ -1006,6 +1012,33 @@ def analyze(
             for k, v in summary.items()
         }
 
+        # Per-channel mixing times
+        try:
+            ch_mix = rex.per_channel_mixing_times
+            if ch_mix is not None and len(ch_mix) > 0:
+                chi_section["per_channel_mixing_times"] = [
+                    _round(float(t), 4) if t != float('inf') else None
+                    for t in ch_mix
+                ]
+                aniso = _character.mixing_time_anisotropy(ch_mix, nhats)
+                chi_section["mixing_time_anisotropy"] = {
+                    "dominant_channel": int(aniso['dominant_channel']),
+                    "slowest_channel": int(aniso['slowest_channel']),
+                    "anisotropy": _round(float(aniso['anisotropy']), 4)
+                    if aniso['anisotropy'] != float('inf') else None,
+                }
+        except Exception:
+            pass
+
+        # Inverse centrality ratio
+        try:
+            mu = rex.inverse_centrality_ratio
+            chi_section["inverse_centrality_ratio"] = [
+                _round(float(mu[v]), 4) for v in range(nV)
+            ]
+        except Exception:
+            pass
+
         export["structural_character"] = chi_section
 
         # RCFE curvature
@@ -1032,6 +1065,141 @@ def analyze(
             "realization_rate": _round(
                 1.0 - vc.get('n_voids', 0) / max(vc.get('n_potential', 1), 1), 4),
         }
+
+        # Fiber bundle similarity
+        try:
+            from rexgraph.core import _fiber
+            phi_sim = rex.phi_similarity
+            fb_sim = rex.fiber_similarity
+
+            # Top vertex pairs by fiber similarity
+            top_pairs = []
+            for i in range(min(nV, 50)):
+                for j in range(i + 1, min(nV, 50)):
+                    if fb_sim[i, j] > 0.5:
+                        top_pairs.append({
+                            "a": v_names[i], "b": v_names[j],
+                            "phi_sim": _round(float(phi_sim[i, j]), 4),
+                            "fb_sim": _round(float(fb_sim[i, j]), 4),
+                        })
+            top_pairs.sort(key=lambda p: -p["fb_sim"])
+
+            export["fiber_bundle"] = {
+                "mean_phi_sim": _round(float(np.mean(phi_sim)), 4),
+                "mean_fb_sim": _round(float(np.mean(fb_sim)), 4),
+                "top_pairs": top_pairs[:10],
+            }
+        except Exception:
+            pass
+
+        # Interfacing (if flow signal and _interfacing are available)
+        try:
+            from rexgraph.core import _interfacing, _channels
+            if flow is not None and nE > 0:
+                # Primal signal character of the flow
+                psc = rex.primal_signal_character(flow)
+                export["channels"] = {
+                    "primal_signal_character": [
+                        _round(float(psc[k]), 4) for k in range(nhats)
+                    ],
+                }
+
+                # Face-void dipole of the flow
+                try:
+                    fvd = rex.face_void_dipole(flow)
+                    export["channels"]["face_void_dipole"] = {
+                        "face_affinity": _round(float(fvd['face_affinity']), 4),
+                        "void_affinity": _round(float(fvd['void_affinity']), 4),
+                        "dipole_ratio": _round(float(fvd['dipole_ratio']), 4),
+                        "total_projection": _round(float(fvd['total_projection']), 4),
+                    }
+                except Exception:
+                    pass
+        except (ImportError, AttributeError):
+            pass
+
+        # Dirac spectrum and graded state
+        try:
+            from rexgraph.core import _dirac
+            d_evals = rex.dirac_eigenvalues
+            total_dim = nV + nE + nF
+
+            dirac_section = {
+                "spectrum": [_round(float(v), 6) for v in d_evals[:20]],
+                "total_dim": total_dim,
+                "n_zero": int(np.sum(np.abs(d_evals) < 1e-8)),
+            }
+
+            # Graded state from vertex 0
+            try:
+                psi_re, psi_im = rex.graded_state(t=0.0, vertex_idx=0)
+                per_cell, per_dim = rex.born_graded(psi_re, psi_im)
+                e_part = rex.energy_partition(psi_re, psi_im)
+                dirac_section["born_per_dim"] = [_round(float(p), 4) for p in per_dim]
+                dirac_section["energy_partition"] = [_round(float(e), 4) for e in e_part]
+            except Exception:
+                pass
+
+            export["dirac"] = dirac_section
+        except Exception:
+            pass
+
+        # Hypermanifold sequence
+        try:
+            from rexgraph.core import _hypermanifold
+            hm = rex.hypermanifold()
+            manifolds = hm.get('manifolds', [])
+
+            export["hypermanifold"] = {
+                "n_levels": len(manifolds),
+                "manifolds": [
+                    {
+                        "level": m.get('level', i),
+                        "nV": int(m.get('nV', 0)),
+                        "nE": int(m.get('nE', 0)),
+                        "nF": int(m.get('nF', 0)),
+                        "betti": list(m.get('betti', (0, 0, 0))),
+                        "dof": int(m.get('dof', 0)),
+                    }
+                    for i, m in enumerate(manifolds)
+                ],
+            }
+
+            # Harmonic shadow
+            hs = rex.harmonic_shadow
+            export["hypermanifold"]["harmonic_shadow"] = {
+                "shadow_dim": int(hs.get('shadow_dim', 0)),
+                "beta_1_at_d1": int(hs.get('beta_1_at_d1', 0)),
+                "beta_1_at_d2": int(hs.get('beta_1_at_d2', 0)),
+            }
+
+            # Dimensional subsumption
+            ok, violations = rex.dimensional_subsumption
+            export["hypermanifold"]["subsumption_ok"] = bool(ok)
+            export["hypermanifold"]["n_violations"] = len(violations)
+        except Exception:
+            pass
+
+        # Extended RCFE: attributed curvature and strain equilibrium
+        try:
+            ac = rex.attributed_curvature()
+            kappa_f = ac.get('kappa_f', np.zeros(0))
+            export["rcfe"]["attributed_curvature"] = {
+                "n_faces": len(kappa_f),
+                "mean_kappa_f": _round(float(np.mean(kappa_f)), 6) if len(kappa_f) > 0 else 0.0,
+                "max_kappa_f": _round(float(np.max(kappa_f)), 6) if len(kappa_f) > 0 else 0.0,
+            }
+
+            se = rex.strain_equilibrium()
+            export["rcfe"]["strain_equilibrium"] = {
+                "alpha": _round(float(se.get('alpha', 0)), 6),
+                "strain_norm": _round(float(se.get('strain_norm', 0)), 6),
+                "bianchi_ok": bool(se.get('bianchi_ok', True)),
+                "bianchi_residual": _round(float(se.get('bianchi_residual', 0)), 8),
+            }
+        except Exception:
+            pass
+
     except (ImportError, AttributeError, KeyError):
         pass
 

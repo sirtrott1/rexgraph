@@ -24,7 +24,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "0.2.0"
+version = "0.4.0"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 license = {text = "GNU Affero General Public License"}
@@ -116,7 +116,7 @@ Issues = "https://github.com/rexgraph/rexgraph/issues"
 # Testing
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-v", "--tb=short"]
+addopts = ["-v", "--tb=short", "-W", "ignore::pytest.PytestCollectionWarning"]
 markers = [
     "slow: marks tests as slow (run with --runslow)",
     "cuda: marks tests requiring CUDA (run with --cuda)",

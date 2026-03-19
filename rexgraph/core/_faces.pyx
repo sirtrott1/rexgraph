@@ -1,12 +1,21 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._faces - Face classification, extraction, and metrics.
+rexgraph.core._faces - Face classification, extraction, metrics, and selection.
 
 Classifies faces into proper (2+ unique boundary vertices) and
 self-loop (1 vertex), filters B_2 to produce B2_hodge for exact
 Hodge decomposition, extracts face descriptors, and computes
 structural metrics.
+
+Face selection methods:
+    typed_face_selection - B1 decomposed by edge type; same-type
+        triangles become faces, cross-type become voids.
+    context_face_selection - algebraic context selection via
+        E = C^T |B1| > 0; face included iff some context covers
+        all three boundary edges.
+    void_type_composition - decompose void triangles by cross-type
+        edge composition.
 
 Self-loop faces arise from edges like v->v. Their B_2 column has
 nonzero entries but B_1 B_2 != 0 for those columns because the
@@ -770,4 +779,421 @@ def build_face_data(B2, edge_src, edge_tgt, Py_ssize_t nV,
         'face_class': fc,
         'vertex_face_count': vfc,
         'metrics': metrics,
+    }
+
+
+# Typed boundary decomposition
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def typed_face_selection(np.ndarray[i32, ndim=1] edge_types,
+                          np.ndarray[i32, ndim=1] adj_ptr,
+                          np.ndarray[i32, ndim=1] adj_idx,
+                          np.ndarray[i32, ndim=1] adj_edge,
+                          Py_ssize_t nV, Py_ssize_t nE,
+                          int n_types):
+    """Typed boundary decomposition face selection.
+
+    B_1 is decomposed by edge type: B_1 = sum_t B_{1,t}. A triangle
+    (e_uv, e_uw, e_vw) is realized as a face if and only if all three
+    boundary edges share the same type. Cross-type triangles become
+    voids. No external parameters are needed.
+
+    Triangle enumeration uses adjacency intersection: for each vertex u,
+    for each pair of neighbors (v, w) where v < w and (v, w) are
+    adjacent, the triple (u, v, w) forms a triangle. Each triangle is
+    found exactly once when u = min(u, v, w).
+
+    Parameters
+    ----------
+    edge_types : i32[nE]
+        Per-edge type label (0, 1, ..., n_types-1).
+    adj_ptr : i32[nV+1]
+        Symmetric adjacency CSR row pointer.
+    adj_idx : i32[nnz]
+        Symmetric adjacency neighbor indices.
+    adj_edge : i32[nnz]
+        Edge index for each adjacency entry.
+    nV, nE : int
+    n_types : int
+        Number of distinct edge types.
+
+    Returns
+    -------
+    dict
+        realized_edges : i32[nF_realized * 3]
+            Flat array of edge indices for realized faces (groups of 3).
+        realized_signs : f64[nF_realized * 3]
+            Boundary signs for realized faces.
+        nF_realized : int
+        void_edges : i32[nF_void * 3]
+            Flat array of edge indices for void triangles.
+        void_signs : f64[nF_void * 3]
+            Boundary signs for void triangles.
+        nF_void : int
+        face_types : i32[nF_realized]
+            Type label for each realized face.
+        n_triangles : int
+            Total triangles enumerated.
+    """
+    cdef i32[::1] et = edge_types
+    cdef i32[::1] ap = adj_ptr, ai = adj_idx, ae = adj_edge
+
+    # Phase 1: enumerate all triangles, partition into realized vs void
+    # For each u, iterate neighbors v > u; for each such v, intersect
+    # N(u) ∩ N(v) for w > v. This finds each triangle exactly once.
+    realized_e_list = []
+    realized_s_list = []
+    realized_t_list = []
+    void_e_list = []
+    void_s_list = []
+
+    cdef Py_ssize_t u, v, w
+    cdef Py_ssize_t j_v, j_w, lo_v, hi_v, lo_w, hi_w
+    cdef i32 e_uv, e_uw, e_vw
+    cdef i32 t_uv, t_uw, t_vw
+    cdef Py_ssize_t p_u, p_w
+
+    for u in range(nV):
+        lo_v = ap[u]
+        hi_v = ap[u + 1]
+        for j_v in range(lo_v, hi_v):
+            v = ai[j_v]
+            if v <= u:
+                continue
+            e_uv = ae[j_v]
+
+            # Intersect N(u) and N(v) for w > v
+            lo_w = ap[v]
+            hi_w = ap[v + 1]
+            p_u = lo_v      # pointer into N(u), scanning for w > v
+            p_w = lo_w      # pointer into N(v)
+
+            # Advance p_u past entries <= v
+            while p_u < hi_v and ai[p_u] <= v:
+                p_u += 1
+            # Advance p_w past entries <= v
+            while p_w < hi_w and ai[p_w] <= v:
+                p_w += 1
+
+            # Merge-intersect N(u)[p_u:] and N(v)[p_w:] (both sorted, w > v)
+            while p_u < hi_v and p_w < hi_w:
+                if ai[p_u] < ai[p_w]:
+                    p_u += 1
+                elif ai[p_u] > ai[p_w]:
+                    p_w += 1
+                else:
+                    # w = ai[p_u] = ai[p_w], triangle (u, v, w) found
+                    w = ai[p_u]
+                    e_uw = ae[p_u]
+                    e_vw = ae[p_w]
+
+                    t_uv = et[e_uv]
+                    t_uw = et[e_uw]
+                    t_vw = et[e_vw]
+
+                    if t_uv == t_uw and t_uw == t_vw:
+                        # All same type: realized face
+                        realized_e_list.append(e_uv)
+                        realized_e_list.append(e_uw)
+                        realized_e_list.append(e_vw)
+                        realized_s_list.append(1.0)
+                        realized_s_list.append(-1.0)
+                        realized_s_list.append(1.0)
+                        realized_t_list.append(t_uv)
+                    else:
+                        # Cross-type: void
+                        void_e_list.append(e_uv)
+                        void_e_list.append(e_uw)
+                        void_e_list.append(e_vw)
+                        void_s_list.append(1.0)
+                        void_s_list.append(-1.0)
+                        void_s_list.append(1.0)
+
+                    p_u += 1
+                    p_w += 1
+
+    cdef Py_ssize_t nF_r = len(realized_e_list) // 3
+    cdef Py_ssize_t nF_v = len(void_e_list) // 3
+
+    return {
+        'realized_edges': np.array(realized_e_list, dtype=np.int32),
+        'realized_signs': np.array(realized_s_list, dtype=np.float64),
+        'nF_realized': int(nF_r),
+        'void_edges': np.array(void_e_list, dtype=np.int32),
+        'void_signs': np.array(void_s_list, dtype=np.float64),
+        'nF_void': int(nF_v),
+        'face_types': np.array(realized_t_list, dtype=np.int32),
+        'n_triangles': int(nF_r + nF_v),
+    }
+
+
+# Algebraic context face selection
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def context_face_selection(np.ndarray[f64, ndim=2] B1,
+                            np.ndarray[np.uint8_t, ndim=2] context_matrix,
+                            np.ndarray[i32, ndim=1] adj_ptr,
+                            np.ndarray[i32, ndim=1] adj_idx,
+                            np.ndarray[i32, ndim=1] adj_edge,
+                            Py_ssize_t nV, Py_ssize_t nE):
+    """Algebraic context face selection via E = C^T |B1| > 0.
+
+    Given a binary context matrix C (n_contexts x nV) and the boundary
+    operator B1, the entry matrix E = C^T |B1| determines which edges
+    are visible to each context. A triangle (e1, e2, e3) is included
+    as a face if and only if some context d has
+    E[d, e1] * E[d, e2] * E[d, e3] > 0.
+
+    This is a single matrix multiply with no thresholds.
+
+    Also computes per-context face realization counts: how many
+    triangles each individual context covers.
+
+    Parameters
+    ----------
+    B1 : f64[nV, nE]
+        Signed incidence matrix.
+    context_matrix : uint8[n_contexts, nV]
+        Binary context incidence. C[d, v] = 1 if context d covers
+        vertex v.
+    adj_ptr : i32[nV+1]
+        Symmetric adjacency CSR row pointer.
+    adj_idx : i32[nnz]
+        Symmetric adjacency neighbor indices.
+    adj_edge : i32[nnz]
+        Edge index for each adjacency entry.
+    nV, nE : int
+
+    Returns
+    -------
+    dict
+        cycle_edges : i32[nF * 3]
+            Flat edge indices for realized triangles.
+        cycle_signs : f64[nF * 3]
+            Boundary signs.
+        cycle_lengths : i32[nF]
+            Always 3 for triangles.
+        nF : int
+            Number of realized faces.
+        n_triangles : int
+            Total triangles enumerated.
+        per_context_face_count : i32[n_contexts]
+            Faces realized per context.
+        per_context_void_fraction : f64[n_contexts]
+            1 - face_count / n_triangles per context.
+        void_edges : i32[nF_void * 3]
+            Flat edge indices for void triangles.
+        nF_void : int
+    """
+    cdef Py_ssize_t n_ctx = context_matrix.shape[0]
+    cdef np.uint8_t[:, ::1] cm = context_matrix
+
+    # E[d, e] = sum of C[d, v] over boundary vertices v of edge e.
+    # For standard 2-endpoint edges, E[d, e] = C[d, src(e)] + C[d, tgt(e)].
+    # Threshold E[d, e] > 0: edge e is visible to context d if at least
+    # one boundary vertex belongs to that context.
+
+    cdef np.ndarray[f64, ndim=2] abs_B1 = np.abs(B1)
+    # C is uint8, cast to f64 for matmul
+    cdef np.ndarray[f64, ndim=2] C_f = np.ascontiguousarray(
+        context_matrix, dtype=np.float64)
+    # E = C @ |B1|, shape (n_ctx, nE)
+    cdef np.ndarray[f64, ndim=2] E = C_f @ abs_B1
+    # Threshold: E[d, e] > 0 means edge e is visible to context d
+    cdef np.ndarray[np.uint8_t, ndim=2] E_vis = (E > 0.0).astype(np.uint8)
+    cdef np.uint8_t[:, ::1] ev = E_vis
+
+    cdef i32[::1] ap = adj_ptr, ai = adj_idx, ae = adj_edge
+
+    # Enumerate all triangles
+    # For each triangle, check if any context covers all 3 edges.
+    # Also track per-context counts.
+    face_e_list = []
+    face_s_list = []
+    void_e_list = []
+    void_s_list = []
+
+    # Collect all triangles first so we can count per-context
+    all_tri_edges = []  # list of (e1, e2, e3) tuples
+
+    cdef Py_ssize_t u, v, w
+    cdef Py_ssize_t j_v, lo_v, hi_v, lo_w, hi_w
+    cdef i32 e_uv, e_uw, e_vw
+    cdef Py_ssize_t p_u, p_w
+
+    for u in range(nV):
+        lo_v = ap[u]
+        hi_v = ap[u + 1]
+        for j_v in range(lo_v, hi_v):
+            v = ai[j_v]
+            if v <= u:
+                continue
+            e_uv = ae[j_v]
+
+            lo_w = ap[v]
+            hi_w = ap[v + 1]
+            p_u = lo_v
+            p_w = lo_w
+
+            while p_u < hi_v and ai[p_u] <= v:
+                p_u += 1
+            while p_w < hi_w and ai[p_w] <= v:
+                p_w += 1
+
+            while p_u < hi_v and p_w < hi_w:
+                if ai[p_u] < ai[p_w]:
+                    p_u += 1
+                elif ai[p_u] > ai[p_w]:
+                    p_w += 1
+                else:
+                    w = ai[p_u]
+                    e_uw = ae[p_u]
+                    e_vw = ae[p_w]
+                    all_tri_edges.append((e_uv, e_uw, e_vw))
+                    p_u += 1
+                    p_w += 1
+
+    cdef Py_ssize_t n_tri = len(all_tri_edges)
+
+    # Phase 2: for each triangle, check global coverage (any context
+    # covers all 3 edges). Also build per-context face counts.
+    cdef np.ndarray[i32, ndim=1] per_ctx = np.zeros(n_ctx, dtype=np.int32)
+    cdef i32[::1] pcv = per_ctx
+    cdef Py_ssize_t d, ti
+    cdef i32 e1, e2, e3
+    cdef bint any_covers
+
+    for ti in range(n_tri):
+        e1 = all_tri_edges[ti][0]
+        e2 = all_tri_edges[ti][1]
+        e3 = all_tri_edges[ti][2]
+
+        any_covers = False
+        for d in range(n_ctx):
+            if ev[d, e1] and ev[d, e2] and ev[d, e3]:
+                pcv[d] += 1
+                if not any_covers:
+                    any_covers = True
+
+        if any_covers:
+            face_e_list.append(e1)
+            face_e_list.append(e2)
+            face_e_list.append(e3)
+            face_s_list.append(1.0)
+            face_s_list.append(-1.0)
+            face_s_list.append(1.0)
+        else:
+            void_e_list.append(e1)
+            void_e_list.append(e2)
+            void_e_list.append(e3)
+            void_s_list.append(1.0)
+            void_s_list.append(-1.0)
+            void_s_list.append(1.0)
+
+    cdef Py_ssize_t nF = len(face_e_list) // 3
+    cdef Py_ssize_t nF_v = len(void_e_list) // 3
+
+    # Per-context void fractions
+    cdef np.ndarray[f64, ndim=1] per_ctx_vf = np.ones(n_ctx, dtype=np.float64)
+    cdef f64[::1] pvf = per_ctx_vf
+    if n_tri > 0:
+        for d in range(n_ctx):
+            pvf[d] = 1.0 - <f64>pcv[d] / <f64>n_tri
+
+    # Build cycle_lengths (all 3s)
+    cdef np.ndarray[i32, ndim=1] clens = np.full(nF, 3, dtype=np.int32)
+
+    return {
+        'cycle_edges': np.array(face_e_list, dtype=np.int32),
+        'cycle_signs': np.array(face_s_list, dtype=np.float64),
+        'cycle_lengths': clens,
+        'nF': int(nF),
+        'n_triangles': int(n_tri),
+        'per_context_face_count': per_ctx,
+        'per_context_void_fraction': per_ctx_vf,
+        'void_edges': np.array(void_e_list, dtype=np.int32),
+        'nF_void': int(nF_v),
+    }
+
+
+# Void type composition
+
+
+def void_type_composition(np.ndarray[i32, ndim=1] void_edges,
+                           np.ndarray[i32, ndim=1] edge_types,
+                           Py_ssize_t nF_void,
+                           int n_types):
+    """Decompose void triangles by cross-type edge composition.
+
+    Each void triangle has edges from 2 or 3 different types. This
+    function counts how many voids have each type combination.
+
+    Parameters
+    ----------
+    void_edges : i32[nF_void * 3]
+        Flat edge indices from typed_face_selection or
+        context_face_selection.
+    edge_types : i32[nE]
+        Per-edge type label.
+    nF_void : int
+        Number of void triangles.
+    n_types : int
+        Number of distinct edge types.
+
+    Returns
+    -------
+    dict
+        type_pairs : list of tuple
+            Sorted type sets for each void (e.g., (0, 1), (0, 1, 2)).
+        pair_counts : dict
+            Mapping from type set (as tuple) to count.
+        pair_fractions : dict
+            Mapping from type set to fraction of all voids.
+        n_cross_type_2 : int
+            Voids with exactly 2 distinct edge types.
+        n_cross_type_3 : int
+            Voids with 3 distinct edge types.
+    """
+    cdef i32[::1] ve = void_edges, et = edge_types
+    cdef Py_ssize_t f, idx
+    cdef i32 t0, t1, t2
+
+    pair_list = []
+    pair_counts = {}
+    cdef int n2 = 0, n3 = 0
+
+    for f in range(nF_void):
+        idx = f * 3
+        t0 = et[ve[idx]]
+        t1 = et[ve[idx + 1]]
+        t2 = et[ve[idx + 2]]
+
+        types_set = tuple(sorted(set((int(t0), int(t1), int(t2)))))
+        pair_list.append(types_set)
+
+        if types_set in pair_counts:
+            pair_counts[types_set] += 1
+        else:
+            pair_counts[types_set] = 1
+
+        if len(types_set) == 2:
+            n2 += 1
+        elif len(types_set) >= 3:
+            n3 += 1
+
+    pair_fractions = {}
+    if nF_void > 0:
+        for k, v in pair_counts.items():
+            pair_fractions[k] = float(v) / float(nF_void)
+
+    return {
+        'type_pairs': pair_list,
+        'pair_counts': pair_counts,
+        'pair_fractions': pair_fractions,
+        'n_cross_type_2': n2,
+        'n_cross_type_3': n3,
     }

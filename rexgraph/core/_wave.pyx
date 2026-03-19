@@ -685,8 +685,12 @@ def entanglement_entropy(np.ndarray[np.complex128_t, ndim=1] psi,
 
     """
     cdef np.ndarray[np.complex128_t, ndim=2] M = psi.reshape(dim_A, dim_B)
-    from rexgraph.core._linalg import svd as _lp_svd
-    _U, s_vals, _Vt = _lp_svd(np.asarray(M, dtype=np.float64))
+    # Use numpy SVD for complex inputs; _linalg.svd only handles real f64
+    if np.any(np.imag(M) != 0):
+        _U, s_vals, _Vt = np.linalg.svd(np.asarray(M), full_matrices=False)
+    else:
+        from rexgraph.core._linalg import svd as _lp_svd
+        _U, s_vals, _Vt = _lp_svd(np.asarray(M, dtype=np.float64))
 
     cdef np.ndarray[f64, ndim=1] sv = np.asarray(s_vals, dtype=np.float64)
     cdef f64[::1] svv = sv
@@ -711,8 +715,12 @@ def schmidt_decomposition(np.ndarray[np.complex128_t, ndim=1] psi,
     vectors_B : complex128[r, dim_B]
     """
     M = psi.reshape(dim_A, dim_B)
-    from rexgraph.core._linalg import svd as _lp_svd
-    U, s, Vh = _lp_svd(np.asarray(M, dtype=np.float64))
+    # Use numpy SVD for complex inputs; _linalg.svd only handles real f64
+    if np.any(np.imag(M) != 0):
+        U, s, Vh = np.linalg.svd(np.asarray(M), full_matrices=True)
+    else:
+        from rexgraph.core._linalg import svd as _lp_svd
+        U, s, Vh = _lp_svd(np.asarray(M, dtype=np.float64))
     return np.asarray(s, dtype=np.float64), U, Vh
 
 
@@ -933,8 +941,12 @@ def von_neumann_entropy(np.ndarray[np.complex128_t, ndim=2] rho):
     Von Neumann entropy S = -Tr(rho log2 rho).
     Computed via eigenvalues of the density matrix.
     """
-    from rexgraph.core._linalg import eigh as _lp_eigh
-    evals = _lp_eigh(np.asarray(rho, dtype=np.float64))[0]
+    # Use numpy eigh for complex (Hermitian) inputs; _linalg.eigh only handles real f64
+    if np.any(np.imag(rho) != 0):
+        evals = np.linalg.eigvalsh(np.asarray(rho))
+    else:
+        from rexgraph.core._linalg import eigh as _lp_eigh
+        evals = _lp_eigh(np.asarray(rho, dtype=np.float64))[0]
     cdef np.ndarray[f64, ndim=1] ev = np.real(evals).astype(np.float64)
     cdef f64[::1] evv = ev
     cdef Py_ssize_t n = ev.shape[0], i

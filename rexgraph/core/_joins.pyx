@@ -159,11 +159,11 @@ def inner_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssiz
 
     # Betti
     from numpy.linalg import matrix_rank
-    r1 = matrix_rank(B1j)
-    r2 = matrix_rank(B2j) if nFj > 0 else 0
+    r1 = matrix_rank(B1j) if min(nVj, nEj) > 0 else 0
+    r2 = matrix_rank(B2j) if min(nEj, nFj) > 0 else 0
     beta = (nVj - r1, nEj - r1 - r2, nFj - r2)
 
-    chain_res = float(np.max(np.abs(B1j @ B2j))) if nFj > 0 else 0.0
+    chain_res = float(np.max(np.abs(B1j @ B2j))) if nVj > 0 and nEj > 0 and nFj > 0 else 0.0
 
     return {
         'B1j': B1j, 'B2j': B2j,
@@ -213,11 +213,11 @@ def outer_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssiz
     B2j[nE_R:nE_R+nE_S, nF_R:nF_R+nF_S] = B2S
 
     from numpy.linalg import matrix_rank
-    r1 = matrix_rank(B1j)
-    r2 = matrix_rank(B2j) if nFj > 0 else 0
+    r1 = matrix_rank(B1j) if min(nVj, nEj) > 0 else 0
+    r2 = matrix_rank(B2j) if min(nEj, nFj) > 0 else 0
     beta = (nVj - r1, nEj - r1 - r2, nFj - r2)
 
-    chain_res = float(np.max(np.abs(B1j @ B2j))) if nFj > 0 else 0.0
+    chain_res = float(np.max(np.abs(B1j @ B2j))) if nVj > 0 and nEj > 0 and nFj > 0 else 0.0
 
     return {
         'B1j': B1j, 'B2j': B2j,
@@ -280,11 +280,11 @@ def left_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssize
     B2j[:nE_R, :] = B2R
 
     from numpy.linalg import matrix_rank
-    r1 = matrix_rank(B1j)
-    r2 = matrix_rank(B2j) if nF_R > 0 else 0
+    r1 = matrix_rank(B1j) if min(nV_R, nEj) > 0 else 0
+    r2 = matrix_rank(B2j) if min(nEj, nF_R) > 0 else 0
     beta = (nV_R - r1, nEj - r1 - r2, nF_R - r2)
 
-    chain_res = float(np.max(np.abs(B1j @ B2j))) if nF_R > 0 else 0.0
+    chain_res = float(np.max(np.abs(B1j @ B2j))) if nV_R > 0 and nEj > 0 and nF_R > 0 else 0.0
 
     return {
         'B1j': B1j, 'B2j': B2j,

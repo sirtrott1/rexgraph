@@ -67,7 +67,6 @@ _cython_modules = [
     '_linalg',
     '_frustration',
     '_relational',
-    '_character',
     '_void',
     '_rcfe',
     '_joins',
@@ -78,6 +77,9 @@ _cython_modules = [
     '_signal',
     '_dirac',
     '_hypermanifold',
+    '_interfacing',
+    '_channels',
+    '_cross_complex',
 ]
 
 foreach mod : _cython_modules
@@ -86,6 +88,26 @@ foreach mod : _cython_modules
         mod + '.pyx',
         dependencies: core_deps,
         c_args: _common_c_args,
+        install: true,
+        subdir: 'rexgraph/core',
+        override_options: ['werror=false'],
+    )
+endforeach
+
+# Modules that return inf/nan need -ffinite-math-only disabled.
+# -ffast-math implies -ffinite-math-only, which makes float('inf')
+# undefined behavior at the C level. Adding -fno-finite-math-only
+# restores IEEE inf/nan semantics while keeping all other fast-math
+# optimizations (reassociation, FMA contraction, no errno).
+_finite_safe_args = _common_c_args + ['-fno-finite-math-only']
+_finite_safe_modules = ['_character']
+
+foreach mod : _finite_safe_modules
+    py.extension_module(
+        mod,
+        mod + '.pyx',
+        dependencies: core_deps,
+        c_args: _finite_safe_args,
         install: true,
         subdir: 'rexgraph/core',
         override_options: ['werror=false'],

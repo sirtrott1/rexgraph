@@ -20,6 +20,7 @@ dependencies:
   - ninja
   - cython>=3.0
   - pkg-config
+  - packaging
 
   # Compilers (provided by conda; no system install needed)
   - c-compiler
