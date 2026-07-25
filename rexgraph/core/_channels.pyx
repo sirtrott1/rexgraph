@@ -90,6 +90,15 @@ def primal_signal_character(np.ndarray[f64, ndim=1] psi,
     cdef np.ndarray[f64, ndim=1] ev_k
     cdef np.ndarray[f64, ndim=2] ec_k
 
+    # Validate arity BEFORE the unchecked C loop: this module is compiled with boundscheck=False /
+    # wraparound=False, so hat_evals_list[k] lowers to an unchecked PyList_GET_ITEM. If nhats exceeds
+    # the list length (e.g. nhats reported from one path, empty hat lists from another), the loop reads
+    # past the list and dereferences garbage as an ndarray buffer -> segfault. Fail loudly instead.
+    if len(hat_evals_list) != nhats or len(hat_evecs_list) != nhats:
+        raise ValueError(
+            "primal_signal_character: nhats=%d but received %d eigenvalue and %d eigenvector arrays"
+            % (nhats, len(hat_evals_list), len(hat_evecs_list)))
+
     for k in range(nhats):
         ev_k = hat_evals_list[k]
         ec_k = hat_evecs_list[k]

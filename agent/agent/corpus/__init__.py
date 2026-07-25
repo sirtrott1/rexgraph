@@ -723,7 +723,6 @@ class CorpusBuilder:
                 build_vertex_source,
                 build_edge_signal,
             )
-            from rexgraph.core._query import spectral_propagate
 
             rex = doc.rex
             if rex is None or rex.nE == 0:
@@ -760,11 +759,10 @@ class CorpusBuilder:
                 rex.nV, rex.nE,
             )
 
-            # spectral_propagate: score = psi^T RL^+ psi / ||psi||^2
-            result = spectral_propagate(
-                sb['RL'], sb['hats'], sb['nhats'],
-                psi, psi, rex.nE,
-            )
+            # score = psi^T RL^+ psi / ||psi||^2 - matrix-free via the public propagate
+            # (routes to the eigen-free sparse RL4 resolvent; the dense sb['RL']/hats are
+            # None on the universal scale-free path).
+            result = rex.propagate(psi, psi)
 
             return float(result['score'])
 

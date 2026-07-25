@@ -353,11 +353,18 @@ def build_line_graph(np.ndarray[f64, ndim=2] K1, int nE):
 
 
 def build_L_coPC(line_graph_info):
-    """Combinatorial Laplacian of the line graph: L_C = D_L - A_L.
+    """Combinatorial Laplacian of the WEIGHTED line graph: L_C = D_L - A_L,
+    with A_L[e1,e2] = number of vertices shared by edges e1,e2 (the co-participation
+    multiplicity) and D_L = diag(row sums of A_L).
 
     Uses the combinatorial (unsigned) Laplacian D - A, NOT the topological
     Laplacian B^T B. The combinatorial form is required for the G = C
     theorem: on K_k, hat_G = hat_C when C is defined as D_L - A_L.
+
+    Edge weights are the shared-vertex COUNTS (line_graph_info['weights']), so L_C is
+    a proper zero-row-sum PSD Laplacian at ANY arity, including branching hyperedges
+    where two edges share >1 vertex. On simple graphs every weight is 1, so this is
+    identical to the old unit-weight form (and K_k, being simple, keeps G = C exactly).
 
     The topological form B1_L^T B1_L differs from D_L - A_L by introducing
     orientation-dependent signs in the off-diagonal entries, producing
@@ -379,14 +386,16 @@ def build_L_coPC(line_graph_info):
     cdef int j
     cdef i32 s, t
 
+    cdef f64 w
     for j in range(nE_L):
         s = sv[j]
         t = tv[j]
-        # Off-diagonal: -A_L (negative adjacency)
-        lv[s, t] -= 1.0
-        lv[t, s] -= 1.0
-        # Diagonal: D_L (degree)
-        lv[s, s] += 1.0
-        lv[t, t] += 1.0
+        w = wv[j]                    # shared-vertex count (line-graph edge weight)
+        # Off-diagonal: -A_L (negative weighted adjacency)
+        lv[s, t] -= w
+        lv[t, s] -= w
+        # Diagonal: D_L (weighted degree = row sum of A_L)
+        lv[s, s] += w
+        lv[t, t] += w
 
     return L

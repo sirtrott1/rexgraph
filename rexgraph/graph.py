@@ -125,6 +125,30 @@ from rexgraph.dense_matrix import spectral_distance as _spectral_distance
 # RexGraph
 
 
+def _edge_low_eig(L, n, k):
+    """The smallest ``k`` eigenpairs (ascending) of a PSD edge operator, cheap and matrix-free.
+
+    Dense ``eigh`` for small ``n`` (LAPACK is faster there); matrix-free ARPACK (``which='SM'``)
+    otherwise, so no dense ``nE x nE`` is materialized. Returns ``(evals_ascending, evecs)`` with
+    ``evecs[:, i]`` the eigenvector of ``evals[i]``. The caller reads the Fiedler by skipping the
+    exactly-known kernel dimension - no float threshold.
+    """
+    import numpy as np
+    import scipy.sparse as sp
+    if n <= 1:
+        return np.zeros(1, dtype=np.float64), np.ones((max(n, 1), 1), dtype=np.float64)
+    k = max(1, min(k, n - 1))
+    if n <= 2000:
+        M = np.asarray(L.todense()) if sp.issparse(L) else np.asarray(L, dtype=np.float64)
+        ev, V = np.linalg.eigh(M)
+        idx = np.argsort(ev)[:k]
+        return ev[idx], V[:, idx]
+    from scipy.sparse.linalg import eigsh
+    ev, V = eigsh(sp.csr_matrix(L).astype(np.float64), k=k, which='SM')
+    idx = np.argsort(ev)
+    return ev[idx], V[:, idx]
+
+
 class RexGraph:
     """A relational complex (rex) with lazily computed derived properties.
 
@@ -919,36 +943,37 @@ class RexGraph:
     def spectral_bundle(self) -> dict:
         """All Laplacians, spectral decompositions, and relational Laplacian.
 
-        Single call producing L0, L1, L2, eigenvalues, eigenvectors,
-        Betti numbers, coupling constants, K1, RL, hats, nhats, chi.
-
-        For large graphs where nE exceeds the dense eigen limit, dispatches
-        to build_all_laplacians_sparse which computes Betti via union-find
-        and Fiedler via matrix-free ARPACK. Edge-space operators are None
-        in sparse mode; use subgraph() for edge-level spectral analysis.
-
-        Passes L_SG when available. K1 and L_C are computed internally
-        by build_all_laplacians so that RL is built once with all
-        available hats and zero redundant trace normalization.
+        The vertex-space layer (L0, its spectrum, Betti via union-find, Fiedler via
+        matrix-free ARPACK) plus the cheap+exact edge-space quantities (c^2 = alpha_G,
+        the L1 Fiedler eigenpair). This is the SCALE-FREE path and it is now the
+        universal default: there is no dense-vs-sparse size cutoff. The edge-space RL /
+        hats / full eigenbases are never eagerly materialized here - the character,
+        energy, propagation, and interfacing layers all read them matrix-free from the
+        sparse RL4 (see sparse_character / sparse_interfacing). The full DENSE relational
+        bundle is available ON DEMAND via `_dense_rcf_bundle` (used by the low-level
+        dense Cython kernels and their unit tests), i.e. dense only when explicitly
+        asked for, never as a fixed gate. `eigen_dense_limit` no longer gates this.
         """
-        # Check dense allocation limit from _common configuration
-        _use_dense = True
-        if _common is not None:
-            try:
-                cfg = _common.get_algorithm_config()
-                limit = cfg.get('eigen_dense_limit', 2000)
-                if self._nE > limit:
-                    _use_dense = False
-            except Exception:
-                pass
+        bundle = _laplacians.build_all_laplacians_sparse(
+            self._B1_dual,
+            self._B2_hodge_dual,
+            self._nV, self._nE, self._nF,
+        )
+        self._fill_cheap_edge_spectra(bundle)   # alpha_G + L1 Fiedler eigenpair
+        return bundle
 
-        if not _use_dense:
-            return _laplacians.build_all_laplacians_sparse(
-                self._B1_dual,
-                self._B2_hodge_dual,
-                self._nV, self._nE, self._nF,
-            )
+    @cached_property
+    def _dense_rcf_bundle(self) -> dict:
+        """The full DENSE relational bundle (RL, hats, nhats, trace_values, hat_names,
+        chi, K1, L_C, RL_1 + edge-space eigenbases) via the dense Cython builder.
 
+        Materialized ON DEMAND only - the public scale-free API never touches it (it
+        reads everything matrix-free from the sparse RL4). It backs the low-level dense
+        kernels (`_character.hat_eigen`, `_query.explain_edge`, `_rcfe.coupling_tensor`,
+        `_channels.primal_signal_character`, `_interfacing.build_interfacing_bundle`) and
+        their unit tests, and the dense-oracle side of the parity tests. Building it is
+        O(nE^2) memory / O(nE^3) eigencost, so a caller that reaches for it on a large
+        complex is explicitly opting into the dense cost."""
         L_SG = None
         if _HAS_RCF:
             # F = T - G (integer/exact tower, Def 3.3) - the default frustration.
@@ -961,6 +986,54 @@ class RexGraph:
             auto_alpha=True,
             k=-1,
         )
+
+    def _fill_cheap_edge_spectra(self, bundle) -> None:
+        """Fill the edge-space spectral quantities the scale-free path can compute cheaply and EXACTLY,
+        so they are no longer None/NaN in sparse mode:
+            alpha_G           = fiedler(L1) / fiedler(L_O)
+            fiedler_val_L1    = smallest nonzero eigenvalue of L1  (algebraic connectivity of the edges)
+            fiedler_vec_L1    = its eigenvector
+            evals_L1          = the LOW end of the L1 spectrum (smallest few; the full spectrum is not
+                                cheap, and consumers needing it use subgraph()/dense on demand)
+
+        The Fiedler is read by skipping the EXACTLY-known kernel dimension - no float threshold:
+            dim ker(L1)  = beta1                 (the first Betti number)
+            dim ker(L_O) = nE - rank(|B1|)        (raw overlap Gramian; exact rational rank)
+        cheap+exact vs the dense oracle's threshold-based Fiedler.
+        """
+        nE = self._nE
+        if nE == 0:
+            return
+        try:
+            import scipy.sparse as sp
+            from rexgraph.core._sparse import to_scipy_csr
+            B1 = to_scipy_csr(self._B1_dual).astype(np.float64)          # nV x nE
+            L1_down = sp.csr_matrix(B1.T @ B1)                           # gradient tier
+            if self._nF > 0:
+                B2 = to_scipy_csr(self._B2_hodge_dual).astype(np.float64)  # nE x nF
+                L1_up = sp.csr_matrix(B2 @ B2.T)                         # curl tier
+            else:
+                L1_up = sp.csr_matrix((nE, nE))
+            L1 = sp.csr_matrix(L1_down + L1_up)
+
+            # alpha_G = c^2 = G/T = ||L1_up||_F^2 / ||L1_down||_F^2 (exact integer traces, cheap;
+            # the DOWN(gradient)/UP(curl) exchange rate, = (k-2)/2 on K_k). Same value as the dense path.
+            calT = float(L1_down.multiply(L1_down).sum())               # tr((B1^T B1)^2)
+            calG = float(L1_up.multiply(L1_up).sum())                   # tr((B2 B2^T)^2)
+            bundle['alpha_G'] = (calG / calT) if calT > 0.0 else 0.0
+
+            # L1 Fiedler value + vector (readouts, DEDICATED keys): skip exactly beta1 zeros, no
+            # threshold. These are the smallest nonzero eigenpair - a bounded, well-defined quantity.
+            b1 = int(self.betti[1])
+            ev1, V1 = _edge_low_eig(L1, nE, b1 + 4)
+            bundle['fiedler_val_L1'] = float(ev1[b1]) if b1 < len(ev1) else 0.0
+            bundle['fiedler_vec_L1'] = V1[:, b1].copy() if b1 < V1.shape[1] else np.zeros(nE, dtype=np.float64)
+            # Deliberately do NOT fill the FULL-SPECTRUM keys (evals_L1 / evals_RL_1 / evecs_RL_1 /
+            # evals_L2 / evecs_L2) here: full-eigenbasis consumers (measure_in_eigenbasis, spectral
+            # diffusion) read those and a PARTIAL low-mode matrix would silently truncate them. They
+            # stay None in sparse mode and fall back to on-demand dense eigh (or a matrix-free path).
+        except Exception:
+            pass   # cheap path unavailable -> leave the builder's None/NaN slots
 
     # Spectral accessors (thin dict lookups into spectral_bundle)
 
@@ -988,11 +1061,14 @@ class RexGraph:
 
     @cached_property
     def L2(self) -> NDArray:
-        """L_2 = B_2^T B_2."""
+        """L_2 = B_2^T B_2 (face Laplacian). Built on demand in the scale-free path,
+        where the bundle carries no dense edge/face operators."""
         L2 = self.spectral_bundle.get('L2')
         if L2 is not None:
             return _ensure_dense(L2)
-        return np.zeros((0, 0), dtype=_f64)
+        if self.nF_hodge == 0 or self._B2_hodge_dual is None:
+            return np.zeros((self.nF_hodge, self.nF_hodge), dtype=_f64)
+        return _ensure_dense(_laplacians.build_L2(self._B2_hodge_dual))
 
     # Scale-safe SPARSE Laplacian accessors
     # The public L0/L1/L2/L_overlap/overlap_gramian properties return dense
@@ -1143,12 +1219,18 @@ class RexGraph:
 
     @cached_property
     def relational_laplacian(self) -> Optional[NDArray]:
-        """Relational Laplacian RL_1 = L_1 + alpha_G * L_O.
+        """Relational Laplacian RL_1 = L1_down + alpha_G * L1_up (gradient + c^2*curl).
 
-        None when L_O is absent or alpha_G is NaN/zero.
+        Built on demand in the scale-free path (where the dense bundle skips it). None only when
+        alpha_G is NaN.
         """
         RL = self.spectral_bundle.get('RL_1')
-        return _ensure_dense(RL) if RL is not None else None
+        if RL is not None:
+            return _ensure_dense(RL)
+        aG = self.spectral_bundle.get('alpha_G', float('nan'))
+        if aG != aG:                                    # NaN -> no coupling available
+            return None
+        return _ensure_dense(self.L1_down) + float(aG) * _ensure_dense(self.L1_up)
 
     @cached_property
     def evals_RL1(self) -> Optional[NDArray]:
@@ -1181,6 +1263,24 @@ class RexGraph:
     def L1_full(self) -> NDArray:
         """Full edge Hodge Laplacian (alias for L1)."""
         return self.L1
+
+    @cached_property
+    def L1_down(self) -> NDArray:
+        """Down (gradient) edge Laplacian B_1^T B_1. Built on demand in the scale-free path."""
+        v = self.spectral_bundle.get('L1_down')
+        if v is not None:
+            return _ensure_dense(v)
+        return _ensure_dense(_laplacians.build_L1_down(self._B1_dual))
+
+    @cached_property
+    def L1_up(self) -> NDArray:
+        """Up (curl) edge Laplacian B_2 B_2^T. Zero when there are no faces."""
+        v = self.spectral_bundle.get('L1_up')
+        if v is not None:
+            return _ensure_dense(v)
+        if self._nF == 0:
+            return np.zeros((self._nE, self._nE), dtype=_f64)
+        return _ensure_dense(_laplacians.build_L1_up(self._B2_hodge_dual))
 
     @cached_property
     def alpha_T(self) -> float:
@@ -1281,15 +1381,17 @@ class RexGraph:
 
     @cached_property
     def _rcf_bundle(self) -> dict:
-        """Relational Laplacian, hat operators, structural character.
+        """Dense relational bundle: RL, hats, nhats, trace_values, hat_names, chi.
 
-        Reads directly from spectral_bundle. No redundant computation.
-        Keys: RL, hats, nhats, trace_values, hat_names, chi
-        """
-        sb = self.spectral_bundle
-        if 'RL' not in sb or sb.get('nhats', 0) == 0:
+        Now backed by `_dense_rcf_bundle` (built ON DEMAND), NOT by spectral_bundle -
+        the default spectral_bundle is scale-free and never carries the dense edge-space
+        RL/hats. The public API reads character/energy/propagation matrix-free and never
+        reaches this; it exists for the low-level dense Cython kernels and their tests.
+        Empty dict if the dense build produced no active hats (nE == 0)."""
+        bundle = self._dense_rcf_bundle
+        if bundle.get('RL') is None or bundle.get('nhats', 0) == 0:
             return {}
-        return sb
+        return bundle
 
     @cached_property
     def RL(self) -> NDArray:
@@ -1297,7 +1399,15 @@ class RexGraph:
 
         tr(RL) = nhats. When L_coPC is available, nhats = 4 (RL4).
         Otherwise nhats = 3 (RL3).
+
+        RL is inherently a dense nE x nE object (callers do np.trace / eigvalsh /
+        RL.T on it). On the scale-free sparse path the dense bundle never built it,
+        so materialize it ON DEMAND from the sparse RL4 - dense only when the dense
+        accessor is actually touched, never as a fixed size gate. The matrix-free
+        moment quantities use self._rl4_sparse and never reach this accessor.
         """
+        if self._use_sparse_character:
+            return np.ascontiguousarray(self._rl4_sparse.toarray(), dtype=_f64)
         rcf = self._rcf_bundle
         return rcf.get('RL', np.zeros((self._nE, self._nE), dtype=_f64))
 
@@ -1377,6 +1487,8 @@ class RexGraph:
         if not _HAS_RCF:
             return {}
         rcf = self._rcf_bundle
+        if 'hats' not in rcf or 'nhats' not in rcf:   # sparse-character mode has no dense hats;
+            return {}                                 # callers use .get() defaults (like structural_character)
         src, tgt = self._ensure_src_tgt()
         v2e_ptr, v2e_idx = self._v2e
         return _character.build_character_bundle(
@@ -1635,9 +1747,67 @@ class RexGraph:
     def greens_diagonal_eigenfree(self) -> NDArray:
         """diag(RL4⁻¹) EXACT via block-CG solves of RL4·X = I to a fixed tolerance -
         one algorithm at every scale, no eigendecomposition, no size-gated
-        approximation (Part A / script 11). Shape (nE,)."""
+        approximation (Part A / script 11). Shape (nE,).
+
+        RL4 is full-rank SPD so this is a plain inverse diagonal; for a SINGULAR edge
+        operator (the edge Laplacian L1, individual channel hats) use
+        greens_character_edge / greens_diagonal_singular, which deflate the harmonic
+        kernel - a plain solve here would blow up on the null space."""
         from rexgraph import scale_propagator as _spg
         return _spg.greens_diagonal(self._rl4_sparse)
+
+    @cached_property
+    def greens_character_edge(self) -> NDArray:
+        """diag(L1⁺) - the Green's character of the SINGULAR edge Laplacian L1 =
+        B1ᵀB1 + B2B2ᵀ, eigen-free via harmonic-projector deflation L1⁺=(L1+P_H)⁻¹−P_H
+        (oracle 09). P_H projects onto the harmonic space ker(L1) via the combinatorial
+        harmonic basis (rexgraph.harmonic_sparse.harmonic_basis - fundamental cycles
+        flux-projected onto ker(B2ᵀ), no eigendecomposition). This is the per-edge
+        self-response through the harmonic-regularized edge propagator. Shape (nE,)."""
+        from rexgraph import scale_propagator as _spg
+        from rexgraph.harmonic_sparse import harmonic_basis
+        from rexgraph.core._laplacians import build_L1_down_sparse, build_L1_up_sparse
+        L1 = build_L1_down_sparse(self._B1_dual).tocsr()
+        if self.nF_hodge > 0 and self._B2_hodge_dual is not None:
+            L1 = (L1 + build_L1_up_sparse(self._B2_hodge_dual)).tocsr()
+        return _spg.greens_diagonal_deflated(L1, harmonic_basis(self))
+
+    def greens_diagonal_singular(self, L, H) -> NDArray:
+        """diag(L⁺) for an arbitrary SINGULAR symmetric-PSD edge operator L with kernel
+        basis H (nE × k), via harmonic-projector deflation. Thin pass-through to
+        scale_propagator.greens_diagonal_deflated; H=None (full rank) gives diag(L⁻¹).
+        Use e.g. with cycle_basis (ker B1ᵀB1) for the topology channel, or harmonic_basis
+        (ker L1) for the edge Laplacian."""
+        from rexgraph import scale_propagator as _spg
+        return _spg.greens_diagonal_deflated(L, H)
+
+    @cached_property
+    def relaxation(self) -> dict:
+        """Edge-centric relaxation via the MOMENT tower - the canonical relaxation object
+        (canon: relaxation = moments of one propagator on the EDGE operators, not a vertex
+        Fiedler value). One discoverable entry point onto quantities that already live in
+        the tower, all eigen-free:
+
+          effective_modes : e^{H2} - effective number of RL4 spectral modes (mode count)
+          harmonic_log    : H2 = -log(tr(RL4^2)/tr(RL4)^2)  (Renyi-2 collision entropy)
+          energy_character: diag(RL4^2) per edge  - the LOCAL short-time heat moment
+          greens_edge     : diag(L1^+)  per edge  - the GLOBAL integrated self-response
+          varentropy_gap  : H2 - H3, a cheap certificate of when the 2nd-moment summary
+                            is trustworthy (~0 = exact)
+
+        The per-channel spectral-GAP metric (lambda_2 / mixing times) is a SEPARATE scope
+        - channel_spectral_gaps / per_channel_mixing_times. That is a metric; this is the
+        relational relaxation."""
+        if not _HAS_RCF or self._nE == 0:
+            return {}
+        H2 = float(self.harmonic_entropy)
+        return {
+            'effective_modes': float(np.exp(H2)),
+            'harmonic_log': H2,
+            'energy_character': self.energy_character,
+            'greens_edge': self.greens_character_edge,
+            'varentropy_gap': float(self.character_varentropy.get('gap', 0.0)),
+        }
 
     @cached_property
     def _hat_eigen_bundle(self) -> list:
@@ -1663,10 +1833,31 @@ class RexGraph:
         return np.where(deg > 0, med / deg, 0.0)
 
     @cached_property
+    def channel_spectral_gaps(self) -> dict:
+        """Exact per-channel spectral gap lambda_2 (smallest positive eigenvalue of each
+        trace-normalized hat), a dict keyed by channel name ('L1_down','L_O','L_SG','L_C').
+
+        A METRIC, not the relational relaxation object. T and G use the transpose duality
+        (lambda_2 of the tiny nV x nV vertex-dual Laplacian, kernel beta_0) so the
+        topological zeros collapse into the small vertex space and the gap is EXACT and
+        cheap; C/F use the kernel-robust path. The edge-centric relaxation is the moment
+        tower (energy_character / harmonic_entropy / greens_character_edge), separate."""
+        if not _HAS_RCF or self._nE == 0:
+            return {}
+        from rexgraph.sparse_character import channel_spectral_gaps
+        return channel_spectral_gaps(self)
+
+    @cached_property
     def per_channel_mixing_times(self) -> NDArray:
-        """mu_X = ln(nE) / lambda_2(hat_L_X) per channel. Shape (nhats,)."""
+        """Per-channel mixing-time METRIC mu_X = ln(nE) / lambda_2(hat_X). Shape (nhats,).
+        lambda_2 is the exact channel_spectral_gaps (T/G exact via the transpose duality,
+        C/F kernel-robust). This is a spectral-gap summary; the edge-centric relaxation
+        is the moment tower, not this."""
         if not _HAS_RCF:
             return np.zeros(0, dtype=_f64)
+        if self._use_sparse_character:
+            from rexgraph.sparse_character import per_channel_mixing_times_sparse
+            return per_channel_mixing_times_sparse(self)
         hat_eigen = self._hat_eigen_bundle
         if len(hat_eigen) == 0:
             return np.zeros(0, dtype=_f64)
@@ -1710,7 +1901,10 @@ class RexGraph:
         if not _HAS_RCF:
             return {'n_voids': 0, 'n_potential': 0}
         adj_ptr, adj_idx, adj_edge = self._adjacency_bundle
-        rcf = self._rcf_bundle
+        # Scale-free path: pass no dense RL/hats (build_void_complex handles None -
+        # it is called exactly this way at scale today). Never materialize the dense
+        # _rcf_bundle here, which would OOM on large complexes.
+        rcf = {} if self._use_sparse_character else self._rcf_bundle
         sb = self.spectral_bundle
         return _void.build_void_complex(
             self.B1, self.B2_hodge,
@@ -2200,6 +2394,12 @@ class RexGraph:
         """Spectral propagation score through RL."""
         if not _HAS_RCF:
             raise RuntimeError("RCF modules not available.")
+        if self._use_sparse_character:
+            # eigen-free: RL4⁻¹ source via block-CG + sparse hat matvecs, no rl_eigen.
+            from rexgraph.sparse_character import spectral_propagate_sparse
+            return spectral_propagate_sparse(
+                self, np.asarray(source, dtype=_f64),
+                np.asarray(target, dtype=_f64))
         rcf = self._rcf_bundle
         return _query.spectral_propagate(
             self.RL, rcf['hats'], rcf['nhats'],
@@ -2371,7 +2571,9 @@ class RexGraph:
             raise RuntimeError("RCF modules not available.")
         vc = self.void_complex
         Bvoid = vc.get('Bvoid')
-        return _character.face_void_dipole(
+        if hasattr(Bvoid, "toarray"):           # void_complex hands back a sparse Bvoid; the kernel
+            Bvoid = np.ascontiguousarray(Bvoid.toarray(), dtype=_f64)  # needs a dense array (else ValueError)
+        return _character.face_void_dipole(     # Bvoid stays None when there are no voids (kernel handles it)
             np.ascontiguousarray(psi, dtype=_f64),
             self.B2_hodge,
             Bvoid,
@@ -2715,14 +2917,16 @@ class RexGraph:
         return _state.RexState(self._nV, self._nE, self._nF, t)
 
     def energy_kin_pot(self, f_E: NDArray) -> Tuple[float, float, float]:
-        """Kinetic/potential energy decomposition of an edge signal.
+        """Kinetic/potential energy decomposition of an edge signal, Hodge-decomposed.
 
         Returns (E_kin, E_pot, ratio) where:
-            E_kin = <f_E | L_1 | f_E>  (topological)
-            E_pot = <f_E | L_O | f_E>  (geometric)
+            E_kin = <f_E | L1_down | f_E>  = ||B_1 f||^2   (gradient / drain energy)
+            E_pot = <f_E | L1_up   | f_E>  = ||B_2^T f||^2 (curl / rotation energy)
+        so E_kin + alpha_G*E_pot = <f | RL_1 | f> is consistent with the relational Laplacian
+        RL_1 = L1_down + alpha_G*L1_up. (Was L_1 and L_O, which did not match RL_1.)
         """
         f = np.ascontiguousarray(f_E, dtype=_f64)
-        return _state.energy_kin_pot(f, self.L1, self.L_overlap)
+        return _state.energy_kin_pot(f, self.L1_down, self.L1_up)
 
     def dirac_state(self, dim: int, idx: int) -> Tuple[NDArray, NDArray, NDArray]:
         """Dirac delta state: all zeros except 1.0 at (dim, idx)."""
@@ -2769,11 +2973,11 @@ class RexGraph:
     def per_edge_energy(self, f_E: NDArray) -> Tuple[NDArray, NDArray]:
         """Per-edge kinetic and potential energy contributions.
 
-        Returns (E_kin_per_edge, E_pot_per_edge) where each sums
-        to the total <f|L|f>.
+        Kinetic from L1_down (gradient), potential from L1_up (curl), consistent with
+        `energy_kin_pot` and RL_1 = L1_down + alpha_G*L1_up; each sums to the corresponding total.
         """
         f = np.ascontiguousarray(f_E, dtype=_f64)
-        return _quotient.per_edge_energy(f, self.L1, self.L_overlap)
+        return _quotient.per_edge_energy(f, self.L1_down, self.L1_up)
 
     def subcomplex_by_energy(
         self,
@@ -3041,9 +3245,15 @@ class RexGraph:
         elif dim == 2 and sb.get('evecs_L2') is not None:
             evecs = sb['evecs_L2']
         else:
-            L = [self.L0, self.L1, self.L2][dim]
-            _, evecs = np.linalg.eigh(_ensure_dense(L))
-        return _wave.measure_in_eigenbasis(psi, evecs)
+            # on-demand FULL eigenbasis. dim=1 uses RL_1 (matches the fast path above), not L1.
+            if dim == 1:
+                L = self.relational_laplacian
+                if L is None:
+                    L = self.L1
+            else:
+                L = [self.L0, self.L1, self.L2][dim]
+            _, evecs = np.linalg.eigh(np.ascontiguousarray(_ensure_dense(L), dtype=_f64))
+        return _wave.measure_in_eigenbasis(psi, np.ascontiguousarray(evecs, dtype=_f64))
 
     # Field operator (coupled edge-face dynamics from _field)
 
@@ -3340,7 +3550,7 @@ class RexGraph:
 
         return _signal.analyze_perturbation(
             f_E, f_F,
-            self.L1, self.L_overlap,
+            self.L1_down, self.L1_up,                 # kinetic=gradient, potential=curl (matches RL_1)
             None, None,                               # spectrum unused: trajectory is eigen-free
             self.B1, self.B2_hodge,
             times,
@@ -3409,7 +3619,7 @@ class RexGraph:
 
         return _signal.analyze_perturbation_field(
             f_E, f_F, M, evals, evecs, freqs,
-            self.L1, self.L_overlap, self.B1,
+            self.L1_down, self.L1_up, self.B1,        # kinetic=gradient, potential=curl (matches RL_1)
             times, self._nE, self.nF_hodge, mode,
             precomputed_trajectory=precomputed,
             precomputed_velocity=precomputed_vel,
@@ -4652,8 +4862,12 @@ class RexGraph:
         """Return lambda(t) * hat_X for time-dependent channel modulation."""
         # hat_X is already available as the trace-normalized channel operator;
         # use it directly instead of a dense V diag(lambda) V^T reconstruction.
-        hat_X = self._rcf_bundle['hats'][channel_idx]
-        return float(schedule_fn(t)) * np.asarray(hat_X)
+        # Scale-free path uses the sparse channel hats (densified for the caller).
+        if self._use_sparse_character:
+            hat_X = self._sparse_character['hats'][channel_idx]
+        else:
+            hat_X = self._rcf_bundle['hats'][channel_idx]
+        return float(schedule_fn(t)) * _ensure_dense(hat_X)
 
     def cell_shape(self, dim: int, idx: int) -> dict:
         """Full algebraic shape of a cell."""

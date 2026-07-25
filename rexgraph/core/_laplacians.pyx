@@ -618,21 +618,27 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
         result['fiedler_L_O'] = 0.0
         result['fiedler_vec_L_O'] = np.zeros(nE, dtype=np.float64)
 
-    # Coupling constants
-
+    # Coupling constant alpha_G = c^2 = G/T: the CANONICAL geometry<->topology exchange rate on the
+    # EXACT tower, tr((B2 B2^T)^2)/tr((B1^T B1)^2) = ||L1_up||_F^2 / ||L1_down||_F^2 (integer traces,
+    # exact rational = (k-2)/2 on K_k; = 0 with no faces = "no geometric content yet"). This replaces
+    # the outdated fiedler(L1)/fiedler(L_O) eigenvalue ratio, a float scale-balance proxy off the exact
+    # tower. It is the DOWN(gradient)/UP(curl) exchange, not an overlap ratio (tr(G^2)=tr(T^2) is a
+    # sign-blind constant, so the overlap ratio carries no information). alpha_T = beta1/nE.
+    cdef f64 calT = 0.0, calG = 0.0
     if auto_alpha and has_LO and nE > 0:
-        alpha_G_py, alpha_T_py = compute_coupling_constants(
-            evals_L1, result['evals_L_O'], beta1, nE
-        )
-        alpha_G = alpha_G_py
-        alpha_T = alpha_T_py
+        calT = float(np.sum(L1d * L1d))
+        calG = float(np.sum(L1u * L1u))
+        alpha_G = (calG / calT) if calT > 0.0 else 0.0
+        alpha_T = (float(beta1) / nE)
 
     result['alpha_G'] = float(alpha_G)
     result['alpha_T'] = float(alpha_T)
 
-    # RL_1 = L1 + alpha_G * L_O
+    # RL_1 = L1_down + alpha_G * L1_up  =  gradient energy + c^2 * curl energy: the canonical
+    # relational Laplacian on edges (Hodge-decomposed). At c^2 = 1 this is the standard edge Hodge
+    # L1_full. (Replaces the drifted RL_1 = L_1 + alpha_G * L_O, which scaled the overlap operator.)
     if auto_alpha and has_LO and nE > 0 and not (isnan(alpha_G) or isinf(alpha_G)):
-        RL_1 = build_L1_alpha(L1f, L_O, alpha_G)
+        RL_1 = build_L1_alpha(L1d, L1u, alpha_G)
         result['RL_1'] = RL_1
 
         # Eigendecompose RL_1
@@ -713,94 +719,48 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
 # Sparse spectral bundle for large graphs
 
 def _sparse_betti(B1_in, B2_in, int nV, int nE, int nF):
-    """Betti numbers without dense eigendecomposition.
+    """Betti numbers, EXACT and arity-aware (matches RexGraph.betti / betti_numbers).
 
-    beta_0: connected components via union-find from _cycles. O(nE alpha(nV)).
-    beta_1: Euler relation beta_1 = beta_0 + beta_2 - (nV - nE + nF).
-    beta_2: rank(B2) via sparse SVD when nF > 0, else 0.
-
-    For graphs with no faces (nF=0), this is pure C with zero scipy calls.
+    beta_0: connected components via union-find over the FULL support of each B1 column
+        (:func:`_beta0_components`), so branching hyperedges (columns with arity != 2) are counted
+        correctly. The old reader kept only one source + one target per column, silently assuming
+        arity-2, and overcounted beta_0 on branching/witness columns.
+    beta_g = n_g - rank(B_g) - rank(B_{g+1}), ranks via exact integer column reduction
+        (:func:`_sparse_rank`): beta_1 = nE - rank(B1) - rank(B2); beta_2 = nF - rank(B2).
+    No dense eigendecomposition, no Euler shortcut, no float threshold.
     """
-    # beta_0 via union-find (already implemented in _cycles)
-    from rexgraph.core._cycles import cycle_space_dimension
+    from rexgraph.graded_boundary import _beta0_components, _sparse_rank
+    from scipy.sparse import issparse, csr_matrix
 
-    # cycle_space_dimension returns beta_1 = nE - nV + beta_0
-    # We need sources/targets from B1
     if hasattr(B1_in, 'row_ptr'):
         from rexgraph.core._sparse import to_scipy_csr
         B1_sp = to_scipy_csr(B1_in)
     else:
-        from scipy.sparse import issparse, csr_matrix
         B1_sp = B1_in if issparse(B1_in) else csr_matrix(B1_in)
 
-    # Extract sources and targets from B1 columns
-    # Each column of B1 has exactly one -1 (source) and one +1 (target)
-    src_list = np.empty(nE, dtype=np.int32)
-    tgt_list = np.empty(nE, dtype=np.int32)
-    B1_csc = B1_sp.tocsc()
-    cdef int e, row_idx
-    cdef double val
-    for e in range(nE):
-        col_start = B1_csc.indptr[e]
-        col_end = B1_csc.indptr[e + 1]
-        s = -1
-        t = -1
-        for k in range(col_start, col_end):
-            row_idx = B1_csc.indices[k]
-            val = B1_csc.data[k]
-            if val < 0:
-                s = row_idx
-            else:
-                t = row_idx
-        if s < 0:
-            s = t  # self-loop or degenerate
-        if t < 0:
-            t = s
-        src_list[e] = s
-        tgt_list[e] = t
-
-    # beta_1 from cycle_space_dimension (uses union-find, O(nE alpha(nV)))
-    beta1_no_faces = cycle_space_dimension(nV, nE, src_list, tgt_list)
-    # This gives beta_1 for the 1-skeleton (no faces)
-
-    # beta_0 = nE - beta1_no_faces + nV - nE = nV - (nE - beta1_no_faces)
-    # Actually: beta1_no_faces = nE - nV + beta_0, so beta_0 = beta1_no_faces - nE + nV
-    cdef int beta0 = beta1_no_faces - nE + nV
+    cdef int beta0 = _beta0_components(B1_sp)
+    cdef int rank_B1 = _sparse_rank(B1_sp) if nE > 0 else 0
 
     cdef int rank_B2 = 0
-    cdef int beta2 = 0
-
-    if nF > 0:
-        # rank(B2) via sparse SVD
-        try:
-            from scipy.sparse.linalg import svds
-            from scipy.sparse import issparse as _issparse, csr_matrix as _csr
+    if nF > 0 and nE > 0:
+        if hasattr(B2_in, 'row_ptr'):
+            from rexgraph.core._sparse import to_scipy_csr
+            B2_sp = to_scipy_csr(B2_in)
+        elif not issparse(B2_in):
+            B2_sp = csr_matrix(np.asarray(B2_in, dtype=np.float64))
+        else:
             B2_sp = B2_in
-            if hasattr(B2_in, 'row_ptr'):
-                from rexgraph.core._sparse import to_scipy_csr
-                B2_sp = to_scipy_csr(B2_in)
-            elif not _issparse(B2_sp):
-                B2_sp = _csr(np.asarray(B2_in, dtype=np.float64))
-
-            # exact rank(B2) EIGEN-FREE: for the integer boundary map, rational column
-            # reduction gives the exact rank with no SVD and no dense Gram (the old
-            # `svds(k=min(..,100))` undercounted rank on face-rich complexes -> wrong
-            # beta1/beta2; the Gram+matrix_rank fix worked but densified). This is the
-            # Phase-2 combinatorial/sparse rank the prior comment promised.
-            if min(nE, nF) > 0:
-                from rexgraph.graded_boundary import _sparse_rank
-                rank_B2 = _sparse_rank(B2_sp)
+        try:
+            rank_B2 = _sparse_rank(B2_sp)
         except Exception:
             rank_B2 = 0
-        beta2 = nF - rank_B2
 
-    # Euler relation: beta_0 - beta_1 + beta_2 = nV - nE + nF
-    cdef int euler = nV - nE + nF
-    cdef int beta1 = beta0 + beta2 - euler
+    cdef int beta1 = nE - rank_B1 - rank_B2
     if beta1 < 0:
         beta1 = 0
+    cdef int beta2 = nF - rank_B2
 
-    return beta0, beta1, beta2, nV - beta0, rank_B2
+    return beta0, beta1, beta2, rank_B1, rank_B2
 
 
 def _sparse_fiedler_L0(B1_in, int nV, int nE):

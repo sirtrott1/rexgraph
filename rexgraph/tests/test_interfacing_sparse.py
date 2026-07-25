@@ -96,7 +96,11 @@ def _cases(rex):
 @pytest.mark.parametrize("fixture", ["k4", "cycle", "two_triangles"])
 def test_full_bundle_parity(fixture, request):
     rex = request.getfixturevalue(fixture)
-    assert not rex._use_sparse_character  # small graph -> dense RL exists
+    # Sparse is now the universal path (no dense-vs-sparse size cutoff). Parity still
+    # holds exactly here: both the dense oracle (_dense_bundle -> rex._rl_eigen) and the
+    # sparse bundle eigendecompose the SAME dense-on-demand RL4 for the full-spectrum
+    # schrodinger/coverage, since nE is within the mode budget (_RL_SURROGATE_K).
+    assert rex._use_sparse_character
     for ti, tw, target in _cases(rex):
         dense = _dense_bundle(rex, ti, tw, target)
         sparse = build_interfacing_bundle_sparse(rex, ti, tw, target)

@@ -99,15 +99,21 @@ def _l0_pinv_matvec(L0, b, atol=1e-13, btol=1e-13, iter_lim=20000):
 def _rl_spectrum(rex):
     """(evals_RL, evecs_RL) for the edge RL spectrum used by schrodinger / coverage.
 
-    Reuses the EXACT dense RL eigenbasis when the dense RL was built (small graphs)
-    -> exact parity with the dense oracle. On the scale-free path (no dense RL) returns
-    a BOUNDED eigsh surrogate: the ``k = min(nE-1, _RL_SURROGATE_K)`` largest-magnitude
-    modes of the sparse RL4. Documented approximation - a fixed-k basis cannot reproduce
-    the full-basis degree-4 schrodinger density exactly."""
-    if not rex._use_sparse_character:
-        # Dense RL exists: exact eigenbasis, exact parity.
-        return rex._rl_eigen
+    schrodinger / coverage are degree-4 FULL-spectrum functionals of RL4 with no exact
+    matrix-free form. When the whole spectrum is affordable (nE within the mode budget)
+    compute it EXACTLY via a dense eigh of RL4 - dense ONLY where the full spectrum is
+    genuinely needed and cheap, keyed on affordability, NOT on a global bundle cutoff.
+    This is the identical basis the dense oracle uses (``rex._rl_eigen`` eigendecomposes
+    the same dense-on-demand RL4), so parity stays exact. Above the budget the full
+    spectrum is unaffordable, so fall back to a BOUNDED largest-magnitude ``eigsh``
+    surrogate (documented approximation - a fixed-k basis cannot reproduce the full
+    degree-4 density; the caller sees it via the loosened spectral tolerance)."""
     nE = int(rex.nE)
+    if nE == 0:
+        return np.zeros(0, dtype=_f64), np.zeros((0, 0), dtype=_f64)
+    if nE <= _RL_SURROGATE_K:
+        # full spectrum affordable -> exact dense eigh of the dense-on-demand RL4.
+        return rex._rl_eigen
     RL = rex._rl4_sparse.tocsr()
     k = min(nE - 1, _RL_SURROGATE_K)
     if k < 1:

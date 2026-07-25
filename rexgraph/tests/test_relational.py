@@ -487,3 +487,69 @@ class TestRexGraphIntegration:
         phi = k4.vertex_character
         assert phi.shape == (k4.nV, k4.nhats)
         assert np.allclose(phi.sum(axis=1), 1.0, atol=1e-8)
+
+
+class TestCoParticipationBranching:
+    """C / L_C is the Laplacian of the WEIGHTED line graph (adjacency = shared-vertex
+    counts). It must stay a proper zero-row-sum PSD Laplacian at ANY arity - including
+    branching hyperedges, parallel edges and self-loops where two edges share >1 vertex.
+    Regression: the old binarized-degree diagonal made L_C indefinite there (dragging
+    RL4 and the moment character non-PSD). On simple graphs the fix is a no-op."""
+
+    def _sparse_LC(self, g):
+        from rexgraph.sparse_character import build_sparse_channels
+        return dict(build_sparse_channels(g)).get('L_C')
+
+    def _dense_LC(self, g):
+        absB1 = np.abs(np.asarray(g.B1))
+        K1 = np.ascontiguousarray(absB1.T @ absB1)
+        lg = _relational.build_line_graph(K1, g.nE)
+        return _relational.build_L_coPC(lg) if lg['nE_L'] > 0 else None
+
+    # branching fixtures: two 3-ary hyperedges sharing 2 vertices; parallel edges; self-loop+edge
+    BRANCHING = [
+        ("two_3ary_share2", np.array([0, 3, 6]), np.array([0, 1, 2, 1, 2, 3])),
+        ("three_branch",    np.array([0, 3, 6, 9]), np.array([0, 1, 2, 0, 1, 3, 2, 3, 4])),
+        ("two_4ary_share3", np.array([0, 4, 8]), np.array([0, 1, 2, 3, 1, 2, 3, 4])),
+    ]
+
+    @pytest.mark.parametrize("name,ptr,idx", BRANCHING)
+    def test_branching_L_C_is_psd_zero_rowsum(self, name, ptr, idx):
+        g = RexGraph.from_hypergraph(ptr.astype(np.int64), idx.astype(np.int64))
+        LC = self._sparse_LC(g)
+        if LC is None:
+            pytest.skip("edgeless line graph")
+        A = LC.toarray()
+        assert np.allclose(A, A.T)                                   # symmetric
+        assert np.allclose(A.sum(axis=1), 0.0, atol=1e-9)           # zero row sums (Laplacian)
+        assert np.linalg.eigvalsh(A).min() > -1e-9                  # PSD
+
+    @pytest.mark.parametrize("name,ptr,idx", BRANCHING)
+    def test_branching_sparse_dense_parity(self, name, ptr, idx):
+        g = RexGraph.from_hypergraph(ptr.astype(np.int64), idx.astype(np.int64))
+        ls, ld = self._sparse_LC(g), self._dense_LC(g)
+        if ls is None or ld is None:
+            pytest.skip("edgeless line graph")
+        assert np.allclose(ls.toarray(), np.asarray(ld))
+
+    def test_parallel_edges_psd(self):
+        g = RexGraph(sources=np.array([0, 0], np.int32), targets=np.array([1, 1], np.int32))
+        A = self._sparse_LC(g).toarray()
+        assert np.allclose(A.sum(axis=1), 0.0) and np.linalg.eigvalsh(A).min() > -1e-9
+
+    def test_branching_rl4_psd(self):
+        # the indefinite L_C used to drag RL4 (and Renyi/harmonic-log) negative on branching
+        g = RexGraph.from_hypergraph(np.array([0, 3, 6]), np.array([0, 1, 2, 1, 2, 3]))
+        from rexgraph.sparse_character import build_sparse_character_cheap
+        RL = build_sparse_character_cheap(g)['RL'].toarray()
+        assert np.linalg.eigvalsh(RL).min() > -1e-9
+
+    def test_simple_graph_unchanged(self):
+        # weighted == unweighted line graph on any complex with no edge-pair sharing >1 vertex
+        g = RexGraph.from_simplicial(
+            np.array([0, 0, 0, 1, 1, 2], np.int32), np.array([1, 2, 3, 2, 3, 3], np.int32),
+            np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], np.int32))
+        A = self._sparse_LC(g).toarray()
+        assert np.allclose(A, np.asarray(self._dense_LC(g)))
+        assert np.allclose(np.diag(A), 4.0)          # K4 line-graph degree = 2(k-2) = 4
+        assert abs(float(np.trace(A)) - 24.0) < 1e-9  # tr(C) = 2*nE*(k-2) = 2*6*2

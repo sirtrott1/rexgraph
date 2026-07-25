@@ -367,3 +367,296 @@ def test_pinv_quadratic_form_matches_dense_pseudoinverse():
         ref = float(np.sum(c[w > 1e-10] ** 2 / w[w > 1e-10]))
         got = pinv_quadratic_form(hat, v)
         assert abs(got - ref) < 1e-8
+
+
+def test_primal_signal_character_kernel_guards_arity():
+    """Regression: the _channels kernel is compiled boundscheck=False; if nhats disagrees with the
+    number of hat arrays it used to read past the list and segfault. It must raise instead."""
+    from rexgraph.core import _channels
+    with pytest.raises(ValueError):
+        _channels.primal_signal_character(np.zeros(4), [], [], 4, 4)   # nhats=4, zero hats
+
+
+def test_sparse_betti_is_arity_aware_for_branching_hyperedges():
+    """Regression: the sparse bundle-slot Betti used a one-source/one-target column reader that
+    assumed arity-2 and overcounted beta0 on branching hyperedges. It must equal exact .betti."""
+    import scipy.sparse as sp
+    from rexgraph.core._laplacians import _sparse_betti
+    # {0,1,2} is a branching (arity-3) 1-cell; {2,3},{3,4},{4,2} form a triangle
+    ptr = np.array([0, 3, 5, 7, 9]); idx = np.array([0, 1, 2, 2, 3, 3, 4, 4, 2])
+    g = RexGraph.from_hypergraph(ptr, idx)
+    exact = tuple(int(b) for b in g.betti[:3])
+    B1 = sp.csr_matrix(np.asarray(g.B1, dtype=float))
+    b0, b1, b2, rank_B1, rank_B2 = _sparse_betti(B1, None, g.nV, g.nE, g.nF)
+    assert (b0, b1, b2) == exact          # arity-aware: matches the exact path exactly
+
+
+def test_alpha_G_is_exact_c2_on_complete_graphs():
+    """alpha_G = c^2 = G/T = tr((B2 B2^T)^2)/tr((B1^T B1)^2) is the CANONICAL geometry<->topology
+    exchange rate, exact rational = (k-2)/2 on the autofaced complete graph K_k (CANONICAL_RESOLUTION
+    section 2). Replaces the outdated fiedler(L1)/fiedler(L_O) float ratio. Also checks RL_1 = L1_down
+    + alpha_G*L1_up and that E_kin + alpha_G*E_pot = <f|RL_1|f>."""
+    import itertools
+    for k in (4, 5, 6, 7, 8):
+        E = list(itertools.combinations(range(k), 2))
+        Tr = np.array([list(x) for x in itertools.combinations(range(k), 3)], dtype=np.int64)
+        g = RexGraph.from_simplicial(np.array([e[0] for e in E], np.int32),
+                                     np.array([e[1] for e in E], np.int32), Tr)
+        b = g.spectral_bundle
+        assert abs(b['alpha_G'] - (k - 2) / 2) < 1e-9, (k, b['alpha_G'])
+        # edge-space operators are built on demand on the scale-free path (bundle keys
+        # are None); the accessors give the same L1_down / L1_up / RL_1 = L1_down + c^2 L1_up.
+        Ld, Lu = np.asarray(g.L1_down), np.asarray(g.L1_up)
+        RL1 = np.asarray(g.relational_laplacian)
+        assert np.allclose(RL1, Ld + b['alpha_G'] * Lu, atol=1e-9)
+        f = np.random.default_rng(k).standard_normal(g.nE)
+        ek, ep, _ = g.energy_kin_pot(f)
+        assert abs((ek + b['alpha_G'] * ep) - float(f @ (RL1 @ f))) < 1e-8   # energy matches operator
+
+
+def test_sparse_alpha_G_matches_dense_cheap_exact():
+    """cheap+exact alpha_G = c^2 = G/T on the scale-free path equals the dense oracle (both are the
+    exact integer-trace exchange rate, no eigensolve). Was NaN in sparse mode before."""
+    import rexgraph.core._common as common
+    saved = common.get_algorithm_config()['eigen_dense_limit']
+    try:
+        for edges in _COMPLEXES + [[(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)]]:
+            common.configure_algorithms(eigen_dense_limit=2000)
+            dense = _rex(edges).spectral_bundle.get('alpha_G')
+            common.configure_algorithms(eigen_dense_limit=1)
+            sparse = _rex(edges).spectral_bundle.get('alpha_G')   # cheap+exact fill
+            if np.isnan(dense):
+                assert np.isnan(sparse)
+            else:
+                assert abs(dense - sparse) < 1e-9, (edges, dense, sparse)
+    finally:
+        common.configure_algorithms(eigen_dense_limit=saved)
+
+
+def test_sparse_edge_fiedler_eigenpair_matches_dense():
+    """cheap+exact edge Fiedler eigenpair (value + vector, DEDICATED keys) on the scale-free path
+    matches the dense oracle; the vector satisfies L1 v = lambda v."""
+    import rexgraph.core._common as common
+    import scipy.sparse as sp
+    from rexgraph.core._sparse import to_scipy_csr
+    saved = common.get_algorithm_config()['eigen_dense_limit']
+    try:
+        for edges in _COMPLEXES + [[(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)]]:
+            common.configure_algorithms(eigen_dense_limit=2000)
+            bd = _rex(edges).spectral_bundle
+            common.configure_algorithms(eigen_dense_limit=1)
+            gs = _rex(edges); bs = gs.spectral_bundle
+            assert abs(bd['fiedler_val_L1'] - bs['fiedler_val_L1']) < 1e-8
+            B1 = to_scipy_csr(gs._B1_dual).astype(float); L1 = B1.T @ B1
+            if gs._nF > 0:
+                B2 = to_scipy_csr(gs._B2_hodge_dual).astype(float); L1 = L1 + B2 @ B2.T
+            v = np.asarray(bs['fiedler_vec_L1']); lam = bs['fiedler_val_L1']
+            assert np.linalg.norm(sp.csr_matrix(L1) @ v - lam * v) / (np.linalg.norm(v) + 1e-12) < 1e-6
+    finally:
+        common.configure_algorithms(eigen_dense_limit=saved)
+
+
+def test_scale_free_never_fills_full_spectrum_keys_with_partial():
+    """Regression: the scale-free (sparse) fill must NOT put PARTIAL low modes under the
+    FULL-spectrum keys. A full-eigenbasis consumer (measure_in_eigenbasis) reads those keys and
+    would silently truncate. In sparse mode they stay None, and the consumer rebuilds the SAME full
+    RL_1 = L1_down + c^2 * L1_up on demand, so the operator it measures over is identical to the
+    dense path's.
+
+    (measure_in_eigenbasis itself ends in np.random.choice, so its returned probability is a random
+    draw and cannot be compared across two decompositions -- and RL_1 here is degenerate, so two
+    eigenbases need not agree mode-for-mode. The deterministic, degeneracy-robust invariant is that
+    the OPERATOR and its full spectrum are the same either way.)"""
+    import itertools
+    import rexgraph.core._common as common
+    saved = common.get_algorithm_config()['eigen_dense_limit']
+    try:
+        E = list(itertools.combinations(range(6), 2))
+        Tr = np.array([list(x) for x in itertools.combinations(range(6), 3)], dtype=np.int64)
+        args = (np.array([e[0] for e in E], np.int32), np.array([e[1] for e in E], np.int32), Tr)
+        common.configure_algorithms(eigen_dense_limit=2000)
+        gd = RexGraph.from_simplicial(*args)
+        common.configure_algorithms(eigen_dense_limit=1)
+        gs = RexGraph.from_simplicial(*args); nE = gs.nE
+        # (a) sparse mode never stores PARTIAL vectors under a full-spectrum key
+        for key in ('evecs_RL_1', 'evecs_L1', 'evecs_L2'):
+            v = gs.spectral_bundle.get(key)
+            assert v is None or np.asarray(v).shape[1] == nE   # full or absent, never partial
+        # (b) the operator measure_in_eigenbasis(dim=1) uses is the SAME full RL_1 either way:
+        #     dense reads bundle['RL_1']; sparse rebuilds L1_down + c^2 * L1_up on demand.
+        RL_dense = np.asarray(gd.relational_laplacian)
+        RL_sparse = np.asarray(gs.relational_laplacian)
+        assert RL_dense.shape == (nE, nE)
+        assert np.allclose(RL_dense, RL_sparse, atol=1e-9)
+        # full spectra agree (sorted eigenvalues are operator invariants, robust to degeneracy)
+        wd = np.linalg.eigvalsh(RL_dense); ws = np.linalg.eigvalsh(RL_sparse)
+        assert wd.shape == (nE,) and ws.shape == (nE,)
+        assert np.allclose(wd, ws, atol=1e-9)
+    finally:
+        common.configure_algorithms(eigen_dense_limit=saved)
+
+
+class TestSingularGreensDeflated:
+    """diag(L+) for a SINGULAR edge operator via harmonic-projector deflation
+    L+ = (L + P_H)^-1 - P_H (oracle 09). The plain greens_diagonal (SPD RL4) blows up
+    on a kernel; the deflated form must match the dense pseudoinverse to ~1e-9 using
+    only the combinatorial harmonic/cycle basis (no eigendecomposition)."""
+
+    def _l1_down(self, g):
+        import scipy.sparse as sp
+        B1 = np.asarray(g.B1)
+        return sp.csr_matrix(B1.T @ B1)
+
+    def test_matches_dense_pinv_two_squares(self):
+        # oracle-09 complex: two 4-cycles sharing an edge, no faces, beta1 = 2
+        import scipy.sparse as sp
+        from rexgraph.scale_propagator import greens_diagonal_deflated
+        from rexgraph.harmonic_sparse import cycle_basis
+        E = [(0, 1), (1, 2), (2, 3), (3, 0), (1, 4), (4, 5), (5, 2)]
+        g = RexGraph(sources=np.array([e[0] for e in E], np.int32),
+                     targets=np.array([e[1] for e in E], np.int32))
+        L1 = self._l1_down(g)
+        H = cycle_basis(g)
+        assert H.shape[1] == 2
+        gd = greens_diagonal_deflated(L1, H)
+        ref = np.diag(np.linalg.pinv(L1.toarray()))
+        assert np.allclose(gd, ref, atol=1e-8)
+
+    def test_triangle_beta1_one(self):
+        from rexgraph.scale_propagator import greens_diagonal_deflated
+        from rexgraph.harmonic_sparse import cycle_basis
+        g = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32))
+        L1 = self._l1_down(g)
+        gd = greens_diagonal_deflated(L1, cycle_basis(g))
+        assert np.allclose(gd, np.diag(np.linalg.pinv(L1.toarray())), atol=1e-8)
+
+    def test_full_rank_reduces_to_inverse(self):
+        # empty kernel basis -> diag(L^-1); equals greens_diagonal on the SPD RL4
+        from rexgraph.scale_propagator import greens_diagonal_deflated, greens_diagonal
+        from rexgraph.sparse_character import build_sparse_character_cheap
+        g = RexGraph.from_simplicial(
+            np.array([0, 0, 0, 1, 1, 2], np.int32), np.array([1, 2, 3, 2, 3, 3], np.int32),
+            np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], np.int32))
+        RL = build_sparse_character_cheap(g)['RL']
+        assert np.allclose(greens_diagonal_deflated(RL, None), greens_diagonal(RL), atol=1e-9)
+
+    def test_graph_greens_character_edge(self):
+        # public accessor: diag(L1+) for the edge Laplacian, unfilled and filled
+        g = RexGraph(sources=np.array([0, 1, 2, 3, 0, 1, 4, 5], np.int32),
+                     targets=np.array([1, 2, 3, 0, 4, 4, 5, 2], np.int32))
+        B1 = np.asarray(g.B1)
+        assert np.allclose(g.greens_character_edge, np.diag(np.linalg.pinv(B1.T @ B1)), atol=1e-8)
+
+    def test_branching_edge_greens_finite(self):
+        g = RexGraph.from_hypergraph(np.array([0, 3, 6, 9]), np.array([0, 1, 2, 1, 2, 3, 3, 4, 0]))
+        gc = g.greens_character_edge
+        assert gc.shape == (g.nE,) and np.all(np.isfinite(gc)) and np.all(gc >= -1e-9)
+
+
+class TestMalaughActionMoment:
+    """The Malaugh action<->moment calculus (oracle 16): per-complex edge moments
+    X(k) (all O(nnz) traces, no eigendecomposition), and the discrete calculus
+    moment DX(k)=X(k+1)-X(k) / action S(k)=sum_{j<=k}X(j) conjugate by the scale-FTC."""
+
+    def _Kk(self, k):
+        import itertools
+        E = list(itertools.combinations(range(k), 2))
+        Tr = np.array([list(x) for x in itertools.combinations(range(k), 3)], np.int64)
+        return RexGraph.from_simplicial(np.array([e[0] for e in E], np.int32),
+                                        np.array([e[1] for e in E], np.int32), Tr)
+
+    def test_tower_quantities_match_oracle_on_Kk(self):
+        from rexgraph.scale_propagator import malaugh_quantities
+        for k in range(3, 9):
+            q = malaugh_quantities(self._Kk(k))
+            assert abs(q['c2_E'] - (k - 2) / 2) < 1e-9       # energy coupling = (k-2)/2
+            assert abs(q['H_T'] - np.log(k - 1)) < 1e-9      # harmonic-log = log(k-1)
+
+    def test_action_moment_ftc_conjugacy(self):
+        from rexgraph.scale_propagator import action_moment, malaugh_quantities
+        HT = np.array([malaugh_quantities(self._Kk(k))['H_T'] for k in range(3, 10)])
+        am = action_moment(HT)
+        assert am['moment'].shape == (HT.shape[0] - 1,)
+        assert am['action'].shape == HT.shape
+        # FTC: differencing the action returns the tower; the moment telescopes back
+        assert np.allclose(np.diff(am['action']), HT[1:])
+        assert np.allclose(HT[0] + np.cumsum(np.r_[0.0, am['moment']]), HT)
+
+    def test_entropy_action_converges(self):
+        # the topological entropy cost |DH_T| shrinks across the tower (harmonic converges)
+        from rexgraph.scale_propagator import action_moment, malaugh_quantities
+        HT = np.array([malaugh_quantities(self._Kk(k))['H_T'] for k in range(3, 12)])
+        m = np.abs(action_moment(HT)['moment'])
+        assert np.all(np.diff(m) < 0)                        # strictly decreasing increments
+
+    def test_action_moment_vector_tower(self):
+        # per-step vector towers difference/accumulate along axis 0
+        from rexgraph.scale_propagator import action_moment
+        X = np.array([[1.0, 2.0], [3.0, 5.0], [6.0, 9.0]])
+        am = action_moment(X)
+        assert np.allclose(am['moment'], np.array([[2., 3.], [3., 4.]]))
+        assert np.allclose(am['action'], np.array([[1., 2.], [4., 7.], [10., 16.]]))
+
+
+class TestChannelSpectralGaps:
+    """The exact per-channel spectral-gap METRIC lambda_2. T/G use the transpose duality
+    (exact vertex-dual Fiedler); it must match the dense hat eigen-gap, and drive an
+    exact per_channel_mixing_times."""
+
+    def _Kk(self, k):
+        import itertools
+        E = list(itertools.combinations(range(k), 2))
+        Tr = np.array([list(x) for x in itertools.combinations(range(k), 3)], np.int64)
+        return RexGraph.from_simplicial(np.array([e[0] for e in E], np.int32),
+                                        np.array([e[1] for e in E], np.int32), Tr)
+
+    def test_gaps_match_dense_hat_eigen(self):
+        from rexgraph.core import _character
+        for k in (4, 5, 6, 7):
+            g = self._Kk(k)
+            gaps = g.channel_spectral_gaps
+            db = g._dense_rcf_bundle
+            for i, nm in enumerate(db['hat_names']):
+                evals, _ = _character.hat_eigen(db['hats'][i], g.nE)
+                lam2_dense = float(evals[evals > 1e-10].min())
+                assert abs(gaps[nm] - lam2_dense) < 1e-7, (k, nm)
+
+    def test_mixing_times_are_ln_nE_over_gap(self):
+        g = self._Kk(6)
+        gaps = g.channel_spectral_gaps
+        mt = g.per_channel_mixing_times
+        for i, nm in enumerate(g.hat_names):
+            assert abs(mt[i] - np.log(g.nE) / gaps[nm]) < 1e-6
+
+    def test_transpose_duality_exact_T_G(self):
+        # T/G gap == lambda_2 of the tiny vertex-dual Laplacian / trace (exact)
+        import scipy.sparse as sp
+        g = self._Kk(6)
+        B1 = np.asarray(g.B1, float)
+        for nm, M in (('L1_down', B1 @ B1.T), ('L_O', np.abs(B1) @ np.abs(B1).T)):
+            w = np.linalg.eigvalsh(M); lam2 = w[w > 1e-9].min()
+            trX = np.trace((B1.T @ B1) if nm == 'L1_down' else (np.abs(B1).T @ np.abs(B1)))
+            assert abs(g.channel_spectral_gaps[nm] - lam2 / trX) < 1e-9
+
+
+class TestRelaxationMomentTower:
+    """The edge-centric relaxation entry point = the moment tower (not the Fiedler
+    metric). Bundled quantities are consistent with their standalone accessors and
+    finite on branching hyperedges."""
+
+    def test_relaxation_bundle_consistent(self):
+        g = RexGraph.from_simplicial(
+            np.array([0, 0, 0, 1, 1, 2], np.int32), np.array([1, 2, 3, 2, 3, 3], np.int32),
+            np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], np.int32))
+        r = g.relaxation
+        assert abs(r['harmonic_log'] - g.harmonic_entropy) < 1e-12
+        assert abs(r['effective_modes'] - np.exp(g.harmonic_entropy)) < 1e-9
+        assert np.allclose(r['energy_character'], g.energy_character)
+        assert np.allclose(r['greens_edge'], g.greens_character_edge)
+        assert r['effective_modes'] >= 1.0 - 1e-9
+
+    def test_relaxation_finite_on_branching(self):
+        g = RexGraph.from_hypergraph(np.array([0, 3, 6, 9]), np.array([0, 1, 2, 0, 1, 3, 2, 3, 4]))
+        r = g.relaxation
+        assert np.isfinite(r['harmonic_log']) and np.isfinite(r['effective_modes'])
+        assert np.all(np.isfinite(r['energy_character'])) and np.all(np.isfinite(r['greens_edge']))
