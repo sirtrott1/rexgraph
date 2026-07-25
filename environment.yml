@@ -1,0 +1,72 @@
+# RexGraph laptop environment - conda-forge only, full mamba in-env.
+
+# Create with mamba (bootstrapped via micromamba - see setup script):
+# mamba env create -f environment.yml
+# mamba activate rexgraph
+# # then, from the repo root (core builds from '.', NOT ./rexgraph):
+# pip install --no-build-isolation ".[io]"
+# pip install -e "./agent[server,schema,training]"
+
+# Python is PINNED to 3.13 for a reproducible, in-support-range interpreter
+# (the stack supports 3.10-3.13; verified building + running on 3.11/3.12/3.13).
+# Pinning matters for enterprise/shared use: an unpinned solver can pick a newer
+# default (e.g. 3.14) that is outside the tested/advertised range. To move the
+# pin, edit the `python=3.13` line below. conda-forge only (no `defaults`) keeps
+# you clear of Anaconda's ToS and matches a no-telemetry posture.
+
+name: rexgraph
+
+channels:
+  - conda-forge
+
+dependencies:
+ # Python (pinned to 3.13 - top of the supported 3.10-3.13 range)
+  - python=3.13
+
+ # Full mamba/conda in-env so `mamba install ...` works for later additions
+  - mamba
+  - conda
+
+ # Build toolchain for the Cython core (meson-python + Cython -> .so)
+  - meson>=1.3
+  - meson-python>=0.16
+  - ninja
+  - cython>=3.0
+  - pkg-config
+  - packaging
+
+ # Compilers from conda-forge - hermetic build, no reliance on /usr toolchain
+  - c-compiler
+  - cxx-compiler
+  - libgomp          # OpenMP runtime (Linux)
+
+ # BLAS/LAPACK - the one dependency that reliably breaks a plain pip build.
+ # conda-forge openblas gives meson-python clean cblas_/lapack symbols.
+  - openblas
+  - libblas
+  - liblapack
+
+ # Core scientific stack
+  - numpy>=1.24
+  - scipy>=1.10
+
+ # I/O stack (core rexgraph[io]: HDF5 export, Zarr, Arrow, SQL, pandas)
+  - zarr>=2.14
+  - h5py>=3.8
+  - pyarrow>=12.0
+  - sqlalchemy>=2.0
+  - pandas>=2.0
+
+ # RCDB persistence + training export (the piece the old extras list missed)
+  - safetensors>=0.3
+
+ # Schema diagnosis (dialect-aware SQL parsing)
+  - sqlglot>=20
+
+ # Testing
+  - pytest>=7.0
+  - pytest-cov>=4.0
+  - pytest-asyncio>=0.23
+  - ruff>=0.3
+
+  - pip

@@ -1,0 +1,14 @@
+# Build options for RexGraph.
+
+# pip install . -Csetup-args=-Dnative=true
+
+# 'native' enables machine-specific optimization (-march=native -ffast-math).
+# It is OFF by default so the default build is portable across CPUs and keeps
+# IEEE-correct floating point. Turn it on only for a build that will run on the
+# same machine (or an identical CPU) that compiled it.
+option(
+    'native',
+    type: 'boolean',
+    value: false,
+    description: 'Optimize for the build CPU (-march=native -ffast-math). Not portable; relaxes IEEE fp.',
+)

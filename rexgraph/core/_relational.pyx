@@ -1,0 +1,392 @@
+# cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
+# cython: initializedcheck=False, nonecheck=False, embedsignature=True
+"""
+rexgraph.core._relational - Relational Laplacian and Green function.
+
+All computation via LAPACK/BLAS through _linalg cimport. Zero Python
+in hot paths.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+cimport numpy as np
+from libc.math cimport fabs
+from libc.stdlib cimport malloc, free
+from libc.string cimport memset, memcpy
+
+cimport cython
+
+from rexgraph.core._common cimport (
+    i32, i64, f64, idx_t,
+    should_use_dense_eigen,
+    can_allocate_dense_f64,
+)
+
+from rexgraph.core._linalg cimport (
+    lp_eigh, lp_lstsq,
+    bl_gemm_nn, bl_gemm_nt, bl_gemm_tn,
+    bl_dot,
+    spectral_pinv, spectral_pinv_matvec,
+    mat_trace,
+    dpotrf_, dpotrs_,
+)
+
+np.import_array()
+
+
+cdef void _trace_normalize_inplace(f64* L, f64* tr_out, int n) noexcept nogil:
+    cdef f64 tr = mat_trace(L, n)
+    cdef int i
+    cdef f64 inv_tr
+    tr_out[0] = tr
+    if tr > 1e-15:
+        inv_tr = 1.0 / tr
+        for i in range(n * n):
+            L[i] *= inv_tr
+    else:
+        memset(L, 0, n * n * sizeof(f64))
+
+
+def trace_normalize(np.ndarray[f64, ndim=2] L):
+    cdef int n = L.shape[0]
+    cdef np.ndarray[f64, ndim=2] out = L.copy()
+    cdef f64 tr_val = 0
+    _trace_normalize_inplace(&out[0, 0], &tr_val, n)
+    return out, float(tr_val)
+
+
+cdef void _build_RL_3(const f64* L1, const f64* L_O, const f64* L_SG,
+                       f64* RL, f64* h1, f64* hO, f64* hSG,
+                       f64* traces, int n) noexcept nogil:
+    cdef int nn = n * n
+    cdef int i
+    memcpy(h1, L1, nn * sizeof(f64))
+    _trace_normalize_inplace(h1, &traces[0], n)
+    memcpy(hO, L_O, nn * sizeof(f64))
+    _trace_normalize_inplace(hO, &traces[1], n)
+    memcpy(hSG, L_SG, nn * sizeof(f64))
+    _trace_normalize_inplace(hSG, &traces[2], n)
+    for i in range(nn):
+        RL[i] = h1[i] + hO[i] + hSG[i]
+
+
+cdef void _build_RL_4(const f64* L1, const f64* L_O, const f64* L_SG,
+                       const f64* L_C,
+                       f64* RL, f64* h1, f64* hO, f64* hSG, f64* hC,
+                       f64* traces, int n) noexcept nogil:
+    cdef int nn = n * n
+    cdef int i
+    memcpy(h1, L1, nn * sizeof(f64))
+    _trace_normalize_inplace(h1, &traces[0], n)
+    memcpy(hO, L_O, nn * sizeof(f64))
+    _trace_normalize_inplace(hO, &traces[1], n)
+    memcpy(hSG, L_SG, nn * sizeof(f64))
+    _trace_normalize_inplace(hSG, &traces[2], n)
+    memcpy(hC, L_C, nn * sizeof(f64))
+    _trace_normalize_inplace(hC, &traces[3], n)
+    for i in range(nn):
+        RL[i] = h1[i] + hO[i] + hSG[i] + hC[i]
+
+
+def build_RL(list laplacians, list names):
+    """Build the relational Laplacian from N typed Laplacians.
+
+    Each Laplacian is trace-normalized. Those with tr < epsilon are
+    skipped. The result is RL = sum of active hats, with
+    tr(RL) = nhats exactly.
+
+    For N=3 and N=4, C-level fast paths avoid Python overhead entirely.
+
+    Parameters
+    ----------
+    laplacians : list of f64[nE, nE]
+    names : list of str, same length
+
+    Returns
+    -------
+    dict with RL, hats, nhats, trace_values, hat_names
+    """
+    cdef int n_input = len(laplacians)
+    if n_input == 0:
+        raise ValueError("build_RL requires at least one Laplacian")
+    cdef int nE = laplacians[0].shape[0]
+
+    # Typed arrays declared at function scope (Cython 3 requirement).
+    # Used by 3-hat and 4-hat fast paths; unused in general path.
+    cdef np.ndarray[f64, ndim=2] _a0, _a1, _a2, _a3
+    cdef np.ndarray[f64, ndim=2] _h0, _h1, _h2, _h3
+    cdef np.ndarray[f64, ndim=2] _RL
+    cdef np.ndarray[f64, ndim=1] _tr
+    cdef np.ndarray[f64, ndim=2] hat_k
+    cdef f64 tr_k
+
+    # Fast path: exactly 3 inputs
+    if n_input == 3:
+        _a0 = np.ascontiguousarray(laplacians[0], dtype=np.float64)
+        _a1 = np.ascontiguousarray(laplacians[1], dtype=np.float64)
+        _a2 = np.ascontiguousarray(laplacians[2], dtype=np.float64)
+        _h0 = np.empty((nE, nE), dtype=np.float64)
+        _h1 = np.empty((nE, nE), dtype=np.float64)
+        _h2 = np.empty((nE, nE), dtype=np.float64)
+        _tr = np.empty(3, dtype=np.float64)
+        _RL = np.empty((nE, nE), dtype=np.float64)
+        _build_RL_3(&_a0[0, 0], &_a1[0, 0], &_a2[0, 0],
+                     &_RL[0, 0], &_h0[0, 0], &_h1[0, 0], &_h2[0, 0],
+                     &_tr[0], nE)
+        all_hats = [_h0, _h1, _h2]
+        active_hats = []
+        active_traces = []
+        active_names = []
+        for k in range(3):
+            if _tr[k] > 1e-15:
+                active_hats.append(all_hats[k])
+                active_traces.append(float(_tr[k]))
+                active_names.append(names[k])
+        if len(active_hats) < 3:
+            _RL = np.zeros((nE, nE), dtype=np.float64)
+            for h in active_hats:
+                _RL += h
+        return {
+            'RL': _RL, 'hats': active_hats,
+            'nhats': len(active_hats),
+            'trace_values': np.array(active_traces, dtype=np.float64),
+            'hat_names': active_names,
+        }
+
+    # Fast path: exactly 4 inputs
+    if n_input == 4:
+        _a0 = np.ascontiguousarray(laplacians[0], dtype=np.float64)
+        _a1 = np.ascontiguousarray(laplacians[1], dtype=np.float64)
+        _a2 = np.ascontiguousarray(laplacians[2], dtype=np.float64)
+        _a3 = np.ascontiguousarray(laplacians[3], dtype=np.float64)
+        _h0 = np.empty((nE, nE), dtype=np.float64)
+        _h1 = np.empty((nE, nE), dtype=np.float64)
+        _h2 = np.empty((nE, nE), dtype=np.float64)
+        _h3 = np.empty((nE, nE), dtype=np.float64)
+        _tr = np.empty(4, dtype=np.float64)
+        _RL = np.empty((nE, nE), dtype=np.float64)
+        _build_RL_4(&_a0[0, 0], &_a1[0, 0], &_a2[0, 0], &_a3[0, 0],
+                     &_RL[0, 0], &_h0[0, 0], &_h1[0, 0], &_h2[0, 0],
+                     &_h3[0, 0], &_tr[0], nE)
+        all_hats = [_h0, _h1, _h2, _h3]
+        active_hats = []
+        active_traces = []
+        active_names = []
+        for k in range(4):
+            if _tr[k] > 1e-15:
+                active_hats.append(all_hats[k])
+                active_traces.append(float(_tr[k]))
+                active_names.append(names[k])
+        if len(active_hats) < 4:
+            _RL = np.zeros((nE, nE), dtype=np.float64)
+            for h in active_hats:
+                _RL += h
+        return {
+            'RL': _RL, 'hats': active_hats,
+            'nhats': len(active_hats),
+            'trace_values': np.array(active_traces, dtype=np.float64),
+            'hat_names': active_names,
+        }
+
+    # General path: N inputs (N != 3, N != 4)
+    _RL = np.zeros((nE, nE), dtype=np.float64)
+    active_hats = []
+    active_traces = []
+    active_names = []
+
+    for k in range(n_input):
+        hat_k = np.ascontiguousarray(laplacians[k], dtype=np.float64).copy()
+        tr_k = 0
+        _trace_normalize_inplace(&hat_k[0, 0], &tr_k, nE)
+        if tr_k > 1e-15:
+            active_hats.append(hat_k)
+            active_traces.append(float(tr_k))
+            active_names.append(names[k])
+            _RL += hat_k
+
+    return {
+        'RL': _RL, 'hats': active_hats,
+        'nhats': len(active_hats),
+        'trace_values': np.array(active_traces, dtype=np.float64),
+        'hat_names': active_names,
+    }
+
+
+def build_RL_from_laplacians(np.ndarray[f64, ndim=2] L1,
+                               np.ndarray[f64, ndim=2] L_O,
+                               np.ndarray[f64, ndim=2] L_SG):
+    """Build RL3 from the three standard Laplacians. Alias for build_RL."""
+    return build_RL([L1, L_O, L_SG], ['L1_down', 'L_O', 'L_SG'])
+
+
+def rl_eigen(np.ndarray[f64, ndim=2] RL):
+    cdef int n = RL.shape[0]
+    cdef np.ndarray[f64, ndim=2] RL_F = np.asfortranarray(RL.copy())
+    cdef np.ndarray[f64, ndim=1] evals = np.empty(n, dtype=np.float64)
+    cdef int i
+    lp_eigh(&RL_F[0, 0], &evals[0], n)
+    for i in range(n):
+        if evals[i] < 0 and fabs(evals[i]) < 1e-10: evals[i] = 0.0
+        if fabs(evals[i]) < 1e-12: evals[i] = 0.0
+    cdef np.ndarray[f64, ndim=2] evecs = np.ascontiguousarray(RL_F)
+    return evals, evecs
+
+
+def rl_pinv_dense(np.ndarray[f64, ndim=1] evals, np.ndarray[f64, ndim=2] evecs):
+    cdef int n = evals.shape[0]
+    cdef np.ndarray[f64, ndim=2] out = np.zeros((n, n), dtype=np.float64)
+    spectral_pinv(&evals[0], &evecs[0, 0], &out[0, 0], n, 1e-10)
+    return out
+
+
+def rl_pinv_matvec(np.ndarray[f64, ndim=1] evals,
+                    np.ndarray[f64, ndim=2] evecs,
+                    np.ndarray[f64, ndim=1] x):
+    cdef int n = evals.shape[0]
+    cdef np.ndarray[f64, ndim=1] out = np.empty(n, dtype=np.float64)
+    spectral_pinv_matvec(&evals[0], &evecs[0, 0], &x[0], &out[0], n, 1e-10)
+    return out
+
+
+def build_green_cache(np.ndarray[f64, ndim=2] RL,
+                       np.ndarray[f64, ndim=2] B1,
+                       np.ndarray[f64, ndim=1] evals,
+                       np.ndarray[f64, ndim=2] evecs):
+    cdef int nV = B1.shape[0]
+    cdef int nE = B1.shape[1]
+    cdef np.ndarray[f64, ndim=2] RLp = np.zeros((nE, nE), dtype=np.float64)
+    spectral_pinv(&evals[0], &evecs[0, 0], &RLp[0, 0], nE, 1e-10)
+    cdef np.ndarray[f64, ndim=2] B1_RLp = np.empty((nV, nE), dtype=np.float64)
+    bl_gemm_nn(&B1[0, 0], &RLp[0, 0], &B1_RLp[0, 0], nV, nE, nE)
+    cdef np.ndarray[f64, ndim=2] S0 = np.empty((nV, nV), dtype=np.float64)
+    bl_gemm_nt(&B1_RLp[0, 0], &B1[0, 0], &S0[0, 0], nV, nV, nE)
+    return {
+        'RL_pinv': RLp, 'B1_RLp': B1_RLp, 'S0': S0,
+        'evals': evals, 'evecs': evecs, 'nV': nV, 'nE': nE, 'dense': True,
+    }
+
+
+def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
+                           np.ndarray[f64, ndim=2] B1):
+    """Green cache via SPD Cholesky solve - no eigendecomposition, no full pinv.
+
+    For RL3/RL4 the relational Laplacian is full-rank symmetric positive definite
+    (the overlap/frustration/co-participation channels fill the cycle-space kernel
+    of L1_down), so RL^+ = RL^-1 exactly. This factors RL once (Cholesky, dpotrf)
+    and solves RL @ X = B1^T (dpotrs) to get B1_RLp = B1 @ RL^-1 and
+    S0 = B1 RL^-1 B1^T directly, WITHOUT forming the dense nE x nE pseudoinverse
+    and WITHOUT the O(nE^3) symmetric eigendecomposition the spectral path uses.
+
+    Returns the same-shaped cache (B1_RLp, S0) with 'spd_solve': True so the phi
+    kernel consumes B1_RLp directly. Returns None if RL is empty or not numerically
+    SPD (Cholesky info != 0) - the caller then falls back to build_green_cache
+    (spectral pinv), so behaviour is preserved on any degenerate RL.
+    """
+    cdef int nV = B1.shape[0]
+    cdef int nE = B1.shape[1]
+    if nE == 0 or nV == 0:
+        return None
+    # Cholesky factor of RL (lower), column-major working copy.
+    cdef np.ndarray[f64, ndim=2] A = np.asfortranarray(RL.astype(np.float64, copy=True))
+    cdef char uplo = b'L'
+    cdef int n = nE
+    cdef int info = 0
+    dpotrf_(&uplo, &n, &A[0, 0], &n, &info)
+    if info != 0:
+        return None                      # not SPD -> caller uses spectral fallback
+    # Solve RL @ X = B1^T  =>  X = RL^-1 B1^T   (nE x nV, column-major RHS).
+    cdef np.ndarray[f64, ndim=2] Xf = np.array(B1.T, dtype=np.float64, order='F')
+    cdef int nrhs = nV
+    dpotrs_(&uplo, &n, &nrhs, &A[0, 0], &n, &Xf[0, 0], &n, &info)
+    if info != 0:
+        return None
+    # B1_RLp = X^T   (nV x nE, C-contiguous);  S0 = B1_RLp @ B1^T.
+    cdef np.ndarray[f64, ndim=2] B1_RLp = np.ascontiguousarray(Xf.T)
+    cdef np.ndarray[f64, ndim=2] S0 = np.empty((nV, nV), dtype=np.float64)
+    bl_gemm_nt(&B1_RLp[0, 0], &B1[0, 0], &S0[0, 0], nV, nV, nE)
+    return {
+        'RL_pinv': None, 'B1_RLp': B1_RLp, 'S0': S0,
+        'nV': nV, 'nE': nE, 'dense': False, 'spd_solve': True,
+    }
+
+
+def rl_cg_solve(np.ndarray[f64, ndim=2] RL, np.ndarray[f64, ndim=1] b):
+    cdef int n = RL.shape[0]
+    cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(RL.copy())
+    cdef np.ndarray[f64, ndim=1] B = b.copy()
+    cdef np.ndarray[f64, ndim=1] S = np.empty(n, dtype=np.float64)
+    cdef int rank = 0
+    lp_lstsq(&A_F[0, 0], &B[0], n, n, 1, &S[0], &rank)
+    return B
+
+
+def rl_solve_column(np.ndarray[f64, ndim=2] RL, np.ndarray[f64, ndim=2] B1,
+                     int vertex_idx):
+    cdef int nV = B1.shape[0], nE = B1.shape[1]
+    cdef np.ndarray[f64, ndim=1] rhs = np.zeros(nE, dtype=np.float64)
+    cdef f64[:, ::1] b1v = B1
+    cdef f64[::1] rv = rhs
+    cdef int e
+    for e in range(nE):
+        rv[e] = b1v[vertex_idx, e]
+    return rl_cg_solve(RL, rhs)
+
+
+def build_line_graph(np.ndarray[f64, ndim=2] K1, int nE):
+    cdef f64[:, ::1] kv = K1
+    cdef int i, j, count = 0
+    for i in range(nE):
+        for j in range(i + 1, nE):
+            if kv[i, j] > 1e-15: count += 1
+    cdef np.ndarray[i32, ndim=1] src = np.empty(count, dtype=np.int32)
+    cdef np.ndarray[i32, ndim=1] tgt = np.empty(count, dtype=np.int32)
+    cdef np.ndarray[f64, ndim=1] wt = np.empty(count, dtype=np.float64)
+    cdef i32[::1] sv = src, tv = tgt
+    cdef f64[::1] wv = wt
+    cdef int idx = 0
+    for i in range(nE):
+        for j in range(i + 1, nE):
+            if kv[i, j] > 1e-15:
+                sv[idx] = i; tv[idx] = j; wv[idx] = kv[i, j]; idx += 1
+    return {'src': src, 'tgt': tgt, 'weights': wt, 'nV_L': nE, 'nE_L': count}
+
+
+def build_L_coPC(line_graph_info):
+    """Combinatorial Laplacian of the line graph: L_C = D_L - A_L.
+
+    Uses the combinatorial (unsigned) Laplacian D - A, NOT the topological
+    Laplacian B^T B. The combinatorial form is required for the G = C
+    theorem: on K_k, hat_G = hat_C when C is defined as D_L - A_L.
+
+    The topological form B1_L^T B1_L differs from D_L - A_L by introducing
+    orientation-dependent signs in the off-diagonal entries, producing
+    21 distinct eigenvalues on K_7 instead of the expected 3.
+    """
+    cdef int nV_L = line_graph_info['nV_L']
+    cdef int nE_L = line_graph_info['nE_L']
+    if nE_L == 0:
+        return np.zeros((nV_L, nV_L), dtype=np.float64)
+    cdef np.ndarray[i32, ndim=1] src = line_graph_info['src']
+    cdef np.ndarray[i32, ndim=1] tgt = line_graph_info['tgt']
+    cdef np.ndarray[f64, ndim=1] wt = line_graph_info['weights']
+
+    # Build adjacency matrix A_L and degree matrix D_L
+    cdef np.ndarray[f64, ndim=2] L = np.zeros((nV_L, nV_L), dtype=np.float64)
+    cdef f64[:, ::1] lv = L
+    cdef i32[::1] sv = src, tv = tgt
+    cdef f64[::1] wv = wt
+    cdef int j
+    cdef i32 s, t
+
+    for j in range(nE_L):
+        s = sv[j]
+        t = tv[j]
+        # Off-diagonal: -A_L (negative adjacency)
+        lv[s, t] -= 1.0
+        lv[t, s] -= 1.0
+        # Diagonal: D_L (degree)
+        lv[s, s] += 1.0
+        lv[t, t] += 1.0
+
+    return L
