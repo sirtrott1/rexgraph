@@ -344,12 +344,18 @@ def detect_hallucinations_exchange(
             try:
                 vc = rex.void_complex
                 if vc and vc.get('n_voids', 0) > 0 and vc.get('Bvoid') is not None:
-                    from rexgraph.core._void import void_character_all
-                    sb = rex.spectral_bundle
-                    void_chi = void_character_all(
-                        vc['Bvoid'], sb['RL'], sb['hats'], sb['nhats'],
-                        vc['n_voids'], rex.nE,
-                    )
+                    # Matrix-free on the universal scale-free path (dense sb['RL']/hats
+                    # are None): per-void character via LSQR pinv quadratic forms.
+                    if rex._use_sparse_character:
+                        from rexgraph.sparse_character import void_character_sparse
+                        void_chi = void_character_sparse(rex, vc['Bvoid'])
+                    else:
+                        from rexgraph.core._void import void_character_all
+                        sb = rex.spectral_bundle
+                        void_chi = void_character_all(
+                            vc['Bvoid'], sb['RL'], sb['hats'], sb['nhats'],
+                            vc['n_voids'], rex.nE,
+                        )
                     if isinstance(void_chi, np.ndarray) and void_chi.size > 0:
                         chan_names = ["T", "G", "F", "C"]
                         void_mean = void_chi.mean(axis=0) if void_chi.ndim > 1 else void_chi

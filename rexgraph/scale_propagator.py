@@ -372,6 +372,133 @@ def greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
     return diag
 
 
+def greens_diagonal_deflated(L, H, tol=1e-10, chunk=512):
+    """diag(L⁺) for a SINGULAR symmetric PSD L whose kernel is spanned by the columns
+    of H (the combinatorial harmonic / cycle basis, nE × k), via the canonical
+    harmonic-projector regularization (oracle 09; CANONICAL_SPARSE_MATH_REFERENCE
+    Part VI):
+
+        L⁺ = (L + P_H)⁻¹ − P_H,   P_H = H (HᵀH)⁻¹ Hᵀ   (projector onto ker L)
+
+    (L + P_H) is SPD so ordinary sparse block-CG solves apply; P_H is applied LOW-RANK
+    through H (never densified) and diag(P_H) is formed exactly. Eigen-free: no dense
+    spectrum, no nE × nE inverse. Returns f64[n] = diag(L⁺). For a full-rank operator
+    (empty H) this reduces to greens_diagonal(L) = diag(L⁻¹).
+
+    This is the seam behind Green's character / coherence for SINGULAR operators - the
+    individual channel hats and the edge Laplacian L1, whose kernel is the harmonic /
+    cycle space (rexgraph.harmonic_sparse.harmonic_basis / cycle_basis). The full-rank
+    SPD RL4 needs no deflation and uses greens_diagonal directly."""
+    import scipy.sparse as sp
+    from rexgraph.sparse_character import _block_cg
+    L = _csr(L)
+    n = L.shape[0]
+    if n == 0:
+        return np.zeros(0, dtype=_f64)
+    if H is None or (hasattr(H, 'shape') and H.shape[1] == 0):
+        return greens_diagonal(L, tol=tol, chunk=chunk)   # full-rank: L⁺ = L⁻¹
+    Hd = np.ascontiguousarray(
+        (H.toarray() if sp.issparse(H) else np.asarray(H)), dtype=_f64)   # n × k, k small
+    # VALIDATE the kernel basis: the deflation is only correct when H ⊆ ker(L). The
+    # combinatorial cycle basis reduces branching hyperedges to pairwise endpoints and
+    # can invent "cycles" that are NOT in ker(B1) (‖L·H‖ ≠ 0); deflating against them is
+    # wrong. When H is not a valid kernel basis fall back to the kernel-robust LSQR
+    # pseudoinverse diagonal, which needs no explicit kernel and is exact for any L.
+    hnorm = float(np.linalg.norm(Hd)) or 1.0
+    if float(np.linalg.norm(L @ Hd)) > 1e-7 * hnorm:
+        return _greens_diagonal_lsqr(L, tol=tol)
+    GHinv = np.linalg.inv(Hd.T @ Hd)                       # (HᵀH)⁻¹, k × k
+    # low-rank projector apply: P_H @ P = H (HᵀH)⁻¹ (Hᵀ P); M = L + P_H is SPD
+    apply_M = lambda P: (L @ P) + Hd @ (GHinv @ (Hd.T @ P))
+    # exact diag(P_H)[e] = H[e,:] (HᵀH)⁻¹ H[e,:]ᵀ
+    Y = GHinv @ Hd.T                                       # k × n
+    diag_PH = np.einsum('ea,ae->e', Hd, Y)
+    mdiag = L.diagonal() + diag_PH                         # diag(M) for Jacobi precond
+    dinv = np.where(np.abs(mdiag) > 1e-30, 1.0 / mdiag, 1.0)
+    diagM = np.zeros(n, dtype=_f64)
+    step = max(1, min(n, int(chunk)))
+    for start in range(0, n, step):
+        stop = min(start + step, n)
+        E = np.zeros((n, stop - start), dtype=_f64)
+        for i in range(start, stop):
+            E[i, i - start] = 1.0
+        X = _block_cg(apply_M, E, dinv, tol=tol)           # (L+P_H)⁻¹ e_i
+        for i in range(start, stop):
+            diagM[i] = X[i, i - start]
+    return diagM - diag_PH                                 # diag(L⁺) = diag(M⁻¹) − diag(P_H)
+
+
+def _greens_diagonal_lsqr(L, tol=1e-10):
+    """diag(L⁺) for a symmetric PSD L (possibly SINGULAR) with NO kernel basis needed:
+    per column, x = lsqr(L, e_i) is the minimum-norm least-squares solution = L⁺ e_i
+    (LSQR projects off ker(L) exactly), so diag(L⁺)[i] = x_i. Exact to LSQR tolerance and
+    kernel-robust - the correctness fallback when a supplied harmonic basis is invalid
+    (e.g. the pairwise cycle basis on branching hyperedges). O(n) solves; the deflation
+    path is preferred when a VALID kernel basis is available (block solves, cheaper)."""
+    import scipy.sparse.linalg as sla
+    L = _csr(L)
+    n = L.shape[0]
+    diag = np.zeros(n, dtype=_f64)
+    for i in range(n):
+        e = np.zeros(n, dtype=_f64); e[i] = 1.0
+        x = sla.lsqr(L, e, atol=tol, btol=tol, iter_lim=20000)[0]
+        diag[i] = x[i]
+    return diag
+
+
+# -- Malaugh action <-> moment calculus across a scale tower (oracle 16) ----------
+
+def action_moment(X):
+    """The Malaugh calculus: action <-> moment across a scale tower (oracle 16;
+    rcfe_final-5 sec 21.3-21.6). Given a tower of scale-indexed moments
+    X = [X(0), X(1), ...] (scalar per step, or a vector/array per step along axis 0):
+
+        moment  DX(k) = X(k+1) - X(k)      (per-step difference = discrete derivative)
+        action  S(k)  = sum_{j<=k} X(j)    (cumulative integral = Lagrangian)
+
+    conjugate by the FTC across scale: S(k) - S(k-1) = X(k), and differencing the action
+    returns the tower (np.diff(S) == X[1:]) while the partial sums of the moment telescope
+    back to X (X[k] = X[0] + sum_{j<k} DX(j)). Watching both across the tower shows the
+    transformation the doc describes: the energy action ACCELERATES (moment grows), the
+    entropy action CONVERGES (moment shrinks). Pure O(len), no eigendecomposition - the
+    X(k) are the edge-space trace / harmonic-log moments from `malaugh_quantities`.
+    Returns {'moment': DX (len-1 along axis 0), 'action': S (same length as X)}."""
+    X = np.asarray(X, dtype=_f64)
+    return {'moment': np.diff(X, axis=0), 'action': np.cumsum(X, axis=0)}
+
+
+def malaugh_quantities(rex):
+    """The per-complex edge-space tower moments X(k) for one rex (oracle 16), all O(nnz)
+    trace / harmonic-log moments of the boundary operators - no eigendecomposition:
+
+        L_T = tr(T^2)/tr(T)^2,   L_S = tr(L1_up^2)/tr(L1_up)^2   (collision / IPR)
+        c2   = L_S / L_T                 coupling  (= (k-2)/2 on K_k)
+        c2_E = tr(L1_up^2)/tr(T^2)       energy coupling (raw trace ratio)
+        H_T  = -log(L_T),  H_S = -log(L_S)   harmonic-log (collision) entropies
+
+    with T = B1^T B1 (topology/gradient) and L1_up = B2 B2^T (geometry/curl). Map this
+    over a sequence of complexes to build a Malaugh tower, then feed each quantity's
+    tower to `action_moment`. NaN for a quantity whose trace is 0 (e.g. c2/H_S with no
+    faces)."""
+    import scipy.sparse as sp
+    from rexgraph.core._laplacians import build_L1_down_sparse, build_L1_up_sparse
+    T = build_L1_down_sparse(rex._B1_dual).tocsr()
+    trT = float(T.diagonal().sum()); trT2 = float(T.multiply(T).sum())
+    if int(rex.nF_hodge) > 0 and rex._B2_hodge_dual is not None:
+        Lu = build_L1_up_sparse(rex._B2_hodge_dual).tocsr()
+        trL = float(Lu.diagonal().sum()); trL2 = float(Lu.multiply(Lu).sum())
+    else:
+        trL = trL2 = 0.0
+    L_T = trT2 / trT ** 2 if trT > 0 else float('nan')
+    L_S = trL2 / trL ** 2 if trL > 0 else float('nan')
+    return {
+        'c2': (L_S / L_T) if (trT > 0 and trL > 0) else float('nan'),
+        'c2_E': (trL2 / trT2) if trT2 > 0 else float('nan'),
+        'H_T': float(-np.log(L_T)) if L_T == L_T and L_T > 0 else float('nan'),
+        'H_S': float(-np.log(L_S)) if L_S == L_S and L_S > 0 else float('nan'),
+    }
+
+
 # -- eigen-free heat propagation of SIGNALS (Chebyshev matrix-vector) -------------
 # Applying e^{-tL} to a signal is O(nnz*K) via a Chebyshev polynomial of L -- exact
 # to the polynomial order, ANY t, NO eigendecomposition. (Only the DIAGONAL of

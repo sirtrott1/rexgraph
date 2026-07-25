@@ -90,13 +90,48 @@ def _cycle_basis_from_edges(nV, nE, src, tgt):
     return sp.csc_matrix((vals, (rows, cols)), shape=(nE, beta1), dtype=_f64)
 
 
+def _exact_nullspace(B1, nE):
+    """Exact basis of ker(B1) (the cycle space) for an arbitrary boundary, including
+    BRANCHING hyperedges where the spanning-tree fundamental-cycle basis is invalid.
+    Uses the SVD null space of B1 - not combinatorial, but this is the correctness
+    fallback taken ONLY when the fast combinatorial basis fails its validation (branching
+    inputs); simple graphs never reach it. Returns a sparse nE × (nE−rank B1) matrix."""
+    import scipy.sparse as sp
+    from scipy.linalg import null_space
+    if nE == 0:
+        return sp.csc_matrix((0, 0), dtype=_f64)
+    B1d = np.asarray(B1.todense() if sp.issparse(B1) else B1, dtype=_f64)
+    ns = null_space(B1d)                                # nE × k, columns span ker(B1)
+    return sp.csc_matrix(np.ascontiguousarray(ns))
+
+
 def cycle_basis(rex):
-    """Spanning-tree fundamental cycle basis of `ker(B1)` as a sparse integer
-    matrix C (nE × β₁). Thin wrapper over `_cycle_basis_from_edges` using the rex's
-    true edge orientation."""
+    """Basis of `ker(B1)` (the cycle space, dim = nE − rank B1) as a sparse matrix.
+
+    Fast path: the spanning-tree fundamental-cycle basis (integer, combinatorial). For
+    BRANCHING hyperedges (arity != 2) the endpoint reduction can invent "cycles" that
+    are NOT in ker(B1), so the combinatorial basis is VALIDATED against the true boundary
+    (‖B1·C‖ = 0 and correct dimension) and, when invalid, replaced by the exact nullspace
+    of B1. Simple graphs always take the fast path unchanged."""
+    import scipy.sparse as sp
+    from rexgraph.core._sparse import to_scipy_csr
     nV, nE = int(rex.nV), int(rex.nE)
     src, tgt = rex._ensure_src_tgt()
-    return _cycle_basis_from_edges(nV, nE, src, tgt)
+    C = _cycle_basis_from_edges(nV, nE, src, tgt)
+    if nE == 0:
+        return C
+    B1 = to_scipy_csr(rex._B1_dual).tocsr().astype(_f64)
+    try:
+        from rexgraph.graded_boundary import _sparse_rank
+        expected = nE - int(_sparse_rank(B1))           # exact dim ker(B1)
+    except Exception:
+        expected = None
+    Cd = C.toarray() if sp.issparse(C) else np.asarray(C)
+    valid = (expected is None or Cd.shape[1] == expected) and \
+            (Cd.shape[1] == 0 or float(np.linalg.norm(B1 @ Cd)) < 1e-9)
+    if valid:
+        return C
+    return _exact_nullspace(B1, nE)                     # branching: exact ker(B1)
 
 
 def _endpoints_from_b1(B1):

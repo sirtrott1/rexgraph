@@ -81,12 +81,20 @@ def build_sparse_channels(rex):
     d_f = np.asarray(abs(Foff).sum(axis=1)).ravel()
     channels.append(('L_SG', (Foff + sp.diags(d_f)).tocsr()))
 
-    # 4. C co-participation (INTEGER, Def 3.4): line-graph Laplacian, off-diagonal
-    #    -(# shared vertices) = -G_off, diagonal = # adjacent edges (line-graph deg).
+    # 4. C co-participation (INTEGER, Def 3.4): Laplacian of the WEIGHTED line graph
+    #    whose adjacency is the shared-vertex counts K_off = off-diagonal of |B1|^T|B1|.
+    #    off-diagonal = -(# shared vertices), diagonal = sum of shared-vertex counts (the
+    #    MULTIPLICITY row-sum) so it is a proper zero-row-sum PSD Laplacian at ANY arity.
+    #    The old binarized diagonal (# distinct adjacent edges) matched the multiplicity
+    #    only when every edge pair shares <=1 vertex (simple graphs); for branching
+    #    hyperedges / parallel edges / self-loops it broke row-sum=0 and made L_C
+    #    indefinite (dragging RL4 and the moment character non-PSD). "Unweighted" in
+    #    Def 3.4 means orientation/edge-weight independent, NOT binary: the shared-vertex
+    #    count is pure topology and is carried here (identical to the old form on any
+    #    complex where no two edges share >1 vertex).
     K_off = (K - sp.diags(K.diagonal())).tocsr()         # G_off = shared-vertex counts
-    adj = K_off.copy(); adj.data[:] = 1.0                # binarized adjacency (for degree)
-    deg_L = np.asarray(adj.sum(axis=1)).ravel()          # # adjacent edges
-    L_C = (sp.diags(deg_L) - K_off).tocsr()              # D_L - G_off (counts off-diag)
+    deg_L = np.asarray(K_off.sum(axis=1)).ravel()        # weighted line-graph degree = Sum shared counts
+    L_C = (sp.diags(deg_L) - K_off).tocsr()              # D_L - G_off, weighted line-graph Laplacian
     if float(L_C.diagonal().sum()) > 1e-15:
         channels.append(('L_C', L_C))
 
@@ -362,6 +370,203 @@ def spectral_channel_score_sparse(rex, source, target, tol=1e-10):
     tgt = np.ascontiguousarray(target, dtype=_f64).ravel()
     x = _rl_resolvent_apply(rex, tgt, tol=tol)[:, 0]        # RL4⁻¹ target
     return float(src @ x)
+
+
+def _smallest_pos_small_kernel(M, tol=1e-9):
+    """Smallest strictly-positive eigenvalue of a sparse symmetric PSD M with a SMALL,
+    known kernel (the vertex-dual Laplacians here have kernel = beta_0 components).
+    Dense eigvalsh when affordable (exact); smallest-algebraic Lanczos otherwise - fast
+    and exact precisely because only a few near-zero modes sit below lambda_2."""
+    import numpy as _np
+    import scipy.sparse.linalg as sla
+    M = M.tocsr()
+    n = M.shape[0]
+    if n == 0 or float(abs(M).sum()) < 1e-30:
+        return 0.0
+    if n <= 512:
+        w = _np.linalg.eigvalsh(np.asarray(M.toarray(), dtype=_f64))
+    else:
+        try:
+            w = sla.eigsh(M, k=min(n - 2, 16), which='SA', return_eigenvectors=False)
+        except Exception:
+            w = _np.linalg.eigvalsh(np.asarray(M.toarray(), dtype=_f64))
+    pos = _np.sort(_np.asarray(w, dtype=_f64))
+    pos = pos[pos > tol]
+    return float(pos.min()) if pos.size else 0.0
+
+
+def channel_spectral_gaps(rex):
+    """Exact-where-possible per-channel spectral gap lambda_2 (smallest positive
+    eigenvalue of each trace-normalized hat) - a METRIC, dict keyed by channel name.
+
+    T (L1_down) and raw G (L_O) use the A^TA<->AA^T transpose duality: lambda_2 of the
+    huge edge-space Gram equals lambda_2 of the tiny nV x nV VERTEX-dual Laplacian
+    (kernel = beta_0), computed exactly and cheaply - the topological zeros collapse into
+    the small vertex space instead of a ~nE-dimensional numerical cluster. C (L_C, the
+    line-graph Laplacian) has a small line-graph-component kernel and F (L_SG, a
+    difference of Grams with no transpose dual) fall back to the kernel-robust
+    _smallest_positive_eig. Normalized G (I - D^-1/2 K D^-1/2) is not a Gram, so it also
+    uses the general path. This is the exact spectral-gap metric; it is NOT the
+    edge-centric relaxation object (see the moment tower / relaxation accessors)."""
+    import numpy as _np
+    chan = dict(build_sparse_channels(rex))
+    B1 = _b1_csr(rex)
+    nE = int(rex.nE)
+    g_raw = getattr(rex, 'g_channel', 'raw') == 'raw'
+    gaps = {}
+    for name in ('L1_down', 'L_O', 'L_SG', 'L_C'):
+        if name not in chan:
+            continue
+        L = chan[name]
+        tr = float(L.diagonal().sum())
+        if tr < 1e-15:
+            continue
+        if name == 'L1_down':
+            lam = _smallest_pos_small_kernel((B1 @ B1.T).tocsr())          # vertex dual L0
+        elif name == 'L_O' and g_raw:
+            aB1 = abs(B1); lam = _smallest_pos_small_kernel((aB1 @ aB1.T).tocsr())
+        else:
+            lam = _smallest_positive_eig(L.tocsr(), nE)                    # F, C, normalized G
+        gaps[name] = lam / tr                                             # lambda_2 of the trace-normalized hat
+    return gaps
+
+
+def per_channel_mixing_times_sparse(rex):
+    """Per-channel mixing times mu_X = ln(nE) / lambda_2(hat_X), the spectral-gap METRIC
+    per channel. lambda_2 comes from channel_spectral_gaps (T/G exact via the transpose
+    duality on the tiny vertex-dual Laplacian; C/F kernel-robust), so the mixing time is
+    exact for the topology/overlap channels and no longer the pathological huge-kernel
+    inverse-power on those. Returns f64[nhats] in hat_names order; inf where there is no
+    gap (nE<=1 or a zero-gap channel)."""
+    import numpy as _np
+    cheap = build_sparse_character_cheap(rex)
+    names = cheap['hat_names']
+    nhats = int(cheap['nhats'])
+    nE = int(rex.nE)
+    times = _np.empty(nhats, dtype=_f64)
+    if nE <= 1:
+        times[:] = _np.inf
+        return times
+    log_nE = float(_np.log(nE))
+    gaps = channel_spectral_gaps(rex)
+    for k, nm in enumerate(names):
+        lam2 = gaps.get(nm, 0.0)
+        times[k] = (log_nE / lam2) if lam2 > 1e-15 else _np.inf
+    return times
+
+
+# Dense eigvalsh is exact and cheap up to this hat size; above it the typed hats carry
+# a large near-zero kernel (e.g. dim ker(B1^T B1) = nE - rank(B1) ~ nE), which defeats
+# both dense (O(nE^3)) and smallest-algebraic Lanczos (cannot get past the kernel), so
+# lambda_2 comes from a kernel-robust inverse-power iteration instead.
+_MIXING_DENSE_MAX = 512
+
+
+def _smallest_positive_eig(H, nE, tol=1e-9):
+    """Smallest strictly-positive eigenvalue (spectral gap lambda_2) of a sparse
+    symmetric PSD matrix H whose kernel may be LARGE and is not known here.
+
+    - nE <= _MIXING_DENSE_MAX: exact dense eigvalsh (covers all realistic test / agent
+      graphs; parity with the dense hat_eigen path is exact).
+    - larger: INVERSE-POWER iteration on the pseudoinverse. Each step applies H^+ via a
+      min-norm LSQR solve, which projects off ker(H) exactly (unlike a sigma=0 shift-
+      invert, whose singular factorization is slow and fragile, or smallest-algebraic
+      Lanczos, which cannot resolve past a huge kernel). x converges to the smallest
+      POSITIVE eigenvector and the closing Rayleigh quotient gives lambda_2. This is an
+      APPROXIMATE spectral gap at scale (a few % when lambda_2 / lambda_3 are close) -
+      the documented scale-free surrogate for this diagnostic. Returns 0.0 if H is 0."""
+    import numpy as _np
+    import scipy.sparse.linalg as sla
+
+    if float(abs(H).sum()) < 1e-30:
+        return 0.0
+    H = H.tocsr()
+    if nE <= _MIXING_DENSE_MAX:
+        w = _np.linalg.eigvalsh(np.asarray(H.toarray(), dtype=_f64))
+        pos = w[w > tol]
+        return float(pos.min()) if pos.size else 0.0
+
+    # inverse-power on H^+ (min-norm LSQR = pseudoinverse, kernel-robust).
+    rs = _np.random.RandomState(0)
+    x = rs.standard_normal(nE)
+    x /= _np.linalg.norm(x)
+    lam_prev = 0.0
+    for _ in range(80):
+        y = sla.lsqr(H, x, atol=1e-9, btol=1e-9, iter_lim=2000)[0]
+        ny = float(_np.linalg.norm(y))
+        if ny < 1e-300:
+            return 0.0
+        x = y / ny
+        lam = 1.0 / ny
+        if abs(lam - lam_prev) < 1e-8 * max(lam, 1e-30):
+            break
+        lam_prev = lam
+    Hx = H @ x
+    denom = float(x @ x)
+    lam2 = float((x @ Hx) / denom) if denom > 0 else 0.0
+    return lam2 if lam2 > tol else 0.0
+
+
+def void_character_sparse(rex, Bvoid):
+    """Per-void typed-channel character, the eigen-free twin of
+    ``_void.void_character_all``. Each void basis vector (column of Bvoid) gets its
+    channel character = the primal signal character E_X = v^T hat_X^+ v (fractions
+    summing to 1) via LSQR pseudoinverse quadratic forms on the sparse channel hats -
+    no dense RL / hats, no eigendecomposition. Returns f64[n_voids, nhats]."""
+    import numpy as _np
+    cheap = build_sparse_character_cheap(rex)
+    hats = cheap['hats']
+    nhats = int(cheap['nhats'])
+    if hasattr(Bvoid, 'toarray'):
+        Bvoid = Bvoid.toarray()
+    Bvoid = _np.ascontiguousarray(Bvoid, dtype=_f64)
+    n_voids = Bvoid.shape[1] if Bvoid.ndim == 2 else 0
+    out = _np.zeros((n_voids, nhats), dtype=_f64)
+    uniform = 1.0 / nhats if nhats > 0 else 0.0
+    for i in range(n_voids):
+        v = Bvoid[:, i]
+        e = _np.array([pinv_quadratic_form(h, v) for h in hats], dtype=_f64)
+        tot = float(e.sum())
+        out[i] = (e / tot) if tot > 1e-30 else _np.full(nhats, uniform, dtype=_f64)
+    return out
+
+
+def spectral_propagate_sparse(rex, source, target, tol=1e-10):
+    """Scale-free spectral propagation, the eigen-free twin of
+    ``_query.spectral_propagate``. RL4 is full-rank SPD, so RL4⁺ = RL4⁻¹ and one
+    block-CG solve gives ``prop = RL4⁻¹ source``; the score, per-channel typed
+    scores, and energy are then sparse matvecs / inner products - no rl_eigen, no
+    dense RL. Returns {score, typed_scores, energy, coverage}.
+
+        score        = <RL4⁻¹ source, target> / (||source|| ||target||)
+        typed_scores = <source, hat_k @ RL4⁻¹ source>  per channel
+        energy       = <source, RL4 @ source>
+        coverage     = ||P_range source|| / ||source|| = 1.0 for full-rank SPD RL4
+                       (all modes active); 0 for a zero source. The dense path's
+                       n_covered/n_modes reduces to this exactly when every mode is
+                       positive, which it is for RL4.
+    """
+    import numpy as _np
+    cheap = build_sparse_character_cheap(rex)
+    hats = cheap['hats']
+    nhats = int(cheap['nhats'])
+    RL = cheap['RL'].tocsr()
+    src = _np.ascontiguousarray(source, dtype=_f64).ravel()
+    tgt = _np.ascontiguousarray(target, dtype=_f64).ravel()
+
+    prop = _rl_resolvent_apply(rex, src, tol=tol)[:, 0]      # RL4⁻¹ source
+    ns = float(_np.sqrt(src @ src))
+    nt = float(_np.sqrt(tgt @ tgt))
+    score = float(prop @ tgt) / (ns * nt) if ns > 1e-15 and nt > 1e-15 else 0.0
+
+    typed = _np.zeros(nhats, dtype=_f64)
+    for k in range(nhats):
+        typed[k] = float(src @ (hats[k] @ prop))
+
+    energy = float(src @ (RL @ src))
+    coverage = 1.0 if ns > 1e-15 else 0.0
+    return {'score': score, 'typed_scores': typed,
+            'energy': energy, 'coverage': coverage}
 
 
 def compute_sparse_character(rex, chunk=1024):

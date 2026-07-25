@@ -24,7 +24,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.0.0"
+version = "1.0.1"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 license = {text = "Apache License 2.0"}

@@ -146,21 +146,21 @@ class TestHarmonicShadow:
 
     def test_shadow_nonneg(self, k4):
         """Shadow dimension is nonnegative."""
-        sb = k4.spectral_bundle
-        L1_down = sb.get('L1_down')
+        # edge-space Laplacians are built on demand on the scale-free path (bundle
+        # keys L1_down / evals_L1 are None/empty); the accessors give the same spectra.
         from rexgraph.core._linalg import eigh as _eigh
-        evals_down = _eigh(np.asarray(L1_down, dtype=np.float64))[0]
-        evals_full = sb['evals_L1']
+        evals_down = _eigh(np.asarray(k4.L1_down, dtype=np.float64))[0]
+        evals_full = _eigh(np.asarray(k4.L1, dtype=np.float64))[0]
         shadow_dim, _, _ = _hypermanifold.harmonic_shadow(evals_down, evals_full)
         assert shadow_dim >= 0
 
     def test_shadow_equals_rank_b2(self, k4):
         """Shadow dim = beta_1(1) - beta_1(2) = rank(B2)."""
-        sb = k4.spectral_bundle
-        L1_down = sb.get('L1_down')
+        # edge-space Laplacians are built on demand on the scale-free path (bundle
+        # keys L1_down / evals_L1 are None/empty); the accessors give the same spectra.
         from rexgraph.core._linalg import eigh as _eigh
-        evals_down = _eigh(np.asarray(L1_down, dtype=np.float64))[0]
-        evals_full = sb['evals_L1']
+        evals_down = _eigh(np.asarray(k4.L1_down, dtype=np.float64))[0]
+        evals_full = _eigh(np.asarray(k4.L1, dtype=np.float64))[0]
         shadow_dim, beta_d, beta_d1 = _hypermanifold.harmonic_shadow(
             evals_down, evals_full)
         # rank(B2) = nE - beta1(full) - rank(B1)... but simpler:
@@ -169,19 +169,17 @@ class TestHarmonicShadow:
 
     def test_tree_shadow_zero(self, tree):
         """Tree has no faces, so no shadow (beta_1 = 0 at both levels)."""
-        sb = tree.spectral_bundle
-        evals = sb['evals_L1']
+        from rexgraph.core._linalg import eigh as _eigh
+        evals = _eigh(np.asarray(tree.L1, dtype=np.float64))[0]
         # At d=1, L1 = L1_down (same since no faces)
         shadow_dim, _, _ = _hypermanifold.harmonic_shadow(evals, evals)
         assert shadow_dim == 0
 
     def test_filled_triangle_shadow(self, filled_triangle):
         """Filled triangle: beta_1(1) = 1, beta_1(2) = 0, shadow = 1."""
-        sb = filled_triangle.spectral_bundle
-        L1_down = sb.get('L1_down')
         from rexgraph.core._linalg import eigh as _eigh
-        evals_down = _eigh(np.asarray(L1_down, dtype=np.float64))[0]
-        evals_full = sb['evals_L1']
+        evals_down = _eigh(np.asarray(filled_triangle.L1_down, dtype=np.float64))[0]
+        evals_full = _eigh(np.asarray(filled_triangle.L1, dtype=np.float64))[0]
         shadow_dim, beta_d, beta_d1 = _hypermanifold.harmonic_shadow(
             evals_down, evals_full)
         assert beta_d == 1   # one cycle before filling
