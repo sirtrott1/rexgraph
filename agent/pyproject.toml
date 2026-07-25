@@ -1,0 +1,263 @@
+# rexgraph-agent: orchestration layer for the RCF ecosystem.
+#
+# The agent auto-detects input types (text, CSV, edge list, feature matrix),
+# dispatches to the right domain library, and provides a unified interface
+# for running the full RCF pipeline. Also houses the FastAPI server, the
+# web frontend, runtime visualization, and integrations with LangChain,
+# HuggingFace, LangGraph, vLLM, and TrustGraph.
+#
+# Pure Python. Depends on rexgraph (compiled).
+# Integration-specific deps are optional extras so users only
+# install what they need.
+#
+# Install locally from the monorepo:
+#   pip install ./rexgraph ./agent                              # baseline
+#   pip install ./rexgraph "./agent[server]"                    # + FastAPI UI
+#   pip install ./rexgraph "./agent[ocr]"                       # + OCR backends
+#   pip install ./rexgraph "./agent[all]"                       # everything
+#
+# Or, once published:
+#   pip install rexgraph-agent                                  # baseline
+#   pip install rexgraph-agent[server,ocr]                      # common pick
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rexgraph-agent"
+version = "1.0.0"
+description = "Orchestration, server, frontend, and integrations for the RexGraph ecosystem"
+readme = "README.md"
+license = {text = "Apache License 2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "RexGraph"},
+]
+keywords = [
+    "agent", "orchestration", "auto-dispatch",
+    "langchain", "huggingface", "trustgraph",
+    "relational-complex", "topological-data-analysis",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+# Core dependencies: compiled math library + tabular I/O. `agent.auto`
+# (imported by `agent/__init__.py`) uses pandas for CSV/DataFrame
+# auto-detection, so it is required for the package to import at all.
+dependencies = [
+    "rexgraph>=0.5.0",
+    "numpy>=1.24",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+# Schema/ontology diagnosis: dialect-aware SQL parsing + Mongo sampling
+schema = [
+    "sqlglot>=20",
+]
+
+
+# Cloud data-warehouse dialects (Snowflake / BigQuery / Redshift / Databricks).
+# The connector code is unchanged - warehouses reflect through the same
+# dialect-generic SQLAlchemy path as any SQL database; these only add the
+# vendor drivers. Enables the warehouse schemes in `rexgraph-connect list`.
+warehouse = [
+    "snowflake-sqlalchemy>=1.5",
+    "sqlalchemy-bigquery>=1.9",
+    "sqlalchemy-redshift>=0.8",
+    "databricks-sqlalchemy>=1.0",
+]
+
+
+# Live connector drivers beyond SQL (which [server] already covers via
+# sqlalchemy): document, property-graph, and stream sources. The in-memory /
+# structure paths need none of these - they are only for live reflection.
+connectors = [
+    "pymongo>=4.6",
+    "neo4j>=5.0",
+]
+
+
+# Web UI + API server (the default for most users)
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+    "websockets>=12.0",
+    "httpx>=0.27",
+    "bcrypt>=4.0",
+    "limits>=3.0",
+    "sqlalchemy>=2.0",
+]
+
+# PDF/image OCR - CPU backends (tesseract + pymupdf)
+# Enables: tesseract (offline) + Unlimited-OCR client (GPU server)
+# Priority: GPU server → PaddleOCR → Mistral → GOT-OCR → tesseract
+# Set REXGRAPH_OCR_PRIORITY=tesseract,paddleocr,server to override
+ocr = [
+    "requests>=2.28",
+    "pymupdf>=1.22",
+    "pytesseract>=0.3.10",
+]
+
+# PaddleOCR - local OCR (install paddle separately for your platform)
+#   CPU:  pip install paddlepaddle paddleocr
+#   CUDA: pip install paddlepaddle-gpu paddleocr
+#   ROCm: not supported - use Unlimited-OCR with DeepSeek instead
+ocr-paddle = [
+    "paddleocr>=2.7",
+]
+
+# GOT-OCR2.0 - HuggingFace transformer OCR (needs GPU + torch)
+ocr-got = [
+    "transformers>=4.36",
+    "torch>=2.0",
+    "accelerate>=0.26",
+]
+
+# Training data export (safetensors for PyTorch/JAX/HuggingFace)
+training = [
+    "safetensors>=0.3",
+]
+
+# LoRA fine-tuning of a Hugging Face model with the rexgraph optimizer (the finetune phase
+# and the HodgeAdam-vs-Adam A/B). Heavy: pulls torch, transformers, peft, datasets.
+finetune = [
+    "transformers>=4.44",
+    "peft>=0.11",
+    "datasets>=2.0",
+    "accelerate>=0.30",
+    "safetensors>=0.3",
+    "pillow>=9.0",       # image benchmarks (mnist/cifar) decode via datasets → PIL
+]
+
+# YAML agent configs
+yaml = [
+    "pyyaml>=5.1",
+]
+
+# LangChain structural tools
+langchain = [
+    "langchain>=0.1",
+    "langchain-core>=0.1",
+]
+
+# LangGraph execution tracking
+langgraph = [
+    "langgraph>=0.0.40",
+]
+
+# HuggingFace model analysis
+huggingface = [
+    "transformers>=4.36",
+    "torch>=2.0",
+    "sentencepiece>=0.1.99",
+]
+
+# vLLM GPU model serving
+vllm = [
+    "vllm>=0.3",
+]
+
+# TrustGraph knowledge-graph integration
+trustgraph = [
+    "trustgraph-base>=2.4",
+    "pyarrow>=12.0",
+    "aiohttp>=3.9",
+]
+
+# Mistral cloud OCR API
+mistral = [
+    "mistralai>=1.0",
+]
+
+# OIDC/SSO enterprise auth
+oidc = [
+    "python-jose[cryptography]>=3.3",
+]
+
+# Development and testing. Pulls in [server] because the test suite imports
+# the FastAPI server/routes, so `pip install ./agent[dev]` is self-sufficient
+# for running `pytest`.
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.3",
+    "httpx>=0.27",
+    "rexgraph-agent[server]",
+]
+
+# Profiles: named bundles for common deployments. Compose the granular extras
+# above so users pick one instead of listing pieces. See the README install
+# table for what each is for.
+
+# Full local deployment: web UI, schema tools, live connectors, OCR, training
+# export, YAML configs. No torch and no cloud-warehouse drivers, so it stays
+# CPU-light. The recommended everyday install.
+standard = [
+    "rexgraph-agent[server,schema,connectors,ocr,training,yaml]",
+]
+
+# The torch ML stack: LoRA fine-tuning, HuggingFace model analysis, training
+# export. Heavy: pulls torch, transformers, peft, datasets.
+ml = [
+    "rexgraph-agent[training,finetune,huggingface]",
+]
+
+# Orchestration-framework integrations.
+integrations = [
+    "rexgraph-agent[langchain,langgraph,trustgraph]",
+]
+
+# Everything that runs on CPU: standard + integrations + warehouse drivers +
+# the torch ML stack + cloud OCR + SSO. Large; prefer a narrower profile unless
+# you need all of it. Excludes GPU-only extras (vllm, ocr-got, cuda).
+all = [
+    "rexgraph-agent[standard,integrations,warehouse,ml,ocr-paddle,mistral,oidc]",
+]
+
+[project.scripts]
+rexgraph-ui = "agent.server.app:main"          # the web UI / app server (the obvious start command)
+rexgraph-ocr = "agent.cli.ocr:ocr_main"
+rexgraph-test = "agent.cli.test_all:main"
+rexgraph-run = "agent.cli.run_pipeline:main"
+rexgraph-deploy = "agent.cli.deploy:main"
+rexgraph-auth = "agent.cli.auth:main"
+rexgraph-serve = "agent.cli.serve:main"
+rexgraph-setup = "agent.cli.setup:main"
+rexgraph-config = "agent.cli.config:main"
+rexgraph-connect = "agent.cli.connect:main"
+rexgraph-local = "agent.local_runtime:main"
+rexgraph-hive = "agent.hive:main"
+rexgraph-models = "agent.models.cli:main"
+rexgraph-ops = "agent.lifecycle:main"
+rcf-server = "agent.server.app:main"
+
+[project.urls]
+Repository = "https://github.com/sirtrott1/rexgraph"
+Documentation = "https://github.com/sirtrott1/rexgraph/tree/main/agent"
+
+[tool.setuptools.packages.find]
+include = ["agent*"]
+exclude = ["tests*"]
+
+# Frontend static files
+[tool.setuptools.package-data]
+"agent" = [
+    "frontend/*.html",
+    "frontend/*.jsx",
+    "frontend/styles/*.css",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

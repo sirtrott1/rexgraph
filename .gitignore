@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.installed.cfg
+
+# Compiled extensions (the core is built into the conda env, never committed here)
+*.so
+*.pyd
+*.dylib
+
+# Build / packaging artifacts
+build/
+dist/
+wheels/
+*.whl
+.mesonpy-*/
+_skbuild/
+
+# Test / lint / type caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# Distribution archives (source is checked in, not zips)
+*.zip
+*.tar.gz
+
+# Local env / secrets / logs (never commit real config or credentials)
+.env
+*.log
+certs/
+*.pem
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# LLM / editor local config (not product)
+.claude/
+
+# Generated stress/perf fixtures (not committed; regenerate as needed)
+test_data/
+
+# Vendored UI libraries (fetched at install/first-run, not committed)
+agent/frontend/react*.min.js
+
+# Local demos / scratch (not shipped)
+playground/
+agent/frontend/theme-ps2-preview.html

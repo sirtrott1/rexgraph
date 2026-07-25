@@ -1,0 +1,198 @@
+*{margin:0;padding:0;box-sizing:border-box}
+::selection{background:var(--gold);color:var(--bg)}
+
+:root{
+  /* Surface */
+  --bg:#ffffff;--bg2:#f8f7f5;--bg3:#f0eee9;
+  /* Text */
+  --fg:#1a1a18;--fg2:#5a5a50;--fg3:#8a8a80;
+  /* Gold accent */
+  --gold:#8b6914;--gold-light:#a67c1a;--gold-bg:#faf6ed;--gold-border:#e8d9b0;
+  /* Structure */
+  --border:#ddd8d0;--border2:#eee8e0;--tick:#cabf9f;--track:#e7e2d8;
+  /* Channels */
+  --color-T:#1a6b5a;--color-G:#8b6914;--color-F:#8b2252;--color-C:#4a7a3a;
+  /* Semantic */
+  --ok:#2d7d46;--ok-bg:#e8f5e9;--fail:#b8423a;--fail-bg:#fde8e6;
+  --info:#2563eb;--info-bg:#eff6ff;
+  /* Fonts */
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,Helvetica,Arial,sans-serif;
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",Consolas,"Liberation Mono",monospace;
+  /* Spacing */
+  --sp1:4px;--sp2:8px;--sp3:12px;--sp4:16px;--sp5:24px;--sp6:32px;
+  /* Motion */
+  --ease:cubic-bezier(.4,0,.2,1);--fast:120ms;--normal:200ms;
+  /* Radius — squared, functional, not bubbly */
+  --radius:3px;--radius-sm:3px;--radius-xs:2px;
+}
+:root[data-theme="dark"]{
+  --bg:#211e19;--bg2:#1a1714;--bg3:#2a2620;
+  --fg:#ece5d7;--fg2:#a99e8a;--fg3:#726757;
+  --gold:#d4a432;--gold-light:#e0b64c;--gold-bg:rgba(212,164,50,.09);--gold-border:#57492a;
+  --border:#38332b;--border2:#2d2822;--tick:#4a4132;--track:#2c2820;
+  --color-T:#3fb59a;--color-G:#d4a432;--color-F:#d0567f;--color-C:#6fae5a;
+  --ok:#5bb673;--ok-bg:rgba(91,182,115,.1);--fail:#d97a72;--fail-bg:rgba(217,122,114,.1);
+  --info:#6aa8ff;--info-bg:rgba(106,168,255,.08);
+}
+
+body{font-family:var(--sans);font-size:14px;color:var(--fg);background:var(--bg2);line-height:1.5;
+  -webkit-font-smoothing:antialiased;transition:background var(--normal) var(--ease),color var(--normal) var(--ease)}
+
+/* micro-label: uppercase tracked mono — the instrument-panel voice */
+.lbl,.sidebar-section,h3,.stat .label,th{font-family:var(--mono);text-transform:uppercase;letter-spacing:.13em}
+
+/* ── Layout shell ── */
+.app{display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--bg);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-brand{padding:18px 16px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.sidebar-brand .dot{width:12px;height:12px;background:transparent;border:1.5px solid var(--gold);border-radius:0;position:relative}
+.sidebar-brand .dot::after{content:"";position:absolute;inset:2px;background:var(--gold);opacity:.35}
+.sidebar-brand h1{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg);letter-spacing:.2em;text-transform:uppercase}
+.sidebar nav{padding:2px 8px}
+.sidebar nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:7px 11px;border:none;background:none;
+  font-size:12.5px;color:var(--fg2);cursor:pointer;font-family:inherit;font-weight:450;position:relative;
+  border-radius:var(--radius-sm);margin-bottom:1px;transition:color var(--fast) var(--ease)}
+.sidebar nav button:hover{background:var(--bg2);color:var(--fg)}
+.sidebar nav button.active{color:var(--gold);font-weight:600}
+.sidebar nav button.active::before{content:"";position:absolute;left:-8px;top:6px;bottom:6px;width:2px;background:var(--gold)}
+.sidebar nav button .icon{font-family:var(--mono);font-size:12px;width:16px;text-align:center;opacity:.7}
+.sidebar nav button.active .icon{opacity:1;color:var(--gold)}
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--fg3);font-family:var(--mono)}
+.sidebar-spacer{flex:1}
+.sidebar-section{padding:14px 20px 4px;font-size:10px;font-weight:400;color:var(--fg3)}
+
+/* ── Mobile nav ── */
+.mobile-nav{display:none;border-bottom:1px solid var(--border);background:var(--bg);overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch;padding:0 4px}
+.mobile-nav button{padding:11px 14px;border:none;background:none;font-size:12.5px;color:var(--fg2);cursor:pointer;font-family:inherit;border-bottom:2px solid transparent}
+.mobile-nav button.active{color:var(--gold);border-bottom-color:var(--gold);font-weight:600}
+
+/* ── Main area ── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg2)}
+.content{flex:1;padding:22px;overflow-y:auto;max-width:1200px}
+
+/* ── Typography ── */
+h2{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--fg);margin-bottom:16px;letter-spacing:.1em;text-transform:uppercase}
+h3{font-size:11px;font-weight:400;color:var(--fg2);flex:1}
+h4{font-size:13px;font-weight:600;color:var(--fg);margin-bottom:8px}
+
+/* ── Cards — framed with a hairline + corner ticks, not a soft box ── */
+.card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden;position:relative}
+.card::before,.card::after{content:"";position:absolute;width:7px;height:7px;pointer-events:none;z-index:1}
+.card::before{top:4px;right:4px;border-top:1px solid var(--tick);border-right:1px solid var(--tick)}
+.card::after{bottom:4px;left:4px;border-bottom:1px solid var(--tick);border-left:1px solid var(--tick)}
+.card-header{padding:10px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.card-body{padding:14px 15px}
+
+/* ── Tables — hairlines, tracked heads, mono data ── */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;padding:0 10px 8px;border-bottom:1px solid var(--border);font-weight:400;color:var(--fg3);font-size:9.5px;white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--border2);font-size:12.5px;font-variant-numeric:tabular-nums}
+td:first-child{font-family:var(--mono)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--gold-bg)}
+
+/* ── Buttons — squared, tracked mono ── */
+button{padding:7px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg2);
+  font-size:11px;font-weight:500;cursor:pointer;font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;
+  transition:border-color var(--fast) var(--ease),color var(--fast) var(--ease)}
+button:hover{border-color:var(--gold);color:var(--fg)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.4;cursor:default;transform:none}
+button:focus-visible{outline:1px solid var(--gold);outline-offset:2px}
+button.primary{background:var(--gold);color:var(--bg);border-color:var(--gold);font-weight:600}
+button.primary:hover{background:var(--gold-light);border-color:var(--gold-light);color:var(--bg)}
+button.sm{padding:4px 10px;font-size:10px}
+button.danger{color:var(--fail);border-color:var(--border)}
+button.danger:hover{background:var(--fail-bg);border-color:var(--fail);color:var(--fail)}
+
+/* ── Inputs ── */
+.input{padding:7px 11px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12.5px;font-family:var(--mono);outline:none;width:100%;background:var(--bg2);color:var(--fg);
+  transition:border-color var(--fast) var(--ease)}
+.input:focus{border-color:var(--gold)}
+.input::placeholder{color:var(--fg3)}
+select.input{appearance:none;padding-right:26px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%238a8a80' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}
+.input-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+
+/* ── Upload zone ── */
+.upload{border:1px dashed var(--border);border-radius:var(--radius);padding:26px;text-align:center;cursor:pointer;color:var(--fg2);font-size:12.5px;margin-bottom:12px;
+  transition:border-color var(--fast) var(--ease),color var(--fast) var(--ease)}
+.upload:hover{border-color:var(--gold);color:var(--gold)}
+
+/* ── Badges — squared, tracked mono, channel-tinted ── */
+.badge{display:inline-block;padding:2px 7px;border-radius:var(--radius-xs);font-size:10px;font-weight:700;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.badge.ok{background:var(--ok-bg);color:var(--ok)}
+.badge.fail{background:var(--fail-bg);color:var(--fail)}
+.badge.warn{background:var(--gold-bg);color:var(--gold);border:1px solid var(--gold-border)}
+.badge.gold{background:var(--gold-bg);color:var(--gold)}
+.badge.neutral{background:var(--bg3);color:var(--fg2)}
+.badge.T{background:rgba(26,107,90,.12);color:var(--color-T)}
+.badge.G{background:rgba(139,105,20,.14);color:var(--color-G)}
+.badge.F{background:rgba(139,34,82,.12);color:var(--color-F)}
+.badge.C{background:rgba(74,122,58,.12);color:var(--color-C)}
+
+/* ── Channel bar — SEGMENTED (VU-meter), not a smooth colored line ── */
+.channel-bar{display:flex;height:11px;border-radius:0;overflow:hidden;margin:5px 0;background:var(--track);position:relative;border:1px solid var(--border)}
+.channel-bar .seg{transition:width var(--normal) var(--ease)}
+.channel-bar::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(90deg,transparent 0 6px,var(--bg) 6px 8px)}
+
+/* ── Status rows ── */
+.status-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border2)}
+.status-row:last-child{border-bottom:none}
+.status-row .name{font-size:12.5px;font-weight:500;flex:1;font-family:var(--mono)}
+
+/* ── Kappa values ── */
+.kappa-val{font-family:var(--mono);font-weight:500;font-size:12.5px;font-variant-numeric:tabular-nums}
+.kappa-high{color:var(--ok)}.kappa-mid{color:var(--gold)}.kappa-low{color:var(--fail)}
+
+/* ── Detail / muted ── */
+.detail{font-size:12px;color:var(--fg2);font-family:var(--mono);margin-top:4px}
+.muted{color:var(--fg3);font-size:12px}
+.error{color:var(--fail);background:var(--fail-bg);border:1px solid var(--fail);border-radius:var(--radius-sm);padding:10px 14px;font-size:12.5px;margin-bottom:12px;font-family:var(--mono)}
+.json{font-family:var(--mono);font-size:12px;background:var(--bg2);border:1px solid var(--border2);padding:12px;border-radius:var(--radius-sm);overflow:auto;max-height:300px;white-space:pre-wrap;line-height:1.5}
+
+/* ── Subtabs (in-panel) ── */
+.subtabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px}
+.subtabs button{border:none;border-bottom:2px solid transparent;border-radius:0;background:none;padding:8px 15px}
+.subtabs button.active{color:var(--gold);border-bottom-color:var(--gold);font-weight:600}
+.subtabs button:hover{color:var(--fg);border-color:transparent;border-bottom-color:var(--border)}
+
+/* ── Chat ── */
+.chat-container{display:flex;flex-direction:column;height:calc(100vh - 100px)}
+.chat-scroll{flex:1;overflow-y:auto;margin-bottom:12px;padding-right:4px}
+.chat-msg{margin-bottom:14px}
+.chat-msg .from{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--fg3);margin-bottom:3px;text-transform:uppercase;letter-spacing:.1em}
+.chat-msg .bubble{display:inline-block;padding:10px 14px;border-radius:var(--radius);max-width:85%;white-space:pre-wrap;font-size:13px;line-height:1.55}
+.chat-msg.user{text-align:right}
+.chat-msg.user .bubble{background:var(--gold-bg);border:1px solid var(--gold-border)}
+.chat-msg.assistant .bubble{background:var(--bg);border:1px solid var(--border)}
+.chat-msg .hall-score{font-family:var(--mono);font-size:11px;margin-top:4px;color:var(--fg3)}
+
+/* ── Grid layouts ── */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+
+/* ── Stat blocks ── */
+.stat{padding:11px 12px;position:relative}
+.stat::before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:2px;background:var(--border)}
+.stat .value{font-size:26px;font-weight:600;font-family:var(--mono);color:var(--fg);line-height:1.1;font-variant-numeric:tabular-nums}
+.stat .label{font-size:10px;color:var(--fg3);font-weight:400;margin-top:3px}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:0}
+::-webkit-scrollbar-thumb:hover{background:var(--fg3)}
+
+/* ── Responsive ── */
+@media(max-width:768px){
+  .sidebar{display:none}
+  .mobile-nav{display:flex}
+  .app{flex-direction:column}
+  .grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
+  .content{padding:14px}
+  .stat .value{font-size:22px}
+  td,th{padding:6px;font-size:12px}
+  h2{font-size:14px}
+}
