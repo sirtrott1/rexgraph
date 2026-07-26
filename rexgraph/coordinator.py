@@ -221,6 +221,22 @@ def _picklable(fn) -> bool:
         return False
 
 
+def _partition_spill(units: list, assignment: dict):
+    """Split units by assigned lane, spilling any unpicklable proc fn to the thread lane (it then
+    runs in-process, preserving side effects). Returns (by_id, proc_units, thread_units, eff_lane)
+    where eff_lane[id] is the lane the fn will ACTUALLY run on."""
+    by_id = {u["id"]: u for u in units}
+    eff = dict(assignment)
+    proc = []
+    for u in [by_id[t] for t, l in assignment.items() if l == "proc"]:
+        if _picklable(u["fn"]):
+            proc.append(u)
+        else:
+            eff[u["id"]] = "thread"
+    thread = [by_id[t] for t, l in eff.items() if l in ("thread", "igpu")]
+    return by_id, proc, thread, eff
+
+
 def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dict:
     """Execute each unit's `fn` on its assigned lane: proc -> process pool (true multicore for CPU-
     bound work), thread/igpu -> thread pool (I/O and GPU-launch are GIL-light). Results are keyed by
@@ -233,18 +249,11 @@ def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dic
       propagate back - only the return value does. The picklability spill covers the common stateful
       case (closures run in-process on the thread lane, mutations preserved); a picklable fn that
       relies on mutating shared parent state must not be routed to proc. Cost timing is recorded
-      against the lane the fn ACTUALLY ran on (post-spill), so the model never learns a wrong lane."""
-    by_id = {u["id"]: u for u in units}
-    eff_lane = dict(assignment)  # lane each fn actually runs on (after any spill)
+      against the lane the fn ACTUALLY ran on (post-spill), so the model never learns a wrong lane.
 
-    proc_units = []
-    for u in [by_id[t] for t, l in assignment.items() if l == "proc"]:
-        if _picklable(u["fn"]):
-            proc_units.append(u)
-        else:
-            eff_lane[u["id"]] = "thread"  # spill: run in-process, preserve side effects
-
-    thread_units = [by_id[t] for t, l in eff_lane.items() if l in ("thread", "igpu")]
+    See LanePools for the managed, warm-pool path (this function creates and tears down a fresh
+    pool per wave, which is the right behavior for the standalone/test path)."""
+    by_id, proc_units, thread_units, eff_lane = _partition_spill(units, assignment)
     results = {}
     timings = []
 
@@ -269,6 +278,127 @@ def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dic
         for ty, ln, dt in timings:
             cost.observe(ty, ln, dt)
     return results
+
+
+import threading
+
+
+def _pin_worker():
+    """Pool initializer: pin this worker to a single core to keep its L1-L3 cache hot. Best-effort;
+    a no-op where affinity control is unavailable."""
+    try:
+        import os as _os
+        pid = _os.getpid()
+        ncores = _os.cpu_count() or 1
+        if hasattr(_os, "sched_setaffinity"):
+            _os.sched_setaffinity(0, {pid % ncores})
+    except Exception:
+        pass
+
+
+class LanePools:
+    """Managed execution lanes with an idle-aware lifecycle: lazy (no pool until a lane is used),
+    warm (a created pool is reused across waves), and reaped when idle (a daemon reaper closes a
+    lane idle past its TTL and self-exits once both lanes are cold, so nothing lingers at rest)."""
+
+    def __init__(self, hive: str = "default", *, now=_time.monotonic,
+                 idle_ttl_proc: float = 30.0, idle_ttl_thread: float = 120.0,
+                 affinity: bool = False, cap: "dict|None" = None, reaper_tick: float = 1.0):
+        self.hive = hive
+        self._now = now
+        self._ttl = {"proc": idle_ttl_proc, "thread": idle_ttl_thread}
+        self._affinity = affinity
+        self._cap = cap
+        self._reaper_tick = reaper_tick
+        self._pools = {"proc": None, "thread": None}
+        self._last = {"proc": 0.0, "thread": 0.0}
+        self._lock = threading.RLock()
+        self._reaper = None
+        self.reaper_alive = False
+
+    # --- lane pool management ---
+    def _make(self, lane: str):
+        if lane == "thread":
+            return ThreadPoolExecutor(max_workers=32)
+        import multiprocessing as _mp
+        ctx = _mp.get_context("forkserver")
+        workers = int((self._cap or capacity())["proc"]) if self._cap else (os.cpu_count() or 8)
+        init = _pin_worker if self._affinity else None
+        return ProcessPoolExecutor(max_workers=max(1, workers), mp_context=ctx, initializer=init)
+
+    def _ensure(self, lane: str):
+        with self._lock:
+            if self._pools[lane] is None:
+                self._pools[lane] = self._make(lane)
+            self._last[lane] = self._now()
+            self._start_reaper_locked()
+            return self._pools[lane]
+
+    def _start_reaper_locked(self):
+        if self._reaper is None or not self._reaper.is_alive():
+            self.reaper_alive = True
+            self._reaper = threading.Thread(target=self._reaper_loop, daemon=True,
+                                            name=f"lanepools-reaper-{self.hive}")
+            self._reaper.start()
+
+    def _reap_once(self) -> bool:
+        """Close any lane idle past its TTL. Returns True while any pool remains open."""
+        with self._lock:
+            now = self._now()
+            for lane in ("proc", "thread"):
+                pool = self._pools[lane]
+                if pool is not None and (now - self._last[lane]) >= self._ttl[lane]:
+                    pool.shutdown(wait=False)
+                    self._pools[lane] = None
+            any_open = any(self._pools[l] is not None for l in ("proc", "thread"))
+            if not any_open:
+                self.reaper_alive = False
+            return any_open
+
+    def _reaper_loop(self):
+        import time as _t
+        while True:
+            _t.sleep(self._reaper_tick)
+            if not self._reap_once():
+                return
+
+    # --- execution ---
+    def run(self, units: list, assignment: dict, cost: "CostModel|None" = None) -> dict:
+        by_id, proc_units, thread_units, eff_lane = _partition_spill(units, assignment)
+        results = {}
+        timings = []
+
+        def drain(pool_units, ex):
+            for tid, res, dt in ex.map(_run_one, pool_units):
+                results[tid] = res
+                timings.append((by_id[tid]["type"], eff_lane[tid], dt))
+
+        if thread_units:
+            drain(thread_units, self._ensure("thread"))
+        if proc_units:
+            drain(proc_units, self._ensure("proc"))
+        if cost is not None:
+            for ty, ln, dt in timings:
+                cost.observe(ty, ln, dt)
+        return results
+
+    def status(self) -> dict:
+        with self._lock:
+            now = self._now()
+            out = {}
+            for lane in ("proc", "thread"):
+                pool = self._pools[lane]
+                out[lane] = {"state": "warm" if pool is not None else "cold",
+                             "idle_s": round(now - self._last[lane], 2) if pool is not None else None}
+            return out
+
+    def shutdown(self) -> None:
+        with self._lock:
+            for lane in ("proc", "thread"):
+                if self._pools[lane] is not None:
+                    self._pools[lane].shutdown(wait=False)
+                    self._pools[lane] = None
+            self.reaper_alive = False
 
 
 # --- Coordinator: the per-wave plan -> execute -> learn loop (cadence = per-wave in v1) ---
