@@ -277,8 +277,9 @@ def start(model_path: str, *, port: Optional[int] = None, host: Optional[str] = 
     fa = DEFAULTS["flash_attn"] if flash_attn is None else flash_attn
     args = [binary, "-m", mp, "--host", host, "--port", str(port),
             "-ngl", str(ngl), "-c", str(ctx), "--jinja"]
-    if fa:
-        args.append("--flash-attn")
+    # Current llama.cpp takes `--flash-attn on|off|auto`; a BARE flag is rejected
+    # ("unknown value for --flash-attn"), which used to abort every spawn on new builds.
+    args.extend(["--flash-attn", "on" if fa else "off"])
     if extra_args:
         args.extend(extra_args)
     # A locally-built llama.cpp keeps its ggml shared libs next to the binary; make the server
@@ -379,8 +380,9 @@ def spawn_server(model_path: str, *, port: Optional[int] = None, host: Optional[
             "-c", str(ctx), "--jinja"]
     if embeddings:
         args.append("--embeddings")
-    elif (DEFAULTS["flash_attn"] if flash_attn is None else flash_attn):
-        args.append("--flash-attn")
+    else:
+        fa = DEFAULTS["flash_attn"] if flash_attn is None else flash_attn
+        args.extend(["--flash-attn", "on" if fa else "off"])   # valued flag; bare form is rejected
     if extra_args:
         args.extend(extra_args)
     proc, logpath = _launch(args, wait, binary, port)

@@ -442,16 +442,20 @@ def test_sparse_edge_fiedler_eigenpair_matches_dense():
     saved = common.get_algorithm_config()['eigen_dense_limit']
     try:
         for edges in _COMPLEXES + [[(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)]]:
-            common.configure_algorithms(eigen_dense_limit=2000)
-            bd = _rex(edges).spectral_bundle
-            common.configure_algorithms(eigen_dense_limit=1)
-            gs = _rex(edges); bs = gs.spectral_bundle
-            assert abs(bd['fiedler_val_L1'] - bs['fiedler_val_L1']) < 1e-8
+            # the L1 Fiedler eigenpair is a LAZY accessor (edge_fiedler), not eagerly in the bundle
+            # (that ARPACK solve was the dominant cost of a large-hive monitor step). Verify it is a
+            # true eigenpair of L1 and equals the smallest nonzero eigenvalue of the dense L1.
+            gs = _rex(edges)
+            lam, v = gs.edge_fiedler
+            assert abs(gs.fiedler_val_L1 - lam) < 1e-12
             B1 = to_scipy_csr(gs._B1_dual).astype(float); L1 = B1.T @ B1
             if gs._nF > 0:
                 B2 = to_scipy_csr(gs._B2_hodge_dual).astype(float); L1 = L1 + B2 @ B2.T
-            v = np.asarray(bs['fiedler_vec_L1']); lam = bs['fiedler_val_L1']
+            v = np.asarray(v)
             assert np.linalg.norm(sp.csr_matrix(L1) @ v - lam * v) / (np.linalg.norm(v) + 1e-12) < 1e-6
+            w = np.linalg.eigvalsh(np.asarray(L1.todense() if sp.issparse(L1) else L1))
+            pos = w[w > 1e-9]
+            assert abs(lam - (pos.min() if pos.size else 0.0)) < 1e-6
     finally:
         common.configure_algorithms(eigen_dense_limit=saved)
 

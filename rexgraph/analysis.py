@@ -312,8 +312,8 @@ def analyze(
     alpha_G, alpha_T = rex.coupling_constants
     fiedler_LO_val, fiedler_LO_vec = rex.fiedler_overlap
 
-    # Fiedler value of L1
-    fiedler_L1 = float(sb.get('fiedler_val_L1', 0.0))
+    # Fiedler value of L1 (lazy accessor; not eagerly in the bundle - see edge_fiedler)
+    fiedler_L1 = float(rex.fiedler_val_L1)
 
     chain_ok = rex.chain_valid
 
