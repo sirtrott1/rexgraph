@@ -213,8 +213,8 @@ def build_factored_operator(rex, chan, active_names, traces):
     dh = np.zeros(nE, dtype=_f64)
     nz = d_ov > 1e-12
     dh[nz] = 1.0 / np.sqrt(d_ov[nz])
-    dLSG = chan['L_SG'].diagonal() if 'L_SG' in chan else None          # diag(F)
-    dLC = chan['L_C'].diagonal() if 'L_C' in chan else None             # diag(C)
+    dLSG = chan['L_SG'].diagonal() if chan.get('L_SG') is not None else None   # diag(F)
+    dLC = chan['L_C'].diagonal() if chan.get('L_C') is not None else None       # diag(C)
     raw = (rex.g_channel == 'raw')
     trmap = dict(zip(active_names, traces))
 

@@ -19,11 +19,15 @@ specialty, a warm one routes by which bee has been carrying the relevant work.
 """
 from __future__ import annotations
 
+import functools
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from agent import agent_complex
+
+logger = logging.getLogger(__name__)
 
 VALID_ROLES = ("queen", "worker", "embedder")
 
@@ -372,6 +376,12 @@ class Hive:
     def stop_all(self) -> None:
         for name in list(self._bees):
             self.remove(name)
+        coord = getattr(self, "_coord", None)
+        if coord is not None and coord.pools is not None:
+            coord.pools.shutdown()
+            from rexgraph import coordinator as _co
+            _co.unregister_hive_share(self.name)
+            self._coord = None
 
     def attach_live(self) -> List[Bee]:
         """Discover running inference servers (local_runtime.probe_endpoints) and attach any not
@@ -411,15 +421,28 @@ class Hive:
         """Spawn every bee in a plan (from `auto_plan`/`plan_hive`). Continues past a bee that
         fails to come up, recording the error, so one bad model does not stop the rest."""
         entries = plan.get("plan", plan) if isinstance(plan, dict) else plan
-        results = []
-        for e in entries:
+
+        def _spawn_one(e):
             try:
                 b = self.spawn(e["name"], e["path"], role=e["role"],
                                specialties=e.get("specialties") or [], wait=wait)
-                results.append({"name": b.name, "role": b.role, "url": b.url, "ok": True})
+                return {"name": b.name, "role": b.role, "url": b.url, "ok": True}
             except Exception as ex:
-                results.append({"name": e.get("name"), "role": e.get("role"),
-                                "ok": False, "error": str(ex)})
+                return {"name": e.get("name"), "role": e.get("role"), "ok": False, "error": str(ex)}
+
+        # id is index-prefixed so two plan entries with the same name cannot collide into one wave
+        # slot (which would silently drop a spawn).
+        tasks = [{"id": f"{i}:{e.get('name') or ''}", "kind": "spawn",
+                  "fn": functools.partial(_spawn_one, e),
+                  "weight": self._task_weight("spawn", str(e.get("name") or ""))}
+                 for i, e in enumerate(entries)]
+        wave = self._run_wave(tasks)
+        # _run_wave omits the id of any task whose fn raises; _spawn_one never raises (fully
+        # wrapped in try/except above), but read defensively so a skipped id cannot KeyError.
+        results = [wave.get(f"{i}:{e.get('name') or ''}") or
+                   {"name": e.get("name"), "role": e.get("role"), "ok": False,
+                    "error": "task skipped by coordinator wave"}
+                   for i, e in enumerate(entries)]
         return {"spawned": results, "status": self.status()}
 
     def auto(self, budget_gb: Optional[float] = None, wait: float = 120.0, **kw) -> dict:
@@ -545,6 +568,74 @@ class Hive:
 
     def _generate_bees(self) -> List[Bee]:
         return [b for b in self._bees.values() if b.capability == "generate"]
+
+    def _coordinator_obj(self):
+        """Lazily build this hive's Coordinator with a managed LanePools sized from the active setup
+        and this hive's resource share. Cached on the instance."""
+        if getattr(self, "_coord", None) is None:
+            from rexgraph import coordinator as _co
+            from .hive_config import coordinator_settings
+            cs = coordinator_settings()
+            share_frac = 1.0
+            if cs.hive_shares:
+                _co.register_hive_share(self.name, cs.hive_shares.get(self.name, 1.0))
+                share_frac = _co.share_fraction(self.name)
+                # backstop: drop this hive's share from the registry if the hive is garbage-collected
+                # without stop_all (the finalizer holds only the name string, not the hive).
+                import weakref
+                weakref.finalize(self, _co.unregister_hive_share, self.name)
+            import os as _os
+            cap = _co.capacity(share_frac)
+            budget = max(1, int((_os.cpu_count() or 8) * share_frac))   # core share -> inner-thread budget
+            pools = _co.LanePools(self.name, idle_ttl_proc=cs.idle_ttl_proc,
+                                  idle_ttl_thread=cs.idle_ttl_thread, affinity=cs.affinity,
+                                  cap=cap, cores_budget=budget)
+            self._coord = _co.Coordinator(pools=pools, cap=cap)
+        return self._coord
+
+    def _task_weight(self, kind: str, worker: str = "") -> float:
+        from .hive_config import coordinator_settings
+        cs = coordinator_settings()
+        return float(cs.task_weights.get(kind, 1.0)) * float(cs.worker_weights.get(worker, 1.0))
+
+    def _run_wave(self, tasks: list) -> dict:
+        """Dispatch a wave of {id, kind, fn, weight?} tasks through the coordinator, folding timings
+        into its cost model. NEVER raises: on any failure (or when the coordinator is disabled) it
+        runs the fns serially. Emits a journal event with placement and timings (no content)."""
+        from .hive_config import coordinator_settings
+        from . import activity
+        from .coordinator_adapter import work_units
+
+        def _serial(ts: list) -> dict:
+            # per-task try/except so one bad fn cannot sink the rest of the wave, and cannot make
+            # _run_wave itself raise: that is the whole point of the fallback.
+            out = {}
+            for t in ts:
+                try:
+                    out[t["id"]] = t["fn"]()
+                except Exception as ex:
+                    logger.warning("hive task '%s' failed in serial run: %s", t["id"], ex)
+            return out
+
+        cs = coordinator_settings()
+        if not cs.enabled or not tasks:
+            return _serial(tasks)
+        try:
+            units = work_units(tasks)
+            co = self._coordinator_obj()
+            placement = co.plan(units)
+            results = co.pools.run(units, placement, cost=co.cost)
+            try:
+                activity.record("coordinator", "wave", scope=self.name,
+                                detail={"n": len(tasks),
+                                        "lanes": {u["id"]: placement[u["id"]] for u in units},
+                                        "kinds": {t["id"]: t.get("kind", "") for t in tasks}})
+            except Exception:
+                pass
+            return results
+        except Exception as ex:
+            logger.warning("coordinator wave failed, serial fallback: %s", ex)
+            return _serial(tasks)
 
     def _coordination_loops(self) -> int:
         """First Betti number of the live inter-agent complex = number of coordination cycles.
@@ -683,12 +774,20 @@ class Hive:
 
         answers = {}
         if len(names) >= 2:
-            for name in names:
-                answers[name] = self.ask(name, query, max_tokens=max_tokens)
+            ask_tasks = [{"id": name, "kind": "ask",
+                          "fn": functools.partial(self.ask, name, query, max_tokens=max_tokens),
+                          "weight": self._task_weight("ask", name)} for name in names]
+            answers = self._run_wave(ask_tasks)
         else:                                               # one specialist: sample it k times
             solo = names[0] if names else (self.queen.name if self.queen else gen[0].name)
-            for i in range(max(k, 2)):
-                answers[f"{solo}#{i + 1}"] = self.ask(solo, query, max_tokens=max_tokens)
+            ask_tasks = [{"id": f"{solo}#{i + 1}", "kind": "ask",
+                          "fn": functools.partial(self.ask, solo, query, max_tokens=max_tokens),
+                          "weight": self._task_weight("ask", solo)} for i in range(max(k, 2))]
+            answers = self._run_wave(ask_tasks)
+
+        if not answers:      # every worker errored: the wave dropped them all
+            return {"answer": None, "reliability": 0.0, "responders": [], "flagged": [],
+                    "n_workers": 0, "note": "no worker responded"}
 
         labels = list(answers.keys())
         embed_fn = agent_complex.model_embed_fn() if embed else None
@@ -723,11 +822,11 @@ class Hive:
         # it flags an internally incoherent answer, not just an odd one out.
         struct = {}
         try:
-            from agent.query_engine import build_query_rex
-            from agent.metrics import structural_metrics
-            for l in labels:
-                rex_a, _ = build_query_rex(answers[l] or "")
-                struct[l] = structural_metrics(rex_a) if rex_a is not None else {}
+            from .hive_tasks import structural_of
+            metric_tasks = [{"id": l, "kind": "analysis",
+                             "fn": functools.partial(structural_of, answers[l] or ""),
+                             "weight": self._task_weight("analysis")} for l in labels]
+            struct = self._run_wave(metric_tasks)
         except Exception:
             struct = {}
 
@@ -785,11 +884,26 @@ class Hive:
                 d["alive"] = self.health(b)
             bees.append(d)
         bees.sort(key=lambda d: (d["role"] != "queen", d["role"] != "worker", d["name"]))
-        return {"n_bees": len(bees),
-                "queen": self.queen.name if self.queen else None,
-                "embedder": self.embedder.name if self.embedder else None,
-                "workers": [b.name for b in self.workers()],
-                "bees": bees}
+        out = {"n_bees": len(bees),
+               "queen": self.queen.name if self.queen else None,
+               "embedder": self.embedder.name if self.embedder else None,
+               "workers": [b.name for b in self.workers()],
+               "bees": bees}
+        coord = getattr(self, "_coord", None)
+        try:
+            from .hive_config import coordinator_settings
+            cs = coordinator_settings()
+            out["coordinator"] = {
+                "enabled": cs.enabled,
+                "pools": coord.pools.status() if (coord and coord.pools) else
+                         {"proc": {"state": "cold"}, "thread": {"state": "cold"}},
+                "priorities": {"task_weights": cs.task_weights,
+                               "worker_weights": cs.worker_weights,
+                               "hive_shares": cs.hive_shares},
+            }
+        except Exception:
+            pass
+        return out
 
     def monitor(self, embed: bool = False, track: bool = False) -> dict:
         """Run the relational-complex monitor over the swarm's traffic (the same live complex the

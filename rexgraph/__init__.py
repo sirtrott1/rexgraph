@@ -40,7 +40,7 @@ from . import compute
 
 from .mesh_health import mesh_health, harmonic_health
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 __all__ = [
     "core",

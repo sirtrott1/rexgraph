@@ -988,18 +988,14 @@ class RexGraph:
         )
 
     def _fill_cheap_edge_spectra(self, bundle) -> None:
-        """Fill the edge-space spectral quantities the scale-free path can compute cheaply and EXACTLY,
-        so they are no longer None/NaN in sparse mode:
-            alpha_G           = fiedler(L1) / fiedler(L_O)
-            fiedler_val_L1    = smallest nonzero eigenvalue of L1  (algebraic connectivity of the edges)
-            fiedler_vec_L1    = its eigenvector
-            evals_L1          = the LOW end of the L1 spectrum (smallest few; the full spectrum is not
-                                cheap, and consumers needing it use subgraph()/dense on demand)
+        """Fill only the O(nnz) edge-space coupling into the scale-free bundle:
+            alpha_G = c^2 = G/T = tr((B2 B2^T)^2)/tr((B1^T B1)^2)   (exact integer traces, cheap)
 
-        The Fiedler is read by skipping the EXACTLY-known kernel dimension - no float threshold:
-            dim ker(L1)  = beta1                 (the first Betti number)
-            dim ker(L_O) = nE - rank(|B1|)        (raw overlap Gramian; exact rational rank)
-        cheap+exact vs the dense oracle's threshold-based Fiedler.
+        The L1 Fiedler eigenpair is DELIBERATELY not built here. It needs an ARPACK smallest-
+        eigenvalue solve that costs O(seconds) on a large edge space, and the character / coherence /
+        agent-monitor hot path (which rebuilds spectral_bundle constantly) never reads it. It is a
+        lazy accessor instead (`edge_fiedler` / `fiedler_val_L1` / `fiedler_vec_L1`), computed on
+        first demand. Building it eagerly here was the dominant cost of a large-hive monitor step.
         """
         nE = self._nE
         if nE == 0:
@@ -1014,26 +1010,51 @@ class RexGraph:
                 L1_up = sp.csr_matrix(B2 @ B2.T)                         # curl tier
             else:
                 L1_up = sp.csr_matrix((nE, nE))
-            L1 = sp.csr_matrix(L1_down + L1_up)
-
-            # alpha_G = c^2 = G/T = ||L1_up||_F^2 / ||L1_down||_F^2 (exact integer traces, cheap;
-            # the DOWN(gradient)/UP(curl) exchange rate, = (k-2)/2 on K_k). Same value as the dense path.
+            # alpha_G = c^2 = G/T = ||L1_up||_F^2 / ||L1_down||_F^2 (the DOWN/UP exchange rate,
+            # = (k-2)/2 on K_k). Same value as the dense path, integer traces, no eigensolve.
             calT = float(L1_down.multiply(L1_down).sum())               # tr((B1^T B1)^2)
             calG = float(L1_up.multiply(L1_up).sum())                   # tr((B2 B2^T)^2)
             bundle['alpha_G'] = (calG / calT) if calT > 0.0 else 0.0
-
-            # L1 Fiedler value + vector (readouts, DEDICATED keys): skip exactly beta1 zeros, no
-            # threshold. These are the smallest nonzero eigenpair - a bounded, well-defined quantity.
-            b1 = int(self.betti[1])
-            ev1, V1 = _edge_low_eig(L1, nE, b1 + 4)
-            bundle['fiedler_val_L1'] = float(ev1[b1]) if b1 < len(ev1) else 0.0
-            bundle['fiedler_vec_L1'] = V1[:, b1].copy() if b1 < V1.shape[1] else np.zeros(nE, dtype=np.float64)
-            # Deliberately do NOT fill the FULL-SPECTRUM keys (evals_L1 / evals_RL_1 / evecs_RL_1 /
-            # evals_L2 / evecs_L2) here: full-eigenbasis consumers (measure_in_eigenbasis, spectral
-            # diffusion) read those and a PARTIAL low-mode matrix would silently truncate them. They
-            # stay None in sparse mode and fall back to on-demand dense eigh (or a matrix-free path).
         except Exception:
             pass   # cheap path unavailable -> leave the builder's None/NaN slots
+        # The sparse builder writes a placeholder fiedler_val_L1 = 0.0 that is NOT the real
+        # value (the L1 Fiedler is the lazy `edge_fiedler` / `fiedler_val_L1` accessor). Null it
+        # so a bundle-level reader gets an explicit None ("not in the bundle") instead of silently
+        # trusting a wrong 0.0.
+        bundle['fiedler_val_L1'] = None
+
+    @cached_property
+    def edge_fiedler(self) -> Tuple[float, NDArray]:
+        """(fiedler_val_L1, fiedler_vec_L1): the smallest NONZERO eigenpair of the edge Laplacian
+        L1 = B1^T B1 + B2 B2^T - the algebraic connectivity of the edge space. Computed ON DEMAND
+        (ARPACK smallest-eigenvalue solve, expensive on a large edge space), skipping exactly the
+        beta1 known kernel modes (no float threshold). Not built into spectral_bundle, which the
+        character/coherence hot path rebuilds constantly and never needs the Fiedler for."""
+        nE = self._nE
+        if nE == 0:
+            return 0.0, np.zeros(0, dtype=_f64)
+        import scipy.sparse as sp
+        from rexgraph.core._sparse import to_scipy_csr
+        B1 = to_scipy_csr(self._B1_dual).astype(np.float64)
+        L1 = sp.csr_matrix(B1.T @ B1)
+        if self._nF > 0 and self._B2_hodge_dual is not None:
+            B2 = to_scipy_csr(self._B2_hodge_dual).astype(np.float64)
+            L1 = sp.csr_matrix(L1 + B2 @ B2.T)
+        b1 = int(self.betti[1])
+        ev1, V1 = _edge_low_eig(L1, nE, b1 + 4)
+        val = float(ev1[b1]) if b1 < len(ev1) else 0.0
+        vec = V1[:, b1].copy() if b1 < V1.shape[1] else np.zeros(nE, dtype=_f64)
+        return val, vec
+
+    @property
+    def fiedler_val_L1(self) -> float:
+        """Algebraic connectivity of the edge space (smallest nonzero L1 eigenvalue). Lazy."""
+        return self.edge_fiedler[0]
+
+    @property
+    def fiedler_vec_L1(self) -> NDArray:
+        """Fiedler vector of the edge Laplacian L1. Lazy."""
+        return self.edge_fiedler[1]
 
     # Spectral accessors (thin dict lookups into spectral_bundle)
 

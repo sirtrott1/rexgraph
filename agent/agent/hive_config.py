@@ -59,6 +59,20 @@ class ComputeSpec:
 
 
 @dataclass
+class CoordinatorSpec:
+    """Coordinator tuning for a setup: whether the coordinator dispatches hive fan-outs, its pool
+    idle TTLs, worker-core affinity, and the user priority weights. All defaults are neutral, so
+    behavior is unchanged until a user tunes them."""
+    enabled: bool = True
+    idle_ttl_proc: float = 30.0
+    idle_ttl_thread: float = 120.0
+    affinity: bool = False
+    hive_shares: dict = field(default_factory=dict)     # hive name -> relative resource share
+    task_weights: dict = field(default_factory=dict)    # task kind -> priority weight
+    worker_weights: dict = field(default_factory=dict)  # worker name -> priority weight
+
+
+@dataclass
 class HiveProfile:
     """A complete, switchable hive setup."""
     id: str
@@ -76,6 +90,7 @@ class HiveProfile:
     monitor_embed: bool = True       # monitor uses the embedder bee for semantic alignment
     routing: str = "specialty+history"
     compute: ComputeSpec = field(default_factory=ComputeSpec)   # execution-layer tuning
+    coordinator: CoordinatorSpec = field(default_factory=CoordinatorSpec)   # coordinator tuning
     tags: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -87,9 +102,12 @@ class HiveProfile:
         bees = [BeeSpec(**b) if isinstance(b, dict) else b for b in d.get("bees", [])]
         comp = d.get("compute")
         compute = ComputeSpec(**comp) if isinstance(comp, dict) else (comp or ComputeSpec())
+        coord = d.get("coordinator")
+        coordinator = CoordinatorSpec(**coord) if isinstance(coord, dict) else (coord or CoordinatorSpec())
         known = {f for f in cls.__dataclass_fields__}
-        rest = {k: v for k, v in d.items() if k in known and k not in ("bees", "compute")}
-        return cls(**rest, bees=bees, compute=compute)
+        rest = {k: v for k, v in d.items()
+                if k in known and k not in ("bees", "compute", "coordinator")}
+        return cls(**rest, bees=bees, compute=compute, coordinator=coordinator)
 
 
 # built-in presets: always available, read-only
@@ -276,3 +294,14 @@ def get_store() -> ProfileStore:
 def reset_store() -> None:
     global _STORE
     _STORE = None
+
+
+def coordinator_settings() -> CoordinatorSpec:
+    """The active setup's coordinator spec, or neutral defaults when no setup is active."""
+    try:
+        active = get_store().active()
+        if active is not None:
+            return active.coordinator
+    except Exception:
+        pass
+    return CoordinatorSpec()
