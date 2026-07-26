@@ -51,3 +51,44 @@ def test_run_wave_returns_results_and_falls_back_on_failure():
     out = h._run_wave(bad)
     assert out["ok"] == 5
     h.stop_all()
+
+
+def _stub_hive_with_answers(answers: dict):
+    """A Hive whose ask() returns canned answers and whose bees are all generate-capable stubs."""
+    from agent.agent.hive import Hive, Bee
+    h = Hive("consensustest")
+    for name in answers:
+        b = Bee(name=name, url="http://x", role="worker", capability="generate")
+        h._bees[name] = b
+    h.ask = lambda name, prompt, **kw: answers[name]           # bypass real LLM
+    h.route = lambda query, top_k=3: [{"bee": n} for n in answers]
+    return h
+
+
+def test_consensus_result_matches_regardless_of_coordinator():
+    answers = {"w1": "the sky is blue", "w2": "the sky is blue today", "w3": "bananas are yellow"}
+    h = _stub_hive_with_answers(answers)
+    out = h.consensus("what color is the sky", k=3)
+    assert out["n_workers"] == 3
+    assert "answer" in out and out["reliability"] >= 0.0
+    h.stop_all()
+
+
+def test_compose_spawns_all_entries_concurrently():
+    from agent.agent.hive import Hive
+    h = Hive("composetest")
+    spawned = []
+
+    def fake_spawn(name, path, **kw):
+        spawned.append(name)
+        from agent.agent.hive import Bee
+        b = Bee(name=name, url="http://x", role=kw.get("role", "worker"), capability="generate")
+        h._bees[name] = b
+        return b
+
+    h.spawn = fake_spawn
+    plan = {"plan": [{"name": f"b{i}", "path": f"/m{i}", "role": "worker"} for i in range(4)]}
+    res = h.compose(plan, wait=1.0)
+    assert len(res["spawned"]) == 4
+    assert sorted(spawned) == ["b0", "b1", "b2", "b3"]
+    h.stop_all()

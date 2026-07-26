@@ -19,6 +19,7 @@ specialty, a warm one routes by which bee has been carrying the relevant work.
 """
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from dataclasses import dataclass, field
@@ -420,15 +421,26 @@ class Hive:
         """Spawn every bee in a plan (from `auto_plan`/`plan_hive`). Continues past a bee that
         fails to come up, recording the error, so one bad model does not stop the rest."""
         entries = plan.get("plan", plan) if isinstance(plan, dict) else plan
-        results = []
-        for e in entries:
+
+        def _spawn_one(e):
             try:
                 b = self.spawn(e["name"], e["path"], role=e["role"],
                                specialties=e.get("specialties") or [], wait=wait)
-                results.append({"name": b.name, "role": b.role, "url": b.url, "ok": True})
+                return {"name": b.name, "role": b.role, "url": b.url, "ok": True}
             except Exception as ex:
-                results.append({"name": e.get("name"), "role": e.get("role"),
-                                "ok": False, "error": str(ex)})
+                return {"name": e.get("name"), "role": e.get("role"), "ok": False, "error": str(ex)}
+
+        tasks = [{"id": str(e.get("name") or i), "kind": "spawn",
+                  "fn": functools.partial(_spawn_one, e),
+                  "weight": self._task_weight("spawn", str(e.get("name") or ""))}
+                 for i, e in enumerate(entries)]
+        wave = self._run_wave(tasks)
+        # _run_wave omits the id of any task whose fn raises; _spawn_one never raises (fully
+        # wrapped in try/except above), but read defensively so a skipped id cannot KeyError.
+        results = [wave.get(str(e.get("name") or i)) or
+                   {"name": e.get("name"), "role": e.get("role"), "ok": False,
+                    "error": "task skipped by coordinator wave"}
+                   for i, e in enumerate(entries)]
         return {"spawned": results, "status": self.status()}
 
     def auto(self, budget_gb: Optional[float] = None, wait: float = 120.0, **kw) -> dict:
@@ -753,12 +765,16 @@ class Hive:
 
         answers = {}
         if len(names) >= 2:
-            for name in names:
-                answers[name] = self.ask(name, query, max_tokens=max_tokens)
+            ask_tasks = [{"id": name, "kind": "ask",
+                          "fn": functools.partial(self.ask, name, query, max_tokens=max_tokens),
+                          "weight": self._task_weight("ask", name)} for name in names]
+            answers = self._run_wave(ask_tasks)
         else:                                               # one specialist: sample it k times
             solo = names[0] if names else (self.queen.name if self.queen else gen[0].name)
-            for i in range(max(k, 2)):
-                answers[f"{solo}#{i + 1}"] = self.ask(solo, query, max_tokens=max_tokens)
+            ask_tasks = [{"id": f"{solo}#{i + 1}", "kind": "ask",
+                          "fn": functools.partial(self.ask, solo, query, max_tokens=max_tokens),
+                          "weight": self._task_weight("ask", solo)} for i in range(max(k, 2))]
+            answers = self._run_wave(ask_tasks)
 
         labels = list(answers.keys())
         embed_fn = agent_complex.model_embed_fn() if embed else None
@@ -793,11 +809,11 @@ class Hive:
         # it flags an internally incoherent answer, not just an odd one out.
         struct = {}
         try:
-            from agent.query_engine import build_query_rex
-            from agent.metrics import structural_metrics
-            for l in labels:
-                rex_a, _ = build_query_rex(answers[l] or "")
-                struct[l] = structural_metrics(rex_a) if rex_a is not None else {}
+            from .hive_tasks import structural_of
+            metric_tasks = [{"id": l, "kind": "analysis",
+                             "fn": functools.partial(structural_of, answers[l] or ""),
+                             "weight": self._task_weight("analysis")} for l in labels]
+            struct = self._run_wave(metric_tasks)
         except Exception:
             struct = {}
 
