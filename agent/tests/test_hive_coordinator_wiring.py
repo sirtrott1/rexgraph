@@ -92,3 +92,35 @@ def test_compose_spawns_all_entries_concurrently():
     assert len(res["spawned"]) == 4
     assert sorted(spawned) == ["b0", "b1", "b2", "b3"]
     h.stop_all()
+
+
+def test_spawn_and_attach_route_to_thread_lane_not_proc():
+    # A bee spawn mutates hive state in-process and must run on the thread lane (io_llm), never the
+    # forkserver proc lane where the mutation would be lost.
+    from agent.agent.coordinator_adapter import _to_type
+    assert _to_type("spawn") == "io_llm"
+    assert _to_type("attach") == "io_llm"
+    assert _to_type("analysis") == "cpu_coordination"   # structural metrics still go to proc
+    assert _to_type("ask") == "io_llm"
+
+
+def test_compose_runs_spawns_concurrently_on_the_thread_lane():
+    # Four slow spawns must overlap (thread lane), finishing in roughly one spawn's time, not four.
+    import time
+    from agent.agent.hive import Hive, Bee
+    h = Hive("composeconc")
+
+    def slow_spawn(name, path, **kw):
+        time.sleep(0.2)
+        b = Bee(name=name, url="http://x", role=kw.get("role", "worker"), capability="generate")
+        h._bees[name] = b
+        return b
+
+    h.spawn = slow_spawn
+    plan = {"plan": [{"name": f"b{i}", "path": f"/m{i}", "role": "worker"} for i in range(4)]}
+    t0 = time.perf_counter()
+    res = h.compose(plan, wait=1.0)
+    dt = time.perf_counter() - t0
+    assert len(res["spawned"]) == 4 and all(s["ok"] for s in res["spawned"])
+    assert dt < 0.5     # concurrent (~0.2s), not serial (~0.8s)
+    h.stop_all()

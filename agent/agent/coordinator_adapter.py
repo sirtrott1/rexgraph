@@ -2,7 +2,10 @@
 coordinator TYPE. Keeps the relational coordinator (rexgraph) domain-agnostic; this is the agent glue."""
 from __future__ import annotations
 
-_IO = ("llm", "chat", "generate", "ask", "complete")
+# io_llm == I/O-bound, GIL-light work that runs IN-PROCESS on the thread lane: LLM calls, and also
+# subprocess spawns / live-server attaches (they block on model load AND mutate hive state in place,
+# so they MUST NOT run in a forkserver child where the mutation would be lost).
+_IO = ("llm", "chat", "generate", "ask", "complete", "spawn", "attach")
 _GPU = ("kernel", "heat", "greens", "block_cg", "matvec", "dirac")
 
 
