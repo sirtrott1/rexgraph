@@ -16,4 +16,6 @@ def _to_type(kind: str) -> str:
 
 
 def work_units(tasks: list) -> list:
-    return [{"id": t["id"], "type": _to_type(t.get("kind", "")), "fn": t["fn"]} for t in tasks]
+    return [{"id": t["id"], "type": _to_type(t.get("kind", "")),
+             "fn": t["fn"], "weight": float(t.get("weight", 1.0))}
+            for t in tasks]

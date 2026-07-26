@@ -19,11 +19,14 @@ specialty, a warm one routes by which bee has been carrying the relevant work.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from agent import agent_complex
+
+logger = logging.getLogger(__name__)
 
 VALID_ROLES = ("queen", "worker", "embedder")
 
@@ -372,6 +375,12 @@ class Hive:
     def stop_all(self) -> None:
         for name in list(self._bees):
             self.remove(name)
+        coord = getattr(self, "_coord", None)
+        if coord is not None and coord.pools is not None:
+            coord.pools.shutdown()
+            from rexgraph import coordinator as _co
+            _co.unregister_hive_share(self.name)
+            self._coord = None
 
     def attach_live(self) -> List[Bee]:
         """Discover running inference servers (local_runtime.probe_endpoints) and attach any not
@@ -545,6 +554,67 @@ class Hive:
 
     def _generate_bees(self) -> List[Bee]:
         return [b for b in self._bees.values() if b.capability == "generate"]
+
+    def _coordinator_obj(self):
+        """Lazily build this hive's Coordinator with a managed LanePools sized from the active setup
+        and this hive's resource share. Cached on the instance."""
+        if getattr(self, "_coord", None) is None:
+            from rexgraph import coordinator as _co
+            from .hive_config import coordinator_settings
+            cs = coordinator_settings()
+            share_frac = 1.0
+            if cs.hive_shares:
+                _co.register_hive_share(self.name, cs.hive_shares.get(self.name, 1.0))
+                share_frac = _co.share_fraction(self.name)
+            cap = _co.capacity(share_frac)
+            pools = _co.LanePools(self.name, idle_ttl_proc=cs.idle_ttl_proc,
+                                  idle_ttl_thread=cs.idle_ttl_thread, affinity=cs.affinity, cap=cap)
+            self._coord = _co.Coordinator(pools=pools, cap=cap)
+        return self._coord
+
+    def _task_weight(self, kind: str, worker: str = "") -> float:
+        from .hive_config import coordinator_settings
+        cs = coordinator_settings()
+        return float(cs.task_weights.get(kind, 1.0)) * float(cs.worker_weights.get(worker, 1.0))
+
+    def _run_wave(self, tasks: list) -> dict:
+        """Dispatch a wave of {id, kind, fn, weight?} tasks through the coordinator, folding timings
+        into its cost model. NEVER raises: on any failure (or when the coordinator is disabled) it
+        runs the fns serially. Emits a journal event with placement and timings (no content)."""
+        from .hive_config import coordinator_settings
+        from . import activity
+        from .coordinator_adapter import work_units
+
+        def _serial(ts: list) -> dict:
+            # per-task try/except so one bad fn cannot sink the rest of the wave, and cannot make
+            # _run_wave itself raise: that is the whole point of the fallback.
+            out = {}
+            for t in ts:
+                try:
+                    out[t["id"]] = t["fn"]()
+                except Exception as ex:
+                    logger.warning("hive task '%s' failed in serial run: %s", t["id"], ex)
+            return out
+
+        cs = coordinator_settings()
+        if not cs.enabled or not tasks:
+            return _serial(tasks)
+        try:
+            units = work_units(tasks)
+            co = self._coordinator_obj()
+            placement = co.plan(units)
+            results = co.pools.run(units, placement, cost=co.cost)
+            try:
+                activity.record("coordinator", "wave", scope=self.name,
+                                detail={"n": len(tasks),
+                                        "lanes": {u["id"]: placement[u["id"]] for u in units},
+                                        "kinds": {t["id"]: t.get("kind", "") for t in tasks}})
+            except Exception:
+                pass
+            return results
+        except Exception as ex:
+            logger.warning("coordinator wave failed, serial fallback: %s", ex)
+            return _serial(tasks)
 
     def _coordination_loops(self) -> int:
         """First Betti number of the live inter-agent complex = number of coordination cycles.
