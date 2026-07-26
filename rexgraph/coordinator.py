@@ -298,17 +298,41 @@ def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dic
 import threading
 
 
-def _pin_worker():
-    """Pool initializer: pin this worker to a single core to keep its L1-L3 cache hot. Best-effort;
-    a no-op where affinity control is unavailable."""
+def _inner_threads(workers: int, cores_budget: "int|None" = None) -> int:
+    """Inner native (BLAS/OpenMP) thread budget per proc worker: budget // workers, so
+    workers * inner tracks the CORE BUDGET this pool is entitled to (the same arithmetic parallel_map
+    uses). `cores_budget` is the machine cores for a single coordinator, but the hive's SHARE of the
+    cores when several coordinators run at once - otherwise N concurrent pools each assume all cores
+    and oversubscribe (N * workers * inner threads). Never below 1."""
+    budget = cores_budget if cores_budget else (os.cpu_count() or 1)
+    return max(1, int(budget) // max(1, int(workers)))
+
+
+_WORKER_TL = None   # holds the per-worker threadpool limiter for the worker's whole lifetime
+
+
+def _proc_worker_init(inner: int, affinity: bool):
+    """forkserver proc-lane worker setup. CAPS this worker's inner native (BLAS / OpenMP) thread
+    pools to `inner`, so N workers each running threaded BLAS do not oversubscribe the machine
+    (workers * inner tracks the core budget, the same arithmetic parallel_map uses). Without this,
+    a BLAS-heavy batch runs about 10x SLOWER than serial (32 workers each spawning 32 BLAS threads).
+    Optionally pins the worker to a core to keep its cache hot."""
+    global _WORKER_TL
+    import os as _os
+    inner = max(1, int(inner))
+    for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        _os.environ[_v] = str(inner)           # for any BLAS pool not yet initialized
     try:
-        import os as _os
-        pid = _os.getpid()
-        ncores = _os.cpu_count() or 1
-        if hasattr(_os, "sched_setaffinity"):
-            _os.sched_setaffinity(0, {pid % ncores})
+        import threadpoolctl
+        _WORKER_TL = threadpoolctl.threadpool_limits(inner)   # runtime cap for already-loaded pools
     except Exception:
         pass
+    if affinity:
+        try:
+            if hasattr(_os, "sched_setaffinity"):
+                _os.sched_setaffinity(0, {_os.getpid() % (_os.cpu_count() or 1)})
+        except Exception:
+            pass
 
 
 class LanePools:
@@ -318,12 +342,17 @@ class LanePools:
 
     def __init__(self, hive: str = "default", *, now=_time.monotonic,
                  idle_ttl_proc: float = 30.0, idle_ttl_thread: float = 120.0,
-                 affinity: bool = False, cap: "dict|None" = None, reaper_tick: float = 1.0):
+                 affinity: bool = False, cap: "dict|None" = None, reaper_tick: float = 1.0,
+                 cores_budget: "int|None" = None):
         self.hive = hive
         self._now = now
         self._ttl = {"proc": idle_ttl_proc, "thread": idle_ttl_thread}
         self._affinity = affinity
         self._cap = cap
+        # This pool's share of machine cores (for the inner-thread budget). Defaults to all cores
+        # (single coordinator); pass the hive's share when several coordinators run concurrently so
+        # they do not collectively oversubscribe.
+        self._cores_budget = int(cores_budget) if cores_budget else (os.cpu_count() or 8)
         self._reaper_tick = reaper_tick
         self._pools = {"proc": None, "thread": None}
         self._last = {"proc": 0.0, "thread": 0.0}
@@ -339,8 +368,12 @@ class LanePools:
         import multiprocessing as _mp
         ctx = _mp.get_context("forkserver")
         workers = int((self._cap or capacity())["proc"]) if self._cap else (os.cpu_count() or 8)
-        init = _pin_worker if self._affinity else None
-        return ProcessPoolExecutor(max_workers=max(1, workers), mp_context=ctx, initializer=init)
+        workers = max(1, workers)
+        # Cap each worker's inner BLAS/OpenMP threads so workers * inner tracks THIS pool's core
+        # budget (its share of the machine when several coordinators run), never oversubscribing.
+        inner = _inner_threads(workers, self._cores_budget)
+        return ProcessPoolExecutor(max_workers=workers, mp_context=ctx,
+                                   initializer=_proc_worker_init, initargs=(inner, self._affinity))
 
     def _ensure(self, lane: str):
         with self._lock:

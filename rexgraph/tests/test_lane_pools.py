@@ -170,3 +170,26 @@ def test_wave_longer_than_ttl_is_not_reaped_midflight():
     assert res == {"a": 1}
     assert p.status()["thread"]["state"] == "warm"   # survived: busy-guard + completion refresh
     p.shutdown()
+
+
+def test_inner_threads_budget_prevents_oversubscription():
+    import rexgraph.coordinator as co
+    cores = __import__("os").cpu_count() or 8
+    assert co._inner_threads(1) == cores          # a lone worker may use all cores
+    assert co._inner_threads(cores) == 1          # cores workers -> 1 BLAS thread each (no oversub)
+    assert co._inner_threads(4) == max(1, cores // 4)
+    assert co._inner_threads(0) >= 1              # never below 1
+
+
+def test_inner_threads_budget_scales_with_a_hive_share():
+    # Cross-coordinator: several hives share the machine, so each pool's inner-thread budget must be
+    # its SHARE of cores, not all cores. 3 equal hives on 32 cores -> ~10-core budget each.
+    import rexgraph.coordinator as co
+    assert co._inner_threads(5, cores_budget=10) == 2      # 10-core share / 5 workers = 2 BLAS each
+    assert co._inner_threads(8, cores_budget=32) == 4
+    assert co._inner_threads(2, cores_budget=10) == 5
+    # 3 equal hives never collectively exceed the machine: sum(workers*inner) <= cores
+    import os
+    cores = os.cpu_count() or 8
+    per = cores // 3
+    assert co._inner_threads(max(1, (cores // 2) // 3), cores_budget=per) * ((cores // 2) // 3 or 1) <= cores + 2

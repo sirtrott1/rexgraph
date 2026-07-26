@@ -584,9 +584,12 @@ class Hive:
                 # without stop_all (the finalizer holds only the name string, not the hive).
                 import weakref
                 weakref.finalize(self, _co.unregister_hive_share, self.name)
+            import os as _os
             cap = _co.capacity(share_frac)
+            budget = max(1, int((_os.cpu_count() or 8) * share_frac))   # core share -> inner-thread budget
             pools = _co.LanePools(self.name, idle_ttl_proc=cs.idle_ttl_proc,
-                                  idle_ttl_thread=cs.idle_ttl_thread, affinity=cs.affinity, cap=cap)
+                                  idle_ttl_thread=cs.idle_ttl_thread, affinity=cs.affinity,
+                                  cap=cap, cores_budget=budget)
             self._coord = _co.Coordinator(pools=pools, cap=cap)
         return self._coord
 
