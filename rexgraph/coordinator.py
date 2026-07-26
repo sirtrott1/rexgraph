@@ -64,16 +64,20 @@ def _lane_groups(assignment, units, cost):
     return time, bw
 
 
+def _contention_from_sums(time: dict, bw: dict, cap: dict) -> float:
+    """Contention from precomputed per-lane time/bw sums (the actuator hot path)."""
+    wall = max((time[ln] / cap[ln] for ln in LANES), default=0.0)
+    bw_war = min(bw["proc"], bw["igpu"])   # co-drawn shared bandwidth = the circulating (curl) part
+    return wall + _BW_LAMBDA * bw_war
+
+
 def contention(assignment: dict, units: list, cost: CostModel) -> float:
     """Nonnegative contention of a placement - the objective the actuator minimizes. Task execution
     is an EDGE from an operator (lane) to the task (see delegation_complex). Contention is the wave
     WALL-CLOCK (max over lanes of load/parallelism, since lanes run concurrently) plus a small
     CPU<->iGPU bandwidth-war term (the two drawing the shared unified bandwidth at once)."""
     time, bw = _lane_groups(assignment, units, cost)
-    cap = capacity()
-    wall = max((time[ln] / cap[ln] for ln in LANES), default=0.0)
-    bw_war = min(bw["proc"], bw["igpu"])   # co-drawn shared bandwidth = the circulating (curl) part
-    return wall + _BW_LAMBDA * bw_war
+    return _contention_from_sums(time, bw, capacity())
 
 
 def delegation_complex(assignment: dict, units: list):
@@ -104,34 +108,52 @@ def delegation_complex(assignment: dict, units: list):
 def assign(units: list, cost: CostModel) -> dict:
     """Greedy marginal-contention placement: seed each task on its best lane, then repeatedly move
     the task whose relocation most reduces total contention, until no move helps. Deterministic
-    (stable order), so results never depend on scheduling."""
+    (stable order), so results never depend on scheduling.
+
+    Same greedy/tie-break semantics as a full-recompute search, but each candidate move is scored
+    as an O(1) DELTA against cached per-lane time/bw sums instead of re-summing every task. That
+    drops the actuator from ~O(n^3) to ~O(n^2) so a large per-wave placement stays cheap."""
+    by_id = {u["id"]: u for u in units}
+    cap = capacity()
     a = {u["id"]: cost.best_lane(u["type"]) for u in units}
+    time = {ln: 0.0 for ln in LANES}
+    bw = {ln: 0.0 for ln in LANES}
+    for tid, ln in a.items():
+        t, b = cost.cost(by_id[tid]["type"], ln)
+        time[ln] += t
+        bw[ln] += b
+
     improved = True
     while improved:
         improved = False
-        base = contention(a, units, cost)
+        base = _contention_from_sums(time, bw, cap)
         best_move = None
         best_gain = 1e-12
         for u in units:
             tid = u["id"]
             cur = a[tid]
+            tc, bc = cost.cost(u["type"], cur)
             for ln in LANES:
                 if ln == cur:
                     continue
-                a[tid] = ln
-                gain = base - contention(a, units, cost)
+                tn, bn = cost.cost(u["type"], ln)
+                time[cur] -= tc; bw[cur] -= bc; time[ln] += tn; bw[ln] += bn
+                gain = base - _contention_from_sums(time, bw, cap)
+                time[cur] += tc; bw[cur] += bc; time[ln] -= tn; bw[ln] -= bn
                 if gain > best_gain:
                     best_gain = gain
-                    best_move = (tid, ln)
-                a[tid] = cur
+                    best_move = (tid, ln, cur, tc, bc, tn, bn)
         if best_move is not None:
-            a[best_move[0]] = best_move[1]
+            tid, ln, cur, tc, bc, tn, bn = best_move
+            a[tid] = ln
+            time[cur] -= tc; bw[cur] -= bc; time[ln] += tn; bw[ln] += bn
             improved = True
     return a
 
 
 # --- Dispatch seam: execute an assignment across the compute lanes ---
 import time as _time
+import pickle
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 
@@ -141,22 +163,48 @@ def _run_one(u):
     return u["id"], res, _time.perf_counter() - t0
 
 
+def _picklable(fn) -> bool:
+    """Can this fn cross the forkserver boundary? A closure/lambda/bound-method over hive state
+    (the natural form of a real hive task) cannot, and would otherwise crash the whole wave."""
+    try:
+        pickle.dumps(fn)
+        return True
+    except Exception:
+        return False
+
+
 def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dict:
     """Execute each unit's `fn` on its assigned lane: proc -> process pool (true multicore for CPU-
-    bound work; fn must be picklable), thread/igpu -> thread pool (I/O and GPU-launch are GIL-light).
-    Results are keyed by id and are INDEPENDENT of lane and order. Folds per-task timing into cost."""
+    bound work), thread/igpu -> thread pool (I/O and GPU-launch are GIL-light). Results are keyed by
+    id and are INDEPENDENT of lane and order. Folds per-task timing into cost.
+
+    Two guards make this safe for real (not just test) hive tasks:
+    - PICKLABILITY: a proc-lane fn that cannot be pickled (a closure/lambda/bound-method over hive
+      state) is transparently spilled to the thread lane instead of crashing the forkserver pool.
+    - SIDE EFFECTS: the proc lane runs the fn in a child process, so in-process mutations do NOT
+      propagate back - only the return value does. The picklability spill covers the common stateful
+      case (closures run in-process on the thread lane, mutations preserved); a picklable fn that
+      relies on mutating shared parent state must not be routed to proc. Cost timing is recorded
+      against the lane the fn ACTUALLY ran on (post-spill), so the model never learns a wrong lane."""
     by_id = {u["id"]: u for u in units}
-    lanes = {ln: [by_id[t] for t, l in assignment.items() if l == ln] for ln in LANES}
+    eff_lane = dict(assignment)  # lane each fn actually runs on (after any spill)
+
+    proc_units = []
+    for u in [by_id[t] for t, l in assignment.items() if l == "proc"]:
+        if _picklable(u["fn"]):
+            proc_units.append(u)
+        else:
+            eff_lane[u["id"]] = "thread"  # spill: run in-process, preserve side effects
+
+    thread_units = [by_id[t] for t, l in eff_lane.items() if l in ("thread", "igpu")]
     results = {}
     timings = []
 
     def drain(pool_units, ex):
         for tid, res, dt in ex.map(_run_one, pool_units):
             results[tid] = res
-            timings.append((by_id[tid]["type"], assignment[tid], dt))
+            timings.append((by_id[tid]["type"], eff_lane[tid], dt))
 
-    thread_units = lanes["thread"] + lanes["igpu"]
-    proc_units = lanes["proc"]
     if thread_units:
         with ThreadPoolExecutor(max_workers=min(32, len(thread_units))) as ex:
             drain(thread_units, ex)
