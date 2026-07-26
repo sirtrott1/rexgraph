@@ -86,3 +86,32 @@ def test_run_folds_timing_into_cost():
     after, _ = cm.cost("io_llm", "thread")
     assert after != before
     p.shutdown()
+
+
+def test_reaper_restarts_after_flag_cleared_even_if_thread_lingers():
+    # Regression: _ensure must key off the reaper_alive flag, not a stale thread.is_alive().
+    # After _reap_once clears the flag (deciding to exit), a new wave must start a FRESH reaper so a
+    # newly created pool is never left unwatched.
+    p = LanePools("h", now=FakeClock())
+    p.run([{"id": "a", "type": "io_llm", "fn": (lambda: 1)}], {"a": "thread"})
+    with p._lock:
+        p.reaper_alive = False          # simulate the reaper having decided to exit
+    p.run([{"id": "b", "type": "io_llm", "fn": (lambda: 1)}], {"b": "thread"})
+    assert p.reaper_alive is True       # a new reaper was started off the flag
+    p.shutdown()
+
+
+def test_background_reaper_actually_reaps_and_self_exits_real_clock():
+    # End-to-end with the REAL background thread (not _reap_once): a short TTL + tick must close the
+    # warm pool and the reaper thread must terminate, leaving nothing running.
+    import time
+    p = LanePools("h", idle_ttl_proc=0.05, idle_ttl_thread=0.05, reaper_tick=0.02)
+    p.run([{"id": "a", "type": "io_llm", "fn": (lambda: 1)}], {"a": "thread"})
+    assert p.status()["thread"]["state"] == "warm"
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and p.status()["thread"]["state"] == "warm":
+        time.sleep(0.02)
+    assert p.status()["thread"]["state"] == "cold"      # reaped by the background thread
+    time.sleep(0.05)
+    assert p.reaper_alive is False                      # reaper self-exited, nothing lingers
+    p.shutdown()

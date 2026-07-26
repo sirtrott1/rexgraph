@@ -335,7 +335,12 @@ class LanePools:
             return self._pools[lane]
 
     def _start_reaper_locked(self):
-        if self._reaper is None or not self._reaper.is_alive():
+        # Key off the lock-protected reaper_alive flag, NOT thread.is_alive(). _reap_once clears the
+        # flag under this same lock at the instant it decides to exit, so a wave arriving while the
+        # old thread is still winding down sees the flag False and starts a fresh reaper. That closes
+        # the window where a newly created pool could be left with no reaper watching it. A brief
+        # overlap of two daemon reapers is harmless: both reap idempotently under the lock and exit.
+        if not self.reaper_alive:
             self.reaper_alive = True
             self._reaper = threading.Thread(target=self._reaper_loop, daemon=True,
                                             name=f"lanepools-reaper-{self.hive}")
@@ -357,10 +362,15 @@ class LanePools:
 
     def _reaper_loop(self):
         import time as _t
-        while True:
-            _t.sleep(self._reaper_tick)
-            if not self._reap_once():
-                return
+        try:
+            while True:
+                _t.sleep(self._reaper_tick)
+                if not self._reap_once():
+                    return
+        except Exception:
+            # never strand the flag: a crashed reaper must let the next wave start a fresh one
+            with self._lock:
+                self.reaper_alive = False
 
     # --- execution ---
     def run(self, units: list, assignment: dict, cost: "CostModel|None" = None) -> dict:
