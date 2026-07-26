@@ -871,11 +871,26 @@ class Hive:
                 d["alive"] = self.health(b)
             bees.append(d)
         bees.sort(key=lambda d: (d["role"] != "queen", d["role"] != "worker", d["name"]))
-        return {"n_bees": len(bees),
-                "queen": self.queen.name if self.queen else None,
-                "embedder": self.embedder.name if self.embedder else None,
-                "workers": [b.name for b in self.workers()],
-                "bees": bees}
+        out = {"n_bees": len(bees),
+               "queen": self.queen.name if self.queen else None,
+               "embedder": self.embedder.name if self.embedder else None,
+               "workers": [b.name for b in self.workers()],
+               "bees": bees}
+        coord = getattr(self, "_coord", None)
+        try:
+            from .hive_config import coordinator_settings
+            cs = coordinator_settings()
+            out["coordinator"] = {
+                "enabled": cs.enabled,
+                "pools": coord.pools.status() if (coord and coord.pools) else
+                         {"proc": {"state": "cold"}, "thread": {"state": "cold"}},
+                "priorities": {"task_weights": cs.task_weights,
+                               "worker_weights": cs.worker_weights,
+                               "hive_shares": cs.hive_shares},
+            }
+        except Exception:
+            pass
+        return out
 
     def monitor(self, embed: bool = False, track: bool = False) -> dict:
         """Run the relational-complex monitor over the swarm's traffic (the same live complex the

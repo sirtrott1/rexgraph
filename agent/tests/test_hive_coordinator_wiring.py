@@ -124,3 +124,13 @@ def test_compose_runs_spawns_concurrently_on_the_thread_lane():
     assert len(res["spawned"]) == 4 and all(s["ok"] for s in res["spawned"])
     assert dt < 0.5     # concurrent (~0.2s), not serial (~0.8s)
     h.stop_all()
+
+
+def test_status_includes_coordinator_block_after_a_wave():
+    from agent.agent.hive import Hive
+    h = Hive("statustest")
+    h._run_wave([{"id": "a", "kind": "compute", "fn": (lambda: 1)}])
+    st = h.status()
+    assert "coordinator" in st
+    assert "pools" in st["coordinator"]
+    h.stop_all()
