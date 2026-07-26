@@ -161,7 +161,13 @@ def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dic
         with ThreadPoolExecutor(max_workers=min(32, len(thread_units))) as ex:
             drain(thread_units, ex)
     if proc_units:
-        with ProcessPoolExecutor(max_workers=min(os.cpu_count() or 8, len(proc_units))) as ex:
+        # forkserver, not raw fork: this process has imported torch/numpy (many threads), and
+        # os.fork() in a multi-threaded process warns and can deadlock. forkserver is also the
+        # mechanism that gave CPU-bound coordination its 5.8x multicore scaling in benchmarks.
+        import multiprocessing as _mp
+        ctx = _mp.get_context("forkserver")
+        with ProcessPoolExecutor(max_workers=min(os.cpu_count() or 8, len(proc_units)),
+                                 mp_context=ctx) as ex:
             drain(proc_units, ex)
     if cost is not None:
         for ty, ln, dt in timings:
