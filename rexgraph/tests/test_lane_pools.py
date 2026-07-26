@@ -133,3 +133,40 @@ def test_coordinator_without_pools_uses_per_wave_execute():
     co_ = Coordinator(cost=CostModel())
     units = [{"id": "a", "type": "io_llm", "fn": (lambda: 7)}]
     assert co_.run_wave(units) == {"a": 7}
+
+
+def test_run_isolates_a_failing_task_no_rerun():
+    # A single task raising must NOT abort the wave or re-run its peers: the failed id is omitted,
+    # every fn runs exactly once.
+    calls = {"a": 0, "b": 0, "c": 0}
+
+    def mk(k):
+        def f():
+            calls[k] += 1
+            if k == "b":
+                raise ValueError("boom")
+            return k.upper()
+        return f
+
+    p = LanePools("h", now=FakeClock())
+    units = [{"id": k, "type": "io_llm", "fn": mk(k)} for k in ("a", "b", "c")]
+    res = p.run(units, {u["id"]: "thread" for u in units})
+    assert res == {"a": "A", "c": "C"}          # b omitted, no exception raised
+    assert calls == {"a": 1, "b": 1, "c": 1}    # each ran exactly once (no full-wave re-run)
+    p.shutdown()
+
+
+def test_wave_longer_than_ttl_is_not_reaped_midflight():
+    # The background reaper must not close a lane that is actively running a wave, even when the wave
+    # outlasts the TTL. After completion the pool stays warm (idle clock refreshed).
+    import time
+    p = LanePools("h", idle_ttl_thread=0.05, idle_ttl_proc=0.05, reaper_tick=0.02)
+
+    def slow():
+        time.sleep(0.25)      # far longer than the 0.05s TTL; reaper ticks during it
+        return 1
+
+    res = p.run([{"id": "a", "type": "io_llm", "fn": slow}], {"a": "thread"})
+    assert res == {"a": 1}
+    assert p.status()["thread"]["state"] == "warm"   # survived: busy-guard + completion refresh
+    p.shutdown()

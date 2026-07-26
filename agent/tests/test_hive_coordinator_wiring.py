@@ -134,3 +134,61 @@ def test_status_includes_coordinator_block_after_a_wave():
     assert "coordinator" in st
     assert "pools" in st["coordinator"]
     h.stop_all()
+
+
+def test_consensus_all_workers_fail_returns_no_answer_not_crash():
+    from agent.agent.hive import Hive, Bee
+    h = Hive("allfail")
+    for n in ("w1", "w2"):
+        h._bees[n] = Bee(name=n, url="http://x", role="worker", capability="generate")
+
+    def boom(name, prompt, **kw):
+        raise RuntimeError("model down")
+
+    h.ask = boom
+    h.route = lambda query, top_k=3: [{"bee": "w1"}, {"bee": "w2"}]
+    out = h.consensus("anything", k=2)
+    assert out["answer"] is None and out["n_workers"] == 0
+    h.stop_all()
+
+
+def test_compose_duplicate_names_do_not_drop_a_spawn():
+    from agent.agent.hive import Hive, Bee
+    h = Hive("dupnames")
+    calls = []
+
+    def spawn(name, path, **kw):
+        calls.append((name, path))
+        b = Bee(name=name, url="http://x", role=kw.get("role", "worker"), capability="generate")
+        h._bees[name] = b
+        return b
+
+    h.spawn = spawn
+    plan = {"plan": [{"name": "dupe", "path": "/a", "role": "worker"},
+                     {"name": "dupe", "path": "/b", "role": "worker"},
+                     {"name": "uniq", "path": "/c", "role": "worker"}]}
+    res = h.compose(plan, wait=1.0)
+    assert len(res["spawned"]) == 3            # every entry has its own result slot
+    assert len(calls) == 3                     # all three spawns actually ran
+    h.stop_all()
+
+
+def test_hive_share_unregistered_on_gc_without_stop_all():
+    import gc
+    from agent.agent.hive import Hive
+    from agent.agent import hive_config as hc
+    from agent.agent.hive_config import CoordinatorSpec
+    from rexgraph import coordinator as co
+    co.reset_shares()
+    orig = hc.coordinator_settings
+    hc.coordinator_settings = lambda: CoordinatorSpec(hive_shares={"ghost": 3.0})
+    try:
+        h = Hive("ghost")
+        h._run_wave([{"id": "x", "kind": "compute", "fn": (lambda: 1)}])  # builds coordinator, registers share
+        assert "ghost" in co._ACTIVE_SHARES
+        del h
+        gc.collect()
+        assert "ghost" not in co._ACTIVE_SHARES   # finalizer dropped it without stop_all
+    finally:
+        hc.coordinator_settings = orig
+        co.reset_shares()

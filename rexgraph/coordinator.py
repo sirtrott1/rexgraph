@@ -205,10 +205,20 @@ import pickle
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 
+import logging as _logging
+_log = _logging.getLogger(__name__)
+
+
 def _run_one(u):
+    """Run one unit's fn, catching its exception so a single bad task cannot abort the whole wave's
+    map (which would otherwise re-run every already-completed task in the serial fallback). Returns
+    (id, result, seconds, error_repr) with error_repr None on success."""
     t0 = _time.perf_counter()
-    res = u["fn"]()
-    return u["id"], res, _time.perf_counter() - t0
+    try:
+        res = u["fn"]()
+        return u["id"], res, _time.perf_counter() - t0, None
+    except Exception as ex:
+        return u["id"], None, _time.perf_counter() - t0, repr(ex)
 
 
 def _picklable(fn) -> bool:
@@ -258,7 +268,12 @@ def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dic
     timings = []
 
     def drain(pool_units, ex):
-        for tid, res, dt in ex.map(_run_one, pool_units):
+        # Per-task isolation: a failed task is logged and OMITTED from results (its id simply does
+        # not appear), so one bad fn never aborts the wave or forces a full re-run of its peers.
+        for tid, res, dt, err in ex.map(_run_one, pool_units):
+            if err is not None:
+                _log.warning("coordinator task '%s' failed on lane %s: %s", tid, eff_lane[tid], err)
+                continue
             results[tid] = res
             timings.append((by_id[tid]["type"], eff_lane[tid], dt))
 
@@ -312,6 +327,7 @@ class LanePools:
         self._reaper_tick = reaper_tick
         self._pools = {"proc": None, "thread": None}
         self._last = {"proc": 0.0, "thread": 0.0}
+        self._active = {"proc": 0, "thread": 0}   # in-flight waves per lane (never reap a busy lane)
         self._lock = threading.RLock()
         self._reaper = None
         self.reaper_alive = False
@@ -352,7 +368,8 @@ class LanePools:
             now = self._now()
             for lane in ("proc", "thread"):
                 pool = self._pools[lane]
-                if pool is not None and (now - self._last[lane]) >= self._ttl[lane]:
+                idle = pool is not None and (now - self._last[lane]) >= self._ttl[lane]
+                if idle and self._active[lane] == 0:      # never reap a lane running a wave
                     pool.shutdown(wait=False)
                     self._pools[lane] = None
             any_open = any(self._pools[l] is not None for l in ("proc", "thread"))
@@ -379,14 +396,32 @@ class LanePools:
         timings = []
 
         def drain(pool_units, ex):
-            for tid, res, dt in ex.map(_run_one, pool_units):
+            # Per-task isolation (see execute): a failed task is logged and omitted, never aborting
+            # the wave or re-running its peers.
+            for tid, res, dt, err in ex.map(_run_one, pool_units):
+                if err is not None:
+                    _log.warning("coordinator task '%s' failed on lane %s: %s",
+                                 tid, eff_lane[tid], err)
+                    continue
                 results[tid] = res
                 timings.append((by_id[tid]["type"], eff_lane[tid], dt))
 
+        def run_lane(lane, lane_units):
+            ex = self._ensure(lane)             # create/warm the pool, stamp last, start reaper
+            with self._lock:
+                self._active[lane] += 1         # mark busy so the reaper cannot close it mid-wave
+            try:
+                drain(lane_units, ex)
+            finally:
+                with self._lock:
+                    self._active[lane] -= 1
+                    if self._pools[lane] is not None:
+                        self._last[lane] = self._now()   # refresh idle clock at COMPLETION too
+
         if thread_units:
-            drain(thread_units, self._ensure("thread"))
+            run_lane("thread", thread_units)
         if proc_units:
-            drain(proc_units, self._ensure("proc"))
+            run_lane("proc", proc_units)
         if cost is not None:
             for ty, ln, dt in timings:
                 cost.observe(ty, ln, dt)

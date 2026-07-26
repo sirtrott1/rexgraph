@@ -430,14 +430,16 @@ class Hive:
             except Exception as ex:
                 return {"name": e.get("name"), "role": e.get("role"), "ok": False, "error": str(ex)}
 
-        tasks = [{"id": str(e.get("name") or i), "kind": "spawn",
+        # id is index-prefixed so two plan entries with the same name cannot collide into one wave
+        # slot (which would silently drop a spawn).
+        tasks = [{"id": f"{i}:{e.get('name') or ''}", "kind": "spawn",
                   "fn": functools.partial(_spawn_one, e),
                   "weight": self._task_weight("spawn", str(e.get("name") or ""))}
                  for i, e in enumerate(entries)]
         wave = self._run_wave(tasks)
         # _run_wave omits the id of any task whose fn raises; _spawn_one never raises (fully
         # wrapped in try/except above), but read defensively so a skipped id cannot KeyError.
-        results = [wave.get(str(e.get("name") or i)) or
+        results = [wave.get(f"{i}:{e.get('name') or ''}") or
                    {"name": e.get("name"), "role": e.get("role"), "ok": False,
                     "error": "task skipped by coordinator wave"}
                    for i, e in enumerate(entries)]
@@ -578,6 +580,10 @@ class Hive:
             if cs.hive_shares:
                 _co.register_hive_share(self.name, cs.hive_shares.get(self.name, 1.0))
                 share_frac = _co.share_fraction(self.name)
+                # backstop: drop this hive's share from the registry if the hive is garbage-collected
+                # without stop_all (the finalizer holds only the name string, not the hive).
+                import weakref
+                weakref.finalize(self, _co.unregister_hive_share, self.name)
             cap = _co.capacity(share_frac)
             pools = _co.LanePools(self.name, idle_ttl_proc=cs.idle_ttl_proc,
                                   idle_ttl_thread=cs.idle_ttl_thread, affinity=cs.affinity, cap=cap)
@@ -775,6 +781,10 @@ class Hive:
                           "fn": functools.partial(self.ask, solo, query, max_tokens=max_tokens),
                           "weight": self._task_weight("ask", solo)} for i in range(max(k, 2))]
             answers = self._run_wave(ask_tasks)
+
+        if not answers:      # every worker errored: the wave dropped them all
+            return {"answer": None, "reliability": 0.0, "responders": [], "flagged": [],
+                    "n_workers": 0, "note": "no worker responded"}
 
         labels = list(answers.keys())
         embed_fn = agent_complex.model_embed_fn() if embed else None
