@@ -21,6 +21,62 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _context_quality_gate(source_rex, source_labels, query) -> bool:
+    """Structural-coverage gate: does the source graph cover the query well
+    enough to trust the retrieved context? Returns True (permissive) when it
+    cannot be evaluated.
+
+    The channel-scored gate uses dense L0-eigenbasis Cython kernels that assume
+    a FULL nV x nV basis. On the universal sparse path the bundle carries only a
+    truncated L0 basis (k<<nV) for nV>2000, so feeding it to those kernels reads
+    out of bounds (C-level segfault). Guard on the full basis and skip the gate
+    (default permissive) when it is unavailable.
+    """
+    if not source_rex or source_rex.nE == 0:
+        return True
+    try:
+        sb = source_rex.spectral_bundle
+        evecs_L0 = sb.get('evecs_L0')
+        if evecs_L0 is None or evecs_L0.shape[1] != source_rex.nV:
+            return True  # truncated basis: dense kernels unsafe, stay permissive
+        from rexgraph.core._interfacing import (
+            build_vertex_source, build_edge_signal,
+            build_response_operators, channel_scores, quality_gate,
+        )
+        deg = source_rex.degree.astype(np.float64)
+        vw = 1.0 / np.log(deg + np.e)
+
+        query_words = [w.lower() for w in query.split() if len(w) > 2]
+        shared = [source_labels.index(w) for w in query_words
+                  if w in source_labels]
+        if len(shared) < 1:
+            return True
+        ti = np.array(shared, dtype=np.int32)
+        tw = np.ones(len(shared), dtype=np.float64)
+        rho = build_vertex_source(ti, tw, vw, source_rex.nV)
+        B1 = np.ascontiguousarray(source_rex.B1, dtype=np.float64)
+        psi = build_edge_signal(
+            rho, B1, sb['evals_L0'],
+            np.ascontiguousarray(evecs_L0, dtype=np.float64),
+            source_rex.nV, source_rex.nE,
+        )
+        resp_ops = build_response_operators(
+            B1, sb['evals_L0'], evecs_L0,
+            source_rex.g_channel_operator, source_rex.L_frustration,
+            source_rex.nV, source_rex.nE,
+        )
+        ch_scores = channel_scores(
+            psi, resp_ops['S_T'], resp_ops['S_G'], resp_ops['S_F'],
+            psi, source_rex.nE,
+        )
+        gate = quality_gate(ch_scores.reshape(1, -1))
+        if isinstance(gate, np.ndarray):
+            return bool(gate.mean() > 0.3)
+        return True
+    except Exception:
+        return True
+
+
 @dataclass
 class PipelineResult:
     """Complete pipeline output."""
@@ -390,48 +446,8 @@ class PipelineRunner:
         context = "\n\n".join(context_parts)
 
         # Quality gate: check if context has sufficient structural coverage
-        context_sufficient = True
-        try:
-            from rexgraph.core._interfacing import (
-                build_vertex_source, build_edge_signal,
-                build_response_operators, channel_scores, quality_gate,
-            )
-            if source_rex and source_rex.nE > 0:
-                sb = source_rex.spectral_bundle
-                deg = source_rex.degree.astype(np.float64)
-                vw = 1.0 / np.log(deg + np.e)
-
-                # Build query signal
-                query_words = [w.lower() for w in query.split() if len(w) > 2]
-                shared = [source_labels.index(w) for w in query_words
-                          if w in source_labels]
-                if len(shared) >= 1:
-                    ti = np.array(shared, dtype=np.int32)
-                    tw = np.ones(len(shared), dtype=np.float64)
-                    rho = build_vertex_source(ti, tw, vw, source_rex.nV)
-                    B1 = np.ascontiguousarray(source_rex.B1, dtype=np.float64)
-                    psi = build_edge_signal(
-                        rho, B1, sb['evals_L0'],
-                        np.ascontiguousarray(sb['evecs_L0'], dtype=np.float64),
-                        source_rex.nV, source_rex.nE,
-                    )
-
-                    # Build response operators and score by channel
-                    resp_ops = build_response_operators(
-                        B1, sb['evals_L0'], sb['evecs_L0'],
-                        source_rex.g_channel_operator, source_rex.L_frustration,
-                        source_rex.nV, source_rex.nE,
-                    )
-                    ch_scores = channel_scores(
-                        psi, resp_ops['S_T'], resp_ops['S_G'], resp_ops['S_F'],
-                        psi, source_rex.nE,
-                    )
-                    gate = quality_gate(ch_scores.reshape(1, -1))
-
-                    if isinstance(gate, np.ndarray):
-                        context_sufficient = bool(gate.mean() > 0.3)
-        except Exception:
-            pass
+        context_sufficient = _context_quality_gate(
+            source_rex, source_labels, query)
 
         # Call LLM
         model_response = ""

@@ -193,20 +193,44 @@ def _is_integer_matrix(M: sp.spmatrix) -> bool:
     return d.size == 0 or bool(np.all(d == np.round(d)))
 
 
+from collections import OrderedDict as _OrderedDict
+
+# Content-addressed memo for the exact integer rank. The rational column reduction below
+# is the dominant cost on a large monitor step, and the SAME integer boundary map is
+# reduced more than once per step (e.g. the pairwise interaction complex and the faced
+# coordination complex share an identical B1). The key is the matrix's exact canonical
+# content (shape + CSC structure + rounded integer data), so a hit returns a value that is
+# byte-for-byte the same matrix - zero collision/staleness risk (dict compares keys
+# exactly). Bounded so it never grows without limit; a race only ever costs a redundant
+# (correct) recompute, so it is safe under the coordinator's thread lane too.
+_RANK_MEMO: "_OrderedDict[tuple, int]" = _OrderedDict()
+_RANK_MEMO_MAX = 64
+
+
 def _exact_rank_reduction(M: sp.spmatrix) -> int:
     """EXACT rank of an INTEGER sparse matrix via column reduction over Q (Fraction) -
     eigen-free, NO SVD, no eigendecomposition, no dense operator. Each column is
     reduced against the registered pivots (lowest-nonzero-row 'low' convention, as in
     persistence reduction); rank = number of columns that keep a pivot. This is the
     canon's `rank(B_k) via Z/Q elimination` (Part III) and is exact for integer /
-    rational entries. Columns are sparse dicts, so cost tracks fill, not n^3."""
+    rational entries. Columns are sparse dicts, so cost tracks fill, not n^3.
+
+    Memoized on exact matrix content (see :data:`_RANK_MEMO`)."""
     from fractions import Fraction as Fr
     A = M.tocsc()
+    A.sort_indices()                        # canonical CSC for a stable content key
     indptr, indices, data = A.indptr, A.indices, A.data
+    idata = np.round(data).astype(np.int64)
+    key = (A.shape, indptr.tobytes(), indices.tobytes(), idata.tobytes())
+    hit = _RANK_MEMO.get(key)
+    if hit is not None:
+        _RANK_MEMO.move_to_end(key)
+        return hit
+
     pivots: dict = {}                       # pivot_row -> reduced column {row: Fraction}
     rank = 0
     for j in range(A.shape[1]):
-        col = {int(indices[k]): Fr(int(round(data[k])))
+        col = {int(indices[k]): Fr(int(idata[k]))
                for k in range(indptr[j], indptr[j + 1])}
         while col:
             low = max(col)                  # 'low' pivot = highest row index present
@@ -222,6 +246,11 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
                     col.pop(r, None)
                 else:
                     col[r] = nv
+
+    _RANK_MEMO[key] = rank
+    _RANK_MEMO.move_to_end(key)
+    if len(_RANK_MEMO) > _RANK_MEMO_MAX:
+        _RANK_MEMO.popitem(last=False)
     return rank
 
 

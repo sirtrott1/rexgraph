@@ -751,13 +751,28 @@ class CorpusBuilder:
 
             # psi = B1^T @ L0^+ @ rho
             sb = rex.spectral_bundle
-            B1 = np.ascontiguousarray(rex.B1, dtype=np.float64)
-            psi = build_edge_signal(
-                rho, B1,
-                sb['evals_L0'],
-                np.ascontiguousarray(sb['evecs_L0'], dtype=np.float64),
-                rex.nV, rex.nE,
-            )
+            evecs_L0 = sb.get('evecs_L0')
+            full_basis = (evecs_L0 is not None
+                          and evecs_L0.shape[1] == rex.nV)
+            if full_basis:
+                # Dense L0 pseudoinverse via the full eigenbasis (small graphs).
+                B1 = np.ascontiguousarray(rex.B1, dtype=np.float64)
+                psi = build_edge_signal(
+                    rho, B1,
+                    sb['evals_L0'],
+                    np.ascontiguousarray(evecs_L0, dtype=np.float64),
+                    rex.nV, rex.nE,
+                )
+            else:
+                # Large graph: the sparse bundle carries only a truncated L0
+                # basis (k<<nV). Feeding it to the dense nV x nV kernel reads
+                # out of bounds (C-level segfault). psi = B1^T L0^+ rho = B1^+ rho,
+                # computed matrix-free/exactly via LSQR (scale-free).
+                from scipy.sparse import csr_matrix
+                from scipy.sparse.linalg import lsqr
+                B1s = csr_matrix(np.asarray(rex.B1, dtype=np.float64))
+                psi = lsqr(B1s, np.asarray(rho, dtype=np.float64),
+                           atol=1e-8, btol=1e-8)[0]
 
             # score = psi^T RL^+ psi / ||psi||^2 - matrix-free via the public propagate
             # (routes to the eigen-free sparse RL4 resolvent; the dense sb['RL']/hats are

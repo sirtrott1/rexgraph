@@ -1017,6 +1017,11 @@ class RexGraph:
             bundle['alpha_G'] = (calG / calT) if calT > 0.0 else 0.0
         except Exception:
             pass   # cheap path unavailable -> leave the builder's None/NaN slots
+        # The sparse builder writes a placeholder fiedler_val_L1 = 0.0 that is NOT the real
+        # value (the L1 Fiedler is the lazy `edge_fiedler` / `fiedler_val_L1` accessor). Null it
+        # so a bundle-level reader gets an explicit None ("not in the bundle") instead of silently
+        # trusting a wrong 0.0.
+        bundle['fiedler_val_L1'] = None
 
     @cached_property
     def edge_fiedler(self) -> Tuple[float, NDArray]:
