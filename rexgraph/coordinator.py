@@ -43,14 +43,44 @@ BRAIN = 0
 _LANE_V = {"proc": 1, "thread": 2, "igpu": 3}
 _HUB = 4
 _BW_LAMBDA = 0.02   # gentle weight on the CPU<->iGPU bandwidth-war term vs the primary wall-clock
+_LAMBDA_PRI = 0.5   # how hard priority weights bias placement vs the primary makespan term
+
+_ACTIVE_SHARES: dict = {}
 
 
-def capacity() -> dict:
-    """Per-lane parallelism (how many task-edges the operator runs at once). proc = physical cores
-    (forkserver workers); thread = a comparable core-wide I/O pool; igpu = a small slot count
-    (a bandwidth-bound single device)."""
+def register_hive_share(name: str, share: float) -> None:
+    """Register a hive as active with a relative resource share (used to split lane capacity when
+    several hives run at once). Idempotent; a share <= 0 is treated as 1.0."""
+    _ACTIVE_SHARES[name] = float(share) if share and share > 0 else 1.0
+
+
+def unregister_hive_share(name: str) -> None:
+    _ACTIVE_SHARES.pop(name, None)
+
+
+def reset_shares() -> None:
+    _ACTIVE_SHARES.clear()
+
+
+def share_fraction(name: str) -> float:
+    """This hive's fraction of the total active share (1.0 if it is the only active hive)."""
+    total = sum(_ACTIVE_SHARES.values())
+    if total <= 0 or name not in _ACTIVE_SHARES:
+        return 1.0
+    return _ACTIVE_SHARES[name] / total
+
+
+def capacity(share_fraction: float = 1.0) -> dict:
+    """Per-lane parallelism, optionally scaled by this hive's share of the machine. proc = physical
+    cores (forkserver workers); thread = a comparable core-wide I/O pool; igpu = a small slot count
+    (a bandwidth-bound single device). A share below 1.0 splits proc/thread down (never below 1)."""
     cores = os.cpu_count() or 8
-    return {"proc": float(max(1, cores // 2)), "thread": float(max(1, cores // 2)), "igpu": 2.0}
+    base_proc = float(max(1, cores // 2))
+    base_thread = float(max(1, cores // 2))
+    f = share_fraction if (share_fraction and 0 < share_fraction <= 1.0) else 1.0
+    return {"proc": float(max(1, int(base_proc * f))),
+            "thread": float(max(1, int(base_thread * f))),
+            "igpu": 2.0}
 
 
 def _lane_groups(assignment, units, cost):
@@ -71,13 +101,29 @@ def _contention_from_sums(time: dict, bw: dict, cap: dict) -> float:
     return wall + _BW_LAMBDA * bw_war
 
 
-def contention(assignment: dict, units: list, cost: CostModel) -> float:
-    """Nonnegative contention of a placement - the objective the actuator minimizes. Task execution
-    is an EDGE from an operator (lane) to the task (see delegation_complex). Contention is the wave
-    WALL-CLOCK (max over lanes of load/parallelism, since lanes run concurrently) plus a small
-    CPU<->iGPU bandwidth-war term (the two drawing the shared unified bandwidth at once)."""
+def _priority_penalty(assignment: dict, units: list, cost: CostModel) -> float:
+    """Sum over tasks of (weight - 1) * (time on assigned lane - time on the task type's best lane).
+    Weight is centered on its own neutral value (1.0) so a wave with no weights contributes zero
+    penalty regardless of placement (the objective reduces exactly to the unweighted wall-clock
+    term). Above-neutral weight grows the penalty as the task is pushed off its best lane, so the
+    actuator prefers to spill below-neutral (low-priority) work instead."""
+    by_id = {u["id"]: u for u in units}
+    pen = 0.0
+    for tid, ln in assignment.items():
+        u = by_id[tid]
+        w = float(u.get("weight", 1.0)) - 1.0
+        best = cost.best_lane(u["type"])
+        pen += w * (cost.cost(u["type"], ln)[0] - cost.cost(u["type"], best)[0])
+    return pen
+
+
+def contention(assignment: dict, units: list, cost: CostModel, cap: dict | None = None) -> float:
+    """Nonnegative contention of a placement. Wave WALL-CLOCK (max over lanes of load/parallelism)
+    plus a small CPU<->iGPU bandwidth-war term plus a priority penalty that keeps high-weight tasks
+    on their fast lane. `cap` overrides the per-lane capacity (e.g. a hive-share-scaled capacity)."""
     time, bw = _lane_groups(assignment, units, cost)
-    return _contention_from_sums(time, bw, capacity())
+    base = _contention_from_sums(time, bw, cap or capacity())
+    return base + _LAMBDA_PRI * _priority_penalty(assignment, units, cost)
 
 
 def delegation_complex(assignment: dict, units: list):
@@ -105,16 +151,13 @@ def delegation_complex(assignment: dict, units: list):
 
 
 # --- Flow actuator (marginal-contention greedy) ---
-def assign(units: list, cost: CostModel) -> dict:
-    """Greedy marginal-contention placement: seed each task on its best lane, then repeatedly move
-    the task whose relocation most reduces total contention, until no move helps. Deterministic
-    (stable order), so results never depend on scheduling.
-
-    Same greedy/tie-break semantics as a full-recompute search, but each candidate move is scored
-    as an O(1) DELTA against cached per-lane time/bw sums instead of re-summing every task. That
-    drops the actuator from ~O(n^3) to ~O(n^2) so a large per-wave placement stays cheap."""
+def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
+    """Greedy marginal-contention placement with O(1) delta-scored moves. Same greedy/tie-break as a
+    full recompute. Each unit may carry a `weight` (default 1.0, centered so the neutral value
+    contributes no penalty); the priority penalty is separable per task, so a move's penalty delta
+    is (weight - 1)*(time_new - time_cur)."""
     by_id = {u["id"]: u for u in units}
-    cap = capacity()
+    cap = cap or capacity()
     a = {u["id"]: cost.best_lane(u["type"]) for u in units}
     time = {ln: 0.0 for ln in LANES}
     bw = {ln: 0.0 for ln in LANES}
@@ -122,31 +165,36 @@ def assign(units: list, cost: CostModel) -> dict:
         t, b = cost.cost(by_id[tid]["type"], ln)
         time[ln] += t
         bw[ln] += b
+    penalty = 0.0   # seed is best_lane for all, so the penalty starts at zero
 
     improved = True
     while improved:
         improved = False
-        base = _contention_from_sums(time, bw, cap)
+        base = _contention_from_sums(time, bw, cap) + _LAMBDA_PRI * penalty
         best_move = None
         best_gain = 1e-12
         for u in units:
             tid = u["id"]
             cur = a[tid]
+            w = float(u.get("weight", 1.0)) - 1.0
             tc, bc = cost.cost(u["type"], cur)
             for ln in LANES:
                 if ln == cur:
                     continue
                 tn, bn = cost.cost(u["type"], ln)
                 time[cur] -= tc; bw[cur] -= bc; time[ln] += tn; bw[ln] += bn
-                gain = base - _contention_from_sums(time, bw, cap)
+                dpen = w * (tn - tc)
+                cand = _contention_from_sums(time, bw, cap) + _LAMBDA_PRI * (penalty + dpen)
+                gain = base - cand
                 time[cur] += tc; bw[cur] += bc; time[ln] -= tn; bw[ln] -= bn
                 if gain > best_gain:
                     best_gain = gain
-                    best_move = (tid, ln, cur, tc, bc, tn, bn)
+                    best_move = (tid, ln, cur, tc, bc, tn, bn, dpen)
         if best_move is not None:
-            tid, ln, cur, tc, bc, tn, bn = best_move
+            tid, ln, cur, tc, bc, tn, bn, dpen = best_move
             a[tid] = ln
             time[cur] -= tc; bw[cur] -= bc; time[ln] += tn; bw[ln] += bn
+            penalty += dpen
             improved = True
     return a
 
