@@ -115,3 +115,21 @@ def test_background_reaper_actually_reaps_and_self_exits_real_clock():
     time.sleep(0.05)
     assert p.reaper_alive is False                      # reaper self-exited, nothing lingers
     p.shutdown()
+
+
+def test_coordinator_uses_managed_pools_when_given():
+    from rexgraph.coordinator import Coordinator, LanePools, CostModel
+    pools = LanePools("h", now=FakeClock())
+    co_ = Coordinator(cost=CostModel(), pools=pools)
+    units = [{"id": f"t{i}", "type": "io_llm", "fn": (lambda i=i: i + 1)} for i in range(3)]
+    res = co_.run_wave(units)
+    assert res == {f"t{i}": i + 1 for i in range(3)}
+    assert pools.status()["thread"]["state"] == "warm"  # went through the managed pool
+    pools.shutdown()
+
+
+def test_coordinator_without_pools_uses_per_wave_execute():
+    from rexgraph.coordinator import Coordinator, CostModel
+    co_ = Coordinator(cost=CostModel())
+    units = [{"id": "a", "type": "io_llm", "fn": (lambda: 7)}]
+    assert co_.run_wave(units) == {"a": 7}

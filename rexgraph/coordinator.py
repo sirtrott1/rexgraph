@@ -413,16 +413,21 @@ class LanePools:
 
 # --- Coordinator: the per-wave plan -> execute -> learn loop (cadence = per-wave in v1) ---
 class Coordinator:
-    """For each wave of tasks: solve the placement (assign) that minimizes contention, execute it
-    across the compute lanes, and fold measured timings back into the cost model so the next wave is
-    smarter. One solver invoked per wave; the static and continuous cadences reuse the same solve."""
+    """Per-wave plan -> execute -> learn loop. With a `pools` (LanePools) it dispatches through the
+    managed warm lanes; without, it uses per-wave `execute`. `cap` is an optional hive-share-scaled
+    capacity used by the actuator."""
 
-    def __init__(self, cost: "CostModel|None" = None):
+    def __init__(self, cost: "CostModel|None" = None, pools: "LanePools|None" = None,
+                 cap: "dict|None" = None):
         self.cost = cost or CostModel()
+        self.pools = pools
+        self.cap = cap
 
     def plan(self, units: list) -> dict:
-        return assign(units, self.cost)
+        return assign(units, self.cost, cap=self.cap)
 
     def run_wave(self, units: list) -> dict:
         a = self.plan(units)
+        if self.pools is not None:
+            return self.pools.run(units, a, cost=self.cost)
         return execute(units, a, cost=self.cost)
