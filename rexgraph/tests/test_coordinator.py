@@ -74,3 +74,36 @@ def test_assign_balances_bottlenecked_igpu_via_hybrid():
     assert sum(1 for ln in a.values() if ln == "igpu") < 16
     dump = {u["id"]: cm.best_lane(u["type"]) for u in units}
     assert contention(a, units, cm) <= contention(dump, units, cm) + 1e-9
+
+
+def test_execute_is_lane_independent():
+    from rexgraph.coordinator import execute
+    units = [{"id": f"t{i}", "type": "io_llm", "fn": (lambda i=i: i * i)} for i in range(8)]
+    r1 = execute(units, {u["id"]: "thread" for u in units})
+    r2 = execute(units, {u["id"]: "igpu" for u in units})
+    assert r1 == r2 == {f"t{i}": i * i for i in range(8)}
+
+
+def test_execute_records_timings():
+    from rexgraph.coordinator import execute
+    cm = CostModel()
+    units = [{"id": "a", "type": "io_llm", "fn": (lambda: 1)}]
+    before, _ = cm.cost("io_llm", "thread")
+    execute(units, {"a": "thread"}, cost=cm)
+    after, _ = cm.cost("io_llm", "thread")
+    assert after != before
+
+
+def test_coordinator_runs_a_wave_and_learns():
+    from rexgraph.coordinator import Coordinator
+    co = Coordinator()
+    units = [{"id": f"t{i}", "type": "io_llm", "fn": (lambda i=i: i + 1)} for i in range(6)]
+    res = co.run_wave(units)
+    assert res == {f"t{i}": i + 1 for i in range(6)}
+
+
+def test_value_invariant_cpu_coordination_prefers_the_proc_lane():
+    cm = CostModel()
+    units = _units({"cpu_coordination": 20})
+    a = assign(units, cm)
+    assert sum(1 for ln in a.values() if ln == "proc") >= 10

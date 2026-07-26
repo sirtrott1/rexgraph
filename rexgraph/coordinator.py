@@ -128,3 +128,59 @@ def assign(units: list, cost: CostModel) -> dict:
             a[best_move[0]] = best_move[1]
             improved = True
     return a
+
+
+# --- Dispatch seam: execute an assignment across the compute lanes ---
+import time as _time
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
+
+def _run_one(u):
+    t0 = _time.perf_counter()
+    res = u["fn"]()
+    return u["id"], res, _time.perf_counter() - t0
+
+
+def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dict:
+    """Execute each unit's `fn` on its assigned lane: proc -> process pool (true multicore for CPU-
+    bound work; fn must be picklable), thread/igpu -> thread pool (I/O and GPU-launch are GIL-light).
+    Results are keyed by id and are INDEPENDENT of lane and order. Folds per-task timing into cost."""
+    by_id = {u["id"]: u for u in units}
+    lanes = {ln: [by_id[t] for t, l in assignment.items() if l == ln] for ln in LANES}
+    results = {}
+    timings = []
+
+    def drain(pool_units, ex):
+        for tid, res, dt in ex.map(_run_one, pool_units):
+            results[tid] = res
+            timings.append((by_id[tid]["type"], assignment[tid], dt))
+
+    thread_units = lanes["thread"] + lanes["igpu"]
+    proc_units = lanes["proc"]
+    if thread_units:
+        with ThreadPoolExecutor(max_workers=min(32, len(thread_units))) as ex:
+            drain(thread_units, ex)
+    if proc_units:
+        with ProcessPoolExecutor(max_workers=min(os.cpu_count() or 8, len(proc_units))) as ex:
+            drain(proc_units, ex)
+    if cost is not None:
+        for ty, ln, dt in timings:
+            cost.observe(ty, ln, dt)
+    return results
+
+
+# --- Coordinator: the per-wave plan -> execute -> learn loop (cadence = per-wave in v1) ---
+class Coordinator:
+    """For each wave of tasks: solve the placement (assign) that minimizes contention, execute it
+    across the compute lanes, and fold measured timings back into the cost model so the next wave is
+    smarter. One solver invoked per wave; the static and continuous cadences reuse the same solve."""
+
+    def __init__(self, cost: "CostModel|None" = None):
+        self.cost = cost or CostModel()
+
+    def plan(self, units: list) -> dict:
+        return assign(units, self.cost)
+
+    def run_wave(self, units: list) -> dict:
+        a = self.plan(units)
+        return execute(units, a, cost=self.cost)
