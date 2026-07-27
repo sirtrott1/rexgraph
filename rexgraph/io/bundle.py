@@ -80,6 +80,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
+from .rex_state import fname_encode as _fname_encode
+
 __all__ = [
     "RexBundle",
     "save_rex",
@@ -475,96 +477,41 @@ def _build_temporal_manifest(trex) -> dict:
 
 def _write_rex_bundle(root: pathlib.Path, rex, cache) -> None:
     """Write a RexGraph to a .rex directory."""
-    manifest = _build_rex_manifest(rex, cache)
-
-    # -- Core arrays (the from_dict contract) --
-    core_arrays = []
-    _save_npy(root, "boundary_ptr", rex._boundary_ptr)
-    core_arrays.append("boundary_ptr")
-    _save_npy(root, "boundary_idx", rex._boundary_idx)
-    core_arrays.append("boundary_idx")
-    _save_npy(root, "B2_col_ptr", rex._B2_col_ptr)
-    core_arrays.append("B2_col_ptr")
-    _save_npy(root, "B2_row_idx", rex._B2_row_idx)
-    core_arrays.append("B2_row_idx")
-    _save_npy(root, "B2_vals", rex._B2_vals)
-    core_arrays.append("B2_vals")
-
-    if rex._w_E is not None:
-        _save_npy(root, "w_E", rex._w_E)
-        core_arrays.append("w_E")
-
-    # Edge signs (signed 1-cochain). B2 orientation is already preserved via
-    # B2_vals; the edge signs are a distinct field that must not be dropped.
-    if rex._signs is not None:
-        _save_npy(root, "signs", np.asarray(rex._signs, dtype=np.float64))
-        core_arrays.append("signs")
-
-    # General boundary weights
-    if rex._w_boundary:
-        manifest["w_boundary"] = {
-            str(k): v for k, v in rex._w_boundary.items()
-        }
-
-    # Vertex attribution
-    if hasattr(rex, "_attribution") and rex._attribution is not None:
-        _save_npy(root, "attribution", rex._attribution)
-        core_arrays.append("attribution")
-
-    manifest["core_arrays"] = core_arrays
-
-    # -- Cache --
-    names = _resolve_cache(cache)
-    if names:
-        cache_dir = root / "cache"
-        cache_dir.mkdir()
-        written_cache, scalar_cache = _write_cache(cache_dir, rex, names)
-        manifest["cached_arrays"] = written_cache
-        if scalar_cache:
-            manifest["cache_scalars"] = scalar_cache
-
-    # -- Write manifest --
-    (root / "MANIFEST.json").write_text(
-        json.dumps(manifest, indent=2, default=_json_default)
-    )
+    from .rex_state import to_state
+    st = to_state(rex)
+    names = list(st.tensors.keys())
+    # Filenames use a REVERSIBLE, collision-free percent-encoding of the tensor name (see
+    # _fname_encode). A tensor name may contain '/' (nested rexes) or '__' (user metadata keys); the
+    # old '/'->'__' substitution was neither filesystem-safe nor invertible and collided. Core arrays
+    # (boundary_ptr, signs, ...) have no unsafe chars so their filenames stay their logical names,
+    # keeping the RexBundle array-access API working.
+    for name in names:
+        _save_npy(root, _fname_encode(name), np.asarray(st.tensors[name]))
+    manifest = dict(st.header)
+    manifest["magic"] = "rex-bundle"
+    manifest["object_type"] = "RexGraph"
+    manifest["tensor_names"] = names
+    (root / "MANIFEST.json").write_text(json.dumps(manifest, default=_json_default))
+    if cache:
+        names = _resolve_cache(cache)
+        if names:
+            cache_dir = root / "cache"
+            cache_dir.mkdir()
+            written_cache, scalar_cache = _write_cache(cache_dir, rex, names)
+            manifest["cached_arrays"] = written_cache
+            if scalar_cache:
+                manifest["cache_scalars"] = scalar_cache
+            (root / "MANIFEST.json").write_text(json.dumps(manifest, default=_json_default))
 
 
 def _read_rex_graph(root: pathlib.Path) -> "RexGraph":
     """Reconstruct a RexGraph from a .rex directory."""
-    from ..graph import RexGraph
-
+    from .rex_state import from_state, RexState
     manifest = json.loads((root / "MANIFEST.json").read_text())
-
-    kw: dict = {
-        "boundary_ptr": _load_npy(root, "boundary_ptr"),
-        "boundary_idx": _load_npy(root, "boundary_idx"),
-        "directed": manifest.get("directed", False),
-    }
-
-    for name in ("B2_col_ptr", "B2_row_idx", "B2_vals"):
-        npy = root / f"{name}.npy"
-        if npy.exists():
-            kw[name] = np.load(npy)
-
-    npy_wE = root / "w_E.npy"
-    if npy_wE.exists():
-        kw["w_E"] = np.load(npy_wE)
-
-    npy_signs = root / "signs.npy"
-    if npy_signs.exists():
-        kw["signs"] = np.load(npy_signs)
-
-    wb = manifest.get("w_boundary")
-    if wb:
-        kw["w_boundary"] = {int(k): v for k, v in wb.items()}
-
-    rex = RexGraph(**kw)
-
-    npy_attr = root / "attribution.npy"
-    if npy_attr.exists():
-        rex.set_vertex_attribution(np.load(npy_attr))
-
-    return rex
+    tensors = {}
+    for name in manifest.get("tensor_names", []):
+        tensors[name] = np.load(root / f"{_fname_encode(name)}.npy")
+    return from_state(RexState(tensors, manifest))
 
 
 # Internal: TemporalRex write/read

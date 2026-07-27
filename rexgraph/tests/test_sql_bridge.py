@@ -51,6 +51,7 @@ if HAS_SQL_DEPS:
         read_vertex_character_sql,
         write_void_sql,
         read_void_sql,
+        reconstruct_rex_sql,
     )
 
 from rexgraph.graph import RexGraph
@@ -274,3 +275,99 @@ class TestBranchingEdgeRoundtrip:
         # The full general-boundary CSR round-trips.
         flat = [v for ep in eps for v in ep]
         assert flat == [int(v) for v in np.asarray(branching._boundary_idx)]
+
+
+# Dtype fidelity: SQLite widens int32 -> int64 through a generic driver-level
+# fetch (and pandas' read_sql inherits that widening); Core plus the recorded
+# numpy dtype must cast back exactly.
+
+class TestDtypeFidelity:
+
+    def test_sql_preserves_int32_dtype(self, engine):
+        g = RexGraph(sources=np.array([0, 1, 2, 3], dtype=np.int32),
+                     targets=np.array([1, 2, 3, 0], dtype=np.int32))
+        write_edge_sql(g, engine, "e")
+        out = read_edge_sql(engine, "e")
+        assert out["source"].dtype == np.int32
+        assert out["target"].dtype == np.int32
+
+    def test_sql_preserves_float64_dtype(self, k4, engine):
+        write_face_sql(k4, engine, "faces_dt")
+        loaded = read_face_sql(engine, "faces_dt")
+        assert loaded["B2_vals"].dtype == np.float64
+
+
+# No pandas on the SQL read/write path at all.
+
+class TestNoPandasImport:
+
+    def test_sql_no_pandas_import(self):
+        import sys
+        sys.modules.pop("pandas", None)
+        import importlib
+        import rexgraph.io.sql_bridge as sb
+        importlib.reload(sb)
+
+        eng = sb.get_engine("sqlite:///:memory:")
+        g = RexGraph(sources=np.array([0, 1], dtype=np.int32),
+                     targets=np.array([1, 2], dtype=np.int32))
+        sb.write_boundary_sql(g, eng, "b_boundary")
+        sb.write_edge_sql(g, eng, "b_edge")
+        r = sb.reconstruct_rex_sql(eng, boundary="b_boundary", edge="b_edge")
+        assert r.nE == g.nE
+        assert "pandas" not in sys.modules   # the SQL path never imports pandas
+
+
+# Full reconstruct: boundary (+ optional face, + optional edge weights) -> RexGraph.
+# Each write_*_sql call uses its own explicit, distinct table name (there is no
+# fixed prefix convention shared across write_boundary_sql/write_face_sql/write_edge_sql).
+
+class TestReconstructRexSql:
+
+    def test_boundary_only(self, triangle, engine):
+        write_boundary_sql(triangle, engine, "tri_boundary")
+        r = reconstruct_rex_sql(engine, boundary="tri_boundary")
+        assert r.nE == triangle.nE
+        assert r.nV == triangle.nV
+        assert np.array_equal(np.asarray(r._boundary_ptr), np.asarray(triangle._boundary_ptr))
+        assert np.array_equal(np.asarray(r._boundary_idx), np.asarray(triangle._boundary_idx))
+
+    def test_boundary_face_edge(self, k4, engine):
+        w = np.arange(1, k4.nE + 1, dtype=np.float64)
+        k4_w = RexGraph(boundary_ptr=np.asarray(k4._boundary_ptr),
+                        boundary_idx=np.asarray(k4._boundary_idx),
+                        B2_col_ptr=np.asarray(k4._B2_col_ptr),
+                        B2_row_idx=np.asarray(k4._B2_row_idx),
+                        B2_vals=np.asarray(k4._B2_vals),
+                        w_E=w)
+        write_boundary_sql(k4_w, engine, "k4_b1")
+        write_face_sql(k4_w, engine, "k4_b2")
+        write_edge_sql(k4_w, engine, "k4_edges")
+
+        r = reconstruct_rex_sql(engine, boundary="k4_b1", face="k4_b2", edge="k4_edges")
+
+        assert r.nE == k4_w.nE
+        assert r.nF == k4_w.nF
+        assert np.allclose(np.asarray(r.betti), np.asarray(k4_w.betti))
+        assert np.allclose(np.asarray(r.w_E), w)
+
+    def test_missing_face_and_edge_tables_are_optional(self, triangle, engine):
+        write_boundary_sql(triangle, engine, "solo_boundary")
+        # No face/edge tables written; passing names that do not exist must not error.
+        r = reconstruct_rex_sql(engine, boundary="solo_boundary", face="nope_face", edge="nope_edge")
+        assert r.nE == triangle.nE
+        assert r.nF == 0
+        assert r.w_E is None
+
+
+def test_read_sql_batches_accepts_a_connection():
+    # store.py passes engine.connect() (a Connection); the Core path must accept it like pandas did.
+    import numpy as np
+    from rexgraph.io.sql_bridge import get_engine, write_metrics_sql, read_sql_batches
+    eng = get_engine("sqlite:///:memory:")
+    write_metrics_sql({"a": np.array([1, 2, 3], np.int64), "b": np.array([0.5, 1.5, 2.5])},
+                      eng, "m", cell_dim=0)
+    conn = eng.connect()
+    batch = next(read_sql_batches(conn, "m"))    # a Connection, not an Engine
+    assert list(np.asarray(batch["a"])) == [1, 2, 3]
+    conn.close()

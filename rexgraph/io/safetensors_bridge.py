@@ -53,20 +53,26 @@ grouping mirrors `bundle.py` cache groups:
 
 Metadata
 ~~~~~~~~
-Safetensors metadata is `Dict[str, str]`. We encode a JSON blob under
-the single key `rex_meta` with the full object description:
+For a RexGraph, the reconstruction contract is the canonical rex-state
+serializer (`rex_state.to_state`/`from_state`, the same one `.rex`
+bundles delegate to). Its tensors (boundary, B2, w_E, signs,
+edge_types, w_boundary, labels, nested rexes, and so on) are stored
+here with `/` in tensor names replaced by `__`, and its json-safe
+header is stored under the single metadata key `rex_state_header`.
+A `rex_meta` key is also written, holding the same header plus any
+requested cache extras (`cached_arrays`, `cache_scalars`); it exists
+so callers that only read `object_type`/`bridge_version` off the
+header, such as the format dispatcher in `rexgraph.io`, keep working
+unchanged:
 
     {
-      "object_type": "RexGraph",
+      "format_version": 1, "object_type": "RexGraph",
       "nV": 42, "nE": 128, "nF": 17,
-      "directed": false, "dimension": 2,
-      "weighted": true, "has_attribution": false,
+      "directed": false, "g_channel": "raw",
       "cache_scalars": {"betti": [1, 3, 0], "euler_characteristic": -2,
                         "chain_valid": true,
                         "hodge_pct_gradient": 0.41, ...},
-      "core_arrays": ["boundary_ptr", "boundary_idx", "B2_col_ptr", ...],
       "cached_arrays": ["B1", "L0", "layout", ...],
-      "w_boundary": {"0": 1.0, "1": 0.5},
       "bridge_version": 1
     }
 
@@ -266,49 +272,22 @@ def rex_to_safetensors(
     save_file, _, _ = _st()
     out = _coerce_path(path)
 
-    tensors: Dict[str, NDArray] = {}
-    core_arrays: List[str] = []
-
-    # Core reconstruction arrays
-    tensors["boundary_ptr"] = _as_storable(rex._boundary_ptr)
-    core_arrays.append("boundary_ptr")
-    tensors["boundary_idx"] = _as_storable(rex._boundary_idx)
-    core_arrays.append("boundary_idx")
-    tensors["B2_col_ptr"] = _as_storable(rex._B2_col_ptr)
-    core_arrays.append("B2_col_ptr")
-    tensors["B2_row_idx"] = _as_storable(rex._B2_row_idx)
-    core_arrays.append("B2_row_idx")
-    tensors["B2_vals"] = _as_storable(rex._B2_vals)
-    core_arrays.append("B2_vals")
-
-    if rex._w_E is not None:
-        tensors["w_E"] = _as_storable(rex._w_E)
-        core_arrays.append("w_E")
-
-    has_attribution = False
-    attribution = getattr(rex, "_attribution", None)
-    if attribution is not None:
-        tensors["attribution"] = _as_storable(attribution)
-        core_arrays.append("attribution")
-        has_attribution = True
-
-    # Metadata
-    meta: Dict[str, Any] = {
-        "object_type": "RexGraph",
-        "nV": int(rex.nV),
-        "nE": int(rex.nE),
-        "nF": int(rex.nF),
-        "directed": bool(rex._directed),
-        "dimension": int(rex.dimension),
-        "weighted": rex._w_E is not None,
-        "has_attribution": has_attribution,
-        "core_arrays": core_arrays,
-        "bridge_version": _BRIDGE_VERSION,
+    # The graph itself is encoded through the one canonical rex-state serializer, so this
+    # bridge cannot drift from `.rex` (signs, w_boundary, g_channel, nested rexes all round-trip
+    # the same way here as they do through bundle.py).
+    from .rex_state import to_state
+    from .bundle import _json_default
+    st = to_state(rex)
+    # safetensors keys are arbitrary strings, so nested-rex names with '/' are stored verbatim: no
+    # char substitution (the old '/'->'__' was not invertible and collided with '__' metadata keys).
+    tensors: Dict[str, NDArray] = {
+        name: _as_storable(np.asarray(arr))
+        for name, arr in st.tensors.items()
     }
-    if rex._w_boundary:
-        meta["w_boundary"] = {str(k): float(v) for k, v in rex._w_boundary.items()}
+    meta: Dict[str, Any] = dict(st.header)
 
-    # Optional cache groups
+    # Optional cache groups (unchanged: cache is a bridge-only convenience, not part of the
+    # canonical rex-state; it recomputes lazily on load if omitted).
     names = _resolve_cache(cache)
     cached_arrays: List[str] = []
     scalar_cache: Dict[str, Any] = {}
@@ -321,8 +300,15 @@ def rex_to_safetensors(
     if scalar_cache:
         meta["cache_scalars"] = scalar_cache
 
-    # Safetensors metadata is strict Dict[str, str]; encode as JSON
-    st_meta = {"rex_meta": json.dumps(meta)}
+    # Safetensors metadata is strict Dict[str, str]; encode as JSON. `rex_state_header` is the
+    # canonical payload; `rex_meta` is kept as a thin, backward compatible alias so callers that
+    # only ever read `object_type`/`bridge_version` off the header (e.g. the format dispatcher in
+    # `rexgraph.io`) keep working unchanged.
+    st_meta = {
+        "rex_state_header": json.dumps(st.header, default=_json_default),
+        "rex_meta": json.dumps(meta, default=_json_default),
+        "bridge_version": str(_BRIDGE_VERSION),
+    }
 
     save_file(tensors, str(out), metadata=st_meta)
     return out
@@ -346,40 +332,26 @@ def safetensors_to_rex(path: Union[str, os.PathLike]):
     -------
     RexGraph
     """
-    from ..graph import RexGraph
+    from .rex_state import from_state, RexState
 
-    _, load_file, _ = _st()
+    _, load_file, safe_open = _st()
     p = _coerce_path(path)
-    tensors = load_file(str(p))
-    meta = _load_meta(str(p))
-
-    if meta.get("object_type") != "RexGraph":
+    with safe_open(str(p), framework="numpy") as f:
+        raw_meta = f.metadata() or {}
+    if "rex_state_header" not in raw_meta:
+        raise ValueError(
+            f"File {p} has no `rex_state_header` key: it was written by a pre-canonical "
+            "rex_to_safetensors (before the layered rex-state format). Re-save it with the current "
+            "version to read it back."
+        )
+    hdr = json.loads(raw_meta["rex_state_header"])
+    if hdr.get("object_type") != "RexGraph":
         raise TypeError(
-            f"Safetensors file contains {meta.get('object_type')!r}, "
+            f"Safetensors file contains {hdr.get('object_type')!r}, "
             "not RexGraph."
         )
-
-    kw: Dict[str, Any] = {
-        "boundary_ptr": tensors["boundary_ptr"],
-        "boundary_idx": tensors["boundary_idx"],
-        "directed": bool(meta.get("directed", False)),
-    }
-    for name in ("B2_col_ptr", "B2_row_idx", "B2_vals"):
-        if name in tensors:
-            kw[name] = tensors[name]
-    if "w_E" in tensors:
-        kw["w_E"] = tensors["w_E"]
-
-    wb = meta.get("w_boundary")
-    if wb:
-        kw["w_boundary"] = {int(k): float(v) for k, v in wb.items()}
-
-    rex = RexGraph(**kw)
-
-    if "attribution" in tensors and hasattr(rex, "set_vertex_attribution"):
-        rex.set_vertex_attribution(tensors["attribution"])
-
-    return rex
+    raw = load_file(str(p))
+    return from_state(RexState(dict(raw), hdr))
 
 
 # Full load (returns both the rex and any cached arrays/scalars)
@@ -600,28 +572,11 @@ def safetensors_to_temporal_rex(path: Union[str, os.PathLike]):
 
 
 def _rex_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
-    from ..graph import RexGraph
-
-    kw: Dict[str, Any] = {
-        "boundary_ptr": tensors["boundary_ptr"],
-        "boundary_idx": tensors["boundary_idx"],
-        "directed": bool(meta.get("directed", False)),
-    }
-    for name in ("B2_col_ptr", "B2_row_idx", "B2_vals"):
-        if name in tensors:
-            kw[name] = tensors[name]
-    if "w_E" in tensors:
-        kw["w_E"] = tensors["w_E"]
-    wb = meta.get("w_boundary")
-    if wb:
-        kw["w_boundary"] = {int(k): float(v) for k, v in wb.items()}
-
-    rex = RexGraph(**kw)
-
-    if "attribution" in tensors and hasattr(rex, "set_vertex_attribution"):
-        rex.set_vertex_attribution(tensors["attribution"])
-
-    return rex
+    # `meta` (the `rex_meta` alias) is the rex-state header for files written by the current
+    # `rex_to_safetensors`, so this goes through the same canonical decoder as
+    # `safetensors_to_rex` instead of keeping a second, hand-rolled reconstruction here.
+    from .rex_state import from_state, RexState
+    return from_state(RexState(dict(tensors), meta))
 
 
 def _temporal_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):

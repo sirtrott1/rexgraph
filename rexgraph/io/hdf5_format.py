@@ -358,65 +358,34 @@ class RexHDF5Format:
     # RexGraph serialization
 
     def _write_rex_graph(self, g, rex, *, cache=None) -> None:
-        """Serialize a RexGraph to an HDF5 group."""
+        """Serialize a RexGraph to an HDF5 group via the canonical rex state.
+
+        Every tensor goes through the one rex-state encoder (`to_state`), so the on-disk
+        reconstruction contract cannot drift from `.rex`, arrow, and safetensors. Dataset names
+        are `fname_encode`d because h5py treats '/' as a group separator, and nested-rex tensor
+        names legitimately contain '/'.
+        """
+        from .rex_state import to_state, fname_encode
+
         large = self._is_large(rex)
-
-        g.attrs["nV"] = int(rex.nV)
-        g.attrs["nE"] = int(rex.nE)
-        g.attrs["nF"] = int(rex.nF)
-        g.attrs["directed"] = bool(rex._directed)
-        g.attrs["dimension"] = int(rex.dimension)
-
-        self._store(g, "boundary_ptr", rex._boundary_ptr)
-        self._store(g, "boundary_idx", rex._boundary_idx)
-        self._store(g, "B2_col_ptr", rex._B2_col_ptr)
-        self._store(g, "B2_row_idx", rex._B2_row_idx)
-        self._store(g, "B2_vals", rex._B2_vals)
-
-        if rex._w_E is not None:
-            self._store(g, "w_E", rex._w_E)
-
-        if rex._w_boundary:
-            g.attrs["w_boundary"] = json.dumps(
-                {str(k): v for k, v in rex._w_boundary.items()},
-                default=json_default,
-            )
-
-        if hasattr(rex, "_attribution") and rex._attribution is not None:
+        st = to_state(rex)
+        for name, arr in st.tensors.items():
             store_fn = self._store_chunked if large else self._store
-            store_fn(g, "attribution", rex._attribution)
+            store_fn(g, fname_encode(name), np.asarray(arr))
+        g.attrs["rex_state_header"] = json.dumps(st.header, default=json_default)
+        g.attrs["tensor_names"] = json.dumps(list(st.tensors.keys()))
 
         if cache:
             self._write_cache(g, rex, cache, large)
 
     def _read_rex_graph(self, g) -> "RexGraph":
-        """Reconstruct a RexGraph from an HDF5 group."""
-        from ..graph import RexGraph
+        """Reconstruct a RexGraph from an HDF5 group via the canonical rex state."""
+        from .rex_state import from_state, RexState, fname_encode
 
-        kw: dict = {
-            "boundary_ptr": self._load(g, "boundary_ptr"),
-            "boundary_idx": self._load(g, "boundary_idx"),
-            "directed": bool(g.attrs.get("directed", False)),
-        }
-
-        if self._has(g, "B2_col_ptr"):
-            kw["B2_col_ptr"] = self._load(g, "B2_col_ptr")
-            kw["B2_row_idx"] = self._load(g, "B2_row_idx")
-            kw["B2_vals"] = self._load(g, "B2_vals")
-
-        if self._has(g, "w_E"):
-            kw["w_E"] = self._load(g, "w_E")
-
-        wb_raw = g.attrs.get("w_boundary")
-        if wb_raw:
-            kw["w_boundary"] = {int(k): v for k, v in json.loads(as_str(wb_raw)).items()}
-
-        rex = RexGraph(**kw)
-
-        if self._has(g, "attribution"):
-            rex.set_vertex_attribution(self._load(g, "attribution"))
-
-        return rex
+        hdr = json.loads(as_str(g.attrs["rex_state_header"]))
+        names = json.loads(as_str(g.attrs["tensor_names"]))
+        tensors = {name: self._load(g, fname_encode(name)) for name in names}
+        return from_state(RexState(tensors, hdr))
 
     # TemporalRex serialization
 
