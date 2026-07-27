@@ -16,13 +16,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
-import pandas as pd
 from numpy.typing import NDArray
 
 from .adapters import EdgeConstruction
 from .adapters.feature_matrix import FeatureMatrixAdapter
 from .adapters.edge_list import EdgeListAdapter
 from .adapters.correlation import AdjacencyAdapter, CorrelationAdapter
+
+# CSV cell tokens treated as missing (mirrors pandas.read_csv default na_values, lowercased)
+_NA_TOKENS = frozenset({"", "na", "n/a", "null", "none", "#n/a", "nan"})
+
+
+def _is_missing_cell(v) -> bool:
+    return str(v).strip().lower() in _NA_TOKENS
 
 
 def check_analysis_size(nV: int, nE: int) -> None:
@@ -44,6 +50,12 @@ def check_analysis_size(nV: int, nE: int) -> None:
             f"{nE} edges exceeds the {_max_n}-node / {_max_e}-edge limit. Reduce or "
             f"sparsify the graph, or raise REXGRAPH_MAX_ANALYSIS_NODES / "
             f"REXGRAPH_MAX_ANALYSIS_EDGES (larger graphs may exhaust memory).")
+
+
+def _is_dataframe(obj) -> bool:
+    """True if obj is a pandas DataFrame, without importing pandas."""
+    t = type(obj)
+    return t.__name__ == "DataFrame" and t.__module__.split(".")[0] == "pandas"
 
 
 # Input type detection
@@ -170,7 +182,7 @@ def detect_input_type(data: Any) -> str:
             return "feature_matrix"
 
     # Pandas DataFrame
-    if isinstance(data, pd.DataFrame):
+    if _is_dataframe(data):
         return _classify_dataframe(data)
 
     raise TypeError(f"Unsupported input type: {type(data).__name__}")
@@ -178,41 +190,65 @@ def detect_input_type(data: Any) -> str:
 
 def _classify_csv(path: Path) -> str:
     """Peek at a CSV/TSV to decide if it's an edge list, feature matrix, or text."""
+    import csv
     sep = '\t' if str(path).endswith('.tsv') else ','
     try:
-        df = pd.read_csv(path, nrows=10, sep=sep)
+        with open(path, "r", newline="") as fh:
+            reader = csv.reader(fh, delimiter=sep)
+            header = next(reader)
+            rows = []
+            for i, r in enumerate(reader):
+                if i >= 10:
+                    break
+                rows.append(r)
     except Exception:
         return "text"
-    n_cols = len(df.columns)
+    n_cols = len(header)
+    if n_cols == 0:
+        return "text"
+
+    # per-column sampled string values (aligned to header width)
+    def _col(j):
+        return [r[j] for r in rows if j < len(r)]
+
+    def _is_numeric_col(vals):
+        vals = [v for v in vals if not _is_missing_cell(v)]
+        if not vals:
+            return False
+        for v in vals:
+            try:
+                float(v)
+            except (ValueError, TypeError):
+                return False
+        return True
 
     # Text-heavy columns (annotation tables, ontologies) -> treat as text
-    for c in df.columns:
-        if df[c].dtype == object or df[c].dtype.name in ('str', 'string', 'object'):
-            if df[c].astype(str).str.len().mean() > 80:
+    for j in range(n_cols):
+        col = _col(j)
+        strvals = [str(v) for v in col if not _is_missing_cell(v)]
+        if strvals and not _is_numeric_col(col):
+            if sum(len(s) for s in strvals) / len(strvals) > 80:
                 return "text"
 
     # Edge list heuristics: 2-6 columns, first two look like node IDs
-    if n_cols <= 6:
-        col0, col1 = df.columns[0].lower(), df.columns[1].lower()
+    if n_cols <= 6 and n_cols >= 2:
+        col0, col1 = header[0].lower(), header[1].lower()
         edge_keywords = {"source", "src", "from", "head", "target", "tgt", "to", "tail", "dest"}
         if col0 in edge_keywords or col1 in edge_keywords:
             return "edge_csv"
-        # Check if first two columns are non-numeric (node names)
-        def _is_string_col(s):
-            return s.dtype == object or s.dtype.name in ('str', 'string', 'object')
-        if _is_string_col(df.iloc[:, 0]) and _is_string_col(df.iloc[:, 1]):
+        # first two columns non-numeric (node names) -> edge list
+        if not _is_numeric_col(_col(0)) and not _is_numeric_col(_col(1)):
             return "edge_csv"
 
     # Feature matrix: many numeric columns
-    numeric_cols = df.select_dtypes(include=[np.number]).shape[1]
+    numeric_cols = sum(1 for j in range(n_cols) if _is_numeric_col(_col(j)))
     if numeric_cols >= 5 and numeric_cols / n_cols > 0.5:
         return "feature_csv"
 
-    # Default: try as edge CSV
     return "edge_csv"
 
 
-def _classify_dataframe(df: pd.DataFrame) -> str:
+def _classify_dataframe(df):
     """Classify a DataFrame as edge list or feature matrix."""
     n_cols = len(df.columns)
     numeric_cols = df.select_dtypes(include=[np.number]).shape[1]
@@ -474,19 +510,53 @@ def _fallback_text_or_raise(data, input_type, err, **kwargs):
     raise err
 
 
+def _read_numeric_csv(path):
+    """Read a CSV and return (X float64[n, k], names) for its numeric columns only. Pandas-free."""
+    import csv
+    with open(path, "r", newline="") as fh:
+        reader = csv.reader(fh)
+        header = next(reader)
+        rows = [r for r in reader if r]
+    n_cols = len(header)
+    cols = [[r[j] if j < len(r) else "" for r in rows] for j in range(n_cols)]
+
+    def _numeric(vals):
+        out = []
+        seen_real = False
+        for v in vals:
+            if _is_missing_cell(v):
+                out.append(float("nan"))
+                continue
+            try:
+                out.append(float(str(v).strip()))
+                seen_real = True
+            except ValueError:
+                return None
+        return out if seen_real else None
+
+    keep_names, keep_cols = [], []
+    for j in range(n_cols):
+        parsed = _numeric(cols[j])
+        if parsed is not None:
+            keep_names.append(header[j])
+            keep_cols.append(parsed)
+    if not keep_cols:
+        raise ValueError(f"feature CSV {path!r} has no numeric columns")
+    X = np.asarray(keep_cols, dtype=np.float64).T   # (n_rows, n_numeric_cols)
+    return X, keep_names
+
+
 def _build_feature_edges(data, input_type, threshold, typing, sign,
                           feature_names, **kwargs) -> EdgeConstruction:
     """Handle feature matrix inputs (array, DataFrame, or CSV path)."""
     adapter = FeatureMatrixAdapter()
 
     if input_type == "feature_csv":
-        df = pd.read_csv(str(data))
-        # Separate numeric features from metadata
-        numeric_df = df.select_dtypes(include=[np.number])
-        X = numeric_df.values
-        names = list(numeric_df.columns) if feature_names is None else feature_names
-    elif isinstance(data, pd.DataFrame):
-        numeric_df = data.select_dtypes(include=[np.number])
+        X, names = _read_numeric_csv(str(data))
+        if feature_names is not None:
+            names = feature_names
+    elif _is_dataframe(data):
+        numeric_df = data.select_dtypes(include=[np.number])   # DataFrame's own method, no pandas import
         X = numeric_df.values
         names = list(numeric_df.columns) if feature_names is None else feature_names
     else:
@@ -505,7 +575,7 @@ def _build_edge_list_edges(data, **kwargs) -> EdgeConstruction:
 
     if isinstance(data, (str, Path)):
         return adapter.build(str(data), **kwargs)
-    elif isinstance(data, pd.DataFrame):
+    elif _is_dataframe(data):
         # Save to temp CSV and load (reuse the classifier)
         import tempfile
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:

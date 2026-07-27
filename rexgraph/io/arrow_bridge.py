@@ -32,16 +32,18 @@ Design notes
   `<name>_real` / `<name>_imag` columns.
 - 2D array shapes are stored in Arrow schema metadata under the key
   `rex_array_meta` so round-trip reshape is exact.
-- The `rex_to_arrow` function stores the full `from_dict()`
-  contract plus optional computed properties, enabling reconstruction
-  via `arrow_to_rex`.
+- `rex_to_arrow`/`arrow_to_rex` delegate to the canonical
+  `rex_state.to_state()`/`from_state()`: every state tensor is stored
+  through `arrays_to_arrow`, and the state header is carried as this
+  table's `rex_user_meta` schema metadata, enabling exact
+  reconstruction.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
+from typing import Any, Dict, Iterator, Optional, Sequence, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -210,24 +212,23 @@ def arrow_to_arrays(table) -> Dict[str, np.ndarray]:
 # RexGraph <-> Arrow
 
 
-def rex_to_arrow(
-    rex,
-    *,
-    include: Optional[List[str]] = None,
-):
+def rex_to_arrow(rex):
     """Export a RexGraph as a `pyarrow.Table`.
 
-    By default, stores the minimal reconstruction data (the
-    `from_dict()` contract).  Pass *include* to add computed
-    properties.
+    Delegates the reconstruction contract to the canonical
+    `rex_state.to_state()`: every state tensor is passed straight through
+    to the existing `arrays_to_arrow()` low-level bridge (raw tensor
+    names, which may contain '/' for nested rexes; arrow field names are
+    not filesystem paths so no encoding is needed), which already knows
+    how to pad ragged, differently-shaped tensors into one Arrow table and
+    record each one's true shape/dtype in the `rex_array_meta` schema
+    entry. The state header is passed through unchanged as this table's
+    `rex_user_meta` metadata.
 
     Parameters
     ----------
     rex : RexGraph
         The graph to export.
-    include : list of str, optional
-        Additional properties to include as columns, e.g.
-        `["layout", "betti", "eigenvalues_L0", "edge_types"]`.
 
     Returns
     -------
@@ -236,65 +237,21 @@ def rex_to_arrow(
     Examples
     --------
     >>> table = rex_to_arrow(rex)
-    >>> table = rex_to_arrow(rex, include=["layout", "eigenvalues_L0"])
     """
-    arrays: Dict[str, NDArray] = {}
+    from .rex_state import to_state
 
-    # Core reconstruction arrays
-    arrays["boundary_ptr"] = rex._boundary_ptr
-    arrays["boundary_idx"] = rex._boundary_idx
-    arrays["B2_col_ptr"] = rex._B2_col_ptr
-    arrays["B2_row_idx"] = rex._B2_row_idx
-    arrays["B2_vals"] = rex._B2_vals
-    if rex._w_E is not None:
-        arrays["w_E"] = rex._w_E
-
-    # Graph metadata (stored in Arrow schema metadata)
-    graph_meta: Dict[str, Any] = {
-        "object_type": "RexGraph",
-        "nV": int(rex.nV),
-        "nE": int(rex.nE),
-        "nF": int(rex.nF),
-        "directed": bool(rex._directed),
-        "dimension": int(rex.dimension),
-    }
-    if rex._w_boundary:
-        graph_meta["w_boundary"] = {
-            str(k): v for k, v in rex._w_boundary.items()
-        }
-
-    # Optional computed properties
-    if include:
-        for prop in include:
-            try:
-                val = getattr(rex, prop)
-                if isinstance(val, np.ndarray):
-                    arrays[prop] = val
-                elif isinstance(val, tuple):
-                    # Betti, fiedler_overlap, etc.
-                    if prop == "betti":
-                        graph_meta["betti"] = list(val)
-                    elif prop == "fiedler_overlap":
-                        graph_meta["fiedler_overlap_value"] = float(val[0])
-                        arrays["fiedler_overlap_vector"] = val[1]
-                    else:
-                        # Generic tuple of arrays
-                        for i, item in enumerate(val):
-                            if isinstance(item, np.ndarray):
-                                arrays[f"{prop}_{i}"] = item
-                elif isinstance(val, (int, float, bool)):
-                    graph_meta[prop] = val
-            except Exception:
-                pass  # skip properties that fail
-
-    return arrays_to_arrow(arrays, metadata=graph_meta)
+    st = to_state(rex)
+    return arrays_to_arrow(st.tensors, metadata=st.header)
 
 
 def arrow_to_rex(table):
     """Reconstruct a RexGraph from a `pyarrow.Table`.
 
-    The table must have been created by rex_to_arrow() (or
-    contain the same columns and metadata).
+    The table must have been created by rex_to_arrow() (or contain the
+    same columns and `rex_user_meta` schema metadata). The tensors come
+    back through the existing `arrow_to_arrays()` low-level bridge; the
+    state header comes back from `rex_user_meta`. Delegates
+    reconstruction to `rex_state.from_state()`.
 
     Parameters
     ----------
@@ -304,37 +261,12 @@ def arrow_to_rex(table):
     -------
     RexGraph
     """
-    from ..graph import RexGraph
+    from .rex_state import from_state, RexState
 
-    pa, _ = _pa()
-    arrays = arrow_to_arrays(table)
-
-    # Read graph metadata
     schema_meta = table.schema.metadata or {}
-    graph_meta: dict = {}
-    if b"rex_user_meta" in schema_meta:
-        graph_meta = json.loads(
-            schema_meta[b"rex_user_meta"].decode("utf-8")
-        )
-
-    kw: dict = {
-        "boundary_ptr": arrays["boundary_ptr"],
-        "boundary_idx": arrays["boundary_idx"],
-        "directed": graph_meta.get("directed", False),
-    }
-
-    for name in ("B2_col_ptr", "B2_row_idx", "B2_vals"):
-        if name in arrays:
-            kw[name] = arrays[name]
-
-    if "w_E" in arrays:
-        kw["w_E"] = arrays["w_E"]
-
-    wb = graph_meta.get("w_boundary")
-    if wb:
-        kw["w_boundary"] = {int(k): v for k, v in wb.items()}
-
-    return RexGraph(**kw)
+    hdr = json.loads(schema_meta[b"rex_user_meta"]) if b"rex_user_meta" in schema_meta else {}
+    tensors = arrow_to_arrays(table)
+    return from_state(RexState(tensors, hdr))
 
 
 # IPC file I/O

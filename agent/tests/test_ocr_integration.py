@@ -10,17 +10,11 @@ Does NOT require a running Unlimited-OCR server or GPU.
 """
 
 import os
-import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-
-# Ensure the agent package is on the path
-sys.path.insert(0, os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..",
-))
 
 from agent.adapters import EdgeConstruction
 from agent.adapters.ocr import (

@@ -10,6 +10,7 @@ py.install_sources(
         'json_loader.py',
         'hdf5_format.py',
         'parquet_bridge.py',
+        'rex_state.py',
         'safetensors_bridge.py',
         'sql_bridge.py',
         'zarr_format.py',

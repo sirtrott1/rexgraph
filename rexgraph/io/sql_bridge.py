@@ -26,7 +26,10 @@ Filtration table - filtration values f: C_k -> R.
 Temporal table - per-timestep Betti numbers and cell counts from a
 TemporalRex.
 
-All `sqlalchemy` and `pandas` imports are lazy.
+All `sqlalchemy` imports are lazy. No pandas: reads and writes go through
+SQLAlchemy Core directly (table reflection, `select()`, `insert()`), which
+keeps numpy dtypes exact (int32 stays int32 instead of being widened to
+int64) and keeps table names out of any interpolated SQL string.
 
 Usage:
 
@@ -68,6 +71,13 @@ __all__ = [
     "write_metrics_sql",
     "read_metrics_sql",
     "read_sql_batches",
+    "write_character_sql",
+    "read_character_sql",
+    "write_vertex_character_sql",
+    "read_vertex_character_sql",
+    "write_void_sql",
+    "read_void_sql",
+    "reconstruct_rex_sql",
 ]
 
 # Edge type names matching types.py EdgeType enum (Definition 3.2)
@@ -88,17 +98,6 @@ def _sa():
     except ImportError as exc:
         raise ImportError(
             "sqlalchemy is required for SQL features: pip install sqlalchemy"
-        ) from exc
-
-
-def _pd():
-    """Lazily import pandas."""
-    try:
-        import pandas as pd
-        return pd
-    except ImportError as exc:
-        raise ImportError(
-            "pandas is required for SQL bridge: pip install pandas"
         ) from exc
 
 
@@ -143,59 +142,161 @@ def get_engine(conn_str: str):
 
 
 def _ensure_engine(conn):
-    """Convert string to engine if needed."""
-    _, _, Engine, _, _ = _sa()
+    """Normalize a URI string, an Engine, or a live Connection to an Engine. Accepting a Connection
+    keeps the pandas-era flexibility (pandas.read_sql took both) so callers that pass engine.connect()
+    (e.g. models/store.py) keep working under the SQLAlchemy Core path."""
+    import sqlalchemy as sa
     if isinstance(conn, str):
         return get_engine(conn)
+    if isinstance(conn, sa.engine.Connection):
+        return conn.engine
     return conn
 
 
+def _sa_type(np_dtype):
+    """Map a numpy dtype to a default SQLAlchemy column type (used when a
+    write_*_sql caller has not already picked an explicit column type)."""
+    _sa()
+    import sqlalchemy as sa
+
+    dt = np.dtype(np_dtype)
+    if dt.kind == "b":
+        return sa.Boolean()
+    if dt.kind in ("i", "u"):
+        if dt.itemsize <= 2:
+            return sa.SmallInteger()
+        if dt.itemsize <= 4:
+            return sa.Integer()
+        return sa.BigInteger()
+    if dt.kind == "f":
+        return sa.Float(precision=53)
+    return sa.Text()
+
+
+def _py(v):
+    """Convert a numpy scalar to a plain python value so it binds cleanly
+    through SQLAlchemy Core; passes through anything that already is one."""
+    if isinstance(v, np.generic):
+        return v.item()
+    return v
+
+
+def _table_exists(engine, name: str) -> bool:
+    """Check whether `name` exists as a table, via inspection (never a
+    string-interpolated query against the table name)."""
+    _sa()
+    import sqlalchemy as sa
+    return sa.inspect(engine).has_table(name)
+
+
 def _write_df(data: Dict[str, NDArray], engine, table: str,
-              dtype: Dict[str, Any], *, if_exists: str = "replace") -> None:
-    """Build a DataFrame from arrays and write to SQL."""
-    pd = _pd()
-    df = pd.DataFrame(data)
-    df.to_sql(table, engine, if_exists=if_exists, index=False, dtype=dtype)
+              dtype: Optional[Dict[str, Any]] = None, *, if_exists: str = "replace") -> None:
+    """Build and populate a table via SQLAlchemy Core: no pandas, no DataFrame.
+
+    Persists each column's numpy dtype string into the companion `<table>_meta`
+    row so a later read can cast back exactly (SQLite otherwise widens, e.g.
+    int32 -> int64, on the way through a generic driver-level fetch).
+    """
+    _sa()
+    import sqlalchemy as sa
+
+    dtype = dtype or {}
+    names = list(data.keys())
+    arrays = {name: np.asarray(arr) for name, arr in data.items()}
+    n = len(arrays[names[0]]) if names else 0
+    dtypes = {name: str(arrays[name].dtype) for name in names}
+
+    md = sa.MetaData()
+    cols = [sa.Column(name, dtype.get(name) or _sa_type(arrays[name].dtype)) for name in names]
+    tbl = sa.Table(table, md, *cols)
+
+    with engine.begin() as conn:
+        if if_exists == "replace":
+            tbl.drop(conn, checkfirst=True)
+        tbl.create(conn, checkfirst=True)
+        if n:
+            rows = [{name: _py(arrays[name][i]) for name in names} for i in range(n)]
+            conn.execute(tbl.insert(), rows)
+
+    # Fresh baseline on replace (so a table reused for a different schema does
+    # not carry stale dtype keys forward); merged on append.
+    _write_meta(engine, table, {"dtypes": dtypes}, merge=(if_exists != "replace"))
 
 
-def _read_table(engine, table: str, *, where: str = "",
-                order_by: str = "") -> Dict[str, np.ndarray]:
-    """Read a SQL table into a dict of arrays."""
-    pd = _pd()
-    _, text_fn, _, _, _ = _sa()
+def _read_table(engine, table: str, *, where: str = "", where_params: Optional[dict] = None,
+                order_by: str = "", columns: Optional[List[str]] = None) -> Dict[str, np.ndarray]:
+    """Read a SQL table into a dict of arrays via SQLAlchemy Core reflection.
 
-    query = f"SELECT * FROM {table}"
+    The table name is never string-interpolated: `sa.Table(..., autoload_with=engine)`
+    reflects it and `sa.select()` builds the query. Each column is cast back to the
+    numpy dtype recorded at write time (see `_write_df`), so integer width and other
+    dtype fidelity survive the round trip through the database.
+    """
+    _sa()
+    import sqlalchemy as sa
+
+    md = sa.MetaData()
+    tbl = sa.Table(table, md, autoload_with=engine)
+    keys = columns or list(tbl.c.keys())
+    sel = sa.select(*[tbl.c[k] for k in keys])
     if where:
-        query += f" WHERE {where}"
+        sel = sel.where(sa.text(where))
     if order_by:
-        query += f" ORDER BY {order_by}"
+        sel = sel.order_by(sa.text(order_by))
 
-    df = pd.read_sql(text_fn(query), engine)
-    return {col: df[col].to_numpy() for col in df.columns}
+    with engine.connect() as conn:
+        rows = conn.execute(sel, where_params or {}).fetchall()
+
+    dtypes = (_read_meta(engine, table) or {}).get("dtypes", {})
+    out: Dict[str, np.ndarray] = {}
+    for j, k in enumerate(keys):
+        col = [r[j] for r in rows]
+        out[k] = np.asarray(col, dtype=dtypes[k]) if k in dtypes else np.asarray(col)
+    return out
 
 
-def _write_meta(engine, table: str, meta: dict) -> None:
-    """Write metadata to a companion `<table>_meta` table."""
-    pd = _pd()
+def _write_meta(engine, table: str, meta: dict, *, merge: bool = True) -> None:
+    """Write metadata to a companion `<table>_meta` table (single JSON row).
+
+    `merge=True` (the default) reads back whatever is already there first and
+    updates it with `meta`, so a helper that writes one slice of metadata (e.g.
+    `_write_df` persisting `dtypes`) does not get clobbered by a caller that
+    writes another slice (e.g. `rex_table_type`/`nV`/`nE`) right after.
+    """
+    _sa()
+    import sqlalchemy as sa
+
+    payload = dict(meta)
+    if merge:
+        existing = _read_meta(engine, table)
+        existing.update(payload)
+        payload = existing
+    payload.setdefault("format_version", 2)
+
     meta_table = f"{table}_meta"
-    # Store as single-row JSON
-    pd.DataFrame([{"meta_json": json.dumps(meta, default=_json_default)}]).to_sql(
-        meta_table, engine, if_exists="replace", index=False
-    )
+    md = sa.MetaData()
+    tbl = sa.Table(meta_table, md, sa.Column("meta_json", sa.Text()))
+    with engine.begin() as conn:
+        tbl.drop(conn, checkfirst=True)
+        tbl.create(conn, checkfirst=True)
+        conn.execute(tbl.insert(), [{"meta_json": json.dumps(payload, default=_json_default)}])
 
 
 def _read_meta(engine, table: str) -> dict:
-    """Read metadata from the companion `<table>_meta` table."""
-    pd = _pd()
-    _, text_fn, _, _, _ = _sa()
+    """Read metadata from the companion `<table>_meta` table, or `{}` if absent."""
+    _sa()
+    import sqlalchemy as sa
+
     meta_table = f"{table}_meta"
-    try:
-        df = pd.read_sql(text_fn(f"SELECT meta_json FROM {meta_table}"), engine)
-        if len(df) > 0:
-            return json.loads(df.iloc[0]["meta_json"])
-    except Exception:
-        pass
-    return {}
+    if not _table_exists(engine, meta_table):
+        return {}
+    md = sa.MetaData()
+    tbl = sa.Table(meta_table, md, autoload_with=engine)
+    with engine.connect() as conn:
+        row = conn.execute(sa.select(tbl.c.meta_json)).first()
+    if row is None:
+        return {}
+    return json.loads(row[0])
 
 
 def _json_default(o):
@@ -891,8 +992,11 @@ def read_metrics_sql(
     """Read metrics table from SQL."""
     engine = _ensure_engine(conn)
 
-    where = f"cell_dim = {cell_dim}" if cell_dim is not None else ""
-    result = _read_table(engine, table, where=where, order_by="cell_idx")
+    if cell_dim is not None:
+        result = _read_table(engine, table, where="cell_dim = :cell_dim",
+                              where_params={"cell_dim": cell_dim}, order_by="cell_idx")
+    else:
+        result = _read_table(engine, table, order_by="cell_idx")
 
     if exclude_index:
         result.pop("cell_idx", None)
@@ -923,18 +1027,43 @@ def read_sql_batches(
     ------
     dict of name -> ndarray per batch
     """
-    pd = _pd()
-    _, text_fn, _, _, _ = _sa()
+    _sa()
+    import sqlalchemy as sa
     engine = _ensure_engine(conn)
 
-    if " " not in table_or_query:
-        query = f"SELECT * FROM {table_or_query}"
-    else:
-        query = table_or_query
+    is_query = " " in table_or_query.strip()
 
     with engine.connect() as connection:
-        for chunk in pd.read_sql(text_fn(query), connection, chunksize=chunksize):
-            yield {col: chunk[col].to_numpy() for col in chunk.columns}
+        if is_query:
+            # Raw SQL escape hatch: the caller supplied a full query, not a bare
+            # table name, so there is no table name here to parameterize.
+            result = connection.execute(sa.text(table_or_query))
+            keys = list(result.keys())
+            while True:
+                rows = result.fetchmany(chunksize)
+                if not rows:
+                    return
+                yield {k: np.asarray([r[j] for r in rows]) for j, k in enumerate(keys)}
+        else:
+            table = table_or_query.strip()
+            md = sa.MetaData()
+            tbl = sa.Table(table, md, autoload_with=engine)     # reflect, no f-string
+            keys = list(tbl.c.keys())
+            dtypes = (_read_meta(engine, table) or {}).get("dtypes", {})
+            offset = 0
+            while True:
+                sel = sa.select(*[tbl.c[k] for k in keys]).limit(chunksize).offset(offset)
+                rows = connection.execute(sel).fetchall()
+                if not rows:
+                    return
+                out = {}
+                for j, k in enumerate(keys):
+                    col = [r[j] for r in rows]
+                    out[k] = np.asarray(col, dtype=dtypes[k]) if k in dtypes else np.asarray(col)
+                yield out
+                if len(rows) < chunksize:
+                    return
+                offset += chunksize
 
 
 # RCF Character and Void SQL tables (new in v2)
@@ -1052,3 +1181,54 @@ def read_void_sql(conn, *, table: str = "void"):
     """Read void complex data from SQL."""
     engine = _ensure_engine(conn)
     return _read_table(engine, table)
+
+
+# Full reconstruct: boundary + optional face + optional edge -> RexGraph
+
+
+def reconstruct_rex_sql(
+    conn: Any,
+    *,
+    boundary: str,
+    face: Optional[str] = None,
+    edge: Optional[str] = None,
+):
+    """Rebuild a full `RexGraph` from separately-named SQL tables.
+
+    Each `write_*_sql` function takes an explicit table name (there is no
+    fixed prefix convention shared across them), so this takes the actual
+    table names used at write time rather than a shared prefix:
+
+        write_boundary_sql(rex, engine, "b1")
+        write_face_sql(rex, engine, "b2")
+        write_edge_sql(rex, engine, "b1_edges")
+        rex2 = reconstruct_rex_sql(engine, boundary="b1", face="b2", edge="b1_edges")
+
+    `boundary` is required and supplies `boundary_ptr`/`boundary_idx` (the
+    general boundary d_1, Definition 3.1). `face` (if given, and present)
+    supplies B2's CSC arrays (Definition 4.1). `edge` (if given, and present)
+    supplies `w_E` from its `weight` column when the edge table was written
+    with weights.
+    """
+    engine = _ensure_engine(conn)
+    from rexgraph.graph import RexGraph
+
+    b = read_boundary_sql(engine, boundary)
+    kw: Dict[str, Any] = {
+        "boundary_ptr": np.asarray(b["boundary_ptr"], dtype=np.int32),
+        "boundary_idx": np.asarray(b["boundary_idx"], dtype=np.int32),
+        "directed": bool(b.get("directed", False)),
+    }
+
+    if face is not None and _table_exists(engine, face):
+        f = read_face_sql(engine, face)
+        kw["B2_col_ptr"] = np.asarray(f["B2_col_ptr"], dtype=np.int32)
+        kw["B2_row_idx"] = np.asarray(f["B2_row_idx"], dtype=np.int32)
+        kw["B2_vals"] = np.asarray(f["B2_vals"], dtype=np.float64)
+
+    if edge is not None and _table_exists(engine, edge):
+        e = read_edge_sql(engine, edge)
+        if "weight" in e:
+            kw["w_E"] = np.asarray(e["weight"], dtype=np.float64)
+
+    return RexGraph(**kw)

@@ -509,8 +509,19 @@ def load_edge_csv(
     path: str,
     *,
     roles: Optional[Dict[str, str]] = None,
+    source: Optional[str] = None,
+    target: Optional[str] = None,
+    weight: Optional[str] = None,
+    usecols: Optional[Sequence[str]] = None,
+    delimiter: Optional[str] = None,
+    has_header: Optional[bool] = None,
 ) -> GraphData:
     """Load a CSV edge list with full column role classification.
+
+    Handles arbitrary schema data (for example a wide multi-column TSV
+    export with many unrelated columns) by letting the caller name
+    the edge columns explicitly instead of relying purely on the
+    name/position heuristic.
 
     Parameters
     ----------
@@ -521,6 +532,32 @@ def load_edge_csv(
         Manual role overrides. Maps column name to role string
         (e.g. {"effect": "polarity", "score": "numeric"}).
         Overrides take priority over heuristic classification.
+    source : str, optional
+        Exact name of the column holding edge source vertices.  When
+        omitted, falls back to the existing name heuristic (source,
+        src, from, head, else the first column). Raises ValueError
+        if the named column is not present in the file.
+    target : str, optional
+        Exact name of the column holding edge target vertices.  Same
+        fallback and error behavior as `source`.
+    weight : str, optional
+        Exact name of a numeric column to use as edge weight, surfaced
+        as `w_E`. Every value must be finite: non-finite values (nan,
+        inf) raise ValueError rather than being silently coerced.
+    usecols : sequence of str, optional
+        Restrict which non edge columns are read into `.meta`. The
+        source, target and weight columns are always kept regardless
+        of whether they appear in `usecols`. Use this to avoid loading
+        heavy unrelated columns (SMILES strings, sequences, and so on)
+        from wide schemas. When omitted, all columns are read.
+    delimiter : str, optional
+        Force the field delimiter instead of running csv.Sniffer.
+        Needed for single-column or ragged files where the sniffer
+        cannot infer a dialect and raises.
+    has_header : bool, optional
+        Set to False when the file has no header row; column names
+        are then synthesized as c0, c1, .... Defaults to treating the
+        first row as a header (the prior behavior).
 
     Returns
     -------
@@ -534,34 +571,73 @@ def load_edge_csv(
     with open(path, newline="", encoding="utf-8-sig") as f:
         sample = f.read(8192)
         f.seek(0)
-        dialect = csv.Sniffer().sniff(sample, delimiters=",\t|;")
-        rows = list(csv.DictReader(f, dialect=dialect))
+        if delimiter is not None:
+            dialect = csv.excel()
+            dialect.delimiter = delimiter
+        else:
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",\t|;")
+            except csv.Error:
+                dialect = csv.excel()
+                dialect.delimiter = ","
+
+        if has_header is False:
+            reader = csv.reader(f, dialect=dialect)
+            raw_rows = list(reader)
+            if not raw_rows:
+                raise ValueError(f"Empty CSV: {path}")
+            width = len(raw_rows[0])
+            cols = [f"c{i}" for i in range(width)]
+            rows = [dict(zip(cols, r)) for r in raw_rows]
+        else:
+            rows = list(csv.DictReader(f, dialect=dialect))
     if not rows:
         raise ValueError(f"Empty CSV: {path}")
 
     cols = list(rows[0].keys())
-    src_col = next(
-        (c for c in cols if c.lower() in ("source", "src", "from", "head")),
-        cols[0],
-    )
-    tgt_col = next(
-        (c for c in cols if c.lower() in ("target", "tgt", "to", "tail", "dest")),
-        cols[1],
-    )
-    meta_cols = [c for c in cols if c not in (src_col, tgt_col)]
+
+    if source is not None:
+        if source not in cols:
+            raise ValueError(f"source column {source!r} not found in {path}: columns are {cols}")
+        src_col = source
+    else:
+        src_col = next(
+            (c for c in cols if c.lower() in ("source", "src", "from", "head")),
+            cols[0],
+        )
+
+    if target is not None:
+        if target not in cols:
+            raise ValueError(f"target column {target!r} not found in {path}: columns are {cols}")
+        tgt_col = target
+    else:
+        tgt_col = next(
+            (c for c in cols if c.lower() in ("target", "tgt", "to", "tail", "dest")),
+            cols[1],
+        )
+
+    if weight is not None and weight not in cols:
+        raise ValueError(f"weight column {weight!r} not found in {path}: columns are {cols}")
+
+    keep_always = {src_col, tgt_col} | ({weight} if weight else set())
+    if usecols is not None:
+        keep = set(usecols) | keep_always
+        meta_cols = [c for c in cols if c in keep and c not in (src_col, tgt_col)]
+    else:
+        meta_cols = [c for c in cols if c not in (src_col, tgt_col)]
 
     sources, targets = [], []
     meta = {c: [] for c in meta_cols}
 
     for row in rows:
-        s = row[src_col].strip()
-        t = row[tgt_col].strip()
+        s = (row[src_col] or "").strip()
+        t = (row[tgt_col] or "").strip()
         if not s or not t:
             continue
         sources.append(s)
         targets.append(t)
         for c in meta_cols:
-            meta[c].append(row.get(c, "").strip())
+            meta[c].append((row.get(c) or "").strip())
 
     # Vertex index mapping
     vertex_set = set()
@@ -585,7 +661,32 @@ def load_edge_csv(
                 if role == ColumnRole.POLARITY:
                     _detect_polarity(profiles[col_name])
     edge_attrs = build_edge_attrs(profiles)
-    w_E, negative_types = build_weights(profiles, len(sources))
+
+    if weight is not None:
+        w_E = np.empty(len(sources), dtype=np.float64)
+        vals = meta[weight]
+        for j, v in enumerate(vals):
+            try:
+                fv = float(v)
+            except ValueError:
+                fv = float("nan")
+            if not np.isfinite(fv):
+                raise ValueError(f"non-finite weight in column {weight!r}")
+            w_E[j] = fv
+        negative_types: List[str] = []
+        edge_attrs[weight] = w_E
+    else:
+        w_E, negative_types = build_weights(profiles, len(sources))
+
+    # Keep numeric metadata columns as typed arrays (not python strings)
+    for name, p in profiles.items():
+        if p.is_numeric and name in edge_attrs:
+            try:
+                edge_attrs[name] = np.array(
+                    [float(v) if v else np.nan for v in p.values], dtype=np.float64,
+                )
+            except ValueError:
+                pass
 
     return GraphData(
         sources=sources, targets=targets,

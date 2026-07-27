@@ -260,6 +260,21 @@ def test_correlation_adapter():
     print()
 
 
+def test_agent_package_imports_without_pandas():
+    # The platform must be pandas-optional: importing the package (which imports auto) in a fresh
+    # interpreter must NOT drag in pandas. pandas is a soft dep, loaded only if a DataFrame/table
+    # feature is actually exercised.
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import sys
+        import agent.agent            # runs __init__ -> from .auto import ...
+        assert 'pandas' not in sys.modules, 'agent.agent import pulled in pandas'
+        print('OK')
+    """)
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, f"agent.agent import loaded pandas or failed:\n{r.stdout}\n{r.stderr}"
+
+
 def test_session():
     """Test session creation and persistence."""
     print("── Session management ──")
@@ -284,6 +299,39 @@ def test_session():
     print()
 
 
+def test_csv_missing_values_stay_numeric():
+    # A numeric feature CSV with blank cells and NA-style tokens must still classify as feature_csv
+    # and keep those columns (as float with NaN), matching pandas read_csv/select_dtypes behavior.
+    import tempfile, os
+    import numpy as np
+    from agent.auto import _classify_csv, _read_numeric_csv
+    from pathlib import Path
+    header = ",".join(f"feat_{i}" for i in range(6))
+    rows = []
+    for r in range(12):
+        cells = []
+        for c in range(6):
+            if r == 3 and c == 2:
+                cells.append("")        # blank cell
+            elif r == 5 and c == 4:
+                cells.append("NA")      # NA token
+            else:
+                cells.append(f"{r + c * 0.5:.3f}")
+        rows.append(",".join(cells))
+    text = header + "\n" + "\n".join(rows) + "\n"
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
+        f.write(text)
+        path = f.name
+    try:
+        assert _classify_csv(Path(path)) == "feature_csv"       # missing values do not demote it
+        X, names = _read_numeric_csv(path)
+        assert X.shape == (12, 6)                                # no column dropped on a blank/NA
+        assert len(names) == 6
+        assert np.isnan(X).sum() == 2                            # the blank + the NA became NaN
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  RexGraph Agent - Core Logic Tests")
@@ -298,6 +346,7 @@ if __name__ == "__main__":
     test_feature_matrix_adapter()
     test_correlation_adapter()
     test_session()
+    test_csv_missing_values_stay_numeric()
 
     print("=" * 60)
     print("  All tests passed.")

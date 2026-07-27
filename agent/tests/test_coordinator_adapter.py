@@ -1,8 +1,5 @@
 import functools
-import os
-import sys
 
-sys.path.insert(0, os.path.join(os.getcwd(), "agent"))
 from agent.coordinator_adapter import work_units
 
 
