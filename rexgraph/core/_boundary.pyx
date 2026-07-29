@@ -493,7 +493,7 @@ def compute_rank(M, str method="auto", double tol=1e-10):
     cdef Py_ssize_t min_dim = min(nrow, ncol)
 
     # INTEGER boundary maps (the unweighted topology): EXACT eigen-free rank via
-    # rational column reduction - no SVD, no densification, no silent svds cap.
+    # rational column reduction: no SVD, no densification, no silent svds cap.
     # Genuinely non-integer (weighted) matrices keep the SVD dispatch below.
     if min_dim > 0:
         _sp_M = to_scipy_csr(M)
@@ -502,9 +502,10 @@ def compute_rank(M, str method="auto", double tol=1e-10):
             return _exact_rank_reduction(_sp_M)
 
     if method == "auto":
-        # Check both dimension limit AND actual allocation size.
-        # A 2000x2M matrix has min_dim=2000 (small) but 32 GB allocation.
-        if should_use_dense_eigen(min_dim) and can_allocate_dense_f64(nrow, ncol):
+        # adaptive: dense only when the matrix actually fits the dense allocation
+        # budget (no magic dimension cutoff). A 2000x2M matrix is small by dimension
+        # but 32 GB to allocate, so the allocation check is the real gate.
+        if can_allocate_dense_f64(nrow, ncol):
             method = "dense"
         else:
             method = "sparse"

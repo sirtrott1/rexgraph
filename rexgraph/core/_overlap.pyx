@@ -323,7 +323,9 @@ def build_L_O(
     cdef f64[::1] w_view = W
 
     if method == "auto":
-        method = "dense" if should_use_dense_matmul(nE) else "sparse"
+        # adaptive: dense only when the nE x nE matrix actually fits the dense
+        # allocation budget (no magic dimension cutoff).
+        method = "dense" if can_allocate_dense_f64(nE, nE) else "sparse"
 
     # Vertex-to-edge CSR
     cdef np.ndarray[i32, ndim=1] vptr_arr = np.empty(nV + 1, dtype=np.int32)
@@ -402,7 +404,7 @@ def build_overlap_gramian(
     targets,
     vertex_weights=None,
 ):
-    """Raw overlap Gramian K = |B_1|^T W |B_1| as a scipy CSR - the CANONICAL
+    """Raw overlap Gramian K = |B_1|^T W |B_1| as a scipy CSR: the CANONICAL
     integer G channel (exact co-incidence counts; reference Part IX).
 
     K_ij = (weighted) number of vertices shared by edges i and j; the diagonal is

@@ -1,5 +1,5 @@
 """
-train - training loops for a built model: single run, multistep (staged) training, and multi-model
+train: training loops for a built model, single run, multistep (staged) training, and multi-model
 fusion (ensemble / data-split / stacking). The optimizer is any rexgraph.nn optimizer (HodgeAdam by
 default). The loop dispatches on the DataBundle's `kind`, so one interface trains every archetype.
 """
@@ -98,7 +98,7 @@ def _set_lr(opt, lr):
         grp["lr"] = lr
 
 
-def train_one(model, bundle, *, optimizer="hodge", steps=200, lr=None, batch=64,
+def train_one(model, bundle, *, optimizer="auto", steps=200, lr=None, batch=64,
               n_heads=1, device=None, seed=0, on_step=None,
               amp=False, schedule=None, warmup=0, grad_accum=1, resume=None) -> dict:
     """Train `model` on `bundle` with a rexgraph.nn optimizer. Returns the eval-metric trajectory
@@ -165,7 +165,7 @@ def train_multistep(model, bundle, stages: List[dict], *, device=None, seed=0) -
             "final": results[-1]["final"] if results else None}
 
 
-def train_fusion(specs, bundle, *, mode="ensemble", steps=200, optimizer="hodge",
+def train_fusion(specs, bundle, *, mode="ensemble", steps=200, optimizer="auto",
                  device=None, seed=0) -> dict:
     """Train multiple models and fuse them. `specs` is a list of (archetype_name, cfg_overrides).
       - mode='ensemble'  : each model trains on the full data; predictions are averaged.

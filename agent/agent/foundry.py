@@ -1,8 +1,8 @@
-"""agent.foundry - language models that forge neural networks into a hive they control.
+"""agent.foundry: language models that forge neural networks into a hive they control.
 
 A ModelFoundry lets the LM bees BUILD neural networks live on data and register each trained model
 as a worker bee. That makes a hive HIERARCHY: language models on top, the networks they built as
-workers beneath - the LMs then drive the NNs with hive.invoke(). Every NN bee is placement-aware:
+workers beneath. The LMs then drive the NNs with hive.invoke(). Every NN bee is placement-aware:
 it trains and serves on a chosen device, resolved through rexgraph.compute (a live-probed GPU/iGPU
 when available, else a CPU core), so a multi-core worker team and an iGPU can be filled at once on a
 shared-memory machine.
@@ -39,7 +39,7 @@ _KIND_ARCH = {"image": "cnn", "graph": "hgnn", "rex": "hgnn", "hypergraph": "hgn
 
 
 def choose_archetype(task: str = "", data=None) -> str:
-    """Pick an archetype from the data's kind or the task's words - structural (exact kind lookup,
+    """Pick an archetype from the data's kind or the task's words: structural (exact kind lookup,
     then word presence), defaulting to mlp. This is the deterministic backbone; an LM can override."""
     from agent import models
     kind = str(getattr(data, "kind", "") or "").lower()
@@ -116,7 +116,7 @@ class ModelFoundry:
 
     def forge(self, name: str, archetype: str, *, data=None, params=None, steps: int = 100,
               device: str = "auto", capability: str = "predict", specialties=None,
-              optimizer: str = "hodge", seed: int = 0) -> Dict[str, Any]:
+              optimizer: str = "auto", seed: int = 0) -> Dict[str, Any]:
         """Train an NN on `data` (a bundle / a data source / None for the archetype's synthetic set)
         and register it as a worker bee. Returns the model card. Falls back to CPU once if a chosen
         GPU turns out unusable."""

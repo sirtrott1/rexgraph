@@ -40,7 +40,7 @@ def main(argv=None):
         p.add_argument("--archetype", "-a", default="mlp")
         p.add_argument("--data", default=None, help="path to your data (else synthetic)")
         p.add_argument("--set", action="append", default=[], metavar="k=v", help="param override")
-        p.add_argument("--optimizer", default="hodge")
+        p.add_argument("--optimizer", default="auto")
         p.add_argument("--steps", type=int, default=200)
         p.add_argument("--seed", type=int, default=0)
         if name == "multistep":

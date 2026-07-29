@@ -1,10 +1,12 @@
 """
-nn.factory - component registry and builders, keyed by one string per component.
+nn.factory: component registry and builders, keyed by one string per component.
 
 The registry holds every swappable component:
 
     attention:  relational (PropagatorAttention, default) | standard (torch MHA)
-    optimizer:  hodge (HodgeAdam, default) | hodgesgd | adam | sgd | adamw
+    optimizer:  adam (default, standard feature-space models) | adamw | sgd |
+               greens (GreensCochain, relational-native cochain models) |
+               hodge / hodgesgd (back-compat, tie plain Adam)
     model:      registered externally (the library ships no model)
 
 RexGraph-native pieces are the registered defaults; the traditional option is selected by name
@@ -24,7 +26,7 @@ try:
     import torch.nn as _nn
     import torch.nn.functional as _F
     _HAS_TORCH = True
-except Exception:                                    # pragma: no cover - torch optional
+except Exception:                                    # pragma: no cover (torch optional)
     _HAS_TORCH = False
     _nn = type("nn", (), {"Module": object})()
 
@@ -98,10 +100,10 @@ def build_attention(name: Optional[str], d: int, n_head: int, **kw):
 
 
 def build_optimizer(params, name: Optional[str] = None, lr: Optional[float] = None, **kw):
-    """Construct the optimizer chosen by name (defaults to HodgeAdam). Delegates to
-    `optim.build_optimizer`; requires torch."""
+    """Construct the optimizer chosen by name (defaults to plain Adam, the honest default for
+    standard feature-space models). Delegates to `optim.build_optimizer`; requires torch."""
     from rexgraph.nn import optim
-    return optim.build_optimizer(params, method=(name or "hodge"), lr=lr, **kw)
+    return optim.build_optimizer(params, method=(name or "adam"), lr=lr, **kw)
 
 
 # attention components
@@ -147,13 +149,16 @@ if _HAS_TORCH:
     register("attention", "standard", lambda d, h, **kw: StandardCausalAttention(d, h),
              native=False, description="Standard causal multi-head attention (PyTorch default).")
 
-    for _m in ("hodge", "hodgesgd", "adam", "sgd", "adamw"):
-        register("optimizer", _m, None, native=_m.startswith("hodge"),
-                 default=(_m == "hodge"),
-                 description={"hodge": "HodgeAdam - vector-Hodge preconditioned Adam (your optimizer).",
-                              "hodgesgd": "HodgeSGD - pure structural preconditioner (your optimizer).",
-                              "adam": "Adam (PyTorch).", "sgd": "SGD (PyTorch).",
-                              "adamw": "AdamW (PyTorch)."}[_m])
+    for _m in ("hodge", "hodgesgd", "adam", "sgd", "adamw", "greens"):
+        register("optimizer", _m, None, native=(_m.startswith("hodge") or _m == "greens"),
+                 default=(_m == "adam"),
+                 description={"hodge": "HodgeAdam - vector-Hodge preconditioned Adam (back-compat; ties plain Adam).",
+                              "hodgesgd": "HodgeSGD - pure structural preconditioner (back-compat; ties plain Adam).",
+                              "adam": "Adam (PyTorch) - default; the honest choice for standard feature-space models.",
+                              "sgd": "SGD (PyTorch).",
+                              "adamw": "AdamW (PyTorch).",
+                              "greens": "GreensCochain - Green's-function preconditioned Adam, the native "
+                                        "optimizer for relational-native cochain models."}[_m])
     register("optimizer", "hodge-arch", None, native=True,
              description="HodgeAdam, ARCHITECTURE-AWARE - attention heads as independent Hodge "
                          "blocks (Track-2, where the structural edge should show).")
@@ -168,12 +173,47 @@ _ARCH_OPT = {"hodge-arch", "hodgearch", "hodge-groups", "hodgegroups"}
 
 
 def make_optimizer(name: str, model, trainable, *, n_heads: int = 1, lr=None, **kw):
-    """Build the optimizer, handling the architecture-aware HodgeAdam ('hodge-arch') which needs
-    the model to group attention-projection weights into per-head Hodge blocks. Extra kwargs
-    (e.g. ``gamma_curl``) pass through to HodgeAdam. On any failure it falls back to plain
-    HodgeAdam, then Adam. Returns (optimizer, label)."""
+    """Build the optimizer, routing per model type. This is the honest router: ``"auto"`` (the
+    default) picks GreensCochain for a relational-native model whose parameters are cochains on a
+    complex, and plain Adam for a standard feature-space model, because the two families were
+    benchmarked and neither optimizer is universally better, they are correct for different model
+    shapes. Specifically, ``"auto"``:
+
+      * if `model` exposes a ``greens_groups()`` method returning a list of param-group dicts
+        (each with ``"params"`` and a ``"green_adj"`` complex operator, optionally
+        ``"green_channel"`` / ``"green_lam"``), builds GreensCochain over those groups plus one
+        remainder group for the model's other trainable params, and returns
+        ``GreensCochain(auto: N cochain groups)``.
+      * otherwise builds plain ``torch.optim.Adam`` over `trainable` and returns ``Adam(auto)``.
+
+    Named modes still work: ``"greens"`` -> GreensCochain directly; ``"hodge-arch"`` -> the
+    architecture-aware HodgeAdam, which needs the model to group attention-projection weights into
+    per-head Hodge blocks (back-compat); ``"hodge"`` / ``"hodgesgd"`` / ``"adam"`` / ``"sgd"`` /
+    ``"adamw"`` -> the matching optim.build_optimizer path. Extra kwargs (e.g. ``gamma_curl``) pass
+    through to the underlying optimizer. On any failure ``"auto"``/``"hodge-arch"`` fall back to
+    plain Adam. Returns (optimizer, label)."""
     from rexgraph.nn import optim
-    nm = (name or "hodge").lower()
+    nm = (name or "auto").lower()
+    if nm == "auto":
+        trainable = list(trainable)
+        greens_groups_fn = getattr(model, "greens_groups", None)
+        if greens_groups_fn is not None:
+            try:
+                groups = list(greens_groups_fn())
+                if groups:
+                    covered = set()
+                    for g in groups:
+                        covered.update(id(p) for p in g["params"])
+                    remainder = [p for p in trainable if id(p) not in covered]
+                    all_groups = list(groups)
+                    if remainder:
+                        all_groups.append({"params": remainder})
+                    opt = optim.GreensCochain(all_groups, lr=1e-3 if lr is None else lr, **kw)
+                    return opt, f"GreensCochain(auto: {len(groups)} cochain groups)"
+            except Exception as e:
+                logger.warning("auto greens_groups build failed (%s) -> Adam", e)
+        opt = _t.optim.Adam(trainable, lr=1e-3 if lr is None else lr)
+        return opt, "Adam(auto)"
     if nm in _ARCH_OPT:
         try:
             groups = [g for g in optim.hodge_groups(model, n_heads)
@@ -182,8 +222,11 @@ def make_optimizer(name: str, model, trainable, *, n_heads: int = 1, lr=None, **
             opt = optim.HodgeAdam(groups, lr=1e-3 if lr is None else lr, **kw)
             return opt, f"HodgeAdam(arch:{blocked} head-blocked)"
         except Exception as e:
-            logger.warning("hodge-arch build failed (%s) -> plain hodge", e)
-            nm = "hodge"
+            logger.warning("hodge-arch build failed (%s) -> plain adam", e)
+            nm = "adam"
+    if nm in ("greens", "greenscochain"):
+        opt = optim.build_optimizer(list(trainable), method="greens", lr=lr, **kw)
+        return opt, "GreensCochain"
     opt = optim.build_optimizer(trainable, method=nm, lr=lr, **kw)
     return opt, type(opt).__name__
 

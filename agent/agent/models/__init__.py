@@ -19,11 +19,11 @@ HGNN) are example models built from rexgraph.nn; they are not part of the librar
 from . import archetypes, data, train  # noqa: F401
 from .archetypes import ARCHETYPES, get, merged_cfg, register_archetype  # noqa: F401
 from . import store  # noqa: F401
-from .store import (  # noqa: F401  - rexgraph IO bridge
+from .store import (  # noqa: F401  rexgraph IO bridge
     load_bundle, save_checkpoint, load_checkpoint, save_complex_rex, to_rcdb,
 )
 from . import trustgraph  # noqa: F401
-from .trustgraph import (  # noqa: F401  - TrustGraph ingestion (DB -> knowledge core -> complex)
+from .trustgraph import (  # noqa: F401  TrustGraph ingestion (DB -> knowledge core -> complex)
     core_to_rex, bundle_from_core, core_to_rcdb, core_to_rex_file,
 )
 
@@ -54,7 +54,7 @@ def build(archetype, *, params=None, data=None, seed=0):
     return model, cfg, bundle
 
 
-def run(archetype, *, params=None, data=None, mode="single", optimizer="hodge", steps=200,
+def run(archetype, *, params=None, data=None, mode="single", optimizer="auto", steps=200,
         lr=None, seed=0, stages=None, specs=None, fusion="ensemble", device="cpu",
         save_to=None, on_step=None, amp=False, schedule=None, warmup=0, grad_accum=1,
         resume=None) -> dict:

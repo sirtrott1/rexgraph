@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import functools
 import json
+from collections import namedtuple
 from functools import cached_property
 from typing import Optional, Sequence, Tuple, Union
 
@@ -149,6 +150,40 @@ def _edge_low_eig(L, n, k):
     return ev[idx], V[:, idx]
 
 
+# Incremental mutation support: remap bookkeeping + tiered cache invalidation.
+#
+# Remap carries the index remaps produced by an incremental mutation (edge
+# and/or face insertion/deletion) so downstream consumers can translate old
+# indices to new ones without recomputing from scratch.
+Remap = namedtuple("Remap", "edge_map vertex_map face_map")
+
+# Dependency tiers for selective _invalidate(): each is a frozenset of
+# cached_property names on RexGraph. A mutation names only the tiers it
+# actually disturbs, so unrelated caches survive instead of being blown away.
+_TIER_B1_ONLY = frozenset({
+    "_B1_dual", "B1", "_v2e", "_vertex_info", "degree", "in_degree", "out_degree",
+    "edge_types", "has_branching", "_is_standard_only", "_adjacency_bundle",
+    "_overlap_bundle", "L_overlap", "overlap_gramian", "L0", "L0_sparse",
+    "L1", "L1_sparse", "_sources", "_targets",
+})
+_TIER_B2_ONLY = frozenset({
+    "_B2_dual", "_B2_hodge_dual", "B2", "B2_hodge", "nF_hodge",
+    "self_loop_face_indices", "chain_valid", "_chain_col_maxabs",
+    "L2", "L2_sparse",
+})
+_TIER_GLOBAL = frozenset({
+    # edge->face CSR: size depends on nE and nF, invalidate on any structural change
+    "_e2f",
+    "spectral_bundle", "_dense_rcf_bundle", "betti", "edge_fiedler",
+    "fiedler_val_L1", "fiedler_vec_L1", "eigenvalues_L0", "fiedler_vector_L0",
+    "fiedler_overlap", "relational_laplacian", "RL", "_rl_eigen", "_green_cache",
+    "_sparse_character", "_sparse_phi", "structural_character", "vertex_character",
+    "star_character", "coherence", "local_coherence", "frustration_exact",
+    "L_frustration", "L_coPC", "_edge_signs", "layout", "coupling_constants",
+    "alpha_G", "field_coupling_psd", "_vertex_bundle", "nhats", "hat_names",
+})
+
+
 class RexGraph:
     """A relational complex (rex) with lazily computed derived properties.
 
@@ -197,6 +232,13 @@ class RexGraph:
         "_nE",
         "_nF",
         "_graded_duals",
+        "_pending_edges",
+        "_pending_hyperedges",
+        "_pending_faces",
+        "_live_edges",
+        "_live_faces",
+        "_dirty",
+        "_last_remap",
     )
 
     # Construction
@@ -276,11 +318,351 @@ class RexGraph:
         # scipy sparse matrices. Populated by from_cells; None for the classic
         # 1-rex / 2-rex constructors (which stay purely in the B1/B2 slots).
         self._graded_duals = None
+        self._pending_edges = None
+        self._pending_hyperedges = None
+        self._pending_faces = None
+        self._live_edges = None
+        self._live_faces = None
+        self._dirty = False
+        self._last_remap = None
 
-    def _invalidate(self):
-        """Clear all cached properties after mutation."""
-        for attr in list(self.__dict__):
-            delattr(self, attr)
+    def _invalidate(self, *tiers):
+        """Drop the cached_property keys belonging to the named dependency tiers.
+
+        Each tier is a frozenset of cached_property names (_TIER_B1_ONLY /
+        _TIER_B2_ONLY / _TIER_GLOBAL). Only the named keys are removed from
+        __dict__; unnamed caches survive. Replaces the old blunt clear-all.
+        """
+        d = self.__dict__
+        for tier in tiers:
+            for key in tier:
+                d.pop(key, None)
+
+    def _identity_remap(self):
+        """The no-op Remap: every index maps to itself (nothing was tombstoned)."""
+        return Remap(edge_map=np.arange(self._nE, dtype=_i32),
+                     vertex_map=np.arange(self._nV, dtype=_i32),
+                     face_map=np.arange(self._nF, dtype=_i32))
+
+    def add_edges(self, sources, targets, *, w_E=None, signs=None, w_boundary=None):
+        """Stage new standard edges for O(delta) append (materialized on next read).
+
+        Records the columns in the pending buffer, bumps the logical _nE/_nV, and
+        stages attribution. No array copy at call time. New edges land at the end.
+        """
+        ns = _asarray(sources, _i32)
+        nt = _asarray(targets, _i32)
+        if ns.shape[0] != nt.shape[0]:
+            raise ValueError("sources and targets must have equal length")
+        n_new = int(ns.shape[0])
+        if self._pending_edges is None:
+            self._pending_edges = {"src": [], "tgt": [], "w_E": [], "signs": []}
+        self._pending_edges["src"].append(ns)
+        self._pending_edges["tgt"].append(nt)
+        self._pending_edges["w_E"].append(
+            np.zeros(n_new, _f64) if w_E is None else _asarray(w_E, _f64))
+        self._pending_edges["signs"].append(
+            np.ones(n_new, _i32) if signs is None else _asarray(signs, _i32))
+        if w_boundary:
+            for (e_local, v), feat in w_boundary.items():
+                self._w_boundary[self._nE + int(e_local)] = feat
+        self._nE += n_new
+        mx = int(max(int(ns.max()) if n_new else -1, int(nt.max()) if n_new else -1))
+        if mx + 1 > self._nV:
+            self._nV = mx + 1
+        self._dirty = True
+        # Drop any already-cached B1_ONLY/GLOBAL derived properties now (cheap
+        # dict.pop, no array touch) so a stale cached_property (e.g. _e2f,
+        # which depends on nE) can't be read back before the deferred raw-array
+        # flush in _ensure_clean runs. The raw arrays themselves stay deferred.
+        self._invalidate(_TIER_B1_ONLY, _TIER_GLOBAL)
+
+    def add_hyperedges(self, columns, *, w_E=None, signs=None):
+        """Stage new GENERAL-ARITY boundary cells for O(delta) append (materialized on
+        next read). Each entry of `columns` is an int array of the vertex ids incident
+        to one new cell (arity = its length; 2 recovers a plain edge). Complements
+        add_edges (the 2-arity convenience); removal/compaction are already general.
+        No array copy at call time. New cells land at the end on flush."""
+        cols = [_asarray(c, _i32) for c in columns]
+        n_new = len(cols)
+        if self._pending_hyperedges is None:
+            self._pending_hyperedges = {"cols": [], "w_E": [], "signs": []}
+        self._pending_hyperedges["cols"].extend(cols)
+        self._pending_hyperedges["w_E"].append(
+            np.zeros(n_new, _f64) if w_E is None else _asarray(w_E, _f64))
+        self._pending_hyperedges["signs"].append(
+            np.ones(n_new, _i32) if signs is None else _asarray(signs, _i32))
+        self._nE += n_new
+        mx = -1
+        for c in cols:
+            if c.shape[0] and int(c.max()) > mx:
+                mx = int(c.max())
+        if mx + 1 > self._nV:
+            self._nV = mx + 1
+        self._dirty = True
+        self._invalidate(_TIER_B1_ONLY, _TIER_GLOBAL)
+
+    def add_faces(self, face_edges, face_signs):
+        """Stage new faces (each a list of edge indices + matching +/-1 signs) for
+        O(delta) append. Materialized on next read. Chain validity (B1.B2=0) is
+        enforced by the existing _B2_hodge_dual filter, unchanged."""
+        if len(face_edges) != len(face_signs):
+            raise ValueError("face_edges and face_signs must have equal length")
+        if self._pending_faces is None:
+            self._pending_faces = {"edges": [], "signs": []}
+        for fe, fs in zip(face_edges, face_signs):
+            fe = _asarray(fe, _i32)
+            fs = np.ascontiguousarray(fs, dtype=_f64)
+            if fe.shape[0] != fs.shape[0]:
+                raise ValueError("each face's edges and signs must have equal length")
+            self._pending_faces["edges"].append(fe)
+            self._pending_faces["signs"].append(fs)
+            self._nF += 1
+        self._dirty = True
+        # Eager invalidate (cheap dict.pop, arrays stay deferred): a cached_property
+        # is a non-data descriptor, so once cached a later read bypasses the getter
+        # and its _ensure_clean guard; dropping the stale keys now forces the next
+        # read to re-run the getter -> flush -> recompute. B1_ONLY caches survive a
+        # face-only append (edge boundary unchanged).
+        self._invalidate(_TIER_B2_ONLY, _TIER_GLOBAL)
+
+    def _ensure_clean(self):
+        """Materialize pending appends and tombstones, then selectively invalidate.
+
+        Called at the top of every eager-array read. Returns the Remap produced (an
+        identity remap when nothing was tombstoned).
+        """
+        if not self._dirty:
+            return self._last_remap if self._last_remap is not None else self._identity_remap()
+        touched = []
+        # 1. flush pending edge appends (numpy concatenate)
+        if self._pending_edges is not None:
+            nE_before = int(self._boundary_ptr.shape[0] - 1)
+            src_all = (np.concatenate(self._pending_edges["src"])
+                       if self._pending_edges["src"] else np.zeros(0, _i32))
+            tgt_all = (np.concatenate(self._pending_edges["tgt"])
+                       if self._pending_edges["tgt"] else np.zeros(0, _i32))
+            k = int(src_all.shape[0])
+            new_idx = np.empty(2 * k, dtype=_i32)
+            new_idx[0::2] = src_all
+            new_idx[1::2] = tgt_all
+            last = int(self._boundary_ptr[-1])
+            add_ptr = last + np.arange(2, 2 * k + 1, 2, dtype=_i32)
+            self._boundary_ptr = np.concatenate([self._boundary_ptr, add_ptr])
+            self._boundary_idx = np.concatenate([self._boundary_idx, new_idx])
+            self._sources = None
+            self._targets = None
+            # Attribution carry-through for the new edges: batches were already
+            # staged at batch length in add_edges (defaulting to zeros/ones), so we
+            # only need to concatenate. Skip allocating when nothing was ever set,
+            # so w_E/signs stay None until real attribution shows up.
+            w_e_batches = self._pending_edges["w_E"]
+            signs_batches = self._pending_edges["signs"]
+            if self._w_E is not None or any(np.any(b) for b in w_e_batches):
+                base = (np.zeros(nE_before, dtype=_f64) if self._w_E is None
+                        else np.asarray(self._w_E, dtype=_f64))
+                self._w_E = np.concatenate([base, np.concatenate(w_e_batches)])
+            if self._signs is not None or any(np.any(b != 1) for b in signs_batches):
+                base = (np.ones(nE_before, dtype=_i32) if self._signs is None
+                        else np.asarray(self._signs, dtype=_i32))
+                self._signs = np.concatenate([base, np.concatenate(signs_batches)])
+            self._pending_edges = None
+            touched.append(_TIER_B1_ONLY)
+            touched.append(_TIER_GLOBAL)
+        # 1b. flush pending general-arity hyperedge appends (numpy concatenate)
+        if self._pending_hyperedges is not None:
+            nE_before = int(self._boundary_ptr.shape[0] - 1)
+            cols = self._pending_hyperedges["cols"]
+            sizes = (np.array([c.shape[0] for c in cols], dtype=_i32) if cols
+                     else np.zeros(0, _i32))
+            flat = np.concatenate(cols) if cols else np.zeros(0, _i32)
+            last = int(self._boundary_ptr[-1])
+            add_ptr = last + np.cumsum(sizes).astype(_i32)
+            self._boundary_ptr = np.concatenate([self._boundary_ptr, add_ptr])
+            self._boundary_idx = np.concatenate([self._boundary_idx, flat])
+            self._sources = None
+            self._targets = None
+            we_b = self._pending_hyperedges["w_E"]
+            sg_b = self._pending_hyperedges["signs"]
+            if self._w_E is not None or any(np.any(b) for b in we_b):
+                base = (np.zeros(nE_before, dtype=_f64) if self._w_E is None
+                        else np.asarray(self._w_E, dtype=_f64))
+                self._w_E = np.concatenate([base, np.concatenate(we_b)])
+            if self._signs is not None or any(np.any(b != 1) for b in sg_b):
+                base = (np.ones(nE_before, dtype=_i32) if self._signs is None
+                        else np.asarray(self._signs, dtype=_i32))
+                self._signs = np.concatenate([base, np.concatenate(sg_b)])
+            self._pending_hyperedges = None
+            touched.append(_TIER_B1_ONLY)
+            touched.append(_TIER_GLOBAL)
+        # 2. flush pending face appends (filled in by add_faces)
+        if self._pending_faces is not None:
+            self._flush_faces(touched)
+        # 3. compaction (reconcile mask lengths first: same-batch appends may have
+        # grown _nE/_nF after the tombstone masks were created; appended cells are live)
+        remap = self._identity_remap()
+        if self._live_edges is not None or self._live_faces is not None:
+            if self._live_edges is not None and self._live_edges.shape[0] < self._nE:
+                self._live_edges = np.concatenate([
+                    self._live_edges,
+                    np.ones(self._nE - self._live_edges.shape[0], dtype=bool)])
+            if self._live_faces is not None and self._live_faces.shape[0] < self._nF:
+                self._live_faces = np.concatenate([
+                    self._live_faces,
+                    np.ones(self._nF - self._live_faces.shape[0], dtype=bool)])
+            remap = self._compact_now(touched)
+        self._dirty = False
+        self._last_remap = remap
+        if touched:
+            self._invalidate(*touched)
+        return remap
+
+    def _flush_faces(self, touched):
+        """Concatenate staged faces onto the B2 CSC arrays. Called by _ensure_clean."""
+        pend = self._pending_faces
+        self._pending_faces = None
+        if not pend["edges"]:
+            return
+        new_rows = np.concatenate(pend["edges"]) if pend["edges"] else np.zeros(0, _i32)
+        new_vals = np.concatenate(pend["signs"]) if pend["signs"] else np.zeros(0, _f64)
+        last = int(self._B2_col_ptr[-1])
+        sizes = np.array([e.shape[0] for e in pend["edges"]], dtype=_i32)
+        add_ptr = last + np.cumsum(sizes).astype(_i32)
+        self._B2_col_ptr = np.concatenate([self._B2_col_ptr, add_ptr])
+        self._B2_row_idx = np.concatenate([self._B2_row_idx, new_rows])
+        self._B2_vals = np.concatenate([self._B2_vals, new_vals])
+        touched.append(_TIER_B2_ONLY)
+        touched.append(_TIER_GLOBAL)
+
+    def remove_edges(self, mask):
+        """Tombstone edges where mask is nonzero (O(delta)); compaction is deferred."""
+        m = _asarray(mask, _i32)
+        if m.shape[0] != self._nE:
+            raise ValueError("mask length must equal nE (%d)" % self._nE)
+        if self._live_edges is None:
+            self._live_edges = np.ones(self._nE, dtype=bool)
+        self._live_edges[m != 0] = False
+        self._dirty = True
+        # Eager invalidate now (cheap dict.pop; the compaction that renumbers arrays
+        # is still deferred to _ensure_clean). A cached_property is a non-data
+        # descriptor, so without this a later read would bypass the getter and return
+        # a pre-removal cache. An edge removal renumbers edges (and can drop faces
+        # touching a removed edge), so every tier is affected.
+        self._invalidate(_TIER_B1_ONLY, _TIER_B2_ONLY, _TIER_GLOBAL)
+
+    def remove_faces(self, mask):
+        """Tombstone faces where mask is nonzero (O(delta)); compaction is deferred."""
+        m = _asarray(mask, _i32)
+        if m.shape[0] != self._nF:
+            raise ValueError("mask length must equal nF (%d)" % self._nF)
+        if self._live_faces is None:
+            self._live_faces = np.ones(self._nF, dtype=bool)
+        self._live_faces[m != 0] = False
+        self._dirty = True
+        # Eager invalidate (see remove_edges). A face-only removal leaves the edge
+        # boundary intact, so B1_ONLY survives.
+        self._invalidate(_TIER_B2_ONLY, _TIER_GLOBAL)
+
+    def compact(self):
+        """Force materialization and return the Remap for the renumbering applied
+        since the last compact() (an identity remap if nothing was pending or
+        tombstoned since then)."""
+        self._ensure_clean()
+        remap = self._last_remap if self._last_remap is not None else self._identity_remap()
+        self._last_remap = None      # consumed: a later no-op compact() returns identity
+        return remap
+
+    def _compact_now(self, touched):
+        """Drop tombstoned edges/faces, renumber, remap attribution and B2. Returns
+        a Remap. Called by _ensure_clean when tombstones are present (after appends
+        have already been flushed, so _boundary_* and _B2_* are up to date)."""
+        from rexgraph.core import _rex
+        # edges
+        if self._live_edges is not None:
+            live = self._live_edges.astype(_i32)
+            new_ptr, new_idx, nV_new, v_map, e_map = _rex.compact_boundary(
+                self._boundary_ptr, self._boundary_idx, live)
+            self._boundary_ptr = new_ptr
+            self._boundary_idx = new_idx
+            self._sources = None
+            self._targets = None
+            keep = self._live_edges
+            if self._w_E is not None:
+                self._w_E = np.asarray(self._w_E)[keep]
+            if self._signs is not None:
+                self._signs = np.asarray(self._signs)[keep]
+            if self._w_boundary:
+                em = np.asarray(e_map)
+                new_wb = {}
+                for key, feat in self._w_boundary.items():
+                    e_old = key[0] if isinstance(key, tuple) else key
+                    e_new = int(em[e_old])
+                    if e_new >= 0:
+                        new_wb[(e_new, key[1]) if isinstance(key, tuple) else e_new] = feat
+                self._w_boundary = new_wb
+            self._nE = int(new_ptr.shape[0] - 1)
+            self._nV = int(nV_new)
+            self._live_edges = None
+        else:
+            e_map = np.arange(self._nE, dtype=_i32)
+            v_map = np.arange(self._nV, dtype=_i32)
+        # faces: one pass over the ORIGINAL faces that drops a column iff it is
+        # tombstoned OR its boundary references a removed edge, and remaps the
+        # surviving rows through e_map (identity when no edges were removed).
+        self._compact_faces(e_map)
+        self._live_faces = None
+        touched.append(_TIER_B1_ONLY)
+        touched.append(_TIER_B2_ONLY)
+        touched.append(_TIER_GLOBAL)
+        face_map = np.arange(self._nF, dtype=_i32)
+        return Remap(edge_map=np.asarray(e_map), vertex_map=np.asarray(v_map),
+                     face_map=face_map)
+
+    def _compact_faces(self, e_map):
+        """Rebuild the B2 CSC in one pass over the ORIGINAL faces: drop a face column
+        iff it is tombstoned (_live_faces) OR its boundary references a removed edge
+        (e_map == -1); for surviving faces remap the row (edge) indices through e_map.
+        Doing both drops in a single pass avoids the id-shift bug of dropping in two
+        stages. e_map is the identity arange when no edges were removed."""
+        em = np.asarray(e_map)
+        has_edge_remap = em.shape[0] > 0
+        cp, ri, vals = self._B2_col_ptr, self._B2_row_idx, self._B2_vals
+        live_f = self._live_faces
+        out_ptr, out_rows, out_vals = [0], [], []
+        for f in range(cp.shape[0] - 1):
+            if live_f is not None and not live_f[f]:
+                continue                       # tombstoned face
+            rows = ri[cp[f]:cp[f + 1]]
+            mapped = em[rows] if has_edge_remap else rows
+            if has_edge_remap and np.any(mapped < 0):
+                continue                       # references a removed edge
+            out_rows.append(mapped)
+            out_vals.append(vals[cp[f]:cp[f + 1]])
+            out_ptr.append(out_ptr[-1] + int(rows.shape[0]))
+        self._B2_col_ptr = np.asarray(out_ptr, dtype=_i32)
+        self._B2_row_idx = (np.concatenate(out_rows).astype(_i32) if out_rows
+                            else np.zeros(0, _i32))
+        self._B2_vals = (np.concatenate(out_vals).astype(_f64) if out_vals
+                         else np.zeros(0, _f64))
+        self._nF = int(self._B2_col_ptr.shape[0] - 1)
+
+    def set_cell_attrs(self, indices, *, w_E=None, signs=None):
+        """Set per-cell attribution in place at the given current indices, then
+        invalidate the character/global tier (signs/weights feed those). Used
+        by apply_edge_delta to replay a delta's MODIFIED cells."""
+        self._ensure_clean()
+        idx = _asarray(indices, _i32)
+        if w_E is not None:
+            if self._w_E is None:
+                self._w_E = np.zeros(self._nE, dtype=_f64)
+            self._w_E = np.asarray(self._w_E, dtype=_f64).copy()
+            self._w_E[idx] = np.asarray(w_E, dtype=_f64)
+        if signs is not None:
+            if self._signs is None:
+                self._signs = np.ones(self._nE, dtype=_i32)
+            self._signs = np.asarray(self._signs, dtype=_i32).copy()
+            self._signs[idx] = np.asarray(signs, dtype=_i32)
+        self._invalidate(_TIER_GLOBAL)
 
     # Factory constructors
 
@@ -549,18 +931,22 @@ class RexGraph:
 
     @property
     def nV(self) -> int:
+        self._ensure_clean()
         return self._nV
 
     @property
     def nE(self) -> int:
+        self._ensure_clean()
         return self._nE
 
     @property
     def nF(self) -> int:
+        self._ensure_clean()
         return self._nF
 
     @property
     def dimension(self) -> int:
+        self._ensure_clean()
         if self._nE == 0:
             return 0
         return 2 if self._nF > 0 else 1
@@ -569,14 +955,17 @@ class RexGraph:
 
     @property
     def boundary_ptr(self) -> NDArray:
+        self._ensure_clean()
         return self._boundary_ptr
 
     @property
     def boundary_idx(self) -> NDArray:
+        self._ensure_clean()
         return self._boundary_idx
 
     @property
     def sources(self) -> Optional[NDArray]:
+        self._ensure_clean()
         if self._sources is not None:
             return self._sources
         sizes = np.diff(self._boundary_ptr)
@@ -587,6 +976,7 @@ class RexGraph:
 
     @property
     def targets(self) -> Optional[NDArray]:
+        self._ensure_clean()
         if self._targets is not None:
             return self._targets
         sizes = np.diff(self._boundary_ptr)
@@ -597,6 +987,7 @@ class RexGraph:
 
     @cached_property
     def _is_standard_only(self) -> bool:
+        self._ensure_clean()
         sizes = np.diff(self._boundary_ptr)
         return bool(np.all(sizes == 2))
 
@@ -610,6 +1001,7 @@ class RexGraph:
 
     def set_vertex_attribution(self, X: NDArray) -> None:
         """Set per-boundary-point attribution from vertex features."""
+        self._ensure_clean()
         self._w_boundary = {}
         bp, bi = self._boundary_ptr, self._boundary_idx
         for e in range(self._nE):
@@ -666,6 +1058,7 @@ class RexGraph:
     @cached_property
     def _e2f(self) -> Tuple[NDArray, NDArray]:
         """Edge-to-face CSR adjacency."""
+        self._ensure_clean()
         if self._nF == 0:
             return np.zeros(self._nE + 1, dtype=_i32), np.zeros(0, dtype=_i32)
         return _rex.build_edge_to_face_csr(
@@ -692,6 +1085,7 @@ class RexGraph:
     @cached_property
     def _B1_dual(self):
         """DualCSR representation of B1."""
+        self._ensure_clean()
         if self._is_standard_only:
             return _boundary.build_B1(self._nV, self._nE, self.sources, self.targets)
         # General boundary: dense to DualCSR
@@ -721,6 +1115,7 @@ class RexGraph:
         """DualCSR representation of B2, assembled straight from the CSC triplet. The columns are
         already the per-face boundaries (edge rows, orientation signs), so we scatter them directly
         rather than materializing a dense nE x nF matrix and rescanning it for the few nonzeros."""
+        self._ensure_clean()
         if self._nF == 0:
             return None
         cp, ri, vl = self._B2_col_ptr, self._B2_row_idx, self._B2_vals
@@ -752,6 +1147,7 @@ class RexGraph:
     @cached_property
     def clique_expansion(self) -> RexGraph:
         """Clique expansion of branching edges."""
+        self._ensure_clean()
         new_src, new_tgt, new_weights, _ = _rex.clique_expand_branching(
             self._nE, self._boundary_ptr, self._boundary_idx, self.edge_types
         )
@@ -2828,6 +3224,7 @@ class RexGraph:
 
     def fill_cycle(self, cycle_edges: NDArray) -> RexGraph:
         """Adjoin a face whose boundary is the given cycle."""
+        self._ensure_clean()
         c = np.asarray(cycle_edges, dtype=_f64)
         new_col = c.reshape(-1, 1)
         if self._nF == 0:
@@ -3011,6 +3408,7 @@ class RexGraph:
 
         regime: 0=kinetic, 1=crossover, 2=potential.
         """
+        self._ensure_clean()
         E_kin, E_pot = self.per_edge_energy(f_E)
         return _quotient.subcomplex_by_energy_regime(
             E_kin, E_pot, regime, ratio_tol,
@@ -3658,6 +4056,7 @@ class RexGraph:
         signal: Optional[NDArray] = None,
         threshold: Optional[float] = None,
     ) -> Tuple[NDArray, NDArray, NDArray]:
+        self._ensure_clean()
         if edge_type is not None:
             return _quotient.subcomplex_by_edge_type(
                 self.edge_types.astype(_u8, copy=False), _u8(edge_type),
@@ -3681,6 +4080,7 @@ class RexGraph:
 
     def quotient(self, v_mask: NDArray, e_mask: NDArray, f_mask: NDArray) -> dict:
         """Build quotient complex R/I with optional RL_1 on quotient edges."""
+        self._ensure_clean()
         ag = self.alpha_G
         lo = self.L_overlap if ag == ag and ag != 0.0 else None
         return _quotient.build_quotient(
@@ -3756,6 +4156,7 @@ class RexGraph:
         valid : bool
         violations : list of (kind, cell_idx, missing_idx) tuples
         """
+        self._ensure_clean()
         return _quotient.validate_subcomplex(
             _asarray(v_mask, _u8),
             _asarray(e_mask, _u8),
@@ -3784,6 +4185,7 @@ class RexGraph:
         -------
         v_mask, e_mask, f_mask : uint8 arrays
         """
+        self._ensure_clean()
         v2e_ptr, v2e_idx = self._v2e
         e2f_ptr, e2f_idx = self._e2f
         return _quotient.hyperslice_quotient(
@@ -4648,6 +5050,7 @@ class RexGraph:
         raise ValueError(f"Unknown filtration kind: {kind}")
 
     def persistence(self, filt_v: NDArray, filt_e: NDArray, filt_f: NDArray) -> dict:
+        self._ensure_clean()
         return _persistence.persistence_diagram(
             filt_v, filt_e, filt_f,
             self._boundary_ptr, self._boundary_idx,
@@ -4722,6 +5125,7 @@ class RexGraph:
     # Serialization
 
     def to_json(self) -> dict:
+        self._ensure_clean()
         d = {
             "nV": self._nV, "nE": self._nE, "nF": self._nF,
             "dimension": self.dimension,
@@ -4759,6 +5163,7 @@ class RexGraph:
         return d
 
     def to_dict(self) -> dict:
+        self._ensure_clean()
         return {
             "boundary_ptr": self._boundary_ptr,
             "boundary_idx": self._boundary_idx,
@@ -4958,6 +5363,198 @@ class RexGraph:
         return f"RexGraph(nV={self._nV}, nE={self._nE}, nF={self._nF}, dim={self.dimension})"
 
 
+# construct via make_edge_delta() so `directed` is stamped correctly; do not build raw from the kernel's 8-tuple
+TemporalDelta = namedtuple(
+    "TemporalDelta",
+    "born_cols born_offsets born_wE born_signs died_keys mod_keys mod_wE mod_signs directed",
+    defaults=(False,),
+)
+
+
+def make_edge_delta(prev_ptr, prev_idx, prev_wE, prev_signs,
+                    curr_ptr, curr_idx, curr_wE, curr_signs, directed=False):
+    """Build a TemporalDelta from two cell-states, stamping `directed` so the record
+    faithfully carries the key-encoding scheme its keys were computed with. Always
+    construct edge deltas through this helper, never `TemporalDelta(*kernel_return)`
+    directly (the kernel returns 8 arrays and does not carry `directed`, so a raw
+    construction would default `directed` to False and mis-key a directed delta on
+    replay)."""
+    from rexgraph.core._temporal import encode_delta_full
+    arrays = encode_delta_full(prev_ptr, prev_idx, prev_wE, prev_signs,
+                               curr_ptr, curr_idx, curr_wE, curr_signs, directed)
+    return TemporalDelta(*arrays, directed=directed)
+
+
+def _cell_state(rex):
+    """Read a RexGraph's boundary CSR + attribution (materializing pending mutations).
+    Returns (boundary_ptr, boundary_idx, w_E_or_None, signs_or_None)."""
+    rex._ensure_clean()
+    return rex._boundary_ptr, rex._boundary_idx, rex._w_E, rex._signs
+
+
+# construct via make_face_delta() so directed is stamped; do not build raw from the kernel tuple
+# a face's identity is the order-independent hash of its constituent edges'
+# canonical keys, not its raw boundary-vertex encoding (see track_faces/
+# face_lifecycle for the exact/Jaccard boundary-vertex identity used there)
+FaceDelta = namedtuple(
+    "FaceDelta",
+    "born_edge_keys born_offsets born_signs died_face_keys directed",
+    defaults=(False,),
+)
+
+
+def _face_state(rex):
+    """(B2_col_ptr, B2_row_idx, B2_vals, edge_keys) with edge_keys[e] the canonical key
+    of edge e, so a face column's row indices map to stable edge identities."""
+    rex._ensure_clean()
+    from rexgraph.core._temporal import cell_keys_of
+    keys = cell_keys_of(rex._boundary_ptr, rex._boundary_idx, rex._directed)
+    return rex._B2_col_ptr, rex._B2_row_idx, rex._B2_vals, keys
+
+
+def make_face_delta(prev_face_state, curr_face_state, directed=False):
+    """Build a FaceDelta, stamping `directed` so the record carries the edge-key
+    scheme its keys were computed with (needed by apply_face_delta on replay to
+    recompute the live complex's edge keys with the matching scheme). Always
+    construct face deltas through this helper, never `FaceDelta(*kernel_return)`."""
+    from rexgraph.core._temporal import encode_face_delta
+    arrays = encode_face_delta(prev_face_state, curr_face_state, directed)
+    return FaceDelta(*arrays, directed=directed)
+
+
+# FNV-1a constants mirroring _temporal.pyx's _face_key_from_buf, so face_key_of
+# below hashes identically to encode_face_delta without needing a Cython rebuild.
+_FNV_OFFSET_64 = 1469598103934665603
+_FNV_PRIME_64 = 1099511628211
+_MASK_64 = (1 << 64) - 1
+
+
+def _to_signed_i64(u):
+    """Reinterpret a uint64 bit pattern (Python int, already masked to 64 bits)
+    as a signed int64, matching C's `<i64><unsigned long long>` cast."""
+    return u - (1 << 64) if u >= (1 << 63) else u
+
+
+def face_key_of_keys(edge_keys):
+    """Order-independent int64 hash of a single face's constituent edge-keys
+    (FNV-1a over the sorted i64 edge keys). Mirrors the arity != 2 branch of
+    _cell_key_i32/_cell_key_i64 (_temporal.pyx's _face_key_from_buf) so a
+    face's identity is computed with the same scheme as a cell's identity,
+    just over already-resolved edge keys instead of raw vertex ids. Factored
+    out of `face_key_of` so both the per-face-column path and a raw
+    edge-key-array path (reconstruct_at's key-level replay) share one hash
+    implementation instead of duplicating it."""
+    keys = sorted(int(k) for k in edge_keys)
+    h = _FNV_OFFSET_64
+    for k in keys:
+        h = (h ^ (k & _MASK_64)) & _MASK_64
+        h = (h * _FNV_PRIME_64) & _MASK_64
+    return _to_signed_i64(h)
+
+
+def face_key_of(B2_col_ptr, B2_row_idx, edge_keys, directed=False):
+    """Order-independent int64 hash of each face's constituent edge-keys.
+
+    Pure-Python/numpy mirror of `_temporal._face_key_from_buf` (FNV-1a over the
+    sorted i64 edge keys), so a live rex's face keys match the keys a FaceDelta
+    was built with by `encode_face_delta`. No Cython counterpart is added in
+    this task (avoids a rebuild); this is the canonical implementation.
+
+    `directed` is accepted only for interface symmetry with `cell_keys_of` and
+    `encode_face_delta`: `edge_keys` already carries the directedness it was
+    computed with (from `cell_keys_of(..., directed)`), so it is not used
+    again here.
+    """
+    ptr = np.asarray(B2_col_ptr)
+    idx = np.asarray(B2_row_idx)
+    ek = np.asarray(edge_keys)
+    nF = int(ptr.shape[0] - 1)
+    out = np.empty(nF, dtype=_i64)
+    for f in range(nF):
+        cols = idx[int(ptr[f]):int(ptr[f + 1])]
+        out[f] = face_key_of_keys(ek[int(c)] for c in cols)
+    return out
+
+
+def apply_edge_delta(rex, delta):
+    """Fold a TemporalDelta onto a live RexGraph via in-place mutators (O(delta)).
+
+    `delta.directed` selects the same key-encoding scheme the delta's own keys
+    were built with, so the live rex's recomputed keys line up with died_keys/
+    mod_keys."""
+    from rexgraph.core._temporal import cell_keys_of
+    # 1. died: mask current cells whose key is in delta.died_keys
+    if delta.died_keys.shape[0]:
+        rex._ensure_clean()
+        cur_keys = cell_keys_of(rex._boundary_ptr, rex._boundary_idx, delta.directed)
+        died = np.isin(cur_keys, delta.died_keys)
+        if died.any():
+            rex.remove_edges(died.astype(_i32))
+    # 2. born: split by arity; arity-2 via add_edges, else add_hyperedges
+    n_born = int(delta.born_offsets.shape[0] - 1)
+    if n_born:
+        cols = [delta.born_cols[delta.born_offsets[i]:delta.born_offsets[i + 1]]
+                for i in range(n_born)]
+        arity2 = [i for i, c in enumerate(cols) if c.shape[0] == 2]
+        other = [i for i in range(n_born) if cols[i].shape[0] != 2]
+        if arity2:
+            src = np.array([cols[i][0] for i in arity2], dtype=_i32)
+            tgt = np.array([cols[i][1] for i in arity2], dtype=_i32)
+            rex.add_edges(src, tgt,
+                          w_E=np.asarray(delta.born_wE)[arity2],
+                          signs=np.asarray(delta.born_signs)[arity2])
+        if other:
+            rex.add_hyperedges([cols[i] for i in other],
+                               w_E=np.asarray(delta.born_wE)[other],
+                               signs=np.asarray(delta.born_signs)[other])
+    # 3. modified: resolve keys to current indices, set attrs. A mod_key is only
+    # ever emitted for a cell present in BOTH prev and curr (a persisting cell),
+    # so in a correctly sequenced replay every mod_key MUST resolve; fail loud
+    # rather than silently reconstruct the wrong state.
+    if delta.mod_keys.shape[0]:
+        rex._ensure_clean()
+        cur_keys = cell_keys_of(rex._boundary_ptr, rex._boundary_idx, delta.directed)
+        pos = {int(k): i for i, k in enumerate(cur_keys)}
+        try:
+            idx = np.array([pos[int(k)] for k in delta.mod_keys], dtype=_i32)
+        except KeyError as e:
+            raise ValueError(
+                "apply_edge_delta: modified-cell key %s not present in the live "
+                "complex; a persisting cell must resolve, so the delta was applied "
+                "out of order or onto the wrong base state" % e.args[0])
+        rex.set_cell_attrs(idx,
+                           w_E=np.asarray(delta.mod_wE),
+                           signs=np.asarray(delta.mod_signs))
+
+
+def apply_face_delta(rex, fdelta):
+    """Fold a FaceDelta onto a live RexGraph. Resolve born-face edge-keys to
+    current edge indices, add_faces; build the removal mask from
+    died_face_keys. Apply AFTER apply_edge_delta for the same step: a face's
+    edge-keys only resolve once the edge deltas for that step have landed
+    (reconstruct_at guarantees this ordering)."""
+    from rexgraph.core._temporal import cell_keys_of
+    rex._ensure_clean()
+    cur_keys = cell_keys_of(rex._boundary_ptr, rex._boundary_idx, fdelta.directed)
+    pos = {int(k): i for i, k in enumerate(cur_keys)}
+    # died faces: mask current faces whose face-key is in died_face_keys
+    if fdelta.died_face_keys.shape[0] and rex._nF:
+        cur_face_keys = face_key_of(rex._B2_col_ptr, rex._B2_row_idx, cur_keys, fdelta.directed)
+        died = np.isin(cur_face_keys, fdelta.died_face_keys)
+        if died.any():
+            rex.remove_faces(died.astype(_i32))
+    # born faces: resolve constituent edge-keys to current indices
+    n_born = int(fdelta.born_offsets.shape[0] - 1)
+    if n_born:
+        face_edges, face_signs = [], []
+        for i in range(n_born):
+            ks = fdelta.born_edge_keys[fdelta.born_offsets[i]:fdelta.born_offsets[i + 1]]
+            eidx = np.array([pos[int(k)] for k in ks], dtype=_i32)
+            face_edges.append(eidx)
+            face_signs.append(fdelta.born_signs[fdelta.born_offsets[i]:fdelta.born_offsets[i + 1]])
+        rex.add_faces(face_edges, face_signs)
+
+
 class TemporalRex:
     """A temporal rexgraph Gamma = (R(t_0), ..., R(t_T)).
 
@@ -4971,7 +5568,22 @@ class TemporalRex:
         "_directed",
         "_general",
         "_T",
+        "_index_checkpoints",
+        "_index_deltas",
+        "_index_face_deltas",
+        "_index_cp_times",
+        "_cumulative_delta",
+        "_last_state",
+        "_last_face_state",
+        "_encoding",
+        "_snapshots_materialized",
+        "_checkpoint_threshold",
     )
+
+    # adaptive checkpoint threshold: store a full checkpoint once cumulative
+    # born+died / current edge count exceeds this, mirroring the rule in
+    # `build_temporal_index` (_temporal.pyx ~211).
+    _CHECKPOINT_THRESHOLD = 0.5
 
     def __init__(
         self,
@@ -4981,11 +5593,39 @@ class TemporalRex:
         directed: bool = False,
         general: bool = False,
     ):
+        """Build a temporal store from a list of snapshots.
+
+        `snapshots` is a list of connectivity tuples, either (sources, targets)
+        or, when `general=True`, (boundary_ptr, boundary_idx). This constructor
+        is connectivity only: it carries no w_E or signs, so every reconstructed
+        snapshot has w_E=None and signs=None, even if `face_snapshots` supplies
+        signed face (B2) data.
+
+        To preserve edge attribution (w_E, signs) and time varying weights,
+        build the store by appending full RexGraph snapshots instead: start
+        with `TemporalRex([])` and call `append_snapshot(rex)` for each full
+        RexGraph. That path round trips w_E, signs, and B2 signs through
+        serialize/load/reconstruct.
+        """
         self._snapshots = snapshots
         self._face_snapshots = face_snapshots or []
         self._directed = directed
         self._general = general
         self._T = len(snapshots)
+
+        # snapshots-backed construction: full snapshots already held in
+        # `_snapshots`, so `at(t)` is authoritative and the incremental
+        # checkpoint/delta index is built lazily (see `_ensure_index`).
+        self._snapshots_materialized = True
+        self._encoding = "general" if general else ("directed" if directed else "undirected")
+        self._index_checkpoints = None
+        self._index_deltas = None
+        self._index_face_deltas = None
+        self._index_cp_times = None
+        self._cumulative_delta = 0
+        self._last_state = None
+        self._last_face_state = None
+        self._checkpoint_threshold = self._CHECKPOINT_THRESHOLD
 
     @property
     def T(self) -> int:
@@ -5002,24 +5642,358 @@ class TemporalRex:
         kwargs["directed"] = self._directed
 
         if self._face_snapshots and t < len(self._face_snapshots):
-            b2cp, b2ri = self._face_snapshots[t]
+            fsnap = self._face_snapshots[t]
+            b2cp, b2ri = fsnap[0], fsnap[1]
+            b2v = fsnap[2] if len(fsnap) > 2 else None
             kwargs["B2_col_ptr"] = b2cp
             kwargs["B2_row_idx"] = b2ri
-            kwargs["B2_vals"] = np.ones(b2ri.shape[0], dtype=_f64)
+            # a legacy 2 tuple face snapshot (col_ptr, row_idx) carries no sign
+            # information at all, so ones is the only honest default there; a 3
+            # tuple (col_ptr, row_idx, vals) carries the real signed orientation
+            # and must be round tripped, not overwritten.
+            kwargs["B2_vals"] = (
+                np.ascontiguousarray(b2v, dtype=_f64) if b2v is not None
+                else np.ones(b2ri.shape[0], dtype=_f64)
+            )
 
         return RexGraph(**kwargs)
 
+    def _seed_rex(self, checkpoint) -> RexGraph:
+        """Build a fresh RexGraph from a full checkpoint tuple
+        (time, boundary_ptr, boundary_idx, w_E, signs, B2_col_ptr, B2_row_idx, B2_vals).
+        Only the pieces actually present in the checkpoint are passed through, so
+        a checkpoint with no attribution/faces seeds a bare connectivity rex."""
+        _, bp, bi, wE, signs, b2cp, b2ri, b2v = checkpoint
+        kw = dict(boundary_ptr=bp, boundary_idx=bi, directed=self._directed)
+        if wE is not None:
+            kw["w_E"] = wE
+        if signs is not None:
+            kw["signs"] = signs
+        if b2cp is not None and b2cp.shape[0] > 1:
+            kw["B2_col_ptr"] = b2cp
+            kw["B2_row_idx"] = b2ri
+            kw["B2_vals"] = b2v
+        return RexGraph(**kw)
+
+    def _full_checkpoint(self, t: int, rex: RexGraph) -> Tuple:
+        """Read a full-fidelity checkpoint (connectivity + attribution + faces)
+        off an already-built snapshot rex, via the connectivity/attribution
+        and face state readers."""
+        bp, bi, wE, signs = _cell_state(rex)
+        b2cp, b2ri, b2v, _ = _face_state(rex)
+        return (t, bp.copy(), bi.copy(), wE, signs, b2cp.copy(), b2ri.copy(), b2v.copy())
+
+    def _checkpoint_of(self, rex: RexGraph, t: int) -> Tuple:
+        """Full-state checkpoint tuple for `rex` at time `t` (thin alias over
+        `_full_checkpoint`, argument order matched to how `_append_index_entry`
+        and `append_snapshot` call it)."""
+        return self._full_checkpoint(t, rex)
+
+    def _append_index_entry(self, rex: RexGraph, *, face: bool = True,
+                             record_snapshot: bool = True) -> int:
+        """Diff `self._last_state`/`self._last_face_state` against `rex` and push
+        ONE new index entry (an edge delta + face delta, or a full checkpoint once
+        cumulative churn crosses `_checkpoint_threshold` of the current edge count),
+        then advance `_T`. This is the single incremental step (O(delta), never a
+        walk of prior history) shared by both `append_snapshot` (streaming growth)
+        and `_ensure_index` (batch build over already-materialized snapshots), so
+        the two paths produce a byte-identical index.
+
+        `record_snapshot=False` is how `_ensure_index` replays snapshots that are
+        already sitting in `self._snapshots` (placed there at construction time)
+        without appending duplicates onto that list.
+        """
+        t = self._T
+        cp, ci, cw, cs = _cell_state(rex)
+        nE = int(cp.shape[0] - 1)
+        cw = np.zeros(nE, _f64) if cw is None else np.asarray(cw, _f64)
+        cs = np.ones(nE, _i32) if cs is None else np.asarray(cs, _i32)
+        curr_face_state = _face_state(rex)
+
+        if self._last_state is None:
+            # nothing to diff against yet: this is the very first snapshot the
+            # index has ever seen, so it is always a full checkpoint.
+            self._index_checkpoints[t] = self._checkpoint_of(rex, t)
+            self._index_cp_times = np.append(self._index_cp_times, t).astype(np.int64)
+            self._index_deltas.append(None)
+            self._index_face_deltas.append(None)
+            self._cumulative_delta = 0
+        else:
+            pp, pi, pw, ps = self._last_state
+            d = make_edge_delta(pp, pi, pw, ps, cp, ci, cw, cs, self._directed)
+            fd = make_face_delta(self._last_face_state, curr_face_state, self._directed) if face else None
+
+            n_born = int(d.born_offsets.shape[0] - 1)
+            n_died = int(d.died_keys.shape[0])
+            self._cumulative_delta += n_born + n_died
+
+            if nE > 0 and (self._cumulative_delta / nE) > self._checkpoint_threshold:
+                self._index_checkpoints[t] = self._checkpoint_of(rex, t)
+                self._index_cp_times = np.append(self._index_cp_times, t).astype(np.int64)
+                self._index_deltas.append(None)
+                self._index_face_deltas.append(None)
+                self._cumulative_delta = 0
+            else:
+                self._index_deltas.append(d)
+                self._index_face_deltas.append(fd)
+
+        if record_snapshot and self._snapshots_materialized:
+            self._snapshots.append((cp, ci) if self._general else (rex.sources, rex.targets))
+
+        self._last_state = (cp, ci, cw, cs)
+        self._last_face_state = curr_face_state
+        self._T = t + 1
+
+        for name in ("temporal_index", "edge_lifecycle", "edge_metrics", "face_lifecycle_data"):
+            self.__dict__.pop(name, None)
+
+        return t
+
+    def append_snapshot(self, rex: RexGraph, *, face: bool = True) -> int:
+        """Append one new snapshot to a live temporal store, maintaining the
+        checkpoint/delta index INCREMENTALLY: one edge diff, one face diff, and an
+        int comparison against `_checkpoint_threshold`, O(delta), never a
+        from-scratch rebuild of the whole history.
+
+        If the index has not been built yet (a store just constructed from a
+        full snapshot list, `append_snapshot` called before any analysis or
+        `reconstruct_at` touched it), `_ensure_index` runs once first to seed
+        it from the snapshots already on hand; every call after that is O(delta).
+
+        Returns the new snapshot's time index.
+        """
+        self._ensure_index()
+        return self._append_index_entry(rex, face=face, record_snapshot=True)
+
+    def _ensure_index(self) -> None:
+        """Build the checkpoint/delta index used by `reconstruct_at`, if not
+        already built. Replays `at(k)` for every snapshot already on hand
+        through `_append_index_entry`, the exact same incremental step
+        `append_snapshot` uses for streaming growth, so a store built from a
+        full snapshot list and a store grown one snapshot at a time end up with
+        an IDENTICAL index. `record_snapshot=False` keeps this replay from
+        appending duplicates onto `self._snapshots`, which already holds every
+        snapshot from construction.
+
+        Checkpoint 0 is always full (the first call into `_append_index_entry`
+        has nothing to diff against). Full incremental maintenance thereafter
+        (`_checkpoint_threshold`, the same adaptive rule `build_temporal_index`
+        uses in the Cython index, _temporal.pyx ~211) is entirely delegated to
+        `_append_index_entry`.
+        """
+        if self._index_cp_times is not None:
+            return
+
+        self._index_checkpoints = {}
+        self._index_deltas = []
+        self._index_face_deltas = []
+        self._index_cp_times = np.zeros(0, dtype=np.int64)
+        self._last_state = None
+        self._last_face_state = None
+        self._cumulative_delta = 0
+
+        T = self._T
+        self._T = 0
+        try:
+            for k in range(T):
+                self._append_index_entry(self.at(k), face=True, record_snapshot=False)
+        except Exception:
+            # roll back to the unbuilt state so a retry rebuilds cleanly and the
+            # "is not None" guard above does not later no op against a half
+            # built index
+            self._index_checkpoints = None
+            self._index_deltas = None
+            self._index_face_deltas = None
+            self._index_cp_times = None
+            self._cumulative_delta = 0
+            self._last_state = None
+            self._last_face_state = None
+            self._T = T
+            raise
+
+    def reconstruct_at(self, t: int) -> RexGraph:
+        """Rebuild the snapshot at time `t` by seeding from the nearest full
+        checkpoint at or before `t`, then replaying the intervening edge/face
+        deltas at the KEY LEVEL (never mutating a live rex, never renumbering).
+
+        `apply_edge_delta`/`apply_face_delta` fold a delta onto a live rex via
+        the in-place mutators (`remove_edges`/`add_edges`/`compact`), which
+        is fine for single-step use, but is wrong here: compaction
+        renumbers vertices to a contiguous range whenever an edge death orphans
+        one, while every delta's died/mod keys were computed by `_ensure_index`
+        against the ORIGINAL, stable vertex-id scheme. Chaining deltas through
+        in-place mutation lets an early death's renumbering desync every later
+        delta's keys from the live complex, so a later death/mod silently fails
+        to resolve (its key no longer matches anything) and either a stale
+        edge persists past its death or the wrong cell gets modified.
+
+        Instead, accumulate the live cell set (and live face set) as plain
+        dicts keyed by canonical key, with born columns carrying the ORIGINAL
+        vertex ids straight from the delta, apply died/born/modified purely at
+        the key level, then build exactly ONE RexGraph at the end from the
+        accumulated cells. No live rex is ever mutated mid-replay, so there is
+        nothing to renumber and every key stays valid for the whole chain."""
+        self._ensure_index()
+        from rexgraph.core._temporal import cell_keys_of
+        cts = self._index_cp_times
+        c = int(cts[np.searchsorted(cts, t, side="right") - 1])
+        _, bp, bi, wE, signs, b2cp, b2ri, b2v = self._index_checkpoints[c]
+        directed = self._directed
+
+        # live cells: canonical key -> [column (original vertex ids), w_E, sign]
+        cells = {}
+        seed_keys = cell_keys_of(np.asarray(bp), np.asarray(bi), directed)
+        for j in range(len(bp) - 1):
+            col = np.asarray(bi[bp[j]:bp[j + 1]]).copy()
+            cells[int(seed_keys[j])] = [
+                col,
+                float(wE[j]) if wE is not None else 0.0,
+                int(signs[j]) if signs is not None else 1,
+            ]
+
+        # live faces: face key -> (edge_keys array, sign array), edge_keys in
+        # terms of the SEED checkpoint's own edge keys (born faces below
+        # replace their entry wholesale with the delta's own edge keys)
+        faces = {}
+        if b2cp is not None and len(b2cp) > 1:
+            for f in range(len(b2cp) - 1):
+                rows = np.asarray(b2ri[b2cp[f]:b2cp[f + 1]])
+                eks = seed_keys[rows]
+                faces[int(face_key_of_keys(eks))] = (
+                    eks.copy(), np.asarray(b2v[b2cp[f]:b2cp[f + 1]]).copy())
+
+        for k in range(c + 1, t + 1):
+            d = self._index_deltas[k]
+            if d is not None:
+                for key in d.died_keys:
+                    cells.pop(int(key), None)
+                nb = int(d.born_offsets.shape[0] - 1)
+                for i in range(nb):
+                    col = np.asarray(d.born_cols[d.born_offsets[i]:d.born_offsets[i + 1]]).copy()
+                    bk = int(cell_keys_of(np.array([0, len(col)], dtype=col.dtype),
+                                          col, d.directed)[0])
+                    cells[bk] = [col, float(d.born_wE[i]), int(d.born_signs[i])]
+                for i in range(len(d.mod_keys)):
+                    mk = int(d.mod_keys[i])
+                    if mk not in cells:
+                        raise ValueError(
+                            "reconstruct_at: modified-cell key %d absent from the "
+                            "live cell set at step %d; a persisting cell must "
+                            "resolve, so the index was built out of order" % (mk, k))
+                    cells[mk][1] = float(d.mod_wE[i])
+                    cells[mk][2] = int(d.mod_signs[i])
+            fd = self._index_face_deltas[k] if self._index_face_deltas else None
+            if fd is not None:
+                for fk in fd.died_face_keys:
+                    faces.pop(int(fk), None)
+                nbf = int(fd.born_offsets.shape[0] - 1)
+                for i in range(nbf):
+                    eks = np.asarray(
+                        fd.born_edge_keys[fd.born_offsets[i]:fd.born_offsets[i + 1]]).copy()
+                    fsg = np.asarray(
+                        fd.born_signs[fd.born_offsets[i]:fd.born_offsets[i + 1]]).copy()
+                    faces[int(face_key_of_keys(eks))] = (eks, fsg)
+
+        # build ONE RexGraph, preserving original vertex ids (no renumber)
+        ordered = list(cells.items())
+        key_to_pos = {key: p for p, (key, _cell) in enumerate(ordered)}
+        ptr = [0]
+        idx = []
+        wl = []
+        sl = []
+        for _key, (col, w, s) in ordered:
+            idx.extend(int(v) for v in col)
+            ptr.append(len(idx))
+            wl.append(w)
+            sl.append(s)
+        idx_dtype = bi.dtype if len(bi) else _i32
+        kw = dict(
+            boundary_ptr=np.array(ptr, dtype=idx_dtype),
+            boundary_idx=(np.array(idx, dtype=idx_dtype) if idx
+                         else np.zeros(0, dtype=idx_dtype)),
+            directed=directed,
+        )
+        if any(w != 0.0 for w in wl):
+            kw["w_E"] = np.array(wl, dtype=_f64)
+        if any(s != 1 for s in sl):
+            kw["signs"] = np.array(sl, dtype=_i32)
+        if faces:
+            fcp = [0]
+            fri = []
+            fv = []
+            for _fk, (eks, fsg) in faces.items():
+                # a face whose edge died mid-replay was already popped from
+                # `faces` by died_face_keys/died_keys upstream in the normal
+                # case; guard anyway so a stale face never silently resolves
+                # to the wrong (reused) column position.
+                for ek in eks:
+                    ek_i = int(ek)
+                    if ek_i not in key_to_pos:
+                        raise ValueError(
+                            "reconstruct_at: face references edge key %d not in "
+                            "the live cell set; a face delta must be replayed "
+                            "AFTER its edges' delta for the same step" % ek_i)
+                    fri.append(key_to_pos[ek_i])
+                fcp.append(len(fri))
+                fv.extend(float(x) for x in fsg)
+            kw.update(
+                B2_col_ptr=np.array(fcp, dtype=_i32),
+                B2_row_idx=np.array(fri, dtype=_i32),
+                B2_vals=np.array(fv, dtype=_f64),
+            )
+        return RexGraph(**kw)
+
+    def _snapshot_at(self, t: int) -> RexGraph:
+        """Return the snapshot at `t`, from materialized storage if available,
+        else reconstructed from the checkpoint/delta index."""
+        if self._snapshots_materialized:
+            return self.at(t)
+        return self.reconstruct_at(t)
+
+    def _all_snapshots(self) -> list:
+        """Return all T snapshots: the raw materialized `(src, tgt)`/`(bp, bi)`
+        tuples when this store was built from full snapshots, or reconstructed
+        RexGraph instances (via the checkpoint/delta index) otherwise."""
+        if self._snapshots_materialized:
+            return self._snapshots
+        return [self.reconstruct_at(t) for t in range(self._T)]
+
+    def _snapshot_pairs(self) -> list:
+        """Normalize `_all_snapshots()` into the raw-tuple shape the temporal
+        kernels expect: `(src, tgt)` per timestep in standard mode, `(bp, bi)`
+        in general mode. When snapshots are materialized, `_all_snapshots()`
+        already returns those tuples untouched; when delta-backed, each
+        element is a reconstructed RexGraph and this reads the equivalent
+        arrays off it via `_cell_state`."""
+        snaps = self._all_snapshots()
+        if self._snapshots_materialized:
+            return snaps
+        if self._general:
+            return [_cell_state(snap)[:2] for snap in snaps]
+        return [(snap.sources, snap.targets) for snap in snaps]
+
+    def _face_snapshot_pairs(self) -> list:
+        """`_face_snapshots` trimmed to the plain `(B2_col_ptr, B2_row_idx)`
+        shape the temporal Cython kernels expect. Each stored entry may be a
+        legacy 2 tuple or a 3 tuple that also carries `B2_vals`; the
+        kernels below only ever consume the CSR structure, never the signs,
+        so this strips a third element down to the 2 tuple form without
+        touching `self._face_snapshots` itself."""
+        return [(fsnap[0], fsnap[1]) for fsnap in self._face_snapshots]
+
     @cached_property
     def temporal_index(self) -> Tuple:
+        snaps = self._snapshot_pairs()
         if self._general:
-            return _temporal.build_temporal_index_general(self._snapshots)
-        return _temporal.build_temporal_index(self._snapshots, self._directed)
+            return _temporal.build_temporal_index_general(snaps)
+        return _temporal.build_temporal_index(snaps, self._directed)
 
     @cached_property
     def edge_lifecycle(self) -> Tuple:
+        snaps = self._snapshot_pairs()
         if self._general:
-            return _temporal.edge_lifecycle_general(self._snapshots)
-        return _temporal.edge_lifecycle(self._snapshots, self._directed)
+            return _temporal.edge_lifecycle_general(snaps)
+        return _temporal.edge_lifecycle(snaps, self._directed)
 
     def bioes(
         self,
@@ -5030,28 +6004,31 @@ class TemporalRex:
         face_event_threshold: int = 1,
         jaccard_threshold: float = 0.5,
     ) -> Tuple:
+        snaps = self._snapshot_pairs()
+        face_snaps = self._face_snapshot_pairs()
         if self._general:
             return _temporal.compute_bioes_unified_general(
-                self._snapshots, self._face_snapshots, betti_matrix,
+                snaps, face_snaps, betti_matrix,
                 phase_tol, min_phase_len, face_event_threshold, jaccard_threshold,
             )
         return _temporal.compute_bioes_unified(
-            self._snapshots, self._face_snapshots, betti_matrix,
+            snaps, face_snaps, betti_matrix,
             self._directed, phase_tol, min_phase_len,
             face_event_threshold, jaccard_threshold,
         )
 
     def temporal_persistence(self, final_rex: Optional[RexGraph] = None) -> dict:
-        R = final_rex or self.at(self._T - 1)
+        R = final_rex or self._snapshot_at(self._T - 1)
+        snaps = self._snapshot_pairs()
         if self._general:
             filt = _persistence.filtration_temporal_general(
-                self._snapshots, R.nV, R.nE,
+                snaps, R.nV, R.nE,
                 R.boundary_ptr, R.boundary_idx,
                 R._B2_col_ptr, R._B2_row_idx,
             )
         else:
-            snap_src = [s[0] for s in self._snapshots]
-            snap_tgt = [s[1] for s in self._snapshots]
+            snap_src = [s[0] for s in snaps]
+            snap_tgt = [s[1] for s in snaps]
             filt = _persistence.filtration_temporal(
                 snap_src, snap_tgt, R.nV, R.nE,
                 R.sources, R.targets,
@@ -5067,9 +6044,10 @@ class TemporalRex:
 
         Returns (edge_counts, edge_born, edge_died) each int32[T].
         """
+        snaps = self._snapshot_pairs()
         if self._general:
-            return _temporal.compute_edge_metrics_general(self._snapshots)
-        return _temporal.compute_edge_metrics(self._snapshots, self._directed)
+            return _temporal.compute_edge_metrics_general(snaps)
+        return _temporal.compute_edge_metrics(snaps, self._directed)
 
     @cached_property
     def face_lifecycle_data(self) -> Optional[Tuple]:
@@ -5082,7 +6060,7 @@ class TemporalRex:
         if self._general:
             return None  # general face lifecycle not yet supported
         return _temporal.face_lifecycle(
-            self._face_snapshots, self._snapshots, self._directed)
+            self._face_snapshot_pairs(), self._snapshot_pairs(), self._directed)
 
     def bioes_energy(
         self,
@@ -5167,11 +6145,11 @@ class TemporalRex:
         Requires standard (non-general) snapshots for edge endpoints.
         """
         signals = np.ascontiguousarray(edge_signals, dtype=np.float64)
-        snap = self._snapshots[0]
         if self._general:
             raise ValueError("cascade_wavefront requires standard snapshots")
-        src = np.ascontiguousarray(snap[0], dtype=np.int32)
-        tgt = np.ascontiguousarray(snap[1], dtype=np.int32)
+        snap0 = self._snapshot_at(0)
+        src = np.ascontiguousarray(snap0.sources, dtype=np.int32)
+        tgt = np.ascontiguousarray(snap0.targets, dtype=np.int32)
         return _temporal.cascade_wavefront(signals, src, tgt, threshold)
 
     def __repr__(self) -> str:

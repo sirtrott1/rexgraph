@@ -1,11 +1,14 @@
-"""rexgraph.nn - components to build and train models with the RCF math.
+"""rexgraph.nn: components to build and train models with the RCF math.
 
 Provides the parts to build and train models, not the models themselves. torch is an optional
 dependency (guarded at use); without it the numpy `rexgraph` core and the hodge_* primitives
 still work.
 
-  optim                - HodgeAdam / HodgeSGD (vector-Hodge / functional-ANOVA preconditioners),
-                         build_optimizer, hodge_groups (architecture-aware), training backends
+  optim                - GreensCochain (Green's-preconditioned Adam, the native optimizer for
+                         relational-native cochain models), HodgeAdam / HodgeSGD (vector-Hodge /
+                         functional-ANOVA preconditioners, back-compat, tie plain Adam on standard
+                         models), build_optimizer, hodge_groups (architecture-aware), training
+                         backends
   relational_attention - PropagatorAttention / CausalPropagatorAttention (attention on f(L_W))
   rcf_torch            - differentiable RCF propagators (heat / wave / green_resolvent)
   factory              - component registry and builders (make_optimizer, build_attention,
@@ -14,7 +17,7 @@ still work.
 from . import rcf_torch  # noqa: F401
 
 from .optim import (  # noqa: F401
-    HodgeAdam, HodgeSGD, build_optimizer, hodge_groups,
+    HodgeAdam, HodgeSGD, GreensCochain, generate_khop_channel, build_optimizer, hodge_groups,
     training_backends, pick_device, save_hodge_trajectory,
     hodge_matrix_decompose, hodge_matrix_precondition,
     hodge_flow_decompose, hodge_flow_precondition,
@@ -28,7 +31,7 @@ from .factory import (  # noqa: F401
 
 __all__ = [
     "rcf_torch",
-    "HodgeAdam", "HodgeSGD", "build_optimizer", "hodge_groups",
+    "HodgeAdam", "HodgeSGD", "GreensCochain", "generate_khop_channel", "build_optimizer", "hodge_groups",
     "training_backends", "pick_device", "save_hodge_trajectory",
     "hodge_matrix_decompose", "hodge_matrix_precondition",
     "hodge_flow_decompose", "hodge_flow_precondition",

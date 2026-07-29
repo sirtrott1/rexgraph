@@ -1,16 +1,16 @@
-"""rexgraph.mesh_health - topological health of any coordination graph.
+"""rexgraph.mesh_health: topological health of any coordination graph.
 
 A distributed system (microservices, a job DAG, a settlement network, a hive of
 model workers) is a relational complex: components are vertices, calls/messages
 are directed edges, live traffic is an edge flow. The Hodge decomposition of that
 flow splits it into two physically meaningful parts:
 
-    gradient  = load that DRAINS      - flows downhill and clears (healthy)
-    curl+harmonic = load that CIRCULATES - trapped in a loop, building
+    gradient  = load that DRAINS:      flows downhill and clears (healthy)
+    curl+harmonic = load that CIRCULATES: trapped in a loop, building
                     (a retry storm, a circular dependency, a distributed deadlock)
 
 `mesh_health(edges, flow)` returns that split plus the loops the stuck load lives
-on and the structural bottlenecks - a JSON-friendly report an adapter can emit as
+on and the structural bottlenecks: a JSON-friendly report an adapter can emit as
 SLIs on top of existing telemetry (OpenTelemetry spans, a service map, or the
 live agent complex). Unlike DFS cycle detection it is load-weighted (ranks
 severity, ignores benign cycles), localizing, and an early signal: the
@@ -27,7 +27,7 @@ from .graph import RexGraph
 
 __all__ = ["mesh_health", "harmonic_health"]
 
-# a machine-precision "is this quantity nonzero" test - used to read the SUPPORT of the harmonic
+# a machine-precision "is this quantity nonzero" test: reads the SUPPORT of the harmonic
 # field (which edges actually carry circulation), not as a tunable policy threshold.
 _ZERO = 1e-9
 
@@ -135,7 +135,7 @@ def _align_to_graph(rex, src, tgt, w):
 
 def _void_groups(rex, labels, gs, gt):
     """Node groups the structure implies but does not yet recognize (the void complex): a set of
-    mutually related nodes with no coparticipation face - a structural completion candidate (a
+    mutually related nodes with no coparticipation face: a structural completion candidate (a
     missing junction / normalization hint / an implied coordination group). `closes_a_hole` says
     whether recognizing it removes a harmonic cycle (fills_beta); `affinity` is the void's eta."""
     try:
@@ -205,7 +205,7 @@ def mesh_health(edges: Iterable[Tuple], flow: Optional[Sequence[float]] = None) 
     ``status`` is structural, not a tuned band: ``acyclic`` when beta_1 == 0 (no
     cycle can trap load), ``draining`` when cycles exist but the harmonic field
     vanishes on this flow, ``circulating`` when the harmonic field is nonzero. The
-    ``circulating`` fraction is the reported magnitude - the caller applies its own
+    ``circulating`` fraction is the reported magnitude; the caller applies its own
     policy to it. The only tolerance used is a machine-precision numerical zero
     (is the harmonic component nonzero here), not a policy threshold.
     """
@@ -248,35 +248,40 @@ def mesh_health(edges: Iterable[Tuple], flow: Optional[Sequence[float]] = None) 
 
     # localize: an edge is part of a stuck loop iff its circulating component is nonzero (in the
     # support of the harmonic field), measured against the peak by the same numerical zero.
-    mag = np.abs(circ_edge)
-    peak = float(mag.max()) if mag.size else 0.0
-    hot = [e for e in range(len(mag)) if peak > 0 and mag[e] > _ZERO * peak]
-    adj = defaultdict(set)
-    hot_nodes = set()
-    for e in hot:
-        a, b = int(gs[e]), int(gt[e])
-        adj[a].add(b); adj[b].add(a)
-        hot_nodes.add(a); hot_nodes.add(b)
+    # Only localize when the flow actually circulates: a draining or acyclic flow has no stuck
+    # loops by definition. This also keeps the localization from tripping on the tiny per-edge
+    # residual an iterative (matrix-free) solver leaves behind while the global circulating
+    # fraction is still (correctly) negligible.
     stuck_loops = []
-    for comp in _components(hot_nodes, adj):
-        comp_edges = [e for e in hot if int(gs[e]) in comp and int(gt[e]) in comp]
-        if len(comp_edges) < len(comp):
-            continue                                    # a stuck loop must actually be cyclic
-        # classify the loop by which character channel dominates its harmonic content (a
-        # comparison of exact channel sums, not a tuned cutoff)
-        kind = None
-        if fpe is not None and cpe is not None:
-            f = float(sum(fpe[e] for e in comp_edges))
-            c = float(sum(cpe[e] for e in comp_edges))
-            kind = "irreducible" if f >= c else "fillable"
-        stuck_loops.append({
-            "services": [labels[i] for i in comp],
-            "circulating": round(float(sum(mag[e] for e in comp_edges)), 4),
-            "kind": kind,                               # irreducible tension vs fillable overlap
-            "edges": [{"from": labels[int(gs[e])], "to": labels[int(gt[e])],
-                       "circulating": round(float(mag[e]), 4)} for e in comp_edges],
-        })
-    stuck_loops.sort(key=lambda d: -d["circulating"])
+    if status == "circulating":
+        mag = np.abs(circ_edge)
+        peak = float(mag.max()) if mag.size else 0.0
+        hot = [e for e in range(len(mag)) if peak > 0 and mag[e] > _ZERO * peak]
+        adj = defaultdict(set)
+        hot_nodes = set()
+        for e in hot:
+            a, b = int(gs[e]), int(gt[e])
+            adj[a].add(b); adj[b].add(a)
+            hot_nodes.add(a); hot_nodes.add(b)
+        for comp in _components(hot_nodes, adj):
+            comp_edges = [e for e in hot if int(gs[e]) in comp and int(gt[e]) in comp]
+            if len(comp_edges) < len(comp):
+                continue                                # a stuck loop must actually be cyclic
+            # classify the loop by which character channel dominates its harmonic content (a
+            # comparison of exact channel sums, not a tuned cutoff)
+            kind = None
+            if fpe is not None and cpe is not None:
+                f = float(sum(fpe[e] for e in comp_edges))
+                c = float(sum(cpe[e] for e in comp_edges))
+                kind = "irreducible" if f >= c else "fillable"
+            stuck_loops.append({
+                "services": [labels[i] for i in comp],
+                "circulating": round(float(sum(mag[e] for e in comp_edges)), 4),
+                "kind": kind,                           # irreducible tension vs fillable overlap
+                "edges": [{"from": labels[int(gs[e])], "to": labels[int(gt[e])],
+                           "circulating": round(float(mag[e]), 4)} for e in comp_edges],
+            })
+        stuck_loops.sort(key=lambda d: -d["circulating"])
 
     # structural bottlenecks: effective-resistance centrality (a failure here
     # fragments the graph the most)

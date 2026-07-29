@@ -19,7 +19,7 @@ from . import core
 # lands on sys.path[0] (e.g. running a script from inside the package, or
 # ``python -m ...`` from here), which breaks ``enum``/``dataclasses`` and much
 # of the stdlib. We keep ``rexgraph.types`` working as a backwards-compatible
-# import alias via sys.modules - this does NOT put a ``types.py`` file back on
+# import alias via sys.modules: this does NOT put a ``types.py`` file back on
 # disk, so the shadow is gone.
 from . import rextypes
 import sys as _sys
@@ -40,7 +40,7 @@ from . import compute
 
 from .mesh_health import mesh_health, harmonic_health
 
-__version__ = "1.0.2"
+__version__ = "1.0.4"
 
 __all__ = [
     "core",

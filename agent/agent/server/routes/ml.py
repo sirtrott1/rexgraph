@@ -1,5 +1,5 @@
 """
-agent.server.routes.ml - route surface for model building.
+agent.server.routes.ml: route surface for model building.
 
 Select an archetype, set its parameters, point it at data (files, parquet, .rex,
 or a TrustGraph knowledge core), and train it in single, multistep, or fusion
@@ -38,7 +38,7 @@ async def ml_run(body: dict = Body(...)):
         specs = [(s[0], s[1] if len(s) > 1 else {}) for s in body["specs"]]
     try:
         result = models.run(arch, params=body.get("params"), data=body.get("data"),
-                            mode=body.get("mode", "single"), optimizer=body.get("optimizer", "hodge"),
+                            mode=body.get("mode", "single"), optimizer=body.get("optimizer", "auto"),
                             steps=int(body.get("steps", 150)), lr=body.get("lr"),
                             seed=int(body.get("seed", 0)), stages=body.get("stages"), specs=specs,
                             fusion=body.get("fusion", "ensemble"), device=body.get("device", "cpu"),
@@ -73,7 +73,7 @@ async def ml_ingest(body: dict = Body(...)):
            "entities": bundle.meta.get("entity_names", [])[:20]}
     if body.get("train"):
         out["train"] = models.run(body.get("archetype", "hgnn"), data=bundle,
-                                   optimizer=body.get("optimizer", "hodge"),
+                                   optimizer=body.get("optimizer", "auto"),
                                    steps=int(body.get("steps", 150)))
     if body.get("rcdb_uri"):
         out["rcdb"] = models.core_to_rcdb(triples, url=body.get("url"), flow=body.get("flow"),

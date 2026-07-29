@@ -3,7 +3,7 @@
 
 
 
-## `_compat` - Zarr v2/v3 and HDF5 Compatibility Layer
+## `_compat`: Zarr v2/v3 and HDF5 Compatibility Layer
 
 **File:** `_compat.py` (969 lines)
 
@@ -17,10 +17,10 @@ create_array, numcodecs Blosc to v3 BloscCodec, compressor normalization).
 
 ### Backend Detection
 
-- `HAS_ZARR` - True if zarr is importable
-- `ZARR_V3` - True if zarr major version >= 3
-- `HAS_HDF5` - True if h5py is importable
-- `HAS_SCIPY` - True if scipy.sparse is importable
+- `HAS_ZARR`: True if zarr is importable
+- `ZARR_V3`: True if zarr major version >= 3
+- `HAS_HDF5`: True if h5py is importable
+- `HAS_SCIPY`: True if scipy.sparse is importable
 
 ---
 
@@ -35,7 +35,7 @@ create_array, numcodecs Blosc to v3 BloscCodec, compressor normalization).
 
   JSON serializer fallback for numpy types. Pass as `json.dumps(obj, default=json_default)`.
 
-- `NumpyJSONEncoder` - `json.JSONEncoder` subclass using `json_default`.
+- `NumpyJSONEncoder`: `json.JSONEncoder` subclass using `json_default`.
 
 - `as_str(x)` -> str or passthrough
 
@@ -45,22 +45,22 @@ create_array, numcodecs Blosc to v3 BloscCodec, compressor normalization).
 
 ### Path Utilities
 
-- `ensure_zarr_suffix(path)` -> str - appends .zarr if missing
-- `rm_rf(path)` - removes file or directory tree
+- `ensure_zarr_suffix(path)` -> str: appends .zarr if missing
+- `rm_rf(path)`: removes file or directory tree
 
 ---
 
 ### Zarr Root Group
 
-- `open_root_group(path, mode="r")` - opens a Zarr group (v2 or v3)
-- `create_root_group(path, overwrite=True)` - creates a fresh Zarr group
+- `open_root_group(path, mode="r")`: opens a Zarr group (v2 or v3)
+- `create_root_group(path, overwrite=True)`: creates a fresh Zarr group
 
 ---
 
 ### Zarr Compressor
 
 - `default_zarr_compressor()` -> Blosc(zstd, clevel=3, bitshuffle) or None
-- `normalize_zarr_compressor(comp)` - accepts None, numcodecs, v3 codec, or string shorthands ("blosc", "zstd", "none")
+- `normalize_zarr_compressor(comp)`: accepts None, numcodecs, v3 codec, or string shorthands ("blosc", "zstd", "none")
 
 ---
 
@@ -89,47 +89,47 @@ create_array, numcodecs Blosc to v3 BloscCodec, compressor normalization).
 
 ### Zarr Sparse CSR
 
-- `g_store_sparse_csr(group, name, matrix, ...)` - stores scipy sparse as data/indices/indptr subgroup
-- `g_load_sparse_csr(group, name, dense=False)` - loads sparse, optionally converting to dense
+- `g_store_sparse_csr(group, name, matrix, ...)`: stores scipy sparse as data/indices/indptr subgroup
+- `g_load_sparse_csr(group, name, dense=False)`: loads sparse, optionally converting to dense
 
 ---
 
 ### Zarr Dict Storage
 
-- `g_store_dict(group, name, data, ...)` - arrays become datasets, scalars become JSON attrs, nested dicts become sub-subgroups
-- `g_load_dict(group, name)` -> dict - recursive reconstruction
+- `g_store_dict(group, name, data, ...)`: arrays become datasets, scalars become JSON attrs, nested dicts become sub-subgroups
+- `g_load_dict(group, name)` -> dict: recursive reconstruction
 
 ---
 
 ### Zarr Boolean Masks
 
-- `g_store_bool_masks(group, name, masks, ...)` - stores as uint8 (Zarr v3 bool issues)
+- `g_store_bool_masks(group, name, masks, ...)`: stores as uint8 (Zarr v3 bool issues)
 - `g_load_bool_masks(group, name)` -> dict of bool arrays
 
 ---
 
 ### Zarr Ragged Strings
 
-- `write_text_array(group, name, seq, ...)` - stores strings as ragged UTF-8 byte arrays (values + offsets)
-- `read_text_array(group, name)` -> list of bytes - reads legacy fixed-width or ragged layout
+- `write_text_array(group, name, seq, ...)`: stores strings as ragged UTF-8 byte arrays (values + offsets)
+- `read_text_array(group, name)` -> list of bytes: reads legacy fixed-width or ragged layout
 
 ---
 
 ### HDF5 Helpers
 
 - `open_hdf5(path, mode="r")` -> h5py.File
-- `h5_store_array(group, name, arr, ...)` - stores ndarray, complex -> subgroup
+- `h5_store_array(group, name, arr, ...)`: stores ndarray, complex -> subgroup
 - `h5_load_array(group, name)` -> ndarray
-- `h5_store_complex` / `h5_load_complex` - same as h5_store_array (API symmetry with Zarr)
-- `h5_store_sparse_csr` / `h5_load_sparse_csr` - CSR subgroup with data/indices/indptr
-- `h5_store_dict` / `h5_load_dict` - recursive dict storage
-- `h5_store_bool_masks` / `h5_load_bool_masks` - uint8 boolean mask subgroup
-- `h5_store_strings` / `h5_load_strings` - variable-length UTF-8 HDF5 datasets
+- `h5_store_complex` / `h5_load_complex`: same as h5_store_array (API symmetry with Zarr)
+- `h5_store_sparse_csr` / `h5_load_sparse_csr`: CSR subgroup with data/indices/indptr
+- `h5_store_dict` / `h5_load_dict`: recursive dict storage
+- `h5_store_bool_masks` / `h5_load_bool_masks`: uint8 boolean mask subgroup
+- `h5_store_strings` / `h5_load_strings`: variable-length UTF-8 HDF5 datasets
 
 
 
 
-## `_serialization` - Type-Aware NamedTuple Serialization
+## `_serialization`: Type-Aware NamedTuple Serialization
 
 **File:** `_serialization.py` (597 lines)
 
@@ -157,13 +157,13 @@ Abstract base with methods:
 
 ### Adapter Implementations
 
-- `ZarrAdapter(group, compressor=None, chunks=True)` - wraps a Zarr group.
+- `ZarrAdapter(group, compressor=None, chunks=True)`: wraps a Zarr group.
   Uses `g_store_complex`/`g_load_complex` from `_compat` for arrays.
 
-- `HDF5Adapter(group, compression="lzf", chunks=True)` - wraps an h5py group.
+- `HDF5Adapter(group, compression="lzf", chunks=True)`: wraps an h5py group.
   Uses `h5_store_complex`/`h5_load_complex` from `_compat`.
 
-- `NpyAdapter(directory)` - wraps a directory of `.npy` files with a
+- `NpyAdapter(directory)`: wraps a directory of `.npy` files with a
   `_meta.json` sidecar for scalars, strings, and JSON data. Used by the
   `.rex` bundle format.
 
@@ -216,19 +216,19 @@ Abstract base with methods:
   Lazily populates a registry by importing all NamedTuple types from
   `rexgraph.types` on first call.
 
-- `register_type(cls)` - manually register a NamedTuple class for
+- `register_type(cls)`: manually register a NamedTuple class for
   deserialization.
 
 
 
 
-## `arrow_bridge` - Arrow/IPC Bridge
+## `arrow_bridge`: Arrow/IPC Bridge
 
 **File:** `arrow_bridge.py` (459 lines)
 
 Zero-copy columnar export of RexGraph data through Apache Arrow, suitable
 for interop with Polars, DuckDB, Spark, and any Arrow-compatible tool.
-All pyarrow imports are lazy -- the module can be imported without pyarrow
+All pyarrow imports are lazy: the module can be imported without pyarrow
 installed; ImportError is raised only when a function is called.
 
 Complex arrays are split into `<name>__real` / `<name>__imag` columns.
@@ -293,7 +293,7 @@ uniform length for valid Arrow tables.
 
 
 
-## `parquet_bridge` - Parquet Table Export/Import
+## `parquet_bridge`: Parquet Table Export/Import
 
 **File:** `parquet_bridge.py` (915 lines)
 
@@ -306,76 +306,76 @@ dependency.
 
 ### Generic Parquet I/O
 
-- `write_parquet(data, path, metadata=None)` - writes a dict of equal-length 1D arrays; 2D arrays split into `{name}_0`, `{name}_1`, etc.
-- `read_parquet(path, columns=None)` -> dict - reads and reassembles 2D arrays from split columns
-- `read_parquet_batches(path, batch_rows=100_000, columns=None)` -> Iterator - streaming reads
+- `write_parquet(data, path, metadata=None)`: writes a dict of equal-length 1D arrays; 2D arrays split into `{name}_0`, `{name}_1`, etc.
+- `read_parquet(path, columns=None)` -> dict: reads and reassembles 2D arrays from split columns
+- `read_parquet_batches(path, batch_rows=100_000, columns=None)` -> Iterator: streaming reads
 
 ---
 
 ### Boundary Table
 
-- `write_boundary_table(rex, path)` - one row per (edge, boundary_vertex) pair. Handles all edge types: standard (2 rows), self-loop (2 rows, same vertex), branching (3+ rows), witness (1 row). Columns: edge_idx, vertex_idx, position.
-- `read_boundary_table(path)` -> dict - reconstructs boundary_ptr/boundary_idx from the table.
+- `write_boundary_table(rex, path)`: one row per (edge, boundary_vertex) pair. Handles all edge types: standard (2 rows), self-loop (2 rows, same vertex), branching (3+ rows), witness (1 row). Columns: edge_idx, vertex_idx, position.
+- `read_boundary_table(path)` -> dict: reconstructs boundary_ptr/boundary_idx from the table.
 
 ---
 
 ### Edge Table
 
-- `write_edge_table(rex, path, include=None)` - one row per edge. Columns: edge_idx, source, target, boundary_size, edge_type, weight. Optional include for Hodge components.
+- `write_edge_table(rex, path, include=None)`: one row per edge. Columns: edge_idx, source, target, boundary_size, edge_type, weight. Optional include for Hodge components.
 - `read_edge_table(path)` -> dict
 
 ---
 
 ### Vertex Table
 
-- `write_vertex_table(rex, path, include=None)` - one row per vertex. Columns: vertex_idx, degree, x, y (spectral layout). Optional: fiedler_vector_L0, layout_3d.
+- `write_vertex_table(rex, path, include=None)`: one row per vertex. Columns: vertex_idx, degree, x, y (spectral layout). Optional: fiedler_vector_L0, layout_3d.
 - `read_vertex_table(path)` -> dict
 
 ---
 
 ### Face Table
 
-- `write_face_table(rex, path)` - one row per nonzero in B2 CSC. Columns: face_idx, edge_idx, orientation (+/-1).
-- `read_face_table(path)` -> dict - reconstructs B2_col_ptr, B2_row_idx, B2_vals.
+- `write_face_table(rex, path)`: one row per nonzero in B2 CSC. Columns: face_idx, edge_idx, orientation (+/-1).
+- `read_face_table(path)` -> dict: reconstructs B2_col_ptr, B2_row_idx, B2_vals.
 
 ---
 
 ### Persistence Table
 
-- `write_persistence_table(result, path)` - from persistence diagram dict. Columns: birth, death, dim, birth_cell, death_cell, lifetime. Metadata stores essential pairs and Betti numbers.
-- `read_persistence_table(path)` -> dict - includes betti tuple and essential array from metadata.
+- `write_persistence_table(result, path)`: from persistence diagram dict. Columns: birth, death, dim, birth_cell, death_cell, lifetime. Metadata stores essential pairs and Betti numbers.
+- `read_persistence_table(path)` -> dict: includes betti tuple and essential array from metadata.
 
 ---
 
 ### Filtration Table
 
-- `write_filtration_table(rex, filt_v, filt_e, filt_f, path, kind="")` - one row per cell. Columns: cell_idx, cell_dim, filtration_value.
-- `read_filtration_table(path)` -> dict - splits back into filt_v, filt_e, filt_f by dimension.
+- `write_filtration_table(rex, filt_v, filt_e, filt_f, path, kind="")`: one row per cell. Columns: cell_idx, cell_dim, filtration_value.
+- `read_filtration_table(path)` -> dict: splits back into filt_v, filt_e, filt_f by dimension.
 
 ---
 
 ### Metrics Table
 
-- `write_metrics_table(metrics, path, index_name="cell_idx")` - generic per-cell numeric metrics. All arrays must have equal length.
+- `write_metrics_table(metrics, path, index_name="cell_idx")`: generic per-cell numeric metrics. All arrays must have equal length.
 - `read_metrics_table(path, exclude_index=True)` -> dict
 
 ---
 
 ### Character Tables
 
-- `write_character_table(rex, path)` / `read_character_table(path)` - per-edge structural character chi. Columns: edge_idx, chi_0..chi_{nhats-1}.
-- `write_vertex_character_table(rex, path)` / `read_vertex_character_table(path)` - per-vertex phi and kappa.
+- `write_character_table(rex, path)` / `read_character_table(path)`: per-edge structural character chi. Columns: edge_idx, chi_0..chi_{nhats-1}.
+- `write_vertex_character_table(rex, path)` / `read_vertex_character_table(path)`: per-vertex phi and kappa.
 
 ---
 
 ### Void Table
 
-- `write_void_table(rex, path)` / `read_void_table(path)` - per-void triangle data. Columns: void_idx, eta, fills_beta, chi_void_0..chi_void_{nhats-1}. Empty table written when n_voids = 0.
+- `write_void_table(rex, path)` / `read_void_table(path)`: per-void triangle data. Columns: void_idx, eta, fills_beta, chi_void_0..chi_void_{nhats-1}. Empty table written when n_voids = 0.
 
 
 
 
-## `sql_bridge` - SQL Database Bridge
+## `sql_bridge`: SQL Database Bridge
 
 **File:** `sql_bridge.py` (1024 lines)
 
@@ -391,82 +391,82 @@ Requires: `pip install sqlalchemy pandas`
 
 ### Engine Management
 
-- `get_engine(conn_str)` - returns a SQLAlchemy engine. In-memory SQLite uses a shared StaticPool so multiple calls see the same database.
+- `get_engine(conn_str)`: returns a SQLAlchemy engine. In-memory SQLite uses a shared StaticPool so multiple calls see the same database.
 
 ---
 
 ### Boundary Table
 
-- `write_boundary_sql(rex, conn, table="boundary", if_exists="replace")` - one row per (edge, boundary_vertex) pair. Columns: edge_idx, vertex_idx, position.
-- `read_boundary_sql(conn, table="boundary")` -> dict - reconstructs boundary_ptr/boundary_idx.
+- `write_boundary_sql(rex, conn, table="boundary", if_exists="replace")`: one row per (edge, boundary_vertex) pair. Columns: edge_idx, vertex_idx, position.
+- `read_boundary_sql(conn, table="boundary")` -> dict: reconstructs boundary_ptr/boundary_idx.
 
 ---
 
 ### Edge Table
 
-- `write_edge_sql(rex, conn, table="edges", include=None, if_exists="replace")` - per-edge data with source, target, boundary_size, edge_type, edge_type_name, weight. Optional Hodge components.
+- `write_edge_sql(rex, conn, table="edges", include=None, if_exists="replace")`: per-edge data with source, target, boundary_size, edge_type, edge_type_name, weight. Optional Hodge components.
 - `read_edge_sql(conn, table="edges")` -> dict
 
 ---
 
 ### Vertex Table
 
-- `write_vertex_sql(rex, conn, table="vertices", include=None, if_exists="replace")` - per-vertex data with degree, x, y (spectral layout). Optional: layout_3d, fiedler_vector_L0.
+- `write_vertex_sql(rex, conn, table="vertices", include=None, if_exists="replace")`: per-vertex data with degree, x, y (spectral layout). Optional: layout_3d, fiedler_vector_L0.
 - `read_vertex_sql(conn, table="vertices")` -> dict
 
 ---
 
 ### Face Table
 
-- `write_face_sql(rex, conn, table="faces", if_exists="replace")` - B2 operator as one row per nonzero. Columns: face_idx, edge_idx, orientation.
-- `read_face_sql(conn, table="faces")` -> dict - reconstructs B2_col_ptr, B2_row_idx, B2_vals.
+- `write_face_sql(rex, conn, table="faces", if_exists="replace")`: B2 operator as one row per nonzero. Columns: face_idx, edge_idx, orientation.
+- `read_face_sql(conn, table="faces")` -> dict: reconstructs B2_col_ptr, B2_row_idx, B2_vals.
 
 ---
 
 ### Persistence Table
 
-- `write_persistence_sql(result, conn, table="persistence", if_exists="replace")` - persistence pairs. Columns: birth, death, dim, birth_cell, death_cell, lifetime. Metadata stores essential pairs and Betti numbers.
+- `write_persistence_sql(result, conn, table="persistence", if_exists="replace")`: persistence pairs. Columns: birth, death, dim, birth_cell, death_cell, lifetime. Metadata stores essential pairs and Betti numbers.
 - `read_persistence_sql(conn, table="persistence")` -> dict
 
 ---
 
 ### Filtration Table
 
-- `write_filtration_sql(rex, filt_v, filt_e, filt_f, conn, table="filtration", kind="", if_exists="replace")` - one row per cell. Columns: cell_idx, cell_dim, filtration_value.
-- `read_filtration_sql(conn, table="filtration")` -> dict - splits into filt_v, filt_e, filt_f.
+- `write_filtration_sql(rex, filt_v, filt_e, filt_f, conn, table="filtration", kind="", if_exists="replace")`: one row per cell. Columns: cell_idx, cell_dim, filtration_value.
+- `read_filtration_sql(conn, table="filtration")` -> dict: splits into filt_v, filt_e, filt_f.
 
 ---
 
 ### Temporal Table
 
-- `write_temporal_sql(trex, conn, table="temporal", if_exists="replace")` - per-timestep Betti numbers, edge/face counts, Euler characteristic from a TemporalRex.
-- `read_temporal_sql(conn, table="temporal")` -> dict - includes betti as T x 3 array.
+- `write_temporal_sql(trex, conn, table="temporal", if_exists="replace")`: per-timestep Betti numbers, edge/face counts, Euler characteristic from a TemporalRex.
+- `read_temporal_sql(conn, table="temporal")` -> dict: includes betti as T x 3 array.
 
 ---
 
 ### Metrics Table
 
-- `write_metrics_sql(metrics, conn, table="metrics", cell_dim=0, if_exists="replace")` - generic per-cell numeric metrics with cell_dim column.
+- `write_metrics_sql(metrics, conn, table="metrics", cell_dim=0, if_exists="replace")`: generic per-cell numeric metrics with cell_dim column.
 - `read_metrics_sql(conn, table="metrics", cell_dim=None, exclude_index=True)` -> dict
 
 ---
 
 ### Character and Void Tables
 
-- `write_character_sql(rex, conn, table="character")` / `read_character_sql(conn, table="character")` - per-edge structural character chi.
-- `write_vertex_character_sql(rex, conn, table="vertex_character")` / `read_vertex_character_sql(conn)` - per-vertex phi and kappa.
-- `write_void_sql(rex, conn, table="void")` / `read_void_sql(conn, table="void")` - void complex data.
+- `write_character_sql(rex, conn, table="character")` / `read_character_sql(conn, table="character")`: per-edge structural character chi.
+- `write_vertex_character_sql(rex, conn, table="vertex_character")` / `read_vertex_character_sql(conn)`: per-vertex phi and kappa.
+- `write_void_sql(rex, conn, table="void")` / `read_void_sql(conn, table="void")`: void complex data.
 
 ---
 
 ### Streaming
 
-- `read_sql_batches(conn, table_or_query, chunksize=100_000)` -> Iterator - streams SQL results as batches of arrays via pandas chunked reads.
+- `read_sql_batches(conn, table_or_query, chunksize=100_000)` -> Iterator: streams SQL results as batches of arrays via pandas chunked reads.
 
 
 
 
-## `csv_loader` - CSV Edge List Loader with Column Classification
+## `csv_loader`: CSV Edge List Loader with Column Classification
 
 **File:** `csv_loader.py` (596 lines)
 
@@ -474,7 +474,7 @@ Loads CSV edge lists and automatically classifies each metadata column's
 semantic role using a heuristic cascade: column name pattern matching,
 value-set statistics (cardinality, average length, delimiter frequency,
 numeric fraction), and value content scanning (positive/negative stems,
-ordinal terms, identifier patterns). No heavy dependencies -- uses only
+ordinal terms, identifier patterns). No heavy dependencies: uses only
 csv, re, numpy, and collections.
 
 ---
@@ -490,7 +490,7 @@ NUMERIC (continuous), EVIDENCE (semicolon-delimited sources), REFERENCE
 
 ### Column Profiling
 
-- `ColumnProfile` dataclass - per-column statistics: name, role, n_values,
+- `ColumnProfile` dataclass: per-column statistics: name, role, n_values,
   n_unique, avg_length, is_numeric, has_delimiter, unique_ratio, counts,
   numeric stats, positive/negative values for polarity, name_matched flag.
   Properties: is_categorical, is_freetext, is_delimited_list, is_binary.
@@ -524,12 +524,12 @@ NUMERIC (continuous), EVIDENCE (semicolon-delimited sources), REFERENCE
 
 ### GraphData
 
-`GraphData` dataclass - fully parsed and classified CSV data: sources,
+`GraphData` dataclass: fully parsed and classified CSV data: sources,
 targets, vertices, src_idx, tgt_idx, meta, profiles, edge_attrs, w_E,
 negative_types, nV, nE. Methods:
 
-- `summary()` -> str - human-readable column classification table
-- `to_rex()` -> RexGraph - constructs graph with magnitude weights and polarity signs
+- `summary()` -> str: human-readable column classification table
+- `to_rex()` -> RexGraph: constructs graph with magnitude weights and polarity signs
 
 ---
 
@@ -549,7 +549,7 @@ negative_types, nV, nE. Methods:
 
 
 
-## `json_loader` - JSON Graph Loaders
+## `json_loader`: JSON Graph Loaders
 
 **File:** `json_loader.py` (512 lines)
 
@@ -614,7 +614,7 @@ No heavy dependencies beyond json and numpy.
 
 
 
-## `zarr_format` - Zarr-Based Storage
+## `zarr_format`: Zarr-Based Storage
 
 **File:** `zarr_format.py` (1284 lines)
 
@@ -630,7 +630,7 @@ Requires: `pip install zarr`
 
 ### Simple Array I/O
 
-- `save_zarr_array(arr, path)` - saves a NumPy array to a .zarr store
+- `save_zarr_array(arr, path)`: saves a NumPy array to a .zarr store
 - `load_zarr_array(path)` -> ndarray
 
 ---
@@ -641,11 +641,11 @@ Requires: `pip install zarr`
 
 Main class with configurable compression and chunking.
 
-- `write(path, obj, cache=None)` - writes RexGraph, TemporalRex, or ndarray. Cache accepts "all" or a list of group names.
-- `read(path)` -> RexGraph, TemporalRex, or ndarray - auto-detects object type from attrs.
+- `write(path, obj, cache=None)`: writes RexGraph, TemporalRex, or ndarray. Cache accepts "all" or a list of group names.
+- `read(path)` -> RexGraph, TemporalRex, or ndarray: auto-detects object type from attrs.
 
 Container API for multi-object stores:
-- `write_to_group(path, name, obj, **kw)` - writes to /objects/\<name\>
+- `write_to_group(path, name, obj, **kw)`: writes to /objects/\<name\>
 - `read_from_group(path, name)` -> object
 - `list_groups(path)` -> list of names
 
@@ -655,31 +655,31 @@ Container API for multi-object stores:
 
 13 cache groups, each containing related computed properties:
 
-- **algebra** - B1, B2, L0, L1, L2, L1_down, L1_up, overlap_adjacency, L_overlap
-- **spectral** - spectral_bundle dict, eigenvalues, Fiedler vectors, layout
-- **relational** - RL, evals/evecs, alpha constants, Lambda
-- **topology** - Betti numbers, Euler characteristic, edge types, cycle basis
-- **hodge** - Hodge decomposition components, rho
-- **faces** - detected face data and metrics
-- **field** - field operator M, eigendecomposition, mode classification
-- **wave** - density matrices
-- **signal** - perturbation results
-- **quotient** - subcomplex masks, quotient operators, relative Betti
-- **persistence** - diagrams, enrichment
-- **temporal** - edge/face lifecycle, Betti matrix, BIOES
-- **standard_metrics** - PageRank, betweenness, clustering, Louvain
+- **algebra**: B1, B2, L0, L1, L2, L1_down, L1_up, overlap_adjacency, L_overlap
+- **spectral**: spectral_bundle dict, eigenvalues, Fiedler vectors, layout
+- **relational**: RL, evals/evecs, alpha constants, Lambda
+- **topology**: Betti numbers, Euler characteristic, edge types, cycle basis
+- **hodge**: Hodge decomposition components, rho
+- **faces**: detected face data and metrics
+- **field**: field operator M, eigendecomposition, mode classification
+- **wave**: density matrices
+- **signal**: perturbation results
+- **quotient**: subcomplex masks, quotient operators, relative Betti
+- **persistence**: diagrams, enrichment
+- **temporal**: edge/face lifecycle, Betti matrix, BIOES
+- **standard_metrics**: PageRank, betweenness, clustering, Louvain
 
 ---
 
 ### Convenience Functions
 
-- `save_zarr(path, obj, cache=None, compressor="default")` - module-level save using default format instance
-- `load_zarr(path)` -> object - module-level load
+- `save_zarr(path, obj, cache=None, compressor="default")`: module-level save using default format instance
+- `load_zarr(path)` -> object: module-level load
 
 
 
 
-## `hdf5_format` - HDF5-Based Storage
+## `hdf5_format`: HDF5-Based Storage
 
 **File:** `hdf5_format.py` (1230 lines)
 
@@ -694,7 +694,7 @@ Requires: `pip install h5py`
 
 ### Simple Array I/O
 
-- `save_hdf5_array(arr, path)` - saves a NumPy array to an .h5 file
+- `save_hdf5_array(arr, path)`: saves a NumPy array to an .h5 file
 - `load_hdf5_array(path)` -> ndarray
 
 ---
@@ -705,11 +705,11 @@ Requires: `pip install h5py`
 
 Main class with configurable compression and chunking.
 
-- `write(path, obj, cache=None)` - writes RexGraph, TemporalRex, or ndarray to a single .h5 file. Cache accepts "all" or a list of group names.
-- `read(path)` -> RexGraph, TemporalRex, or ndarray - auto-detects object type from attrs.
+- `write(path, obj, cache=None)`: writes RexGraph, TemporalRex, or ndarray to a single .h5 file. Cache accepts "all" or a list of group names.
+- `read(path)` -> RexGraph, TemporalRex, or ndarray: auto-detects object type from attrs.
 
 Container API for multi-object files:
-- `write_to_group(path, name, obj, **kw)` - writes to /objects/\<name\> within the same .h5 file
+- `write_to_group(path, name, obj, **kw)`: writes to /objects/\<name\> within the same .h5 file
 - `read_from_group(path, name)` -> object
 - `list_groups(path)` -> list of names
 
@@ -726,13 +726,13 @@ properties.
 
 ### Convenience Functions
 
-- `save_hdf5(path, obj, cache=None, compression="lzf")` - module-level save using default format instance
-- `load_hdf5(path)` -> object - module-level load
+- `save_hdf5(path, obj, cache=None, compression="lzf")`: module-level save using default format instance
+- `load_hdf5(path)` -> object: module-level load
 
 
 
 
-## `bundle` - RexGraph Bundle (.rex)
+## `bundle`: RexGraph Bundle (.rex)
 
 **File:** `bundle.py` (784 lines)
 
@@ -757,16 +757,16 @@ On-disk layout:
 
 `RexBundle(root, manifest)`
 
-- `manifest` -> dict - parsed MANIFEST.json
-- `object_type` -> str - "RexGraph" or "TemporalRex"
+- `manifest` -> dict: parsed MANIFEST.json
+- `object_type` -> str: "RexGraph" or "TemporalRex"
 - `path` -> Path
 
 Construction:
-- `RexBundle.from_graph(graph, cache=None)` - creates in-memory bundle spec (does not write to disk). Call `.save()` to persist.
-- `RexBundle.load(path, mmap=False)` - loads from a .rex directory. mmap=True for lazy array loading.
+- `RexBundle.from_graph(graph, cache=None)`: creates in-memory bundle spec (does not write to disk). Call `.save()` to persist.
+- `RexBundle.load(path, mmap=False)`: loads from a .rex directory. mmap=True for lazy array loading.
 
 Persistence:
-- `save(path)` - writes bundle to disk. Arrays from source graph or copies existing bundle.
+- `save(path)`: writes bundle to disk. Arrays from source graph or copies existing bundle.
 
 Reconstruction:
 - `to_graph()` -> RexGraph
@@ -774,7 +774,7 @@ Reconstruction:
 - `to_object()` -> RexGraph or TemporalRex (auto-dispatch)
 
 Array access:
-- `bundle["boundary_ptr"]` -> ndarray - loads by name (root or cache/)
+- `bundle["boundary_ptr"]` -> ndarray: loads by name (root or cache/)
 - `"layout" in bundle` -> bool
 - `list_arrays()` -> sorted list of array names
 - `read_cache()` -> dict of all cached arrays + scalar cache from manifest
@@ -802,5 +802,5 @@ Snapshots stored as numbered subdirectories:
 
 ### Convenience Functions
 
-- `save_rex(path, obj, cache=None)` - saves RexGraph or TemporalRex to .rex bundle
-- `load_rex(path)` -> RexGraph or TemporalRex - loads from .rex bundle
+- `save_rex(path, obj, cache=None)`: saves RexGraph or TemporalRex to .rex bundle
+- `load_rex(path)` -> RexGraph or TemporalRex: loads from .rex bundle

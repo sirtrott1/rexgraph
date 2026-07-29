@@ -1,5 +1,5 @@
 """
-agent.lifecycle - shared operations spine for the agent platform.
+agent.lifecycle: shared operations spine for the agent platform.
 
 One interface for every phase of an agent's life: serve (bring the swarm up), train (optimizer,
 device, data export), build (assemble an agent pipeline), deploy (generate a container bundle),
@@ -181,7 +181,7 @@ def _apply_compute(ctx: "RunContext") -> None:
 def _phase_device(ctx: "RunContext") -> str:
     """Resolve the training/inference device for a phase, bridging the setup's execution layer to
     the model lifecycle: an explicit ``device`` param wins; otherwise the active setup's
-    ``ComputeSpec.backend`` (default 'auto') is resolved through ``rexgraph.nn.pick_device`` - so
+    ``ComputeSpec.backend`` (default 'auto') is resolved through ``rexgraph.nn.pick_device``, so
     'auto' rides the compute stack's recommended backend (GPU when usable), 'cpu' forces CPU, and a
     GPU request on a CPU-only host degrades cleanly. Returns a device string (never None)."""
     dev = ctx.params.get("device")
@@ -255,12 +255,13 @@ def _serve(ctx: RunContext) -> dict:
 @register_phase("train", "Build + train a model archetype (mlp/cnn/lm/hgnn) with your optimizer.")
 def _train(ctx: RunContext) -> dict:
     """Build and train any model archetype on your data (file/parquet/.rex/synthetic), with the
-    active setup's optimizer (HodgeAdam by default). mode ∈ {single, multistep, fusion}. Streams the
+    active setup's optimizer (auto by default: GreensCochain for cochain-native models, else Adam).
+    mode ∈ {single, multistep, fusion}. Streams the
     loss into the run log and can checkpoint through the rexgraph IO layer (`save_to`)."""
     from agent import models
     p = ctx.profile
     arch = ctx.params.get("archetype", "mlp")
-    optimizer = ctx.params.get("optimizer") or (p.optimizer if p else None) or "hodge"
+    optimizer = ctx.params.get("optimizer") or (p.optimizer if p else None) or "auto"
     steps = int(ctx.params.get("steps", 200))
     reserved = {"archetype", "optimizer", "steps", "data", "mode", "save_to", "device", "lr", "seed"}
     params = {k: v for k, v in ctx.params.items() if k not in reserved} or None
@@ -350,7 +351,7 @@ def _pipeline(ctx: RunContext) -> dict:
     ckpt = ctx.params.get("save_to")
     if ctx.params.get("archetype"):
         arch = ctx.params["archetype"]
-        opt = ctx.params.get("optimizer") or (p.optimizer if p else None) or "hodge"
+        opt = ctx.params.get("optimizer") or (p.optimizer if p else None) or "auto"
         if (ctx.params.get("worker") or ctx.params.get("predict")) and not ckpt:
             base = os.environ.get("REXGRAPH_CONFIG_DIR") or os.path.expanduser("~/.config/rexgraph")
             ckpt = os.path.join(base, "pipeline_models", ctx.params.get("name", "model"))
@@ -421,7 +422,7 @@ def _bench(ctx: RunContext) -> dict:
         ctx.log(f"verdict: {res.get('verdict')}")
         return res
     p = ctx.profile
-    opt = ctx.params.get("optimizer") or (p.optimizer if p else None) or "hodge"
+    opt = ctx.params.get("optimizer") or (p.optimizer if p else None) or "auto"
     ctx.log(f"benchmark {name} optimizer={opt} steps={steps}")
     res = benchmarks.run_benchmark(name, optimizer=opt, steps=steps, on_step=on_step)
     ctx.log(f"{name}: eval_final={res.get('eval_final')}")
@@ -431,7 +432,7 @@ def _bench(ctx: RunContext) -> dict:
 @register_phase("finetune", "LoRA-fine-tune a real HF model with your optimizer, A/B vs Adam.")
 def _finetune(ctx: RunContext) -> dict:
     """Fine-tune a Hugging Face model (default Qwen2.5-0.5B-Instruct) with the setup's optimizer
-    (HodgeAdam by default) against Adam on a held-out eval split, streaming both loss curves.
+    (auto by default) against Adam on a held-out eval split, streaming both loss curves.
     Produces a loadable LoRA adapter. Needs the [finetune] extra; returns a skip message if it is
     absent."""
     from agent import finetune
@@ -440,7 +441,7 @@ def _finetune(ctx: RunContext) -> dict:
         ctx.log(f"fine-tune deps missing ({', '.join(dep['missing'])}). Install: {dep['need']}")
         return {"skipped": dep["need"], "deps": dep}
     p = ctx.profile
-    optimizer = ctx.params.get("optimizer") or (p.optimizer if p else None) or "hodge"
+    optimizer = ctx.params.get("optimizer") or (p.optimizer if p else None) or "auto"
     model_id = ctx.params.get("model_id", finetune.DEFAULT_MODEL)
     steps = int(ctx.params.get("steps", 60))
     ab = str(ctx.params.get("ab", "true")).lower() not in ("false", "0", "no")

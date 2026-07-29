@@ -1,5 +1,5 @@
 """
-agent.hive_config - named, switchable, editable hive profiles.
+agent.hive_config: named, switchable, editable hive profiles.
 
 A profile holds a whole setup in one object: how the swarm is composed (auto from disk, attach
 live servers, or an explicit list of bees), the memory budget, and the engine preferences
@@ -8,9 +8,9 @@ a built-in preset, edit it, save it as a user profile, switch between profiles, 
 bring the hive up.
 
 Layers:
-  - BUILTIN_PROFILES - code-defined presets (read-only), always present.
-  - user profiles     - JSON under <REXGRAPH_CONFIG_DIR>/hive_profiles/, created by save().
-  - active pointer    - which profile is currently selected (<config>/hive_profiles/active.json).
+  - BUILTIN_PROFILES: code-defined presets (read-only), always present.
+  - user profiles: JSON under <REXGRAPH_CONFIG_DIR>/hive_profiles/, created by save().
+  - active pointer: which profile is currently selected (<config>/hive_profiles/active.json).
 
 `apply(id, hive)` reads a profile and stands the hive up accordingly, reusing the hive module's
 own compose/attach/spawn. This module decides which bees; `hive` performs the spawn/attach.
@@ -85,7 +85,7 @@ class HiveProfile:
     max_workers: int = 4
     bees: List[BeeSpec] = field(default_factory=list)   # used when compose includes 'manual'
     # engine preferences (surfaced to the rest of the stack; see apply())
-    optimizer: str = "hodge"         # hodge (RexGraph-native, default) | adam
+    optimizer: str = "auto"         # auto (routes per model: GreensCochain for cochain-native, else Adam; default) | hodge | adam | greens
     attention: str = "relational"    # relational (RexGraph-native, default) | standard
     monitor_embed: bool = True       # monitor uses the embedder bee for semantic alignment
     routing: str = "specialty+history"

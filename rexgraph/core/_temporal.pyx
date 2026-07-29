@@ -178,6 +178,331 @@ def encode_snapshot_delta(prev_src, prev_tgt, curr_src, curr_tgt, directed=False
     return encode_snapshot_delta_i32(prev_src, prev_tgt, curr_src, curr_tgt, directed)
 
 
+# Full-fidelity edge delta: general boundary CSR + w_E/sign attribution
+
+cdef int _cmp_i32(const void* a, const void* b) noexcept nogil:
+    cdef i32 av = (<i32*>a)[0]
+    cdef i32 bv = (<i32*>b)[0]
+    if av < bv: return -1
+    if av > bv: return 1
+    return 0
+
+cdef int _cmp_i64(const void* a, const void* b) noexcept nogil:
+    cdef i64 av = (<i64*>a)[0]
+    cdef i64 bv = (<i64*>b)[0]
+    if av < bv: return -1
+    if av > bv: return 1
+    return 0
+
+cdef inline i64 _cell_key_i32(i32[::1] idx, Py_ssize_t start, Py_ssize_t end,
+                               bint directed) except? -1:
+    """Canonical int64 key for one boundary column (a cell = idx[start:end]).
+    Arity 2 reuses the standard edge encoding; arity != 2 (witness/branching
+    cells, self-loops) uses an order-independent FNV-1a hash of the sorted
+    vertices."""
+    cdef Py_ssize_t arity = end - start
+    cdef i32 s, t
+    cdef Py_ssize_t k
+    cdef i32* buf
+    cdef unsigned long long h
+    if arity == 2:
+        s = idx[start]; t = idx[start + 1]
+        if directed:
+            return _encode_edge_directed_i32(s, t)
+        return _encode_edge_undirected_i32(s, t)
+    buf = <i32*>malloc(<size_t>arity * sizeof(i32))
+    if buf == NULL:
+        raise MemoryError()
+    try:
+        for k in range(arity):
+            buf[k] = idx[start + k]
+        qsort(buf, <size_t>arity, sizeof(i32), _cmp_i32)
+        h = 1469598103934665603ULL
+        for k in range(arity):
+            h ^= <unsigned long long><i64>buf[k]
+            h *= 1099511628211ULL
+    finally:
+        free(buf)
+    return <i64>h
+
+cdef inline i64 _cell_key_i64(i64[::1] idx, Py_ssize_t start, Py_ssize_t end,
+                               bint directed) except? -1:
+    """int64-boundary variant of _cell_key_i32."""
+    cdef Py_ssize_t arity = end - start
+    cdef i64 s, t
+    cdef Py_ssize_t k
+    cdef i64* buf
+    cdef unsigned long long h
+    if arity == 2:
+        s = idx[start]; t = idx[start + 1]
+        if directed:
+            return _encode_edge_directed_i64(s, t)
+        return _encode_edge_undirected_i64(s, t)
+    buf = <i64*>malloc(<size_t>arity * sizeof(i64))
+    if buf == NULL:
+        raise MemoryError()
+    try:
+        for k in range(arity):
+            buf[k] = idx[start + k]
+        qsort(buf, <size_t>arity, sizeof(i64), _cmp_i64)
+        h = 1469598103934665603ULL
+        for k in range(arity):
+            h ^= <unsigned long long>buf[k]
+            h *= 1099511628211ULL
+    finally:
+        free(buf)
+    return <i64>h
+
+
+def cell_keys_of_i32(np.ndarray[i32, ndim=1] boundary_ptr,
+                      np.ndarray[i32, ndim=1] boundary_idx,
+                      bint directed=False):
+    """One canonical int64 key per boundary column (thin wrapper over
+    _cell_key_i32, reused so edge keys stay consistent between edge deltas
+    and face deltas)."""
+    cdef Py_ssize_t nE = boundary_ptr.shape[0] - 1, j
+    cdef i32[::1] bp = boundary_ptr, bi = boundary_idx
+    cdef np.ndarray[i64, ndim=1] keys = np.empty(nE, dtype=np.int64)
+    cdef i64[::1] kv = keys
+    for j in range(nE):
+        kv[j] = _cell_key_i32(bi, bp[j], bp[j + 1], directed)
+    return keys
+
+
+def cell_keys_of_i64(np.ndarray[i64, ndim=1] boundary_ptr,
+                      np.ndarray[i64, ndim=1] boundary_idx,
+                      bint directed=False):
+    """int64-boundary variant of cell_keys_of_i32."""
+    cdef Py_ssize_t nE = boundary_ptr.shape[0] - 1, j
+    cdef i64[::1] bp = boundary_ptr, bi = boundary_idx
+    cdef np.ndarray[i64, ndim=1] keys = np.empty(nE, dtype=np.int64)
+    cdef i64[::1] kv = keys
+    for j in range(nE):
+        kv[j] = _cell_key_i64(bi, <Py_ssize_t>bp[j], <Py_ssize_t>bp[j + 1], directed)
+    return keys
+
+
+def cell_keys_of(boundary_ptr, boundary_idx, directed=False):
+    """Auto-dispatch by dtype (mirrors encode_delta_full)."""
+    if boundary_ptr.dtype == np.int64:
+        return cell_keys_of_i64(boundary_ptr, boundary_idx, directed)
+    return cell_keys_of_i32(boundary_ptr, boundary_idx, directed)
+
+
+def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
+                           np.ndarray[i32, ndim=1] prev_idx,
+                           np.ndarray[f64, ndim=1] prev_wE,
+                           np.ndarray[i32, ndim=1] prev_signs,
+                           np.ndarray[i32, ndim=1] curr_ptr,
+                           np.ndarray[i32, ndim=1] curr_idx,
+                           np.ndarray[f64, ndim=1] curr_wE,
+                           np.ndarray[i32, ndim=1] curr_signs,
+                           bint directed=False):
+    """
+    Full-fidelity delta between two general-boundary snapshots, carrying
+    w_E/sign attribution. A cell is one CSR column idx[ptr[j]:ptr[j+1]];
+    arity 2 (standard edges) and arity != 2 (witness/branching cells) are
+    both handled uniformly.
+
+    Sort-merge diff over canonical int64 cell keys:
+      key only in prev  -> DIED     (emit the key)
+      key only in curr  -> BORN     (emit the cell's vertices in original
+                                      order, plus its w_E/sign)
+      key in both       -> compare w_E and sign; if either differs, emit
+                            MODIFIED (curr key, curr w_E, curr sign)
+
+    Returns
+    -------
+    born_cols : int32[sum of born arities]
+    born_offsets : int32[n_born + 1]
+    born_wE : f64[n_born]
+    born_signs : int32[n_born]
+    died_keys : int64[n_died]
+    mod_keys : int64[n_mod]
+    mod_wE : f64[n_mod]
+    mod_signs : int32[n_mod]
+    """
+    cdef Py_ssize_t nP = prev_ptr.shape[0] - 1
+    cdef Py_ssize_t nC = curr_ptr.shape[0] - 1
+    cdef i32[::1] pp = prev_ptr, pidx = prev_idx, cp = curr_ptr, cidx = curr_idx
+    cdef f64[::1] pw = prev_wE, cw = curr_wE
+    cdef i32[::1] ps = prev_signs, cs = curr_signs
+    cdef Py_ssize_t j
+
+    cdef np.ndarray[i64, ndim=1] prev_keys = np.empty(nP, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] curr_keys = np.empty(nC, dtype=np.int64)
+    cdef i64[::1] pk = prev_keys, ck = curr_keys
+
+    for j in range(nP):
+        pk[j] = _cell_key_i32(pidx, pp[j], pp[j + 1], directed)
+    for j in range(nC):
+        ck[j] = _cell_key_i32(cidx, cp[j], cp[j + 1], directed)
+
+    cdef np.ndarray[np.intp_t, ndim=1] porder_arr = np.argsort(prev_keys)
+    cdef np.ndarray[np.intp_t, ndim=1] corder_arr = np.argsort(curr_keys)
+    cdef np.intp_t[::1] porder = porder_arr, corder = corder_arr
+
+    # Pass 1: merge-diff into preallocated upper-bound buffers (died <= nP,
+    # modified <= min(nP, nC) <= nC, born cell indices <= nC).
+    cdef np.ndarray[i64, ndim=1] died_keys = np.empty(nP, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] mod_keys = np.empty(nC, dtype=np.int64)
+    cdef np.ndarray[f64, ndim=1] mod_wE = np.empty(nC, dtype=np.float64)
+    cdef np.ndarray[i32, ndim=1] mod_signs = np.empty(nC, dtype=np.int32)
+    cdef np.ndarray[i64, ndim=1] born_cj = np.empty(nC, dtype=np.int64)
+    cdef i64[::1] dk = died_keys, mk = mod_keys, bcj = born_cj
+    cdef f64[::1] mw = mod_wE
+    cdef i32[::1] msg = mod_signs
+
+    cdef Py_ssize_t ip = 0, ic = 0, pj, cj
+    cdef Py_ssize_t nd = 0, nm = 0, nb = 0
+
+    while ip < nP and ic < nC:
+        pj = porder[ip]; cj = corder[ic]
+        if pk[pj] < ck[cj]:
+            dk[nd] = pk[pj]; nd += 1
+            ip += 1
+        elif pk[pj] > ck[cj]:
+            bcj[nb] = cj; nb += 1
+            ic += 1
+        else:
+            if pw[pj] != cw[cj] or ps[pj] != cs[cj]:
+                mk[nm] = ck[cj]; mw[nm] = cw[cj]; msg[nm] = cs[cj]; nm += 1
+            ip += 1; ic += 1
+    while ip < nP:
+        dk[nd] = pk[porder[ip]]; nd += 1
+        ip += 1
+    while ic < nC:
+        bcj[nb] = corder[ic]; nb += 1
+        ic += 1
+
+    # Pass 2: materialize born_cols/born_offsets from the born cell indices
+    # (total flat length is only known once every born cell's arity is summed).
+    cdef np.ndarray[i32, ndim=1] born_offsets = np.empty(nb + 1, dtype=np.int32)
+    cdef i32[::1] bo = born_offsets
+    cdef Py_ssize_t k, total = 0
+    bo[0] = 0
+    for k in range(nb):
+        cj = bcj[k]
+        total += (cp[cj + 1] - cp[cj])
+        bo[k + 1] = <i32>total
+
+    cdef np.ndarray[i32, ndim=1] born_cols = np.empty(total, dtype=np.int32)
+    cdef np.ndarray[f64, ndim=1] born_wE = np.empty(nb, dtype=np.float64)
+    cdef np.ndarray[i32, ndim=1] born_signs = np.empty(nb, dtype=np.int32)
+    cdef i32[::1] bc = born_cols
+    cdef f64[::1] bw = born_wE
+    cdef i32[::1] bs = born_signs
+    cdef Py_ssize_t pos = 0
+    for k in range(nb):
+        cj = bcj[k]
+        for j in range(cp[cj], cp[cj + 1]):
+            bc[pos] = cidx[j]; pos += 1
+        bw[k] = cw[cj]
+        bs[k] = cs[cj]
+
+    return (born_cols, born_offsets, born_wE, born_signs,
+            died_keys[:nd], mod_keys[:nm], mod_wE[:nm], mod_signs[:nm])
+
+
+def encode_delta_full_i64(np.ndarray[i64, ndim=1] prev_ptr,
+                           np.ndarray[i64, ndim=1] prev_idx,
+                           np.ndarray[f64, ndim=1] prev_wE,
+                           np.ndarray[i32, ndim=1] prev_signs,
+                           np.ndarray[i64, ndim=1] curr_ptr,
+                           np.ndarray[i64, ndim=1] curr_idx,
+                           np.ndarray[f64, ndim=1] curr_wE,
+                           np.ndarray[i32, ndim=1] curr_signs,
+                           bint directed=False):
+    """int64-boundary variant of encode_delta_full_i32 (born_cols/born_offsets
+    are int64 here; keys stay int64, w_E stays f64, signs stay int32)."""
+    cdef Py_ssize_t nP = prev_ptr.shape[0] - 1
+    cdef Py_ssize_t nC = curr_ptr.shape[0] - 1
+    cdef i64[::1] pp = prev_ptr, pidx = prev_idx, cp = curr_ptr, cidx = curr_idx
+    cdef f64[::1] pw = prev_wE, cw = curr_wE
+    cdef i32[::1] ps = prev_signs, cs = curr_signs
+    cdef Py_ssize_t j
+
+    cdef np.ndarray[i64, ndim=1] prev_keys = np.empty(nP, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] curr_keys = np.empty(nC, dtype=np.int64)
+    cdef i64[::1] pk = prev_keys, ck = curr_keys
+
+    for j in range(nP):
+        pk[j] = _cell_key_i64(pidx, pp[j], pp[j + 1], directed)
+    for j in range(nC):
+        ck[j] = _cell_key_i64(cidx, cp[j], cp[j + 1], directed)
+
+    cdef np.ndarray[np.intp_t, ndim=1] porder_arr = np.argsort(prev_keys)
+    cdef np.ndarray[np.intp_t, ndim=1] corder_arr = np.argsort(curr_keys)
+    cdef np.intp_t[::1] porder = porder_arr, corder = corder_arr
+
+    cdef np.ndarray[i64, ndim=1] died_keys = np.empty(nP, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] mod_keys = np.empty(nC, dtype=np.int64)
+    cdef np.ndarray[f64, ndim=1] mod_wE = np.empty(nC, dtype=np.float64)
+    cdef np.ndarray[i32, ndim=1] mod_signs = np.empty(nC, dtype=np.int32)
+    cdef np.ndarray[i64, ndim=1] born_cj = np.empty(nC, dtype=np.int64)
+    cdef i64[::1] dk = died_keys, mk = mod_keys, bcj = born_cj
+    cdef f64[::1] mw = mod_wE
+    cdef i32[::1] msg = mod_signs
+
+    cdef Py_ssize_t ip = 0, ic = 0, pj, cj
+    cdef Py_ssize_t nd = 0, nm = 0, nb = 0
+
+    while ip < nP and ic < nC:
+        pj = porder[ip]; cj = corder[ic]
+        if pk[pj] < ck[cj]:
+            dk[nd] = pk[pj]; nd += 1
+            ip += 1
+        elif pk[pj] > ck[cj]:
+            bcj[nb] = cj; nb += 1
+            ic += 1
+        else:
+            if pw[pj] != cw[cj] or ps[pj] != cs[cj]:
+                mk[nm] = ck[cj]; mw[nm] = cw[cj]; msg[nm] = cs[cj]; nm += 1
+            ip += 1; ic += 1
+    while ip < nP:
+        dk[nd] = pk[porder[ip]]; nd += 1
+        ip += 1
+    while ic < nC:
+        bcj[nb] = corder[ic]; nb += 1
+        ic += 1
+
+    cdef np.ndarray[i64, ndim=1] born_offsets = np.empty(nb + 1, dtype=np.int64)
+    cdef i64[::1] bo = born_offsets
+    cdef Py_ssize_t k, total = 0
+    bo[0] = 0
+    for k in range(nb):
+        cj = bcj[k]
+        total += (cp[cj + 1] - cp[cj])
+        bo[k + 1] = <i64>total
+
+    cdef np.ndarray[i64, ndim=1] born_cols = np.empty(total, dtype=np.int64)
+    cdef np.ndarray[f64, ndim=1] born_wE = np.empty(nb, dtype=np.float64)
+    cdef np.ndarray[i32, ndim=1] born_signs = np.empty(nb, dtype=np.int32)
+    cdef i64[::1] bc = born_cols
+    cdef f64[::1] bw = born_wE
+    cdef i32[::1] bs = born_signs
+    cdef Py_ssize_t pos = 0
+    for k in range(nb):
+        cj = bcj[k]
+        for j in range(cp[cj], cp[cj + 1]):
+            bc[pos] = cidx[j]; pos += 1
+        bw[k] = cw[cj]
+        bs[k] = cs[cj]
+
+    return (born_cols, born_offsets, born_wE, born_signs,
+            died_keys[:nd], mod_keys[:nm], mod_wE[:nm], mod_signs[:nm])
+
+
+def encode_delta_full(prev_ptr, prev_idx, prev_wE, prev_signs,
+                       curr_ptr, curr_idx, curr_wE, curr_signs, directed=False):
+    """Auto-dispatch by dtype (mirrors encode_snapshot_delta)."""
+    if prev_ptr.dtype == np.int64:
+        return encode_delta_full_i64(prev_ptr, prev_idx, prev_wE, prev_signs,
+                                      curr_ptr, curr_idx, curr_wE, curr_signs, directed)
+    return encode_delta_full_i32(prev_ptr, prev_idx, prev_wE, prev_signs,
+                                  curr_ptr, curr_idx, curr_wE, curr_signs, directed)
+
+
 # Temporal index
 
 def build_temporal_index_i32(list snapshots, bint directed=False,
@@ -1144,6 +1469,274 @@ def face_lifecycle(face_snapshots, edge_snapshots,
                                   directed, jaccard_threshold)
     return face_lifecycle_i32(face_snapshots, edge_snapshots,
                               directed, jaccard_threshold)
+
+
+# Face delta encoding: faces identified by their constituent edge-keys
+#
+# Distinct from track_faces/face_lifecycle above (which identify a face by
+# the exact/Jaccard overlap of its raw boundary-vertex encoding). Here a
+# face's identity is the order-independent hash of the *canonical edge
+# keys* of its constituent edges (via cell_keys_of), so face identity stays
+# stable under edge-key relabeling the same way encode_delta_full's cell
+# identity does for edges.
+
+cdef inline i64 _face_key_from_buf(i64* buf, Py_ssize_t arity) noexcept nogil:
+    """Order-independent int64 hash of a sorted i64 array (FNV-1a). Mirrors
+    the arity != 2 branch of _cell_key_i32/_cell_key_i64 so a face's identity
+    is computed with the same scheme as a cell's identity, just over
+    already-resolved edge keys instead of raw vertex ids."""
+    cdef Py_ssize_t k
+    cdef unsigned long long h
+    qsort(buf, <size_t>arity, sizeof(i64), _cmp_i64)
+    h = 1469598103934665603ULL
+    for k in range(arity):
+        h ^= <unsigned long long>buf[k]
+        h *= 1099511628211ULL
+    return <i64>h
+
+
+def encode_face_delta_i32(np.ndarray[i32, ndim=1] prev_cp,
+                           np.ndarray[i32, ndim=1] prev_ri,
+                           np.ndarray[f64, ndim=1] prev_vals,  # intentionally unused: died faces emit no signs, only curr_vals feeds born_signs
+                           np.ndarray[i64, ndim=1] prev_ekeys,
+                           np.ndarray[i32, ndim=1] curr_cp,
+                           np.ndarray[i32, ndim=1] curr_ri,
+                           np.ndarray[f64, ndim=1] curr_vals,
+                           np.ndarray[i64, ndim=1] curr_ekeys,
+                           bint directed=False):
+    """
+    Face delta between two general B2 (face) snapshots, a face identified by
+    the order-independent hash of its constituent edges' canonical keys (via
+    cell_keys_of / _face_state), not by boundary column position.
+
+    `directed` is accepted for interface symmetry with encode_delta_full;
+    the edge_keys arrays already carry the encoding scheme's directedness
+    (they come from cell_keys_of(..., directed)), so it is not needed again
+    here.
+
+    Sort-merge diff over canonical face keys:
+      key only in prev -> DIED   (emit the face key)
+      key only in curr -> BORN   (emit the face's constituent edge keys, in
+                                   column order, plus their B2 sign values)
+      key in both       -> not emitted (persistence is not tracked by this
+                                   kernel; see track_faces/face_lifecycle for
+                                   persist/split/merge classification)
+
+    Returns
+    -------
+    born_edge_keys : int64[sum of born face arities]
+    born_offsets   : int32[n_born + 1]
+    born_signs     : f64[sum of born face arities]
+    died_face_keys : int64[n_died]
+    """
+    cdef Py_ssize_t nFp = prev_cp.shape[0] - 1
+    cdef Py_ssize_t nFc = curr_cp.shape[0] - 1
+    cdef i32[::1] pcp = prev_cp, pri = prev_ri, ccp = curr_cp, cri = curr_ri
+    cdef f64[::1] cvv = curr_vals
+    cdef i64[::1] pek = prev_ekeys, cek = curr_ekeys
+    cdef Py_ssize_t f, start, end, arity, k, j
+
+    cdef np.ndarray[i64, ndim=1] prev_fkeys = np.empty(nFp, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] curr_fkeys = np.empty(nFc, dtype=np.int64)
+    cdef i64[::1] pfk = prev_fkeys, cfk = curr_fkeys
+    cdef i64* buf
+    cdef Py_ssize_t max_arity = 1
+
+    for f in range(nFp):
+        arity = pcp[f + 1] - pcp[f]
+        if arity > max_arity: max_arity = arity
+    for f in range(nFc):
+        arity = ccp[f + 1] - ccp[f]
+        if arity > max_arity: max_arity = arity
+
+    buf = <i64*>malloc(<size_t>max_arity * sizeof(i64))
+    if buf == NULL:
+        raise MemoryError()
+    try:
+        for f in range(nFp):
+            start = pcp[f]; end = pcp[f + 1]; arity = end - start
+            for k in range(arity):
+                buf[k] = pek[pri[start + k]]
+            pfk[f] = _face_key_from_buf(buf, arity)
+        for f in range(nFc):
+            start = ccp[f]; end = ccp[f + 1]; arity = end - start
+            for k in range(arity):
+                buf[k] = cek[cri[start + k]]
+            cfk[f] = _face_key_from_buf(buf, arity)
+    finally:
+        free(buf)
+
+    cdef np.ndarray[np.intp_t, ndim=1] porder_arr = np.argsort(prev_fkeys)
+    cdef np.ndarray[np.intp_t, ndim=1] corder_arr = np.argsort(curr_fkeys)
+    cdef np.intp_t[::1] porder = porder_arr, corder = corder_arr
+
+    # Pass 1: sort-merge diff into preallocated upper-bound buffers
+    # (died <= nFp, born face indices <= nFc).
+    cdef np.ndarray[i64, ndim=1] died_fkeys = np.empty(nFp, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] born_fj = np.empty(nFc, dtype=np.int64)
+    cdef i64[::1] dfk = died_fkeys, bfj = born_fj
+
+    cdef Py_ssize_t ip = 0, ic = 0, pj, cj
+    cdef Py_ssize_t nd = 0, nb = 0
+
+    while ip < nFp and ic < nFc:
+        pj = porder[ip]; cj = corder[ic]
+        if pfk[pj] < cfk[cj]:
+            dfk[nd] = pfk[pj]; nd += 1
+            ip += 1
+        elif pfk[pj] > cfk[cj]:
+            bfj[nb] = cj; nb += 1
+            ic += 1
+        else:
+            ip += 1; ic += 1
+    while ip < nFp:
+        dfk[nd] = pfk[porder[ip]]; nd += 1
+        ip += 1
+    while ic < nFc:
+        bfj[nb] = corder[ic]; nb += 1
+        ic += 1
+
+    # Pass 2: materialize born_edge_keys/born_offsets/born_signs from the
+    # born face indices (total flat length is only known once every born
+    # face's arity is summed).
+    cdef np.ndarray[i32, ndim=1] born_offsets = np.empty(nb + 1, dtype=np.int32)
+    cdef i32[::1] bo = born_offsets
+    cdef Py_ssize_t total = 0
+    bo[0] = 0
+    for k in range(nb):
+        cj = bfj[k]
+        total += (ccp[cj + 1] - ccp[cj])
+        bo[k + 1] = <i32>total
+
+    cdef np.ndarray[i64, ndim=1] born_edge_keys = np.empty(total, dtype=np.int64)
+    cdef np.ndarray[f64, ndim=1] born_signs = np.empty(total, dtype=np.float64)
+    cdef i64[::1] bek = born_edge_keys
+    cdef f64[::1] bsg = born_signs
+    cdef Py_ssize_t pos = 0
+    for k in range(nb):
+        cj = bfj[k]
+        for j in range(ccp[cj], ccp[cj + 1]):
+            bek[pos] = cek[cri[j]]
+            bsg[pos] = cvv[j]
+            pos += 1
+
+    return born_edge_keys, born_offsets, born_signs, died_fkeys[:nd]
+
+
+def encode_face_delta_i64(np.ndarray[i64, ndim=1] prev_cp,
+                           np.ndarray[i64, ndim=1] prev_ri,
+                           np.ndarray[f64, ndim=1] prev_vals,  # intentionally unused: died faces emit no signs, only curr_vals feeds born_signs
+                           np.ndarray[i64, ndim=1] prev_ekeys,
+                           np.ndarray[i64, ndim=1] curr_cp,
+                           np.ndarray[i64, ndim=1] curr_ri,
+                           np.ndarray[f64, ndim=1] curr_vals,
+                           np.ndarray[i64, ndim=1] curr_ekeys,
+                           bint directed=False):
+    """int64-boundary variant of encode_face_delta_i32 (born_offsets are
+    int64 here; born_edge_keys/died_face_keys stay int64, born_signs stays
+    f64, mirroring encode_delta_full_i64)."""
+    cdef Py_ssize_t nFp = prev_cp.shape[0] - 1
+    cdef Py_ssize_t nFc = curr_cp.shape[0] - 1
+    cdef i64[::1] pcp = prev_cp, pri = prev_ri, ccp = curr_cp, cri = curr_ri
+    cdef f64[::1] cvv = curr_vals
+    cdef i64[::1] pek = prev_ekeys, cek = curr_ekeys
+    cdef Py_ssize_t f, start, end, arity, k, j
+
+    cdef np.ndarray[i64, ndim=1] prev_fkeys = np.empty(nFp, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] curr_fkeys = np.empty(nFc, dtype=np.int64)
+    cdef i64[::1] pfk = prev_fkeys, cfk = curr_fkeys
+    cdef i64* buf
+    cdef Py_ssize_t max_arity = 1
+
+    for f in range(nFp):
+        arity = <Py_ssize_t>(pcp[f + 1] - pcp[f])
+        if arity > max_arity: max_arity = arity
+    for f in range(nFc):
+        arity = <Py_ssize_t>(ccp[f + 1] - ccp[f])
+        if arity > max_arity: max_arity = arity
+
+    buf = <i64*>malloc(<size_t>max_arity * sizeof(i64))
+    if buf == NULL:
+        raise MemoryError()
+    try:
+        for f in range(nFp):
+            start = <Py_ssize_t>pcp[f]; end = <Py_ssize_t>pcp[f + 1]; arity = end - start
+            for k in range(arity):
+                buf[k] = pek[<Py_ssize_t>pri[start + k]]
+            pfk[f] = _face_key_from_buf(buf, arity)
+        for f in range(nFc):
+            start = <Py_ssize_t>ccp[f]; end = <Py_ssize_t>ccp[f + 1]; arity = end - start
+            for k in range(arity):
+                buf[k] = cek[<Py_ssize_t>cri[start + k]]
+            cfk[f] = _face_key_from_buf(buf, arity)
+    finally:
+        free(buf)
+
+    cdef np.ndarray[np.intp_t, ndim=1] porder_arr = np.argsort(prev_fkeys)
+    cdef np.ndarray[np.intp_t, ndim=1] corder_arr = np.argsort(curr_fkeys)
+    cdef np.intp_t[::1] porder = porder_arr, corder = corder_arr
+
+    cdef np.ndarray[i64, ndim=1] died_fkeys = np.empty(nFp, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] born_fj = np.empty(nFc, dtype=np.int64)
+    cdef i64[::1] dfk = died_fkeys, bfj = born_fj
+
+    cdef Py_ssize_t ip = 0, ic = 0, pj, cj
+    cdef Py_ssize_t nd = 0, nb = 0
+
+    while ip < nFp and ic < nFc:
+        pj = porder[ip]; cj = corder[ic]
+        if pfk[pj] < cfk[cj]:
+            dfk[nd] = pfk[pj]; nd += 1
+            ip += 1
+        elif pfk[pj] > cfk[cj]:
+            bfj[nb] = cj; nb += 1
+            ic += 1
+        else:
+            ip += 1; ic += 1
+    while ip < nFp:
+        dfk[nd] = pfk[porder[ip]]; nd += 1
+        ip += 1
+    while ic < nFc:
+        bfj[nb] = corder[ic]; nb += 1
+        ic += 1
+
+    cdef np.ndarray[i64, ndim=1] born_offsets = np.empty(nb + 1, dtype=np.int64)
+    cdef i64[::1] bo = born_offsets
+    cdef Py_ssize_t total = 0
+    bo[0] = 0
+    for k in range(nb):
+        cj = bfj[k]
+        total += <Py_ssize_t>(ccp[cj + 1] - ccp[cj])
+        bo[k + 1] = <i64>total
+
+    cdef np.ndarray[i64, ndim=1] born_edge_keys = np.empty(total, dtype=np.int64)
+    cdef np.ndarray[f64, ndim=1] born_signs = np.empty(total, dtype=np.float64)
+    cdef i64[::1] bek = born_edge_keys
+    cdef f64[::1] bsg = born_signs
+    cdef Py_ssize_t pos = 0
+    for k in range(nb):
+        cj = bfj[k]
+        for j in range(<Py_ssize_t>ccp[cj], <Py_ssize_t>ccp[cj + 1]):
+            bek[pos] = cek[<Py_ssize_t>cri[j]]
+            bsg[pos] = cvv[j]
+            pos += 1
+
+    return born_edge_keys, born_offsets, born_signs, died_fkeys[:nd]
+
+
+def encode_face_delta(prev_face_state, curr_face_state, directed=False):
+    """Auto-dispatch by dtype of B2_col_ptr (mirrors encode_delta_full).
+
+    prev_face_state / curr_face_state : (B2_col_ptr, B2_row_idx, B2_vals,
+    edge_keys) as produced by rexgraph.graph._face_state.
+    """
+    prev_cp, prev_ri, prev_vals, prev_ekeys = prev_face_state
+    curr_cp, curr_ri, curr_vals, curr_ekeys = curr_face_state
+    if prev_cp.dtype == np.int64:
+        return encode_face_delta_i64(prev_cp, prev_ri, prev_vals, prev_ekeys,
+                                      curr_cp, curr_ri, curr_vals, curr_ekeys, directed)
+    return encode_face_delta_i32(prev_cp, prev_ri, prev_vals, prev_ekeys,
+                                  curr_cp, curr_ri, curr_vals, curr_ekeys, directed)
 
 
 # Energy-ratio BIOES tagging
