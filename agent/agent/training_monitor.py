@@ -1,12 +1,12 @@
-"""agent.training_monitor - watch model training live and diagnose/fix what's wrong, structurally.
+"""agent.training_monitor: watch model training live and diagnose/fix what's wrong, structurally.
 
 Training is a signal on a complex: the per-step loss is a 1-D trajectory whose SHAPE says what is
-happening. A healthy run descends (the loss "drains"); a broken one shows a structural signature -
+happening. A healthy run descends (the loss "drains"); a broken one shows a structural signature:
 it never moves (no learning signal), it climbs or goes non-finite (diverging), or the validation
 turns up while training falls (overfitting). `diagnose()` reads those signatures with exact/relative
 signals (finiteness, sign of the trend, a numerical-zero flatness test), never a tuned cutoff, and
 names the likely CAUSE and a FIX. `train_watched()` runs a training with the live loss hook, applies
-the fix, and retries - the reactive layer aimed at the training loop instead of the swarm.
+the fix, and retries: the reactive layer aimed at the training loop instead of the swarm.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-# machine-precision "is this change essentially zero vs the loss scale" - a numerical zero, not a
+# machine-precision "is this change essentially zero vs the loss scale": a numerical zero, not a
 # policy threshold.
 _ZERO = 1e-9
 
@@ -33,7 +33,7 @@ def diagnose(losses, val=None) -> Dict[str, Any]:
     scale = max(abs(float(xs[0])), _ZERO)
     # trend vs wandering: efficiency = net change / total movement, in [-1, 1]. -1 is a clean descent,
     # +1 a clean ascent, ~0 is movement that cancels out (no learning signal). The split is a
-    # majority (more than half the movement is net trend) - a natural boundary, not a tuned value.
+    # majority (more than half the movement is net trend): a natural boundary, not a tuned value.
     tv = float(np.sum(np.abs(np.diff(xs))))
     net = float(xs[-1] - xs[0])
     if tv <= _ZERO * scale:                              # never moved at all
@@ -75,7 +75,7 @@ _FIXABLE = {"diverging", "not_learning", "overfitting"}
 
 class TrainingMonitor:
     """Runs a training with the live loss hook, diagnoses it, and (optionally) applies the fix and
-    retries. Registers the final model as a bee. Governed: `autofix` is off by default - it proposes
+    retries. Registers the final model as a bee. Governed: `autofix` is off by default; it proposes
     a diagnosis and stops; turn it on for a bounded self-healing loop."""
 
     def __init__(self, hive=None):
@@ -100,7 +100,7 @@ class TrainingMonitor:
         return archetype, params, lr, steps
 
     def train_watched(self, name, archetype, *, data=None, params=None, steps: int = 100,
-                      device: str = "auto", optimizer: str = "hodge", lr=None, seed: int = 0,
+                      device: str = "auto", optimizer: str = "auto", lr=None, seed: int = 0,
                       autofix: bool = False, attempts: int = 3, register: bool = True) -> Dict[str, Any]:
         from agent import models
         from agent.models import train as _train, store as _store

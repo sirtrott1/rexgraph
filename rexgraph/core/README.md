@@ -7,25 +7,25 @@ top-level Python layer, and the kernels here are RETAINED as the dense parity
 ORACLES those eigen-free paths are checked against (typically to ~1e-9/1e-10).
 The Python layer they route to:
 
-- `rexgraph.scale_propagator` - Chebyshev matrix-functions (heat / wave /
+- `rexgraph.scale_propagator`: Chebyshev matrix-functions (heat / wave /
   schrodinger, matrix-free e^{-Lt} and e^{-iLt}) plus block-CG Green's functions.
-- `rexgraph.sparse_character` - resolvent / character via block-CG and LSQR
+- `rexgraph.sparse_character`: resolvent / character via block-CG and LSQR
   pseudoinverse quadratic forms (chi / phi / kappa scale-free).
-- `rexgraph.harmonic_sparse` - combinatorial harmonic basis and the low-rank
+- `rexgraph.harmonic_sparse`: combinatorial harmonic basis and the low-rank
   harmonic projector.
-- `rexgraph.graded_boundary` - EXACT rational rank (`_sparse_rank`,
+- `rexgraph.graded_boundary`: EXACT rational rank (`_sparse_rank`,
   `_exact_rank_reduction`) and union-find Betti. Betti / rank now come from exact
-  rational column reduction - never SVD, never counting near-zero eigenvalues.
+  rational column reduction: never SVD, never counting near-zero eigenvalues.
 - `rexgraph.field_propagator`, `rexgraph.dirac_propagator`,
-  `rexgraph.sparse_interfacing` - matrix-free field / Dirac / interfacing paths.
-- `rexgraph.compute` - the dispatch layer (dynamic backend selection, multi-GPU
+  `rexgraph.sparse_interfacing`: matrix-free field / Dirac / interfacing paths.
+- `rexgraph.compute`: the dispatch layer (dynamic backend selection, multi-GPU
   column tiling, multi-core `parallel_map`).
 
 
 
 
 
-## `_common` - Shared Infrastructure Layer
+## `_common`: Shared Infrastructure Layer
 
 **Files:** `_common.pxd` (745 lines), `_common.pyx` (821 lines)
 
@@ -41,11 +41,11 @@ memory-bounded, overflow-aware, and correctly parallelized.
 
 All modules share a unified set of type aliases for consistent precision:
 
-- `idx_t` (Py_ssize_t) - array indices, loop counters
-- `idx32_t` (int32_t) - CSR index arrays (boundary_ptr, boundary_idx)
-- `idx64_t` (int64_t) - large-graph indices (>2B nodes)
-- `i32` (int32_t), `i64` (int64_t) - general integers
-- `f32` (float), `f64` (double) - floating point
+- `idx_t` (Py_ssize_t): array indices, loop counters
+- `idx32_t` (int32_t): CSR index arrays (boundary_ptr, boundary_idx)
+- `idx64_t` (int64_t): large-graph indices (>2B nodes)
+- `i32` (int32_t), `i64` (int64_t): general integers
+- `f32` (float), `f64` (double): floating point
 
 The mathematical core uses `f64` for all Laplacian, eigenvalue, and character
 computation. `f32` exists for future GPU paths and visualization buffers.
@@ -57,16 +57,16 @@ computation. `f32` exists for future GPU paths and visualization buffers.
 All `nogil` C-level functions return integer error codes rather than raising
 Python exceptions (which require the GIL):
 
-- `ERR_SUCCESS` (0) - completed successfully
-- `ERR_MEMORY` (-1) - malloc/calloc returned NULL
-- `ERR_INVALID_ARG` (-2) - parameter outside valid range
-- `ERR_OUT_OF_BOUNDS` (-3) - index exceeds array dimension
-- `ERR_OVERFLOW` (-4) - integer multiplication overflow
-- `ERR_SHAPE_MISMATCH` (-5) - matrix dimensions incompatible
-- `ERR_NOT_CONVERGED` (-6) - iterative solver failed
-- `ERR_SINGULAR` (-7) - matrix is singular or degenerate
-- `ERR_MEMORY_LIMIT` (-8) - allocation exceeds configured limit
-- `ERR_CANCELLED` (-9) - operation cancelled
+- `ERR_SUCCESS` (0): completed successfully
+- `ERR_MEMORY` (-1): malloc/calloc returned NULL
+- `ERR_INVALID_ARG` (-2): parameter outside valid range
+- `ERR_OUT_OF_BOUNDS` (-3): index exceeds array dimension
+- `ERR_OVERFLOW` (-4): integer multiplication overflow
+- `ERR_SHAPE_MISMATCH` (-5): matrix dimensions incompatible
+- `ERR_NOT_CONVERGED` (-6): iterative solver failed
+- `ERR_SINGULAR` (-7): matrix is singular or degenerate
+- `ERR_MEMORY_LIMIT` (-8): allocation exceeds configured limit
+- `ERR_CANCELLED` (-9): operation cancelled
 
 Python-level code converts these to typed exceptions via `raise_on_error()`:
 
@@ -77,11 +77,11 @@ raise_on_error(code, "build_RL")  # raises CoreMemoryError if code == -1
 
 Exception hierarchy:
 
-- `CoreError` - base for all core layer errors
-- `CoreMemoryError(CoreError, MemoryError)` - allocation failure
-- `CoreMemoryLimitError(CoreMemoryError)` - exceeds configured limit
-- `CoreValueError(CoreError, ValueError)` - invalid argument
-- `CoreOverflowError(CoreError, OverflowError)` - integer overflow
+- `CoreError`: base for all core layer errors
+- `CoreMemoryError(CoreError, MemoryError)`: allocation failure
+- `CoreMemoryLimitError(CoreMemoryError)`: exceeds configured limit
+- `CoreValueError(CoreError, ValueError)`: invalid argument
+- `CoreOverflowError(CoreError, OverflowError)`: integer overflow
 
 ---
 
@@ -90,9 +90,9 @@ Exception hierarchy:
 The library enforces three memory ceilings, auto-detected from system RAM at
 import time and reconfigurable at runtime:
 
-- `max_parallel_buffer_bytes` (default: 25% of system RAM) - per-operation
+- `max_parallel_buffer_bytes` (default: 25% of system RAM): per-operation
   scratch for parallel loops
-- `max_total_allocation_bytes` (default: 75% of system RAM) - global allocation
+- `max_total_allocation_bytes` (default: 75% of system RAM): global allocation
   ceiling
 - `max_dense_allocation_bytes` (default: 25% of RAM, clamped to 100 MB - 4 GB)
   - single dense matrix ceiling, controls whether Laplacian construction uses
@@ -100,10 +100,10 @@ import time and reconfigurable at runtime:
 
 These limits are checked by inline helpers that every module calls:
 
-- `can_allocate_dense_f64(nrows, ncols)` - True if nrows x ncols x 8 bytes fits
+- `can_allocate_dense_f64(nrows, ncols)`: True if nrows x ncols x 8 bytes fits
   within the limit
-- `should_use_dense_eigen(n)` - True if n <= `eigen_dense_limit` (default 2000)
-- `should_use_dense_matmul(n)` - True if both the allocation fits AND the
+- `should_use_dense_eigen(n)`: True if n <= `eigen_dense_limit` (default 2000)
+- `should_use_dense_matmul(n)`: True if both the allocation fits AND the
   eigensolver will use the dense path
 
 System memory is detected via psutil (preferred), `os.sysconf` (Linux fallback),
@@ -139,12 +139,12 @@ unavailable, all OpenMP functions are replaced with stubs returning 1. The
 
 Parallelization decisions are made per-operation by inline helpers:
 
-- `should_parallelize(work_size, threshold)` - True if OpenMP is available AND
+- `should_parallelize(work_size, threshold)`: True if OpenMP is available AND
   work_size >= max(threshold, 1000). The absolute minimum of 1000 prevents
   parallel overhead from dominating small operations.
 - `should_parallelize_with_memory(work_size, threshold, memory_required)` -
   additionally checks that per-thread scratch fits in the parallel buffer limit.
-- `get_num_threads(requested)` - returns the effective thread count after
+- `get_num_threads(requested)`: returns the effective thread count after
   applying `max_threads_limit` and `reserved_threads` caps.
 
 Default thresholds:
@@ -169,19 +169,19 @@ Constants:
 
 Clamping and sanitization:
 
-- `clamp(x, lo, hi)` - clamp f64 to [lo, hi]
-- `sanitize_float64(x)` - replace NaN/Inf with 0.0
-- `is_near_zero(x, eps)` - True if |x| <= eps
-- `log_clamp_min(x, min_x)` - log(max(x, min_x))
-- `sqrt_clamp_min(x)` - sqrt(max(x, 0))
+- `clamp(x, lo, hi)`: clamp f64 to [lo, hi]
+- `sanitize_float64(x)`: replace NaN/Inf with 0.0
+- `is_near_zero(x, eps)`: True if |x| <= eps
+- `log_clamp_min(x, min_x)`: log(max(x, min_x))
+- `sqrt_clamp_min(x)`: sqrt(max(x, 0))
 
 ---
 
 ### Bit Operations
 
-- `popcount_u64(x)` - population count (Hamming weight) of a uint64
-- `next_power_of_two(x)` - smallest power of 2 >= x
-- `is_power_of_two(x)` - True iff x is a power of 2
+- `popcount_u64(x)`: population count (Hamming weight) of a uint64
+- `next_power_of_two(x)`: smallest power of 2 >= x
+- `is_power_of_two(x)`: True iff x is a power of 2
 
 ---
 
@@ -190,8 +190,8 @@ Clamping and sanitization:
 Two hash functions for internal hash tables (used in `_sparse`, `_cycles`,
 `_joins`):
 
-- `fnv1a_hash_u64(x)` - FNV-1a bytewise hash of a uint64
-- `mix64(x)` - SplitMix64 finalizer (bijective mixing of 64 bits)
+- `fnv1a_hash_u64(x)`: FNV-1a bytewise hash of a uint64
+- `mix64(x)`: SplitMix64 finalizer (bijective mixing of 64 bits)
 
 ---
 
@@ -200,9 +200,9 @@ Two hash functions for internal hash tables (used in `_sparse`, `_cycles`,
 Helpers for compressed sparse row format used in boundary operator
 representation:
 
-- `csr_needs_int64_indptr(nnz)` - True if nnz > 2^31 - 1
-- `csr_row_length_i32(indptr, row)` - row length from int32 indptr
-- `csr_row_length_i64(indptr, row)` - row length from int64 indptr
+- `csr_needs_int64_indptr(nnz)`: True if nnz > 2^31 - 1
+- `csr_row_length_i32(indptr, row)`: row length from int32 indptr
+- `csr_row_length_i64(indptr, row)`: row length from int64 indptr
 
 ---
 
@@ -255,12 +255,12 @@ For lookups in sorted CSR index arrays:
 
 For input validation at the Python/Cython boundary:
 
-- `validate_csr_arrays(indptr, indices, data, name)` - checks shapes, dtypes,
+- `validate_csr_arrays(indptr, indices, data, name)`: checks shapes, dtypes,
   indptr[0]==0, len(indices)==indptr[-1]
-- `validate_array_size(arr, name, min_size, max_size)` - bounds check
-- `check_parallel_memory(op_name, threads, elements, element_size)` - raises
+- `validate_array_size(arr, name, min_size, max_size)`: bounds check
+- `check_parallel_memory(op_name, threads, elements, element_size)`: raises
   CoreMemoryLimitError if parallel scratch exceeds limit
-- `check_dense_allocation(op_name, nrows, ncols)` - raises if dense matrix
+- `check_dense_allocation(op_name, nrows, ncols)`: raises if dense matrix
   exceeds limit
 
 ---
@@ -312,7 +312,7 @@ provides the Python-accessible configuration API and system detection logic.
 
 
 
-## `_linalg` - LAPACK/BLAS Wrappers and RL Pipeline
+## `_linalg`: LAPACK/BLAS Wrappers and RL Pipeline
 
 **File:** `_linalg.pyx` (324 lines)
 
@@ -391,7 +391,7 @@ All call BLAS dgemm directly. No intermediate copies.
 
 ---
 
-### rl_pipeline - Full RCF Computation
+### rl_pipeline: Full RCF Computation
 
 `rl_pipeline(B1, L1, L_O, L_SG)` -> dict
 
@@ -418,7 +418,7 @@ B1_RLp, S0_diag, hats, nhats.
 
 
 
-## `_sparse` - Sparse Matrix Storage and Operations
+## `_sparse`: Sparse Matrix Storage and Operations
 
 **File:** `_sparse.pyx` (1407 lines)
 
@@ -468,17 +468,17 @@ auto-dispatch by index and value type.
 
 ### Type Selection
 
-- `select_idx_bits(max_dim)` -> int - 32 if max_dim < 2^31, else 64
-- `select_val_bits(nnz, force_64=False)` -> int - 64 if small or forced, 32 for large
-- `aligned_empty_idx(n, use_64)`, `aligned_empty_val(n, use_64)` - typed allocation
+- `select_idx_bits(max_dim)` -> int: 32 if max_dim < 2^31, else 64
+- `select_val_bits(nnz, force_64=False)` -> int: 64 if small or forced, 32 for large
+- `aligned_empty_idx(n, use_64)`, `aligned_empty_val(n, use_64)`: typed allocation
 - `aligned_zeros_idx(n, use_64)`, `aligned_zeros_val(n, use_64)`
 
 ---
 
 ### Matrix-Vector Products
 
-- `matvec(A, x)` -> f64[nrow] - y = A @ x via CSR. Auto-dispatches type.
-- `rmatvec(A, x)` -> f64[ncol] - y = A^T @ x via CSC. Auto-dispatches type.
+- `matvec(A, x)` -> f64[nrow]: y = A @ x via CSR. Auto-dispatches type.
+- `rmatvec(A, x)` -> f64[ncol]: y = A^T @ x via CSC. Auto-dispatches type.
 
   Both accept DualCSR and handle f32/f64 x i32/i64 combinations.
 
@@ -486,8 +486,8 @@ auto-dispatch by index and value type.
 
 ### Gram Products
 
-- `spmm_AtA_dense_f64(A)` -> f64[ncol, ncol] - A^T A as dense matrix.
-- `spmm_AAt_dense_f64(A)` -> f64[nrow, nrow] - A A^T as dense matrix.
+- `spmm_AtA_dense_f64(A)` -> f64[ncol, ncol]: A^T A as dense matrix.
+- `spmm_AAt_dense_f64(A)` -> f64[nrow, nrow]: A A^T as dense matrix.
 
   Both raise MemoryError if the output exceeds max_dense_allocation.
 
@@ -495,7 +495,7 @@ auto-dispatch by index and value type.
 
 ### Access and Extraction
 
-- `diag(A)` -> f64[min(nrow, ncol)] - extract diagonal
+- `diag(A)` -> f64[min(nrow, ncol)]: extract diagonal
 - `row_entries(A, row)` -> (col_idx, vals) for a single row
 - `col_entries(A, col)` -> (row_idx, vals) for a single column
 - `row_nnz(A, row)` -> int
@@ -522,14 +522,14 @@ auto-dispatch by index and value type.
 
 ### Memory
 
-- `memory_bytes(A)` -> int - total bytes used by CSR + CSC arrays
-- `memory_report(A)` -> str - human-readable memory usage
-- `validate_csr(A, name="CSR")` -> (valid, error_msg) - structural integrity check
+- `memory_bytes(A)` -> int: total bytes used by CSR + CSC arrays
+- `memory_report(A)` -> str: human-readable memory usage
+- `validate_csr(A, name="CSR")` -> (valid, error_msg): structural integrity check
 
 
 
 
-## `_rex` - Structural Operations for the Relational Complex
+## `_rex`: Structural Operations for the Relational Complex
 
 **File:** `_rex.pyx` (1230 lines)
 
@@ -548,21 +548,21 @@ dtype automatically.
 Edges in a relational complex are classified by the size of their boundary
 (the set of vertices they connect):
 
-- `EDGE_STANDARD` (0) - boundary has exactly 2 distinct vertices (ordinary edge)
-- `EDGE_SELF_LOOP` (1) - boundary has 1 unique vertex with multiplicity 2
-- `EDGE_BRANCHING` (2) - boundary has 3+ distinct vertices (hyperedge)
-- `EDGE_WITNESS` (3) - boundary has 1 vertex with multiplicity 1 (pendant)
+- `EDGE_STANDARD` (0): boundary has exactly 2 distinct vertices (ordinary edge)
+- `EDGE_SELF_LOOP` (1): boundary has 1 unique vertex with multiplicity 2
+- `EDGE_BRANCHING` (2): boundary has 3+ distinct vertices (hyperedge)
+- `EDGE_WITNESS` (3): boundary has 1 vertex with multiplicity 1 (pendant)
 
 Functions:
 
-- `classify_edges_standard(nE, sources, targets)` - for simple graphs where
+- `classify_edges_standard(nE, sources, targets)`: for simple graphs where
   every edge connects exactly 2 vertices. Returns int32 array of edge types.
 
-- `classify_edges_general(nE, boundary_ptr, boundary_idx)` - for hypergraphs
+- `classify_edges_general(nE, boundary_ptr, boundary_idx)`: for hypergraphs
   where edges can have arbitrary boundary sizes. Sorts boundary indices to count
   unique vertices. Returns (edge_types, boundary_sizes) as int32 arrays.
 
-- `classify_edges(nE, sources, targets, boundary_ptr, boundary_idx)` - top-level
+- `classify_edges(nE, sources, targets, boundary_ptr, boundary_idx)`: top-level
   dispatcher that picks the right variant.
 
 ---
@@ -736,7 +736,7 @@ Direct coboundary lookups from the CSR incidence tables:
 
 
 
-## `_laplacians` - Hodge Laplacians and Spectral Decomposition
+## `_laplacians`: Hodge Laplacians and Spectral Decomposition
 
 **File:** `_laplacians.pyx` (925 lines)
 
@@ -862,11 +862,11 @@ per graph and caches the result dict. It:
 
 Parameters:
 
-- `B1_in` - vertex-edge boundary operator (nV, nE)
-- `B2_in` - edge-face boundary operator (nE, nF), or None
-- `L_O_in` - overlap Laplacian (nE, nE), or None
-- `L_SG_in` - frustration Laplacian (nE, nE), or None
-- `L_C_in` - copath complex Laplacian (nE, nE), or None
+- `B1_in`: vertex-edge boundary operator (nV, nE)
+- `B2_in`: edge-face boundary operator (nE, nF), or None
+- `L_O_in`: overlap Laplacian (nE, nE), or None
+- `L_SG_in`: frustration Laplacian (nE, nE), or None
+- `L_C_in`: copath complex Laplacian (nE, nE), or None
 
 Returns a dict with all Laplacians, eigenvalues, eigenvectors, Betti numbers,
 coupling constants, the relational Laplacian RL, its hat operators, trace
@@ -887,7 +887,7 @@ computation.
   `_common.UnionFind` in O(nE * alpha(nV)) time with zero scipy calls.
   beta_1 follows from the Euler relation. When nF > 0, rank(B2) is the EXACT
   rational rank from `graded_boundary._sparse_rank` (combinatorial column
-  reduction - no dense Gram, no truncated-`svds` cap that undercounted rank on
+  reduction: no dense Gram, no truncated-`svds` cap that undercounted rank on
   face-rich complexes), and beta_2 = nF - rank(B2). For faceless graphs, this is
   pure C.
 
@@ -922,7 +922,7 @@ computation.
 
 
 
-## `_overlap` - Overlap Laplacian L_O
+## `_overlap`: Overlap Laplacian L_O
 
 **File:** `_overlap.pyx` (530 lines)
 
@@ -975,10 +975,10 @@ memory budget, "dense" forces dense, "sparse" forces sparse.
   on the method. L_O is symmetric PSD with eigenvalues in [0, 1].
 
   Parameters:
-  - `nV, nE` - vertex and edge counts
-  - `sources, targets` - int32 edge endpoint arrays (length nE)
-  - `method` - "auto", "dense", or "sparse"
-  - `vertex_weights` - optional float64 array (nV,) for weighted Gramian
+  - `nV, nE`: vertex and edge counts
+  - `sources, targets`: int32 edge endpoint arrays (length nE)
+  - `method`: "auto", "dense", or "sparse"
+  - `vertex_weights`: optional float64 array (nV,) for weighted Gramian
 
 - `build_overlap_adjacency(nV, nE, sources, targets, vertex_weights=None)` -> (S, d_ov)
 
@@ -995,7 +995,7 @@ memory budget, "dense" forces dense, "sparse" forces sparse.
 
 
 
-## `_spectral` - Spectral Layout and Force-Directed Refinement
+## `_spectral`: Spectral Layout and Force-Directed Refinement
 
 **File:** `_spectral.pyx` (794 lines)
 
@@ -1026,11 +1026,11 @@ Falls back to deterministic placement (golden-ratio-based grid) when fewer than
 
 Parameters:
 
-- `evecs` - eigenvectors of L0, shape (nV, k)
-- `nV` - number of vertices
-- `width, height` - canvas size in pixels
-- `pad` - fractional padding on each side (default 10%)
-- `evals` - eigenvalues for sorting eigenvectors by ascending eigenvalue
+- `evecs`: eigenvectors of L0, shape (nV, k)
+- `nV`: number of vertices
+- `width, height`: canvas size in pixels
+- `pad`: fractional padding on each side (default 10%)
+- `evals`: eigenvalues for sorting eigenvectors by ascending eigenvalue
 
 Returns (px, py) as float64 arrays of length nV.
 
@@ -1053,14 +1053,14 @@ simulated annealing behavior.
 
 Parameters:
 
-- `px, py` - initial positions (modified in-place)
-- `edge_src, edge_tgt` - int32 edge endpoint arrays
-- `iterations` - number of force iterations (default 400)
-- `repel_strength` - Coulomb constant (default 3000)
-- `attract_ideal` - ideal edge length in pixels (default 50)
-- `attract_strength` - spring constant (default 0.04)
-- `centering` - centering force coefficient (default 0.008)
-- `width, height` - canvas dimensions for boundary clamping
+- `px, py`: initial positions (modified in-place)
+- `edge_src, edge_tgt`: int32 edge endpoint arrays
+- `iterations`: number of force iterations (default 400)
+- `repel_strength`: Coulomb constant (default 3000)
+- `attract_ideal`: ideal edge length in pixels (default 50)
+- `attract_strength`: spring constant (default 0.04)
+- `centering`: centering force coefficient (default 0.008)
+- `width, height`: canvas dimensions for boundary clamping
 
 ---
 
@@ -1082,7 +1082,7 @@ than the linear decay in the naive method.
 
 Additional parameter:
 
-- `theta` - Barnes-Hut opening angle (default 0.5). Smaller values give more
+- `theta`: Barnes-Hut opening angle (default 0.5). Smaller values give more
   accurate but slower computation.
 
 ---
@@ -1114,7 +1114,7 @@ after each iteration.
 
 
 
-## `_boundary` - Relational Complex Construction
+## `_boundary`: Relational Complex Construction
 
 **File:** `_boundary.pyx` (607 lines)
 
@@ -1139,8 +1139,8 @@ CSR and CSC access without duplication.
   sums give signed degree.
 
   Parameters:
-  - `nV, nE` - vertex and edge counts
-  - `sources, targets` - int32 or int64 edge endpoint arrays
+  - `nV, nE`: vertex and edge counts
+  - `sources, targets`: int32 or int64 edge endpoint arrays
 
   Dispatches to i32 or i64 variant based on dtype. Uses i64 when nV or nE
   exceeds 2^31 - 1.
@@ -1162,10 +1162,10 @@ CSR and CSC access without duplication.
   cycle_edges = [0, 1, 2], cycle_signs = [1.0, 1.0, -1.0], cycle_lengths = [3].
 
   Parameters:
-  - `nE` - number of edges
-  - `cycle_edges` - int32/int64 array of boundary edge indices, concatenated
-  - `cycle_signs` - float64 array of orientation signs, concatenated
-  - `cycle_lengths` - int32/int64 array of boundary sizes per face
+  - `nE`: number of edges
+  - `cycle_edges`: int32/int64 array of boundary edge indices, concatenated
+  - `cycle_signs`: float64 array of orientation signs, concatenated
+  - `cycle_lengths`: int32/int64 array of boundary sizes per face
 
 - `build_B2_from_dense(nE, nF, matrix)` -> DualCSR (nE x nF)
 
@@ -1240,7 +1240,7 @@ Laplacian eigenvalues, avoiding any matrix factorization:
 
 
 
-## `_hodge` - Hodge Decomposition of Edge Signals
+## `_hodge`: Hodge Decomposition of Edge Signals
 
 **File:** `_hodge.pyx` (535 lines)
 
@@ -1331,33 +1331,33 @@ scipy lsqr (iterative).
   not provided.
 
   Parameters:
-  - `B1` - DualCSR (nV, nE)
-  - `B2` - DualCSR (nE, nF) or None. Should have self-loop faces filtered.
-  - `flow` - f64[nE] edge signal
-  - `L0` - precomputed vertex Laplacian (dense or sparse), or None
-  - `L2` - precomputed face Laplacian (dense or sparse), or None
+  - `B1`: DualCSR (nV, nE)
+  - `B2`: DualCSR (nE, nF) or None. Should have self-loop faces filtered.
+  - `flow`: f64[nE] edge signal
+  - `L0`: precomputed vertex Laplacian (dense or sparse), or None
+  - `L2`: precomputed face Laplacian (dense or sparse), or None
 
 ---
 
-### build_hodge - Full Analysis
+### build_hodge: Full Analysis
 
 - `build_hodge(B1, B2, flow, L0=None, L2=None)` -> dict
 
   Runs the decomposition and computes all derived quantities. Returns a dict
   with:
 
-  - `grad, curl, harm` - raw f64[nE] components
-  - `grad_norm, curl_norm, harm_norm, flow_norm` - normalized to [-1, 1]
-  - `rho` - per-edge harmonic resistance ratio
-  - `pct_grad, pct_curl, pct_harm` - energy fractions
-  - `divergence, div_norm` - vertex divergence and its normalization
-  - `face_curl` - face curl B2^T g
-  - `orthogonality` - inner product dict from check_orthogonality
+  - `grad, curl, harm`: raw f64[nE] components
+  - `grad_norm, curl_norm, harm_norm, flow_norm`: normalized to [-1, 1]
+  - `rho`: per-edge harmonic resistance ratio
+  - `pct_grad, pct_curl, pct_harm`: energy fractions
+  - `divergence, div_norm`: vertex divergence and its normalization
+  - `face_curl`: face curl B2^T g
+  - `orthogonality`: inner product dict from check_orthogonality
 
 
 
 
-## `_faces` - Face Classification, Extraction, and Metrics
+## `_faces`: Face Classification, Extraction, and Metrics
 
 **File:** `_faces.pyx` (1201 lines)
 
@@ -1382,10 +1382,10 @@ components.
   Classifies each face as proper (2+ unique boundary vertices) or self-loop
   (single vertex). Returns:
 
-  - `proper_mask` - bool[nF], True for proper faces
-  - `self_loop_mask` - bool[nF], True for self-loop faces
-  - `n_proper, n_self_loop` - counts
-  - `proper_indices, self_loop_indices` - index arrays
+  - `proper_mask`: bool[nF], True for proper faces
+  - `self_loop_mask`: bool[nF], True for self-loop faces
+  - `n_proper, n_self_loop`: counts
+  - `proper_indices, self_loop_indices`: index arrays
 
 - `filter_b2_hodge(B2_dense, proper_mask)` -> ndarray[nE, nF_hodge]
 
@@ -1409,11 +1409,11 @@ components.
 - `extract_faces(B2, edge_src, edge_tgt, vertex_names, edge_names, face_class=None)` -> list of dict
 
   Produces a descriptor for each face with:
-  - `id` - string label (f1, f2, ...)
-  - `boundary` - dict mapping edge names to orientation signs (+/-1)
-  - `vertices` - sorted list of vertex names on the face boundary
-  - `size` - number of boundary edges
-  - `is_self_loop` - True if the face is a self-loop
+  - `id`: string label (f1, f2, ...)
+  - `boundary`: dict mapping edge names to orientation signs (+/-1)
+  - `vertices`: sorted list of vertex names on the face boundary
+  - `size`: number of boundary edges
+  - `is_self_loop`: True if the face is a self-loop
 
 ---
 
@@ -1423,46 +1423,46 @@ components.
 
   Computes structural metrics in six phases, all in O(nnz(B2) + nE) total:
 
-  Phase 1 - Face sizes (boundary edge count) and face vertex counts.
+  Phase 1: Face sizes (boundary edge count) and face vertex counts.
 
-  Phase 2 - Per-edge contribution: for each edge, the average reciprocal face
+  Phase 2: Per-edge contribution: for each edge, the average reciprocal face
   size (1/|boundary|) across its incident faces, and the average face size.
 
-  Phase 3 - Boundary asymmetry: |fc(src) - fc(tgt)| / max(fc(src), fc(tgt)),
+  Phase 3: Boundary asymmetry: |fc(src) - fc(tgt)| / max(fc(src), fc(tgt)),
   where fc is the vertex face count. Measures how asymmetric a face
   distribution is across an edge's endpoints.
 
-  Phase 4 - Per-vertex contribution: average reciprocal face-vertex-count and
+  Phase 4: Per-vertex contribution: average reciprocal face-vertex-count and
   average face size across a vertex's incident faces.
 
-  Phase 5 - Face concentration: coefficient of variation (CV = std/mean) of
+  Phase 5: Face concentration: coefficient of variation (CV = std/mean) of
   vertex face counts within each face. Uses Welford's single-pass algorithm to
   compute mean and variance in one traversal of B2 per face.
 
-  Phase 6 - Pearson correlation between boundary asymmetry and harmonic
+  Phase 6: Pearson correlation between boundary asymmetry and harmonic
   resistance ratio (rho). Measures whether topologically asymmetric edges tend
   to carry more harmonic flow.
 
   Returns dict with:
-  - `v_avg_contrib, v_total_contrib, v_avg_face_size` - f64[nV]
-  - `e_avg_contrib, e_total_contrib, e_avg_face_size` - f64[nE]
-  - `e_bnd_asym` - f64[nE], boundary asymmetry
-  - `f_concentration` - f64[nF], face concentration (CV)
-  - `v_tc_sum, e_tc_sum` - scalar sums
-  - `asym_rho_corr` - Pearson correlation
+  - `v_avg_contrib, v_total_contrib, v_avg_face_size`: f64[nV]
+  - `e_avg_contrib, e_total_contrib, e_avg_face_size`: f64[nE]
+  - `e_bnd_asym`: f64[nE], boundary asymmetry
+  - `f_concentration`: f64[nF], face concentration (CV)
+  - `v_tc_sum, e_tc_sum`: scalar sums
+  - `asym_rho_corr`: Pearson correlation
 
 ---
 
-### build_face_data - Combined Builder
+### build_face_data: Combined Builder
 
 - `build_face_data(B2, edge_src, edge_tgt, nV, vertex_names, edge_names, rho)` -> dict
 
   Runs classification, extraction, vertex face count, and metrics in one call.
   Returns:
-  - `faces` - list of face descriptors
-  - `face_class` - classification dict
-  - `vertex_face_count` - int32[nV]
-  - `metrics` - metrics dict
+  - `faces`: list of face descriptors
+  - `face_class`: classification dict
+  - `vertex_face_count`: int32[nV]
+  - `metrics`: metrics dict
 
   Returns zero-filled arrays when nF = 0.
 
@@ -1514,7 +1514,7 @@ components.
 
 
 
-## `_cycles` - Deterministic Fundamental Cycle Basis
+## `_cycles`: Deterministic Fundamental Cycle Basis
 
 **File:** `_cycles.pyx` (1033 lines)
 
@@ -1570,11 +1570,11 @@ concatenated edge indices, orientation signs, and per-face boundary lengths.
 
   Deterministic BFS from vertex 0. Produces one spanning tree per connected
   component. Returns:
-  - `parent[v]` - parent vertex in BFS tree (root has parent[v] = v)
-  - `parent_edge[v]` - edge connecting v to its parent (-1 for roots)
-  - `depth[v]` - BFS distance from component root
-  - `is_tree[e]` - 1 for spanning tree edges, 0 for cotree edges
-  - `n_components` - number of connected components (beta_0)
+  - `parent[v]`: parent vertex in BFS tree (root has parent[v] = v)
+  - `parent_edge[v]`: edge connecting v to its parent (-1 for roots)
+  - `depth[v]`: BFS distance from component root
+  - `is_tree[e]`: 1 for spanning tree edges, 0 for cotree edges
+  - `n_components`: number of connected components (beta_0)
 
 ---
 
@@ -1583,11 +1583,11 @@ concatenated edge indices, orientation signs, and per-face boundary lengths.
 - `find_fundamental_cycles(nV, nE, sources, targets)` -> (cycle_edges, cycle_signs, cycle_lengths, nF, n_components)
 
   The main entry point. Returns:
-  - `cycle_edges` - int32 array of concatenated boundary edge indices
-  - `cycle_signs` - float64 array of orientation signs (+/-1.0)
-  - `cycle_lengths` - int32 array of boundary lengths per face
-  - `nF` - number of fundamental cycles (= beta_1)
-  - `n_components` - number of connected components (= beta_0)
+  - `cycle_edges`: int32 array of concatenated boundary edge indices
+  - `cycle_signs`: float64 array of orientation signs (+/-1.0)
+  - `cycle_lengths`: int32 array of boundary lengths per face
+  - `nF`: number of fundamental cycles (= beta_1)
+  - `n_components`: number of connected components (= beta_0)
 
   These arrays are passed directly to `_boundary.build_B2_from_cycles` to
   construct B2.
@@ -1622,7 +1622,7 @@ concatenated edge indices, orientation signs, and per-face boundary lengths.
 
 
 
-## `_character` - Structural Character Decomposition
+## `_character`: Structural Character Decomposition
 
 **File:** `_character.pyx` (779 lines)
 
@@ -1643,7 +1643,7 @@ degenerate channels).
 
 ---
 
-### chi - Edge Structural Character
+### chi: Edge Structural Character
 
 - `compute_chi(RL, hats, nhats, nE)` -> f64[nE, nhats]
 
@@ -1657,7 +1657,7 @@ degenerate channels).
 
 ---
 
-### phi - Vertex Structural Character
+### phi: Vertex Structural Character
 
 - `compute_phi(B1, RL, hats, nhats, nV, nE, green_cache=None)` -> f64[nV, nhats]
 
@@ -1676,7 +1676,7 @@ degenerate channels).
 
 ---
 
-### chi_star - Star-Averaged Edge Character
+### chi_star: Star-Averaged Edge Character
 
 - `compute_chi_star(chi, v2e_ptr, v2e_idx, nV, nhats)` -> f64[nV, nhats]
 
@@ -1685,7 +1685,7 @@ degenerate channels).
 
 ---
 
-### kappa - Cross-Dimensional Coherence
+### kappa: Cross-Dimensional Coherence
 
 - `compute_kappa(phi, chi_star, nV, nhats)` -> f64[nV]
 
@@ -1746,10 +1746,10 @@ degenerate channels).
 - `mixing_time_anisotropy(times, nhats)` -> dict
 
   Computes pairwise ratios of per-channel mixing times. Returns:
-  - `ratios` - f64[nhats, nhats], ratios[i,j] = times[i] / times[j]
-  - `dominant_channel` - channel with smallest finite mixing time
-  - `slowest_channel` - channel with largest finite mixing time
-  - `anisotropy` - ratio of slowest to fastest (inf if any channel has no gap)
+  - `ratios`: f64[nhats, nhats], ratios[i,j] = times[i] / times[j]
+  - `dominant_channel`: channel with smallest finite mixing time
+  - `slowest_channel`: channel with largest finite mixing time
+  - `anisotropy`: ratio of slowest to fastest (inf if any channel has no gap)
 
 ---
 
@@ -1844,7 +1844,7 @@ degenerate channels).
 
 
 
-## `_relational` - Relational Laplacian and Green Function
+## `_relational`: Relational Laplacian and Green Function
 
 **File:** `_relational.pyx` (325 lines)
 
@@ -1885,11 +1885,11 @@ with zero Python overhead.
   C-level normalization.
 
   Returns a dict with:
-  - `RL` -- f64[nE, nE], the relational Laplacian
-  - `hats` -- list of f64[nE, nE], the active hat operators
-  - `nhats` -- int, number of active hats (= tr(RL))
-  - `trace_values` -- f64 array of original traces before normalization
-  - `hat_names` -- list of str labels for each active hat
+  - `RL`: f64[nE, nE], the relational Laplacian
+  - `hats`: list of f64[nE, nE], the active hat operators
+  - `nhats`: int, number of active hats (= tr(RL))
+  - `trace_values`: f64 array of original traces before normalization
+  - `hat_names`: list of str labels for each active hat
 
   Called by `_laplacians.build_all_laplacians`, which collects L1, L_O, L_SG,
   and optionally L_C before passing them here.
@@ -1985,7 +1985,7 @@ with zero Python overhead.
 
 
 
-## `_frustration` - Frustration Laplacian L_SG
+## `_frustration`: Frustration Laplacian L_SG
 
 **File:** `_frustration.pyx` (278 lines)
 
@@ -2064,10 +2064,10 @@ conflicts distribute across the graph.
   defaults to all +1.
 
   Parameters:
-  - `nV, nE` -- vertex and edge counts
-  - `sources, targets` -- int32 edge endpoint arrays
-  - `signs` -- optional f64[nE] of +1/-1 per edge (default: all +1)
-  - `method` -- "auto", "dense", or "sparse"
+  - `nV, nE`: vertex and edge counts
+  - `sources, targets`: int32 edge endpoint arrays
+  - `signs`: optional f64[nE] of +1/-1 per edge (default: all +1)
+  - `method`: "auto", "dense", or "sparse"
 
   Called by `graph.py`'s `L_frustration` property and by
   `_laplacians.build_all_laplacians` during spectral bundle construction.
@@ -2085,7 +2085,7 @@ conflicts distribute across the graph.
 
 
 
-## `_signal` - Perturbation Analysis Pipeline
+## `_signal`: Perturbation Analysis Pipeline
 
 **File:** `_signal.pyx` (936 lines)
 
@@ -2243,7 +2243,7 @@ final states.
 
 
 
-## `_dirac` - Dirac Operator and Graded State Evolution
+## `_dirac`: Dirac Operator and Graded State Evolution
 
 **File:** `_dirac.pyx` (321 lines)
 
@@ -2360,7 +2360,7 @@ all three dimensional sectors (vertices, edges, faces) simultaneously.
 
 
 
-## `_rcfe` - RCFE Curvature, Strain, and Conservation Laws
+## `_rcfe`: RCFE Curvature, Strain, and Conservation Laws
 
 **File:** `_rcfe.pyx` (494 lines)
 
@@ -2505,7 +2505,7 @@ The dynamic strain framework couples curvature to quantum state probabilities.
 
 
 
-## `_fiber` - Fiber Character and Similarity Complex
+## `_fiber`: Fiber Character and Similarity Complex
 
 **File:** `_fiber.pyx` (455 lines)
 
@@ -2612,13 +2612,13 @@ visualization.
   selects how faces are filled; in both modes B1/B2 are dense arrays and Betti
   is EXACT and eigen-free (no SVD).
 
-  - `'clique'` (default) - faces are ALL 3-cliques (triangles): "three-way
+  - `'clique'` (default): faces are ALL 3-cliques (triangles): "three-way
     coherence", enumerated via sorted adjacency merge-intersection. Overlapping
     triangles can share edges, so rank(B2) may be < nF; beta_1 and beta_2 use
     the EXACT integer rank of B2 via `graded_boundary._sparse_rank` (rational
     column reduction) and the Euler relation. `triangles` (i32[nF, 3]) is
     populated.
-  - `'cycle'` - faces are the fundamental cycle basis (arbitrary-arity n-gon
+  - `'cycle'`: faces are the fundamental cycle basis (arbitrary-arity n-gon
     faces, as `similarity_complex`). Every fundamental cycle is independent, so
     rank(B2) = nF and beta follows from Euler with NO rank computation. Faces are
     not triangles, so `triangles` is empty (0, 3) and a `face_lengths` (i32[nF])
@@ -2636,7 +2636,7 @@ visualization.
 
 
 
-## `_hypermanifold` - Filtered Manifold Sequence and Dimensional Analysis
+## `_hypermanifold`: Filtered Manifold Sequence and Dimensional Analysis
 
 **File:** `_hypermanifold.pyx` (185 lines)
 
@@ -2718,7 +2718,7 @@ when higher-dimensional cells are added.
 
 
 
-## `_field` - Cross-Dimensional Field Dynamics on (E, F)
+## `_field`: Cross-Dimensional Field Dynamics on (E, F)
 
 **File:** `_field.pyx` (850 lines)
 
@@ -2739,7 +2739,7 @@ The dense evolvers here (`build_field_operator`, `field_eigendecomposition`,
 `wave_evolve`/`_trajectory`, `field_diffusion_spectral`/`_trajectory`) are
 RETAINED AS PARITY ORACLES. The live `RexGraph.field_diffuse` and
 `field_wave_evolve` route to `field_propagator.field_heat_trajectory` /
-`field_wave_full` - matrix-free Chebyshev on the sparse, tensor-metric-aware
+`field_wave_full`: matrix-free Chebyshev on the sparse, tensor-metric-aware
 field operator, never forming the dense (nE+nF) x (nE+nF) matrix or its
 eigenbasis. `classify_modes` / `resonance_frequencies` and the energy measures
 are genuinely spectral and are kept as the live path.
@@ -2880,7 +2880,7 @@ are genuinely spectral and are kept as the live path.
 
 
 
-## `_wave` - Complex-Amplitude Wave Mechanics
+## `_wave`: Complex-Amplitude Wave Mechanics
 
 **File:** `_wave.pyx` (1130 lines)
 
@@ -3059,10 +3059,10 @@ oracles to ~1e-10.
 
 ### Decoherence Channels
 
-- `dephasing_channel(rho, gamma, dt)` - off-diagonals decay exponentially
-- `amplitude_damping(rho, gamma, dt)` - irreversible decay toward ground state
-- `depolarizing_channel(rho, p)` - rho -> (1-p) rho + (p/d) I
-- `lindblad_step(rho, H, lindblad_ops, dt)` - Euler step of Lindblad master equation
+- `dephasing_channel(rho, gamma, dt)`: off-diagonals decay exponentially
+- `amplitude_damping(rho, gamma, dt)`: irreversible decay toward ground state
+- `depolarizing_channel(rho, p)`: rho -> (1-p) rho + (p/d) I
+- `lindblad_step(rho, H, lindblad_ops, dt)`: Euler step of Lindblad master equation
 
 ---
 
@@ -3085,12 +3085,12 @@ oracles to ~1e-10.
 
 ### Density Matrix Operations
 
-- `pure_to_density(psi)` -> complex128[n, n] - rho = |psi><psi|
-- `density_from_ensemble(states, weights)` -> complex128[n, n] - mixed state
+- `pure_to_density(psi)` -> complex128[n, n]: rho = |psi><psi|
+- `density_from_ensemble(states, weights)` -> complex128[n, n]: mixed state
 - `density_trace(rho)` -> complex128
-- `density_purity(rho)` -> float - Tr(rho^2)
-- `von_neumann_entropy(rho)` -> float - S = -Tr(rho log2 rho)
-- `fidelity_mixed(rho, sigma)` -> float - (Tr sqrt(sqrt(rho) sigma sqrt(rho)))^2
+- `density_purity(rho)` -> float: Tr(rho^2)
+- `von_neumann_entropy(rho)` -> float: S = -Tr(rho log2 rho)
+- `fidelity_mixed(rho, sigma)` -> float: (Tr sqrt(sqrt(rho) sigma sqrt(rho)))^2
 
 ---
 
@@ -3132,7 +3132,7 @@ oracles to ~1e-10.
 
 
 
-## `_state` - Rex State Representation and Signal Operations
+## `_state`: Rex State Representation and Signal Operations
 
 **File:** `_state.pyx` (555 lines)
 
@@ -3146,18 +3146,18 @@ primitive and vertices are derived via f_V = B1 f_E.
 
 ### Signal Norms
 
-- `signal_norm_l1(signal)` -> float - sum |f_i|
-- `signal_norm_l2(signal)` -> float - sqrt(sum f_i^2)
-- `signal_norm_linf(signal)` -> float - max |f_i|
-- `signal_norm(signal, norm_type=NORM_L2)` -> float - dispatches by type (0=L1, 1=L2, 2=Linf)
+- `signal_norm_l1(signal)` -> float: sum |f_i|
+- `signal_norm_l2(signal)` -> float: sqrt(sum f_i^2)
+- `signal_norm_linf(signal)` -> float: max |f_i|
+- `signal_norm(signal, norm_type=NORM_L2)` -> float: dispatches by type (0=L1, 1=L2, 2=Linf)
 
 ---
 
 ### Normalization
 
-- `normalize_l1(signal)` -> f64[n] - normalize to L1 = 1 (probability distribution). Returns copy.
-- `normalize_l2(signal)` -> f64[n] - normalize to L2 = 1 (unit amplitude). Returns copy.
-- `normalize_signal(signal, norm_type=NORM_L2)` -> f64[n] - dispatches by type.
+- `normalize_l1(signal)` -> f64[n]: normalize to L1 = 1 (probability distribution). Returns copy.
+- `normalize_l2(signal)` -> f64[n]: normalize to L2 = 1 (unit amplitude). Returns copy.
+- `normalize_signal(signal, norm_type=NORM_L2)` -> f64[n]: dispatches by type.
 
   Called by `graph.py`'s `normalize` method.
 
@@ -3196,8 +3196,8 @@ primitive and vertices are derived via f_V = B1 f_E.
 
 ### State Differencing
 
-- `state_diff(state_a, state_b)` -> f64[n] - diff = state_b - state_a
-- `state_apply_diff(state, diff)` -> f64[n] - result = state + diff
+- `state_diff(state_a, state_b)` -> f64[n]: diff = state_b - state_a
+- `state_apply_diff(state, diff)` -> f64[n]: result = state + diff
 
 ---
 
@@ -3251,18 +3251,18 @@ f1 (edges), f2 (faces), and current time t. Provides cached energy
 decomposition and evolution methods.
 
 - `shapes` -> (nV, nE, nF)
-- `set_f0(data)`, `set_f1(data)`, `set_f2(data)` - set signal, marks energy dirty
-- `update_energy(L1, LO, alpha)` - recomputes E_kin, E_pot, E_tot under RL
-- `energy`, `E_kin`, `E_pot` - cached energy properties (NaN if dirty)
-- `derive_vertex_signal(B1)` - sets f0 = B1 @ f1
-- `evolve_coupled(system, dt, n_steps=1)` - RK4 cross-dimensional evolution
-- `evolve_schrodinger(system, dt)` - unitary evolution of f1 via RL
-- `evolve_diffusion(system, dt, dim=0)` - simple diffusion on one dimension
+- `set_f0(data)`, `set_f1(data)`, `set_f2(data)`: set signal, marks energy dirty
+- `update_energy(L1, LO, alpha)`: recomputes E_kin, E_pot, E_tot under RL
+- `energy`, `E_kin`, `E_pot`: cached energy properties (NaN if dirty)
+- `derive_vertex_signal(B1)`: sets f0 = B1 @ f1
+- `evolve_coupled(system, dt, n_steps=1)`: RK4 cross-dimensional evolution
+- `evolve_schrodinger(system, dt)`: unitary evolution of f1 via RL
+- `evolve_diffusion(system, dt, dim=0)`: simple diffusion on one dimension
 
 
 
 
-## `_transition` - Transition Operators on the Relational Complex
+## `_transition`: Transition Operators on the Relational Complex
 
 **File:** `_transition.pyx` (623 lines)
 
@@ -3276,9 +3276,9 @@ mutation.
 
 ### Markov Diffusion
 
-- `markov_vertex_step(p, W)` -> f64[nV] - one discrete step: p_new = W @ p
-- `markov_edge_step(p, W_O)` -> f64[nE] - discrete step via overlap adjacency
-- `markov_face_step(p, W_F)` -> f64[nF] - discrete step via face adjacency
+- `markov_vertex_step(p, W)` -> f64[nV]: one discrete step: p_new = W @ p
+- `markov_edge_step(p, W_O)` -> f64[nE]: discrete step via overlap adjacency
+- `markov_face_step(p, W_F)` -> f64[nF]: discrete step via face adjacency
 
 - `markov_multistep(p, W, n_steps)` -> (final, trajectory)
 
@@ -3348,8 +3348,8 @@ mutation.
 
   Computes f_re^T L f_re + f_im^T L f_im. Works with dense or sparse L.
 
-- `kinetic_energy(f_re, f_im, L1)` -> float - E_kin = <f|L1|f>
-- `potential_energy(f_re, f_im, LO)` -> float - E_pot = <f|L_O|f>
+- `kinetic_energy(f_re, f_im, L1)` -> float: E_kin = <f|L1|f>
+- `potential_energy(f_re, f_im, LO)` -> float: E_pot = <f|L_O|f>
 
 - `energy_decomposition(f_re, f_im, L1, LO, alpha_G)` -> (E_kin, E_pot, E_RL)
 
@@ -3424,7 +3424,7 @@ For structural mutation (edge insertion/deletion, face changes):
 
 
 
-## `_void` - Void Spectral Theory
+## `_void`: Void Spectral Theory
 
 **File:** `_void.pyx` (443 lines)
 
@@ -3544,8 +3544,8 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
 
   Checks L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid]. This
   identity decomposes the full upward Laplacian into realized and void
-  contributions. The residual is computed SPARSELY - `(L_up + Lvoid - Bfull
-  Bfull^T)` as scipy sparse matmuls, inspecting only stored nonzeros - never the
+  contributions. The residual is computed SPARSELY: `(L_up + Lvoid - Bfull
+  Bfull^T)` as scipy sparse matmuls, inspecting only stored nonzeros, never the
   dense nE x nE products.
 
 ---
@@ -3559,7 +3559,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   void character, fills_beta, and void strain.
 
   `Lvoid` is stored SPARSE (scipy CSR, `Bvoid @ Bvoid^T`) rather than as a dense
-  nE x nE array - no consumer needs it dense (void nullity reads Bvoid, void
+  nE x nE array: no consumer needs it dense (void nullity reads Bvoid, void
   strain reads tr(Lvoid) directly), and `VoidComplex.Lvoid` is typed `object`
   so `.toarray()` reproduces the old dense array bit-for-bit. Harmonic content
   eta prefers the dense `harmonic_content_all` when the L1 eigenbasis is supplied
@@ -3574,7 +3574,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
 
 
 
-## `_quotient` - Quotient Complexes and Relative Homology
+## `_quotient`: Quotient Complexes and Relative Homology
 
 **File:** `_quotient.pyx` (1931 lines)
 
@@ -3649,7 +3649,7 @@ filtration.
 - `quotient_verify_chain(B1_quot, B2_quot, tol=1e-10)` -> (valid, max_error)
 
   Checks B1_quot @ B2_quot = 0 via a scipy SPARSE matmul, inspecting only the
-  stored nonzeros - no dense nE_q x nF_q product.
+  stored nonzeros: no dense nE_q x nF_q product.
 
 - `build_quotient(B1, v_mask, e_mask, f_mask, B2_col_ptr, B2_row_idx, B2_vals, LO=None, alpha_G=0.0)` -> dict
 
@@ -3671,8 +3671,8 @@ filtration.
 
   Orthonormal harmonic edge signals spanning H_1(R, I). Eigen-free: the harmonic
   plane ker(L1q) = ker(B1q) ∩ ker(B2q^T) is the combinatorial cycle basis from
-  `harmonic_sparse.harmonic_basis_from_boundaries`, orthonormalized by a thin QR
-  - no dense eigendecomposition of L1q. Guarded by a dimension check against the
+  `harmonic_sparse.harmonic_basis_from_boundaries`, orthonormalized by a thin QR:
+  no dense eigendecomposition of L1q. Guarded by a dimension check against the
   exact relative beta_1 = nE - rank(B1q) - rank(B2q); on any mismatch it falls
   back to the dense-eigh oracle so the result is always exact.
 
@@ -3695,8 +3695,8 @@ filtration.
 
   Partitions surviving edges into congruence equivalence classes. The subcomplex
   basis is factored ONCE (thin QR) and the whole survivor block is projected onto
-  its orthogonal complement in one matmul, then grouped by equal residual - was a
-  per-pair lstsq that re-factored the basis for every pair. Identical partition
+  its orthogonal complement in one matmul, then grouped by equal residual,
+  replacing a per-pair lstsq that re-factored the basis for every pair. Identical partition
   and label numbering to the historical version.
 
 - `congruence_classes_faces(B2, f_mask, tol=1e-10)` -> (labels, n_classes)
@@ -3708,13 +3708,13 @@ filtration.
 
 ### Signal Operations
 
-- `restrict_signal(signal, mask)` -> f64[n_quot] - drop subcomplex cells
+- `restrict_signal(signal, mask)` -> f64[n_quot]: drop subcomplex cells
 - `restrict_signal_complex(signal, mask)` -> complex128[n_quot]
-- `lift_signal(signal_quot, mask, fill_value=0.0)` -> f64[n] - expand to full
+- `lift_signal(signal_quot, mask, fill_value=0.0)` -> f64[n]: expand to full
 - `lift_signal_complex(signal_quot, mask)` -> complex128[n]
 - `restrict_field_state(f_E, f_F, e_mask, f_mask)` -> (f_E_quot, f_F_quot)
 - `lift_field_state(f_E_quot, f_F_quot, e_mask, f_mask, fill_value=0.0)` -> (f_E, f_F)
-- `quotient_energy(signal_quot, L_quot)` -> float - Rayleigh quotient
+- `quotient_energy(signal_quot, L_quot)` -> float: Rayleigh quotient
 - `quotient_RL1(B1_quot, B2_quot, LO_quot, alpha_G)` -> (RL1_quot, L1_quot)
 - `quotient_energy_kin_pot(signal_quot, L1_quot, LO_quot)` -> (E_kin, E_pot, ratio)
 
@@ -3793,7 +3793,7 @@ filtration.
 
 
 
-## `_temporal` - Temporal Bundle, BIOES Phase Detection, and Lifecycle Tracking
+## `_temporal`: Temporal Bundle, BIOES Phase Detection, and Lifecycle Tracking
 
 **File:** `_temporal.pyx` (1958 lines)
 
@@ -3907,7 +3907,7 @@ witness edges alongside standard 2-endpoint edges.
 
   Called by `TemporalRex.bioes`.
 
-- `compute_bioes_general(...)`, `compute_bioes_unified_general(...)` - general boundary variants.
+- `compute_bioes_general(...)`, `compute_bioes_unified_general(...)`: general boundary variants.
 
 ---
 
@@ -3965,12 +3965,12 @@ witness edges alongside standard 2-endpoint edges.
 
   Called by `TemporalRex.face_lifecycle_data`.
 
-- `track_faces_general(...)` - general boundary variant.
+- `track_faces_general(...)`: general boundary variant.
 
 
 
 
-## `_standard` - Classical Graph Algorithms on the 1-Skeleton
+## `_standard`: Classical Graph Algorithms on the 1-Skeleton
 
 **File:** `_standard.pyx` (1005 lines)
 
@@ -4064,7 +4064,7 @@ plus auto-dispatchers.
 
 
 
-## `_persistence` - Persistent Homology on the Relational Complex
+## `_persistence`: Persistent Homology on the Relational Complex
 
 **File:** `_persistence.pyx` (1237 lines)
 
@@ -4228,7 +4228,7 @@ enrichment with edge type and Hodge component data.
 
 
 
-## `_query` - Relational Complex Query Engine
+## `_query`: Relational Complex Query Engine
 
 **File:** `_query.pyx` (323 lines)
 
@@ -4257,7 +4257,7 @@ relational complex.
 
   Predicate on vertex coherence kappa.
 
-- `mask_and(a, b, n)`, `mask_or(a, b, n)`, `mask_not(a, n)` - boolean ops on masks.
+- `mask_and(a, b, n)`, `mask_or(a, b, n)`, `mask_not(a, n)`: boolean ops on masks.
 
 ---
 
@@ -4317,7 +4317,7 @@ relational complex.
 
 
 
-## `_joins` - Relational Complex Join Operations
+## `_joins`: Relational Complex Join Operations
 
 **File:** `_joins.pyx` (325 lines)
 
@@ -4326,8 +4326,8 @@ joins produce valid relational complexes (B1j @ B2j = 0 guaranteed because
 restriction/extension of relational complexes preserves the chain condition).
 
 All three join functions compute the joined Betti numbers from EXACT integer
-ranks - rank(B1j) and rank(B2j) via `graded_boundary._sparse_rank` (rational
-column reduction, eigen-free, no SVD; was `np.linalg.matrix_rank`) - and guard
+ranks (rank(B1j) and rank(B2j) via `graded_boundary._sparse_rank`, rational
+column reduction, eigen-free, no SVD; was `np.linalg.matrix_rank`), and guard
 those ranks and `chain_residual` against empty matrices (zero matched edges,
 zero faces). When any output dimension is zero, rank defaults to 0 and chain
 residual defaults to 0.0.
@@ -4374,7 +4374,7 @@ residual defaults to 0.0.
   Union of both complexes. R vertices keep their indices; unshared S
   vertices get new indices. Shared vertices are identified (merged).
   All edges and faces from both complexes are included. nEj = nE_R + nE_S
-  always (no edge deduplication - shared edges appear twice with different
+  always (no edge deduplication: shared edges appear twice with different
   boundary representations in the joined complex).
 
   Returns dict with: B1j, B2j, nVj, nEj, nFj, beta, chain_residual.
@@ -4410,7 +4410,7 @@ residual defaults to 0.0.
 
 
 
-## `_interfacing` - Interfacing Vector and Channel Scoring
+## `_interfacing`: Interfacing Vector and Channel Scoring
 
 **File:** `_interfacing.pyx` (623 lines)
 
@@ -4420,8 +4420,8 @@ vector I lives on S^{n-1} after normalization and classifies entities by
 their structural mechanism. All hot paths are `cdef nogil` with BLAS/LAPACK
 calls.
 
-This dense pipeline - which materializes the response operator
-S_T = B1^T L0^+ B1 (nE x nE) - is RETAINED AS THE PARITY ORACLE. At scale the
+This dense pipeline, which materializes the response operator
+S_T = B1^T L0^+ B1 (nE x nE), is RETAINED AS THE PARITY ORACLE. At scale the
 live `RexGraph.interfacing_vector` routes to
 `rexgraph.sparse_interfacing.build_interfacing_bundle_sparse`, which is
 matrix-free: L0^+ is applied by LSQR on the sparse graph Laplacian L0 = B1 B1^T,
@@ -4547,7 +4547,7 @@ bounded `eigsh` on the sparse RL.
 
 
 
-## `_channels` - Per-Channel Signal Decomposition and Group Scoring
+## `_channels`: Per-Channel Signal Decomposition and Group Scoring
 
 **File:** `_channels.pyx` (281 lines)
 
@@ -4614,7 +4614,7 @@ and passed in; no eigensolves here.
 
 
 
-## `_cross_complex` - Cross-Complex Structural Comparison
+## `_cross_complex`: Cross-Complex Structural Comparison
 
 **File:** `_cross_complex.pyx` (303 lines)
 
@@ -4680,12 +4680,12 @@ import or depend on RexGraph.
 
 These modules cover advanced structure beyond the core tower and were not listed above:
 
-- `_color` - C-level color pipeline for K_7 spectral color.
-- `_harmonic` - the harmonic plane of numbers (harmonic-analysis structure).
-- `_holomorphic` - holomorphic Lagrangian structure on RL_4. `relational_cr` /
+- `_color`: C-level color pipeline for K_7 spectral color.
+- `_harmonic`: the harmonic plane of numbers (harmonic-analysis structure).
+- `_holomorphic`: holomorphic Lagrangian structure on RL_4. `relational_cr` /
   `cr_saddle_score` compute the per-edge Cauchy-Riemann violation from the
-  DIAGONALS of the hat products - diag(hat_T hat_S) and diag(hat_S hat_T) via
-  `np.einsum('ek,ke->e', ...)`, O(nE^2) - never forming the dense nE x nE
+  DIAGONALS of the hat products: diag(hat_T hat_S) and diag(hat_S hat_T) via
+  `np.einsum('ek,ke->e', ...)`, O(nE^2), never forming the dense nE x nE
   products (which would be O(nE^3)).
-- `_l_gb` - the graded boundary Laplacian L_gb (within-grade channel-mixing).
-- `_temporal_entity` - entity-level BIOES tagging over a temporal complex.
+- `_l_gb`: the graded boundary Laplacian L_gb (within-grade channel-mixing).
+- `_temporal_entity`: entity-level BIOES tagging over a temporal complex.

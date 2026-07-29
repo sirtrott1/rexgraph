@@ -357,7 +357,7 @@ def _hodge_sparse(B1, B2, np.ndarray[f64, ndim=1] flow, L0_sp, L2_sp):
     grad, curl, harm : f64[nE]
     """
     from rexgraph.core._sparse import to_scipy_csr
-    # scipy.sparse.linalg.lsqr - kept for sparse Hodge path
+    # scipy.sparse.linalg.lsqr: kept for sparse Hodge path
     from scipy.sparse.linalg import lsqr as _lsqr
 
     cdef Py_ssize_t nE = flow.shape[0]
@@ -425,7 +425,9 @@ def hodge_decomposition(B1, B2, np.ndarray[f64, ndim=1] flow,
     cdef Py_ssize_t max_lap_dim = nV
     if nF > max_lap_dim:
         max_lap_dim = nF
-    cdef bint use_dense = should_use_dense_matmul(max_lap_dim)
+    # matrix-free by design: always the sparse lsqr path, never a dense SVD solve
+    # (no dimension cutoff). The dense fast path is intentionally not used here.
+    cdef bint use_dense = False
 
     if L0 is None:
         if use_dense:

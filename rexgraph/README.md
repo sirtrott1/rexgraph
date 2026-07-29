@@ -13,15 +13,15 @@ are optimized to run on sparse operators. The **eigen-free modules** in
 `rexgraph` (`scale_propagator`, `sparse_character`, `harmonic_sparse`,
 `graded_boundary`, `field_propagator`, `dirac_propagator`, `sparse_interfacing`)
 compute the spectral quantities without a dense eigensolve, so the same results
-hold at any scale. `RexGraph` selects between them by size: below
-`eigen_dense_limit` (default 2000 edges) it uses the dense kernel path, which is
-also the exact reference the sparse path is tested against; above it, the
-eigen-free path. The `rexgraph.compute` layer then dispatches either path across
-CPU, GPU, or multiple GPUs.
+hold at any scale. Sparse is the default everywhere: `RexGraph` does not build
+the dense relational bundle unless it is asked for. Dense is materialized on
+demand for the low-level dense kernels, and it is the exact reference the sparse
+path is tested against. The `rexgraph.compute` layer then dispatches across CPU,
+GPU, or multiple GPUs.
 
 ---
 
-## `graph.py` - RexGraph and TemporalRex
+## `graph.py`: RexGraph and TemporalRex
 
 ### Construction
 
@@ -292,7 +292,7 @@ global eigenbasis.
 ### Demand-driven (seed-based) reads
 
 Localized quantities computed by diffusion from a seed set, without building
-the global character or eigenbasis - the cost scales with the seed, not nE.
+the global character or eigenbasis: the cost scales with the seed, not nE.
 
 | Method | Description |
 |---|---|
@@ -369,7 +369,7 @@ snapshots with continuous edge identity. Delta-encoded storage.
 
 
 
-## `rextypes.py` - Typed Containers and Enumerations
+## `rextypes.py`: Typed Containers and Enumerations
 
 Enumerations mirror integer codes from the Cython layer. NamedTuples wrap
 the dicts and tuples returned by the Cython layer for attribute access and
@@ -433,7 +433,7 @@ RCFEResult
 
 
 
-## `analysis.py` - Dashboard Analysis Pipeline
+## `analysis.py`: Dashboard Analysis Pipeline
 
 Connects RexGraph to the visualization dashboard JSON contract. Accepts a
 rex with optional vertex labels and edge attributes, returns a dict whose
@@ -446,26 +446,26 @@ to the Cython modules through RexGraph's cached bundles.
 
 Full structural analysis for the graph dashboard. Returns a dict with:
 
-- **meta** - nV, nE, nF, canvas size, attribute metadata, type/weight columns
-- **vertices** - per-vertex: position, degree, role, partitions, Fiedler, divergence, PageRank, betweenness, clustering, community, face metrics
-- **edges** - per-edge: source/target, type, weight, Hodge components (raw + normalized), rho, L1_down/L1_up diagonal, face metrics, betweenness, E_kin/E_pot
-- **faces** - per-face: id, boundary, vertices, size, curl, concentration
-- **topology** - chain validity, ranks, Betti, Euler, nF_hodge, self-loop faces
-- **coupling** - alpha_G, alpha_T, Fiedler values for L1, L_O, RL_1
-- **spectra** - eigenvalue arrays for L0, L1_down, L1_full, L2, L_O, RL_1, RL, field M
-- **hodge** - gradient/curl/harmonic norms and percentages
-- **energy** - E_kin, E_pot, ratio, regime, top kinetic/potential edges
-- **analysis** - topology summary, Hodge summary, coupling interpretation, energy regime, structural roles, partition splits, standard metrics (PageRank, betweenness, clustering, Louvain), face structure
-- **overlap** - top overlap pairs with Jaccard similarity
-- **structural_character** - per-edge chi, per-vertex phi + kappa, aggregate summary, per-channel mixing times, mixing time anisotropy, inverse centrality ratio (when RCF modules available)
-- **rcfe** - curvature per edge, strain, Bianchi identity check, attributed curvature, strain equilibrium
-- **void_complex** - n_voids, n_potential, void strain, mean eta, fills_beta count, realization rate
-- **fiber_bundle** - mean phi/fiber similarity, top vertex pairs by fiber similarity
-- **channels** - primal signal character of the flow signal, face-void dipole (when `_channels` module available)
-- **dirac** - Dirac spectrum, zero-mode count, Born probabilities per dimension, energy partition
-- **hypermanifold** - manifold sequence with Betti/DOF per level, harmonic shadow, dimensional subsumption check
-- **perturbation** - probe edge, cascade depth, activation count, energy/Hodge trajectories (when run_perturbation=True)
-- **diffusion** - field diffusion norm decay, equilibrium index, vertex observables (when faces present)
+- **meta**: nV, nE, nF, canvas size, attribute metadata, type/weight columns
+- **vertices**: per-vertex: position, degree, role, partitions, Fiedler, divergence, PageRank, betweenness, clustering, community, face metrics
+- **edges**: per-edge: source/target, type, weight, Hodge components (raw + normalized), rho, L1_down/L1_up diagonal, face metrics, betweenness, E_kin/E_pot
+- **faces**: per-face: id, boundary, vertices, size, curl, concentration
+- **topology**: chain validity, ranks, Betti, Euler, nF_hodge, self-loop faces
+- **coupling**: alpha_G, alpha_T, Fiedler values for L1, L_O, RL_1
+- **spectra**: eigenvalue arrays for L0, L1_down, L1_full, L2, L_O, RL_1, RL, field M
+- **hodge**: gradient/curl/harmonic norms and percentages
+- **energy**: E_kin, E_pot, ratio, regime, top kinetic/potential edges
+- **analysis**: topology summary, Hodge summary, coupling interpretation, energy regime, structural roles, partition splits, standard metrics (PageRank, betweenness, clustering, Louvain), face structure
+- **overlap**: top overlap pairs with Jaccard similarity
+- **structural_character**: per-edge chi, per-vertex phi + kappa, aggregate summary, per-channel mixing times, mixing time anisotropy, inverse centrality ratio (when RCF modules available)
+- **rcfe**: curvature per edge, strain, Bianchi identity check, attributed curvature, strain equilibrium
+- **void_complex**: n_voids, n_potential, void strain, mean eta, fills_beta count, realization rate
+- **fiber_bundle**: mean phi/fiber similarity, top vertex pairs by fiber similarity
+- **channels**: primal signal character of the flow signal, face-void dipole (when `_channels` module available)
+- **dirac**: Dirac spectrum, zero-mode count, Born probabilities per dimension, energy partition
+- **hypermanifold**: manifold sequence with Betti/DOF per level, harmonic shadow, dimensional subsumption check
+- **perturbation**: probe edge, cascade depth, activation count, energy/Hodge trajectories (when run_perturbation=True)
+- **diffusion**: field diffusion norm decay, equilibrium index, vertex observables (when faces present)
 
 ---
 
@@ -496,7 +496,7 @@ because the base analysis is shared.
 
 ### Helpers
 
-- `_build_flow(rex, edge_attrs, negative_types, nE)` - signed flow signal from edge attributes. Magnitude from w_E or weight column, sign from polarity matching against negative stem patterns.
-- `_classify_attributes(edge_attrs, nE)` - attribute metadata in dashboard format (numeric with min/max/mean, categorical with values/counts).
-- `_partition_from_fiedler(vec)` - Fiedler bipartition labels ("A"/"B").
-- `_vertex_roles(in_deg, out_deg, v_face_count, nV)` - structural role assignment (source/sink/hub/mediator/peripheral).
+- `_build_flow(rex, edge_attrs, negative_types, nE)`: signed flow signal from edge attributes. Magnitude from w_E or weight column, sign from polarity matching against negative stem patterns.
+- `_classify_attributes(edge_attrs, nE)`: attribute metadata in dashboard format (numeric with min/max/mean, categorical with values/counts).
+- `_partition_from_fiedler(vec)`: Fiedler bipartition labels ("A"/"B").
+- `_vertex_roles(in_deg, out_deg, v_face_count, nV)`: structural role assignment (source/sink/hub/mediator/peripheral).

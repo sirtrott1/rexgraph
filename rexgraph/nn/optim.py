@@ -1,27 +1,27 @@
 """
-rexgraph.nn.optim - Hodge-structured optimization: gradient descent on the Helmholtz-Hodge
+rexgraph.nn.optim: Hodge-structured optimization, gradient descent on the Helmholtz-Hodge
 structure of the gradient field, not the coordinate-wise view of SGD/Adam.
 
 A gradient on a weight matrix W (out × in) is a flow on the complete bipartite parameter
 graph K_{m,n}: out-neurons ∪ in-neurons are vertices, each weight is an edge, and ∂L/∂W[i,j]
 is the flow on that edge. The Hodge decomposition splits that flow into orthogonal parts:
 
-  * potential (gradient, im B1ᵀ) - the part explained by a per-neuron scalar potential; the
+  * potential (gradient, im B1ᵀ): the part explained by a per-neuron scalar potential; the
     coordinated descent every neuron agrees on. Closed form on K_{m,n}:
         potential[i,j] = rowmean_i + colmean_j - grandmean          (two-way ANOVA main effects)
-  * rotational (curl + harmonic, ker B1) - the interaction/per-weight residual; the rotational
+  * rotational (curl + harmonic, ker B1): the interaction/per-weight residual; the rotational
     flow that causes oscillation and that momentum/Adam fight coordinate-wise.
 
 Mixing the components (γ_grad·potential + γ_curl·rotational) is a structural preconditioner:
 γ_curl < 1 damps the rotational flow while preserving the coordinated descent. γ_grad =
-γ_curl = 1 reproduces plain SGD exactly. It is O(mn) - the closed form is row/column means -
+γ_curl = 1 reproduces plain SGD exactly. It is O(mn) (the closed form is row/column means)
 and equals the Hodge grad-projection the compiled ``rex.hodge`` kernel computes on K_{m,n}
 (see tests).
 
 Two layers:
-  * framework-agnostic numpy core (``hodge_matrix_*``, ``hodge_flow_*``) - usable directly,
+  * framework-agnostic numpy core (``hodge_matrix_*``, ``hodge_flow_*``): usable directly,
     and where the math is verified against rexgraph's kernels.
-  * ``HodgeSGD`` - a ``torch.optim.Optimizer`` binding (guarded; torch is optional). The
+  * ``HodgeSGD``: a ``torch.optim.Optimizer`` binding (guarded; torch is optional). The
     structured/general path (arbitrary parameter graph, real harmonic component) goes through
     ``hodge_flow_precondition`` and the compiled core.
 
@@ -74,8 +74,8 @@ def hodge_matrix_precondition(G, gamma_grad: float = 1.0, gamma_rot: float = 1.0
 def hodge_flow_decompose(rex, flow) -> tuple:
     """Full grad/curl/harmonic decomposition of an edge ``flow`` on an arbitrary relational
     complex, via the compiled ``rex.hodge`` kernel. Returns ``(grad, curl, harm)``. Use this
-    (not the matrix closed form) when the parameter graph is not complete bipartite - a
-    sparsified neuron-similarity graph, conv locality, an ontology - where the harmonic
+    (not the matrix closed form) when the parameter graph is not complete bipartite (a
+    sparsified neuron-similarity graph, conv locality, an ontology) where the harmonic
     (topologically protected) component is nonzero and carries signal."""
     grad, curl, harm = rex.hodge(np.ascontiguousarray(flow, dtype=np.float64))
     return grad, curl, harm
@@ -98,9 +98,9 @@ def hodge_flow_precondition(rex, flow, gamma_grad: float = 1.0, gamma_curl: floa
 def save_hodge_trajectory(report: Dict[str, List[float]], path: str, *,
                           optimizer: str = "HodgeSGD", **meta) -> str:
     """Persist a per-step Hodge trajectory (pct_grad / pct_rot / ...) as a labeled vector
-    corpus through the same ``rexgraph.io`` path used for embeddings - so a run's
+    corpus through the same ``rexgraph.io`` path used for embeddings, so a run's
     coordinated-vs-rotational gradient balance is a trackable timeline. Returns the path."""
-    from rexgraph.io import save_vectors           # direct - the substrate never imports upward
+    from rexgraph.io import save_vectors           # direct import: the substrate never imports upward
     keys = [k for k, v in report.items() if isinstance(v, list) and v]
     if not keys:
         raise ValueError("empty trajectory report")
@@ -231,6 +231,12 @@ if _HAS_TORCH:
         rotational parts get their own first/second-moment estimates and their own effective
         step, then recombine with ``gamma_grad`` / ``gamma_curl`` gains. The grad/rotational
         split is a trackable, verified structure.
+
+        Empirically this ties plain Adam on standard weight matrices (the coordinated component
+        engages only a few percent of the gradient in the weight-neuron geometry, not the model's
+        data complex); for relational-native models whose parameters are cochains, use
+        GreensCochain, which preconditions in the complex's own geometry. Kept for back-compat;
+        not the recommended default.
 
         Every rank is decomposed relationally: 2-tensors via the weighted bipartite Hodge flow,
         any other rank (1-tensor biases, 3/4-tensor conv kernels, k-rex) via the general
@@ -428,20 +434,136 @@ if _HAS_TORCH:
         def hodge_report(self) -> Dict[str, List[float]]:
             return {k: list(v) for k, v in self._hist.items()}
 
+
+    class GreensCochain(_torch.optim.Optimizer):
+        """Adam whose gradient is preconditioned by the Green's function of a relational complex,
+        for models whose parameters are COCHAINS on that complex (a value per cell).
+
+        For a param group carrying a complex operator (`green_adj`, a sparse normalized adjacency
+        of shape [n_cells, n_cells]), each parameter's gradient (first dim = n_cells) is whitened in
+        the complex geometry: solve (I + t L) x = g with L = I - A_hat by matrix-free CG, returning
+        the low-pass component x (Green's-smoothed, for a homophilous complex) or the high-pass
+        residual g - x, then Adam moments are applied to the result. Groups without `green_adj`, or
+        params whose first dim does not match, get plain Adam.
+
+        `green_channel` selects the k-hop operator (A_hat**k, cached; the 0s keep it sparse):
+        "low"/"high" walk one hop; "twohop"/"threehop" walk the sparse 2/3-hop operator, which
+        carries the structure a heterophilous complex needs (2-hop neighbours agree where 1-hop
+        neighbours disagree). Use `generate_khop_channel` to auto-select the channel per task from a
+        cheap self-supervised score rather than fixing it.
+
+        This is the native optimizer for relational-native models where the complex IS the model and
+        the parameters are cochains: the Green's preconditioning does the relational propagation a
+        structure-blind optimizer cannot (empirically a bare-cochain node model goes from chance to
+        strong generalization, because the optimizer itself carries the training signal across the
+        complex). On STANDARD feature-space models it offers nothing over Adam: the structure is
+        already in the forward pass, so use plain Adam there. Requires torch."""
+
+        def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0,
+                     green_lam=1.0, green_iters=12, green_channel="low"):
+            if lr <= 0:
+                raise ValueError("lr must be > 0")
+            super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                             green_lam=green_lam, green_iters=green_iters,
+                             green_channel=green_channel, green_adj=None))
+
+        # channel -> (operator power on A_hat, low-pass?): low/high walk 1 hop; twohop/threehop
+        # walk the sparse k-hop A_hat**k (the 0s keep it sparse; k-hop carries structure a
+        # heterophilous complex needs (2-hop neighbours agree where 1-hop neighbours disagree).
+        _CH_POWER = {"low": 1, "high": 1, "twohop": 2, "threehop": 3}
+
+        @staticmethod
+        def _channel_op(adj, channel, group):
+            power = GreensCochain._CH_POWER.get(channel, 1)
+            cache = group.setdefault("_op_cache", {})
+            if channel not in cache:
+                op = adj
+                for _ in range(power - 1):
+                    op = _torch.sparse.mm(adj, op).coalesce()      # sparse A_hat**k, stays sparse
+                cache[channel] = op
+            return cache[channel], (channel != "high")
+
+        @staticmethod
+        def _greens(op, g, t, low, iters):
+            g2 = g if g.dim() >= 2 else g.unsqueeze(1)
+            def mv(X):
+                return (1.0 + t) * X - t * _torch.sparse.mm(op, X)
+            X = _torch.zeros_like(g2); R = g2 - mv(X); P = R.clone()
+            rs = (R * R).sum(0, keepdim=True)
+            for _ in range(iters):
+                AP = mv(P); a = rs / ((P * AP).sum(0, keepdim=True) + 1e-20)
+                X = X + a * P; R = R - a * AP; rs2 = (R * R).sum(0, keepdim=True)
+                P = R + (rs2 / (rs + 1e-20)) * P; rs = rs2
+            out = X if low else (g2 - X)
+            return out if g.dim() >= 2 else out.squeeze(1)
+
+        @_torch.no_grad()
+        def step(self, closure=None):
+            loss = closure() if closure is not None else None
+            for group in self.param_groups:
+                lr, (b1, b2), eps = group["lr"], group["betas"], group["eps"]
+                wd = group["weight_decay"]; adj = group.get("green_adj")
+                t = group["green_lam"]; ch = group["green_channel"]; it = group["green_iters"]
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    g = p.grad
+                    if wd:
+                        g = g.add(p, alpha=wd)
+                    if adj is not None and p.dim() >= 1 and p.shape[0] == adj.shape[0]:
+                        op, low = self._channel_op(adj, ch, group)
+                        g = self._greens(op, g, t, low, it)
+                    st = self.state[p]; ts = st.get("t", 0) + 1; st["t"] = ts
+                    m = st.get("m"); v = st.get("v")
+                    if m is None:
+                        m = _torch.zeros_like(g); v = _torch.zeros_like(g)
+                    m = b1 * m + (1 - b1) * g; v = b2 * v + (1 - b2) * g * g
+                    st["m"], st["v"] = m, v
+                    mh = m / (1 - b1 ** ts); vh = v / (1 - b2 ** ts)
+                    p.add_(mh / (vh.sqrt() + eps), alpha=-lr)
+            return loss
+
+    def generate_khop_channel(score_fn, channels=("low", "twohop", "threehop")):
+        """Context-aware k-hop GENERATOR: pick the propagation channel that fits the task, cheaply.
+
+        Standard optimizers cannot do this because they have no cheap structural signal to detect
+        which operator fits; a relational-native model does. `score_fn(channel)` is that signal: a
+        callback returning a higher-is-better score for a candidate channel (e.g. a self-supervised
+        inner-val reconstruction accuracy: fit the cochain on an inner-train split with that channel
+        and score the held-out inner-val). This returns ``(best_channel, {channel: score})``; the
+        caller then builds/sets GreensCochain with the selected channel. Empirically the generator
+        auto-picks 2-hop for a heterophilous complex and low/3-hop for a homophilous one, with no
+        task-specific hardcoding: the detection nobody wires into an optimizer because the cheap
+        structural math is missing. A deeper (run-nothing) detector reads the channel straight off
+        the complex's spectral moments; this self-supervised version is the first working form."""
+        scores = {ch: float(score_fn(ch)) for ch in channels}
+        best = max(scores, key=scores.get)
+        return best, scores
+
+
 else:
 
-    class HodgeSGD:                                  # pragma: no cover - env without torch
+    class HodgeSGD:                                  # pragma: no cover (env without torch)
         def __init__(self, *a, **k):
             raise ImportError(
                 "HodgeSGD requires PyTorch (an optional dependency). Install a torch build "
                 "for your backend (CUDA/ROCm/CPU/MPS), or use the framework-agnostic core: "
                 "agent.optim.hodge_matrix_precondition / hodge_flow_precondition.")
 
-    class HodgeAdam:                                 # pragma: no cover - env without torch
+    class HodgeAdam:                                 # pragma: no cover (env without torch)
         def __init__(self, *a, **k):
             raise ImportError(
                 "HodgeAdam requires PyTorch (an optional dependency). Install a torch build "
                 "for your backend (CUDA/ROCm/CPU/MPS), or use the framework-agnostic core.")
+
+    class GreensCochain:                             # pragma: no cover (env without torch)
+        def __init__(self, *a, **k):
+            raise ImportError(
+                "GreensCochain requires PyTorch (an optional dependency). Install a torch build "
+                "for your backend (CUDA/ROCm/CPU/MPS), or use the framework-agnostic core.")
+
+    def generate_khop_channel(*a, **k):             # pragma: no cover (env without torch)
+        raise ImportError("generate_khop_channel requires PyTorch (an optional dependency).")
 
 
 # training-backend exposure
@@ -558,7 +680,7 @@ def pick_device(prefer: Optional[str] = None) -> str:
 
     ``prefer`` None or ``"auto"`` -> ask ``rexgraph.compute.recommended_backend()`` what backend
     this host resolves to (dynamic per machine, honoring REXGRAPH_BACKEND), map it to a torch device,
-    and confirm the GPU actually runs (``gpu_count() > 0`` plus a live op) - so a visible-but-unusable
+    and confirm the GPU actually runs (``gpu_count() > 0`` plus a live op), so a visible-but-unusable
     GPU never leaks through. When the compute stack has no recommendation, fall back to torch's own
     validated probe (``training_backends``).
 
@@ -578,29 +700,35 @@ def pick_device(prefer: Optional[str] = None) -> str:
     return training_backends()["recommended_device"]   # compute stack unavailable: torch's own view
 
 
-def build_optimizer(params, method: str = "hodge", lr: Optional[float] = None, **kwargs):
-    """Construct a training optimizer. The default ``"hodge"`` is HodgeAdam with the vector
-    Hodge decomposition (``structure="vector"``): the gradient is an edge-flow on the weighted
-    bipartite parameter complex, split into its Hodge gradient (Green's-projected potential)
-    component and residual, with Adam adaptivity per component. Variants:
-      * ``"hodge"`` / ``"hodgeadam"`` -> HodgeAdam (default; lr default 1e-3)
-      * ``"hodgesgd"``               -> HodgeSGD, the structural preconditioner (lr default 1e-2)
-      * ``"sgd"`` / ``"adam"`` / ``"adamw"`` -> the traditional optimizers, interoperable but opt-in.
+def build_optimizer(params, method: str = "adam", lr: Optional[float] = None, **kwargs):
+    """Construct a training optimizer. The honest menu, routed by empirical result:
+      * ``"adam"``    -> plain Adam (DEFAULT; the right choice for standard feature-space models,
+                        where the relational structure lives in the forward pass, not the optimizer)
+      * ``"adamw"`` / ``"sgd"`` -> the traditional optimizers, interoperable, opt-in.
+      * ``"greens"`` / ``"greenscochain"`` -> GreensCochain, Green's-function preconditioning of the
+                        gradient in a complex's own geometry; the native optimizer for
+                        relational-native models whose parameters are COCHAINS on that complex
+                        (lr default 1e-3). Plain Adam elsewhere ties it, so it is opt-in, not default.
+      * ``"hodge"`` / ``"hodgeadam"`` -> HodgeAdam (lr default 1e-3), back-compat only: it ties
+                        plain Adam on standard weight matrices.
+      * ``"hodgesgd"`` -> HodgeSGD, the structural preconditioner (lr default 1e-2), back-compat.
     Requires torch."""
     if not _HAS_TORCH:
         raise ImportError("build_optimizer needs torch; use the numpy hodge_* core otherwise.")
     m = method.lower()
-    if m in ("hodge", "hodgeadam", "default"):
+    if m in ("hodge", "hodgeadam"):
         return HodgeAdam(params, lr=1e-3 if lr is None else lr, **kwargs)
     if m == "hodgesgd":
         return HodgeSGD(params, lr=1e-2 if lr is None else lr, **kwargs)
+    if m in ("greens", "greenscochain"):
+        return GreensCochain(params, lr=1e-3 if lr is None else lr, **kwargs)
     if m == "sgd":
         return _torch.optim.SGD(params, lr=1e-2 if lr is None else lr, **kwargs)
-    if m == "adam":
+    if m in ("adam", "default"):
         return _torch.optim.Adam(params, lr=1e-3 if lr is None else lr, **kwargs)
     if m == "adamw":
         return _torch.optim.AdamW(params, lr=1e-3 if lr is None else lr, **kwargs)
-    raise ValueError("unknown optimizer method %r (hodge|hodgesgd|sgd|adam|adamw)" % method)
+    raise ValueError("unknown optimizer method %r (adam|adamw|sgd|greens|hodge|hodgesgd)" % method)
 
 
 def hodge_groups(model, n_heads: int = 1):

@@ -86,10 +86,15 @@ class HiveSchema:
         return rcdb.lineage(self.store, self.lineage_id)
 
     def evolution(self) -> List[dict]:
-        """The tracked life history: each version, why it happened, and its size/topology."""
+        """The tracked life history: each version, why it happened, and its size/topology.
+
+        Versions now live on one native version chain under ``self.lineage_id``
+        (rcdb.lineage no longer mints a separate id per version), so each
+        historical record is addressed by its own ``created`` (tx_from), not
+        by ``v["id"]`` (that field is a display string, not a store id)."""
         out = []
         for v in self.lineage():
-            rec = self.store.get_record(v["id"])
+            rec = self.store.get_record(self.lineage_id, as_of=v["created"])
             sig = rec.signature if rec else {}
             out.append({"version": v["version"],
                         "cause": (rec.meta or {}).get("cause", "") if rec else "",

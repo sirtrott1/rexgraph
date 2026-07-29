@@ -858,6 +858,108 @@ def delete_edges(nV, nE, sources, targets, delete_mask):
     return delete_edges_i32(nV, nE, sources, targets, delete_mask)
 
 
+def compact_boundary_i32(np.ndarray[i32, ndim=1] boundary_ptr,
+                         np.ndarray[i32, ndim=1] boundary_idx,
+                         np.ndarray[i32, ndim=1] live_edges):
+    """Drop tombstoned edge columns from a general boundary CSR and renumber.
+    Returns (new_ptr, new_idx, nV_new, v_map[nV], e_map[nE])."""
+    cdef Py_ssize_t nE = boundary_ptr.shape[0] - 1
+    cdef i32[::1] bp = boundary_ptr, bi = boundary_idx, le = live_edges
+    cdef Py_ssize_t j, k, nE_keep = 0, nnz_keep = 0, nV = 0
+    cdef i32 v
+    # count survivors and their nnz; find nV from max index + 1
+    for j in range(boundary_idx.shape[0]):
+        if bi[j] + 1 > nV: nV = bi[j] + 1
+    for j in range(nE):
+        if le[j]:
+            nE_keep += 1
+            nnz_keep += (bp[j + 1] - bp[j])
+    cdef np.ndarray[i32, ndim=1] em = np.full(nE, -1, dtype=np.int32)
+    cdef np.ndarray[i32, ndim=1] np_ptr = np.empty(nE_keep + 1, dtype=np.int32)
+    cdef np.ndarray[i32, ndim=1] np_idx = np.empty(nnz_keep, dtype=np.int32)
+    cdef i32[::1] emv = em, npp = np_ptr, npi = np_idx
+    cdef np.ndarray[i32, ndim=1] alive = np.zeros(nV, dtype=np.int32)
+    cdef i32[::1] al = alive
+    cdef Py_ssize_t pos = 0, w = 0
+    npp[0] = 0
+    for j in range(nE):
+        if le[j]:
+            emv[j] = <i32>pos
+            for k in range(<Py_ssize_t>bp[j], <Py_ssize_t>bp[j + 1]):
+                v = bi[k]
+                npi[w] = v
+                al[v] = 1
+                w += 1
+            pos += 1
+            npp[pos] = <i32>w
+    # vertex renumber over survivors
+    cdef np.ndarray[i32, ndim=1] vm = np.full(nV, -1, dtype=np.int32)
+    cdef i32[::1] vmv = vm
+    cdef Py_ssize_t nV_new = 0
+    for j in range(nV):
+        if al[j]:
+            vmv[j] = <i32>nV_new
+            nV_new += 1
+    for k in range(w):
+        npi[k] = vmv[npi[k]]
+    return np_ptr, np_idx, <Py_ssize_t>nV_new, vm, em
+
+
+def compact_boundary_i64(np.ndarray[i64, ndim=1] boundary_ptr,
+                         np.ndarray[i64, ndim=1] boundary_idx,
+                         np.ndarray[i32, ndim=1] live_edges):
+    """Drop tombstoned edge columns from a general boundary CSR and renumber.
+    int64 variant. Returns (new_ptr, new_idx, nV_new, v_map[nV], e_map[nE])."""
+    cdef Py_ssize_t nE = boundary_ptr.shape[0] - 1
+    cdef i64[::1] bp = boundary_ptr, bi = boundary_idx
+    cdef i32[::1] le = live_edges
+    cdef Py_ssize_t j, k, nE_keep = 0, nnz_keep = 0, nV = 0
+    cdef i64 v
+    # count survivors and their nnz; find nV from max index + 1
+    for j in range(boundary_idx.shape[0]):
+        if bi[j] + 1 > nV: nV = bi[j] + 1
+    for j in range(nE):
+        if le[j]:
+            nE_keep += 1
+            nnz_keep += (bp[j + 1] - bp[j])
+    cdef np.ndarray[i64, ndim=1] em = np.full(nE, -1, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] np_ptr = np.empty(nE_keep + 1, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] np_idx = np.empty(nnz_keep, dtype=np.int64)
+    cdef i64[::1] emv = em, npp = np_ptr, npi = np_idx
+    cdef np.ndarray[i64, ndim=1] alive = np.zeros(nV, dtype=np.int64)
+    cdef i64[::1] al = alive
+    cdef Py_ssize_t pos = 0, w = 0
+    npp[0] = 0
+    for j in range(nE):
+        if le[j]:
+            emv[j] = <i64>pos
+            for k in range(<Py_ssize_t>bp[j], <Py_ssize_t>bp[j + 1]):
+                v = bi[k]
+                npi[w] = v
+                al[v] = 1
+                w += 1
+            pos += 1
+            npp[pos] = <i64>w
+    # vertex renumber over survivors
+    cdef np.ndarray[i64, ndim=1] vm = np.full(nV, -1, dtype=np.int64)
+    cdef i64[::1] vmv = vm
+    cdef Py_ssize_t nV_new = 0
+    for j in range(nV):
+        if al[j]:
+            vmv[j] = <i64>nV_new
+            nV_new += 1
+    for k in range(w):
+        npi[k] = vmv[npi[k]]
+    return np_ptr, np_idx, <Py_ssize_t>nV_new, vm, em
+
+
+def compact_boundary(boundary_ptr, boundary_idx, live_edges):
+    """Auto-dispatch by dtype."""
+    if boundary_ptr.dtype == np.int64:
+        return compact_boundary_i64(boundary_ptr, boundary_idx, live_edges)
+    return compact_boundary_i32(boundary_ptr, boundary_idx, live_edges)
+
+
 # Dimensional projection
 
 def project_to_dimension(Py_ssize_t target_dim,

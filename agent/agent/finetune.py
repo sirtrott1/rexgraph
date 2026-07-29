@@ -1,5 +1,5 @@
 """
-agent.finetune - LoRA fine-tune of a Hugging Face model with the RexGraph optimizer (HodgeAdam),
+agent.finetune: LoRA fine-tune of a Hugging Face model with the RexGraph optimizer (HodgeAdam),
 compared against Adam on this machine's GPU.
 
 Adapts a transformer's weights with HodgeAdam on the local torch build, streams the loss through
@@ -172,7 +172,7 @@ def load_data(dataset=None, *, text_field: Optional[str] = None,
     return [r for r in norm if (r.get("text") or r.get("response"))]
 
 
-def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "hodge", steps: int = 60,
+def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: int = 60,
              lora_r: int = 8, lora_alpha: int = 16, lr: Optional[float] = None,
              seq_len: int = 64, batch: int = 4, seed: int = 0, device: Optional[str] = None,
              data: Optional[List[dict]] = None, dataset=None, text_field: Optional[str] = None,

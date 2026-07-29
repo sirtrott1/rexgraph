@@ -17,7 +17,7 @@ single `.safetensors` file. The goals are:
   user code.
 
 This bridge is parallel to `arrow_bridge.py` and `parquet_bridge.py`.
-It is not the primary storage for RexGraphs - use `bundle.py` (`.rex`)
+It is not the primary storage for RexGraphs; use `bundle.py` (`.rex`)
 or `zarr_format.py` (`.zarr`) for that. Use this bridge when shipping
 a rex to an ML environment or when you want the ML-ecosystem loader
 path.
@@ -127,6 +127,7 @@ __all__ = [
     "safetensors_to_temporal_rex",
     "save_safetensors",
     "load_safetensors",
+    "load_extra",
     "fingerprints_to_safetensors",
     "safetensors_to_fingerprints",
 ]
@@ -241,6 +242,8 @@ def rex_to_safetensors(
     path: Union[str, os.PathLike],
     *,
     cache: Union[None, str, List[str]] = None,
+    extra_tensors: Optional[Dict[str, NDArray]] = None,
+    extra_meta: Optional[Dict[str, Any]] = None,
 ) -> pathlib.Path:
     """Write a RexGraph to a `.safetensors` file.
 
@@ -263,6 +266,16 @@ def rex_to_safetensors(
           - `"all"` -> every property in `_ALL_CACHEABLE`
           - `"algebra"`, `"spectral"`, `"topology"`, `"hodge"` -> that group
           - list of names or groups -> union
+    extra_tensors : dict of str -> ndarray, optional
+        Caller-owned named tensors stored verbatim alongside the complex
+        (e.g. a learned cochain on the complex). Namespace the keys (e.g.
+        `"cochain/Z"`) to avoid clashing with the reconstruction arrays;
+        they are ignored by `safetensors_to_rex` and returned in the
+        `"tensors"` dict by `load_safetensors`.
+    extra_meta : dict, optional
+        Caller-owned JSON-serializable metadata (e.g. a model's
+        hyperparameters), stored under the `extra_meta` metadata key and
+        read back with :func:`load_extra`.
 
     Returns
     -------
@@ -300,6 +313,15 @@ def rex_to_safetensors(
     if scalar_cache:
         meta["cache_scalars"] = scalar_cache
 
+    # Caller-owned extras: named tensors stored verbatim (namespaced by the caller) and JSON
+    # metadata. These ride alongside the canonical complex without touching its reconstruction
+    # contract: safetensors_to_rex ignores them exactly as it ignores cache/* arrays.
+    if extra_tensors:
+        for k, arr in extra_tensors.items():
+            if k in tensors:
+                raise ValueError(f"extra_tensors key {k!r} collides with a complex tensor")
+            tensors[k] = _as_storable(np.asarray(arr))
+
     # Safetensors metadata is strict Dict[str, str]; encode as JSON. `rex_state_header` is the
     # canonical payload; `rex_meta` is kept as a thin, backward compatible alias so callers that
     # only ever read `object_type`/`bridge_version` off the header (e.g. the format dispatcher in
@@ -309,9 +331,25 @@ def rex_to_safetensors(
         "rex_meta": json.dumps(meta, default=_json_default),
         "bridge_version": str(_BRIDGE_VERSION),
     }
+    if extra_meta is not None:
+        st_meta["extra_meta"] = json.dumps(extra_meta, default=_json_default)
 
     save_file(tensors, str(out), metadata=st_meta)
     return out
+
+
+def load_extra(path: Union[str, os.PathLike]) -> Dict[str, Any]:
+    """Read back the `extra_meta` dict written by :func:`rex_to_safetensors`.
+
+    Returns `{}` when the file carries no caller-owned metadata. The extra
+    *tensors* come back through :func:`load_safetensors` (in its `"tensors"`
+    dict); this reads only the JSON metadata sidecar.
+    """
+    _, _, safe_open = _st()
+    p = _coerce_path(path)
+    with safe_open(str(p), framework="numpy") as f:
+        raw = f.metadata() or {}
+    return json.loads(raw["extra_meta"]) if "extra_meta" in raw else {}
 
 
 def safetensors_to_rex(path: Union[str, os.PathLike]):
@@ -508,41 +546,86 @@ def temporal_rex_to_safetensors(
     trex,
     path: Union[str, os.PathLike],
 ) -> pathlib.Path:
-    """Write a TemporalRex to a `.safetensors` file.
+    """Write a TemporalRex to a `.safetensors` file as a DELTA INDEX
+    (checkpoints + deltas), not full per-step snapshots.
 
-    Each snapshot is stored under `snapshot/<t>/sources` +
-    `snapshot/<t>/targets` (or `snapshot/<t>/boundary_ptr` +
-    `boundary_idx` in general mode). Face snapshots, if present, go
-    under `face_snapshot/<t>/B2_col_ptr` + `B2_row_idx`.
+    `trex._ensure_index()` is called first so the checkpoint/delta index
+    (Tasks 4/6) exists. Each checkpoint `c` is stored under
+    `checkpoint/<c>/boundary_ptr` + `boundary_idx`, plus `w_E`/`signs`
+    (only if the checkpoint carries attribution) and `B2_col_ptr` /
+    `B2_row_idx` / `B2_vals` (only if the checkpoint has faces). Each
+    non checkpoint step `t` is stored as a `TemporalDelta` under
+    `delta/<t>/born_cols|born_offsets|born_wE|born_signs|died_keys|
+    mod_keys|mod_wE|mod_signs`, and, when a face delta was recorded for
+    that step, a `FaceDelta` under `face_delta/<t>/born_edge_keys|
+    born_offsets|born_signs|died_face_keys`.
+
+    Metadata records `encoding="delta"` so `safetensors_to_temporal_rex`
+    returns a delta backed `TemporalRex` (`_snapshots_materialized =
+    False`) rather than reconstructing full per-step snapshots.
     """
     save_file, _, _ = _st()
     out = _coerce_path(path)
 
+    trex._ensure_index()
+
     tensors: Dict[str, NDArray] = {}
 
     T = trex.T
-    general = bool(getattr(trex, "_general", False))
-    for t in range(T):
-        snap = trex._snapshots[t]
-        if general:
-            tensors[f"snapshot/{t}/boundary_ptr"] = _as_storable(snap[0])
-            tensors[f"snapshot/{t}/boundary_idx"] = _as_storable(snap[1])
-        else:
-            tensors[f"snapshot/{t}/sources"] = _as_storable(snap[0])
-            tensors[f"snapshot/{t}/targets"] = _as_storable(snap[1])
+    directed = bool(trex._directed)
+    general = bool(trex._general)
 
-    has_face_snapshots = bool(getattr(trex, "_face_snapshots", False))
-    if has_face_snapshots:
-        for t, fsnap in enumerate(trex._face_snapshots):
-            tensors[f"face_snapshot/{t}/B2_col_ptr"] = _as_storable(fsnap[0])
-            tensors[f"face_snapshot/{t}/B2_row_idx"] = _as_storable(fsnap[1])
+    checkpoint_times = [int(c) for c in trex._index_cp_times.tolist()]
+    checkpoint_optional: Dict[str, Dict[str, bool]] = {}
+    for c in checkpoint_times:
+        _, bp, bi, wE, signs, b2cp, b2ri, b2v = trex._index_checkpoints[c]
+        tensors[f"checkpoint/{c}/boundary_ptr"] = _as_storable(bp)
+        tensors[f"checkpoint/{c}/boundary_idx"] = _as_storable(bi)
+        has_wE = wE is not None
+        has_signs = signs is not None
+        has_faces_cp = b2cp is not None and b2cp.shape[0] > 1
+        if has_wE:
+            tensors[f"checkpoint/{c}/w_E"] = _as_storable(wE)
+        if has_signs:
+            tensors[f"checkpoint/{c}/signs"] = _as_storable(signs)
+        if has_faces_cp:
+            tensors[f"checkpoint/{c}/B2_col_ptr"] = _as_storable(b2cp)
+            tensors[f"checkpoint/{c}/B2_row_idx"] = _as_storable(b2ri)
+            tensors[f"checkpoint/{c}/B2_vals"] = _as_storable(b2v)
+        checkpoint_optional[str(c)] = {
+            "w_E": has_wE, "signs": has_signs, "faces": has_faces_cp,
+        }
+
+    has_faces_any = any(v["faces"] for v in checkpoint_optional.values())
+    for t in range(T):
+        d = trex._index_deltas[t]
+        if d is not None:
+            tensors[f"delta/{t}/born_cols"] = _as_storable(d.born_cols)
+            tensors[f"delta/{t}/born_offsets"] = _as_storable(d.born_offsets)
+            tensors[f"delta/{t}/born_wE"] = _as_storable(d.born_wE)
+            tensors[f"delta/{t}/born_signs"] = _as_storable(d.born_signs)
+            tensors[f"delta/{t}/died_keys"] = _as_storable(d.died_keys)
+            tensors[f"delta/{t}/mod_keys"] = _as_storable(d.mod_keys)
+            tensors[f"delta/{t}/mod_wE"] = _as_storable(d.mod_wE)
+            tensors[f"delta/{t}/mod_signs"] = _as_storable(d.mod_signs)
+        fd = trex._index_face_deltas[t]
+        if fd is not None:
+            has_faces_any = True
+            tensors[f"face_delta/{t}/born_edge_keys"] = _as_storable(fd.born_edge_keys)
+            tensors[f"face_delta/{t}/born_offsets"] = _as_storable(fd.born_offsets)
+            tensors[f"face_delta/{t}/born_signs"] = _as_storable(fd.born_signs)
+            tensors[f"face_delta/{t}/died_face_keys"] = _as_storable(fd.died_face_keys)
 
     meta: Dict[str, Any] = {
         "object_type": "TemporalRex",
+        "encoding": "delta",
         "T": int(T),
-        "directed": bool(getattr(trex, "_directed", False)),
+        "directed": directed,
         "general": general,
-        "has_face_snapshots": has_face_snapshots,
+        "has_faces": bool(has_faces_any),
+        "checkpoint_threshold": float(trex._checkpoint_threshold),
+        "checkpoint_times": checkpoint_times,
+        "checkpoint_optional": checkpoint_optional,
         "bridge_version": _BRIDGE_VERSION,
     }
 
@@ -580,6 +663,14 @@ def _rex_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
 
 
 def _temporal_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
+    # Legacy files (written by an earlier encoder, or any file whose `encoding` is
+    # missing) carry full per step snapshots under `snapshot/<t>/...`; that
+    # path is unchanged below. Files written by the current
+    # `temporal_rex_to_safetensors` carry `encoding == "delta"` and are
+    # reconstructed straight into the checkpoint/delta index instead.
+    if meta.get("encoding") == "delta":
+        return _temporal_from_loaded_delta(tensors, meta)
+
     from ..graph import TemporalRex
 
     T = int(meta["T"])
@@ -599,22 +690,105 @@ def _temporal_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
                 tensors[f"snapshot/{t}/targets"],
             ))
 
-    face_snapshots: List[Tuple[NDArray, NDArray]] = []
+    face_snapshots: List[Tuple[NDArray, ...]] = []
     if meta.get("has_face_snapshots"):
         t = 0
         while f"face_snapshot/{t}/B2_col_ptr" in tensors:
-            face_snapshots.append((
-                tensors[f"face_snapshot/{t}/B2_col_ptr"],
-                tensors[f"face_snapshot/{t}/B2_row_idx"],
-            ))
+            b2v = tensors.get(f"face_snapshot/{t}/B2_vals")
+            # a legacy file written before this bridge carried B2_vals for face
+            # snapshots has no signs at all, so the 2 tuple form (defaulting to
+            # ones downstream in TemporalRex.at) is the only honest fallback.
+            if b2v is not None:
+                face_snapshots.append((
+                    tensors[f"face_snapshot/{t}/B2_col_ptr"],
+                    tensors[f"face_snapshot/{t}/B2_row_idx"],
+                    b2v,
+                ))
+            else:
+                face_snapshots.append((
+                    tensors[f"face_snapshot/{t}/B2_col_ptr"],
+                    tensors[f"face_snapshot/{t}/B2_row_idx"],
+                ))
             t += 1
 
     trex = TemporalRex(
         snapshots=snapshots,
         directed=directed,
+        general=general,
     )
     if face_snapshots:
         trex._face_snapshots = face_snapshots
+    return trex
+
+
+def _temporal_from_loaded_delta(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
+    """Reconstruct a delta backed `TemporalRex` straight from the checkpoint/
+    delta tensors `temporal_rex_to_safetensors` wrote (`encoding == "delta"`).
+
+    Builds an empty `TemporalRex`, then populates its index slots directly
+    (`_index_checkpoints`, `_index_deltas`, `_index_face_deltas`,
+    `_index_cp_times`) instead of materializing per step snapshots, and
+    marks `_snapshots_materialized = False` so `reconstruct_at`/`at` route
+    through the index the same way a live, incrementally built store does.
+
+    `TemporalDelta`/`FaceDelta` are rebuilt through their namedtuple
+    constructors (not the kernel helpers) with `directed` stamped from the
+    file's metadata, since a single `directed` flag covers the whole store
+    (every delta was built by `_append_index_entry` with the same
+    `self._directed`).
+    """
+    from ..graph import TemporalRex, TemporalDelta, FaceDelta
+
+    T = int(meta["T"])
+    directed = bool(meta.get("directed", False))
+    general = bool(meta.get("general", False))
+    checkpoint_times = [int(c) for c in meta.get("checkpoint_times", [])]
+
+    index_checkpoints: Dict[int, Tuple] = {}
+    for c in checkpoint_times:
+        bp = tensors[f"checkpoint/{c}/boundary_ptr"]
+        bi = tensors[f"checkpoint/{c}/boundary_idx"]
+        wE = tensors.get(f"checkpoint/{c}/w_E")
+        signs = tensors.get(f"checkpoint/{c}/signs")
+        b2cp = tensors.get(f"checkpoint/{c}/B2_col_ptr")
+        b2ri = tensors.get(f"checkpoint/{c}/B2_row_idx")
+        b2v = tensors.get(f"checkpoint/{c}/B2_vals")
+        index_checkpoints[c] = (c, bp, bi, wE, signs, b2cp, b2ri, b2v)
+
+    index_deltas: List[Optional[Any]] = [None] * T
+    index_face_deltas: List[Optional[Any]] = [None] * T
+    for t in range(T):
+        if f"delta/{t}/born_offsets" in tensors:
+            index_deltas[t] = TemporalDelta(
+                born_cols=tensors[f"delta/{t}/born_cols"],
+                born_offsets=tensors[f"delta/{t}/born_offsets"],
+                born_wE=tensors[f"delta/{t}/born_wE"],
+                born_signs=tensors[f"delta/{t}/born_signs"],
+                died_keys=tensors[f"delta/{t}/died_keys"],
+                mod_keys=tensors[f"delta/{t}/mod_keys"],
+                mod_wE=tensors[f"delta/{t}/mod_wE"],
+                mod_signs=tensors[f"delta/{t}/mod_signs"],
+                directed=directed,
+            )
+        if f"face_delta/{t}/born_offsets" in tensors:
+            index_face_deltas[t] = FaceDelta(
+                born_edge_keys=tensors[f"face_delta/{t}/born_edge_keys"],
+                born_offsets=tensors[f"face_delta/{t}/born_offsets"],
+                born_signs=tensors[f"face_delta/{t}/born_signs"],
+                died_face_keys=tensors[f"face_delta/{t}/died_face_keys"],
+                directed=directed,
+            )
+
+    trex = TemporalRex([], directed=directed, general=general)
+    trex._index_checkpoints = index_checkpoints
+    trex._index_deltas = index_deltas
+    trex._index_face_deltas = index_face_deltas
+    trex._index_cp_times = np.array(checkpoint_times, dtype=np.int64)
+    trex._snapshots_materialized = False
+    trex._snapshots = []
+    trex._T = T
+    if "checkpoint_threshold" in meta:
+        trex._checkpoint_threshold = float(meta["checkpoint_threshold"])
     return trex
 
 
@@ -637,7 +811,7 @@ def _load_meta(path: str) -> Dict[str, Any]:
 # ML consumption we want a single flat feature matrix plus labels plus
 # per-column names, which matches exactly what safetensors was built
 # for. This function serves that use case without coupling to any
-# external dataclass - it just takes arrays.
+# external dataclass; it just takes arrays.
 
 
 def fingerprints_to_safetensors(

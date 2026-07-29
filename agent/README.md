@@ -2,26 +2,26 @@
 
 The application layer over the compiled `rexgraph` core.
 
-`rexgraph` turns relational data into a relational complex - a graded cell
-complex where edges are primary and vertices are derived from edge boundaries -
+`rexgraph` turns relational data into a relational complex (a graded cell
+complex where edges are primary and vertices are derived from edge boundaries)
 and decomposes it with Hodge theory and typed Laplacians (see the
 [top-level README](../README.md) for the math). `rexgraph-agent` is the platform
 built on that core:
 
 - a **FastAPI server and web UI** for upload, analysis, exploration, chat,
   corpus, models, connectors, and the lifecycle;
-- a **hive** - a multi-agent swarm orchestrated as a relational complex, where
+- a **hive**: a multi-agent swarm orchestrated as a relational complex, where
   agents are cells and their messages are recorded into a live complex, so
   routing is driven by structure and demonstrated history;
-- a **setups-driven lifecycle** - named configuration profiles that drive the
+- a **setups-driven lifecycle**: named configuration profiles that drive the
   `serve`, `train`, `build`, `deploy`, `test`, `bench`, `finetune`, `ingest`,
   and `pipeline` operations, each run-logged;
 - **local LLM inference** through llama.cpp, hardware-aware and tiered;
 - a **model builder** for custom ML architectures (CNN, HGNN, language model,
   MLP) trained with the `rexgraph.nn` substrate;
 - **connectors** that turn any database into a relational complex;
-- **integrations** - TrustGraph knowledge cores and rex-RAG, HuggingFace,
-  LangChain, LangGraph - as one part of the ecosystem.
+- **integrations** (TrustGraph knowledge cores and rex-RAG, HuggingFace,
+  LangChain, LangGraph) as one part of the ecosystem.
 
 Everything is reachable from the CLI, the HTTP API, and the browser UI.
 
@@ -94,7 +94,7 @@ enrich = adapter.to_enrichment_triples(rex, meta)    # write the analysis back a
 
 The hive is a multi-agent swarm orchestrated *as* a relational complex. Agents
 ("bees") are cells and every message is recorded into a live `agent_complex`, so
-routing blends declared specialty with demonstrated interaction history - a cold
+routing blends declared specialty with demonstrated interaction history: a cold
 hive routes by specialty, a warm one routes by who has been carrying the work.
 
 Bees have three roles (`queen | worker | embedder`) and join three ways:
@@ -109,8 +109,8 @@ hive.attach("queen", "http://127.0.0.1:8080", role="queen", specialties=["planni
 # 2. spawn: launch and own a managed llama.cpp server for a bee
 hive.spawn("coder", "/models/qwen-coder.gguf", role="worker", specialties=["code"])
 
-# 3. add_worker: register ANY callable as a first-class worker - a trained NN, a
-#    rexgraph analyzer, an embedder, a statistical model. Not an LLM, not an endpoint.
+# 3. add_worker: register ANY callable as a first-class worker (a trained NN, a
+#    rexgraph analyzer, an embedder, a statistical model). Not an LLM, not an endpoint.
 def analyze(data, **kw):
     from rexgraph.graph import RexGraph
     import numpy as np
@@ -137,7 +137,7 @@ CLI: `rexgraph-hive` starts a hive, `rexgraph-local` manages llama.cpp servers.
 
 ## Lifecycle and Setups
 
-A **setup** is a named configuration profile - the shared context (backend,
+A **setup** is a named configuration profile: the shared context (backend,
 threads, model choices, paths) that operations run against. A **ComputeSpec**
 inside the setup carries the backend and thread width, and resolves through
 `rexgraph.compute` and `pick_device` so every operation runs on the same
@@ -172,7 +172,7 @@ device), so a model trained on a GPU deploys unchanged to CPU.
 ## Local LLM inference
 
 The runtime detects the llama.cpp server binary, reads the host hardware, and
-serves quantized models locally - no cloud dependency.
+serves quantized models locally: no cloud dependency.
 
 ```python
 from agent import local_runtime as lr
@@ -183,7 +183,7 @@ lr.recommend()              # tiered model picks that fit the budget (embedder/w
 lr.start("/models/qwen2.5-0.5b.gguf")  # spawn a server; probe_endpoints() finds it
 ```
 
-`CATALOG` tiers models by role - an embedder for the swarm's alignment signal,
+`CATALOG` tiers models by role: an embedder for the swarm's alignment signal,
 worker bees for triage and coding, queen models for reasoning. Chat returns
 reliability metrics:
 
@@ -191,7 +191,7 @@ reliability metrics:
 from agent import chat_model
 chat_model.configure(url="http://127.0.0.1:8080")
 out = chat_model.generate_with_metrics("List three properties of a Hodge Laplacian.")
-out["metrics"]              # perplexity, mean_surprisal, varentropy - the reliability signal
+out["metrics"]              # perplexity, mean_surprisal, varentropy: the reliability signal
 ```
 
 CLI: `rexgraph-local {status, start, stop, pull, recommend}`.
@@ -220,7 +220,7 @@ run("train", archetype="hgnn", steps=200)      # train with HodgeAdam on the res
 ```
 
 Because the archetypes are configs over composable `rexgraph.nn` blocks, custom
-architectures are the norm, not the exception - vary depth, width, attention
+architectures are the norm, not the exception: vary depth, width, attention
 type, orientation, and the optimizer, or assemble blocks directly. Ingesting a
 knowledge core yields a labeled node-classification bundle on a relational
 complex, which any archetype can train on:
@@ -235,8 +235,8 @@ CLI: `rexgraph-models {list, build, multistep, fusion}`.
 
 ## Connectors
 
-Connectors turn any database into a relational complex, so the whole platform -
-analysis, RAG, training - applies to data that already lives somewhere.
+Connectors turn any database into a relational complex, so the whole platform
+(analysis, RAG, training) applies to data that already lives somewhere.
 
 ```bash
 rexgraph-connect list                      # available connectors
@@ -257,16 +257,16 @@ Every edge signal on a relational complex decomposes uniquely and exactly (Hodge
 theorem) into three orthogonal components. The analysis pipeline reports these
 plus the four-channel structure:
 
-- **Gradient** - hierarchical structure from B1 alone; face-independent; the
+- **Gradient**: hierarchical structure from B1 alone; face-independent; the
   strength of directed chains.
-- **Curl** - closed feedback loops from the face structure B2; flow circulating
+- **Curl**: closed feedback loops from the face structure B2; flow circulating
   within stable triangles.
-- **Harmonic** - conserved flow on unfilled cycles; unresolved structural tension.
+- **Harmonic**: conserved flow on unfilled cycles; unresolved structural tension.
 
 Derived metrics: **dim(H)** (independent oscillatory modes, `= beta_1`),
-**frustration** (harmonic content on the topology channel - tension from the
+**frustration** (harmonic content on the topology channel: tension from the
 graph structure, not removable by faces), **coparticipation** (harmonic content
-on the geometry channel - how well the face structure supports the dynamics),
+on the geometry channel: how well the face structure supports the dynamics),
 **health ratio** (frustration / coparticipation; above 1.0 the structure works
 against itself), and **sigma-asymmetry** (per-edge rigidity vs. responsiveness to
 face changes).
@@ -309,7 +309,7 @@ score. `subgraph_confidence` / `query_confidence` return coherence (kappa) and
 the typed channels (T/G/F/C) of a retrieved subgraph; `decompose_query_signal`
 gives the Hodge decomposition of a query over the knowledge complex (gradient /
 curl / harmonic, plus a beyond-pairwise fraction); `assess_query` plans a
-retrieval - entity coverage, harmonic dimension, and an adjusted token budget.
+retrieval: entity coverage, harmonic dimension, and an adjusted token budget.
 
 ```python
 from agent.integrations.trustgraph_pipeline import TrustGraphPipeline
@@ -326,7 +326,7 @@ Server routes under `/api/v1/trustgraph/*` and `/api/v1/ml/ingest`.
 
 ### HuggingFace
 
-Analyze transformer attention as a relational complex - build a complex from
+Analyze transformer attention as a relational complex: build a complex from
 each layer's attention and measure chain-condition violation, Dirac equiweight
 deviation, and channel specialization across depth. Requires `[huggingface]`.
 
@@ -420,7 +420,7 @@ one token that carries their role in each workspace they belong to.
 
 - **Roles are per workspace.** `admin` manages that workspace's members and runs
   its consequential actions; `user` reads and runs build verbs. The root
-  workspace `default` is the instance - its admins enable auth and remove members
+  workspace `default` is the instance: its admins enable auth and remove members
   entirely. A member can be admin of one workspace and a user of another.
 - **Secure by default.** A fresh server (no `auth.json`) starts with auth ON and
   prints a bootstrap admin token once. `RCF_ALLOW_INSECURE=1` keeps open local
@@ -450,7 +450,7 @@ The compute backend is chosen per run, and work fans out across the hardware you
 have. Nothing here is a fixed thread count; it resolves from the machine.
 
 - **Backend selection.** `rexgraph.compute` resolves a `ComputeSpec` (backend +
-  thread width) through `pick_device` - CPU / CUDA / ROCm / MPS - with a live-GPU
+  thread width) through `pick_device`: CPU / CUDA / ROCm / MPS, with a live-GPU
   probe and a CPU fallback. Pin it in a setup so every operation runs on the same
   device (`rexgraph-config`), or let each run resolve `auto`.
 - **Multi-core.** `parallel_map` fans kernel work across CPU cores with

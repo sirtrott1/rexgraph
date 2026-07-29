@@ -1,15 +1,15 @@
 """
-agent.rcdb - the Relational Complex Database (RCDB).
+agent.rcdb: the Relational Complex Database (RCDB).
 
 A backend-agnostic store where **every record is a relational complex**.
-One interface (:class:`RCStore`), several pluggable backends, and - the
-part nobody else has - **structural query**: select complexes by their
+One interface (:class:`RCStore`), several pluggable backends, and
+**structural query** (the part nobody else has): select complexes by their
 topology (Betti numbers, coherence, voids), not just by id or column value.
 
 The design separates two things:
-  * the *blob* - the complex itself, serialized with the ``rexgraph.io``
+  * the *blob*: the complex itself, serialized with the ``rexgraph.io``
     layer (safetensors by default; any supported format works);
-  * the *signature* - a small, queryable structural summary
+  * the *signature*: a small, queryable structural summary
     (nV/nE/nF, Betti, κ, chain validity, types, tags, source).
 
 Backends differ only in where blob + signature live, so an enterprise can
@@ -32,21 +32,32 @@ import os
 import tempfile
 import time
 from dataclasses import dataclass, field, asdict
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import numpy as np
 
 
+def _now():
+    return time.time()
+
+
 # serialization (complex <-> bytes)
 
-def serialize_complex(rex) -> bytes:
-    """Serialize a RexGraph to safetensors bytes (cross-ecosystem, no pickle)."""
-    from rexgraph.io.safetensors_bridge import rex_to_safetensors
+def serialize_complex(obj) -> bytes:
+    """Serialize a RexGraph or TemporalRex to safetensors bytes (cross-ecosystem,
+    no pickle). A TemporalRex is written as its delta-compressed index via
+    `temporal_rex_to_safetensors`; a plain RexGraph goes through the existing
+    `rex_to_safetensors` path, unchanged."""
+    from rexgraph.graph import TemporalRex
+    from rexgraph.io.safetensors_bridge import rex_to_safetensors, temporal_rex_to_safetensors
     fd, tmp = tempfile.mkstemp(suffix=".safetensors")
     os.close(fd)
     try:
-        rex_to_safetensors(rex, tmp)
+        if isinstance(obj, TemporalRex):
+            temporal_rex_to_safetensors(obj, tmp)
+        else:
+            rex_to_safetensors(obj, tmp)
         with open(tmp, "rb") as f:
             return f.read()
     finally:
@@ -57,14 +68,19 @@ def serialize_complex(rex) -> bytes:
 
 
 def deserialize_complex(blob: bytes):
-    """Reconstruct a RexGraph from safetensors bytes."""
-    from rexgraph.io.safetensors_bridge import safetensors_to_rex
+    """Reconstruct a RexGraph or TemporalRex from safetensors bytes.
+
+    Routes on the file's own `object_type` metadata (written by `serialize_complex`)
+    via `load_safetensors`, the object-type dispatch shared with `save_safetensors`
+    (safetensors_bridge.py), so the reader never has to be told in advance which
+    kind of complex the blob holds."""
+    from rexgraph.io.safetensors_bridge import load_safetensors
     fd, tmp = tempfile.mkstemp(suffix=".safetensors")
     os.close(fd)
     try:
         with open(tmp, "wb") as f:
             f.write(blob)
-        return safetensors_to_rex(tmp)
+        return load_safetensors(tmp)["object"]
     finally:
         try:
             os.unlink(tmp)
@@ -74,9 +90,31 @@ def deserialize_complex(blob: bytes):
 
 def structural_signature(rex, meta: Optional[dict] = None,
                          tags: Optional[List[str]] = None) -> Dict[str, Any]:
-    """A small, queryable structural summary of a complex."""
+    """A small, queryable structural summary of a complex.
+
+    A TemporalRex gets its own branch: the temporal fields (T, checkpoint_times)
+    plus the structural signature of its latest snapshot (`reconstruct_at(T - 1)`),
+    so a stored sequence is still queryable by the topology it currently holds.
+    A plain RexGraph gets the existing signature, with "object_type": "RexGraph"
+    added (additive: `_matches`/queries never read this key)."""
+    from rexgraph.graph import TemporalRex
+    if isinstance(rex, TemporalRex):
+        rex._ensure_index()
+        cp_times = ([int(x) for x in rex._index_cp_times]
+                    if rex._index_cp_times is not None else [])
+        # base = latest snapshot's own signature (its object_type is "RexGraph");
+        # spread it FIRST so the temporal overrides applied after it (object_type,
+        # T, checkpoint_times) are the ones that survive in the merged dict.
+        base = structural_signature(rex.reconstruct_at(rex.T - 1), meta, tags)
+        return {
+            **base,
+            "object_type": "TemporalRex",
+            "T": int(rex.T),
+            "checkpoint_times": cp_times,
+        }
     meta = meta or (getattr(rex, "_agent_meta", {}) or {})
     sig: Dict[str, Any] = {
+        "object_type": "RexGraph",
         "nV": int(rex.nV), "nE": int(rex.nE), "nF": int(rex.nF),
         "tags": list(tags or []),
         "source": meta.get("input_type") or meta.get("source") or "",
@@ -85,6 +123,8 @@ def structural_signature(rex, meta: Optional[dict] = None,
         sig["betti"] = [int(b) for b in rex.betti]
     except Exception:
         sig["betti"] = None
+    b = sig.get("betti") or []
+    sig["betti1"] = int(b[1]) if len(b) > 1 else 0
     try:
         sig["chain_valid"] = bool(rex.chain_valid)
     except Exception:
@@ -99,7 +139,7 @@ def structural_signature(rex, meta: Optional[dict] = None,
     except Exception:
         pass
     # Per-document information metrics (structural perplexity = effective modes, the
-    # varentropy reliability gap) - persisted so the corpus is queryable by them and
+    # varentropy reliability gap), persisted so the corpus is queryable by them and
     # per-corpus aggregation is a cheap read of the stored signatures.
     try:
         from agent.metrics import structural_metrics
@@ -121,12 +161,27 @@ class ComplexRecord:
     """A stored relational complex + its structural signature."""
     id: str
     signature: Dict[str, Any]
-    created: float = field(default_factory=time.time)
+    created: float = field(default_factory=_now)
     meta: Dict[str, Any] = field(default_factory=dict)
+    version: int = 1
+    tx_from: float = field(default_factory=_now)
+    tx_to: Optional[float] = None
+    valid_from: Optional[float] = None
+    valid_to: Optional[float] = None
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "signature": self.signature,
-                "created": self.created, "meta": self.meta}
+        return {"id": self.id, "signature": self.signature, "created": self.created,
+                "meta": self.meta, "version": self.version, "tx_from": self.tx_from,
+                "tx_to": self.tx_to, "valid_from": self.valid_from, "valid_to": self.valid_to}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ComplexRecord":
+        created = d.get("created", _now())
+        return cls(
+            id=d["id"], signature=d.get("signature", {}), created=created,
+            meta=d.get("meta", {}), version=d.get("version", 1),
+            tx_from=d.get("tx_from", created), tx_to=d.get("tx_to"),
+            valid_from=d.get("valid_from"), valid_to=d.get("valid_to"))
 
 
 # structural predicate
@@ -196,22 +251,87 @@ class RCStore:
 
     backend = "abstract"
 
-    def put(self, id: str, rex, meta: Optional[dict] = None,
-            tags: Optional[List[str]] = None) -> ComplexRecord:
+    def put(self, id, rex, meta=None, tags=None, *, valid_from=None, valid_to=None):
+        """Append a new version of `id`. Template method: build the signature, delegate
+        storage to _put_impl, then emit a best-effort change-feed event."""
+        meta = _priv(meta)
+        sig = structural_signature(rex, meta, tags)
+        rec = self._put_impl(id, rex, sig, meta, tags, valid_from, valid_to)
+        self._emit("rcdb.put", id, rec.version, sig)
+        return rec
+
+    def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to):
         raise NotImplementedError
 
-    def get(self, id: str):
+    def get(self, id, *, as_of=None, valid_at=None):
         """Return the reconstructed RexGraph, or None."""
         raise NotImplementedError
 
-    def get_record(self, id: str) -> Optional[ComplexRecord]:
+    def get_record(self, id, *, as_of=None, valid_at=None):
         raise NotImplementedError
+
+    def get_version(self, id, version):
+        """Return the reconstructed RexGraph for one SPECIFIC version, or
+        None. Unlike `get(as_of=...)`, this is keyed directly by version
+        number, not by a timestamp that could collide across versions
+        written on the same tick."""
+        raise NotImplementedError
+
+    def history(self, id):
+        raise NotImplementedError
+
+    def next_version(self, id):
+        raise NotImplementedError
+
+    @staticmethod
+    def _select_version(records, as_of, valid_at):
+        """Pick the version from `records` (all one id) satisfying the time selectors.
+        as_of => tx_from <= as_of < (tx_to or +inf); valid_at => valid_from <= valid_at <
+        (valid_to or +inf); both None => the live row (tx_to is None). Returns None if
+        none match. When both selectors are given, both must hold."""
+        def tx_ok(r):
+            return as_of is None or (r.tx_from <= as_of and (r.tx_to is None or as_of < r.tx_to))
+        def valid_ok(r):
+            if valid_at is None:
+                return True
+            lo = r.valid_from if r.valid_from is not None else r.tx_from
+            hi = r.valid_to
+            return lo <= valid_at and (hi is None or valid_at < hi)
+        if as_of is None and valid_at is None:
+            live = [r for r in records if r.tx_to is None]
+            return max(live, key=lambda r: r.version) if live else None
+        cands = [r for r in records if tx_ok(r) and valid_ok(r)]
+        return max(cands, key=lambda r: r.version) if cands else None
+
+    @staticmethod
+    def _split_versioned_id(id):
+        """A display id like "base@3" -> ("base", 3); anything else -> None.
+        Only a trailing @<positive-int> splits; a bare id or non-string is None."""
+        if not isinstance(id, str):
+            return None
+        at = id.rfind("@")
+        if at <= 0:
+            return None
+        tail = id[at + 1:]
+        if not tail.isdigit():
+            return None
+        return id[:at], int(tail)
+
+    def _emit(self, action, id, version, sig):
+        try:
+            from agent import activity
+            activity.record("rcdb:" + self.backend, action, scope="network",
+                            detail={"id": id, "version": version, "nV": sig.get("nV"),
+                                    "nE": sig.get("nE"), "tags": sig.get("tags"),
+                                    "lineage_id": id})
+        except Exception:
+            pass
 
     def list(self, limit: int = 100, offset: int = 0) -> List[ComplexRecord]:
         raise NotImplementedError
 
     def query(self, limit: int = 100, **predicate) -> List[ComplexRecord]:
-        """Structural query - select complexes by their topology."""
+        """Structural query: select complexes by their topology."""
         raise NotImplementedError
 
     def delete(self, id: str) -> bool:
@@ -238,35 +358,75 @@ class MemoryStore(RCStore):
     backend = "memory"
 
     def __init__(self):
-        self._blobs: Dict[str, bytes] = {}
-        self._recs: Dict[str, ComplexRecord] = {}
+        self._recs: Dict[str, List[ComplexRecord]] = {}
+        self._blobs: Dict[Tuple[str, int], bytes] = {}
 
-    def put(self, id, rex, meta=None, tags=None):
-        meta = _priv(meta)
-        sig = structural_signature(rex, meta, tags)
-        rec = ComplexRecord(id=id, signature=sig, meta=meta or {})
-        self._blobs[id] = serialize_complex(rex)
-        self._recs[id] = rec
+    def next_version(self, id):
+        rs = self._recs.get(id)
+        return (rs[-1].version + 1) if rs else 1
+
+    def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to):
+        now = _now()
+        v = self.next_version(id)
+        rs = self._recs.setdefault(id, [])
+        for r in rs:
+            if r.tx_to is None:
+                r.tx_to = now                       # close the prior open row
+        rec = ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
+                            tx_from=now, tx_to=None,
+                            valid_from=valid_from if valid_from is not None else now,
+                            valid_to=valid_to)
+        rs.append(rec)
+        self._blobs[(id, v)] = serialize_complex(rex)
         return rec
 
-    def get(self, id):
-        blob = self._blobs.get(id)
+    def get_record(self, id, *, as_of=None, valid_at=None):
+        rec = self._select_version(self._recs.get(id, []), as_of, valid_at)
+        if rec is None:
+            split = self._split_versioned_id(id)
+            if split is not None:
+                base, v = split
+                # a lineage() display id: resolve the explicit version directly
+                # (version is explicit, so as_of/valid_at do not apply)
+                rec = next((r for r in self.history(base) if r.version == v), None)
+        return rec
+
+    def get(self, id, *, as_of=None, valid_at=None):
+        rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
+        if rec is None:
+            return None
+        # rec.id is the record's OWN stored id: for a direct hit that is `id`
+        # itself, but for a display-id fallback (get_record resolved "base@v"
+        # through history(base)) it is `base`, never the raw "base@v" string
+        # the blob is never keyed by. Keying on rec.id is correct either way.
+        blob = self._blobs.get((rec.id, rec.version))
         return deserialize_complex(blob) if blob is not None else None
 
-    def get_record(self, id):
-        return self._recs.get(id)
+    def get_version(self, id, version):
+        blob = self._blobs.get((id, version))
+        return deserialize_complex(blob) if blob is not None else None
 
-    def list(self, limit=100, offset=0):
-        recs = sorted(self._recs.values(), key=lambda r: -r.created)
+    def history(self, id):
+        return list(self._recs.get(id, []))
+
+    def list(self, limit=100, offset=0, include_history=False):
+        recs = ([r for rs in self._recs.values() for r in rs] if include_history
+                else [self._select_version(rs, None, None) for rs in self._recs.values()])
+        recs = [r for r in recs if r is not None]
+        recs.sort(key=lambda r: -r.tx_from)
         return recs[offset:offset + limit]
 
     def query(self, limit=100, **predicate):
-        out = [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate)]
-        return out[:limit]
+        return [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate)][:limit]
 
     def delete(self, id):
-        self._blobs.pop(id, None)
-        return self._recs.pop(id, None) is not None
+        existed = id in self._recs
+        self._recs.pop(id, None)
+        for k in [k for k in self._blobs if k[0] == id]:
+            self._blobs.pop(k, None)
+        if existed:
+            self._emit("rcdb.delete", id, 0, {})
+        return existed
 
 
 # file backend (default, no deps beyond io)
@@ -279,50 +439,106 @@ class FileStore(RCStore):
         os.makedirs(os.path.join(root, "blobs"), exist_ok=True)
         self._index_path = os.path.join(root, "index.json")
 
-    def _index(self) -> Dict[str, dict]:
-        if os.path.exists(self._index_path):
-            try:
-                with open(self._index_path) as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
+    def _read_index(self) -> Dict[str, List[ComplexRecord]]:
+        """Load index.json into `{id -> [ComplexRecord, ...]}`. A legacy
+        `{id -> record_dict}` index (one dict per id, no version list) is
+        wrapped as a single-element list; `from_dict` backfills the missing
+        bitemporal fields so it reads as version 1."""
+        if not os.path.exists(self._index_path):
+            return {}
+        try:
+            with open(self._index_path) as f:
+                raw = json.load(f)
+        except Exception:
+            return {}
+        idx: Dict[str, List[ComplexRecord]] = {}
+        for id, v in raw.items():
+            if isinstance(v, dict):
+                idx[id] = [ComplexRecord.from_dict(v)]
+            else:
+                idx[id] = [ComplexRecord.from_dict(x) for x in v]
+        return idx
 
-    def _write_index(self, idx: Dict[str, dict]):
+    def _write_index(self, idx: Dict[str, List[ComplexRecord]]):
+        raw = {id: [r.to_dict() for r in versions] for id, versions in idx.items()}
         tmp = self._index_path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump(idx, f)
+            json.dump(raw, f)
         os.replace(tmp, self._index_path)
 
-    def _blob_path(self, id: str) -> str:
+    def _blob_path(self, id: str, version: int) -> str:
+        safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
+        return os.path.join(self.root, "blobs", "%s@%d.safetensors" % (safe, version))
+
+    def _legacy_blob_path(self, id: str) -> str:
         safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
         return os.path.join(self.root, "blobs", safe + ".safetensors")
 
-    def put(self, id, rex, meta=None, tags=None):
-        meta = _priv(meta)
-        sig = structural_signature(rex, meta, tags)
-        with open(self._blob_path(id), "wb") as f:
+    def next_version(self, id):
+        rs = self._read_index().get(id)
+        return (rs[-1].version + 1) if rs else 1
+
+    def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to):
+        now = _now()
+        idx = self._read_index()
+        versions = idx.setdefault(id, [])
+        v = (versions[-1].version + 1) if versions else 1
+        for r in versions:
+            if r.tx_to is None:
+                r.tx_to = now                       # close the prior open row
+        rec = ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
+                            tx_from=now, tx_to=None,
+                            valid_from=valid_from if valid_from is not None else now,
+                            valid_to=valid_to)
+        versions.append(rec)
+        with open(self._blob_path(id, v), "wb") as f:
             f.write(serialize_complex(rex))
-        idx = self._index()
-        rec = ComplexRecord(id=id, signature=sig, meta=meta or {})
-        idx[id] = rec.to_dict()
         self._write_index(idx)
         return rec
 
-    def get(self, id):
-        p = self._blob_path(id)
+    def get_record(self, id, *, as_of=None, valid_at=None):
+        idx = self._read_index()
+        rec = self._select_version(idx.get(id, []), as_of, valid_at)
+        if rec is None:
+            split = self._split_versioned_id(id)
+            if split is not None:
+                base, v = split
+                # a lineage() display id: resolve the explicit version directly
+                # (version is explicit, so as_of/valid_at do not apply)
+                rec = next((r for r in idx.get(base, []) if r.version == v), None)
+        return rec
+
+    def _read_blob(self, id, version):
+        p = self._blob_path(id, version)
+        if not os.path.exists(p) and version == 1:
+            p = self._legacy_blob_path(id)          # legacy store: no @version suffix
         if not os.path.exists(p):
             return None
         with open(p, "rb") as f:
-            return deserialize_complex(f.read())
+            return f.read()
 
-    def get_record(self, id):
-        d = self._index().get(id)
-        return ComplexRecord(**d) if d else None
+    def get(self, id, *, as_of=None, valid_at=None):
+        rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
+        if rec is None:
+            return None
+        # rec.id is the record's OWN stored id (see MemoryStore.get for why
+        # this, not the local `id`, is the correct blob key on a fallback hit).
+        blob = self._read_blob(rec.id, rec.version)
+        return deserialize_complex(blob) if blob is not None else None
 
-    def list(self, limit=100, offset=0):
-        recs = [ComplexRecord(**d) for d in self._index().values()]
-        recs.sort(key=lambda r: -r.created)
+    def get_version(self, id, version):
+        blob = self._read_blob(id, version)
+        return deserialize_complex(blob) if blob is not None else None
+
+    def history(self, id):
+        return list(self._read_index().get(id, []))
+
+    def list(self, limit=100, offset=0, include_history=False):
+        idx = self._read_index()
+        recs = ([r for versions in idx.values() for r in versions] if include_history
+                else [self._select_version(versions, None, None) for versions in idx.values()])
+        recs = [r for r in recs if r is not None]
+        recs.sort(key=lambda r: -r.tx_from)
         return recs[offset:offset + limit]
 
     def query(self, limit=100, **predicate):
@@ -330,13 +546,18 @@ class FileStore(RCStore):
         return out[:limit]
 
     def delete(self, id):
-        idx = self._index()
-        existed = idx.pop(id, None) is not None
-        self._write_index(idx)
-        try:
-            os.unlink(self._blob_path(id))
-        except OSError:
-            pass
+        idx = self._read_index()
+        versions = idx.pop(id, None)
+        existed = versions is not None
+        if existed:
+            self._write_index(idx)
+            for r in versions:
+                for p in (self._blob_path(id, r.version), self._legacy_blob_path(id)):
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+            self._emit("rcdb.delete", id, 0, {})
         return existed
 
 
@@ -351,6 +572,12 @@ class SQLStore(RCStore):
         "kappa_mean": "FLOAT", "chain_valid": "BOOLEAN", "source": "VARCHAR(256)",
     }
 
+    # bitemporal columns added on top of the (id, version) composite key
+    _TEMPORAL_COLS = {
+        "version": "INTEGER", "tx_from": "FLOAT", "tx_to": "FLOAT",
+        "valid_from": "FLOAT", "valid_to": "FLOAT",
+    }
+
     def __init__(self, conn_str: str, table: str = "rc_complexes"):
         from sqlalchemy import (create_engine, MetaData, Table, Column,
                                  String, Float, LargeBinary, Text, Integer, Boolean)
@@ -361,6 +588,7 @@ class SQLStore(RCStore):
         self.table = Table(
             table, self.meta,
             Column("id", String(256), primary_key=True),
+            Column("version", Integer, primary_key=True, default=1),
             Column("signature", Text),
             Column("meta", Text),
             Column("created", Float),
@@ -368,13 +596,21 @@ class SQLStore(RCStore):
             Column("nV", Integer), Column("nE", Integer),
             Column("betti1", Integer), Column("kappa_mean", Float),
             Column("chain_valid", Boolean), Column("source", String(256)),
+            Column("tx_from", Float), Column("tx_to", Float),
+            Column("valid_from", Float), Column("valid_to", Float),
         )
         self.meta.create_all(self.engine)
         self._migrate_index_columns(table)
 
     def _migrate_index_columns(self, table):
         """Add indexed columns to a pre-existing table and backfill from the
-        stored signature JSON, then index them. Idempotent."""
+        stored signature JSON. Also ALTER-ADDs the five bitemporal columns
+        onto a pre-Slice-C table and backfills legacy rows to version 1
+        (open, tx_from/valid_from = created), then repairs a legacy id-only
+        primary key to the composite (id, version) key the append-only
+        design requires, and finally (re)creates the indexes on the
+        promoted columns. Idempotent: re-opening an already-migrated table
+        is a no-op."""
         from sqlalchemy import inspect, text
         insp = inspect(self.engine)
         have = {c["name"] for c in insp.get_columns(table)}
@@ -389,6 +625,27 @@ class SQLStore(RCStore):
                     sets = ", ".join(f"{k} = :{k}" for k in self._INDEX_COLS)
                     conn.execute(text(f"UPDATE {table} SET {sets} WHERE id = :id"),
                                  dict(id=rid, **vals))
+        have_t = {c["name"] for c in insp.get_columns(table)}
+        missing_t = [c for c in self._TEMPORAL_COLS if c not in have_t]
+        with self.engine.begin() as conn:
+            for col in missing_t:
+                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {self._TEMPORAL_COLS[col]}'))
+            if missing_t:
+                conn.execute(text(
+                    f"UPDATE {table} SET version = 1, tx_from = created, "
+                    f"valid_from = created WHERE version IS NULL"))
+        self._ensure_composite_pk(table)
+        self._create_promoted_indexes(table)
+
+    def _create_promoted_indexes(self, table):
+        """(Re)create the indexes on the promoted signature columns and the
+        bitemporal lookup columns. Each CREATE INDEX is guarded by an
+        existing-index check, so this is safe to call repeatedly: a table
+        that already has the indexes is a no-op, and a table that just lost
+        them (a primary-key rebuild drops indexes along with the table)
+        gets them rebuilt."""
+        from sqlalchemy import inspect, text
+        insp = inspect(self.engine)
         existing_idx = {i["name"] for i in insp.get_indexes(table)}
         with self.engine.begin() as conn:
             for col in ("betti1", "kappa_mean", "source"):
@@ -398,55 +655,158 @@ class SQLStore(RCStore):
                         conn.execute(text(f"CREATE INDEX {iname} ON {table} ({col})"))
                     except Exception:
                         pass
+            for iname, cols_sql in ((f"ix_{table}_id_txto", "(id, tx_to)"),
+                                     (f"ix_{table}_id_validfrom", "(id, valid_from)")):
+                if iname not in existing_idx:
+                    try:
+                        conn.execute(text(f"CREATE INDEX {iname} ON {table} {cols_sql}"))
+                    except Exception:
+                        pass
 
-    def put(self, id, rex, meta=None, tags=None):
-        meta = _priv(meta)
-        sig = structural_signature(rex, meta, tags)
-        rec = ComplexRecord(id=id, signature=sig, meta=meta or {})
+    def _ensure_composite_pk(self, table):
+        """Repair a legacy id-only primary key to the composite (id, version)
+        key the append-only versioned schema requires. A table freshly
+        created by this class already has the composite key (it is declared
+        directly on self.table), so this only ever fires against a
+        pre-Slice-C database. Idempotent: a table already keyed on
+        (id, version) is left untouched, and an unrecognized primary-key
+        shape is left alone rather than guessed at.
+
+        SQLite cannot ALTER a primary key in place, so the table is rebuilt
+        under a temporary name with the composite key declared, the data is
+        copied over column by column, and the temporary table is swapped in
+        for the original. Other dialects can ALTER the constraint directly."""
+        from sqlalchemy import inspect, text, MetaData
+        insp = inspect(self.engine)
+        pk = insp.get_pk_constraint(table).get("constrained_columns") or []
+        if sorted(pk) == ["id", "version"]:
+            return                          # already composite: idempotent no-op
+        if pk != ["id"]:
+            return                          # unexpected PK shape: leave it alone
+        dialect = self.engine.dialect.name
+        if dialect == "sqlite":
+            cols = [c["name"] for c in insp.get_columns(table)]
+            collist = ", ".join(cols)
+            tmp = table + "__pkmig"
+            new_meta = MetaData()
+            new_table = self.table.to_metadata(new_meta, name=tmp)
+            with self.engine.begin() as conn:
+                conn.execute(text(f"DROP TABLE IF EXISTS {tmp}"))
+                new_table.create(conn)
+                conn.execute(text(
+                    f"INSERT INTO {tmp} ({collist}) SELECT {collist} FROM {table}"))
+                conn.execute(text(f"DROP TABLE {table}"))
+                conn.execute(text(f"ALTER TABLE {tmp} RENAME TO {table}"))
+        elif dialect == "mysql":
+            with self.engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} DROP PRIMARY KEY"))
+                conn.execute(text(f"ALTER TABLE {table} ADD PRIMARY KEY (id, version)"))
+        else:
+            pk_name = insp.get_pk_constraint(table).get("name") or f"{table}_pkey"
+            with self.engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {pk_name}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD PRIMARY KEY (id, version)"))
+
+    def next_version(self, id):
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            row = conn.execute(text(
+                f"SELECT COALESCE(MAX(version), 0) + 1 FROM {self.table.name} "
+                f"WHERE id = :id"), {"id": id}).first()
+        return int(row[0]) if row is not None else 1
+
+    def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to):
+        from sqlalchemy import insert, text
+        now = _now()
         blob = serialize_complex(rex)
-        from sqlalchemy import insert, update, select
         with self.engine.begin() as conn:
-            exists = conn.execute(
-                select(self.table.c.id).where(self.table.c.id == id)).first()
-            values = dict(id=id, signature=json.dumps(sig),
-                          meta=json.dumps(meta or {}), created=rec.created,
-                          blob=blob, **_sig_index_values(sig))
-            if exists:
-                conn.execute(update(self.table).where(self.table.c.id == id).values(**values))
-            else:
-                conn.execute(insert(self.table).values(**values))
-        return rec
+            conn.execute(text(
+                f"UPDATE {self.table.name} SET tx_to = :now "
+                f"WHERE id = :id AND tx_to IS NULL"), {"now": now, "id": id})
+            row = conn.execute(text(
+                f"SELECT COALESCE(MAX(version), 0) + 1 FROM {self.table.name} "
+                f"WHERE id = :id"), {"id": id}).first()
+            v = int(row[0]) if row is not None else 1
+            vfrom = valid_from if valid_from is not None else now
+            values = dict(id=id, signature=json.dumps(sig), meta=json.dumps(meta or {}),
+                          created=now, blob=blob, version=v, tx_from=now, tx_to=None,
+                          valid_from=vfrom, valid_to=valid_to, **_sig_index_values(sig))
+            conn.execute(insert(self.table).values(**values))
+        return ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
+                             tx_from=now, tx_to=None, valid_from=vfrom, valid_to=valid_to)
 
     def _row_to_record(self, row) -> ComplexRecord:
+        created = row.created or 0.0
         return ComplexRecord(id=row.id, signature=json.loads(row.signature or "{}"),
-                             created=row.created or 0.0,
-                             meta=json.loads(row.meta or "{}"))
+                             created=created, meta=json.loads(row.meta or "{}"),
+                             version=row.version if row.version is not None else 1,
+                             tx_from=row.tx_from if row.tx_from is not None else created,
+                             tx_to=row.tx_to, valid_from=row.valid_from, valid_to=row.valid_to)
 
-    def get(self, id):
+    _RECORD_COLS = ("id", "signature", "meta", "created", "version",
+                    "tx_from", "tx_to", "valid_from", "valid_to")
+
+    def _record_cols(self):
+        t = self.table
+        return [getattr(t.c, name) for name in self._RECORD_COLS]
+
+    def _records_for(self, id):
+        from sqlalchemy import select
+        with self.engine.connect() as conn:
+            rows = conn.execute(select(*self._record_cols())
+                                .where(self.table.c.id == id)).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def get_record(self, id, *, as_of=None, valid_at=None):
+        rec = self._select_version(self._records_for(id), as_of, valid_at)
+        if rec is None:
+            split = self._split_versioned_id(id)
+            if split is not None:
+                base, v = split
+                # a lineage() display id: resolve the explicit version directly
+                # (version is explicit, so as_of/valid_at do not apply)
+                rec = next((r for r in self._records_for(base) if r.version == v), None)
+        return rec
+
+    def get(self, id, *, as_of=None, valid_at=None):
+        rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
+        if rec is None:
+            return None
+        # rec.id is the record's OWN stored id (see MemoryStore.get for why
+        # this, not the local `id`, is the correct blob key on a fallback hit).
         from sqlalchemy import select
         with self.engine.connect() as conn:
             row = conn.execute(select(self.table.c.blob).where(
-                self.table.c.id == id)).first()
+                self.table.c.id == rec.id, self.table.c.version == rec.version)).first()
         return deserialize_complex(row.blob) if row else None
 
-    def get_record(self, id):
+    def get_version(self, id, version):
         from sqlalchemy import select
         with self.engine.connect() as conn:
-            row = conn.execute(select(
-                self.table.c.id, self.table.c.signature, self.table.c.meta,
-                self.table.c.created).where(self.table.c.id == id)).first()
-        return self._row_to_record(row) if row else None
+            row = conn.execute(select(self.table.c.blob).where(
+                self.table.c.id == id, self.table.c.version == version)).first()
+        return deserialize_complex(row.blob) if row else None
 
-    def list(self, limit=100, offset=0):
+    def history(self, id):
         from sqlalchemy import select
         with self.engine.connect() as conn:
-            rows = conn.execute(select(
-                self.table.c.id, self.table.c.signature, self.table.c.meta,
-                self.table.c.created).order_by(self.table.c.created.desc())
-                .limit(limit).offset(offset)).fetchall()
+            rows = conn.execute(select(*self._record_cols())
+                                .where(self.table.c.id == id)
+                                .order_by(self.table.c.version)).fetchall()
         return [self._row_to_record(r) for r in rows]
 
-    def query(self, limit=100, **predicate):
+    def list(self, limit=100, offset=0, include_history=False):
+        from sqlalchemy import select
+        t = self.table
+        stmt = select(*self._record_cols())
+        if not include_history:
+            stmt = stmt.where(t.c.tx_to.is_(None))
+        stmt = stmt.order_by(t.c.tx_from.desc()).limit(limit).offset(offset)
+        with self.engine.connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [self._row_to_record(r) for r in rows]
+
+    def query(self, limit=100, include_history=False, **predicate):
         # push the indexed predicates into SQL; apply the rest (tags, voids)
         # in Python only over the narrowed candidate set.
         from sqlalchemy import select, and_
@@ -468,7 +828,9 @@ class SQLStore(RCStore):
             if predicate.get(key) is not None:
                 conds.append(build(predicate[key]))
                 pushed.add(key)
-        stmt = select(t.c.id, t.c.signature, t.c.meta, t.c.created)
+        if not include_history:
+            conds.append(t.c.tx_to.is_(None))
+        stmt = select(*self._record_cols())
         if conds:
             stmt = stmt.where(and_(*conds))
         stmt = stmt.order_by(t.c.created.desc())
@@ -486,6 +848,8 @@ class SQLStore(RCStore):
             existed = conn.execute(select(self.table.c.id).where(
                 self.table.c.id == id)).first() is not None
             conn.execute(delete(self.table).where(self.table.c.id == id))
+        if existed:
+            self._emit("rcdb.delete", id, 0, {})
         return existed
 
 
@@ -508,12 +872,104 @@ def _labels_of(rec: "ComplexRecord", rex) -> list:
     return [str(i) for i in range(n)]
 
 
+def _get_ver(store: RCStore, id, version):
+    """Deserialize one SPECIFIC version's blob, keyed by version number (not
+    by an as_of timestamp, which can collide when two versions are written on
+    the same tick and misresolve to the wrong one). Every backend already
+    keys its blob storage by (id, version), so this is a direct fetch via
+    `store.get_version` rather than a scan through the bitemporal selector."""
+    # Use get_version only if the concrete backend actually overrides it; the ABC
+    # defines a NotImplementedError stub, so a plain getattr always finds SOMETHING.
+    if type(store).get_version is not RCStore.get_version:
+        return store.get_version(id, version)
+    # last-resort fallback for a backend that hasn't implemented get_version:
+    # not safe under same-tick collisions, only reached for an unknown type.
+    rec = next((r for r in store.history(id) if r.version == version), None)
+    return store.get(id, as_of=rec.tx_from) if rec is not None else None
+
+
+def _num(x) -> float:
+    """Coerce a signature value to a float scalar. A signature's `betti` is
+    stored as a list ([b0, b1, b2, ...]); when one of those slips in here,
+    use its b1 (betti1) entry rather than the list itself."""
+    if isinstance(x, (list, tuple)):
+        return float(x[1]) if len(x) > 1 else (float(x[0]) if x else 0.0)
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pair_match(ra, rb) -> float:
+    """The relational match between two reconstructed complexes: the same
+    cross_complex_bridge kappa-correlation score `compare` returns, rescaled
+    to [0, 1]. Labels are plain vertex-index labels (no per-version meta
+    needed for a trend read). Guarded to 0.0 on any failure (missing complex,
+    degenerate bridge, etc.)."""
+    try:
+        from rexgraph.graph import cross_complex_bridge
+        la = [str(i) for i in range(int(getattr(ra, "nV", 0) or 0))]
+        lb = [str(i) for i in range(int(getattr(rb, "nV", 0) or 0))]
+        bridge = cross_complex_bridge(ra, rb, la, lb)
+        corr = float(bridge.get("kappa", {}).get("correlation", 0.0) or 0.0)
+        return round(max(0.0, 0.5 * (corr + 1)), 4)
+    except Exception:
+        return 0.0
+
+
+def trajectory(store: RCStore, id):
+    """The version history of `id` as a directional path in the relational
+    field: per-version structural signature, and per-step the signed change
+    in each structural quantity (existence/direction over time) plus the
+    relational match (cross_complex_bridge similarity) between consecutive
+    versions (how close, and moving toward/away)."""
+    hist = store.history(id)
+    versions = []
+    rexes = []
+    for r in hist:
+        rex = store.get(id, as_of=None) if r.version == hist[-1].version else _get_ver(store, id, r.version)
+        rexes.append(rex)
+        versions.append({"version": r.version, "tx_from": r.tx_from,
+                         "signature": r.signature})
+    steps = []
+    quant = ("nV", "nE", "nF", "betti1", "kappa_mean")
+    for i in range(1, len(hist)):
+        a, b = hist[i - 1].signature, hist[i].signature
+        dsig = {k: _num(b.get(k)) - _num(a.get(k)) for k in quant if b.get(k) is not None and a.get(k) is not None}
+        match = _pair_match(rexes[i - 1], rexes[i])
+        prev_match = steps[-1]["match"] if steps else None
+        steps.append({"from": hist[i - 1].version, "to": hist[i].version, "d": dsig,
+                      "match": match,
+                      "direction": (None if prev_match is None else
+                                    ("toward" if match > prev_match else
+                                     "away" if match < prev_match else "level"))})
+    return {"id": id, "versions": versions, "steps": steps}
+
+
+def trend_between(store: RCStore, id_a, id_b):
+    """How two records' relational similarity moves over their aligned
+    version timelines (converging vs diverging, and by how much per step)."""
+    ha, hb = store.history(id_a), store.history(id_b)
+    n = min(len(ha), len(hb))
+    series = []
+    for i in range(n):
+        ra = _get_ver(store, id_a, ha[i].version)
+        rb = _get_ver(store, id_b, hb[i].version)
+        series.append(_pair_match(ra, rb))
+    steps = [{"step": i, "match": series[i],
+              "direction": ("toward" if series[i] > series[i - 1] else
+                            "away" if series[i] < series[i - 1] else "level")}
+             for i in range(1, n)]
+    return {"a": id_a, "b": id_b, "match_series": series, "steps": steps,
+            "net": (series[-1] - series[0]) if series else 0.0}
+
+
 def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
                  exclude_id: str = None):
     """Rank stored complexes by structural similarity to a query complex.
 
     Uses the cross-complex bridge (aligns by shared labels, correlates the
-    per-vertex coherence) - the real structural-similarity measure, not a
+    per-vertex coherence): the real structural-similarity measure, not a
     scalar signature match. Returns a list of
     ``{id, match, shared, tags, source}`` sorted by match descending, where
     ``match`` is a 0-1 similarity a UI can show as a percentage.
@@ -561,71 +1017,132 @@ def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=Non
     """Store a new version only if the schema actually changed vs the latest
     (different tables or different topology). Enables auto-lineage on repeated
     reflection without spamming identical versions. Returns version info with
-    an ``unchanged`` flag."""
-    versions = lineage(store, lineage_id)
-    if versions:
-        latest = versions[-1]
-        latest_rex = store.get(latest["id"])
-        latest_rec = store.get_record(latest["id"])
-        if latest_rex is not None:
-            new_labels = set((meta or {}).get("vertex_labels", []))
-            old_labels = set(_labels_of(latest_rec, latest_rex))
-            try:
-                new_betti = [int(b) for b in getattr(rex, "betti", [])]
-                old_betti = [int(b) for b in getattr(latest_rex, "betti", [])]
-            except Exception:
-                new_betti = old_betti = []
-            if new_labels == old_labels and new_betti == old_betti:
-                return {"id": latest["id"], "lineage_id": lineage_id,
-                        "version": latest["version"], "unchanged": True}
+    an ``unchanged`` flag.
+
+    Compares against ``store.get(lineage_id)`` (the current version) directly,
+    over the native version chain (no scan over other lineages)."""
+    latest_rex = store.get(lineage_id)
+    if latest_rex is not None:
+        latest_rec = store.get_record(lineage_id)
+        new_labels = set((meta or {}).get("vertex_labels", []))
+        old_labels = set(_labels_of(latest_rec, latest_rex))
+        try:
+            new_betti = [int(b) for b in getattr(rex, "betti", [])]
+            old_betti = [int(b) for b in getattr(latest_rex, "betti", [])]
+        except Exception:
+            new_betti = old_betti = []
+        if new_labels == old_labels and new_betti == old_betti:
+            return {"id": f"{lineage_id}@{latest_rec.version}", "lineage_id": lineage_id,
+                    "version": latest_rec.version, "unchanged": True}
     info = put_version(store, lineage_id, rex, meta=meta, tags=tags)
     info["unchanged"] = False
     return info
 
 
-def put_version(store: RCStore, lineage_id: str, rex, meta=None, tags=None):
-    """Store the next version of a lineage. Versions are records
-    ``{lineage_id}@{version}`` linked by ``meta.lineage`` - no store change,
-    since meta is schemaless. Returns the assigned version info."""
-    import time
-    existing = [r for r in store.list(limit=10 ** 9)
-                if (r.meta or {}).get("lineage", {}).get("id") == lineage_id]
-    versions = [int((r.meta or {}).get("lineage", {}).get("version", 0))
-                for r in existing]
-    v = (max(versions) + 1) if versions else 1
-    parent = max(versions) if versions else None
-    meta = dict(meta or {})
-    meta["lineage"] = {"id": lineage_id, "version": v,
-                       "parent_version": parent, "created": time.time()}
-    rid = f"{lineage_id}@{v}"
-    store.put(rid, rex, meta=meta, tags=list(tags or []) + ["lineage"])
-    return {"id": rid, "lineage_id": lineage_id, "version": v,
+def put_version(store: RCStore, lineage_id: str, rex, meta=None, tags=None, *, valid_from=None):
+    """Store the next version of a lineage over the store's own native version
+    chain (one id, appended versions); the version number comes from
+    ``ComplexRecord.version`` (an O(1) lookup on that id), not a scan over
+    every stored complex. Returns the assigned version info."""
+    rec = store.put(lineage_id, rex, meta=meta,
+                    tags=list(tags or []) + ["lineage"], valid_from=valid_from)
+    v = rec.version
+    parent = v - 1 if v > 1 else None
+    return {"id": f"{lineage_id}@{v}", "lineage_id": lineage_id, "version": v,
             "parent_version": parent}
 
 
+def _legacy_lineage_records(store: RCStore, lineage_id: str):
+    """Old-scheme fallback: under the legacy scheme, each version was a SEPARATE record
+    id "{lineage_id}@{v}" carrying meta["lineage"]={"id","version",...}. Collect
+    those, oldest version first. Empty list if none (i.e. not a legacy store)."""
+    out = []
+    for r in store.list(limit=10 ** 9):
+        meta = r.meta if isinstance(r.meta, dict) else {}
+        lin = meta.get("lineage")
+        if isinstance(lin, dict) and lin.get("id") == lineage_id:
+            out.append((r, lin))
+    out.sort(key=lambda rl: rl[1].get("version", 1))
+    return out
+
+
 def lineage(store: RCStore, lineage_id: str):
-    """Ordered version list for a lineage."""
-    recs = [r for r in store.list(limit=10 ** 9)
-            if (r.meta or {}).get("lineage", {}).get("id") == lineage_id]
-    recs.sort(key=lambda r: (r.meta or {}).get("lineage", {}).get("version", 0))
-    return [{"id": r.id,
-             "version": (r.meta or {}).get("lineage", {}).get("version"),
-             "parent_version": (r.meta or {}).get("lineage", {}).get("parent_version"),
-             "created": (r.meta or {}).get("lineage", {}).get("created")}
-            for r in recs]
+    """Ordered version list for a lineage. Reads the store's native version
+    chain for this id; for a store populated under the legacy scheme (each version stored
+    as a separate "{id}@{v}" record grouped by meta.lineage) it falls back to
+    that legacy scheme so old data still reads."""
+    hist = store.history(lineage_id)
+    if hist:
+        return [{"id": f"{lineage_id}@{r.version}", "version": r.version,
+                 "parent_version": r.version - 1 if r.version > 1 else None,
+                 "created": r.tx_from}
+                for r in hist]
+    legacy = _legacy_lineage_records(store, lineage_id)
+    return [{"id": r.id, "version": lin.get("version", i + 1),
+             "parent_version": lin.get("parent_version"),
+             "created": lin.get("created", r.created)}
+            for i, (r, lin) in enumerate(legacy)]
 
 
 def drift(store: RCStore, lineage_id: str):
     """Version list plus the drift trajectory (structural diff between each
-    consecutive pair) - how the schema changed across versions."""
+    consecutive pair): how the schema changed across versions. Walks
+    ``store.history(lineage_id)`` directly (the native version chain for this
+    one id), reconstructing each version by its own version number (via
+    ``_get_ver``, not a same-tick ``tx_from`` that could misresolve across
+    versions written in the same instant). For a legacy store with no native
+    chain under this id, each version is instead reconstructed through its
+    own display/real id, so the ``trajectory`` diff still populates for
+    legacy data (``trajectory_steps`` stays history-based, so it is ``[]``
+    for a legacy lineage; the native path is unaffected).
+
+    Also carries the relational trend layer: ``trajectory_steps`` is
+    ``trajectory(store, lineage_id)["steps"]`` (signed movement per
+    structural quantity, plus the toward/away/level relational direction).
+    The existing keys (``lineage_id``/``versions``/``trajectory``, and each
+    ``trajectory`` entry's ``from``/``to``/``match``/``added``/``removed``)
+    are unchanged; this only adds a key."""
+    from rexgraph.graph import cross_complex_bridge
     versions = lineage(store, lineage_id)
+    hist = store.history(lineage_id)
     traj = []
-    for a, b in zip(versions, versions[1:]):
-        cmp = compare(store, a["id"], b["id"])
-        if cmp:
-            traj.append({"from": a["id"], "to": b["id"], "match": cmp["match"],
-                         "added": cmp["only_in_b"], "removed": cmp["only_in_a"]})
-    return {"lineage_id": lineage_id, "versions": versions, "trajectory": traj}
+    if hist:
+        for v_a, v_b, rec_a, rec_b in zip(versions, versions[1:], hist, hist[1:]):
+            try:
+                rex_a = _get_ver(store, lineage_id, rec_a.version)
+                rex_b = _get_ver(store, lineage_id, rec_b.version)
+                if rex_a is None or rex_b is None:
+                    continue
+                la, lb = _labels_of(rec_a, rex_a), _labels_of(rec_b, rex_b)
+                bridge = cross_complex_bridge(rex_a, rex_b, la, lb)
+                corr = float(bridge.get("kappa", {}).get("correlation", 0.0) or 0.0)
+                sa, sb = set(la), set(lb)
+                traj.append({"from": v_a["id"], "to": v_b["id"],
+                             "match": round(max(0.0, 0.5 * (corr + 1)), 4),
+                             "added": sorted(sb - sa), "removed": sorted(sa - sb)})
+            except Exception:
+                continue
+    else:
+        # legacy store: no native chain under `lineage_id`, so reconstruct each
+        # version through its own display/real id (store.get resolves both).
+        for v_a, v_b in zip(versions, versions[1:]):
+            try:
+                rex_a, rex_b = store.get(v_a["id"]), store.get(v_b["id"])
+                if rex_a is None or rex_b is None:
+                    continue
+                rec_a, rec_b = store.get_record(v_a["id"]), store.get_record(v_b["id"])
+                la, lb = _labels_of(rec_a, rex_a), _labels_of(rec_b, rex_b)
+                bridge = cross_complex_bridge(rex_a, rex_b, la, lb)
+                corr = float(bridge.get("kappa", {}).get("correlation", 0.0) or 0.0)
+                sa, sb = set(la), set(lb)
+                traj.append({"from": v_a["id"], "to": v_b["id"],
+                             "match": round(max(0.0, 0.5 * (corr + 1)), 4),
+                             "added": sorted(sb - sa), "removed": sorted(sa - sb)})
+            except Exception:
+                continue
+    trajectory_steps = trajectory(store, lineage_id)["steps"]
+    return {"lineage_id": lineage_id, "versions": versions, "trajectory": traj,
+            "trajectory_steps": trajectory_steps}
 
 
 def cluster_complexes(store: RCStore, tags_any=None, threshold: float = 0.7):
@@ -706,7 +1223,7 @@ def compare(store: RCStore, id_a: str, id_b: str):
     """Structurally compare two stored complexes (e.g. schema v1 vs v2).
 
     Returns a match score, the labels they share, and which side has labels
-    the other lacks - a drift readout in plain terms.
+    the other lacks: a drift readout in plain terms.
     """
     from rexgraph.graph import cross_complex_bridge
     rex_a, rex_b = store.get(id_a), store.get(id_b)

@@ -26,8 +26,8 @@ a low-rank projector; the heat, wave, Schrodinger, and field propagators from
 Chebyshev sparse mat-vecs; Green's functions and the structural character from
 block conjugate-gradient resolvents and LSQR pseudoinverses. Every sparse path is
 checked against a retained dense oracle to machine precision. One compute layer
-dispatches the same operators across CPU, OpenMP, CUDA, ROCm, and Apple MPS -
-size-gated, with multi-GPU column tiling, multi-core fan-out, and a CPU fallback -
+dispatches the same operators across CPU, OpenMP, CUDA, ROCm, and Apple MPS
+(size-gated, with multi-GPU column tiling, multi-core fan-out, and a CPU fallback),
 so the library runs unchanged on one core, thirty-two cores, an integrated GPU,
 or many GPUs. On top of this `rexgraph.nn` adds a differentiable substrate: the
 HodgeAdam optimizer, relational (propagator) attention, and Green-resolvent
@@ -38,8 +38,8 @@ UI, a multi-agent hive that orchestrates language models and custom workers as a
 relational complex, a setups-driven lifecycle (serve, train, build, deploy,
 finetune, ingest), local LLM inference through llama.cpp, connectors that turn
 any database into a relational complex, and a model builder for custom ML
-architectures. Integrations - TrustGraph knowledge cores and rex-RAG,
-HuggingFace, LangChain, LangGraph - are one part of that ecosystem. It
+architectures. Integrations (TrustGraph knowledge cores and rex-RAG,
+HuggingFace, LangChain, LangGraph) are one part of that ecosystem. It
 auto-detects input types (triples, CSV, JSON, text, numpy arrays, pandas
 DataFrames) and runs a unified analysis pipeline with harmonic mode diagnostics
 (dim_H, frustration, coparticipation, health ratio, sigma-asymmetry).
@@ -147,7 +147,7 @@ python -m pytest agent/tests/
 
 ## Agent Platform
 
-Most work with RexGraph runs through the `agent` platform - the full application
+Most work with RexGraph runs through the `agent` platform: the full application
 layer over the core. It is a FastAPI server and web UI, a multi-agent hive that
 orchestrates language models and custom workers as a relational complex, a
 setups-driven lifecycle (serve, train, build, deploy, finetune, ingest), local
@@ -175,7 +175,7 @@ rex, meta = adapter.from_triples([SimpleTriple("Drug_A", "treats", "Disease_X"),
 adapter.subgraph_confidence(rex, [0, 1, 2])   # structural trust of a retrieved subgraph
 ```
 
-Full platform documentation: **[agent/README.md](agent/README.md)** - the hive,
+Full platform documentation: **[agent/README.md](agent/README.md)**, covering the hive,
 the lifecycle, local inference, custom ML architectures, connectors, and the
 integrations in depth.
 
@@ -684,10 +684,11 @@ and scalar health metrics.
 Two layers sit under the `RexGraph` object. The **kernels** in `rexgraph.core`
 build the structures and are optimized to run on sparse operators. The
 **eigen-free modules** in `rexgraph` compute the spectral quantities without a
-dense eigensolve, so results hold at any scale; `RexGraph` uses the dense kernel
-path below `eigen_dense_limit` (2000 edges, and the exact reference the sparse
-path is tested against) and the eigen-free path above it. `rexgraph.compute`
-dispatches either path across CPU, GPU, or multiple GPUs.
+dense eigensolve, so results hold at any scale. Sparse is the default
+everywhere: `RexGraph` does not build the dense relational bundle unless it is
+asked for. Dense is materialized on demand for the low-level dense kernels, and
+it is the exact reference the sparse path is tested against. `rexgraph.compute`
+dispatches across CPU, GPU, or multiple GPUs.
 
 ```
 rexgraph/                     the relational complex library
@@ -791,12 +792,12 @@ Requires the CUDA toolkit and cupy. If absent, rexgraph runs on CPU.
 
 RexGraph integrations build on these open-source projects:
 
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) - Local LLM inference; the agent's native runtime for running quantized models on CPU and GPU.
-- [TrustGraph](https://github.com/trustgraph-ai/trustgraph) - Knowledge graph construction and management for RAG applications.
-- [Hugging Face Transformers](https://github.com/huggingface/transformers) - Pre-trained transformer models and inference.
-- [LangChain](https://github.com/langchain-ai/langchain) - Framework for building applications with language models.
-- [LangGraph](https://github.com/langchain-ai/langgraph) - Stateful agent orchestration with cyclic computation graphs.
-- [vLLM](https://github.com/vllm-project/vllm) - High-throughput LLM serving.
+- [llama.cpp](https://github.com/ggml-org/llama.cpp): Local LLM inference; the agent's native runtime for running quantized models on CPU and GPU.
+- [TrustGraph](https://github.com/trustgraph-ai/trustgraph): Knowledge graph construction and management for RAG applications.
+- [Hugging Face Transformers](https://github.com/huggingface/transformers): Pre-trained transformer models and inference.
+- [LangChain](https://github.com/langchain-ai/langchain): Framework for building applications with language models.
+- [LangGraph](https://github.com/langchain-ai/langgraph): Stateful agent orchestration with cyclic computation graphs.
+- [vLLM](https://github.com/vllm-project/vllm): High-throughput LLM serving.
 
 
 ## License
