@@ -186,3 +186,70 @@ class TestServerIntegration:
         r = client.post("/api/chat/nonexistent-xyz",
                         json={"message": "hello"}).json()
         assert "response" in r or "text" in r
+
+
+# Retrieval scoring: the hybrid mix must be commensurable
+def _mini_corpus():
+    from agent.corpus import CorpusBuilder
+    from agent.adapters.text import TextAdapter
+    ta = TextAdapter()
+    docs = {
+        "hodge": "hodge decomposition gradient curl harmonic projection cycle basis "
+                 "boundary operator laplacian channel",
+        "store": "versioned store append only bitemporal transaction valid time "
+                 "record signature lineage drift",
+        "io":    "serialize safetensors parquet arrow zarr container format array "
+                 "dtype round trip loader",
+    }
+    c = CorpusBuilder()
+    for did, text in docs.items():
+        # real sentence terminators: _best_sentences splits on [.!?]\s+ or newlines, so
+        # a single unpunctuated blob is one sentence and no sentence budget can bite
+        words = text.split()
+        sentences = [" ".join(words[i:i + 4]) + "." for i in range(0, len(words), 4)]
+        body = "\n".join(sentences * 3)
+        c.add_document(source="<text>", doc_id=did, text=body,
+                       edge_construction=ta.build(body))
+    c.build(depth="quick")
+    return c
+
+
+def test_hybrid_scores_stay_in_the_unit_range():
+    """_score_document mixed a Jaccard and a character cosine (both in [0,1]) with the
+    raw quadratic form psi^T RL^+ psi, which is unbounded and reached 729 on a real
+    corpus. The bounded terms then contributed 0.14% of the score, so hybrid ranking
+    was the spectral term alone."""
+    c = _mini_corpus()
+    for mode in ("chi", "spectral", "hybrid"):
+        qr = c.query("hodge decomposition harmonic projection", top_k=3, mode=mode)
+        for s in qr.ranked_sections:
+            assert 0.0 <= s["score"] <= 1.0, f"{mode}: {s['doc_id']} scored {s['score']}"
+
+
+def test_hybrid_ranking_is_not_decided_by_the_spectral_term_alone():
+    """With the terms commensurable, the vocabulary-matched document must win."""
+    c = _mini_corpus()
+    qr = c.query("hodge decomposition gradient curl harmonic projection", top_k=3,
+                 mode="hybrid")
+    assert qr.ranked_sections[0]["doc_id"] == "hodge"
+
+
+def test_retrieved_sections_are_not_capped_at_two_sentences():
+    """_best_sentences(src, q_tokens, 2) capped every section at two sentences, so the
+    context handed to synthesize was 4-10 sentences no matter what top_k was. That is a
+    hard ceiling on what the shipped retrieval path can answer."""
+    from agent import query_engine
+
+    c = _mini_corpus()
+    q = "hodge decomposition gradient curl harmonic projection boundary laplacian"
+    few, _ = query_engine.retrieve_sections(q, 3, corpus=c, section_sentences=2)
+    many, _ = query_engine.retrieve_sections(q, 3, corpus=c, section_sentences=12)
+    assert sum(len(s["text"]) for s in many) > sum(len(s["text"]) for s in few)
+
+
+def test_section_sentence_budget_is_a_named_setting():
+    """The budget must be a named, env-overridable setting rather than an inline literal."""
+    from agent import query_engine
+
+    assert isinstance(query_engine.SECTION_SENTENCES, int)
+    assert query_engine.SECTION_SENTENCES >= 2

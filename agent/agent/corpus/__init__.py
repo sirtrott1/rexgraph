@@ -779,7 +779,17 @@ class CorpusBuilder:
             # None on the universal scale-free path).
             result = rex.propagate(psi, psi)
 
-            return float(result['score'])
+            # psi^T RL4^+ psi / ||psi||^2 is a Rayleigh quotient: normalized by the
+            # norms but bounded above only by 1/lambda_min(RL4), so it routinely
+            # exceeds 1 (729 on a real corpus). Mixing it raw with a Jaccard and a
+            # character cosine, both in [0,1], let it decide the hybrid ranking by
+            # itself. s/(1+s) is monotone, so the spectral term keeps its own ordering
+            # exactly, and bounded, so the three terms are commensurable. No
+            # eigenvalue, no extra solve.
+            s = float(result['score'])
+            if not np.isfinite(s) or s <= 0.0:
+                return 0.0
+            return s / (1.0 + s)
 
         except Exception:
             return 0.0

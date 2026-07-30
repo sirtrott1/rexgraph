@@ -267,12 +267,12 @@ def test_agent_package_imports_without_pandas():
     import subprocess, sys, textwrap
     code = textwrap.dedent("""
         import sys
-        import agent.agent            # runs __init__ -> from .auto import ...
-        assert 'pandas' not in sys.modules, 'agent.agent import pulled in pandas'
+        import agent                  # runs __init__ -> from .auto import ...
+        assert 'pandas' not in sys.modules, 'agent import pulled in pandas'
         print('OK')
     """)
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert r.returncode == 0, f"agent.agent import loaded pandas or failed:\n{r.stdout}\n{r.stderr}"
+    assert r.returncode == 0, f"agent import loaded pandas or failed:\n{r.stdout}\n{r.stderr}"
 
 
 def test_session():

@@ -15,6 +15,7 @@ complexes + chunks + analysis) with chat.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -122,6 +123,21 @@ def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> Dict[str, Any]:
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+#: Sentences kept per retrieved section. This is an OUTPUT BUDGET, not a decision
+#: threshold: it bounds how much context reaches the model, and nothing about the
+#: ranking depends on it. It was an inline 2, which capped the whole context at 4 to 10
+#: sentences regardless of top_k and left the model to fill the gap with generic prose.
+#: Override with REXGRAPH_SECTION_SENTENCES, or per call via `section_sentences`.
+SECTION_SENTENCES = _env_int("REXGRAPH_SECTION_SENTENCES", 6)
+
+
 def _split_sentences(text: str) -> List[str]:
     return [s.strip() for s in _SENT_SPLIT.split(text or "") if s.strip()]
 
@@ -140,7 +156,9 @@ def _best_sentences(text: str, query_tokens: set, k: int = 2) -> List[str]:
 
 def retrieve_sections(query: str, top_k: int, *, corpus=None,
                       doc_rex=None, doc_meta: Optional[dict] = None,
-                      query_ec=None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+                      query_ec=None,
+                      section_sentences: Optional[int] = None,
+                      ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Return (sections, relation).
 
     - With a non-empty CorpusBuilder: delegate to its structural retrieval
@@ -168,7 +186,9 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
                     if rec is not None:
                         rmeta = getattr(getattr(rec, "rex", None), "_agent_meta", {}) or {}
                         src = rmeta.get("source_text", "") or getattr(rec, "text", "") or ""
-                        best = _best_sentences(src, q_tokens, 2)
+                        n_sent = (SECTION_SENTENCES if section_sentences is None
+                                  else max(1, int(section_sentences)))
+                        best = _best_sentences(src, q_tokens, n_sent)
                         text = " … ".join(best) if best else src[:300]
                     sections.append({
                         "doc_id": did,
@@ -182,11 +202,13 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
                 pass  # fall through to single-doc
 
     return _single_doc_retrieve(query, top_k, doc_rex=doc_rex,
-                                doc_meta=doc_meta, query_ec=query_ec)
+                                doc_meta=doc_meta, query_ec=query_ec,
+                                section_sentences=section_sentences)
 
 
 def _single_doc_retrieve(query: str, top_k: int, *, doc_rex=None,
-                         doc_meta: Optional[dict] = None, query_ec=None):
+                         doc_meta: Optional[dict] = None, query_ec=None,
+                         section_sentences: Optional[int] = None):
     doc_meta = doc_meta or {}
     relation = relate_query_to_doc(query_ec, doc_rex, doc_meta) if doc_rex is not None else {"concepts": []}
     concept_weight = {c["concept"].lower(): (c["doc_coherence"] + 0.1)
@@ -296,7 +318,8 @@ def _cache_key(doc_meta: dict, query: str, top_k: int, corpus_id: str = "") -> O
 def answer_query(doc_rex, query: str, results: Optional[dict] = None, *,
                  corpus=None, doc_meta: Optional[dict] = None,
                  top_k: int = 5, use_cache: bool = True,
-                 doc_summary: str = "") -> Dict[str, Any]:
+                 doc_summary: str = "",
+                 section_sentences: Optional[int] = None) -> Dict[str, Any]:
     """End-to-end structural answer for a chat query.
 
     Builds the query complex, retrieves resonant sections from the
@@ -322,7 +345,7 @@ def answer_query(doc_rex, query: str, results: Optional[dict] = None, *,
 
     sections, relation = retrieve_sections(
         query, top_k, corpus=corpus, doc_rex=doc_rex,
-        doc_meta=doc_meta, query_ec=q_ec)
+        doc_meta=doc_meta, query_ec=q_ec, section_sentences=section_sentences)
 
     answer, model_used, token_metrics = synthesize(query, doc_summary, sections, relation)
 
