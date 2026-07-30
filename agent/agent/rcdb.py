@@ -1002,9 +1002,8 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
     ``{id, match, shared, tags, source}`` sorted by match descending, where
     ``match`` is a 0-1 similarity a UI can show as a percentage.
     """
-    from rexgraph.graph import cross_complex_bridge
-    import math
-    qset = set(query_labels)
+    from agent.scoring import interfacing_score
+    qset = {str(x).lower() for x in (query_labels or [])}
     out = []
     for rec in store.list(limit=10 ** 9):
         if exclude_id is not None and rec.id == exclude_id:
@@ -1019,25 +1018,28 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
             if cand is None:
                 continue
             cand_labels = _labels_of(rec, cand)
-            bridge = cross_complex_bridge(query_rex, cand, query_labels, cand_labels)
-            n_shared = int(bridge.get("n_shared", 0) or 0)
-            if n_shared == 0:
+            r = interfacing_score(cand, cand_labels, query_labels)
+            if r["n_shared"] == 0:
                 continue
-            corr = float(bridge.get("kappa", {}).get("correlation", 0.0) or 0.0)
-            # combine agreement with how much overlaps (confidence)
-            denom = max(len(query_labels), len(cand_labels), 1)
-            overlap = n_shared / denom
-            match = max(0.0, 0.5 * (corr + 1) * math.sqrt(overlap))
+            # `match` is documented as a 0-1 number a UI shows as a percentage, but
+            # ||iv|| is unbounded. s/(1+s) is monotone, so the ranking is the
+            # scorer's ranking exactly, and bounded, so the percentage means
+            # something. Same map the retrieval path uses for the same reason.
+            s_raw = r["score"]
+            match = s_raw / (1.0 + s_raw) if s_raw > 0 else 0.0
             out.append({
                 "id": rec.id,
                 "match": round(match, 4),
-                "shared": n_shared,
+                "score": round(s_raw, 6),
+                "character": [round(x, 4) for x in r["character"]],
+                "coverage": round(r["coverage"], 4),
+                "shared": r["n_shared"],
                 "tags": rec.signature.get("tags", []),
                 "source": rec.signature.get("source", ""),
             })
         except Exception:
             continue
-    out.sort(key=lambda r: -r["match"])
+    out.sort(key=lambda r: (-r["match"], str(r["id"])))
     return out[:top_k]
 
 

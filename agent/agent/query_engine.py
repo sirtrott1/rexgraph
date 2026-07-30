@@ -320,7 +320,9 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
     if not scored:
         return [], {"mode": "store", "n_ranked": 0}
 
-    scored.sort(key=lambda t: -t[0])
+    # same deterministic tiebreak as the in-memory path: store enumeration order
+    # must not decide which of two equally-scoring documents comes back.
+    scored.sort(key=lambda t: (-t[0], str(t[1].doc_id)))
     n_sent = (SECTION_SENTENCES if section_sentences is None
               else max(1, int(section_sentences)))
     sections = []

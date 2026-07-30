@@ -105,150 +105,37 @@ def _extract_entities(text: str, min_len: int = 3) -> List[str]:
 
 
 # Corpus builder
-# Ranking (module scope: no instance state, shared with the store-backed path)
-
-def score_document(doc, query_ec, query_chi, mode="hybrid") -> float:
-    """Score a document against a query.
-
-    chi: vocabulary overlap + structural character cosine.
-    spectral: signal propagation through the RL eigenstructure.
-    hybrid: weighted average of both.
-
-    Falls back to vocabulary-only matching when the query
-    produces no edges (single word, short phrase).
-    """
-    q_words = set(w.lower() for w in query_ec.vertex_labels)
-    d_words = set(w.lower() for w in doc.vertex_labels)
-    if not q_words or not d_words:
-        return 0.0
-
-    jaccard = len(q_words & d_words) / len(q_words | d_words)
-
-    # Single-word or no-edge query: vocabulary matching only
-    if query_ec.nE == 0:
-        return jaccard
-
-    chi_score = 0.0
-    if mode in ("chi", "hybrid") and query_chi is not None:
-        try:
-            doc_chi = doc.rex.structural_character
-            if doc_chi is not None and query_chi.shape[1] == doc_chi.shape[1]:
-                from rexgraph.core._fiber import chi_cosine
-                q_mean = query_chi.mean(axis=0)
-                d_mean = doc_chi.mean(axis=0)
-                dot = np.dot(q_mean, d_mean)
-                nq = np.linalg.norm(q_mean)
-                nd = np.linalg.norm(d_mean)
-                if nq > 0 and nd > 0:
-                    chi_score = dot / (nq * nd)
-        except Exception:
-            pass
-
-    spec = 0.0
-    if mode in ("spectral", "hybrid"):
-        spec = spectral_score(doc, query_ec)
-
-    if mode == "chi":
-        return 0.4 * jaccard + 0.6 * max(chi_score, 0.0)
-    elif mode == "spectral":
-        return 0.3 * jaccard + 0.7 * max(spec, 0.0)
-    else:
-        return 0.3 * jaccard + 0.35 * max(chi_score, 0.0) + 0.35 * max(spec, 0.0)
+# Ranking
+#
+# One mechanism, in agent.scoring: the interfacing vector (Poisson lift -> typed
+# channel operators -> bilinear score). What used to be here was a label Jaccard
+# plus a cosine between MEAN structural characters plus a hand-rolled spectral term,
+# blended under fixed 0.3/0.35/0.35 weights -- three approximations of the thing the
+# library already computes exactly. Lexical overlap is now a candidate prefilter
+# only; it decides what to look at, not what is relevant.
 
 
-def spectral_score(doc, query_ec) -> float:
-    """Score via spectral propagation through the RL.
+def score_document(doc, query_ec, query_chi=None, mode="hybrid") -> float:
+    """Score a document against a query. `query_chi`/`mode` are accepted and ignored:
+    they selected between the old blends, and there is one mechanism now."""
+    from agent.scoring import interfacing_score
+    return interfacing_score(getattr(doc, "rex", None),
+                             getattr(doc, "vertex_labels", []) or [],
+                             getattr(query_ec, "vertex_labels", []) or [])["score"]
 
-    Computes psi = B1^T @ L0^+ @ rho where rho is the vertex
-    source from shared query tokens, then propagates through
-    the relational Laplacian pseudoinverse:
-    score = psi^T RL^+ psi / ||psi||^2
-    """
-    try:
-        from rexgraph.core._interfacing import (
-            build_vertex_source,
-            build_edge_signal,
-        )
 
-        rex = doc.rex
-        if rex is None or rex.nE == 0:
-            return 0.0
-
-        shared = []
-        for w in query_ec.vertex_labels:
-            wl = w.lower()
-            if wl in doc.vertex_labels:
-                shared.append(doc.vertex_labels.index(wl))
-
-        if len(shared) < 2:
-            return 0.0
-
-        # Vertex weights: IDF from degree (matches graph.py line 1319)
-        deg = rex.degree.astype(np.float64)
-        vertex_weights = 1.0 / np.log(deg + np.e)
-
-        target_indices = np.array(shared, dtype=np.int32)
-        target_weights = np.ones(len(shared), dtype=np.float64)
-
-        rho = build_vertex_source(
-            target_indices, target_weights,
-            vertex_weights, rex.nV,
-        )
-
-        # psi = B1^T @ L0^+ @ rho
-        sb = rex.spectral_bundle
-        evecs_L0 = sb.get('evecs_L0')
-        full_basis = (evecs_L0 is not None
-                      and evecs_L0.shape[1] == rex.nV)
-        if full_basis:
-            # Dense L0 pseudoinverse via the full eigenbasis (small graphs).
-            B1 = np.ascontiguousarray(rex.B1, dtype=np.float64)
-            psi = build_edge_signal(
-                rho, B1,
-                sb['evals_L0'],
-                np.ascontiguousarray(evecs_L0, dtype=np.float64),
-                rex.nV, rex.nE,
-            )
-        else:
-            # Large graph: the sparse bundle carries only a truncated L0
-            # basis (k<<nV). Feeding it to the dense nV x nV kernel reads
-            # out of bounds (C-level segfault). psi = B1^T L0^+ rho = B1^+ rho,
-            # computed matrix-free/exactly via LSQR (scale-free).
-            from scipy.sparse import csr_matrix
-            from scipy.sparse.linalg import lsqr
-            B1s = csr_matrix(np.asarray(rex.B1, dtype=np.float64))
-            psi = lsqr(B1s, np.asarray(rho, dtype=np.float64),
-                       atol=1e-8, btol=1e-8)[0]
-
-        # score = psi^T RL^+ psi / ||psi||^2 - matrix-free via the public propagate
-        # (routes to the eigen-free sparse RL4 resolvent; the dense sb['RL']/hats are
-        # None on the universal scale-free path).
-        result = rex.propagate(psi, psi)
-
-        # psi^T RL4^+ psi / ||psi||^2 is a Rayleigh quotient: normalized by the
-        # norms but bounded above only by 1/lambda_min(RL4), so it routinely
-        # exceeds 1 (729 on a real corpus). Mixing it raw with a Jaccard and a
-        # character cosine, both in [0,1], let it decide the hybrid ranking by
-        # itself. s/(1+s) is monotone, so the spectral term keeps its own ordering
-        # exactly, and bounded, so the three terms are commensurable. No
-        # eigenvalue, no extra solve.
-        s = float(result['score'])
-        if not np.isfinite(s) or s <= 0.0:
-            return 0.0
-        return s / (1.0 + s)
-
-    except Exception:
-        return 0.0
+def score_document_full(doc, query_ec) -> dict:
+    """`score_document` plus the typed character and the bundle's diagnostics."""
+    from agent.scoring import interfacing_score
+    return interfacing_score(getattr(doc, "rex", None),
+                             getattr(doc, "vertex_labels", []) or [],
+                             getattr(query_ec, "vertex_labels", []) or [])
 
 
 def count_shared_entities(labels_a, labels_b) -> int:
     """Count entities shared between two label sets."""
-    return len(
-        set(w.lower() for w in labels_a)
-        & set(w.lower() for w in labels_b)
-    )
-
-# TrustGraph triple generation
+    return len({str(x).lower() for x in (labels_a or [])}
+               & {str(x).lower() for x in (labels_b or [])})
 
 
 class CorpusBuilder:
@@ -800,7 +687,10 @@ class CorpusBuilder:
                 ).get("kappa_mean", 0),
             })
 
-        results.sort(key=lambda r: r["score"], reverse=True)
+        # doc_id breaks ties: without a ranking term that varies with vocabulary,
+        # every non-matching document scores exactly 0, and enumeration order
+        # would otherwise decide the tail differently per caller.
+        results.sort(key=lambda r: (-r["score"], str(r["doc_id"])))
         return QueryResult(
             query_text=query_text,
             ranked_sections=results[:top_k],
@@ -808,14 +698,9 @@ class CorpusBuilder:
             query_rex=q_rex,
         )
 
-    # Ranking lives at module scope (score_document / spectral_score): it reads no
-    # instance state, and the store-backed retriever ranks with the same functions
-    # rather than a second copy of the ranking.
-    def _score_document(self, doc, query_ec, query_chi, mode="hybrid") -> float:
+    # Ranking lives in agent.scoring; these stay as the historical entry points.
+    def _score_document(self, doc, query_ec, query_chi=None, mode="hybrid") -> float:
         return score_document(doc, query_ec, query_chi, mode)
-
-    def _spectral_score(self, doc, query_ec) -> float:
-        return spectral_score(doc, query_ec)
 
     _count_shared_entities = staticmethod(count_shared_entities)
 

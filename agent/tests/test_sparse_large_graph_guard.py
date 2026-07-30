@@ -4,6 +4,11 @@ nV x nV L0 Cython kernels (build_edge_signal / build_response_operators) reads
 out of bounds -> uncatchable C-level SIGSEGV. Two live agent paths did this:
 corpus._spectral_score and the pipeline quality gate. These tests pin the fix:
 guard on the full basis, and use the matrix-free B1^+ equivalent when truncated.
+
+The corpus half now goes through agent.scoring.interfacing_score, so the guard sits
+inside RexGraph.interfacing_vector (it routes to the sparse bundle on the same
+condition) instead of being hand-rolled in the caller. The property under test is
+unchanged: a truncated-basis graph must return a finite score, not a SIGSEGV.
 """
 import numpy as np
 import pytest
@@ -53,16 +58,25 @@ def test_large_graph_bundle_basis_is_truncated():
     assert evecs_L0.shape[1] < rex.nV  # truncated -> dense kernel would segfault
 
 
-def test_spectral_score_large_graph_does_not_segfault():
-    """corpus._spectral_score on an nV>2000 doc returns a finite score via the
-    LSQR (B1^+) fallback instead of crashing the process."""
+def test_document_scoring_large_graph_does_not_segfault():
+    """Ranking an nV>2000 document returns a finite score instead of crashing the
+    process: interfacing_vector takes the sparse bundle when the basis is truncated."""
+    from agent.scoring import interfacing_score
+
     rex = _connected_graph(2500, extra_edges=1500)
     labels = _labels(rex.nV)
-    doc = _Doc(rex, labels)
-    query_ec = _EC(["W0", "W1", "W2", "W3"])  # >=2 shared tokens
-    score = CorpusBuilder._spectral_score(None, doc, query_ec)
-    assert isinstance(score, float)
-    assert np.isfinite(score)
+    r = interfacing_score(rex, labels, ["W0", "W1", "W2", "W3"])  # >=2 shared tokens
+    assert isinstance(r["score"], float)
+    assert np.isfinite(r["score"])
+    assert r["n_shared"] >= 2
+
+
+def test_corpus_score_document_large_graph_does_not_segfault():
+    """The same property through the corpus entry point callers actually use."""
+    rex = _connected_graph(2500, extra_edges=1500)
+    labels = _labels(rex.nV)
+    score = CorpusBuilder._score_document(None, _Doc(rex, labels), _EC(["W0", "W1", "W2"]))
+    assert isinstance(score, float) and np.isfinite(score)
 
 
 def test_quality_gate_large_graph_is_permissive_not_crash():
