@@ -20,9 +20,8 @@ import multiprocessing
 import os
 import queue as queue_module
 import tempfile
-import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 from fastapi import APIRouter, File, Form, UploadFile

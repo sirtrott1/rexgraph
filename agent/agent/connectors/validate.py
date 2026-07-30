@@ -26,7 +26,7 @@ from typing import Any, Callable, List, Optional
 
 import numpy as np
 
-from . import BaseConnector, to_rexgraph
+from . import to_rexgraph
 
 
 @dataclass

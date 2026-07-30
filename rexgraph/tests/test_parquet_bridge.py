@@ -13,8 +13,6 @@ Verifies:
     - Filtration table: splits back into filt_v, filt_e, filt_f
     - Metrics table: generic per-cell roundtrip
 """
-import os
-import tempfile
 
 import numpy as np
 import pytest

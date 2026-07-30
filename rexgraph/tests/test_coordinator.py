@@ -1,5 +1,5 @@
 import numpy as np
-from rexgraph.coordinator import CostModel, LANES, TYPES
+from rexgraph.coordinator import CostModel
 
 def test_cost_model_priors_and_ema():
     cm = CostModel()
@@ -23,7 +23,7 @@ def test_affinity_discovery_flips_mistyped_task():
     assert cm.best_lane("gpu_kernel") == "proc"
 
 
-from rexgraph.coordinator import contention, capacity, delegation_complex, assign
+from rexgraph.coordinator import contention, delegation_complex, assign
 
 
 def _units(n_by_type):

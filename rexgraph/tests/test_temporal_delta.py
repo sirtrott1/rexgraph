@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
-from rexgraph.graph import RexGraph, TemporalDelta, make_edge_delta, _cell_state
-from rexgraph.core import _temporal
+from rexgraph.graph import RexGraph, make_edge_delta, _cell_state
 
 
 def _delta_between(prev, curr, directed=False):

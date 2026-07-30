@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import logging
 import os
-import secrets
-import shutil
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path

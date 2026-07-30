@@ -12,7 +12,6 @@ import tempfile
 import time
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/v1")
 

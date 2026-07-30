@@ -54,9 +54,8 @@ NamedTuples:
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import List, NamedTuple, Optional, Sequence, Tuple
+from typing import NamedTuple, Optional, Tuple
 
-import numpy as np
 from numpy.typing import NDArray
 
 

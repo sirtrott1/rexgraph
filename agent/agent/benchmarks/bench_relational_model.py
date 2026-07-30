@@ -14,7 +14,6 @@ Run:  python -m agent.benchmarks.bench_relational_model [--quick]
 from __future__ import annotations
 
 import argparse
-import time
 
 import numpy as np
 import torch

@@ -47,7 +47,6 @@ def build_sparse_channels(rex):
     """
     import scipy.sparse as sp
     from rexgraph.core._laplacians import build_L1_down_sparse
-    from rexgraph.core import _frustration
 
     nV, nE = int(rex.nV), int(rex.nE)
     src, tgt = rex._ensure_src_tgt()
@@ -408,7 +407,6 @@ def channel_spectral_gaps(rex):
     _smallest_positive_eig. Normalized G (I - D^-1/2 K D^-1/2) is not a Gram, so it also
     uses the general path. This is the exact spectral-gap metric; it is NOT the
     edge-centric relaxation object (see the moment tower / relaxation accessors)."""
-    import numpy as _np
     chan = dict(build_sparse_channels(rex))
     B1 = _b1_csr(rex)
     nE = int(rex.nE)

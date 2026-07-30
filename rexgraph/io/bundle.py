@@ -178,7 +178,7 @@ def _load_npy(
 
 #: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
 #: existing call sites keep working; `dumps` is what applies the non-finite policy.
-from ._compat import json_default as _json_default, dumps as _dumps
+from ._compat import dumps as _dumps
 
 
 # RexBundle
@@ -340,7 +340,6 @@ class RexBundle:
             raise TypeError(
                 f"Bundle contains {self.object_type}, not RexGraph"
             )
-        from ..graph import RexGraph
         return _read_rex_graph(self._root)
 
     def to_temporal(self) -> "TemporalRex":
@@ -349,7 +348,6 @@ class RexBundle:
             raise TypeError(
                 f"Bundle contains {self.object_type}, not TemporalRex"
             )
-        from ..graph import TemporalRex
         return _read_temporal_rex(self._root)
 
     def to_object(self):

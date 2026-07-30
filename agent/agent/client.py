@@ -25,7 +25,7 @@ Usage in a Jupyter notebook:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 
 class RexClient:

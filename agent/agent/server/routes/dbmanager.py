@@ -13,10 +13,6 @@ is a drop-in.
 
 from __future__ import annotations
 
-import json
-import os
-import re
-from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, Body, HTTPException
 

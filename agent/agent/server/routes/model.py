@@ -7,7 +7,6 @@ agent.server.routes.model: context-aware model inference and system status.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 
@@ -317,7 +316,6 @@ async def system_status():
         status["rexgraph"] = {"ok": False, "error": str(e)}
 
     try:
-        from agent.auto import auto_rex
         status["agent"] = {"ok": True}
     except Exception as e:
         status["agent"] = {"ok": False, "error": str(e)}

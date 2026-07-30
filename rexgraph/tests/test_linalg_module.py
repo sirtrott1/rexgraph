@@ -12,7 +12,6 @@ Verifies:
     - rl_pipeline: tr(RL) = 3, chi sums to 1, kappa in [0,1]
 """
 import numpy as np
-import pytest
 
 from rexgraph.core import _linalg
 

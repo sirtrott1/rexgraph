@@ -456,7 +456,6 @@ def test_signed_gram_matches_the_dense_boundary_with_a_self_loop():
     """With the dense form correct, L1_down = B1^T B1 holds on a self-loop complex
     too: the kernel already treats the self-loop's signed contribution as cancelling."""
     import numpy as np
-    import scipy.sparse as sp
     from rexgraph.graph import RexGraph
     from rexgraph.sparse_character import build_sparse_channels
 

@@ -3,7 +3,6 @@ import tempfile
 
 import numpy as np
 import pytest
-from collections import defaultdict
 from rexgraph.graph import RexGraph
 from rexgraph.flow.attention import (
     CoParticipationAttention,

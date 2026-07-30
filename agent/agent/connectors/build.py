@@ -11,7 +11,7 @@ never has to know the CSC face encoding; it may emit faces as a dense
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
 

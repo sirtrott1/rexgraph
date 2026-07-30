@@ -28,7 +28,6 @@ Optionally, a Flask-based live server is available:
 from __future__ import annotations
 
 import json
-import os
 import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union

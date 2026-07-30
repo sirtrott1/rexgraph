@@ -93,7 +93,7 @@ def _pq():
 
 #: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
 #: existing call sites keep working; `dumps` is what applies the non-finite policy.
-from ._compat import json_default as _json_default, dumps as _dumps
+from ._compat import dumps as _dumps
 
 
 # Edge type names matching types.py EdgeType enum (Definition 3.2)

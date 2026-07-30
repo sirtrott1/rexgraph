@@ -19,10 +19,9 @@ The output is an :class:`EdgeConstruction`, so it flows through
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
-from numpy.typing import NDArray
 
 from . import DomainAdapter, EdgeConstruction
 

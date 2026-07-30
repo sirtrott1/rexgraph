@@ -8,8 +8,6 @@ Tier 1 (always runs): csv_loader, json_loader, bundle
 Tier 2 (skip if missing): zarr, hdf5, arrow, parquet, sql
 """
 import json
-import os
-import tempfile
 
 import numpy as np
 import pytest
@@ -469,7 +467,7 @@ class TestBundle:
         rex = _make_k4()
         # Force spectral computation
         _ = rex.betti
-        from rexgraph.io.bundle import save_rex, load_rex
+        from rexgraph.io.bundle import save_rex
         save_rex(path, rex, cache="all")
         # Verify cache directory exists
         import pathlib

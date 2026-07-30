@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import numpy as np
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, Body
 
 router = APIRouter()
 

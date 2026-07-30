@@ -118,7 +118,9 @@ rex-dashboard = "rexgraph.viz.dashboard:main"
 # URLs
 [project.urls]
 Homepage = "https://github.com/sirtrott1/rexgraph"
-Documentation = "https://github.com/sirtrott1/rexgraph/tree/main/docs"
+# the published branch has no docs/ directory; README is the documentation entry
+# point, and a 404 in package metadata is worse than pointing at what exists.
+Documentation = "https://github.com/sirtrott1/rexgraph#readme"
 Repository = "https://github.com/sirtrott1/rexgraph"
 Issues = "https://github.com/sirtrott1/rexgraph/issues"
 

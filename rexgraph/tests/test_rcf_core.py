@@ -10,9 +10,8 @@ K4 uniform character theorem.
 32 assertions covering every new module.
 """
 import numpy as np
-from numpy.linalg import norm, eigh, svd, matrix_rank
+from numpy.linalg import norm, eigh, svd
 from scipy.linalg import pinvh
-import pytest
 
 
 def build_test_graph():

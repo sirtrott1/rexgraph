@@ -4,7 +4,6 @@ Everything is checked against the DENSE reference in ``rexgraph.core._dirac`` (t
 assembled operator + its eigendecomposition), on a mixed-arity complex (pairwise
 AND branching edges, a face) so the arity-generality is exercised, not assumed.
 """
-import warnings
 
 import numpy as np
 import scipy.sparse as sp

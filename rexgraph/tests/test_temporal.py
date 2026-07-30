@@ -14,7 +14,6 @@ Verifies:
     - Integration through TemporalRex
 """
 import numpy as np
-import pytest
 
 from rexgraph.core import _temporal
 from rexgraph.graph import RexGraph, TemporalRex

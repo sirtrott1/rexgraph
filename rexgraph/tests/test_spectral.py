@@ -10,7 +10,6 @@ Verifies:
     - Coordinates stay within canvas after refinement
 """
 import numpy as np
-import pytest
 
 from rexgraph.core import _spectral
 

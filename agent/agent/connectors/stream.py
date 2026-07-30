@@ -7,7 +7,7 @@ live cluster is a host-environment task (no broker in-sandbox).
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Tuple
-from . import BaseConnector, Capabilities, ConnectorError
+from . import BaseConnector, Capabilities
 
 
 class StreamConnector(BaseConnector):

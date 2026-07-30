@@ -47,7 +47,7 @@ Usage:
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -301,7 +301,7 @@ def _read_meta(engine, table: str) -> dict:
 
 #: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
 #: existing call sites keep working; `dumps` is what applies the non-finite policy.
-from ._compat import json_default as _json_default, dumps as _dumps
+from ._compat import dumps as _dumps
 
 
 # Boundary table (Definition 3.1)

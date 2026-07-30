@@ -16,7 +16,7 @@ confirm a build before trusting benchmark numbers.
 from __future__ import annotations
 
 import importlib
-from typing import Dict, List
+from typing import Dict
 
 # The core modules the pipeline touches directly or transitively.
 PIPELINE_CRITICAL = [

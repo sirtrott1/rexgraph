@@ -11,7 +11,6 @@ Verifies:
     - SVD rank fallback
 """
 import numpy as np
-import pytest
 
 from rexgraph.core import _boundary
 

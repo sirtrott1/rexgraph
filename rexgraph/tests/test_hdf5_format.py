@@ -12,8 +12,6 @@ Verifies:
     - Weighted graph roundtrip: w_E preserved
     - Compression options: lzf, gzip, None
 """
-import os
-import tempfile
 
 import numpy as np
 import pytest

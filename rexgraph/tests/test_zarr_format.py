@@ -11,8 +11,6 @@ Verifies:
     - Container API: write_to_group / read_from_group / list_groups
     - Weighted graph roundtrip: w_E preserved
 """
-import os
-import tempfile
 
 import numpy as np
 import pytest

@@ -9,7 +9,7 @@ the data; `render()` prints terminal panels; the server route serves it live.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 
 def hive_dashboard(hive) -> Dict[str, Any]:

@@ -27,11 +27,9 @@ with delta-encoded storage, BIOES phase detection, and lifecycle tracking.
 
 from __future__ import annotations
 
-import functools
-import json
 from collections import namedtuple
 from functools import cached_property
-from typing import Optional, Sequence, Tuple, Union
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray

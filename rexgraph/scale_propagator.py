@@ -480,7 +480,6 @@ def malaugh_quantities(rex):
     over a sequence of complexes to build a Malaugh tower, then feed each quantity's
     tower to `action_moment`. NaN for a quantity whose trace is 0 (e.g. c2/H_S with no
     faces)."""
-    import scipy.sparse as sp
     from rexgraph.core._laplacians import build_L1_down_sparse, build_L1_up_sparse
     T = build_L1_down_sparse(rex._B1_dual).tocsr()
     trT = float(T.diagonal().sum()); trT2 = float(T.multiply(T).sum())

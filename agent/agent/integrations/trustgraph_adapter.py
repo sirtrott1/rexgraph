@@ -40,9 +40,8 @@ Connected mode (requires a running TrustGraph instance):
 
 from __future__ import annotations
 
-from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -1691,7 +1690,6 @@ class TrustGraphAdapter(DomainAdapter):
         # 1-skeleton, check if the three edge types form a valid
         # combination according to the ontology.
         if valid_type_pairs and rex.nE > 0:
-            from rexgraph.graph import RexGraph
 
             edge_types = []
             for i in range(rex.nE):

@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List
 
 import numpy as np
 from numpy.typing import NDArray

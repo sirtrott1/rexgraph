@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -45,22 +45,18 @@ from ._compat import (
     g_create_array,
     g_store_complex,
     g_load_complex,
-    g_store_sparse_csr,
     g_load_sparse_csr,
     g_store_dict,
     g_load_dict,
     g_store_bool_masks,
     g_load_bool_masks,
-    write_text_array,
-    read_text_array,
     to_native,
     dumps,
-    json_default,
     as_str,
 )
 
 if HAS_ZARR:
-    import zarr
+    pass
 
 __all__ = [
     "RexZarrFormat",
@@ -293,7 +289,6 @@ class RexZarrFormat:
 
     def read(self, path: str) -> Any:
         """Read a RexGraph, TemporalRex, or ndarray from disk."""
-        from ..graph import RexGraph, TemporalRex
 
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
         obj_type = as_str(root.attrs.get("object_type"))
@@ -345,7 +340,6 @@ class RexZarrFormat:
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
         g = root["objects"][name]
         t = as_str(g.attrs.get("object_type"))
-        from ..graph import RexGraph, TemporalRex
         if t == "RexGraph":
             return self._read_rex_graph(g)
         if t == "TemporalRex":

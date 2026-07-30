@@ -10,13 +10,11 @@ SQLite locally and Postgres in production.
 
 from __future__ import annotations
 
-import os
 import time
 
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
-from agent.rcdb import open_store
 
 router = APIRouter(prefix="/v1/db")
 

@@ -13,7 +13,6 @@ Verifies:
     - RCFBundle with chi field
 """
 import numpy as np
-import pytest
 
 from rexgraph.types import (
     # Enums

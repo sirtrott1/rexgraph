@@ -1,5 +1,4 @@
 import functools
-import rexgraph.coordinator as co
 from rexgraph.coordinator import LanePools, CostModel
 
 

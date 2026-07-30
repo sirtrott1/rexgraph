@@ -11,29 +11,22 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import numpy as np
 from numpy.typing import NDArray
 
 from ._compat import (
     HAS_HDF5,
-    open_hdf5,
-    h5_store_array,
-    h5_load_array,
     h5_store_complex,
     h5_load_complex,
-    h5_store_sparse_csr,
     h5_load_sparse_csr,
     h5_store_dict,
     h5_load_dict,
     h5_store_bool_masks,
     h5_load_bool_masks,
-    h5_store_strings,
-    h5_load_strings,
     to_native,
     dumps,
-    json_default,
     as_str,
 )
 
@@ -286,7 +279,6 @@ class RexHDF5Format:
 
     def read(self, path: str) -> Any:
         """Read a RexGraph, TemporalRex, or ndarray from an .h5 file."""
-        from ..graph import RexGraph, TemporalRex
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
@@ -332,7 +324,6 @@ class RexHDF5Format:
 
     def read_from_group(self, path: str, name: str) -> Any:
         """Read /objects/<n> from path."""
-        from ..graph import RexGraph, TemporalRex
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:

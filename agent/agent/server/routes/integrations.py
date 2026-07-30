@@ -8,7 +8,6 @@ are thin wrappers that expose it over HTTP.
 from __future__ import annotations
 
 import logging
-import json
 
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
@@ -347,7 +346,7 @@ async def generate_training_data(body: dict = Body(...)):
     target = body.get("target", "summary")
     fmt = body.get("format", "safetensors")
 
-    from agent.server.auth import require_workspace, get_auth_manager
+    from agent.server.auth import get_auth_manager
     mgr = get_auth_manager()
     ws = mgr.get_workspace("default")
 

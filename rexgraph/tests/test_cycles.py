@@ -12,7 +12,6 @@ Verifies:
     - Cycle space dimension matches union-find computation
 """
 import numpy as np
-import pytest
 
 from rexgraph.core import _cycles
 

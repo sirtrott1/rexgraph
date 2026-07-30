@@ -35,7 +35,6 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from collections import Counter
 
 
 def _tokenize_simple(text: str) -> List[str]:

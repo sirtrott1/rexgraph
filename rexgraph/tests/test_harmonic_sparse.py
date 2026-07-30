@@ -91,7 +91,6 @@ def test_harmonic_basis_from_boundaries_matches_rex(name):
     """The rex-free `harmonic_basis_from_boundaries(B1, B2)` (reused by _void /
     _quotient) spans exactly the same harmonic plane as `harmonic_basis(rex)`:
     same dim_H, annihilates B1, and its column span contains the rex basis."""
-    import scipy.sparse as sp
     from rexgraph.core._sparse import to_scipy_csr
     rex = CASES[name]
     B1 = to_scipy_csr(rex._B1_dual).tocsc()

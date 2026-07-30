@@ -117,7 +117,6 @@ _PK_RE = re.compile(r"primary\s+key\s*\(\s*([^)]+)\)", re.IGNORECASE)
 
 def _parse_ddl_sqlglot(ddl: str, dialect: Optional[str] = None) -> SchemaModel:
     """Dialect-aware DDL parsing via sqlglot (Oracle/Postgres/MySQL/…)."""
-    import sqlglot
     from sqlglot import exp, parse
     read = dialect if dialect and dialect not in ("auto", "sql") else None
     statements = parse(ddl, read=read)

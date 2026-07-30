@@ -19,8 +19,8 @@ Nothing here reaches the network, writes a file, or records a metric on its own.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Protocol, Tuple, runtime_checkable
 
 
 # observability seam (silent by default)

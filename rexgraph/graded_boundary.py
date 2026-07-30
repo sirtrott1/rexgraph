@@ -37,7 +37,7 @@ arbitrary orientations. Both forms are accepted per cell.
 """
 from __future__ import annotations
 
-from typing import List, Sequence, Tuple, Union
+from typing import List, Sequence, Tuple
 
 import numpy as np
 import scipy.sparse as sp

@@ -13,10 +13,9 @@ That's the entire API for going from raw data to complete structural analysis.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional
 
 import numpy as np
-from numpy.typing import NDArray
 
 from .adapters import EdgeConstruction
 from .adapters.feature_matrix import FeatureMatrixAdapter
@@ -323,7 +322,6 @@ def auto_rex(
     RexGraph
         A relational complex with typed faces, voids, and ∂²=0 holds by construction.
     """
-    from rexgraph.graph import RexGraph
 
     # Fast path: caller already built the edges (e.g. an adapter that
     # runs outside auto_rex, such as OCR-layout, single-cell, or L-R

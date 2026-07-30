@@ -5,9 +5,8 @@ default). The loop dispatches on the DataBundle's `kind`, so one interface train
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
-import numpy as np
 import torch as _t
 import torch.nn.functional as _F
 

@@ -27,7 +27,7 @@ repository, it should be reimplemented as a Cython module
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 

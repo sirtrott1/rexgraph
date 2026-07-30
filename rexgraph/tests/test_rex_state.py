@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from rexgraph.graph import RexGraph
-from rexgraph.io.rex_state import to_state, from_state, RexState, FORMAT_VERSION
+from rexgraph.io.rex_state import to_state, from_state
 
 
 def _simple():

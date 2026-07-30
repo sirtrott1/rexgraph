@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Iterator, Optional, Sequence, Union
+from typing import Any, Dict, Iterator, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -469,4 +469,4 @@ def _arrow_batch_to_arrays(
 
 #: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
 #: existing call sites keep working; `dumps` is what applies the non-finite policy.
-from ._compat import json_default as _json_default, dumps as _dumps
+from ._compat import dumps as _dumps

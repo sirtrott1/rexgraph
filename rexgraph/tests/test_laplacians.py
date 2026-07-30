@@ -14,7 +14,6 @@ Verifies:
     - build_all_laplacians returns complete bundle
 """
 import numpy as np
-import pytest
 
 from rexgraph.core import _laplacians
 

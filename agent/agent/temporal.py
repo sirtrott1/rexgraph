@@ -21,7 +21,7 @@ quantity, built from each step's change measured against its own magnitude.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Sequence
 
 #: structural quantities a signature always carries. Drift and stability are read
 #: from these rather than from the payload.

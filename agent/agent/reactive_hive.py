@@ -92,7 +92,6 @@ class ReactiveHive:
 
         health_ratio, harm_locus = None, []
         try:
-            from . import agent_complex
             from rexgraph import harmonic_health
             rex, ags, idx, we, edges = self.hive._complex.interaction_complex()
             if rex is not None and int(rex.betti[1]) > 0:

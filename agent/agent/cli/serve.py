@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Optional
 
 from .config import (
-    PID_FILE,
     clear_pid,
     load_config,
     process_alive,

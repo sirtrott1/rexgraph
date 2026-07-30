@@ -24,7 +24,6 @@ logger = logging.getLogger("rexgraph.nn")
 try:
     import torch as _t
     import torch.nn as _nn
-    import torch.nn.functional as _F
     _HAS_TORCH = True
 except Exception:                                    # pragma: no cover (torch optional)
     _HAS_TORCH = False

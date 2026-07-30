@@ -94,16 +94,26 @@ def test_a_bundle_manifest_is_always_strict_json(tmp_path):
 
 def test_every_json_writer_shares_the_one_encoder():
     """Nine copies of the same twelve lines is nine places for the policy to drift.
-    They must all resolve to the shared helper."""
+
+    Checks the property, not the plumbing: no io module may DEFINE its own encoder,
+    and each must route its writes through _compat.dumps. An earlier version of this
+    test asserted a back-compat alias instead, and so failed when the (by then dead)
+    alias was cleaned up -- while the property it cared about still held.
+    """
+    import inspect
+
     import rexgraph.io.bundle as bundle
     import rexgraph.io.parquet_bridge as parquet
     import rexgraph.io.arrow_bridge as arrow
     import rexgraph.io.sql_bridge as sql
-    from rexgraph.io._compat import json_default
+    from rexgraph.io._compat import dumps
 
     for mod in (bundle, parquet, arrow, sql):
-        assert mod._json_default is json_default, (
-            f"{mod.__name__} still carries its own copy of the encoder")
+        own = getattr(mod, "_json_default", None)
+        assert not inspect.isfunction(own) or own.__module__ == "rexgraph.io._compat", (
+            f"{mod.__name__} defines its own encoder again")
+        assert getattr(mod, "_dumps", None) is dumps, (
+            f"{mod.__name__} does not write through the shared dumps")
 
 
 def test_no_module_reintroduces_a_raw_numpy_dumps():

@@ -25,7 +25,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 

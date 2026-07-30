@@ -639,7 +639,6 @@ def temporal_rex_to_safetensors(
 
 def safetensors_to_temporal_rex(path: Union[str, os.PathLike]):
     """Reconstruct a TemporalRex from a `.safetensors` file."""
-    from ..graph import TemporalRex
 
     _, load_file, _ = _st()
     p = _coerce_path(path)

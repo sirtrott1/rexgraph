@@ -6,7 +6,7 @@ import numpy as np
 import scipy.sparse as sp
 
 import rexgraph.graded_boundary as gb
-from rexgraph.graded_boundary import _exact_rank_reduction, _sparse_rank
+from rexgraph.graded_boundary import _exact_rank_reduction
 
 
 def _rand_int_sparse(m, n, density=0.2, seed=0):

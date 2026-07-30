@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import abc
 import json
-from typing import Any, Dict, List, Optional, Set, Tuple, Type
+from typing import Any, Dict, List, Optional, Set, Type
 
 import numpy as np
 from numpy.typing import NDArray
@@ -35,7 +35,6 @@ from ._compat import (
     as_str,
     dumps,
     json_sanitize,
-    json_default,
     to_native,
 )
 

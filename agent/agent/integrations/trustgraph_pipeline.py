@@ -37,14 +37,13 @@ Standalone mode (no running TrustGraph):
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 
 from agent.engine import DecisionEngine, EngineResult
 from agent.integrations.trustgraph_adapter import (
     TrustGraphAdapter,
-    SimpleTriple,
 )
 
 
