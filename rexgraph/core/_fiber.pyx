@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._fiber - Fiber character and similarity complex.
+rexgraph.core._fiber: Fiber character and similarity complex.
 
 Fiber character uses full spectral structure (not just diagonal).
 Similarity complex thresholds pairwise chi/phi cosine into a new graph.

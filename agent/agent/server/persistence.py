@@ -1,5 +1,5 @@
 """
-agent.server.persistence - workspace state persistence using rexgraph/io.
+agent.server.persistence: workspace state persistence using rexgraph/io.
 
 Uses the existing I/O layer directly:
     save_rex / load_rex     for RexGraph bundles (.rex)

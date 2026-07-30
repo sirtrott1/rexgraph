@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._cross_complex - Cross-complex structural comparison.
+rexgraph.core._cross_complex: Cross-complex structural comparison.
 
 Aligns two relational complexes by shared vertex labels and compares
 structural invariants (coherence kappa, void fraction, spectral

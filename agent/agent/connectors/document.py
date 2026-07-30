@@ -1,4 +1,4 @@
-"""agent.connectors.document - the document/NoSQL connector (MongoDB shape).
+"""agent.connectors.document: the document/NoSQL connector (MongoDB shape).
 
 Wraps the engine's Mongo schema inference: collections are vertices, inferred
 ``*_id`` references are edges, junction collections become co-participation

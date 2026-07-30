@@ -1,5 +1,5 @@
 """
-agent.connectors.template - copy this file to start a new connector.
+agent.connectors.template: copy this file to start a new connector.
 
 A connector teaches the engine one system. The whole job is: read your source
 read-only, and emit its relationships as edges. Everything else (the math, the

@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._linalg - LAPACK/BLAS runtime and workspace.
+rexgraph.core._linalg: LAPACK/BLAS runtime and workspace.
 
 Allocates the static workspace buffer used by all LAPACK calls.
 Provides Python-callable wrappers for testing.

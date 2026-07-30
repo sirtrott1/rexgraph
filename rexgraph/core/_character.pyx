@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._character - Structural character decomposition.
+rexgraph.core._character: Structural character decomposition.
 
 chi, phi, chi_star, kappa, per-channel mixing times, face-void dipole.
 All LAPACK/BLAS, zero Python in hot paths.

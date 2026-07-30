@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._laplacians - Hodge Laplacians and spectral decomposition.
+rexgraph.core._laplacians: Hodge Laplacians and spectral decomposition.
 
 Builds L0, L1_down, L1_up, L1_full, L2 from boundary operators B1, B2.
 Eigendecomposition via LAPACK dsyev_ through _linalg cimport.

@@ -1,5 +1,5 @@
 """
-agent.schema_complex - schemas and ontologies AS relational complexes.
+agent.schema_complex: schemas and ontologies AS relational complexes.
 
 A database schema *is* a relational complex: tables are cells, foreign
 keys are typed, directional relations (child -> parent), and junction

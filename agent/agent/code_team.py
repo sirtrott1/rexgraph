@@ -1,4 +1,4 @@
-"""agent.code_team - a team that generates and evaluates code concurrently, then unifies a build.
+"""agent.code_team: a team that generates and evaluates code concurrently, then unifies a build.
 
 Code agents take on tasks in parallel: each piece is generated and immediately evaluated (its tests
 run), so while one piece is being written another is being tested - evaluation overlaps generation

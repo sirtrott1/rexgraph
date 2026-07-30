@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._void - Void spectral theory.
+rexgraph.core._void: Void spectral theory.
 
 The void complex records potential faces that could exist but don't.
 Each void v has a boundary cycle bv in ker(B1) with harmonic content

@@ -1,4 +1,4 @@
-"""agent.connectors.graph - property-graph databases (Neo4j shape).
+"""agent.connectors.graph: property-graph databases (Neo4j shape).
 
 Nodes -> vertices, relationships -> edges. Harness-validatable here against an
 in-memory ``{"nodes": [...], "relationships": [(src, dst), ...]}`` stand-in;

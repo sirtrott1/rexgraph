@@ -1,4 +1,4 @@
-"""agent.hive_network - a network of hives as a relational complex one grade up.
+"""agent.hive_network: a network of hives as a relational complex one grade up.
 
 A single hive is agents-as-cells (agent_complex). A network is the same structure lifted a grade:
 hives are the cells, inter-hive channels are the signals, and the network's health is the same RCFE

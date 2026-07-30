@@ -1,5 +1,5 @@
 """
-agent.connectors - the "adapt to any system" layer.
+agent.connectors: the "adapt to any system" layer.
 
 A **connector** turns a source (a live DB, a dump, a stream, an in-memory graph,
 an ontology) into a relational complex: the signed incidence ``B₁`` topology,

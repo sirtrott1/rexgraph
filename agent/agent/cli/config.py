@@ -1,5 +1,5 @@
 """
-agent.cli.config - paths, platform detection, config persistence.
+agent.cli.config: paths, platform detection, config persistence.
 
 Config: ~/.config/rexgraph/config.json (XDG on Linux, APPDATA on Windows).
 Cache:  ~/.cache/rexgraph/models/ (model weights, PID file).

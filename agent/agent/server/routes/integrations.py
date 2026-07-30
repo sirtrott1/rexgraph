@@ -1,5 +1,5 @@
 """
-agent.server.routes.integrations - TrustGraph, HuggingFace, LangChain, LangGraph.
+agent.server.routes.integrations: TrustGraph, HuggingFace, LangChain, LangGraph.
 
 All integration code already exists in agent/integrations/. These routes
 are thin wrappers that expose it over HTTP.

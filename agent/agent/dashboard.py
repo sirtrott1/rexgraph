@@ -1,4 +1,4 @@
-"""agent.dashboard - the whole hive network as a live statistics snapshot.
+"""agent.dashboard: the whole hive network as a live statistics snapshot.
 
 Assembles every signal we already compute into one structured dashboard: the roster, the
 coordination health (deadlocks, the Hodge split, per-worker load/coherence/curvature/alignment), the

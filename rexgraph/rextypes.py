@@ -1,5 +1,5 @@
 """
-rexgraph.types - Typed containers for relational complex data structures.
+rexgraph.rextypes: typed containers for relational complex data structures.
 
 Enumerations mirror integer codes from the Cython layer so that
 Python-level code (graph.py, analysis.py) can refer to them without

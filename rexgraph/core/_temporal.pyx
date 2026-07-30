@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._temporal - Temporal bundle storage, BIOES phase detection,
+rexgraph.core._temporal: Temporal bundle storage, BIOES phase detection,
 and lifecycle tracking for temporal rexgraphs.
 
 Delta-encoded snapshot storage with adaptive checkpoints. Sorted-merge

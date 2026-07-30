@@ -7,9 +7,10 @@
 # CUDA build (GPU kernels via CMake; requires CUDA toolkit and cupy):
 #   REX_BUILD_CUDA=1 pip install .
 #
-# The meson backend compiles .pyx to .c to .so with OpenMP
-# parallelism. CMake is invoked separately for .cu compilation
-# when CUDA support is requested.
+# The meson backend compiles .pyx to .c to .so. Parallelism comes from the
+# threaded BLAS the kernels call and from rexgraph.compute above them, not from
+# prange: the kernels are compiled with -fopenmp but contain no parallel loops.
+# CMake is invoked separately for .cu compilation when CUDA support is requested.
 
 [build-system]
 requires = [

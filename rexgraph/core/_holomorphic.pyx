@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._holomorphic - Holomorphic Lagrangian structure on RL_4.
+rexgraph.core._holomorphic: Holomorphic Lagrangian structure on RL_4.
 
 Implements the complex analytic structure of the time-space Lagrangian
 decomposition on the relational complex (RL_4), not the chain complex.

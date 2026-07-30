@@ -1,4 +1,4 @@
-"""rexgraph.compute - the execution backend layer: backends, thread control, and op dispatch.
+"""rexgraph.compute: the execution backend layer: backends, thread control, and op dispatch.
 
 A modular spine so parallel and device-specialized kernels register their implementations and are
 routed here, instead of hardcoding a backend at each call site. Same registry pattern as

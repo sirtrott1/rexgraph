@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._faces - Face classification, extraction, metrics, and selection.
+rexgraph.core._faces: Face classification, extraction, metrics, and selection.
 
 Classifies faces into proper (2+ unique boundary vertices) and
 self-loop (1 vertex), filters B_2 to produce B2_hodge for exact

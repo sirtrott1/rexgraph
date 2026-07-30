@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._field - Cross-dimensional field dynamics on the rex chain complex.
+rexgraph.core._field: Cross-dimensional field dynamics on the rex chain complex.
 
 Implements the coupled field operator and wave equation on the (E, F)
 field state, where edges and faces are the independent degrees of freedom

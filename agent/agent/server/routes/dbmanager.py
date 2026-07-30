@@ -1,5 +1,5 @@
 """
-agent.server.routes.dbmanager - enterprise database manager.
+agent.server.routes.dbmanager: enterprise database manager.
 
 Save and test connections to any SQL database (or MongoDB), browse a live
 schema, and import it into the RCDB as a diagnosed relational complex.

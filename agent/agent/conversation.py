@@ -1,5 +1,5 @@
 """
-agent.conversation - conversation memory as temporal topology.
+agent.conversation: conversation memory as temporal topology.
 
 Each exchange in a conversation produces an ExchangeResult.
 The sequence of exchanges is a temporal relational complex.

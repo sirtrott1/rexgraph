@@ -1,5 +1,5 @@
 """
-agent.cli.setup - platform-aware dependency installation.
+agent.cli.setup: platform-aware dependency installation.
 
 Three tiers:
     1. Tesseract + pymupdf (always, no prompt)

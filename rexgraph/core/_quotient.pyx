@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._quotient - quotient complexes and relative homology on rex.
+rexgraph.core._quotient: quotient complexes and relative homology on rex.
 
 Given a 2-rex R = (E, F, d_1, d_2) with d_1 d_2 = 0 and derived vertex
 set V = union_e supp(d_1(e)), and a subcomplex I specified by masks on

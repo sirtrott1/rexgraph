@@ -1,5 +1,5 @@
 """
-agent.exchange - input/output exchange as a relational complex.
+agent.exchange: input/output exchange as a relational complex.
 
 Each model exchange (input context + query + output) is a single
 relational complex. The exchange edges bridge shared entities

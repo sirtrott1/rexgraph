@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._wave - Complex-amplitude wave mechanics on the rex chain complex.
+rexgraph.core._wave: Complex-amplitude wave mechanics on the rex chain complex.
 
 Complex-valued counterpart to _state.pyx and _transition.pyx. Operates on
 complex amplitudes psi_k in C^n under exp(-i L t) evolution, where L is

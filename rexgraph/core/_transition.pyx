@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._transition - Transition operators on the rex chain complex.
+rexgraph.core._transition: Transition operators on the rex chain complex.
 
 Markov - discrete and continuous stochastic diffusion on k-cells.
 Schrodinger - unitary evolution via Hodge Laplacians (real cos/sin split).

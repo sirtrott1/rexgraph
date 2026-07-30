@@ -1,4 +1,4 @@
-"""agent.activity - the activity log + model-usage registry, backed by a local journal.
+"""agent.activity: the activity log + model-usage registry, backed by a local journal.
 
 Every action by every entity, across granularities (network / hive / team / worker / model), is
 recorded here as a timestamped event. And every time a model is used, a use is opened and closed, so

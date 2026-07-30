@@ -2,7 +2,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._state - Rex state representation and signal operations.
+rexgraph.core._state: Rex state representation and signal operations.
 
 A rex state consists of per-dimension signals f0 (vertices), f1 (edges),
 f2 (faces). This module provides norms, normalization, packing/unpacking,

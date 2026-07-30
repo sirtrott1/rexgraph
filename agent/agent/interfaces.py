@@ -1,5 +1,5 @@
 """
-agent.interfaces - the embed contract for the engine.
+agent.interfaces: the embed contract for the engine.
 
 The engine is sovereign: it reads only what it is pointed at, persists only
 structure, holds no credentials it isn't given, and **emits nothing** unless the

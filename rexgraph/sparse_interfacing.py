@@ -1,4 +1,4 @@
-"""rexgraph.sparse_interfacing - eigen-free / scale-free interfacing-vector bundle.
+"""rexgraph.sparse_interfacing: eigen-free / scale-free interfacing-vector bundle.
 
 Mirrors ``rexgraph.core._interfacing.build_interfacing_bundle`` field-for-field,
 but NEVER materializes the dense response operator ``S_T = B1^T L0^+ B1`` (nE x nE)

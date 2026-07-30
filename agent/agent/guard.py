@@ -1,4 +1,4 @@
-"""agent.guard - rule-based, real-time validity checks on generated content.
+"""agent.guard: rule-based, real-time validity checks on generated content.
 
 A guard is a lightweight worker in the hive. It watches a stream of generated
 tokens (or a finished reply) against a set of rules, flags violations the instant

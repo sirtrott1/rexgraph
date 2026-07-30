@@ -1,5 +1,5 @@
 """
-agent.server.auth - authentication and workspace management.
+agent.server.auth: authentication and workspace management.
 
 Bearer token auth with workspace-scoped isolation aligned with
 TrustGraph's model. Each workspace is a namespace containing

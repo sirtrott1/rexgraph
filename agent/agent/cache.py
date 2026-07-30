@@ -1,5 +1,5 @@
 """
-agent.cache - content-addressed cache for pipeline analysis.
+agent.cache: content-addressed cache for pipeline analysis.
 
 Each pipeline run otherwise rebuilds the complex, recomputes
 eigenvalues and re-runs Hodge from scratch, even for an identical file

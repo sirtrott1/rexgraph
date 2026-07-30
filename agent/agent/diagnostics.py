@@ -1,5 +1,5 @@
 """
-agent.diagnostics - verify the compiled-kernel surface.
+agent.diagnostics: verify the compiled-kernel surface.
 
 The pipeline is meant to dispatch heavy linear algebra (boundary maps,
 Hodge decomposition, spectral bundles, RCFE strain) into the compiled

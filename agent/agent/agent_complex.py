@@ -1,5 +1,5 @@
 """
-agent.agent_complex - the agentic relational complex and the monitor agent.
+agent.agent_complex: the agentic relational complex and the monitor agent.
 
 Agents/models are cells; their messages/interactions are the signals. Build a live rexgraph
 complex from a multi-agent message log and run the RCF machinery on it: per-agent

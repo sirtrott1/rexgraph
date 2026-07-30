@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._color - C-level color pipeline for K_7 spectral color.
+rexgraph.core._color: C-level color pipeline for K_7 spectral color.
 
 Forward map: (chi, dLT, eps) -> sRGB via eigenspectrum + CIE + gamma.
 Batch forward: N pixels in one call, optionally OpenMP-parallel.
@@ -324,7 +324,11 @@ def forward_batch(double[:, ::1] chi not None,
                   double[::1] dLT not None,
                   double[::1] eps not None,
                   double[:, :, ::1] hats_stack not None):
-    """Batch forward map for N pixels (OpenMP when available).
+    """Batch forward map for N pixels.
+
+    Serial: the per-pixel loop runs under nogil but not under prange, because the
+    scratch block is indexed at fixed offsets and would need omp_get_thread_num to
+    be safe across threads (see the fallback note at the loop).
 
     Parameters
     ----------

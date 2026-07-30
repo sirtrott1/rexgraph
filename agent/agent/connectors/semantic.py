@@ -1,4 +1,4 @@
-"""agent.connectors.semantic - the semantic connector (RDFS/OWL/SPARQL shape).
+"""agent.connectors.semantic: the semantic connector (RDFS/OWL/SPARQL shape).
 
 Wraps the engine's ontology mapping: subClassOf = gradient edge, definition =
 face, symmetric/equivalent = bigon, object property = typed edge. A subsumption

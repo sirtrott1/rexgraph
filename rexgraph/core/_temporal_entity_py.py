@@ -1,5 +1,5 @@
 """
-rexgraph.core._temporal_entity_py - Pure-Python fallback for entity-level
+rexgraph.core._temporal_entity_py: Pure-Python fallback for entity-level
 BIOES tagging. Same API as _temporal_entity.pyx, uses numpy vectorization.
 
 Import order: try Cython first, fall back to this.

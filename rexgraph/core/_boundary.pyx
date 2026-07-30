@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._boundary - Chain complex construction for the 2-rex.
+rexgraph.core._boundary: Chain complex construction for the 2-rex.
 
 Assembles the boundary operators B_1 (nV x nE) and B_2 (nE x nF)
 that define the chain complex, and computes Betti numbers from

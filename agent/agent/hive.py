@@ -1,5 +1,5 @@
 """
-agent.hive - swarm of local models orchestrated as a relational complex.
+agent.hive: swarm of local models orchestrated as a relational complex.
 
 A queen (the main driver), worker bees, and an embedder bee, each an OpenAI-compatible endpoint
 (a managed llama.cpp subprocess or an attached live server). Every bee-to-bee interaction is

@@ -1,5 +1,5 @@
 """
-agent.server.routes.models - model lifecycle management via ModelManager.
+agent.server.routes.models: model lifecycle management via ModelManager.
 
     GET  /api/v1/models/list          all models with status
     GET  /api/v1/models/status        loaded/available/VRAM summary

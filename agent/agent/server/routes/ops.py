@@ -1,5 +1,5 @@
 """
-agent.server.routes.ops - route surface for lifecycle operations.
+agent.server.routes.ops: route surface for lifecycle operations.
 
 One endpoint set covers every phase (serve/train/build/deploy/test). Each phase
 reads the active hive setup and is recorded as a persistent run. The Operations

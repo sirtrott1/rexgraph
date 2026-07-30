@@ -1,5 +1,5 @@
 """
-agent.ontology_complex - RDFS/OWL ontologies as typed relational complexes.
+agent.ontology_complex: RDFS/OWL ontologies as typed relational complexes.
 
 The mapping follows arity ≠ grade:
   * ``rdfs:subClassOf`` (binary A ⊑ B) -> a **gradient edge** (the class

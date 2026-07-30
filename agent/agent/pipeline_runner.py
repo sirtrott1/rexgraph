@@ -1,5 +1,5 @@
 """
-agent.pipeline_runner - end-to-end document analysis pipeline.
+agent.pipeline_runner: end-to-end document analysis pipeline.
 
     files -> OCR -> corpus -> Hodge chunk -> query -> LLM -> hallucination check -> rechunk
 

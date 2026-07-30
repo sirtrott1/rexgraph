@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._relational - Relational Laplacian and Green function.
+rexgraph.core._relational: Relational Laplacian and Green function.
 
 All computation via LAPACK/BLAS through _linalg cimport. Zero Python
 in hot paths.
@@ -312,6 +312,12 @@ def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
 
 
 def rl_cg_solve(np.ndarray[f64, ndim=2] RL, np.ndarray[f64, ndim=1] b):
+    """Solve RL x = b by DENSE SVD least squares (LAPACK dgelsd), not by conjugate
+    gradient. The name is historical: there is no iteration to budget here, and the
+    cost is a dense factorization of a copy of RL. For the matrix-free iterative
+    solve use `rexgraph.sparse_character._block_cg`, which is what the eigen-free
+    tower actually runs on.
+    """
     cdef int n = RL.shape[0]
     cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(RL.copy())
     cdef np.ndarray[f64, ndim=1] B = b.copy()

@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._hodge - Hodge decomposition of edge signals.
+rexgraph.core._hodge: Hodge decomposition of edge signals.
 
 Decomposes an edge signal g in R^m into three mutually orthogonal
 components:

@@ -1,5 +1,5 @@
 """
-agent.server.routes.connectors - the Connector seam over HTTP.
+agent.server.routes.connectors: the Connector seam over HTTP.
 
 One route group over :mod:`agent.connectors.service`: list what can be connected
 (with per-scheme driver status for the "not configured" UX), validate an

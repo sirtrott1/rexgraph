@@ -1,4 +1,4 @@
-"""agent.query_manager - a query is a living relational complex.
+"""agent.query_manager: a query is a living relational complex.
 
 Each query is built into its own relational complex (agent.query_engine), but a
 real interaction is not one query - it is a *trajectory*: the user (or an agent)

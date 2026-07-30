@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._standard - Classical graph algorithms on the 1-skeleton.
+rexgraph.core._standard: Classical graph algorithms on the 1-skeleton.
 
 Operates on the undirected graph underlying a relational complex.
 Input is a symmetric CSR adjacency from _cycles.build_symmetric_adjacency.

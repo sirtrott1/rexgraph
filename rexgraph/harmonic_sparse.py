@@ -1,4 +1,4 @@
-"""rexgraph.harmonic_sparse - the harmonic plane, combinatorial and low-rank.
+"""rexgraph.harmonic_sparse: the harmonic plane, combinatorial and low-rank.
 
 Per the math reference Part V (scripts 09, 10): the harmonic space
 `ker(L1) = ker(B1) ∩ ker(B2ᵀ)` is a **combinatorial** object - a basis of the cycle

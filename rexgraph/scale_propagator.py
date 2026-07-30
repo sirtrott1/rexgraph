@@ -1,4 +1,4 @@
-"""rexgraph.scale_propagator - the character engine as moments of f(RL4).
+"""rexgraph.scale_propagator: the character engine as moments of f(RL4).
 
 The character/coherence layer is a set of **moments of a sparse matrix function
 f(RL4)** - not per-vertex Green's solves and not an eigendecomposition. The

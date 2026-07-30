@@ -1,5 +1,5 @@
 """
-agent.chat_model - unified generation layer for chat/synthesis.
+agent.chat_model: unified generation layer for chat/synthesis.
 
 A single place that resolves *which* model to talk to and provides a
 best-effort ``generate()``. Everything that wants an LLM (the chat route,

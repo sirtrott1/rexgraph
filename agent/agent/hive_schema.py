@@ -1,4 +1,4 @@
-"""agent.hive_schema - the hive's own structure as a versioned relational complex.
+"""agent.hive_schema: the hive's own structure as a versioned relational complex.
 
 A hive is not a fixed set of workers; it is a living schema. Which workers and
 models it holds, what capabilities they provide, which databases and stores it is

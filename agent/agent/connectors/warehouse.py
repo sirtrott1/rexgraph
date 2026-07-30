@@ -1,4 +1,4 @@
-"""agent.connectors.warehouse - cloud data warehouses (Snowflake / BigQuery /
+"""agent.connectors.warehouse: cloud data warehouses (Snowflake / BigQuery /
 Redshift / Databricks).
 
 Same *shape* as SQL: it is the SQL connector with the warehouse dialects added.

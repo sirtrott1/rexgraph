@@ -1,5 +1,5 @@
 """
-agent.hallucination - structural hallucination detection.
+agent.hallucination: structural hallucination detection.
 
 Builds a relational complex from a model response and compares
 its topology against the source document. Structural divergence

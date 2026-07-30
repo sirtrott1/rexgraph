@@ -1,5 +1,5 @@
 """
-agent.connectors.service - the one place a source becomes a (validated,
+agent.connectors.service: the one place a source becomes a (validated,
 optionally stored) complex.
 
 The CLI (`rexgraph-connect`), the HTTP route (`/api/v1/connectors`), and any

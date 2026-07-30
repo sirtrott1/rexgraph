@@ -1,5 +1,5 @@
 """
-agent.model_manager - Centralized model lifecycle management.
+agent.model_manager: Centralized model lifecycle management.
 
 Owns all loaded models, manages VRAM, handles multi-model loading.
 Models load once and persist across requests for the server lifetime.

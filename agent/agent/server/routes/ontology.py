@@ -1,5 +1,5 @@
 """
-agent.server.routes.ontology - diagnose RDFS/OWL ontologies as complexes.
+agent.server.routes.ontology: diagnose RDFS/OWL ontologies as complexes.
 """
 
 from __future__ import annotations

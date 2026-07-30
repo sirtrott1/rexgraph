@@ -32,6 +32,7 @@ _MODULES = [
     # Topology and curvature
     '_void',
     '_rcfe',
+    '_curvature',
 
     # Dynamics and state
     '_state',

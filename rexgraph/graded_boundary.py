@@ -1,4 +1,4 @@
-"""rexgraph.graded_boundary - a general, graded, mixed-arity boundary builder.
+"""rexgraph.graded_boundary: a general, graded, mixed-arity boundary builder.
 
 A relational complex (rex) is a finite chain complex
 

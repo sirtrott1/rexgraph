@@ -1,5 +1,5 @@
 """
-agent.query_engine - structural, relational-complex-aware question answering.
+agent.query_engine: structural, relational-complex-aware question answering.
 
 Every query becomes its own relational complex. That complex is aligned
 against the document (or corpus) complex to find which concepts and

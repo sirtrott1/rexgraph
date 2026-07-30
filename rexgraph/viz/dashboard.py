@@ -1,6 +1,6 @@
 # rexgraph/viz/dashboard.py
 """
-rexgraph.viz.dashboard - Generate self-contained HTML dashboards.
+rexgraph.viz.dashboard: Generate self-contained HTML dashboards.
 
 Wires rexgraph.analysis.analyze() output into the React JSX
 template and produces a single `.html` file that opens in any browser

@@ -1,5 +1,5 @@
 """
-agent.connectors.build - turn a connector's ``(rex, meta)`` into a storable
+agent.connectors.build: turn a connector's ``(rex, meta)`` into a storable
 ``RexGraph`` the one canonical way, so every connector (and the validation
 harness) agrees on how topology, faces, and labels become a complex.
 

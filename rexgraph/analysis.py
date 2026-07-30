@@ -1,5 +1,5 @@
 """
-rexgraph.analysis - Structural analysis for the visualization dashboard.
+rexgraph.analysis: Structural analysis for the visualization dashboard.
 
 Connects RexGraph to the dashboard JSON contract. Accepts a rex with
 optional vertex labels and edge attributes, and returns a dict whose

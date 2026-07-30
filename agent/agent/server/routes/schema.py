@@ -1,4 +1,4 @@
-"""agent.server.routes.schema - topological diagnosis of database schemas."""
+"""agent.server.routes.schema: topological diagnosis of database schemas."""
 
 from __future__ import annotations
 

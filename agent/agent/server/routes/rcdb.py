@@ -1,5 +1,5 @@
 """
-agent.server.routes.rcdb - the Relational Complex Database over HTTP.
+agent.server.routes.rcdb: the Relational Complex Database over HTTP.
 
 Stores every analysed complex as a first-class record and lets you query
 the database *by structure* (Betti, coherence, voids), not just by id.

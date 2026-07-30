@@ -1,4 +1,4 @@
-"""agent.connectors.stream - streaming platforms (Kafka / Pulsar shape).
+"""agent.connectors.stream: streaming platforms (Kafka / Pulsar shape).
 
 Structure-only: topics -> vertices, schema-registry references between topics
 -> edges. Harness-validatable here against an in-memory

@@ -1,5 +1,5 @@
 """
-agent.builder - custom agent composition from config.
+agent.builder: custom agent composition from config.
 
 Define pipelines as YAML/JSON, execute without writing Python.
 Each step is a named building block with configurable parameters.

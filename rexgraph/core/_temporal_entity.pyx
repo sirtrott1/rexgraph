@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._temporal_entity - Entity-level BIOES tagging for
+rexgraph.core._temporal_entity: Entity-level BIOES tagging for
 cross-document NLP on relational complexes.
 
 Extends _temporal with per-entity and per-relationship lifecycle

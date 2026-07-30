@@ -326,3 +326,43 @@ def test_partition_communities_runs_past_the_early_return():
                               np.arange(1, 11, dtype=np.int32))
     parts = rex.partition_communities(max_size=3)      # nE = 10 > 3, so it must do work
     assert parts is not None
+
+
+# Packaging and export gaps
+def test_curvature_kernel_is_exported_from_the_core_namespace():
+    """_curvature is compiled (core/meson.build) but was absent from __init__'s _MODULES,
+    so five public kernel functions were reachable only by full dotted path."""
+    import rexgraph.core as core
+
+    assert hasattr(core, "_curvature")
+    for name in ("lagrangian_curvature", "star_curvature", "weighted_degree",
+                 "curvature_operator", "lagrangian_L_T_integer"):
+        assert hasattr(core, name), f"core.{name} missing from the flattened namespace"
+
+
+def test_harmonic_wrapper_is_declared_for_installation():
+    """rexgraph/harmonic.py is a public wrapper over core._harmonic but was not listed in
+    rexgraph/meson.build, so it was absent from an installed package."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    build = (root / "rexgraph" / "meson.build").read_text(encoding="utf-8")
+    assert "'harmonic.py'" in build
+
+
+def test_inverse_centrality_ratio_does_not_warn_on_an_isolated_vertex():
+    """np.where(deg > 0, med / deg, 0.0) evaluated med/deg for every entry first, so any
+    complex with a zero-degree vertex emitted a divide-by-zero RuntimeWarning."""
+    import warnings
+
+    import numpy as np
+    from rexgraph.graph import RexGraph
+
+    # the edge list skips vertex 2, so nV covers it and its degree is 0
+    rex = RexGraph(sources=np.array([0, 1, 3], dtype=np.int32),
+                   targets=np.array([1, 3, 4], dtype=np.int32))
+    assert int(np.asarray(rex.degree)[2]) == 0
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        mu = rex.inverse_centrality_ratio
+    assert np.all(np.isfinite(mu))

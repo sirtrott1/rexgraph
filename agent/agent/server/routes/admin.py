@@ -1,5 +1,5 @@
 """
-agent.server.routes.admin - workspace and token management.
+agent.server.routes.admin: workspace and token management.
 
     POST /api/v1/admin/token          create a token
     GET  /api/v1/admin/tokens         list tokens

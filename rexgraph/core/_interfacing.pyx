@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._interfacing - Interfacing vector and channel scoring.
+rexgraph.core._interfacing: Interfacing vector and channel scoring.
 
 Maps a set of source vertices through typed response operators and
 projects onto a target edge vector to produce per-channel scores.
@@ -141,9 +141,13 @@ def build_response_operators(np.ndarray[f64, ndim=2] B1,
                               int nV, int nE):
     """Typed response operators for the three structural channels.
 
-    S_T = B1 @ L0^+ @ B1^T    (nE x nE)
+    S_T = B1^T @ L0^+ @ B1     (nE x nE)
     S_G = L_O                  (nE x nE, passed through)
     S_F = L_SG                 (nE x nE, passed through)
+
+    S_T acts on EDGE signals, so it has to be nE x nE: the interfacing score is
+    <target | S_T | psi> with target and psi both edge vectors. The nV x nV form
+    B1 @ L0^+ @ B1^T that earlier text gave here is the vertex-space operator.
 
     Parameters
     ----------
@@ -162,16 +166,8 @@ def build_response_operators(np.ndarray[f64, ndim=2] B1,
     cdef np.ndarray[f64, ndim=2] L0p = np.zeros((nV, nV), dtype=np.float64)
     spectral_pinv(&evals_L0[0], &evecs_L0[0, 0], &L0p[0, 0], nV, 1e-10)
 
-    # S_T = B1 @ L0^+ @ B1^T
-    # First: tmp = B1 @ L0^+ (nV x nE)^T @ (nV x nV) -- wait, we need (nE x nE)
-    # S_T = (B1^T)^T @ L0^+ @ B1^T = B1 @ L0^+ @ B1^T but that's nV x nV
-    # Actually: S_T operates on edge space. We need B1^T @ L0^+ @ B1 ... no.
-    # From the math: S_T maps edge signals to edge signals via gradient flow.
-    # S_T = B1^T @ L0^+ @ B1? No, that's (nE x nV)(nV x nV)(nV x nE) = nE x nE. 
-    # But the definition says S_T = B1 @ L0^+ @ B1^T which is nV x nV.
-    # The interfacing score is I_T = <target | S_T | psi> where target and psi
-    # are edge vectors. So S_T must be nE x nE.
-    # Correct form: S_T = B1^T @ L0^+ @ B1, giving nE x nE.
+    # S_T = B1^T @ L0^+ @ B1, i.e. (nE x nV)(nV x nV)(nV x nE) = nE x nE, because the
+    # interfacing score <target | S_T | psi> takes edge vectors on both sides.
 
     # tmp = L0^+ @ B1 (nV x nE)
     cdef np.ndarray[f64, ndim=2] L0p_B1 = np.empty((nV, nE), dtype=np.float64)

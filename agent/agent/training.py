@@ -1,5 +1,5 @@
 """
-agent.training - export structural analysis as training data.
+agent.training: export structural analysis as training data.
 
 Converts rexgraph structural analysis into training features
 for model fine-tuning. Uses rexgraph/io/safetensors_bridge

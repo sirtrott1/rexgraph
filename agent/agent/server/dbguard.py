@@ -1,5 +1,5 @@
 """
-agent.server.dbguard - opt-in allow-list for database connection URIs.
+agent.server.dbguard: opt-in allow-list for database connection URIs.
 
 The dbmanager/connectors HTTP routes accept a connection URI and hand it to
 SQLAlchemy ``create_engine`` / schema reflection. On a network-exposed server that

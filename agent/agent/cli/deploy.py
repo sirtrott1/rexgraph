@@ -1,5 +1,5 @@
 """
-agent.cli.deploy - generate a deployable container bundle from the CLI.
+agent.cli.deploy: generate a deployable container bundle from the CLI.
 
     rexgraph-deploy --mode service --out ./deploy
     rexgraph-deploy --mode pipeline --query "key findings?" --backend tesseract --zip agent.zip

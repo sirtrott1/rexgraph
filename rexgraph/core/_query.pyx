@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._query - Relational complex query engine.
+rexgraph.core._query: Relational complex query engine.
 
 Predicate masking (SELECT WHERE), signal imputation (INSERT missing),
 spectral propagation (AGGREGATE), cell explanation (EXPLAIN).

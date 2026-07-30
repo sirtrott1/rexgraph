@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._frustration - Frustration Laplacian L_SG.
+rexgraph.core._frustration: Frustration Laplacian L_SG.
 
 Signed weighted Gramian K_s = B1^T W B1 where W = diag(1/log(deg+e)).
 Frustration Laplacian L_SG = D_{|K_off|} - K_off, where K_off is K_s

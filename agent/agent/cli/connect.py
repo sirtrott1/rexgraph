@@ -1,5 +1,5 @@
 """
-agent.cli.connect - the connector command line (``rexgraph-connect``).
+agent.cli.connect: the connector command line (``rexgraph-connect``).
 
 A thin CLI over :mod:`agent.connectors.service`; it adds no logic the HTTP route
 doesn't also get. Point it at any source and it lists, validates, reads, or

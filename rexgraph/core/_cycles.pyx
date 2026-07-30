@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._cycles - Deterministic fundamental cycle basis.
+rexgraph.core._cycles: Deterministic fundamental cycle basis.
 
 Computes a fundamental cycle basis for the 1-skeleton of a rex via
 tree-cotree decomposition, yielding the face set and data needed to

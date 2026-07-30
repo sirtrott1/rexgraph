@@ -1,5 +1,5 @@
 """
-agent.cli.hpc - SLURM job templates and HPC deployment.
+agent.cli.hpc: SLURM job templates and HPC deployment.
 
 Generates job scripts for all rexgraph HPC workloads:
     ocr_batch   - batch OCR processing with GPU

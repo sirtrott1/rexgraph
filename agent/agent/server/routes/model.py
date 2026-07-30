@@ -1,5 +1,5 @@
 """
-agent.server.routes.model - context-aware model inference and system status.
+agent.server.routes.model: context-aware model inference and system status.
 
     POST /api/v1/model/generate   structured prompt with session context
     GET  /api/v1/status           system health

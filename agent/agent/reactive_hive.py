@@ -1,4 +1,4 @@
-"""agent.reactive_hive - the monitor -> schema loop that makes the hive self-organizing.
+"""agent.reactive_hive: the monitor -> schema loop that makes the hive self-organizing.
 
 The hive observes the field on its own coordination complex and mutates its own
 schema in response, versioning each change with its cause. This closes the loop:

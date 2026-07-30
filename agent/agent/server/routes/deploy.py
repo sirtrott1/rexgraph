@@ -1,4 +1,4 @@
-"""agent.server.routes.deploy - containerize an agent/pipeline for deployment."""
+"""agent.server.routes.deploy: containerize an agent/pipeline for deployment."""
 
 from __future__ import annotations
 

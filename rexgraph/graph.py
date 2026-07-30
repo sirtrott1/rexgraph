@@ -1,5 +1,5 @@
 """
-rexgraph.graph - Orchestration layer for relational complexes.
+rexgraph.graph: Orchestration layer for relational complexes.
 
 A k-rex is a finite chain complex in which edges are primitive and
 vertices are derived from edge boundaries via the vertex lifecycle
@@ -2248,7 +2248,9 @@ class RexGraph:
         """mu(v) = median(degree) / degree(v) per vertex. Shape (nV,)."""
         deg = self.degree.astype(_f64)
         med = float(np.median(deg[deg > 0])) if np.any(deg > 0) else 1.0
-        return np.where(deg > 0, med / deg, 0.0)
+        # np.where would still evaluate med/deg for the zero entries first and warn; a
+        # vertex can have degree 0 when the edge list skips its index.
+        return np.divide(med, deg, out=np.zeros_like(deg), where=deg > 0)
 
     @cached_property
     def channel_spectral_gaps(self) -> dict:

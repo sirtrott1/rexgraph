@@ -1,5 +1,5 @@
 """
-agent.server.launch - the one room behind both front doors.
+agent.server.launch: the one room behind both front doors.
 
 `run.py` (flags) and `rcf-server` / `app.main()` (env) are thin wrappers that map
 their inputs onto :func:`serve`. All the launch logic - TLS resolution via the

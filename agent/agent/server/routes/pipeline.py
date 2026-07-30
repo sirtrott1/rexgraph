@@ -1,5 +1,5 @@
 """
-agent.server.routes.pipeline - SSE pipeline endpoint.
+agent.server.routes.pipeline: SSE pipeline endpoint.
 
 Architecture:
   - Files are split by type: OCR (PDF/image) vs direct (CSV/TSV/JSON/text)

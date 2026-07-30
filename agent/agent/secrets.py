@@ -1,5 +1,5 @@
 """
-agent.secrets - pluggable secret storage for database connections.
+agent.secrets: pluggable secret storage for database connections.
 
 Connection URIs carry credentials. This module puts them behind one interface
 so the file-backed default can be swapped for a real secrets manager

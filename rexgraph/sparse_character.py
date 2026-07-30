@@ -1,4 +1,4 @@
-"""rexgraph.sparse_character - scale-free character / coherence via a sparse RL.
+"""rexgraph.sparse_character: scale-free character / coherence via a sparse RL.
 
 The dense character path (``build_all_laplacians`` -> ``build_RL`` ->
 ``compute_chi`` / ``build_character_bundle``) forms dense nE x nE channel
