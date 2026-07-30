@@ -357,3 +357,39 @@ def test_hive_schema_and_query_manager_use_the_default_store(tmp_path, monkeypat
 
     assert HiveSchema(_Hive()).store is shared
     assert QueryManager().store is shared
+
+
+def test_file_store_ids_that_sanitize_alike_do_not_share_a_blob(tmp_path):
+    """_blob_path replaced every non-alphanumeric character with '_', so 'core/alpha'
+    and 'core_alpha' mapped to the same file. The index kept both records, but the
+    second put silently overwrote the first blob and the first id read back as the
+    wrong complex. Knowledge-core ids carry '/' and ':' routinely."""
+    import numpy as np
+    from agent.rcdb import open_store
+    from rexgraph.graph import RexGraph
+
+    st = open_store("file://" + str(tmp_path / "store"))
+    tri = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32))
+    path = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 3], np.int32))
+    st.put("core/alpha", tri)
+    st.put("core_alpha", path)
+
+    got_a, got_b = st.get("core/alpha"), st.get("core_alpha")
+    assert (int(got_a.nV), int(got_a.nE)) == (3, 3), "core/alpha came back as the wrong complex"
+    assert (int(got_b.nV), int(got_b.nE)) == (4, 3)
+
+
+def test_file_store_round_trips_ids_with_path_and_scheme_characters(tmp_path):
+    """The ids v1.0.5 will actually use."""
+    import numpy as np
+    from agent.rcdb import open_store
+    from rexgraph.graph import RexGraph
+
+    st = open_store("file://" + str(tmp_path / "store"))
+    rex = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32))
+    for rid in ("doc:agent/agent/rcdb.py", "core/beta", "a%b", "sub/dir/thing.md"):
+        st.put(rid, rex)
+    for rid in ("doc:agent/agent/rcdb.py", "core/beta", "a%b", "sub/dir/thing.md"):
+        assert st.get(rid) is not None, f"{rid} did not round-trip"
+    assert {r.id for r in st.list()} >= {"doc:agent/agent/rcdb.py", "core/beta",
+                                         "a%b", "sub/dir/thing.md"}

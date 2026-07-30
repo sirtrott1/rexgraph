@@ -466,13 +466,44 @@ class FileStore(RCStore):
             json.dump(raw, f)
         os.replace(tmp, self._index_path)
 
+    @staticmethod
+    def _safe_name(id: str) -> str:
+        """Filesystem-safe, REVERSIBLE, collision-free encoding of a record id.
+
+        Percent-encode the escape character first, then everything the filesystem or
+        the '@version' suffix would otherwise claim. The previous scheme replaced every
+        non-alphanumeric character with '_', which is lossy: 'core/alpha' and
+        'core_alpha' both became 'core_alpha', so the second put silently overwrote the
+        first blob while the index kept both records. Ids like 'doc:agent/rcdb.py' are
+        exactly what a knowledge core is keyed by. This is the same reversible scheme
+        rexgraph.io.rex_state.fname_encode uses for .rex, hdf5 and zarr names.
+        """
+        out = id.replace("%", "%25")
+        for ch in "/\\@:*?\"<>|":
+            out = out.replace(ch, "%%%02X" % ord(ch))
+        return out
+
+    @staticmethod
+    def _sanitized_name(id: str) -> str:
+        """The pre-fix lossy encoding, kept so existing stores stay readable."""
+        return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
+
     def _blob_path(self, id: str, version: int) -> str:
-        safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
-        return os.path.join(self.root, "blobs", "%s@%d.safetensors" % (safe, version))
+        return os.path.join(self.root, "blobs",
+                            "%s@%d.safetensors" % (self._safe_name(id), version))
+
+    def _blob_read_paths(self, id: str, version: int):
+        """Every path a blob for (id, version) may live at, newest scheme first: the
+        reversible encoding, then the lossy one, then the pre-versioned layout."""
+        b = os.path.join(self.root, "blobs")
+        return [
+            os.path.join(b, "%s@%d.safetensors" % (self._safe_name(id), version)),
+            os.path.join(b, "%s@%d.safetensors" % (self._sanitized_name(id), version)),
+            self._legacy_blob_path(id),
+        ]
 
     def _legacy_blob_path(self, id: str) -> str:
-        safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
-        return os.path.join(self.root, "blobs", safe + ".safetensors")
+        return os.path.join(self.root, "blobs", self._sanitized_name(id) + ".safetensors")
 
     def next_version(self, id):
         rs = self._read_index().get(id)
@@ -509,9 +540,9 @@ class FileStore(RCStore):
         return rec
 
     def _read_blob(self, id, version):
-        p = self._blob_path(id, version)
-        if not os.path.exists(p) and version == 1:
-            p = self._legacy_blob_path(id)          # legacy store: no @version suffix
+        # try every encoding a blob may have been written under, newest first
+        p = next((q for q in self._blob_read_paths(id, version) if os.path.exists(q)),
+                 self._blob_path(id, version))
         if not os.path.exists(p):
             return None
         with open(p, "rb") as f:
@@ -552,7 +583,7 @@ class FileStore(RCStore):
         if existed:
             self._write_index(idx)
             for r in versions:
-                for p in (self._blob_path(id, r.version), self._legacy_blob_path(id)):
+                for p in self._blob_read_paths(id, r.version):
                     try:
                         os.unlink(p)
                     except OSError:
