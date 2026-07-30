@@ -56,7 +56,7 @@ def _load_binding_subcomplex(n_rows=6000):
     Returns None if the preserved data file is absent (so CI without the file still passes)."""
     if not os.path.exists(_BINDINGDB_PATH):
         return None
-    from agent.agent.warehouse import source as S
+    from agent.warehouse import source as S
 
     with open(_BINDINGDB_PATH) as f_in:
         header = f_in.readline()

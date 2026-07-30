@@ -79,7 +79,7 @@ async def ingest_source(body: dict = Body(...)):
     record_id = body.get("id") or body.get("store_id")
     if not record_id:
         raise HTTPException(400, "Provide an 'id' to store as")
-    from agent.server.routes.rcdb import _store
+    from agent.rcdb import default_store as _store
     try:
         return svc.ingest(uri, record_id, store=_store(), source=body.get("source"),
                           tags=body.get("tags") or [],

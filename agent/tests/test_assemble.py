@@ -1,6 +1,6 @@
 import numpy as np
-from agent.agent.warehouse.assemble import assemble
-from agent.agent.rcdb import FileStore
+from agent.warehouse.assemble import assemble
+from agent.rcdb import FileStore
 
 FIXTURE = ("src\tx1\tdst\tx2\tw\n" +
            "".join(f"A{t}\t.\tB{l}\t.\t{0.1 + 0.7*l + 3.0*t}\n"
@@ -52,9 +52,9 @@ def test_live_path_imports_no_pandas():
     import subprocess, sys, textwrap
     code = textwrap.dedent("""
         import sys
-        import agent.agent.warehouse.source
-        import agent.agent.warehouse.assemble
-        import agent.agent.warehouse.foundry_tasks
+        import agent.warehouse.source
+        import agent.warehouse.assemble
+        import agent.warehouse.foundry_tasks
         assert "pandas" not in sys.modules, "warehouse live path imported pandas"
         print("OK")
     """)

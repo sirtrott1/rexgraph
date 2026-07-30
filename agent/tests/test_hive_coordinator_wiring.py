@@ -1,4 +1,4 @@
-from agent.agent.hive_config import CoordinatorSpec, HiveProfile, coordinator_settings
+from agent.hive_config import CoordinatorSpec, HiveProfile, coordinator_settings
 
 
 def test_coordinator_spec_defaults_are_neutral():
@@ -22,8 +22,8 @@ def test_coordinator_settings_returns_a_spec():
 
 
 import functools, pickle
-from agent.agent.hive_tasks import structural_of
-from agent.agent.coordinator_adapter import work_units
+from agent.hive_tasks import structural_of
+from agent.coordinator_adapter import work_units
 
 
 def test_structural_of_is_picklable_and_returns_a_dict():
@@ -41,7 +41,7 @@ def test_work_units_carries_weight_default_one():
 
 
 def test_run_wave_returns_results_and_falls_back_on_failure():
-    from agent.agent.hive import Hive
+    from agent.hive import Hive
     h = Hive("wavetest")
     tasks = [{"id": f"t{i}", "kind": "compute", "fn": (lambda i=i: i * 2)} for i in range(3)]
     assert h._run_wave(tasks) == {f"t{i}": i * 2 for i in range(3)}
@@ -55,7 +55,7 @@ def test_run_wave_returns_results_and_falls_back_on_failure():
 
 def _stub_hive_with_answers(answers: dict):
     """A Hive whose ask() returns canned answers and whose bees are all generate-capable stubs."""
-    from agent.agent.hive import Hive, Bee
+    from agent.hive import Hive, Bee
     h = Hive("consensustest")
     for name in answers:
         b = Bee(name=name, url="http://x", role="worker", capability="generate")
@@ -75,13 +75,13 @@ def test_consensus_result_matches_regardless_of_coordinator():
 
 
 def test_compose_spawns_all_entries_concurrently():
-    from agent.agent.hive import Hive
+    from agent.hive import Hive
     h = Hive("composetest")
     spawned = []
 
     def fake_spawn(name, path, **kw):
         spawned.append(name)
-        from agent.agent.hive import Bee
+        from agent.hive import Bee
         b = Bee(name=name, url="http://x", role=kw.get("role", "worker"), capability="generate")
         h._bees[name] = b
         return b
@@ -97,7 +97,7 @@ def test_compose_spawns_all_entries_concurrently():
 def test_spawn_and_attach_route_to_thread_lane_not_proc():
     # A bee spawn mutates hive state in-process and must run on the thread lane (io_llm), never the
     # forkserver proc lane where the mutation would be lost.
-    from agent.agent.coordinator_adapter import _to_type
+    from agent.coordinator_adapter import _to_type
     assert _to_type("spawn") == "io_llm"
     assert _to_type("attach") == "io_llm"
     assert _to_type("analysis") == "cpu_coordination"   # structural metrics still go to proc
@@ -107,7 +107,7 @@ def test_spawn_and_attach_route_to_thread_lane_not_proc():
 def test_compose_runs_spawns_concurrently_on_the_thread_lane():
     # Four slow spawns must overlap (thread lane), finishing in roughly one spawn's time, not four.
     import time
-    from agent.agent.hive import Hive, Bee
+    from agent.hive import Hive, Bee
     h = Hive("composeconc")
 
     def slow_spawn(name, path, **kw):
@@ -127,7 +127,7 @@ def test_compose_runs_spawns_concurrently_on_the_thread_lane():
 
 
 def test_status_includes_coordinator_block_after_a_wave():
-    from agent.agent.hive import Hive
+    from agent.hive import Hive
     h = Hive("statustest")
     h._run_wave([{"id": "a", "kind": "compute", "fn": (lambda: 1)}])
     st = h.status()
@@ -137,7 +137,7 @@ def test_status_includes_coordinator_block_after_a_wave():
 
 
 def test_consensus_all_workers_fail_returns_no_answer_not_crash():
-    from agent.agent.hive import Hive, Bee
+    from agent.hive import Hive, Bee
     h = Hive("allfail")
     for n in ("w1", "w2"):
         h._bees[n] = Bee(name=n, url="http://x", role="worker", capability="generate")
@@ -153,7 +153,7 @@ def test_consensus_all_workers_fail_returns_no_answer_not_crash():
 
 
 def test_compose_duplicate_names_do_not_drop_a_spawn():
-    from agent.agent.hive import Hive, Bee
+    from agent.hive import Hive, Bee
     h = Hive("dupnames")
     calls = []
 
@@ -175,9 +175,9 @@ def test_compose_duplicate_names_do_not_drop_a_spawn():
 
 def test_hive_share_unregistered_on_gc_without_stop_all():
     import gc
-    from agent.agent.hive import Hive
-    from agent.agent import hive_config as hc
-    from agent.agent.hive_config import CoordinatorSpec
+    from agent.hive import Hive
+    from agent import hive_config as hc
+    from agent.hive_config import CoordinatorSpec
     from rexgraph import coordinator as co
     co.reset_shares()
     orig = hc.coordinator_settings

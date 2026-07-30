@@ -122,7 +122,7 @@ def test_safetensors_roundtrips_signs_and_attribution(tmp_path):
 
 
 def test_rcstore_roundtrips_full_state(tmp_path):
-    from agent.agent.rcdb import FileStore
+    from agent.rcdb import FileStore
     g = _simple()
     g._agent_meta = {"vertex_labels": ["a", "b", "c", "d"], "source": "unit"}
     store = FileStore(str(tmp_path / "rcdb"))

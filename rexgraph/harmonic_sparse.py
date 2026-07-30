@@ -105,22 +105,28 @@ def _exact_nullspace(B1, nE):
     return sp.csc_matrix(np.ascontiguousarray(ns))
 
 
-def cycle_basis(rex):
-    """Basis of `ker(B1)` (the cycle space, dim = nE − rank B1) as a sparse matrix.
+def _validated_cycle_basis(B1, nE, src=None, tgt=None):
+    """The combinatorial cycle basis of `ker(B1)`, validated against the true boundary.
 
     Fast path: the spanning-tree fundamental-cycle basis (integer, combinatorial). For
-    BRANCHING hyperedges (arity != 2) the endpoint reduction can invent "cycles" that
-    are NOT in ker(B1), so the combinatorial basis is VALIDATED against the true boundary
-    (‖B1·C‖ = 0 and correct dimension) and, when invalid, replaced by the exact nullspace
-    of B1. Simple graphs always take the fast path unchanged."""
+    BRANCHING hyperedges (arity != 2) the endpoint reduction can invent "cycles" that are
+    NOT in ker(B1), so the basis is checked (‖B1·C‖ = 0 and correct dimension) and, when
+    invalid, replaced by the exact nullspace of B1. Simple graphs always take the fast
+    path unchanged.
+
+    `src`/`tgt` may be supplied when the caller holds authoritative endpoints; otherwise
+    they are derived from B1. Every entry point that needs a cycle basis goes through
+    here, so none of them can silently use the unvalidated form.
+    """
     import scipy.sparse as sp
-    from rexgraph.core._sparse import to_scipy_csr
-    nV, nE = int(rex.nV), int(rex.nE)
-    src, tgt = rex._ensure_src_tgt()
+    B1 = B1.tocsr() if sp.issparse(B1) else sp.csr_matrix(np.asarray(B1, dtype=_f64))
+    B1 = B1.astype(_f64)
+    nV = B1.shape[0]
+    if src is None or tgt is None:
+        src, tgt = _endpoints_from_b1(B1)
     C = _cycle_basis_from_edges(nV, nE, src, tgt)
     if nE == 0:
         return C
-    B1 = to_scipy_csr(rex._B1_dual).tocsr().astype(_f64)
     try:
         from rexgraph.graded_boundary import _sparse_rank
         expected = nE - int(_sparse_rank(B1))           # exact dim ker(B1)
@@ -132,6 +138,18 @@ def cycle_basis(rex):
     if valid:
         return C
     return _exact_nullspace(B1, nE)                     # branching: exact ker(B1)
+
+
+def cycle_basis(rex):
+    """Basis of `ker(B1)` (the cycle space, dim = nE − rank B1) as a sparse matrix.
+
+    Combinatorial where that is correct, exact nullspace where branching arity makes the
+    endpoint reduction unsound. See `_validated_cycle_basis`."""
+    from rexgraph.core._sparse import to_scipy_csr
+    nE = int(rex.nE)
+    src, tgt = rex._ensure_src_tgt()
+    B1 = to_scipy_csr(rex._B1_dual).tocsr().astype(_f64)
+    return _validated_cycle_basis(B1, nE, src, tgt)
 
 
 def _endpoints_from_b1(B1):
@@ -163,12 +181,14 @@ def harmonic_basis_from_boundaries(B1, B2):
     harmonic-content and `_quotient`'s relative cycle basis). Same combinatorial
     cycle basis C = null(B1) projected onto `ker(B2ᵀ)` via H = C · null(B2ᵀC),
     applied low-rank downstream. Never forms a dense nE×nE projector, never
-    eigendecomposes. Returns a sparse nE × dim_H matrix (dim_H = β₁ − rank(B2))."""
+    eigendecomposes. Returns a sparse nE × dim_H matrix (dim_H = β₁ − rank(B2)).
+
+    Routes through `_validated_cycle_basis`, so a branching complex gets the exact
+    nullspace instead of invented cycles outside ker(B1)."""
     import scipy.sparse as sp
     B1 = B1.tocsc() if sp.issparse(B1) else sp.csc_matrix(np.asarray(B1, dtype=_f64))
     nV, nE = B1.shape
-    src, tgt = _endpoints_from_b1(B1)
-    C = _cycle_basis_from_edges(nV, nE, src, tgt)
+    C = _validated_cycle_basis(B1, nE)
     if C.shape[1] == 0:
         return C
     if B2 is None:

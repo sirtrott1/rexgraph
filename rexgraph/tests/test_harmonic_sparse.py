@@ -106,3 +106,50 @@ def test_harmonic_basis_from_boundaries_matches_rex(name):
     Hr = np.asarray(H_rex.todense())
     Q, _ = np.linalg.qr(Hb)                             # span(H_rex) ⊆ span(H_bnd)
     assert np.linalg.norm(Hr - Q @ (Q.T @ Hr)) < 1e-9
+
+
+def test_harmonic_basis_from_boundaries_stays_in_ker_b1_on_branching():
+    """The rex-free core must validate its combinatorial cycle basis like cycle_basis
+    does. Without that, the endpoint reduction invents cycles on branching hyperedges
+    and returns vectors outside ker(B1), which _void and _quotient then consume."""
+    import scipy.sparse as sp
+    from rexgraph.graph import RexGraph
+    from rexgraph.harmonic_sparse import (cycle_basis, harmonic_basis,
+                                          harmonic_basis_from_boundaries)
+
+    # mixed arity 1, 2, 3, 4; the cycle space is empty (betti_1 == 0)
+    h = RexGraph.from_hypergraph(np.array([0, 1, 3, 6, 10], dtype=np.int32),
+                                 np.array([0, 0, 1, 1, 2, 3, 0, 2, 3, 4], dtype=np.int32))
+    assert int(h.betti[1]) == 0
+
+    B1 = sp.csr_matrix(np.asarray(h.B1, dtype=float))
+    ref = cycle_basis(h)
+    got = harmonic_basis_from_boundaries(B1, None)
+
+    # same dimension as the validated basis, and genuinely in ker(B1)
+    assert got.shape[1] == ref.shape[1] == 0
+    dense = got.toarray() if sp.issparse(got) else np.asarray(got)
+    if dense.size:
+        assert float(np.abs(B1 @ dense).max()) < 1e-9
+
+    # and it must agree with the rex-taking wrapper
+    assert harmonic_basis(h).shape[1] == got.shape[1]
+
+
+def test_harmonic_basis_from_boundaries_matches_cycle_basis_on_a_branching_cycle():
+    """A branching complex that does carry cycles: the rex-free core must return a
+    basis of the right dimension that B1 annihilates."""
+    import scipy.sparse as sp
+    from rexgraph.graph import RexGraph
+    from rexgraph.harmonic_sparse import cycle_basis, harmonic_basis_from_boundaries
+
+    h = RexGraph.from_hypergraph(np.array([0, 3, 6, 9, 12, 15], dtype=np.int32),
+                                 np.array([0, 1, 2, 1, 2, 3, 2, 3, 0,
+                                           0, 3, 1, 1, 0, 2], dtype=np.int32))
+    B1 = sp.csr_matrix(np.asarray(h.B1, dtype=float))
+    ref = cycle_basis(h)
+    got = harmonic_basis_from_boundaries(B1, None)
+    assert got.shape[1] == ref.shape[1]
+    dense = got.toarray() if sp.issparse(got) else np.asarray(got)
+    if dense.size:
+        assert float(np.abs(B1 @ dense).max()) < 1e-9

@@ -239,7 +239,7 @@ class QueryManager:
     the RCDB memory so a structurally similar past query can be recalled (the memory worker)."""
 
     def __init__(self, store: Optional[rcdb.RCStore] = None, schema=None):
-        self.store = store or rcdb.MemoryStore()
+        self.store = store or rcdb.default_store()
         self.schema = schema                       # a SchemaModel, or None
         self._sessions: Dict[str, QuerySession] = {}
 

@@ -160,14 +160,14 @@ def client(tmp_path_factory):
     from fastapi.testclient import TestClient
     db = tmp_path_factory.mktemp("rcdb") / "db.sqlite"
     os.environ["REXGRAPH_RCDB_URI"] = f"sqlite:///{db}"
-    import agent.server.routes.rcdb as R
-    R._STORE = None  # reset module store so it picks up our URI
+    import agent.rcdb as R
+    R.reset_default_store()  # drop the memo so the store picks up our URI
     from agent.server.app import app
     from agent.server.auth import get_auth_manager
     get_auth_manager().disable_auth()
     with TestClient(app) as c:
         yield c
-    R._STORE = None
+    R.reset_default_store()
 
 
 class TestRoutes:
@@ -293,3 +293,67 @@ class TestAutoLineage:
         r3 = client.post("/api/v1/schema/analyze",
                          json={"spec": v2, "lineage_id": "auto"}).json()
         assert r3["version"]["version"] == 2 and r3["version"]["unchanged"] is False
+
+
+# The default store: one resolver, shared, honoring REXGRAPH_RCDB_URI
+@pytest.fixture
+def isolated_default_store():
+    """Reset the memoized default store around each test.
+
+    `default_store()` caches one instance per process on purpose, so a test that
+    repoints it must restore it or later tests inherit a store pointing at a deleted
+    tmp_path.
+    """
+    from agent import rcdb as R
+    R.reset_default_store()
+    try:
+        yield
+    finally:
+        R.reset_default_store()
+
+
+def test_default_store_honors_the_env_uri(tmp_path, monkeypatch, isolated_default_store):
+    """Without a shared default resolver, every non-HTTP consumer built its own
+    MemoryStore() and silently discarded what it wrote."""
+    from agent import rcdb as R
+
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", "file://" + str(tmp_path / "store"))
+    R.reset_default_store()
+    s = R.default_store()
+    assert isinstance(s, R.FileStore)
+    # the same process shares one instance
+    assert R.default_store() is s
+
+
+def test_default_store_falls_back_to_a_file_store(tmp_path, monkeypatch, isolated_default_store):
+    """With no env override the default must still persist, not evaporate."""
+    from agent import rcdb as R
+
+    monkeypatch.delenv("REXGRAPH_RCDB_URI", raising=False)
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    R.reset_default_store()
+    s = R.default_store()
+    assert not isinstance(s, R.MemoryStore)
+
+
+def test_hive_schema_and_query_manager_use_the_default_store(tmp_path, monkeypatch, isolated_default_store):
+    """Constructing either without an explicit store must reach the default, so a
+    versioned self-schema survives the request that created it."""
+    import numpy as np
+    from agent import rcdb as R
+    from agent.hive_schema import HiveSchema
+    from agent.query_manager import QueryManager
+
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", "file://" + str(tmp_path / "store"))
+    R.reset_default_store()
+    shared = R.default_store()
+
+    class _Hive:
+        name = "h"
+        def roster(self):
+            return []
+        def list_bees(self):
+            return []
+
+    assert HiveSchema(_Hive()).store is shared
+    assert QueryManager().store is shared

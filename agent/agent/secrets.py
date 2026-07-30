@@ -166,4 +166,14 @@ def open_secret_store(uri: str = None) -> SecretStore:
         return EnvSecretStore()
     if uri.startswith("file://"):
         return FileSecretStore(uri[len("file://"):])
+    # A bare path is a file store. Anything carrying an unsupported scheme is a
+    # configuration error: falling through to FileSecretStore(uri) used to create a
+    # file literally named "vault://team/prod" and report success, so every secret
+    # went somewhere the operator did not intend.
+    if "://" in uri:
+        scheme = uri.split("://", 1)[0]
+        raise ValueError(
+            f"unsupported secret-store scheme {scheme!r} in {uri!r}: "
+            f"supported schemes are env:// and file://, or pass a bare filesystem path. "
+            f"Register a backend before using {scheme}://.")
     return FileSecretStore(uri)

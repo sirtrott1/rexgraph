@@ -929,18 +929,21 @@ class Hive:
             "monitor": self.monitor(),
         }
 
-    def persist(self, store="memory://", *, name: str = "hive") -> Optional[str]:
+    def persist(self, store=None, *, name: str = "hive") -> Optional[str]:
         """Catalogue the hive's worker-type structure in the RCDB by structural signature, so the
         hive is a first-class stored complex (model = memory = database, queryable by topology).
-        `store` is an open RCStore or an RCDB uri (memory:// is per-open, so pass a shared store or a
-        persistent uri like file:///path or sqlite:///f.db to retrieve it later). Returns the record
+        `store` is an open RCStore or an RCDB uri; omit it to use `rcdb.default_store()` (persistent,
+        REXGRAPH_RCDB_URI). Pass memory:// only when a throwaway store is what you want. Returns the record
         id, or None when no typed worker structure exists yet."""
         tc = self.type_complex()
         if tc is None:
             return None
         rex, _meta = tc
-        from agent.rcdb import open_store
-        st = open_store(store) if isinstance(store, str) else store
+        from agent.rcdb import default_store, open_store
+        if store is None:
+            st = default_store()
+        else:
+            st = open_store(store) if isinstance(store, str) else store
         roster = [{"name": b.name, "capability": b.capability, "worker_type": b.worker_type}
                   for b in self._bees.values()]
         caps = sorted({b.capability for b in self._bees.values()})

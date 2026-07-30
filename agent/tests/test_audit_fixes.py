@@ -292,3 +292,37 @@ def test_auto_rex_still_reads_a_real_file_path():
             fh.write("alpha beta gamma delta alpha beta gamma alpha beta\n" * 6)
         rex = auto_rex(p)
         assert rex is not None and int(rex.nE) > 0
+
+
+# open_secret_store must not silently turn an unknown scheme into a filename
+def test_open_secret_store_rejects_an_unrecognized_scheme():
+    """The fallback returned FileSecretStore(uri), so 'vault://team/prod' became a
+    file literally named 'vault://team/prod' and every secret went to the wrong place
+    while reporting success."""
+    from agent.secrets import open_secret_store
+
+    with pytest.raises(ValueError) as ei:
+        open_secret_store("vault://team/prod")
+    assert "vault" in str(ei.value)
+
+
+def test_open_secret_store_accepts_a_bare_path_and_known_schemes(tmp_path):
+    """A bare path stays a file store, and the two supported schemes keep working."""
+    from agent.secrets import open_secret_store, FileSecretStore, EnvSecretStore
+
+    assert isinstance(open_secret_store(str(tmp_path / "conn.json")), FileSecretStore)
+    assert isinstance(open_secret_store("file://" + str(tmp_path / "c.json")), FileSecretStore)
+    assert isinstance(open_secret_store("env://"), EnvSecretStore)
+
+
+# partition_communities must not raise NameError past its early return
+def test_partition_communities_runs_past_the_early_return():
+    """graph.py called _standard.build_adj_weights but never bound _standard, so any
+    graph with nE > max_size raised NameError. The early return hid it for small ones."""
+    import numpy as np
+    from rexgraph.graph import RexGraph
+
+    rex = RexGraph.from_graph(np.arange(10, dtype=np.int32),
+                              np.arange(1, 11, dtype=np.int32))
+    parts = rex.partition_communities(max_size=3)      # nE = 10 > 3, so it must do work
+    assert parts is not None

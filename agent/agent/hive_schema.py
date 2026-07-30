@@ -29,7 +29,7 @@ class HiveSchema:
 
     def __init__(self, hive, *, store: Optional[rcdb.RCStore] = None, lineage_id: str = "hive"):
         self.hive = hive
-        self.store = store or rcdb.MemoryStore()
+        self.store = store or rcdb.default_store()
         self.lineage_id = lineage_id
         # resources the hive is attached to but that are not bees: databases, stores, datasets.
         # name -> {"kind": str, "links": [(bee_name, relation)]}

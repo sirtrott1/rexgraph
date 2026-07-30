@@ -31,7 +31,7 @@ async def analyze_ontology(body: dict = Body(...)):
         try:
             rex, meta = oc.ontology_to_rex(model)
             if rex is not None:
-                from agent.server.routes.rcdb import _store
+                from agent.rcdb import default_store as _store
                 tags = (body.get("tags") or []) + ["ontology"]
                 if body.get("lineage_id"):
                     from agent.rcdb import put_version

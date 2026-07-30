@@ -1,7 +1,7 @@
 import numpy as np
 import pickle
-from agent.agent.warehouse.foundry_tasks import train_one
-from agent.agent.coordinator_adapter import _to_type
+from agent.warehouse.foundry_tasks import train_one
+from agent.coordinator_adapter import _to_type
 
 
 def _spec():

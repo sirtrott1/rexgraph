@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 from rexgraph.graph import RexGraph
-from agent.agent.corpus import CorpusBuilder
-from agent.agent.pipeline_runner import _context_quality_gate
+from agent.corpus import CorpusBuilder
+from agent.pipeline_runner import _context_quality_gate
 
 
 def _connected_graph(nV, extra_edges=0, seed=0):

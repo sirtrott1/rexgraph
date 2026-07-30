@@ -25,10 +25,10 @@ _DEFAULT_SWEEP = [
 def assemble(path, *, store, hive=None, source=None, target=None, weight=None, usecols=None,
              n_tiers=3, sweep=None, steps=80, save_dir=None) -> dict:
     from rexgraph.coordinator import Coordinator, LanePools
-    from agent.agent.coordinator_adapter import work_units
-    from agent.agent.foundry import _CPU_ONLY
+    from ..coordinator_adapter import work_units
+    from ..foundry import _CPU_ONLY
     if hive is None:
-        from agent.agent import hive as hivemod
+        from .. import hive as hivemod
         hive = hivemod.get_hive()
     sweep = sweep or _DEFAULT_SWEEP
     save_dir = save_dir or tempfile.mkdtemp(prefix="warehouse-")

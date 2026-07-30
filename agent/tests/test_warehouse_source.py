@@ -1,5 +1,5 @@
 import numpy as np
-from agent.agent.warehouse import source as S
+from agent.warehouse import source as S
 
 
 # a tiny inline generic weighted edge list TSV fixture (no pandas, no large file)

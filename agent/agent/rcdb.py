@@ -1268,3 +1268,42 @@ def open_store(uri: str = "memory://") -> RCStore:
 register_backend("memory", lambda uri: MemoryStore())
 register_backend("file", lambda uri: FileStore(
     uri[len("file://"):] if uri.startswith("file://") else uri))
+
+
+# The process-wide default store
+#
+# Before this existed, the only code resolving REXGRAPH_RCDB_URI lived inside
+# server/routes/rcdb.py, so every non-HTTP consumer fell back to its own
+# `MemoryStore()` and silently discarded whatever it wrote. Callers that want a
+# specific store still pass one; callers that just want "the store" get this.
+
+_DEFAULT_STORE: Optional[RCStore] = None
+
+
+def default_store_uri() -> str:
+    """The configured store URI: REXGRAPH_RCDB_URI, else a file store under the
+    config dir (REXGRAPH_CONFIG_DIR, else ~/.config/rexgraph)."""
+    uri = os.environ.get("REXGRAPH_RCDB_URI")
+    if uri:
+        return uri
+    base = os.environ.get("REXGRAPH_CONFIG_DIR",
+                          os.path.join(os.path.expanduser("~"), ".config", "rexgraph"))
+    return "file://" + os.path.join(base, "rcdb")
+
+
+def default_store() -> RCStore:
+    """The shared default store for this process, opened once.
+
+    Persistent by default: a caller that omits a store keeps its data instead of
+    writing into a throwaway MemoryStore.
+    """
+    global _DEFAULT_STORE
+    if _DEFAULT_STORE is None:
+        _DEFAULT_STORE = open_store(default_store_uri())
+    return _DEFAULT_STORE
+
+
+def reset_default_store() -> None:
+    """Drop the memoized default so the next call re-reads the environment."""
+    global _DEFAULT_STORE
+    _DEFAULT_STORE = None

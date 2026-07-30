@@ -64,7 +64,7 @@ class AgenticDB:
         from sqlalchemy import create_engine
         self.conn_str = conn_str
         self.writable = writable
-        self.store = store or rcdb.MemoryStore()
+        self.store = store or rcdb.default_store()
         self._engine = create_engine(conn_str)
         self.model = sc.reflect_schema(conn_str)
 
