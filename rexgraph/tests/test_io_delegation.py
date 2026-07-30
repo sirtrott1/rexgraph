@@ -131,3 +131,41 @@ def test_directory_and_extensionless_heuristics_still_work(tmp_path):
     assert io.load(str(p), format="rex") is not None
     # and the resulting bundle directory is detected without an override
     assert io.load(str(p) + ".rex") is not None
+
+
+def test_a_format_can_be_registered_from_outside(tmp_path):
+    """save/load dispatch was a hardcoded if/elif while rcdb.register_backend next door
+    was a real extension point. Adding a format should not mean editing io/__init__."""
+    import numpy as np
+    from rexgraph import io
+    from rexgraph.graph import RexGraph
+
+    written = {}
+
+    def _save(path, obj, **kw):
+        written["path"] = path
+        written["nE"] = int(obj.nE)
+
+    def _load(path, **kw):
+        return written
+
+    io.register_format("demo", save=_save, load=_load, extensions=[".demo"])
+    try:
+        rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
+                       targets=np.array([1, 2, 0], np.int32))
+        p = str(tmp_path / "g.demo")
+        io.save(p, rex)
+        assert written["nE"] == 3
+        assert io.load(p) is written
+        assert "demo" in io.available_formats()
+    finally:
+        io.unregister_format("demo")
+    assert "demo" not in io.available_formats()
+
+
+def test_builtin_formats_are_registered_not_hardcoded():
+    from rexgraph import io
+
+    names = io.available_formats()
+    for expected in ("rex", "safetensors", "json", "zarr", "hdf5"):
+        assert expected in names, f"{expected} missing from the registry"
