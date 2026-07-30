@@ -27,6 +27,20 @@ from .adapters.correlation import AdjacencyAdapter, CorrelationAdapter
 _NA_TOKENS = frozenset({"", "na", "n/a", "null", "none", "#n/a", "nan"})
 
 
+def _can_be_path(data: Any) -> bool:
+    """Whether `data` may be probed against the filesystem.
+
+    A `Path` always may. A `str` may only if it is short enough to be a filename and
+    carries no newline: `Path(text).is_file()` on a long string raises OSError
+    ENAMETOOLONG rather than returning False, so probing raw document text with it
+    turns a text input into a crash. `detect_input_type` has always applied this
+    guard; the other probe sites did not.
+    """
+    if isinstance(data, Path):
+        return True
+    return isinstance(data, str) and len(data) < 256 and "\n" not in data
+
+
 def _is_missing_cell(v) -> bool:
     return str(v).strip().lower() in _NA_TOKENS
 
@@ -363,7 +377,7 @@ def auto_rex(
         edges = adapter.build(data, labels=vertex_labels)
     elif input_type == "text":
         from agent.adapters.text import TextAdapter
-        if isinstance(data, (str, Path)):
+        if _can_be_path(data):
             p = Path(data)
             if p.is_file():
                 data = p.read_text(encoding="utf-8", errors="replace")
@@ -493,7 +507,7 @@ def _fallback_text_or_raise(data, input_type, err, **kwargs):
     """
     from pathlib import Path as _Path
 
-    if isinstance(data, (str, _Path)):
+    if _can_be_path(data):
         p = _Path(data)
         if p.is_file():
             try:

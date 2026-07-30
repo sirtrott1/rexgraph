@@ -64,11 +64,15 @@ def harmonic_health(rex, flow=None) -> dict:
         return out
     out["harm_per_edge"] = np.abs(harm)
     try:
-        if int(getattr(rex, "nhats", 0)) >= 3:
+        # Resolve the two channels BY NAME. Positional indices 0/1 are L1_down/L_O,
+        # which share a diagonal on the raw g_channel, so chi[:,0] == chi[:,1] and the
+        # ratio degenerates to exactly 1.0 on every unweighted complex.
+        names = list(getattr(rex, "hat_names", None) or ())
+        if "L_SG" in names and "L_C" in names:
             chi = (np.asarray(rex.structural_character)
                    * np.asarray(rex._rl4_sparse.diagonal())[:, None])
-            frustration = np.abs(harm) * chi[:, 0]              # topological channel
-            coparticipation = np.abs(harm) * chi[:, 1]          # geometric/overlap channel
+            frustration = np.abs(harm) * chi[:, names.index("L_SG")]
+            coparticipation = np.abs(harm) * chi[:, names.index("L_C")]
             fsum, csum = float(frustration.sum()), float(coparticipation.sum())
             out["frustration_per_edge"] = frustration
             out["coparticipation_per_edge"] = coparticipation

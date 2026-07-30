@@ -265,3 +265,30 @@ def test_optional_stages_graceful_without_faces():
     # continuum limit needs a small spectrum; on tiny graphs it may skip
     cl = pipe._stage_continuum_limit()
     assert "available" in cl
+
+
+# auto_rex must treat long text as text, not as a filesystem path
+def test_auto_rex_accepts_text_longer_than_the_filename_limit():
+    """auto.py probed Path(data).is_file() on the raw input. On Python 3.13 that
+    propagates OSError ENAMETOOLONG for any text carrying a path-like segment past
+    the filesystem name limit, so 12% of a real corpus was dropped with a warning."""
+    from agent.auto import auto_rex
+
+    # a path-like segment well past the 255-byte component limit
+    text = ("alpha beta gamma delta " * 40) + "\n" + ("x" * 400) + "\nalpha beta gamma delta\n"
+    assert len(text) > 255
+    rex = auto_rex(text)
+    assert rex is not None
+    assert int(rex.nE) > 0
+
+
+def test_auto_rex_still_reads_a_real_file_path():
+    """The path branch must keep working for short strings that are real files."""
+    from agent.auto import auto_rex
+
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "doc.txt")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("alpha beta gamma delta alpha beta gamma alpha beta\n" * 6)
+        rex = auto_rex(p)
+        assert rex is not None and int(rex.nE) > 0
