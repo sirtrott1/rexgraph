@@ -91,21 +91,16 @@ def interfacing_score(rex, doc_labels: Sequence[str], query_labels: Sequence[str
     ti = np.asarray(idx, dtype=np.int32)
     tw = np.ones(len(idx), dtype=np.float64)
     try:
-        if target_signal is None:
-            # one bundle call to obtain psi, a second to read psi through the
-            # channels. Same rho both times, so this is two L0^+ solves; the
-            # alternative is re-deriving psi here, which is the duplicated-mechanism
-            # problem this module exists to remove.
-            psi = np.asarray(
-                rex.interfacing_vector(ti, tw, np.zeros(int(rex.nE),
-                                                        dtype=np.float64))["psi"],
-                dtype=np.float64)
-        else:
-            psi = np.ascontiguousarray(target_signal, dtype=np.float64)
-        mag = float(np.linalg.norm(psi))
+        # target_signal=None asks the bundle for the self-interfacing reading, which
+        # it resolves from the psi it computes anyway: one L0^+ solve, not the two
+        # a caller pays to obtain psi and then hand it back.
+        iv = rex.interfacing_vector(
+            ti, tw,
+            None if target_signal is None
+            else np.ascontiguousarray(target_signal, dtype=np.float64))
+        mag = float(np.linalg.norm(np.asarray(iv.get("psi"), dtype=np.float64)))
         if not np.isfinite(mag) or mag <= 0.0:
             return _zero(len(idx))
-        iv = rex.interfacing_vector(ti, tw, psi)
     except Exception:
         return _zero(len(idx))
 

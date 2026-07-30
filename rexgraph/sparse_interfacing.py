@@ -196,7 +196,13 @@ def build_interfacing_bundle_sparse(rex, target_indices, target_weights,
     """
     nV, nE = int(rex.nV), int(rex.nE)
 
-    target = np.ascontiguousarray(target_signal, dtype=_f64).ravel()
+    # target_signal=None means "score psi against itself": the self-interfacing
+    # reading, resolved below once psi exists. Callers used to get it by running the
+    # whole bundle twice -- a throwaway call with a zero target purely to obtain psi,
+    # then a real one -- paying two L0^+ solves for one reading.
+    self_target = target_signal is None
+    target = (None if self_target
+              else np.ascontiguousarray(target_signal, dtype=_f64).ravel())
     ti = np.asarray(target_indices).ravel().astype(np.int64)
     tw = np.ascontiguousarray(target_weights, dtype=_f64).ravel()
     if vertex_weights is None:
@@ -216,6 +222,8 @@ def build_interfacing_bundle_sparse(rex, target_indices, target_weights,
     y = _l0_pinv_matvec(L0, rho)           # y = L0^+ rho  (in range(L0))
     psi = B1.T @ y                          # nE
     sig_mag = float(np.linalg.norm(psi))
+    if self_target:
+        target = psi
 
     # --- channel scores ----------------------------------------------------------
     # I_T = target^T S_T psi = (B1 target)^T L0^+ (B1 psi) = (B1 target)^T y

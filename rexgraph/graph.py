@@ -2888,8 +2888,10 @@ class RexGraph:
             Vertex indices of source targets.
         target_weights : f64 array
             Per-target weights.
-        target_signal : f64[nE]
-            Target/phenotype edge vector.
+        target_signal : f64[nE], or None
+            Target/phenotype edge vector. None means score the induced flow psi
+            against itself (the self-interfacing reading), which costs one L0^+
+            solve rather than the two a caller needs to obtain psi first.
         vertex_weights : f64[nV], optional
             Per-vertex weights. Defaults to IDF: 1 / ln(degree + e).
 
@@ -2916,6 +2918,17 @@ class RexGraph:
                 vertex_weights=vertex_weights)
         if _interfacing is None:
             raise RuntimeError("_interfacing module not available.")
+        if target_signal is None:
+            # the dense kernel has no self-target mode, so resolve psi with a
+            # throwaway pass and feed it back. Only the legacy dense path pays this.
+            psi = self.interfacing_vector(
+                target_indices, target_weights,
+                np.zeros(self._nE, dtype=_f64),
+                vertex_weights=vertex_weights)["psi"]
+            return self.interfacing_vector(
+                target_indices, target_weights,
+                np.ascontiguousarray(psi, dtype=_f64),
+                vertex_weights=vertex_weights)
         sb = self.spectral_bundle
         evals_rl, evecs_rl = self._rl_eigen
         return _interfacing.build_interfacing_bundle(
