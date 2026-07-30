@@ -160,6 +160,7 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
                       section_sentences: Optional[int] = None,
                       store=None, prefix: str = "", candidates: Optional[int] = None,
                       as_of=None, valid_at=None, mode: str = "hybrid",
+                      temporal: Optional[str] = None,
                       ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Return (sections, relation).
 
@@ -175,7 +176,7 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
     if store is not None:
         sections, relation = retrieve_from_store(
             query, top_k, store=store, prefix=prefix, candidates=candidates,
-            as_of=as_of, valid_at=valid_at, mode=mode,
+            as_of=as_of, valid_at=valid_at, mode=mode, temporal=temporal,
             section_sentences=section_sentences)
         if sections:
             return sections, relation
@@ -264,7 +265,7 @@ class _StoreDoc:
 
 def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
                         candidates: Optional[int] = None, as_of=None, valid_at=None,
-                        mode: str = "hybrid",
+                        mode: str = "hybrid", temporal: Optional[str] = None,
                         section_sentences: Optional[int] = None,
                         ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Rank a persisted corpus without holding it in memory.
@@ -336,8 +337,16 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
                                                      doc.vertex_labels),
             "version": rec.version,
         })
-    return sections, {"mode": "store", "n_ranked": len(scored),
-                      "n_records": len(records), "n_opened": len(scored)}
+    relation = {"mode": "store", "n_ranked": len(scored),
+                "n_records": len(records), "n_opened": len(scored)}
+    if temporal:
+        # rerank the RETURNED sections, not the candidate set: temporal features are
+        # cheap (signatures only) but there is no reason to compute them for
+        # candidates the structural score already ruled out.
+        from agent.temporal import rerank as _temporal_rerank
+        sections = _temporal_rerank(sections, store, mode=temporal)
+        relation["temporal"] = temporal
+    return sections, relation
 
 
 def _single_doc_retrieve(query: str, top_k: int, *, doc_rex=None,
