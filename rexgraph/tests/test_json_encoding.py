@@ -104,3 +104,24 @@ def test_every_json_writer_shares_the_one_encoder():
     for mod in (bundle, parquet, arrow, sql):
         assert mod._json_default is json_default, (
             f"{mod.__name__} still carries its own copy of the encoder")
+
+
+def test_no_module_reintroduces_a_raw_numpy_dumps():
+    """The nine copies came back one call site at a time. `default=` cannot enforce a
+    NaN policy on a float subclass, so any new use of it is the same bug returning."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    banned = ("default=json_default", "default=_json_default", "cls=NumpyJSONEncoder")
+    offenders, scanned = [], 0
+    for py in list(root.glob("rexgraph/**/*.py")) + list(root.glob("agent/agent/**/*.py")):
+        if "tests" in py.parts or py.name == "_compat.py":
+            continue
+        scanned += 1
+        text = py.read_text(encoding="utf-8", errors="ignore")
+        for line_no, line in enumerate(text.splitlines(), 1):
+            if any(b in line for b in banned):
+                offenders.append(f"{py.relative_to(root)}:{line_no}")
+    assert scanned > 100, f"only scanned {scanned} files, the glob is wrong"
+    assert not offenders, (
+        "use rexgraph.io._compat.dumps instead:\n  " + "\n  ".join(offenders))

@@ -564,14 +564,14 @@ def _dict_to_group(
                     continue
             except (ValueError, TypeError):
                 pass
-            group.attrs[key] = json.dumps(val, default=json_default)
+            group.attrs[key] = dumps(val)
         elif isinstance(val, (int, float, bool, np.integer, np.floating, np.bool_)):
             group.attrs[key] = to_native(val)
         elif isinstance(val, str):
             group.attrs[key] = val
         else:
             try:
-                group.attrs[key] = json.dumps(val, default=json_default)
+                group.attrs[key] = dumps(val)
             except (TypeError, ValueError):
                 pass
 
@@ -928,14 +928,14 @@ def _h5_dict_to_group(
                     continue
             except (ValueError, TypeError):
                 pass
-            group.attrs[key] = json.dumps(val, default=json_default)
+            group.attrs[key] = dumps(val)
         elif isinstance(val, (int, float, bool, np.integer, np.floating, np.bool_)):
             group.attrs[key] = to_native(val)
         elif isinstance(val, str):
             group.attrs[key] = val
         else:
             try:
-                group.attrs[key] = json.dumps(val, default=json_default)
+                group.attrs[key] = dumps(val)
             except (TypeError, ValueError):
                 pass
 

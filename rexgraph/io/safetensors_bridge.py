@@ -292,7 +292,7 @@ def rex_to_safetensors(
     # bridge cannot drift from `.rex` (signs, w_boundary, g_channel, nested rexes all round-trip
     # the same way here as they do through bundle.py).
     from .rex_state import to_state
-    from .bundle import _json_default
+    from ._compat import dumps as _dumps
     st = to_state(rex)
     # safetensors keys are arbitrary strings, so nested-rex names with '/' are stored verbatim: no
     # char substitution (the old '/'->'__' was not invertible and collided with '__' metadata keys).
@@ -330,12 +330,12 @@ def rex_to_safetensors(
     # only ever read `object_type`/`bridge_version` off the header (e.g. the format dispatcher in
     # `rexgraph.io`) keep working unchanged.
     st_meta = {
-        "rex_state_header": json.dumps(st.header, default=_json_default),
-        "rex_meta": json.dumps(meta, default=_json_default),
+        "rex_state_header": _dumps(st.header),
+        "rex_meta": _dumps(meta),
         "bridge_version": str(_BRIDGE_VERSION),
     }
     if extra_meta is not None:
-        st_meta["extra_meta"] = json.dumps(extra_meta, default=_json_default)
+        st_meta["extra_meta"] = _dumps(extra_meta)
 
     save_file(tensors, str(out), metadata=st_meta)
     return out

@@ -128,7 +128,7 @@ class EngineResult:
         import os
 
         from rexgraph.io import save as _io_save
-        from rexgraph.io._compat import NumpyJSONEncoder
+        from rexgraph.io._compat import dumps
 
         # Save the RexGraph
         _io_save(path, self.rex, cache=cache, format=format)
@@ -145,7 +145,7 @@ class EngineResult:
         # Save analysis results
         if self.analysis:
             with open(os.path.join(sidecar_dir, "analysis.json"), "w") as f:
-                json.dump(self.analysis, f, indent=2, cls=NumpyJSONEncoder)
+                f.write(dumps(self.analysis, indent=2))
 
         # Save plan
         plan_dict = {
@@ -182,18 +182,17 @@ class EngineResult:
         # Save metadata
         if self.meta:
             with open(os.path.join(sidecar_dir, "meta.json"), "w") as f:
-                json.dump(self.meta, f, indent=2, cls=NumpyJSONEncoder)
+                f.write(dumps(self.meta, indent=2))
 
         # Save interpretation
         if self.interpretation:
             with open(os.path.join(sidecar_dir, "interpretation.json"), "w") as f:
-                json.dump(self.interpretation, f, indent=2, cls=NumpyJSONEncoder)
+                f.write(dumps(self.interpretation, indent=2))
 
         # Save signal decomposition
         if self.signal_decomposition:
             with open(os.path.join(sidecar_dir, "signal.json"), "w") as f:
-                json.dump(self.signal_decomposition, f, indent=2,
-                          cls=NumpyJSONEncoder)
+                f.write(dumps(self.signal_decomposition, indent=2))
 
         # Save enrichment count and sample
         if self.enrichment:

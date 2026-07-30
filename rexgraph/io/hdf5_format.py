@@ -32,6 +32,7 @@ from ._compat import (
     h5_store_strings,
     h5_load_strings,
     to_native,
+    dumps,
     json_default,
     as_str,
 )
@@ -372,7 +373,7 @@ class RexHDF5Format:
         for name, arr in st.tensors.items():
             store_fn = self._store_chunked if large else self._store
             store_fn(g, fname_encode(name), np.asarray(arr))
-        g.attrs["rex_state_header"] = json.dumps(st.header, default=json_default)
+        g.attrs["rex_state_header"] = dumps(st.header)
         g.attrs["tensor_names"] = json.dumps(list(st.tensors.keys()))
 
         if cache:
@@ -798,9 +799,7 @@ class RexHDF5Format:
                 try:
                     fdata = rex.face_data()
                     if hasattr(fdata, "faces"):
-                        fg.attrs["face_data"] = json.dumps(
-                            fdata.faces, default=json_default
-                        )
+                        fg.attrs["face_data"] = dumps(fdata.faces)
                     if hasattr(fdata, "metrics"):
                         h5_store_dict(fg, "metrics", fdata.metrics,
                                       compression=self.compression or "",
