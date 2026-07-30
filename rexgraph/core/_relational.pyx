@@ -365,7 +365,16 @@ def build_L_coPC(line_graph_info):
 
     Uses the combinatorial (unsigned) Laplacian D - A, NOT the topological
     Laplacian B^T B. The combinatorial form is required for the G = C
-    theorem: on K_k, hat_G = hat_C when C is defined as D_L - A_L.
+    theorem: on K_k, hat_G = hat_C when BOTH are the combinatorial D - A form
+    (the combinatorial overlap Laplacian and L_C are the same matrix on a simple
+    graph, so hat_G = hat_C to machine precision).
+
+    Caveat, so this is not re-derived as a fault: the SHIPPED RL4 G channel
+    (L_O in build_sparse_channels) is NOT this combinatorial form. It is the raw
+    Gramian |B1|^T |B1| (default) or its normalized I - D^-1/2 K D^-1/2 form, kept
+    DISTINCT from L_C on purpose so the four channels are not redundant. So the
+    shipped hat_G differs from hat_C by 1/((k-2)k) on K_k, which is expected. The
+    G = C statement here is about the combinatorial overlap Laplacian only.
 
     Edge weights are the shared-vertex COUNTS (line_graph_info['weights']), so L_C is
     a proper zero-row-sum PSD Laplacian at ANY arity, including branching hyperedges
