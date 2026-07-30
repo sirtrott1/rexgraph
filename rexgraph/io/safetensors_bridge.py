@@ -57,8 +57,11 @@ For a RexGraph, the reconstruction contract is the canonical rex-state
 serializer (`rex_state.to_state`/`from_state`, the same one `.rex`
 bundles delegate to). Its tensors (boundary, B2, w_E, signs,
 edge_types, w_boundary, labels, nested rexes, and so on) are stored
-here with `/` in tensor names replaced by `__`, and its json-safe
-header is stored under the single metadata key `rex_state_header`.
+here VERBATIM: safetensors keys are arbitrary strings, so a nested-rex
+name like `nested/cm_1_sub/0/boundary_ptr` keeps its `/` and needs no
+encoding (unlike .rex, hdf5 and zarr, which reserve `/` as a hierarchy
+separator and go through `rex_state.encode_name`). The json-safe header
+is stored under the single metadata key `rex_state_header`.
 A `rex_meta` key is also written, holding the same header plus any
 requested cache extras (`cached_arrays`, `cache_scalars`); it exists
 so callers that only read `object_type`/`bridge_version` off the

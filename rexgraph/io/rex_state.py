@@ -25,14 +25,43 @@ class RexState:
     header: dict = field(default_factory=dict)   # KB json safe: version, types, roles, nested names
 
 
-# --- shared filesystem/hierarchy safe name encoding (used by .rex, hdf5, zarr; NOT arrow/safetensors) ---
+# --- the one name codec ---
+#
+# Containers reserve different characters: a hierarchy backend (.rex, hdf5, zarr) cannot
+# hold '/' in a name, a filesystem path additionally cannot hold '\@:*?"<>|', and
+# safetensors reserves nothing (its keys are arbitrary strings, so '/' is stored
+# verbatim). One reversible codec parameterized by the reserved set covers all of them;
+# encoding '%' first is what keeps it collision-free, since '%2F' must not decode to '/'
+# unless it was encoded as such.
+
+#: hierarchy backends: .rex bundles, hdf5 groups, zarr groups
+RESERVED_HIERARCHY = "/"
+#: a single filesystem path component, plus '@' which the RCDB uses as its version separator
+RESERVED_PATH = "/\\@:*?\"<>|"
+
+
+def encode_name(name: str, reserved: str = RESERVED_HIERARCHY) -> str:
+    """Reversible, collision-free encoding of `name` for a container reserving `reserved`."""
+    out = name.replace("%", "%25")
+    for ch in reserved:
+        out = out.replace(ch, "%%%02X" % ord(ch))
+    return out
+
+
+def decode_name(name: str, reserved: str = RESERVED_HIERARCHY) -> str:
+    """Inverse of :func:`encode_name` for the same reserved set."""
+    for ch in reserved:
+        name = name.replace("%%%02X" % ord(ch), ch)
+    return name.replace("%25", "%")
+
+
 def fname_encode(name: str) -> str:
-    """Reversible, collision-free filesystem/hierarchy-safe name: percent-encode '%' then '/'."""
-    return name.replace("%", "%25").replace("/", "%2F")
+    """The hierarchy case of :func:`encode_name` (used by .rex, hdf5, zarr)."""
+    return encode_name(name, RESERVED_HIERARCHY)
 
 
 def fname_decode(name: str) -> str:
-    return name.replace("%2F", "/").replace("%25", "%")
+    return decode_name(name, RESERVED_HIERARCHY)
 
 
 # --- ragged, string, and metadata packing helpers (binary, no JSON of data) ---

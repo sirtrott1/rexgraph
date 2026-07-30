@@ -169,6 +169,12 @@ def save(path, obj, *, format=None, **kwargs):
         save_hdf5(path, obj, **kwargs)
     elif fmt == "rex":
         save_rex(path, obj, **kwargs)
+    elif fmt == "safetensors":
+        # Symmetric with load(format="safetensors"), which routes on the stored
+        # object_type. save_safetensors does the same dispatch on the way out, so a
+        # RexGraph, a TemporalRex and a vector corpus all write through one call.
+        from .safetensors_bridge import save_safetensors
+        save_safetensors(obj, path, **kwargs)
     elif fmt == "json":
         # Symmetric with load(format="json"): write RexGraph native JSON.
         import json as _json
@@ -207,24 +213,38 @@ def load(path, *, format=None, **kwargs):
         raise ValueError(f"Unknown format {fmt!r}.")
 
 
+#: extension -> format name. The one place a suffix is mapped.
+_EXTENSIONS = {
+    ".zarr": "zarr",
+    ".h5": "hdf5", ".hdf5": "hdf5",
+    ".rex": "rex",
+    ".json": "json",
+    ".safetensors": "safetensors",
+}
+
+
 def _detect_format(path, override=None):
+    """Resolve a path to a format name.
+
+    An UNRECOGNIZED extension is an error, not a default. The fallback used to be
+    "zarr", so `save("graph.saftensors", rex)` silently wrote a Zarr store under a
+    misspelled name and reported success. An extensionless path keeps the directory
+    heuristics, because that is how a Zarr store is normally named.
+    """
     import os
     if override is not None:
         return override.lower()
-    if path.endswith(".zarr"):
-        return "zarr"
-    if path.endswith((".h5", ".hdf5")):
-        return "hdf5"
-    if path.endswith(".rex"):
-        return "rex"
-    if path.endswith(".json"):
-        return "json"
-    if path.endswith(".safetensors"):
-        return "safetensors"
+    _, ext = os.path.splitext(path)
+    if ext.lower() in _EXTENSIONS:
+        return _EXTENSIONS[ext.lower()]
     if os.path.isdir(path):
         if os.path.exists(os.path.join(path, "MANIFEST.json")):
             return "rex"
         return "zarr"
     if os.path.isfile(path):
         return "hdf5"
+    if ext:
+        raise ValueError(
+            f"Unknown format for extension {ext!r} in {path!r}. Known extensions: "
+            f"{', '.join(sorted(_EXTENSIONS))}. Pass format= to override.")
     return "zarr"

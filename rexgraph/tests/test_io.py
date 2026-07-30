@@ -589,3 +589,32 @@ class TestIOPipeline:
         rex2 = load_rex(bundle_path)
         assert rex2.nV == 5
         assert rex2.nE == 5
+
+
+def test_name_codec_is_reversible_for_any_reserved_set():
+    """One codec, parameterized by what the container reserves. fname_encode (rex, hdf5,
+    zarr) and the RCDB FileStore blob namer solved the same problem twice."""
+    from rexgraph.io.rex_state import encode_name, decode_name
+
+    names = ["plain", "a/b", "a%b", "%2F", "doc:agent/agent/rcdb.py",
+             "nested/cm_1_sub/0/boundary_ptr", "a@1", "w*t?", 'q"x', "p|z", ""]
+    for reserved in ("/", "/\\@:*?\"<>|"):
+        seen = {}
+        for n in names:
+            enc = encode_name(n, reserved)
+            assert decode_name(enc, reserved) == n, f"{n!r} did not round-trip"
+            assert not any(c in enc for c in reserved), f"{enc!r} still holds a reserved char"
+            assert enc not in seen, f"collision: {n!r} and {seen.get(enc)!r} -> {enc!r}"
+            seen[enc] = n
+
+
+def test_fname_encode_is_the_codec_and_stays_byte_compatible():
+    """fname_encode is the '/'-reserved case. Existing .rex, hdf5 and zarr names on disk
+    must keep decoding, so the encoding cannot shift."""
+    from rexgraph.io.rex_state import fname_encode, fname_decode, encode_name
+
+    for n in ["a/b", "a%b", "plain", "%2F"]:
+        assert fname_encode(n) == encode_name(n, "/")
+        assert fname_decode(fname_encode(n)) == n
+    assert fname_encode("a/b") == "a%2Fb"
+    assert fname_encode("a%b") == "a%25b"

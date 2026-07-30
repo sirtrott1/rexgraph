@@ -470,18 +470,15 @@ class FileStore(RCStore):
     def _safe_name(id: str) -> str:
         """Filesystem-safe, REVERSIBLE, collision-free encoding of a record id.
 
-        Percent-encode the escape character first, then everything the filesystem or
-        the '@version' suffix would otherwise claim. The previous scheme replaced every
-        non-alphanumeric character with '_', which is lossy: 'core/alpha' and
-        'core_alpha' both became 'core_alpha', so the second put silently overwrote the
-        first blob while the index kept both records. Ids like 'doc:agent/rcdb.py' are
-        exactly what a knowledge core is keyed by. This is the same reversible scheme
-        rexgraph.io.rex_state.fname_encode uses for .rex, hdf5 and zarr names.
+        The shared codec, with the path reserved set (which includes '@', the version
+        separator used below). The previous scheme replaced every non-alphanumeric
+        character with '_', which is lossy: 'core/alpha' and 'core_alpha' both became
+        'core_alpha', so the second put silently overwrote the first blob while the
+        index kept both records. Ids like 'doc:agent/rcdb.py' are exactly what a
+        knowledge core is keyed by.
         """
-        out = id.replace("%", "%25")
-        for ch in "/\\@:*?\"<>|":
-            out = out.replace(ch, "%%%02X" % ord(ch))
-        return out
+        from rexgraph.io.rex_state import RESERVED_PATH, encode_name
+        return encode_name(id, RESERVED_PATH)
 
     @staticmethod
     def _sanitized_name(id: str) -> str:
