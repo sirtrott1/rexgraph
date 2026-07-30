@@ -1043,7 +1043,7 @@ class CorpusBuilder:
                 "input_type": (doc.meta or {}).get("input_type", "text"),
             }
             rcdb.version_if_changed(store, rid, doc.rex, meta=meta,
-                                    tags=list(tags or []))
+                                    tags=list(tags or []), valid_from=valid_from)
             written.append(rid)
         return written
 

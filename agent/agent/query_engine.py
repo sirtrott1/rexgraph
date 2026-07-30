@@ -290,10 +290,16 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
     # store.list(limit=10**6) plus a Python filter, i.e. every record in the store
     # crossed the process boundary on every query. SQLStore answers it from an
     # indexed label table; Memory/File match the vocabulary in record meta.
+    #
+    # as_of/valid_at go to the PREFILTER, not just to the per-candidate read. Matching
+    # today's vocabulary and then opening yesterday's blob silently drops any document
+    # whose terms have since been replaced -- a time-travelling query that omits what
+    # was relevant at the time.
     n_cand = max(1, int(candidates if candidates is not None else STORE_CANDIDATES))
     try:
         records = [r for r in store.query(labels_any=sorted(q_tokens),
-                                          limit=n_cand * _PREFILTER_SLACK)
+                                          limit=n_cand * _PREFILTER_SLACK,
+                                          as_of=as_of, valid_at=valid_at)
                    if not prefix or r.id.startswith(prefix)]
     except Exception:
         return [], {"mode": "store", "n_ranked": 0}

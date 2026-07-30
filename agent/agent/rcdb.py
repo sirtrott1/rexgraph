@@ -345,11 +345,20 @@ class RCStore:
         except Exception:
             pass
 
-    def list(self, limit: int = 100, offset: int = 0) -> List[ComplexRecord]:
+    def list(self, limit: int = 100, offset: int = 0, *, as_of=None,
+             valid_at=None, include_history: bool = False) -> List[ComplexRecord]:
+        """The store's records. `as_of`/`valid_at` read it AS IT STOOD, selecting the
+        version current at that transaction/validity time instead of the latest."""
         raise NotImplementedError
 
-    def query(self, limit: int = 100, **predicate) -> List[ComplexRecord]:
-        """Structural query: select complexes by their topology."""
+    def query(self, limit: int = 100, *, as_of=None, valid_at=None,
+              **predicate) -> List[ComplexRecord]:
+        """Structural query: select complexes by their topology.
+
+        `as_of`/`valid_at` apply the predicate to the version that was current then,
+        not to the latest one. That distinction is the whole point: matching a
+        predicate against today's record and then reading yesterday's blob silently
+        drops anything whose structure or vocabulary has since changed."""
         raise NotImplementedError
 
     def delete(self, id: str) -> bool:
@@ -427,15 +436,18 @@ class MemoryStore(RCStore):
     def history(self, id):
         return list(self._recs.get(id, []))
 
-    def list(self, limit=100, offset=0, include_history=False):
+    def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
+             include_history=False):
         recs = ([r for rs in self._recs.values() for r in rs] if include_history
-                else [self._select_version(rs, None, None) for rs in self._recs.values()])
+                else [self._select_version(rs, as_of, valid_at)
+                      for rs in self._recs.values()])
         recs = [r for r in recs if r is not None]
         recs.sort(key=lambda r: -r.tx_from)
         return recs[offset:offset + limit]
 
-    def query(self, limit=100, **predicate):
-        return [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate, r.meta)][:limit]
+    def query(self, limit=100, *, as_of=None, valid_at=None, **predicate):
+        return [r for r in self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
+                if _matches(r.signature, predicate, r.meta)][:limit]
 
     def delete(self, id):
         existed = id in self._recs
@@ -579,16 +591,19 @@ class FileStore(RCStore):
     def history(self, id):
         return list(self._read_index().get(id, []))
 
-    def list(self, limit=100, offset=0, include_history=False):
+    def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
+             include_history=False):
         idx = self._read_index()
         recs = ([r for versions in idx.values() for r in versions] if include_history
-                else [self._select_version(versions, None, None) for versions in idx.values()])
+                else [self._select_version(versions, as_of, valid_at)
+                      for versions in idx.values()])
         recs = [r for r in recs if r is not None]
         recs.sort(key=lambda r: -r.tx_from)
         return recs[offset:offset + limit]
 
-    def query(self, limit=100, **predicate):
-        out = [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate, r.meta)]
+    def query(self, limit=100, *, as_of=None, valid_at=None, **predicate):
+        out = [r for r in self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
+               if _matches(r.signature, predicate, r.meta)]
         return out[:limit]
 
     def delete(self, id):
@@ -868,18 +883,41 @@ class SQLStore(RCStore):
                                 .order_by(self.table.c.version)).fetchall()
         return [self._row_to_record(r) for r in rows]
 
-    def list(self, limit=100, offset=0, include_history=False):
-        from sqlalchemy import select
+    def _temporal_conds(self, as_of, valid_at, include_history):
+        """Row selection for a point in transaction and/or validity time.
+
+        A version is current AT a time when it opened on or before it and had not yet
+        been closed. With neither given this is the open row, which is what the store
+        always did; the difference is that the caller can now name a different one.
+        """
+        from sqlalchemy import or_
+        t = self.table
+        conds = []
+        if as_of is not None:
+            conds.append(t.c.tx_from <= as_of)
+            conds.append(or_(t.c.tx_to.is_(None), t.c.tx_to > as_of))
+        if valid_at is not None:
+            conds.append(or_(t.c.valid_from.is_(None), t.c.valid_from <= valid_at))
+            conds.append(or_(t.c.valid_to.is_(None), t.c.valid_to > valid_at))
+        if not conds and not include_history:
+            conds.append(t.c.tx_to.is_(None))
+        return conds
+
+    def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
+             include_history=False):
+        from sqlalchemy import and_, select
         t = self.table
         stmt = select(*self._record_cols())
-        if not include_history:
-            stmt = stmt.where(t.c.tx_to.is_(None))
+        conds = self._temporal_conds(as_of, valid_at, include_history)
+        if conds:
+            stmt = stmt.where(and_(*conds))
         stmt = stmt.order_by(t.c.tx_from.desc()).limit(limit).offset(offset)
         with self.engine.connect() as conn:
             rows = conn.execute(stmt).fetchall()
         return [self._row_to_record(r) for r in rows]
 
-    def query(self, limit=100, include_history=False, **predicate):
+    def query(self, limit=100, include_history=False, *, as_of=None,
+              valid_at=None, **predicate):
         # push the indexed predicates into SQL; apply the rest (tags, voids)
         # in Python only over the narrowed candidate set.
         from sqlalchemy import select, and_
@@ -918,8 +956,7 @@ class SQLStore(RCStore):
                           .having(func.count(func.distinct(lt.c.label)) == len(wanted)))
             conds.append(sub.exists())
             pushed.add(key)
-        if not include_history:
-            conds.append(t.c.tx_to.is_(None))
+        conds.extend(self._temporal_conds(as_of, valid_at, include_history))
         stmt = select(*self._record_cols())
         if conds:
             stmt = stmt.where(and_(*conds))
@@ -1111,7 +1148,8 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
     return out[:top_k]
 
 
-def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=None):
+def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=None,
+                       *, valid_from=None):
     """Store a new version only if the schema actually changed vs the latest
     (different tables or different topology). Enables auto-lineage on repeated
     reflection without spamming identical versions. Returns version info with
@@ -1132,7 +1170,8 @@ def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=Non
         if new_labels == old_labels and new_betti == old_betti:
             return {"id": f"{lineage_id}@{latest_rec.version}", "lineage_id": lineage_id,
                     "version": latest_rec.version, "unchanged": True}
-    info = put_version(store, lineage_id, rex, meta=meta, tags=tags)
+    info = put_version(store, lineage_id, rex, meta=meta, tags=tags,
+                       valid_from=valid_from)
     info["unchanged"] = False
     return info
 
