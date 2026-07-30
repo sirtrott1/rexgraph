@@ -105,6 +105,7 @@ def get_rex_and_analysis(key: str):
     if not payload:
         return None, None, None
     rex = None
+    meta = payload.get("meta")
     rex_dict = payload.get("rex_dict")
     if rex_dict is not None:
         try:
@@ -113,7 +114,13 @@ def get_rex_and_analysis(key: str):
         except Exception as e:
             logger.debug("cache rex rebuild failed: %s", e)
             rex = None
-    return rex, payload.get("analysis"), payload.get("meta")
+    if rex is not None and meta:
+        # to_dict/from_dict does not carry _agent_meta, so a cached rex came back
+        # stripped of its labels and source text while the caller got them as a
+        # separate return value. Harmless while everything read that third value;
+        # not harmless once the rex itself is what gets persisted or handed on.
+        rex._agent_meta = dict(meta)
+    return rex, payload.get("analysis"), meta
 
 
 def store_rex_and_analysis(key: str, rex, analysis: dict, meta: dict) -> bool:
