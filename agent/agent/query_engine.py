@@ -233,6 +233,11 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
 #: cheaper than holding the corpus in memory.
 STORE_CANDIDATES = _env_int("REXGRAPH_STORE_CANDIDATES", 24)
 
+#: the store predicate is a token match, so it over-returns relative to the ranking.
+#: Pull a multiple of the candidate budget and let the signature affinity order them,
+#: rather than trusting the first `n` rows the store happens to hand back.
+_PREFILTER_SLACK = _env_int("REXGRAPH_PREFILTER_SLACK", 4)
+
 
 def _signature_affinity(sig: Dict[str, Any], q_tokens: set) -> float:
     """Cheap prefilter score from the stored signature alone.
@@ -276,18 +281,24 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
     from agent.corpus import count_shared_entities, score_document
     from rexgraph.graph import RexGraph
 
+    qec = TextAdapter().build(query, min_count=1, max_vocab=200)
+    if not getattr(qec, "vertex_labels", None):
+        return [], {"mode": "store", "n_ranked": 0}
+    q_tokens = {w.lower() for w in qec.vertex_labels}
+
+    # Ask the store which records share a token. This used to be
+    # store.list(limit=10**6) plus a Python filter, i.e. every record in the store
+    # crossed the process boundary on every query. SQLStore answers it from an
+    # indexed label table; Memory/File match the vocabulary in record meta.
+    n_cand = max(1, int(candidates if candidates is not None else STORE_CANDIDATES))
     try:
-        records = [r for r in store.list(limit=10 ** 6)
+        records = [r for r in store.query(labels_any=sorted(q_tokens),
+                                          limit=n_cand * _PREFILTER_SLACK)
                    if not prefix or r.id.startswith(prefix)]
     except Exception:
         return [], {"mode": "store", "n_ranked": 0}
     if not records:
         return [], {"mode": "store", "n_ranked": 0}
-
-    qec = TextAdapter().build(query, min_count=1, max_vocab=200)
-    if not getattr(qec, "vertex_labels", None):
-        return [], {"mode": "store", "n_ranked": 0}
-    q_tokens = {w.lower() for w in qec.vertex_labels}
 
     q_chi = None
     if qec.nE > 0:
@@ -299,7 +310,6 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
         except Exception:
             q_chi = None
 
-    n_cand = max(1, int(candidates if candidates is not None else STORE_CANDIDATES))
     records.sort(key=lambda r: -_signature_affinity(r.signature or {}, q_tokens))
 
     scored = []

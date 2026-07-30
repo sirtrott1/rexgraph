@@ -74,12 +74,21 @@ def test_top_k_is_honoured(store):
 
 
 def test_store_mode_agrees_with_the_in_memory_corpus(store):
-    """Store mode must not be a second ranking. Same documents, same order."""
+    """Store mode must not be a second ranking: same relevant documents, same order.
+
+    Compared over the RELEVANT results only. The in-memory path scores every document
+    and so pads its tail with zero-scoring ones; the store path's label prefilter
+    drops anything sharing no vocabulary with the query, which is the point of having
+    a prefilter. Agreement on the nonzero prefix is the invariant that matters -- a
+    zero-scored document is not a retrieval result.
+    """
     back = CorpusBuilder.from_store(store)
     query = "boundary map orientation sign"
-    mem = [s["doc_id"] for s in back.query(query, top_k=3).ranked_sections]
+    mem = [s["doc_id"] for s in back.query(query, top_k=3).ranked_sections
+           if s["score"] > 0]
     sections, _ = qe.retrieve_sections(query, top_k=3, store=store)
-    assert [s["doc_id"] for s in sections] == mem
+    got = [s["doc_id"] for s in sections if s["score"] > 0]
+    assert got == mem and got, f"{got} vs {mem}"
 
 
 def test_the_prefilter_opens_only_candidate_blobs(store):

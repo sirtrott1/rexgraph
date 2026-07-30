@@ -208,17 +208,35 @@ def _priv(meta):
         return meta or {}
 
 
-def _matches(sig: Dict[str, Any], q: Dict[str, Any]) -> bool:
+def _record_labels(sig: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -> set:
+    """The record's vocabulary, lowercased.
+
+    Prefers meta["vertex_labels"], which is the FULL set. `labels_sample` is what its
+    name says -- twelve entries -- so a prefilter built on it silently misses any
+    document whose matching term falls outside them. Falls back to it only when meta
+    carries nothing, where a lossy filter still beats no filter.
+    """
+    labels = (meta or {}).get("vertex_labels") or sig.get("labels_sample") or []
+    return {str(x).lower() for x in labels}
+
+
+def _matches(sig: Dict[str, Any], q: Dict[str, Any],
+             meta: Optional[Dict[str, Any]] = None) -> bool:
     """Evaluate a structural query against a signature.
 
     Supported keys: min_nV/max_nV, min_nE/max_nE, min_nF,
     min_betti1/max_betti1, min_kappa/max_kappa, chain_valid,
-    has_voids (bool), tags_any (list), tags_all (list), source.
+    has_voids (bool), tags_any (list), tags_all (list), source,
+    labels_any (list), labels_all (list).
     """
     def betti(i):
         b = sig.get("betti")
         return b[i] if (b and len(b) > i) else 0
     checks = [
+        ("labels_any", lambda v: bool(_record_labels(sig, meta)
+                                      & {str(x).lower() for x in v})),
+        ("labels_all", lambda v: {str(x).lower() for x in v}
+                                 <= _record_labels(sig, meta)),
         ("min_nV", lambda v: sig.get("nV", 0) >= v),
         ("max_nV", lambda v: sig.get("nV", 0) <= v),
         ("min_nE", lambda v: sig.get("nE", 0) >= v),
@@ -417,7 +435,7 @@ class MemoryStore(RCStore):
         return recs[offset:offset + limit]
 
     def query(self, limit=100, **predicate):
-        return [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate)][:limit]
+        return [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate, r.meta)][:limit]
 
     def delete(self, id):
         existed = id in self._recs
@@ -570,7 +588,7 @@ class FileStore(RCStore):
         return recs[offset:offset + limit]
 
     def query(self, limit=100, **predicate):
-        out = [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate)]
+        out = [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate, r.meta)]
         return out[:limit]
 
     def delete(self, id):
@@ -627,8 +645,31 @@ class SQLStore(RCStore):
             Column("tx_from", Float), Column("tx_to", Float),
             Column("valid_from", Float), Column("valid_to", Float),
         )
+        # Inverted index over the vocabulary. Retrieval's prefilter is "which records
+        # share a token with this query", and answering that by reading every row back
+        # into Python is the whole scale problem. One indexed row per (record, label)
+        # lets the database answer it.
+        self.labels_table = Table(
+            f"{table}_labels", self.meta,
+            Column("id", String(256), primary_key=True),
+            Column("version", Integer, primary_key=True),
+            Column("label", String(256), primary_key=True),
+        )
         self.meta.create_all(self.engine)
         self._migrate_index_columns(table)
+        self._create_label_index(table)
+
+    def _create_label_index(self, table):
+        """Index the label column. Idempotent, and never fatal: a store that cannot
+        create the index still answers correctly through the Python residual path."""
+        from sqlalchemy import text as _text
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(_text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_labels_label "
+                    f"ON {table}_labels (label)"))
+        except Exception:
+            pass
 
     def _migrate_index_columns(self, table):
         """Add indexed columns to a pre-existing table and backfill from the
@@ -760,6 +801,10 @@ class SQLStore(RCStore):
                           created=now, blob=blob, version=v, tx_from=now, tx_to=None,
                           valid_from=vfrom, valid_to=valid_to, **_sig_index_values(sig))
             conn.execute(insert(self.table).values(**values))
+            labels = sorted(_record_labels(sig, meta))
+            if labels:
+                conn.execute(insert(self.labels_table),
+                             [{"id": id, "version": v, "label": lab} for lab in labels])
         return ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
                              tx_from=now, tx_to=None, valid_from=vfrom, valid_to=valid_to)
 
@@ -856,18 +901,39 @@ class SQLStore(RCStore):
             if predicate.get(key) is not None:
                 conds.append(build(predicate[key]))
                 pushed.add(key)
+        # the vocabulary predicate resolves in the indexed label table, so a
+        # "which records share a token" prefilter never leaves the database.
+        lt = self.labels_table
+        for key, op in (("labels_any", "any"), ("labels_all", "all")):
+            vals = predicate.get(key)
+            if not vals:
+                continue
+            wanted = sorted({str(x).lower() for x in vals})
+            sub = (select(lt.c.id)
+                   .where(and_(lt.c.id == t.c.id, lt.c.version == t.c.version,
+                               lt.c.label.in_(wanted))))
+            if op == "all":
+                from sqlalchemy import func
+                sub = (sub.group_by(lt.c.id)
+                          .having(func.count(func.distinct(lt.c.label)) == len(wanted)))
+            conds.append(sub.exists())
+            pushed.add(key)
         if not include_history:
             conds.append(t.c.tx_to.is_(None))
         stmt = select(*self._record_cols())
         if conds:
             stmt = stmt.where(and_(*conds))
         stmt = stmt.order_by(t.c.created.desc())
+        residual = {k: v for k, v in predicate.items() if k not in pushed}
+        if not residual:
+            # nothing left for Python to reject, so stop the database at `limit`
+            # instead of materializing every match and slicing afterwards.
+            stmt = stmt.limit(limit)
         with self.engine.connect() as conn:
             rows = conn.execute(stmt).fetchall()
-        residual = {k: v for k, v in predicate.items() if k not in pushed}
         out = [self._row_to_record(r) for r in rows]
         if residual:
-            out = [r for r in out if _matches(r.signature, residual)]
+            out = [r for r in out if _matches(r.signature, residual, r.meta)]
         return out[:limit]
 
     def delete(self, id):
@@ -876,6 +942,8 @@ class SQLStore(RCStore):
             existed = conn.execute(select(self.table.c.id).where(
                 self.table.c.id == id)).first() is not None
             conn.execute(delete(self.table).where(self.table.c.id == id))
+            # the label index is a projection of the record; it must not outlive it
+            conn.execute(delete(self.labels_table).where(self.labels_table.c.id == id))
         if existed:
             self._emit("rcdb.delete", id, 0, {})
         return existed
