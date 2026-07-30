@@ -433,3 +433,69 @@ class TestConvenience:
         assert "degree" in d
         assert "edge_types" in d
         assert "v2e_ptr" in d
+
+
+def test_dense_materialization_sums_duplicate_entries():
+    """to_dense_f64 assigned instead of accumulating, so a self-loop (which stores
+    -1 and +1 at the same (row, col)) densified to a spurious +1 witness column
+    rather than the zero column that d(self-loop) = v - v = 0 requires."""
+    import numpy as np
+    from rexgraph.graph import RexGraph
+
+    r = RexGraph(sources=np.array([0, 0, 1, 1], np.int32),
+                 targets=np.array([1, 1, 1, 2], np.int32))
+    B1 = np.asarray(r.B1, dtype=float)
+    assert int(np.asarray(r.edge_types)[2]) == 1          # edge 2 is the self-loop
+    assert np.allclose(B1[:, 2], 0.0), f"self-loop column should be zero, got {B1[:, 2]}"
+    # the other columns are untouched
+    assert np.allclose(B1[:, 0], [-1, 1, 0])
+    assert np.allclose(B1[:, 3], [0, -1, 1])
+
+
+def test_signed_gram_matches_the_dense_boundary_with_a_self_loop():
+    """With the dense form correct, L1_down = B1^T B1 holds on a self-loop complex
+    too: the kernel already treats the self-loop's signed contribution as cancelling."""
+    import numpy as np
+    import scipy.sparse as sp
+    from rexgraph.graph import RexGraph
+    from rexgraph.sparse_character import build_sparse_channels
+
+    r = RexGraph(sources=np.array([0, 0, 1, 1], np.int32),
+                 targets=np.array([1, 1, 1, 2], np.int32))
+    B1 = np.asarray(r.B1, dtype=float)
+    L1_down = np.asarray(dict(build_sparse_channels(r))['L1_down'].todense())
+    assert float(np.abs(L1_down - B1.T @ B1).max()) < 1e-12
+
+
+def test_self_loop_limitations_that_remain_are_pinned():
+    """Two consequences of a self-loop are NOT fixed by the dense accumulation, and
+    this pins them so a future change is deliberate rather than accidental.
+
+    1. The unsigned Gramian cannot be recovered from the dense SIGNED B1. L_O needs
+       per-entry magnitudes (|-1| + |+1| = 2 at the shared vertex); the dense form has
+       already summed them to 0, and |0| = 0. |sum| != sum|.|, so the kernel is right
+       and the dense signed view simply cannot express it.
+    2. beta_1 does not count a self-loop as an independent cycle. The sparse rank path
+       still sees two entries in that column rather than a cancelling pair, so the
+       Euler identity does not close on a self-loop complex. Fixing that means
+       canonicalizing duplicates in the boundary before the rank, which touches every
+       Betti consumer and belongs in its own pass.
+    """
+    import numpy as np
+    from rexgraph.graph import RexGraph
+    from rexgraph.sparse_character import build_sparse_channels
+
+    r = RexGraph(sources=np.array([0, 0, 1, 1], np.int32),
+                 targets=np.array([1, 1, 1, 2], np.int32))
+    B1 = np.asarray(r.B1, dtype=float)
+
+    # 1. the unsigned Gramian keeps the magnitudes the signed dense form lost
+    L_O = np.asarray(dict(build_sparse_channels(r))['L_O'].todense())
+    assert L_O[2, 2] == 4.0                      # |-1|^2 + |+1|^2 at the shared vertex
+    assert (np.abs(B1).T @ np.abs(B1))[2, 2] == 0.0
+
+    # 2. beta_1 undercounts by one per self-loop, so Euler does not close
+    nV, nE, nF = int(r.nV), int(r.nE), int(r.nF_hodge)
+    b = [int(x) for x in r.betti]
+    assert b[1] == 1                             # mathematically 2: parallel pair + self-loop
+    assert (nV - nE + nF) != (b[0] - b[1] + b[2])
