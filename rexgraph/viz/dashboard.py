@@ -112,29 +112,17 @@ def _load_template(path: Optional[Union[str, Path]] = None) -> str:
     return p.read_text(encoding="utf-8")
 
 
-class _SafeEncoder(json.JSONEncoder):
-    """Handle numpy types and reject NaN/Inf."""
-
-    def default(self, obj):
-        import numpy as np
-        if isinstance(obj, (np.integer,)):
-            return int(obj)
-        if isinstance(obj, (np.floating,)):
-            v = float(obj)
-            if v != v or v == float("inf") or v == float("-inf"):
-                return 0.0
-            return v
-        if isinstance(obj, (np.bool_,)):
-            return bool(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
+def _dump(data, **kwargs) -> str:
+    """The one encoder, with the io layer's non-finite policy (NaN/Inf -> 0). The JSX
+    charts do arithmetic on these values, so a null would break the render; float64
+    NaN used to trip allow_nan=False and kill the whole dashboard over one metric."""
+    from rexgraph.io._compat import dumps
+    return dumps(data, nan="zero", ensure_ascii=False, **kwargs)
 
 
 def _inject_data(jsx: str, data: dict) -> str:
     """Replace the sentinel in the JSX template with serialized data."""
-    payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False,
-                         cls=_SafeEncoder, allow_nan=False)
+    payload = _dump(data, separators=(",", ":"))
     if _SENTINEL not in jsx:
         raise ValueError(
             f"Template missing sentinel '{_SENTINEL}'.  "
@@ -272,8 +260,7 @@ def to_json(
         p = Path(path).resolve()
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
-            json.dump(data, f, separators=(",", ":"), ensure_ascii=False,
-                      cls=_SafeEncoder, allow_nan=False)
+            f.write(_dump(data, separators=(",", ":")))
     return data
 
 

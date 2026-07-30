@@ -20,19 +20,11 @@ from agent.pipeline import AnalysisPipeline
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
-class _SafeEncoder(json.JSONEncoder):
-    """Handle numpy types in JSON serialization."""
-    def default(self, obj):
-        import numpy as np
-        if isinstance(obj, (np.integer,)):
-            return int(obj)
-        if isinstance(obj, (np.floating,)):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, (np.bool_,)):
-            return bool(obj)
-        return super().default(obj)
+def _encode(payload) -> str:
+    """SSE frame body. Non-finite floats go out as null - a bare NaN token would make
+    the browser's JSON.parse throw and kill the stream mid-analysis."""
+    from rexgraph.io._compat import dumps
+    return dumps(payload, nan="null")
 
 
 async def stream_pipeline(pipeline: AnalysisPipeline, depth: str = "standard") -> AsyncGenerator[str, None]:
@@ -65,7 +57,7 @@ async def stream_pipeline(pipeline: AnalysisPipeline, depth: str = "standard") -
     while stages_received < stages_expected:
         try:
             name, data = await asyncio.wait_for(queue.get(), timeout=120.0)
-            payload = json.dumps({"stage": name, "results": data}, cls=_SafeEncoder)
+            payload = _encode({"stage": name, "results": data})
             yield f"event: stage\ndata: {payload}\n\n"
             stages_received += 1
         except asyncio.TimeoutError:

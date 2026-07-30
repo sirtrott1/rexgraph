@@ -91,17 +91,9 @@ def _pq():
         ) from exc
 
 
-def _json_default(o):
-    """JSON fallback for numpy types."""
-    if isinstance(o, np.ndarray):
-        return o.tolist()
-    if isinstance(o, np.integer):
-        return int(o)
-    if isinstance(o, np.floating):
-        return float(o)
-    if isinstance(o, np.bool_):
-        return bool(o)
-    raise TypeError(f"Not JSON serializable: {type(o)}")
+#: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
+#: existing call sites keep working; `dumps` is what applies the non-finite policy.
+from ._compat import json_default as _json_default, dumps as _dumps
 
 
 # Edge type names matching types.py EdgeType enum (Definition 3.2)
@@ -142,11 +134,9 @@ def write_parquet(
 
     schema_meta: Dict[bytes, bytes] = {}
     if col_meta:
-        schema_meta[b"rex_col_meta"] = json.dumps(col_meta).encode("utf-8")
+        schema_meta[b"rex_col_meta"] = _dumps(col_meta).encode("utf-8")
     if metadata:
-        schema_meta[b"rex_metadata"] = json.dumps(
-            metadata, default=_json_default
-        ).encode("utf-8")
+        schema_meta[b"rex_metadata"] = _dumps(metadata).encode("utf-8")
     if schema_meta:
         table = table.replace_schema_metadata(schema_meta)
 

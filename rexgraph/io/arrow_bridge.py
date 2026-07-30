@@ -139,12 +139,10 @@ def arrays_to_arrow(
 
     # Attach metadata
     schema_meta = {
-        b"rex_array_meta": json.dumps(array_meta).encode("utf-8"),
+        b"rex_array_meta": _dumps(array_meta).encode("utf-8"),
     }
     if metadata:
-        schema_meta[b"rex_user_meta"] = json.dumps(
-            metadata, default=_json_default
-        ).encode("utf-8")
+        schema_meta[b"rex_user_meta"] = _dumps(metadata).encode("utf-8")
 
     return table.replace_schema_metadata(schema_meta)
 
@@ -469,14 +467,6 @@ def _arrow_batch_to_arrays(
 # Helpers
 
 
-def _json_default(o):
-    """JSON fallback for numpy types."""
-    if isinstance(o, np.ndarray):
-        return o.tolist()
-    if isinstance(o, np.integer):
-        return int(o)
-    if isinstance(o, np.floating):
-        return float(o)
-    if isinstance(o, np.bool_):
-        return bool(o)
-    raise TypeError(f"Not JSON serializable: {type(o)}")
+#: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
+#: existing call sites keep working; `dumps` is what applies the non-finite policy.
+from ._compat import json_default as _json_default, dumps as _dumps

@@ -8,10 +8,8 @@ are thin wrappers that expose it over HTTP.
 from __future__ import annotations
 
 import logging
-import math
 import json
 
-import numpy as np
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 
@@ -20,19 +18,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1")
 
 
+#: the one encoder (rexgraph.io._compat). Non-finite floats go out as null:
+#: a bare NaN token is not JSON and every browser JSON.parse rejects it.
+from rexgraph.io._compat import json_sanitize
+
+
 def _sanitize(obj):
-    if isinstance(obj, (float, np.floating)):
-        val = float(obj)
-        return None if (math.isnan(val) or math.isinf(val)) else val
-    if isinstance(obj, (np.integer,)):
-        return int(obj)
-    if isinstance(obj, np.ndarray):
-        return _sanitize(obj.tolist())
-    if isinstance(obj, dict):
-        return {k: _sanitize(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_sanitize(v) for v in obj]
-    return obj
+    return json_sanitize(obj, nan="null")
 
 
 def _rex_from_body(body: dict):
