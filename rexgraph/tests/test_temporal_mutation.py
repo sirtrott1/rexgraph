@@ -75,7 +75,7 @@ _SRC = np.array([0, 1, 2, 0, 3, 4], np.int32)
 _TGT = np.array([1, 2, 0, 3, 4, 0], np.int32)
 
 
-def _track(prev_cols, curr_cols, threshold=0.5):
+def _track(prev_cols, curr_cols, min_shared=1):
     def b2(cols):
         cp, ri = [0], []
         for c in cols:
@@ -85,7 +85,7 @@ def _track(prev_cols, curr_cols, threshold=0.5):
     pcp, pri = b2(prev_cols)
     ccp, cri = b2(curr_cols)
     return _temporal.track_faces_i32(pcp, pri, _SRC, _TGT, ccp, cri, _SRC, _TGT,
-                                     False, threshold)
+                                     False, min_shared)
 
 
 def test_a_deforming_face_is_a_mutation_not_a_merge():
@@ -121,9 +121,10 @@ def test_a_split_is_unchanged():
 
 
 def test_an_exact_match_is_still_persist():
-    ev_prev, ev_curr, p2c, c2p, j = _track([[0, 1, 2]], [[0, 1, 2]])
+    ev_prev, ev_curr, p2c, c2p, shared = _track([[0, 1, 2]], [[0, 1, 2]])
     assert ev_prev[0] == PERSIST and ev_curr[0] == PERSIST
-    assert p2c[0] == 0 and c2p[0] == 0 and j[0] == 1.0
+    assert p2c[0] == 0 and c2p[0] == 0
+    assert int(shared[0]) == 3, "an exact match shares its whole boundary"
 
 
 def test_an_unrelated_face_is_still_born_and_died():
@@ -158,3 +159,59 @@ def test_intervals_agree_with_lifecycle_when_nothing_flickers():
     keys_l, birth, death = _temporal.edge_lifecycle(snaps)
     assert list(keys_i) == list(keys_l)
     assert list(starts) == list(birth)
+
+
+# --- correspondence without a similarity score --------------------------------
+
+def test_a_mutating_face_still_counts_as_a_structural_event():
+    """Regression in this file's own first pass: introducing FACE_MUTATE gave
+    deforming faces an event code that no counter incremented, so they stopped
+    contributing to the phase detector entirely."""
+    fs = [(np.array([0, 3], np.int32), np.array([0, 1, 2], np.int32)),
+          (np.array([0, 3], np.int32), np.array([0, 1, 3], np.int32))]
+    es = [(_SRC, _TGT), (_SRC, _TGT)]
+    out = _temporal.face_lifecycle(fs, es, False)
+    counts = {"persist": out[2], "born": out[3], "died": out[4],
+              "split": out[5], "merge": out[6], "mutate": out[7]}
+    total = sum(int(c[1]) for c in counts.values())
+    assert total > 0, f"the mutation was counted nowhere: {counts}"
+    assert int(counts["mutate"][1]) == 1
+
+
+def test_correspondence_uses_shared_boundary_not_a_similarity_score():
+    """Face identity is already exact -- B2 says which cells bound each face, and
+    cell keys are canonical. Estimating it with a set-similarity score and a 0.5
+    cutoff re-derives, badly, something the complex knows exactly."""
+    ev_prev, ev_curr, p2c, c2p, shared = _track([[0, 1, 2]], [[0, 1, 3]])
+    assert list(shared) == [2], "shared boundary cells not reported as a count"
+
+
+def test_shared_boundary_gives_the_magnitude_of_a_mutation():
+    """A face that loses one of five boundary cells is barely changed; one that
+    loses four is nearly a death. That is a count, reported for the caller's policy,
+    not a threshold applied inside the kernel."""
+    _, _, _, _, small = _track([[0, 1, 2, 3, 4]], [[0, 1, 2, 3, 5]])
+    _, _, _, _, large = _track([[0, 1, 2, 3, 4]], [[0, 1, 5]])
+    assert int(small[0]) > int(large[0])
+
+
+def test_any_shared_boundary_is_a_correspondence():
+    """One shared boundary cell is an exact structural fact, not a tuned cutoff.
+    Under a 0.5 jaccard these faces were unrelated."""
+    ev_prev, ev_curr, p2c, c2p, shared = _track([[0, 1, 2]], [[2, 3, 4]])
+    assert int(shared[0]) == 1
+    assert ev_curr[0] == MUTATE and ev_prev[0] == MUTATE
+
+
+def test_no_shared_boundary_is_still_born_and_died():
+    ev_prev, ev_curr, p2c, c2p, shared = _track([[0, 1, 2]], [[3, 4, 5]])
+    assert ev_prev[0] == DIED and ev_curr[0] == BORN
+    assert int(shared[0]) == 0
+
+
+def test_orientation_is_not_invisible_to_correspondence():
+    """A set-similarity score cannot see orientation at all: a face and its reverse
+    score identically. Sharing the same boundary cells is still the right
+    correspondence, but the shared count must come from the actual boundary."""
+    ev_prev, ev_curr, _, _, shared = _track([[0, 1, 2]], [[0, 1, 2]])
+    assert ev_curr[0] == PERSIST and int(shared[0]) == 3

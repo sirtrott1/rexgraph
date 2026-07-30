@@ -6027,20 +6027,103 @@ class TemporalRex:
         phase_tol: float = 0.0,
         min_phase_len: int = 2,
         face_event_threshold: int = 1,
-        jaccard_threshold: float = 0.5,
+        min_shared: int = 1,
     ) -> Tuple:
         snaps = self._snapshot_pairs()
         face_snaps = self._face_snapshot_pairs()
         if self._general:
             return _temporal.compute_bioes_unified_general(
                 snaps, face_snaps, betti_matrix,
-                phase_tol, min_phase_len, face_event_threshold, jaccard_threshold,
+                phase_tol, min_phase_len, face_event_threshold, min_shared,
             )
         return _temporal.compute_bioes_unified(
             snaps, face_snaps, betti_matrix,
             self._directed, phase_tol, min_phase_len,
-            face_event_threshold, jaccard_threshold,
+            face_event_threshold, min_shared,
         )
+
+    #: BIOES tag codes, matching rexgraph.core._temporal
+    TAG_B, TAG_I, TAG_O, TAG_E, TAG_S = 0, 1, 2, 3, 4
+
+    def bioes_grid(self) -> dict:
+        """BIOES per cell per moment: cells on one axis, time on the other.
+
+        O is the 0 of the existence condition; B/I/E/S presuppose existence=1 and say
+        where in a contiguous life you are. So this is the lifetime-position reading
+        of the existence channel, not a separate scheme laid over it. Tagging
+        TIMESTEPS by phase can never use O, because phases partition the timeline and
+        nothing is outside them.
+
+        A row is what the whole complex is doing at one moment; a column is one
+        cell's life. Orientation rides alongside as its own channel rather than
+        inside the tag: a cell that reverses has persisted, and folding the reversal
+        into the tag would collapse two independent conditions back together.
+
+        Returns
+        -------
+        keys : int64[nCells]         stable cell identities, sorted (the cell axis)
+        tags : int8[T, nCells]       B/I/O/E/S per cell per moment
+        orientation : int8[T, nCells]  the sign each cell carries, 0 where absent
+        moment : int32[T, 5]         per-moment counts of each letter
+        """
+        from rexgraph.core._temporal import cell_keys_of
+
+        self._ensure_index()
+        T = self._T
+        present, orient = [], []
+        for t in range(T):
+            rex = self.reconstruct_at(t)
+            rex._ensure_clean()
+            keys = np.asarray(cell_keys_of(rex._boundary_ptr, rex._boundary_idx,
+                                           self._directed), dtype=np.int64)
+            signs = rex._signs
+            signs = (np.ones(keys.shape[0], _i32) if signs is None
+                     else np.asarray(signs, _i32).ravel())
+            present.append({int(k): int(sg) for k, sg in zip(keys, signs)})
+            orient.append(None)
+
+        axis = sorted({k for step in present for k in step})
+        keys = np.asarray(axis, dtype=np.int64)
+        n = len(axis)
+        tags = np.full((T, n), self.TAG_O, dtype=np.int8)
+        orientation = np.zeros((T, n), dtype=np.int8)
+        col_of = {k: c for c, k in enumerate(axis)}
+
+        for t, step in enumerate(present):
+            for k, sg in step.items():
+                orientation[t, col_of[k]] = sg
+
+        # walk each cell's presence trace and bound every contiguous run. A run of
+        # one is S; otherwise its ends are B and E and its interior is I. A cell that
+        # flickers therefore gets one bounded span per window rather than one life
+        # spanning the gap, which is what actually happened.
+        for k in axis:
+            c = col_of[k]
+            here = [k in step for step in present]
+            t = 0
+            while t < T:
+                if not here[t]:
+                    t += 1
+                    continue
+                start = t
+                while t + 1 < T and here[t + 1]:
+                    t += 1
+                if start == t:
+                    tags[start, c] = self.TAG_S
+                else:
+                    tags[start, c] = self.TAG_B
+                    tags[t, c] = self.TAG_E
+                    for m in range(start + 1, t):
+                        tags[m, c] = self.TAG_I
+                t += 1
+
+        moment = np.zeros((T, 5), dtype=np.int32)
+        for t in range(T):
+            for tag in range(5):
+                moment[t, tag] = int((tags[t] == tag).sum())
+
+        return {"keys": keys, "tags": tags, "orientation": orientation,
+                "moment": moment}
 
     def delta_tensor(self, *, dense: bool = False):
         """The temporal delta tensor: per step, the change in each of the composite
