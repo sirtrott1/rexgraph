@@ -5743,7 +5743,14 @@ class TemporalRex:
 
             n_born = int(d.born_offsets.shape[0] - 1)
             n_died = int(d.died_keys.shape[0])
-            self._cumulative_delta += n_born + n_died
+            # Modifications count too. Existence and orientation are independent
+            # conditions of the composite binary, so a cell reversing orientation is
+            # a real change to replay, not a weaker form of one appearing. Counting
+            # only born+died meant a history made entirely of reversals -- the normal
+            # case wherever direction carries the signal -- registered zero churn,
+            # never checkpointed, and left reconstruct_at replaying the whole chain.
+            n_mod = int(d.mod_keys.shape[0])
+            self._cumulative_delta += n_born + n_died + n_mod
 
             if nE > 0 and (self._cumulative_delta / nE) > self._checkpoint_threshold:
                 self._index_checkpoints[t] = self._checkpoint_of(rex, t)
@@ -6034,6 +6041,77 @@ class TemporalRex:
             self._directed, phase_tol, min_phase_len,
             face_event_threshold, jaccard_threshold,
         )
+
+    def delta_tensor(self, *, dense: bool = False):
+        """The temporal delta tensor: per step, the change in each of the composite
+        binary's two independent conditions.
+
+        A relational complex's entries carry an existence condition in {0,1} and an
+        orientation in {+1,-1}. They vary independently -- a cell can persist while
+        its orientation reverses -- so differencing each separately gives a history
+        with two channels rather than one churn count:
+
+            existence   -1 the cell died, +1 it was born, 0 it persisted
+            orientation -1/+1 its orientation reversed, 0 it held
+
+        A born or died cell scores 0 in the orientation channel: it has no previous
+        orientation to have changed. That is what keeps the channels independent
+        rather than one shadowing the other.
+
+        Cells are identified by their canonical key, so a cell that reverses and
+        reverses back is one identity across the history, not three.
+
+        Returns a sparse event view -- t / key / existence / orientation, one row per
+        cell that changed -- or, with ``dense=True``, the (T, n_cells, 2) array plus
+        the key axis. Step 0 has no predecessor and is all zeros.
+        """
+        from rexgraph.core._temporal import cell_keys_of
+
+        self._ensure_index()
+        t_out, k_out, e_out, o_out = [], [], [], []
+        prev = {}
+        for t in range(self._T):
+            rex = self.reconstruct_at(t)
+            rex._ensure_clean()
+            keys = np.asarray(cell_keys_of(rex._boundary_ptr, rex._boundary_idx,
+                                           self._directed), dtype=np.int64)
+            signs = rex._signs
+            # signs=None is the all-positive orientation, not an absent one
+            signs = (np.ones(keys.shape[0], _i32) if signs is None
+                     else np.asarray(signs, _i32).ravel())
+            curr = {int(k): int(sg) for k, sg in zip(keys, signs)}
+            if t:
+                for key, sg in curr.items():
+                    was = prev.get(key)
+                    if was is None:
+                        t_out.append(t); k_out.append(key)
+                        e_out.append(1); o_out.append(0)
+                    elif was != sg:
+                        # {-2, +2} halved: the orientation channel is a delta of the
+                        # condition, on the same {-1, 0, +1} scale as existence.
+                        t_out.append(t); k_out.append(key)
+                        e_out.append(0); o_out.append((sg - was) // 2)
+                for key in prev:
+                    if key not in curr:
+                        t_out.append(t); k_out.append(key)
+                        e_out.append(-1); o_out.append(0)
+            prev = curr
+
+        out = {
+            "t": np.asarray(t_out, dtype=np.int64),
+            "key": np.asarray(k_out, dtype=np.int64),
+            "existence": np.asarray(e_out, dtype=np.int8),
+            "orientation": np.asarray(o_out, dtype=np.int8),
+        }
+        if not dense:
+            return out
+        axis = np.unique(out["key"]) if out["key"].size else np.zeros(0, np.int64)
+        tensor = np.zeros((self._T, axis.shape[0], 2), dtype=np.int8)
+        if axis.shape[0]:
+            col = np.searchsorted(axis, out["key"])
+            tensor[out["t"], col, 0] = out["existence"]
+            tensor[out["t"], col, 1] = out["orientation"]
+        return tensor, axis
 
     def temporal_persistence(self, final_rex: Optional[RexGraph] = None) -> dict:
         R = final_rex or self._snapshot_at(self._T - 1)
