@@ -600,7 +600,7 @@ def write_face_sql(
 ) -> None:
     """Write the B_2 boundary operator to SQL.
 
-    One row per nonzero in the CSC representation.  The chain complex
+    One row per nonzero in the CSC representation.  The relational complex
     condition B_1 B_2 = 0 guarantees each face boundary is a
     cycle in the edge basis.
 
@@ -778,7 +778,7 @@ def write_filtration_sql(
     kind: str = "",
     if_exists: str = "replace",
 ) -> None:
-    r"""Write filtration values on the chain complex to SQL.
+    r"""Write filtration values on the relational complex to SQL.
 
     One row per cell.  A valid filtration satisfies
     f(tau) leq f(sigma) for tau in partial(sigma).

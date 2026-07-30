@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._persistence: Persistent homology on the rex chain complex.
+rexgraph.core._persistence: Persistent homology on the relational complex.
 
 Given a 2-rex and a filtration function on cells, computes persistence
 pairs tracking birth and death of homological features.

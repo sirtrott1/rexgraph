@@ -10,7 +10,7 @@ quotient complex R/I and computes relative homological invariants.
 
 Mathematics
 -----------
-A subcomplex I of a chain complex R is a sub-chain-complex: collections
+A subcomplex I of a relational complex R is a subcomplex: collections
 of cells at each dimension that are closed under the boundary maps. The
 quotient R/I identifies all cells in I with zero, which yields boundary
 operators B1_quot and B2_quot that still satisfy B1_quot B2_quot = 0.
@@ -657,7 +657,7 @@ def quotient_verify_chain(np.ndarray[f64, ndim=2] B1_quot,
                           np.ndarray[f64, ndim=2] B2_quot,
                           f64 tol=1e-10):
     """
-    Check the chain complex condition B1_quot B2_quot = 0.
+    Check the chain condition B1_quot B2_quot = 0.
 
     Returns
     -------
@@ -690,7 +690,7 @@ def relative_betti(np.ndarray[f64, ndim=2] B1_quot,
     The ranks of B1_quot and B2_quot are computed from their singular
     values, and beta_k(R, I) are derived from these ranks and the
     quotient dimensions. Here B1_quot and B2_quot play the roles of
-    d_1 and d_2 in the quotient chain complex C_2(R/I) to C_1(R/I) to
+    d_1 and d_2 in the quotient relational complex C_2(R/I) to C_1(R/I) to
     C_0(R/I), with C_0(R/I) indexed by derived vertices.
 
     Returns

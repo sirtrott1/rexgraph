@@ -359,7 +359,7 @@ def random_state(Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF,
 # Rex State Class
 
 cdef class RexState:
-    """Container for signals on the 2-rex chain complex.
+    """Container for signals on the 2-relational complex.
 
     Attributes
     ----------

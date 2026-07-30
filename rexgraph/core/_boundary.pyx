@@ -1,10 +1,10 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._boundary: Chain complex construction for the 2-rex.
+rexgraph.core._boundary: Relational complex construction for the 2-rex.
 
 Assembles the boundary operators B_1 (nV x nE) and B_2 (nE x nF)
-that define the chain complex, and computes Betti numbers from
+that define the relational complex, and computes Betti numbers from
 Laplacian eigenvalues.
 
 Provides:
@@ -273,11 +273,11 @@ def build_B2_from_dense(Py_ssize_t nE, Py_ssize_t nF,
     return from_dense_f64(M, tol=0.5)
 
 
-# Chain complex verification
+# Relational complex verification
 
 def verify_chain_complex(B1, B2, double tol=1e-10):
     """
-    Verify the chain complex condition B1 B2 = 0.
+    Verify the chain condition B1 B2 = 0.
 
     Iterates over columns of B2, applies B1 via sparse matvec, and
     checks that the result is zero within tolerance. This avoids
@@ -412,7 +412,7 @@ def betti_from_eigenvalues(evals_L0, evals_L1, evals_L2,
     evals_L2 : f64[] or None
         Eigenvalues of L_2. If None, beta_2 not computed.
     nV, nE, nF : int
-        Dimensions of the chain complex.
+        Dimensions of the relational complex.
     tol : float
         Zero threshold for eigenvalues.
 
@@ -541,7 +541,7 @@ def compute_rank(M, str method="auto", double tol=1e-10):
 
 def betti_numbers(B1, B2=None, evals_L0=None, evals_L1=None, evals_L2=None):
     """
-    Compute Betti numbers of the chain complex.
+    Compute Betti numbers of the relational complex.
 
     Uses the spectral path if eigenvalue arrays are provided,
     otherwise falls back to SVD-based rank computation.

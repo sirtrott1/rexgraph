@@ -4,7 +4,7 @@
 rexgraph.core._l_gb: Graded boundary Laplacian L_gb.
 
 The L_gb operator measures structural coupling between adjacent grades
-of a rex chain complex, generalizing the within-grade RL_4 character
+of a relational complex, generalizing the within-grade RL_4 character
 bundle to a between-grade tensor.
 
 Two flavors:
@@ -223,7 +223,7 @@ def l_gb_channel_tensor(list hats_A, list hats_B=None):
 
 
 def l_gb_tower(list B_list):
-    """Sweep l_gb across all adjacent grade pairs in a chain complex.
+    """Sweep l_gb across all adjacent grade pairs in a relational complex.
 
     Parameters
     ----------

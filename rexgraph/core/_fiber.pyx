@@ -123,7 +123,7 @@ def threshold_graph(np.ndarray[f64, ndim=2] similarity,
 
 def similarity_complex(np.ndarray[f64, ndim=2] similarity,
                         Py_ssize_t n, f64 threshold):
-    """Build a chain complex from thresholded similarity.
+    """Build a relational complex from thresholded similarity.
 
     Uses fundamental cycle basis for automatic face generation.
     """

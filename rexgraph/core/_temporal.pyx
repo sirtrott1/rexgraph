@@ -16,7 +16,7 @@ potential-dominated (geometric) regimes.
 
 Cascade event tracking records edge activation order during signal
 propagation, enabling analysis of perturbation spread through the
-chain complex.
+relational complex.
 
 General boundary variants handle branching edges, self-loops, and
 witness edges alongside standard 2-endpoint edges.

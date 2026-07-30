@@ -14,7 +14,7 @@ _MODULES = [
     '_sparse',
     '_linalg',
 
-    # Chain complex construction
+    # Relational complex construction
     '_rex',
     '_boundary',
     '_cycles',

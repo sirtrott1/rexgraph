@@ -63,3 +63,24 @@ def test_guarded_ask_autofixes_when_regen_still_bad(monkeypatch):
     assert out["method"] == "autofixed"
     assert "relational complex" in out["reply"].lower()
     assert out["violations"] == []
+
+
+def test_guard_keeps_the_plural_when_fixing():
+    """The rule matches 'chain complexes' but its fix was the singular 'relational
+    complex', so a plural sentence came out ungrammatical."""
+    from agent.guard import relational_complex_guard
+
+    fixed, found = relational_complex_guard().fix(
+        "restriction of chain complexes preserves the chain condition")
+    assert found
+    assert "relational complexes" in fixed
+    assert "chain complexes" not in fixed
+    assert "chain condition" in fixed          # the axiom keeps its name
+
+
+def test_guard_leaves_the_chain_condition_alone():
+    from agent.guard import relational_complex_guard
+
+    text = "the chain condition B_1 B_2 = 0 holds at every consecutive pair"
+    fixed, found = relational_complex_guard().fix(text)
+    assert not found and fixed == text

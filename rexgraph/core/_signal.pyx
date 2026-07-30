@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._signal: Signal processing pipeline on the rex chain complex.
+rexgraph.core._signal: Signal processing pipeline on the relational complex.
 
 End-to-end pipeline: perturbation -> propagation -> decomposition -> tagging.
 

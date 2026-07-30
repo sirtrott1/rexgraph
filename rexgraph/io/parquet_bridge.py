@@ -27,7 +27,7 @@ Z/2.  Columns: birth, death, dim, birth_cell,
 death_cell, lifetime.
 
 Filtration table - filtration values f: C_k -> R
-on the chain complex.
+on the relational complex.
 
 Metrics table - generic per-cell numeric metrics.
 
@@ -469,7 +469,7 @@ def write_face_table(
     """Write the face boundary operator B_2 to Parquet.
 
     One row per nonzero entry in the CSC representation of B_2.
-    The chain complex condition B_1 B_2 = 0 guarantees each
+    The chain condition B_1 B_2 = 0 guarantees each
     face boundary is a cycle in the edge basis.
 
     Columns: `face_idx`, `edge_idx`, `orientation` (±1).
@@ -621,7 +621,7 @@ def write_filtration_table(
     *,
     kind: str = "",
 ) -> None:
-    r"""Write filtration values on the chain complex to Parquet.
+    r"""Write filtration values on the relational complex to Parquet.
 
     One row per cell.  A valid filtration satisfies
     f(tau) leq f(sigma) for tau in partial(sigma).

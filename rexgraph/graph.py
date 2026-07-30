@@ -1,10 +1,11 @@
 """
 rexgraph.graph: Orchestration layer for relational complexes.
 
-A k-rex is a finite chain complex in which edges are primitive and
-vertices are derived from edge boundaries via the vertex lifecycle
-contract: a vertex exists if and only if some edge contains it in
-its boundary.
+A k-rex is a relational complex of top grade k: a finite sequence of signed
+integer boundary maps (B_1, ..., B_k) with entries in {-1, 0, +1}, satisfying
+the chain condition B_{d-1} B_d = 0. Edges are primitive and vertices are
+derived from edge boundaries via the vertex lifecycle contract: a vertex
+exists if and only if some edge contains it in its boundary.
 
 RexGraph lazily composes the Cython modules in rexgraph.core through
 @cached_property accessors. No Cython module imports another; all
@@ -188,12 +189,15 @@ _TIER_GLOBAL = frozenset({
 class RexGraph:
     """A relational complex (rex) with lazily computed derived properties.
 
-    A k-rex is a finite chain complex
+    A k-rex is a relational complex of top grade k,
 
         C_k -> C_{k-1} -> ... -> C_0
 
-    satisfying d_{k-1} . d_k = 0.  Edges are primitive; the vertex set
-    is derived: V = union over e in E of supp(d_1(e)).
+    whose boundary maps carry entries in {-1, 0, +1} and satisfy the chain
+    condition d_{k-1} . d_k = 0.  Edges are primitive; the vertex set is
+    derived: V = union over e in E of supp(d_1(e)).  A column may carry any
+    arity, so a branching hyperedge is a first-class cell rather than a clique
+    expansion, which is why this is not a simplicial or CW complex.
 
     Computation is organized into cached bundles that call Cython
     builder functions. Individual properties are thin accessors
