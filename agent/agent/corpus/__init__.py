@@ -255,6 +255,15 @@ class CorpusBuilder:
             ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif",
             ".txt", ".md",
         }
+        # every registered reader too, so a format added to agent.adapters.formats
+        # is ingestable without editing this set. It was a literal, so the
+        # scientific containers were readable by auto_rex and silently skipped
+        # here -- a plan that promised them and a build that dropped them.
+        try:
+            from agent.adapters.formats import available_extensions
+            supported = supported | set(available_extensions())
+        except Exception:
+            pass
         if extensions:
             allowed = {e if e.startswith(".") else f".{e}" for e in extensions}
         else:

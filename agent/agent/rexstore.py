@@ -47,6 +47,18 @@ RECORDS = "records.log"
 BLOBS = "blobs.pack"
 FORMAT_VERSION = 1
 
+#: Snapshot when the un-indexed tail grows past this fraction of what is already
+#: indexed. Writing the index costs ~30 us per record because it rewrites all of
+#: them; NOT writing it costs ~13 us per un-indexed record on EVERY open. So a store
+#: opened more than about twice between writes is better off snapshotting, and a
+#: ratio bounds the replay tail without anyone picking a record count. The same
+#: shape as TemporalRex's checkpoint threshold, for the same reason.
+INDEX_TAIL_RATIO = float(os.environ.get("REXGRAPH_INDEX_TAIL_RATIO", "0.5"))
+
+#: below this many un-indexed records, replay is cheaper than the snapshot that
+#: would avoid it -- at 500 records replay is 5.7 ms against 12.9 ms to write.
+INDEX_MIN_TAIL = int(os.environ.get("REXGRAPH_INDEX_MIN_TAIL", "1000"))
+
 
 
 
@@ -253,7 +265,10 @@ class RexStore(RCStore):
 
     backend = "rex"
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, *, auto_index: bool = True):
+        self.auto_index = auto_index
+        self._indexed_count = 0
+        self._tail_count = 0
         self.root = str(root)
         self.uri = f"rex://{self.root}"
         os.makedirs(self.root, exist_ok=True)
@@ -281,6 +296,7 @@ class RexStore(RCStore):
         if idx.open():
             self._index = idx
             start_at = idx.log_bytes
+            self._indexed_count = len(idx.ids)
             for rid in idx.ids:
                 # lazy: a record's documents are parsed when something asks for that
                 # record, not for every record at open.
@@ -301,6 +317,7 @@ class RexStore(RCStore):
             except (UnicodeDecodeError, json.JSONDecodeError):
                 break
             self._apply(entry)
+            self._tail_count += 1
             pos = start + n
 
     def _apply(self, entry: Dict[str, Any]) -> None:
@@ -366,6 +383,8 @@ class RexStore(RCStore):
         # entry pointing at bytes that were never written.
         self._append(entry)
         self._apply(entry)
+        self._tail_count += 1
+        self._maybe_index()
         return self._recs[id][-1]
 
     def delete(self, id):
@@ -503,6 +522,18 @@ class RexStore(RCStore):
         self.write_index()
         return {"before": before, "after": self.stats()}
 
+    def _maybe_index(self) -> None:
+        """Snapshot when the tail has grown enough to be worth it. Never on a small
+        store, where replaying is cheaper than the snapshot that would avoid it."""
+        if not self.auto_index or self._tail_count < INDEX_MIN_TAIL:
+            return
+        if self._tail_count < self._indexed_count * INDEX_TAIL_RATIO:
+            return
+        try:
+            self.write_index()
+        except Exception:
+            pass                # an index is derived; failing to write one is not fatal
+
     def write_index(self) -> str:
         """Snapshot the current state as tensors, so the next open memory-maps it
         instead of replaying the log."""
@@ -517,6 +548,8 @@ class RexStore(RCStore):
         log_bytes = os.path.getsize(self._records_path) \
             if os.path.exists(self._records_path) else 0
         RexIndex.write(self._index_path, materialized, blob_at, log_bytes)
+        self._indexed_count = len(materialized)
+        self._tail_count = 0
         return self._index_path
 
     def close(self):
