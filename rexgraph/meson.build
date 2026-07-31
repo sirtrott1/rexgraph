@@ -5,7 +5,7 @@ py.install_sources(
      'dirac_propagator.py',
      'field_propagator.py', 'graded_boundary.py', '_env.py', '_experimental.py',
      'harmonic.py', 'harmonic_sparse.py', 'compute.py', 'mesh_health.py',
-     'registry.py',
+     'registry.py', 'gpu_preflight.py',
      'coordinator.py'],
     subdir: 'rexgraph',
 )

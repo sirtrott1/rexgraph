@@ -100,6 +100,14 @@ def detect_input_type(data: Any) -> str:
             return "text"
 
         # If it's an existing file or has a recognized extension, dispatch as file
+        # registered scientific containers (SDF/PDB/FASTA/VCF/GFF/BED/h5ad/loom).
+        # Checked before the generic suffixes so .h5ad is not read as .h5.
+        try:
+            from agent.adapters.formats import reader_for
+            if reader_for(p) is not None:
+                return "science_file"
+        except Exception:
+            pass
         if suffix in (".rex", ".zarr", ".h5", ".hdf5", ".arrow", ".parquet", ".safetensors"):
             return "rex_file"
         if suffix == ".json":
@@ -386,6 +394,22 @@ def auto_rex(
                                  "face_selection")}
         adapter = TextAdapter()
         edges = adapter.build(data, **text_kwargs)
+    elif input_type == "science_file":
+        from agent.adapters.formats import read, reader_for
+        name = reader_for(data)
+        out = read(data, **{k: v for k, v in kwargs.items() if k in ("k",)})
+        if name in ("h5ad", "loom"):
+            # a matrix and its axis labels: exactly what the feature path already
+            # takes, so it goes there rather than growing a second one.
+            matrix, _obs, var = out
+            from agent.adapters.feature_matrix import FeatureMatrixAdapter
+            feat_kwargs = {k: v for k, v in kwargs.items()
+                           if k in ("threshold", "typing", "sign", "n_clusters")}
+            adapter = FeatureMatrixAdapter()
+            # features are the vertices, so the VAR axis carries the names
+            edges = adapter.build(matrix, feature_names=var or None, **feat_kwargs)
+        else:
+            edges = out
     elif input_type == "single_cell":
         from agent.adapters.single_cell import SingleCellAdapter
         sc_kwargs = {k: v for k, v in kwargs.items()
