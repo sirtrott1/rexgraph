@@ -95,6 +95,17 @@ def set_threads(n: Optional[int]) -> None:
         pass
 
 
+def effective_threads() -> int:
+    """The thread width to actually use: an explicit set_threads if one was given,
+    else what the allocation permits. os.cpu_count() was the old fallback, which on
+    a cluster is the node's core count rather than the job's."""
+    explicit = get_threads()
+    if explicit:
+        return int(explicit)
+    from rexgraph.hardware import cpu_count
+    return cpu_count()
+
+
 def get_threads() -> Optional[int]:
     v = os.environ.get("OMP_NUM_THREADS")
     return int(v) if v else None
@@ -225,7 +236,8 @@ def parallel_map(fn, items, *, threads=None, inner_threads=None):
     bodies stay GIL-bound and gain nothing. Falls back to a serial map for a single worker or item.
 
     Nested-parallelism safety (automatic, not a per-call threshold): the machine's CPU thread
-    BUDGET is `get_threads()` (the configured width) else `os.cpu_count()`. The number of WORKERS
+    BUDGET is `effective_threads()`: the configured width if set, else what the
+    allocation permits (SLURM/affinity/cgroup), NOT the node's core count. The number of WORKERS
     is `min(threads or budget, len(items))`, and while they run the inner native threadpools are
     held to `inner_threads`, defaulting to the BUDGET ARITHMETIC `max(1, budget // workers)` - so
     workers * inner tracks the budget: no oversubscription when a task calls multi-threaded BLAS,
@@ -236,7 +248,7 @@ def parallel_map(fn, items, *, threads=None, inner_threads=None):
     items = list(items)
     if not items:
         return []
-    budget = get_threads() or (os.cpu_count() or 1)              # total CPU thread budget
+    budget = effective_threads()                                 # total CPU thread budget
     cap = threads if threads is not None else budget            # caller's worker cap
     workers = min(cap, len(items))
     if workers <= 1:
@@ -331,7 +343,8 @@ def dispatch(name: str, *args, prefer: Optional[str] = None, **kw):
     the best available backend, then any available one, then cpu. Raises if the op is unknown."""
     impls = _OPS.get(name)
     if not impls:
-        raise KeyError(f"no op registered as {name!r}")
+        raise KeyError(f"no op registered as {name!r}. Registered: "
+                       f"{', '.join(sorted(_OPS)) or '(none)'}")
     pref = prefer or _DEFAULT_BACKEND                        # the active setup's preference, if any
     if pref is None:                                         # nothing explicit -> host-recommended
         pref = _auto_backend()
@@ -381,7 +394,50 @@ def _mps_available() -> bool:
 
 register_backend("cpu", available=lambda: True, kind="cpu",
                  description="Serial / BLAS CPU (always available).")
-register_backend("openmp", available=lambda: (os.cpu_count() or 1) > 1, kind="cpu",
+# --- ops -----------------------------------------------------------------------
+#
+# register_op/dispatch shipped with zero registrations and zero callers, so the
+# extension point could only ever raise. These are the solvers the character and
+# propagator paths actually run, registered per backend, so a caller can ask for
+# an op and let the host decide where it lands.
+
+def _block_cg_cpu(A, B, dinv=None, tol=1e-10, maxit=1000):
+    """Jacobi-preconditioned block CG on the host."""
+    from rexgraph.sparse_character import _block_cg
+    import numpy as _np
+    if dinv is None:
+        d = A.diagonal()
+        dinv = _np.where(_np.abs(d) > 1e-30, 1.0 / d, 1.0)
+    # _block_cg is matrix-free: it takes apply_A(P) -> A @ P, not the matrix, so a
+    # caller can hand it a factored operator instead of an assembled one.
+    apply_A = A if callable(A) else (lambda P: A @ P)
+    return _block_cg(apply_A, _np.asarray(B, dtype=_np.float64), dinv,
+                     tol=tol, maxit=maxit)
+
+
+def _block_cg_gpu(A, B, dinv=None, tol=1e-10, maxit=1000, device=None):
+    """The same solve, resident on the device."""
+    import numpy as _np
+    import torch
+    from rexgraph import scale_propagator as _spg
+    if dinv is None:
+        d = A.diagonal()
+        dinv = _np.where(_np.abs(d) > 1e-30, 1.0 / d, 1.0)
+    dev = _spg._torch_device(device)
+    At = _spg._torch_csr(A, dev)
+    Bt = torch.as_tensor(_np.asarray(B, dtype=_np.float64), dtype=torch.float64,
+                         device=dev)
+    dt = torch.as_tensor(_np.asarray(dinv, dtype=_np.float64), dtype=torch.float64,
+                         device=dev)
+    return _spg._block_cg_gpu(At, Bt, dt, tol=tol, maxit=maxit).cpu().numpy()
+
+
+register_op("block_cg", "cpu", _block_cg_cpu)
+register_op("block_cg", "openmp", _block_cg_cpu)
+register_op("block_cg", "cuda", _block_cg_gpu)
+
+
+register_backend("openmp", available=lambda: effective_threads() > 1, kind="cpu",
                  description="Parallel CPU: the compiled OpenMP kernels, tuned by the thread width.")
 register_backend("cuda", available=_cuda_available, kind="gpu",
                  description="NVIDIA / ROCm GPU (via torch or cupy).")
