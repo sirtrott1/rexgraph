@@ -204,6 +204,84 @@ def _torch_info() -> Dict[str, Any]:
     }
 
 
+
+# --- cloud ---------------------------------------------------------------------
+#
+# Detection reads LOCAL signals only. The instance metadata service lives on a
+# link-local address that HANGS rather than refuses when you are not on that cloud,
+# so a provider probe that dials it turns "which cloud am I on" into a multi-second
+# stall on every machine that is on none of them. DMI answers the same question
+# from a file read.
+
+_DMI_DIR = "/sys/class/dmi/id"
+
+#: Azure's own documented marker. Hyper-V on a desk is also "Microsoft Corporation",
+#: so the vendor string alone must not claim an Azure VM.
+_AZURE_ASSET_TAG = "7783-7084-3265-9085-8269-3286-77"
+
+
+def _dmi(field: str) -> Optional[str]:
+    """One DMI field, or None. Unreadable is the normal case in a container."""
+    try:
+        with open(os.path.join(_DMI_DIR, field)) as fh:
+            return fh.read().strip()
+    except OSError:
+        return None
+
+
+def cloud() -> Dict[str, Any]:
+    """Which cloud this is running on, from local signals only.
+
+    Returns provider (aws/azure/gcp/oci/None), whatever instance identifier is
+    available without a network call, and whether this is inside Kubernetes.
+    """
+    vendor = (_dmi("sys_vendor") or "")
+    product = (_dmi("product_name") or "")
+    asset = (_dmi("chassis_asset_tag") or "")
+    uuid = (_dmi("product_uuid") or "")
+
+    provider: Optional[str] = None
+    if "amazon" in vendor.lower() or uuid.lower().startswith("ec2"):
+        provider = "aws"
+    elif "google" in vendor.lower() or "google" in product.lower():
+        provider = "gcp"
+    elif asset.strip() == _AZURE_ASSET_TAG:
+        provider = "azure"
+    elif "oraclecloud" in vendor.lower().replace(" ", ""):
+        provider = "oci"
+
+    # env-provided identifiers, which containers get even when DMI is masked
+    for env_name, name in (("AWS_EXECUTION_ENV", "aws"),
+                           ("ECS_CONTAINER_METADATA_URI_V4", "aws"),
+                           ("AZURE_CLIENT_ID", None), ("GCE_METADATA_HOST", "gcp")):
+        if name and os.environ.get(env_name):
+            provider = provider or name
+
+    return {
+        "provider": provider,
+        "instance_type": os.environ.get("REXGRAPH_INSTANCE_TYPE") or None,
+        "vendor": vendor or None,
+        "product": product or None,
+        "kubernetes": bool(os.environ.get("KUBERNETES_SERVICE_HOST")),
+        "container": _in_container(),
+    }
+
+
+def _in_container() -> bool:
+    """Whether this is inside a container, which is how cloud GPU instances are
+    almost always run -- and therefore whether the cgroup limits are the real ones."""
+    if os.path.exists("/.dockerenv"):
+        return True
+    if os.environ.get("KUBERNETES_SERVICE_HOST"):
+        return True
+    try:
+        with open("/proc/1/cgroup") as fh:
+            text = fh.read()
+        return any(m in text for m in ("docker", "kubepods", "containerd", "lxc"))
+    except OSError:
+        return False
+
+
 def detect() -> Dict[str, Any]:
     """Everything a setup profile or a run log should record about the host."""
     cpus, cpu_source = cpu_count(with_source=True)
@@ -229,6 +307,7 @@ def detect() -> Dict[str, Any]:
             "python": sys.version.split()[0],
             "node": platform.node(),
         },
+        "cloud": cloud(),
         "scheduler": ("slurm" if os.environ.get("SLURM_JOB_ID")
                       else "pbs" if os.environ.get("PBS_JOBID")
                       else None),
@@ -247,6 +326,11 @@ def summary() -> str:
         parts.append(f"{d['gpu_count']} gpu [{names}]")
     else:
         parts.append("no gpu")
+    c = d["cloud"]
+    if c["provider"]:
+        parts.append(c["provider"] + (" k8s" if c["kubernetes"] else ""))
+    elif c["container"]:
+        parts.append("container")
     if d["scheduler"]:
         parts.append(d["scheduler"])
     return " | ".join(parts)

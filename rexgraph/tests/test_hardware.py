@@ -183,3 +183,83 @@ def test_an_unknown_op_names_what_is_registered():
     with pytest.raises(KeyError) as ei:
         compute.dispatch("no_such_op", 1)
     assert "block_cg" in str(ei.value)
+
+
+# --- cloud, not just the scheduler --------------------------------------------
+
+def test_cloud_detection_never_touches_the_network_by_default(monkeypatch):
+    """The metadata service is a link-local address that HANGS rather than refuses
+    when you are not on that cloud, so detection has to answer from local signals."""
+    import socket
+
+    def _no_network(*a, **kw):
+        raise AssertionError("cloud detection opened a socket")
+
+    monkeypatch.setattr(socket, "socket", _no_network)
+    monkeypatch.setattr(socket, "create_connection", _no_network)
+    info = hardware.cloud()
+    assert isinstance(info, dict) and "provider" in info
+
+
+def test_aws_is_recognised_from_the_local_dmi_signal(monkeypatch):
+    monkeypatch.setattr(hardware, "_dmi", lambda f: {"sys_vendor": "Amazon EC2"}.get(f))
+    assert hardware.cloud()["provider"] == "aws"
+
+
+def test_gcp_is_recognised(monkeypatch):
+    monkeypatch.setattr(hardware, "_dmi",
+                        lambda f: {"product_name": "Google Compute Engine"}.get(f))
+    assert hardware.cloud()["provider"] == "gcp"
+
+
+def test_azure_is_recognised(monkeypatch):
+    monkeypatch.setattr(hardware, "_dmi", lambda f: {
+        "sys_vendor": "Microsoft Corporation",
+        "chassis_asset_tag": "7783-7084-3265-9085-8269-3286-77"}.get(f))
+    assert hardware.cloud()["provider"] == "azure"
+
+
+def test_a_plain_microsoft_vm_is_not_azure(monkeypatch):
+    """Hyper-V on someone's desk is also 'Microsoft Corporation'. The asset tag is
+    what distinguishes an Azure VM, so vendor alone must not claim it."""
+    monkeypatch.setattr(hardware, "_dmi",
+                        lambda f: {"sys_vendor": "Microsoft Corporation"}.get(f))
+    assert hardware.cloud()["provider"] != "azure"
+
+
+def test_kubernetes_is_reported_alongside_the_provider(monkeypatch):
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.0.0.1")
+    assert hardware.cloud()["kubernetes"] is True
+
+
+def test_no_cloud_signal_is_reported_honestly(monkeypatch):
+    monkeypatch.setattr(hardware, "_dmi", lambda f: None)
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    info = hardware.cloud()
+    assert info["provider"] is None
+    assert info["kubernetes"] is False
+
+
+def test_detect_carries_the_cloud_block():
+    d = hardware.detect()
+    assert "cloud" in d and "provider" in d["cloud"]
+
+
+def test_container_memory_limits_are_honoured(monkeypatch, tmp_path):
+    """Cloud GPU instances almost always run containerized, so the cgroup limit is
+    the real ceiling even when /proc/meminfo reports the whole host."""
+    limit = tmp_path / "memory.max"
+    limit.write_text(str(3 * 1024 ** 3))
+    monkeypatch.setattr(hardware, "_CGROUP_V2_MEM", str(limit))
+    monkeypatch.delenv("SLURM_MEM_PER_NODE", raising=False)
+    monkeypatch.delenv("REXGRAPH_MEMORY_BYTES", raising=False)
+    assert hardware.memory_bytes() <= 3 * 1024 ** 3
+
+
+def test_container_cpu_quota_is_honoured(monkeypatch, tmp_path):
+    quota = tmp_path / "cpu.max"
+    quota.write_text("200000 100000")            # 2 cores
+    monkeypatch.setattr(hardware, "_CGROUP_V2_CPU", str(quota))
+    monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
+    monkeypatch.delenv("REXGRAPH_CPUS", raising=False)
+    assert hardware.cpu_count() <= 2

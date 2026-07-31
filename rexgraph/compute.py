@@ -432,9 +432,30 @@ def _block_cg_gpu(A, B, dinv=None, tol=1e-10, maxit=1000, device=None):
     return _spg._block_cg_gpu(At, Bt, dt, tol=tol, maxit=maxit).cpu().numpy()
 
 
+def _greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
+    """diag(RL4^-1). Already chooses CPU/GPU internally on the work gate; registered
+    so `prefer` reaches it through the same door as everything else."""
+    from rexgraph.scale_propagator import greens_diagonal
+    return greens_diagonal(RL4, tol=tol, chunk=chunk, backend=backend)
+
+
+def _solve_block(L, B, dinv, tol=1e-10, maxit=1000, backend=None):
+    """Solve L X = B by block CG, single- or multi-GPU or CPU as the host allows."""
+    from rexgraph.scale_propagator import block_cg_solve
+    return block_cg_solve(L, B, dinv, tol=tol, maxit=maxit, backend=backend)
+
+
 register_op("block_cg", "cpu", _block_cg_cpu)
 register_op("block_cg", "openmp", _block_cg_cpu)
 register_op("block_cg", "cuda", _block_cg_gpu)
+
+# these two already gate on work size internally, so one implementation serves
+# every backend: `prefer` is passed through rather than selecting the callable.
+for _be in ("cpu", "openmp", "cuda"):
+    register_op("greens_diagonal", _be,
+                lambda *a, _b=_be, **kw: _greens_diagonal(*a, backend=_b, **kw))
+    register_op("solve_block", _be,
+                lambda *a, _b=_be, **kw: _solve_block(*a, backend=_b, **kw))
 
 
 register_backend("openmp", available=lambda: effective_threads() > 1, kind="cpu",
