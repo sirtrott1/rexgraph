@@ -148,12 +148,22 @@ def load_sdf(path, **kw) -> EdgeConstruction:
                type_names=[f"bond_order_{o}" for o in uniq] or ["bond"])
 
 
-def load_pdb(path, **kw) -> EdgeConstruction:
-    """PDB ATOM records with explicit CONECT bonds. Only CONECT is used: inferring
-    bonds from distance is a modelling decision, not a file read."""
+def load_pdb(path, *, backbone: bool = True, **kw) -> EdgeConstruction:
+    """PDB ATOM records, with CONECT bonds and the residue chain.
+
+    CONECT alone is not enough. Real PDB files omit it for standard residues --
+    those bonds follow from the residue templates -- so 1CA2 gives four bonds for
+    2207 atoms and a complex of isolated points. `backbone` adds the covalent
+    structure that is definitional rather than inferred: atoms within a residue,
+    and the peptide bond between consecutive residues of a chain.
+
+    Distance-based bond inference is still refused. That is a modelling decision
+    with a cutoff in it, and it is not what reading a file means.
+    """
     serial_to_idx: Dict[int, int] = {}
     labels: List[str] = []
     conect: List[Tuple[int, int]] = []
+    residues: List[Tuple[str, str, int]] = []      # (chain, resseq, atom index)
     with _open_text(path) as fh:
         for line in fh:
             rec = line[:6].strip()
@@ -161,13 +171,40 @@ def load_pdb(path, **kw) -> EdgeConstruction:
                 serial = int(line[6:11])
                 name = line[12:16].strip()
                 res = line[17:20].strip()
+                chain = line[21:22].strip() or "_"
+                resseq = line[22:27].strip()
                 serial_to_idx[serial] = len(labels)
+                residues.append((chain, resseq, len(labels)))
                 labels.append(f"{res}:{name}:{serial}")
             elif rec == "CONECT":
                 nums = [int(line[i:i + 5]) for i in range(6, len(line.rstrip()), 5)
                         if line[i:i + 5].strip().isdigit()]
                 for other in nums[1:]:
                     conect.append((nums[0], other))
+    if backbone:
+        # atoms of one residue are bonded to each other through it, and successive
+        # residues of a chain through the peptide bond. Both follow from the file,
+        # not from a distance cutoff. Built in index space and inverted once --
+        # searching serial_to_idx per edge is O(atoms) inside a loop over atoms.
+        idx_to_serial = {idx: serial for serial, idx in serial_to_idx.items()}
+        by_res: Dict[Tuple[str, str], List[int]] = {}
+        order: List[Tuple[str, str]] = []
+        for chain, resseq, idx in residues:
+            key = (chain, resseq)
+            if key not in by_res:
+                by_res[key] = []
+                order.append(key)
+            by_res[key].append(idx)
+        for key in order:
+            members = by_res[key]
+            for a, b in zip(members, members[1:]):
+                conect.append((idx_to_serial[a], idx_to_serial[b]))
+        for prev_key, next_key in zip(order, order[1:]):
+            if prev_key[0] != next_key[0]:
+                continue                       # a different chain is not bonded
+            a, b = by_res[prev_key][-1], by_res[next_key][0]
+            conect.append((idx_to_serial[a], idx_to_serial[b]))
+
     src, tgt, seen = [], [], set()
     for a, b in conect:
         if a not in serial_to_idx or b not in serial_to_idx:

@@ -234,3 +234,89 @@ def test_auto_rex_recognises_the_new_types(tmp_path):
                        ("s.fasta", FASTA), ("a.bed", BED)):
         p = _write(tmp_path, name, text)
         assert detect_input_type(str(p)) != "text", f"{name} fell through to text"
+
+
+# --- shapes real files actually have ------------------------------------------
+#
+# Checked against files pulled from UniProt, RCSB and PubChem. The fixtures below
+# are trimmed to the same layout those use, because the failures that matter are
+# the ones a real file causes and a tidy fixture does not.
+
+REAL_PDB = """\
+ATOM      1  N   HIS A   3      12.000  10.000  10.000  1.00  0.00           N
+ATOM      2  CA  HIS A   3      13.000  10.000  10.000  1.00  0.00           C
+ATOM      3  C   HIS A   3      14.000  10.000  10.000  1.00  0.00           C
+ATOM      4  N   TRP A   4      15.000  10.000  10.000  1.00  0.00           N
+ATOM      5  CA  TRP A   4      16.000  10.000  10.000  1.00  0.00           C
+ATOM      6  N   MET B   1      30.000  10.000  10.000  1.00  0.00           N
+ATOM      7  CA  MET B   1      31.000  10.000  10.000  1.00  0.00           C
+END
+"""
+
+
+def test_a_real_pdb_without_conect_is_not_a_cloud_of_isolated_atoms(tmp_path):
+    """Real structures omit CONECT for standard residues -- 1CA2 carries four of
+    them for 2207 atoms. Reading only CONECT gave a complex of isolated points."""
+    ec = formats.load_pdb(_write(tmp_path, "p.pdb", REAL_PDB))
+    assert ec.nV == 7
+    assert ec.nE >= 5, "the residue chain was not connected"
+
+
+def test_separate_chains_are_not_bonded_to_each_other(tmp_path):
+    """A peptide bond joins consecutive residues OF A CHAIN. Joining chain A's last
+    residue to chain B's first would invent a covalent bond that is not there."""
+    from agent.auto import auto_rex
+
+    rex = auto_rex(str(_write(tmp_path, "p.pdb", REAL_PDB)))
+    assert int(list(rex.betti)[0]) == 2, "the two chains were merged"
+
+
+def test_backbone_can_be_declined(tmp_path):
+    ec = formats.load_pdb(_write(tmp_path, "p.pdb", REAL_PDB), backbone=False)
+    assert ec.nE == 0, "CONECT-only should find nothing here"
+
+
+def test_ring_counts_match_known_chemistry(tmp_path):
+    """The check that says the reader is right rather than merely running: benzene
+    is one independent cycle, and beta_1 has to agree."""
+    from agent.auto import auto_rex
+
+    benzene = """benzene
+  test
+
+  6  6  0  0  0  0  0  0  0  0999 V2000
+    0.0000    1.4000    0.0000 C   0  0
+    1.2124    0.7000    0.0000 C   0  0
+    1.2124   -0.7000    0.0000 C   0  0
+    0.0000   -1.4000    0.0000 C   0  0
+   -1.2124   -0.7000    0.0000 C   0  0
+   -1.2124    0.7000    0.0000 C   0  0
+  1  2  2  0
+  2  3  1  0
+  3  4  2  0
+  4  5  1  0
+  5  6  2  0
+  6  1  1  0
+M  END
+$$$$
+"""
+    rex = auto_rex(str(_write(tmp_path, "b.sdf", benzene)))
+    assert list(rex.betti)[1] == 1
+
+
+def test_a_multi_record_sdf_reads_its_first_record(tmp_path):
+    """PubChem ships $$$$-delimited files; a reader that chokes on the delimiter
+    fails on the most common source there is."""
+    two = (SDF.rstrip() + "\n" + SDF)
+    ec = formats.load_sdf(_write(tmp_path, "m.sdf", two))
+    assert ec.nV == 6 and ec.nE == 6
+
+
+def test_a_uniprot_style_fasta_header_is_parsed(tmp_path):
+    """UniProt headers are sp|ACC|NAME ..., so the accession must survive."""
+    text = (">sp|P00918|CAH2_HUMAN Carbonic anhydrase 2\n"
+            "MSHHWGYGKHNGPEHWHKDFPIAKGERQ\n"
+            ">sp|P00915|CAH1_HUMAN Carbonic anhydrase 1\n"
+            "MASPDWGYDDKNGPEQWSKLYPIANGNN\n")
+    ec = formats.load_fasta(_write(tmp_path, "p.fasta", text), k=6)
+    assert ec.nE > 0 and ec.nV > 0
