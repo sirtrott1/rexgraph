@@ -473,33 +473,87 @@ class FileStore(RCStore):
         self.root = root
         os.makedirs(os.path.join(root, "blobs"), exist_ok=True)
         self._index_path = os.path.join(root, "index.json")
+        self._log_path = os.path.join(root, "index.log")
+        # Loaded once. Re-reading the index on every call, and rewriting it on every
+        # put, is what made ingest quadratic; the log means the cache stays authoritative
+        # and each change costs one line.
+        self._idx = self._read_index()
 
     def _read_index(self) -> Dict[str, List[ComplexRecord]]:
         """Load index.json into `{id -> [ComplexRecord, ...]}`. A legacy
         `{id -> record_dict}` index (one dict per id, no version list) is
         wrapped as a single-element list; `from_dict` backfills the missing
         bitemporal fields so it reads as version 1."""
-        if not os.path.exists(self._index_path):
-            return {}
-        try:
-            with open(self._index_path) as f:
-                raw = json.load(f)
-        except Exception:
-            return {}
         idx: Dict[str, List[ComplexRecord]] = {}
-        for id, v in raw.items():
-            if isinstance(v, dict):
-                idx[id] = [ComplexRecord.from_dict(v)]
-            else:
-                idx[id] = [ComplexRecord.from_dict(x) for x in v]
+        # A snapshot, if one exists: written by an older version of this store, or
+        # left by compaction. Read first so the log layers on top of it.
+        if os.path.exists(self._index_path):
+            try:
+                with open(self._index_path) as f:
+                    raw = json.load(f)
+                for id, v in raw.items():
+                    if isinstance(v, dict):
+                        idx[id] = [ComplexRecord.from_dict(v)]
+                    else:
+                        idx[id] = [ComplexRecord.from_dict(x) for x in v]
+            except Exception:
+                idx = {}
+        # then the append-only log. Rewriting the whole index on every put made the
+        # cost of a put grow with the store: 4 ms at a hundred records, 35 ms at
+        # sixteen hundred, which is quadratic ingest. One line per change instead.
+        if os.path.exists(self._log_path):
+            try:
+                with open(self._log_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            break            # torn tail: the rest is unwritable
+                        rid = entry.get("id")
+                        if entry.get("op") == "delete":
+                            idx.pop(rid, None)
+                            continue
+                        rec = ComplexRecord.from_dict(entry["record"])
+                        versions = idx.setdefault(rid, [])
+                        versions = [r for r in versions if r.version != rec.version]
+                        for prior in versions:
+                            if prior.tx_to is None:
+                                prior.tx_to = rec.tx_from
+                        versions.append(rec)
+                        versions.sort(key=lambda r: r.version)
+                        idx[rid] = versions
+            except OSError:
+                pass
         return idx
 
+    def _append_log(self, entry: dict) -> None:
+        with open(self._log_path, "a", encoding="utf-8") as f:
+            from rexgraph.io._compat import dumps
+            f.write(dumps(entry) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+
     def _write_index(self, idx: Dict[str, List[ComplexRecord]]):
+        """Write a full snapshot and drop the log. This is compaction, not the write
+        path: callers that used it to persist one change now append instead."""
         raw = {id: [r.to_dict() for r in versions] for id, versions in idx.items()}
         tmp = self._index_path + ".tmp"
         with open(tmp, "w") as f:
             json.dump(raw, f)
         os.replace(tmp, self._index_path)
+        try:
+            os.remove(self._log_path)
+        except OSError:
+            pass
+
+    def compact(self) -> dict:
+        """Fold the log into a snapshot. Optional: reading is correct either way."""
+        before = os.path.getsize(self._log_path) if os.path.exists(self._log_path) else 0
+        self._write_index(self._read_index())
+        return {"log_bytes_reclaimed": before}
 
     @staticmethod
     def _safe_name(id: str) -> str:
@@ -538,12 +592,12 @@ class FileStore(RCStore):
         return os.path.join(self.root, "blobs", self._sanitized_name(id) + ".safetensors")
 
     def next_version(self, id):
-        rs = self._read_index().get(id)
+        rs = self._idx.get(id)
         return (rs[-1].version + 1) if rs else 1
 
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to):
         now = _now()
-        idx = self._read_index()
+        idx = self._idx
         versions = idx.setdefault(id, [])
         v = (versions[-1].version + 1) if versions else 1
         for r in versions:
@@ -556,11 +610,11 @@ class FileStore(RCStore):
         versions.append(rec)
         with open(self._blob_path(id, v), "wb") as f:
             f.write(serialize_complex(rex))
-        self._write_index(idx)
+        self._append_log({"op": "put", "id": id, "record": rec.to_dict()})
         return rec
 
     def get_record(self, id, *, as_of=None, valid_at=None):
-        idx = self._read_index()
+        idx = self._idx
         rec = self._select_version(idx.get(id, []), as_of, valid_at)
         if rec is None:
             split = self._split_versioned_id(id)
@@ -594,11 +648,11 @@ class FileStore(RCStore):
         return deserialize_complex(blob) if blob is not None else None
 
     def history(self, id):
-        return list(self._read_index().get(id, []))
+        return list(self._idx.get(id, []))
 
     def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
              include_history=False):
-        idx = self._read_index()
+        idx = self._idx
         recs = ([r for versions in idx.values() for r in versions] if include_history
                 else [self._select_version(versions, as_of, valid_at)
                       for versions in idx.values()])
@@ -612,11 +666,11 @@ class FileStore(RCStore):
         return out[:limit]
 
     def delete(self, id):
-        idx = self._read_index()
+        idx = self._idx
         versions = idx.pop(id, None)
         existed = versions is not None
         if existed:
-            self._write_index(idx)
+            self._append_log({"op": "delete", "id": id})
             for r in versions:
                 for p in self._blob_read_paths(id, r.version):
                     try:
@@ -1397,9 +1451,73 @@ def compare(store: RCStore, id_a: str, id_b: str):
     }
 
 
+def migrate(src: RCStore, dst: RCStore, *, ids=None, limit: int = 10 ** 9) -> dict:
+    """Copy records from one store into another, every version, oldest first.
+
+    Written against the RCStore contract alone, so it works for any pair of backends
+    without either knowing the other exists -- which is what makes the choice of
+    backend reversible rather than a commitment. Existing records in `dst` are left
+    alone; a colliding id gains versions rather than losing its own.
+    """
+    wanted = list(ids) if ids is not None else [r.id for r in src.list(limit=limit)]
+    n_records = n_versions = 0
+    for rid in wanted:
+        history = src.history(rid)
+        if not history:
+            continue
+        n_records += 1
+        for rec in sorted(history, key=lambda r: r.version):
+            rex = src.get_version(rid, rec.version)
+            if rex is None:
+                continue
+            dst.put(rid, rex, meta=rec.meta,
+                    tags=list((rec.signature or {}).get("tags", [])),
+                    valid_from=rec.valid_from, valid_to=rec.valid_to)
+            n_versions += 1
+    return {"records": n_records, "versions": n_versions,
+            "src": getattr(src, "backend", "?"), "dst": getattr(dst, "backend", "?")}
+
+
+def _existing_backend(path: str):
+    """Which backend already owns `path`, if any. Choosing must never orphan data:
+    a directory written by one store has to reopen as that store."""
+    import os
+    if not os.path.isdir(path):
+        return None
+    if os.path.exists(os.path.join(path, "records.log")):
+        return "rex"
+    if os.path.exists(os.path.join(path, "index.json")) or \
+            os.path.exists(os.path.join(path, "index.log")):
+        return "file"
+    return None
+
+
+def recommend_backend(path: str = "", *, uri: str = "") -> dict:
+    """Which backend to use, and why.
+
+    Order of deference: an explicit URI scheme, then whatever already lives at the
+    path, then the embedded store. SQL is not chosen automatically even when a
+    driver is installed -- it needs a server or a file the caller names, and
+    guessing a database is not a decision a library should make for someone.
+    """
+    if uri:
+        scheme = urlparse(uri).scheme
+        if scheme and scheme not in ("auto", "file"):
+            return {"backend": scheme, "reason": f"explicit in the uri ({scheme}://)"}
+    found = _existing_backend(path) if path else None
+    if found:
+        return {"backend": found,
+                "reason": f"a {found} store already exists at this path"}
+    return {"backend": "rex",
+            "reason": "embedded, append-only: constant-cost writes, three files, "
+                      "no server"}
+
+
 def open_store(uri: str = "memory://") -> RCStore:
     """Open an RCStore from a URI.
 
+    auto:///path                    -> whatever already lives there, else RexStore
+    s3://…, gs://…, az://…          -> ObjectStore (needs s3fs / gcsfs / adlfs)
     memory://                       -> MemoryStore
     rex:///path                     -> RexStore (embedded, append-only, no server)
     file:///path  or  /path         -> FileStore (legacy: quadratic ingest)
@@ -1408,6 +1526,10 @@ def open_store(uri: str = "memory://") -> RCStore:
     """
     parsed = urlparse(uri)
     scheme = parsed.scheme or "file"
+    if scheme == "auto":
+        path = uri[len("auto://"):] or "./rcdb"
+        chosen = recommend_backend(path)["backend"]
+        return open_store(f"{chosen}://{path}")
     if scheme in _BACKENDS:
         return _BACKENDS.require(scheme)(uri)
     if scheme == "memory":
@@ -1426,8 +1548,16 @@ def _open_rexstore(uri: str):
     return RexStore(path or "./rexdb")
 
 
+def _open_objectstore(uri: str):
+    from .objectstore import ObjectStore
+    return ObjectStore(uri)
+
+
 register_backend("memory", lambda uri: MemoryStore())
 register_backend("rex", _open_rexstore)
+# one backend, every provider: fsspec routes the wire protocol to its driver.
+for _scheme in ("s3", "gs", "gcs", "az", "abfs", "adl"):
+    register_backend(_scheme, _open_objectstore)
 register_backend("file", lambda uri: FileStore(
     uri[len("file://"):] if uri.startswith("file://") else uri))
 
