@@ -161,6 +161,9 @@ __all__ += [
 # Adding a format means registering one, not editing this module. Mirrors
 # agent.rcdb.register_backend, which is the same pattern one layer up.
 
+from ..registry import Registry
+
+
 class _Format:
     __slots__ = ("name", "save", "load", "extensions")
 
@@ -171,7 +174,7 @@ class _Format:
         self.extensions = tuple(extensions)
 
 
-_FORMATS = {}
+_FORMATS = Registry("format")
 
 
 def register_format(name, *, save=None, load=None, extensions=()):
@@ -183,23 +186,23 @@ def register_format(name, *, save=None, load=None, extensions=()):
     `_detect_format`.
     """
     fmt = _Format(name, save, load, extensions)
-    _FORMATS[name] = fmt
+    _FORMATS.register(name, fmt, extensions=tuple(extensions))
     return fmt
 
 
 def unregister_format(name):
     """Remove a registered format. Returns it, or None if it was not registered."""
-    return _FORMATS.pop(name, None)
+    return _FORMATS.unregister(name)
 
 
 def available_formats():
     """Names of every registered format."""
-    return sorted(_FORMATS)
+    return _FORMATS.available()
 
 
 def format_extensions():
     """Mapping of extension -> format name, built from the registry."""
-    return {e: f.name for f in _FORMATS.values() for e in f.extensions}
+    return {e: name for name, f in _FORMATS.items() for e in f.extensions}
 
 
 def _require(fmt_name, verb):

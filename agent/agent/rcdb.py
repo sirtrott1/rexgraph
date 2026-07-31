@@ -993,12 +993,24 @@ class SQLStore(RCStore):
 
 # backend registry + URI opener
 
-_BACKENDS: Dict[str, Callable[[str], RCStore]] = {}
+from rexgraph.registry import Registry
+
+_BACKENDS = Registry("rcdb backend")
 
 
 def register_backend(scheme: str, factory: Callable[[str], RCStore]) -> None:
     """Register a backend factory for a URI scheme (e.g. 'redis')."""
-    _BACKENDS[scheme] = factory
+    _BACKENDS.register(scheme, factory)
+
+
+def unregister_backend(scheme: str):
+    """Remove a backend factory. Returns it, or None if it was not registered."""
+    return _BACKENDS.unregister(scheme)
+
+
+def available_backends() -> List[str]:
+    """Every registered URI scheme."""
+    return _BACKENDS.available()
 
 
 def _labels_of(rec: "ComplexRecord", rex) -> list:
@@ -1396,7 +1408,7 @@ def open_store(uri: str = "memory://") -> RCStore:
     parsed = urlparse(uri)
     scheme = parsed.scheme or "file"
     if scheme in _BACKENDS:
-        return _BACKENDS[scheme](uri)
+        return _BACKENDS.require(scheme)(uri)
     if scheme == "memory":
         return MemoryStore()
     if scheme == "file":

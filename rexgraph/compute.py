@@ -34,13 +34,22 @@ __all__ = [
 
 # backends
 
-_BACKENDS: Dict[str, dict] = {}
+from .registry import Registry
+
+_BACKENDS = Registry("compute backend")
 
 
 def register_backend(name: str, *, available: Callable[[], bool], kind: str = "cpu",
                      description: str = "") -> None:
     """Register a compute backend with an availability probe. kind is 'cpu' or 'gpu'."""
-    _BACKENDS[name] = {"name": name, "available": available, "kind": kind, "description": description}
+    _BACKENDS.register(name, {"name": name, "available": available,
+                              "kind": kind, "description": description},
+                       kind=kind)
+
+
+def unregister_backend(name: str):
+    """Remove a backend. A registry you can only add to leaks across a process."""
+    return _BACKENDS.unregister(name)
 
 
 def _ok(b) -> bool:
@@ -53,18 +62,18 @@ def _ok(b) -> bool:
 def backends() -> List[dict]:
     """Every registered backend with its kind, description, and current availability."""
     return [{"name": b["name"], "kind": b["kind"], "description": b["description"],
-             "available": _ok(b)} for b in _BACKENDS.values()]
+             "available": _ok(b)} for _, b in _BACKENDS.items()]
 
 
 def available_backends() -> List[str]:
-    return [b["name"] for b in _BACKENDS.values() if _ok(b)]
+    return [n for n, b in _BACKENDS.items() if _ok(b)]
 
 
 def best_backend(prefer: Optional[str] = None) -> str:
     """The best available backend: `prefer` if available, else a GPU backend, else cpu."""
-    if prefer and prefer in _BACKENDS and _ok(_BACKENDS[prefer]):
+    if prefer and prefer in _BACKENDS and _ok(_BACKENDS.get(prefer)):
         return prefer
-    for b in _BACKENDS.values():
+    for _, b in _BACKENDS.items():
         if b["kind"] == "gpu" and _ok(b):
             return b["name"]
     return "cpu"
@@ -176,7 +185,7 @@ def _auto_backend() -> Optional[str]:
     if not rec:
         return None
     name = _BACKEND_ALIAS.get(rec, rec)
-    if name in _BACKENDS and _ok(_BACKENDS[name]):
+    if name in _BACKENDS and _ok(_BACKENDS.get(name)):
         return name
     return None
 

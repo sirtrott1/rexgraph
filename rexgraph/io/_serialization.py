@@ -577,7 +577,9 @@ def read_result_dict(
 
 # Type resolution
 
-_TYPE_REGISTRY: Dict[str, Type] = {}
+from ..registry import Registry
+
+_TYPE_REGISTRY = Registry("result type")
 
 
 def _resolve_type(type_name: str) -> Optional[Type]:
@@ -600,12 +602,24 @@ def _populate_registry() -> None:
             if (isinstance(obj, type)
                     and issubclass(obj, tuple)
                     and hasattr(obj, "_fields")):
-                _TYPE_REGISTRY[name] = obj
+                _TYPE_REGISTRY.register(name, obj)
     except ImportError:
         pass
+
+
+def available_types() -> list:
+    """Every registered result type."""
+    if not _TYPE_REGISTRY:
+        _populate_registry()
+    return _TYPE_REGISTRY.available()
+
+
+def unregister_type(name: str):
+    """Remove a registered result type."""
+    return _TYPE_REGISTRY.unregister(name)
 
 
 def register_type(cls: Type) -> None:
     """Manually register a NamedTuple class for deserialization."""
     if hasattr(cls, "_fields"):
-        _TYPE_REGISTRY[cls.__name__] = cls
+        _TYPE_REGISTRY.register(cls.__name__, cls)

@@ -27,8 +27,37 @@ from typing import Any, Dict, List, Sequence
 #: from these rather than from the payload.
 QUANTITIES = ("nV", "nE", "nF", "betti1", "kappa_mean")
 
-#: how a caller may combine temporal signal with the structural score.
-MODES = ("off", "stability", "recency", "settled")
+# How a caller may combine temporal signal with the structural score. A registry,
+# not a fixed tuple: a domain-specific policy -- a pseudotime ordering, a
+# batch-corrected recency -- should not mean editing this module. A policy is
+# `fn(features, recency_weights, doc_id) -> weight`, and the structural score gates
+# it whatever it returns.
+from rexgraph.registry import Registry
+
+_POLICIES = Registry("temporal policy")
+
+
+def register_policy(name: str, fn) -> None:
+    """Register a rerank policy. `fn(features, recency, doc_id) -> float weight`."""
+    _POLICIES.register(name, fn)
+
+
+def unregister_policy(name: str):
+    return _POLICIES.unregister(name)
+
+
+def available_policies() -> List[str]:
+    return _POLICIES.available()
+
+
+register_policy("off", lambda f, r, d: 1.0)
+register_policy("stability", lambda f, r, d: f[d]["stability"])
+register_policy("recency", lambda f, r, d: r.get(d, 1.0))
+#: recent AND undisputed
+register_policy("settled", lambda f, r, d: f[d]["stability"] * r.get(d, 1.0))
+
+#: kept as a name for callers that enumerated the old tuple
+MODES = tuple(_POLICIES.available())
 
 
 def _num(x) -> float:
@@ -144,8 +173,9 @@ def rerank(sections: List[Dict[str, Any]], store, *, mode: str = "stability",
     Each section keeps `structural_score` and gains a `temporal` block, so the
     reordering is auditable and a caller can re-derive it under another policy.
     """
-    if mode not in MODES:
-        raise ValueError(f"unknown temporal mode {mode!r}, expected one of {MODES}")
+    if mode not in _POLICIES:
+        raise ValueError(f"unknown temporal mode {mode!r}, expected one of "
+                         f"{available_policies()}")
     if not sections:
         return list(sections)
 
@@ -165,15 +195,11 @@ def rerank(sections: List[Dict[str, Any]], store, *, mode: str = "stability",
                             "tx_from": feats[s.get("doc_id")].get("tx_from")}
                            for s in sections])
 
+    policy = _POLICIES.require(mode)
     for s in sections:
         did = s.get("doc_id")
         base = float(s.get("structural_score", 0.0) or 0.0)
-        if mode == "stability":
-            w = feats[did]["stability"]
-        elif mode == "recency":
-            w = rec.get(did, 1.0)
-        else:                                    # "settled": recent AND undisputed
-            w = feats[did]["stability"] * rec.get(did, 1.0)
+        w = policy(feats, rec, did)
         s["temporal"] = {**feats[did], "weight": round(float(w), 6), "mode": mode}
         s["score"] = round(base * float(w), 6)
 
