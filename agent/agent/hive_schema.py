@@ -1,4 +1,4 @@
-"""agent.hive_schema - the hive's own structure as a versioned relational complex.
+"""agent.hive_schema: the hive's own structure as a versioned relational complex.
 
 A hive is not a fixed set of workers; it is a living schema. Which workers and
 models it holds, what capabilities they provide, which databases and stores it is
@@ -29,7 +29,7 @@ class HiveSchema:
 
     def __init__(self, hive, *, store: Optional[rcdb.RCStore] = None, lineage_id: str = "hive"):
         self.hive = hive
-        self.store = store or rcdb.MemoryStore()
+        self.store = store or rcdb.default_store()
         self.lineage_id = lineage_id
         # resources the hive is attached to but that are not bees: databases, stores, datasets.
         # name -> {"kind": str, "links": [(bee_name, relation)]}

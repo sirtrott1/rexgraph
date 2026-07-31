@@ -138,7 +138,7 @@ def hypergraph_bundle(ed: EdgeData, mask: np.ndarray, X, y):
     """Co-participation hypergraph over the edges in `mask`: each edge is a NODE; a hyperedge
     groups edges that share a source node, and another groups edges that share a destination node.
     This is the HGNN-specific edge-primal view; the original complex remains primary elsewhere."""
-    from agent.agent.models.data import DataBundle
+    from ..models.data import DataBundle
     local = {int(b): i for i, b in enumerate(mask)}         # edge index -> node id
     groups = defaultdict(list)
     for b in mask:

@@ -7,8 +7,8 @@ import numpy as np
 
 
 def train_one(spec: dict) -> dict:
-    from agent.agent.models import run as models_run
-    from agent.agent.models.data import DataBundle, make_splits
+    from ..models import run as models_run
+    from ..models.data import DataBundle, make_splits
     import torch
     b = DataBundle("hypergraph",
                    torch.as_tensor(np.asarray(spec["X"], np.float32)),

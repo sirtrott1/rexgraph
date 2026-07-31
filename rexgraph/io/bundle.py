@@ -176,17 +176,9 @@ def _load_npy(
     return np.load(fpath, mmap_mode=mode)
 
 
-def _json_default(o):
-    """JSON fallback for numpy types."""
-    if isinstance(o, np.ndarray):
-        return o.tolist()
-    if isinstance(o, np.integer):
-        return int(o)
-    if isinstance(o, np.floating):
-        return float(o)
-    if isinstance(o, np.bool_):
-        return bool(o)
-    raise TypeError(f"Not JSON serializable: {type(o)}")
+#: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
+#: existing call sites keep working; `dumps` is what applies the non-finite policy.
+from ._compat import dumps as _dumps
 
 
 # RexBundle
@@ -348,7 +340,6 @@ class RexBundle:
             raise TypeError(
                 f"Bundle contains {self.object_type}, not RexGraph"
             )
-        from ..graph import RexGraph
         return _read_rex_graph(self._root)
 
     def to_temporal(self) -> "TemporalRex":
@@ -357,7 +348,6 @@ class RexBundle:
             raise TypeError(
                 f"Bundle contains {self.object_type}, not TemporalRex"
             )
-        from ..graph import TemporalRex
         return _read_temporal_rex(self._root)
 
     def to_object(self):
@@ -491,7 +481,7 @@ def _write_rex_bundle(root: pathlib.Path, rex, cache) -> None:
     manifest["magic"] = "rex-bundle"
     manifest["object_type"] = "RexGraph"
     manifest["tensor_names"] = names
-    (root / "MANIFEST.json").write_text(json.dumps(manifest, default=_json_default))
+    (root / "MANIFEST.json").write_text(_dumps(manifest))
     if cache:
         names = _resolve_cache(cache)
         if names:
@@ -501,7 +491,7 @@ def _write_rex_bundle(root: pathlib.Path, rex, cache) -> None:
             manifest["cached_arrays"] = written_cache
             if scalar_cache:
                 manifest["cache_scalars"] = scalar_cache
-            (root / "MANIFEST.json").write_text(json.dumps(manifest, default=_json_default))
+            (root / "MANIFEST.json").write_text(_dumps(manifest))
 
 
 def _read_rex_graph(root: pathlib.Path) -> "RexGraph":
@@ -545,7 +535,7 @@ def _write_temporal_bundle(root: pathlib.Path, trex) -> None:
             _save_npy(ftdir, "B2_row_idx", fsnap[1])
 
     (root / "MANIFEST.json").write_text(
-        json.dumps(manifest, indent=2, default=_json_default)
+        _dumps(manifest, indent=2)
     )
 
 

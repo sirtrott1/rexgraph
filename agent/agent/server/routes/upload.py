@@ -10,11 +10,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 
-from agent.auto import auto_rex, detect_input_type
+from agent.auto import auto_rex
 from agent.pipeline import AnalysisPipeline
 
 router = APIRouter()

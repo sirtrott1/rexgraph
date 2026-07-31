@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._fiber - Fiber character and similarity complex.
+rexgraph.core._fiber: Fiber character and similarity complex.
 
 Fiber character uses full spectral structure (not just diagonal).
 Similarity complex thresholds pairwise chi/phi cosine into a new graph.
@@ -123,7 +123,7 @@ def threshold_graph(np.ndarray[f64, ndim=2] similarity,
 
 def similarity_complex(np.ndarray[f64, ndim=2] similarity,
                         Py_ssize_t n, f64 threshold):
-    """Build a chain complex from thresholded similarity.
+    """Build a relational complex from thresholded similarity.
 
     Uses fundamental cycle basis for automatic face generation.
     """

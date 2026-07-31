@@ -11,28 +11,22 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import numpy as np
 from numpy.typing import NDArray
 
 from ._compat import (
     HAS_HDF5,
-    open_hdf5,
-    h5_store_array,
-    h5_load_array,
     h5_store_complex,
     h5_load_complex,
-    h5_store_sparse_csr,
     h5_load_sparse_csr,
     h5_store_dict,
     h5_load_dict,
     h5_store_bool_masks,
     h5_load_bool_masks,
-    h5_store_strings,
-    h5_load_strings,
     to_native,
-    json_default,
+    dumps,
     as_str,
 )
 
@@ -285,7 +279,6 @@ class RexHDF5Format:
 
     def read(self, path: str) -> Any:
         """Read a RexGraph, TemporalRex, or ndarray from an .h5 file."""
-        from ..graph import RexGraph, TemporalRex
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
@@ -331,7 +324,6 @@ class RexHDF5Format:
 
     def read_from_group(self, path: str, name: str) -> Any:
         """Read /objects/<n> from path."""
-        from ..graph import RexGraph, TemporalRex
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
@@ -372,7 +364,7 @@ class RexHDF5Format:
         for name, arr in st.tensors.items():
             store_fn = self._store_chunked if large else self._store
             store_fn(g, fname_encode(name), np.asarray(arr))
-        g.attrs["rex_state_header"] = json.dumps(st.header, default=json_default)
+        g.attrs["rex_state_header"] = dumps(st.header)
         g.attrs["tensor_names"] = json.dumps(list(st.tensors.keys()))
 
         if cache:
@@ -798,9 +790,7 @@ class RexHDF5Format:
                 try:
                     fdata = rex.face_data()
                     if hasattr(fdata, "faces"):
-                        fg.attrs["face_data"] = json.dumps(
-                            fdata.faces, default=json_default
-                        )
+                        fg.attrs["face_data"] = dumps(fdata.faces)
                     if hasattr(fdata, "metrics"):
                         h5_store_dict(fg, "metrics", fdata.metrics,
                                       compression=self.compression or "",

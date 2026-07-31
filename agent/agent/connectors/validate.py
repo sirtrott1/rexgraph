@@ -1,5 +1,5 @@
 """
-agent.connectors.validate - the validation harness.
+agent.connectors.validate: the validation harness.
 
 Runs a connector against a source and reports, check by check, whether its
 output is a well-formed relational complex that stores and round-trips and
@@ -26,7 +26,7 @@ from typing import Any, Callable, List, Optional
 
 import numpy as np
 
-from . import BaseConnector, to_rexgraph
+from . import to_rexgraph
 
 
 @dataclass

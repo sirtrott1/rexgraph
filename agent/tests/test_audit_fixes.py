@@ -265,3 +265,104 @@ def test_optional_stages_graceful_without_faces():
     # continuum limit needs a small spectrum; on tiny graphs it may skip
     cl = pipe._stage_continuum_limit()
     assert "available" in cl
+
+
+# auto_rex must treat long text as text, not as a filesystem path
+def test_auto_rex_accepts_text_longer_than_the_filename_limit():
+    """auto.py probed Path(data).is_file() on the raw input. On Python 3.13 that
+    propagates OSError ENAMETOOLONG for any text carrying a path-like segment past
+    the filesystem name limit, so 12% of a real corpus was dropped with a warning."""
+    from agent.auto import auto_rex
+
+    # a path-like segment well past the 255-byte component limit
+    text = ("alpha beta gamma delta " * 40) + "\n" + ("x" * 400) + "\nalpha beta gamma delta\n"
+    assert len(text) > 255
+    rex = auto_rex(text)
+    assert rex is not None
+    assert int(rex.nE) > 0
+
+
+def test_auto_rex_still_reads_a_real_file_path():
+    """The path branch must keep working for short strings that are real files."""
+    from agent.auto import auto_rex
+
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "doc.txt")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("alpha beta gamma delta alpha beta gamma alpha beta\n" * 6)
+        rex = auto_rex(p)
+        assert rex is not None and int(rex.nE) > 0
+
+
+# open_secret_store must not silently turn an unknown scheme into a filename
+def test_open_secret_store_rejects_an_unrecognized_scheme():
+    """The fallback returned FileSecretStore(uri), so 'vault://team/prod' became a
+    file literally named 'vault://team/prod' and every secret went to the wrong place
+    while reporting success."""
+    from agent.secrets import open_secret_store
+
+    with pytest.raises(ValueError) as ei:
+        open_secret_store("vault://team/prod")
+    assert "vault" in str(ei.value)
+
+
+def test_open_secret_store_accepts_a_bare_path_and_known_schemes(tmp_path):
+    """A bare path stays a file store, and the two supported schemes keep working."""
+    from agent.secrets import open_secret_store, FileSecretStore, EnvSecretStore
+
+    assert isinstance(open_secret_store(str(tmp_path / "conn.json")), FileSecretStore)
+    assert isinstance(open_secret_store("file://" + str(tmp_path / "c.json")), FileSecretStore)
+    assert isinstance(open_secret_store("env://"), EnvSecretStore)
+
+
+# partition_communities must not raise NameError past its early return
+def test_partition_communities_runs_past_the_early_return():
+    """graph.py called _standard.build_adj_weights but never bound _standard, so any
+    graph with nE > max_size raised NameError. The early return hid it for small ones."""
+    import numpy as np
+    from rexgraph.graph import RexGraph
+
+    rex = RexGraph.from_graph(np.arange(10, dtype=np.int32),
+                              np.arange(1, 11, dtype=np.int32))
+    parts = rex.partition_communities(max_size=3)      # nE = 10 > 3, so it must do work
+    assert parts is not None
+
+
+# Packaging and export gaps
+def test_curvature_kernel_is_exported_from_the_core_namespace():
+    """_curvature is compiled (core/meson.build) but was absent from __init__'s _MODULES,
+    so five public kernel functions were reachable only by full dotted path."""
+    import rexgraph.core as core
+
+    assert hasattr(core, "_curvature")
+    for name in ("lagrangian_curvature", "star_curvature", "weighted_degree",
+                 "curvature_operator", "lagrangian_L_T_integer"):
+        assert hasattr(core, name), f"core.{name} missing from the flattened namespace"
+
+
+def test_harmonic_wrapper_is_declared_for_installation():
+    """rexgraph/harmonic.py is a public wrapper over core._harmonic but was not listed in
+    rexgraph/meson.build, so it was absent from an installed package."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    build = (root / "rexgraph" / "meson.build").read_text(encoding="utf-8")
+    assert "'harmonic.py'" in build
+
+
+def test_inverse_centrality_ratio_does_not_warn_on_an_isolated_vertex():
+    """np.where(deg > 0, med / deg, 0.0) evaluated med/deg for every entry first, so any
+    complex with a zero-degree vertex emitted a divide-by-zero RuntimeWarning."""
+    import warnings
+
+    import numpy as np
+    from rexgraph.graph import RexGraph
+
+    # the edge list skips vertex 2, so nV covers it and its degree is 0
+    rex = RexGraph(sources=np.array([0, 1, 3], dtype=np.int32),
+                   targets=np.array([1, 3, 4], dtype=np.int32))
+    assert int(np.asarray(rex.degree)[2]) == 0
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        mu = rex.inverse_centrality_ratio
+    assert np.all(np.isfinite(mu))

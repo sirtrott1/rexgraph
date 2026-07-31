@@ -1,4 +1,4 @@
-"""agent.server.routes.schema - topological diagnosis of database schemas."""
+"""agent.server.routes.schema: topological diagnosis of database schemas."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ async def analyze_schema(body: dict = Body(...)):
         try:
             rex, meta = sc.schema_to_rex(model)
             if rex is not None:
-                from agent.server.routes.rcdb import _store
+                from agent.rcdb import default_store as _store
                 from agent.rcdb import version_if_changed
                 info = version_if_changed(_store(), body["lineage_id"], rex, meta=meta,
                                           tags=(body.get("tags") or []) + ["schema"])
@@ -64,7 +64,7 @@ async def analyze_schema(body: dict = Body(...)):
         try:
             rex, meta = sc.schema_to_rex(model)
             if rex is not None:
-                from agent.server.routes.rcdb import _store
+                from agent.rcdb import default_store as _store
                 _store().put(body["store_id"], rex, meta=meta,
                              tags=(body.get("tags") or []) + ["schema"])
                 report["stored_as"] = body["store_id"]

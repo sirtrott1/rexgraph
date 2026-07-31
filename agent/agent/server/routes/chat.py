@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import numpy as np
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, Body
 
 router = APIRouter()
 
@@ -36,17 +36,13 @@ def _get_tracker(session_id: str, ws=None):
     return _get_tracker._fallback[session_id]
 
 
-class _Encoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (np.integer,)):
-            return int(obj)
-        if isinstance(obj, (np.floating,)):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, (np.bool_,)):
-            return bool(obj)
-        return super().default(obj)
+#: the one encoder (rexgraph.io._compat). Non-finite floats go out as null:
+#: a bare NaN token is not JSON and every browser JSON.parse rejects it.
+from rexgraph.io._compat import json_sanitize
+
+
+def _sanitize(obj):
+    return json_sanitize(obj, nan="null")
 
 
 # Simple intent keywords -> property mappings
@@ -243,7 +239,7 @@ async def chat(session_id: str, body: dict = Body(...)):
         else:
             try:
                 value = getattr(rex, target)
-                result = json.loads(json.dumps(value, cls=_Encoder))
+                result = _sanitize(value)
                 response = {
                     "text": f"{target}: {result}",
                     "property": target,
@@ -262,7 +258,7 @@ async def chat(session_id: str, body: dict = Body(...)):
             result = rex.explain(dim, idx)
             dim_name = ["vertex", "edge", "face"][dim]
             response = {
-                "text": f"Explanation for {dim_name} {idx}:\n{json.dumps(result, cls=_Encoder, indent=2)}",
+                "text": f"Explanation for {dim_name} {idx}:\n{json.dumps(_sanitize(result), indent=2)}",
                 "property": f"explain_{dim}_{idx}",
                 "viz_update": {"highlight_cell": {"dim": dim, "idx": idx}},
             }

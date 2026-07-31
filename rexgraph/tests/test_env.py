@@ -1,4 +1,4 @@
-"""rexgraph._env - host/environment detection: Python env manager, compute backends, and the
+"""rexgraph._env: host/environment detection: Python env manager, compute backends, and the
 per-host backend recommendation. These tests must pass on ANY machine (including CI with no GPU
 and no toolchain), so they assert on STRUCTURE and invariants, never on specific hardware."""
 import os

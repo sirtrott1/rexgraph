@@ -1,4 +1,4 @@
-"""rexgraph._env - best-effort, dependency-light host/environment detection.
+"""rexgraph._env: best-effort, dependency-light host/environment detection.
 
 This module answers three questions about *the machine RexGraph is running on right now*, so
 nothing downstream is hardcoded to one laptop, one env manager, or one GPU:

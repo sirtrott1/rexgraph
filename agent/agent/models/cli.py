@@ -10,7 +10,7 @@
 import argparse
 import json
 
-from . import build, list_archetypes, run
+from . import list_archetypes, run
 
 
 def _kv(pairs):

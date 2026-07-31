@@ -47,7 +47,7 @@ Usage:
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -279,7 +279,7 @@ def _write_meta(engine, table: str, meta: dict, *, merge: bool = True) -> None:
     with engine.begin() as conn:
         tbl.drop(conn, checkfirst=True)
         tbl.create(conn, checkfirst=True)
-        conn.execute(tbl.insert(), [{"meta_json": json.dumps(payload, default=_json_default)}])
+        conn.execute(tbl.insert(), [{"meta_json": _dumps(payload)}])
 
 
 def _read_meta(engine, table: str) -> dict:
@@ -299,16 +299,9 @@ def _read_meta(engine, table: str) -> dict:
     return json.loads(row[0])
 
 
-def _json_default(o):
-    if isinstance(o, np.ndarray):
-        return o.tolist()
-    if isinstance(o, np.integer):
-        return int(o)
-    if isinstance(o, np.floating):
-        return float(o)
-    if isinstance(o, np.bool_):
-        return bool(o)
-    raise TypeError(f"Not JSON serializable: {type(o)}")
+#: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
+#: existing call sites keep working; `dumps` is what applies the non-finite policy.
+from ._compat import dumps as _dumps
 
 
 # Boundary table (Definition 3.1)
@@ -600,7 +593,7 @@ def write_face_sql(
 ) -> None:
     """Write the B_2 boundary operator to SQL.
 
-    One row per nonzero in the CSC representation.  The chain complex
+    One row per nonzero in the CSC representation.  The relational complex
     condition B_1 B_2 = 0 guarantees each face boundary is a
     cycle in the edge basis.
 
@@ -778,7 +771,7 @@ def write_filtration_sql(
     kind: str = "",
     if_exists: str = "replace",
 ) -> None:
-    r"""Write filtration values on the chain complex to SQL.
+    r"""Write filtration values on the relational complex to SQL.
 
     One row per cell.  A valid filtration satisfies
     f(tau) leq f(sigma) for tau in partial(sigma).

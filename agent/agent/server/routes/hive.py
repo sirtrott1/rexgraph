@@ -1,5 +1,5 @@
 """
-agent.server.routes.hive - route surface for the agent swarm (hive).
+agent.server.routes.hive: route surface for the agent swarm (hive).
 
 Endpoints to bring bees up (spawn managed llama.cpp servers or attach live
 endpoints), inspect the swarm, route or dispatch a query to a bee, and read the

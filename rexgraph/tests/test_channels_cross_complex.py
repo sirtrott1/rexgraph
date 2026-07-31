@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from rexgraph.graph import RexGraph, cross_complex_bridge
-from rexgraph.core import _channels, _cross_complex, _character
+from rexgraph.core import _channels, _cross_complex
 
 
 @pytest.fixture

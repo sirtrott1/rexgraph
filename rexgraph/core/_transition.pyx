@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._transition - Transition operators on the rex chain complex.
+rexgraph.core._transition: Transition operators on the relational complex.
 
 Markov - discrete and continuous stochastic diffusion on k-cells.
 Schrodinger - unitary evolution via Hodge Laplacians (real cos/sin split).
@@ -411,7 +411,7 @@ def coupled_derivative(np.ndarray[f64, ndim=1] flat_state,
     df2/dt = -alpha2 * L_2 @ f2 + B_2^T @ f1
 
     B_2 should be B2_hodge (self-loop faces filtered) so that the
-    chain complex is exact. The edge-tier operator is the Rex
+    relational complex is exact. The edge-tier operator is the Rex
     Laplacian RL_1 = alpha1 * L_1 + alpha_G * L_O.
 
     Parameters

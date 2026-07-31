@@ -10,8 +10,6 @@ archetypes assemble models from that substrate; they are not part of the library
 """
 from __future__ import annotations
 
-import math
-from typing import Callable
 
 import numpy as np
 import torch as _t

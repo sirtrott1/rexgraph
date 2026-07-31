@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._hodge - Hodge decomposition of edge signals.
+rexgraph.core._hodge: Hodge decomposition of edge signals.
 
 Decomposes an edge signal g in R^m into three mutually orthogonal
 components:
@@ -255,7 +255,7 @@ def check_orthogonality(np.ndarray[f64, ndim=1] grad,
     """Inner products between Hodge components.
 
     When B_1 B_2 = 0, all three inner products should be near machine
-    precision. Large values indicate that the chain complex condition
+    precision. Large values indicate that the chain condition
     is violated, likely because self-loop faces were not filtered
     from B_2.
 

@@ -1,4 +1,4 @@
-"""rexgraph.sparse_character - scale-free character / coherence via a sparse RL.
+"""rexgraph.sparse_character: scale-free character / coherence via a sparse RL.
 
 The dense character path (``build_all_laplacians`` -> ``build_RL`` ->
 ``compute_chi`` / ``build_character_bundle``) forms dense nE x nE channel
@@ -47,7 +47,6 @@ def build_sparse_channels(rex):
     """
     import scipy.sparse as sp
     from rexgraph.core._laplacians import build_L1_down_sparse
-    from rexgraph.core import _frustration
 
     nV, nE = int(rex.nV), int(rex.nE)
     src, tgt = rex._ensure_src_tgt()
@@ -207,7 +206,7 @@ def build_sparse_character_cheap(rex):
     }
 
 
-def _compute_sparse_phi_gpu(rex, cheap, chunk):
+def _compute_sparse_phi_gpu(rex, cheap, chunk, device=None):
     """GPU-resident per-vertex Green's character: RL, the channel hats, and the
     Jacobi preconditioner stay on-device; each vertex tile's block-CG solve, hat
     applications, and the numerator/denominator reductions all run on the GPU, and
@@ -215,7 +214,10 @@ def _compute_sparse_phi_gpu(rex, cheap, chunk):
     import warnings
     import torch
     from rexgraph import scale_propagator as _spg
-    dev = torch.device("cuda")
+    # resolved, not hardcoded: on a multi-GPU node a hardcoded "cuda" always lands
+    # on device 0, so the other cards can never be addressed.
+    from rexgraph.scale_propagator import _torch_device
+    dev = _torch_device(device)
     nV, nhats = int(rex.nV), int(cheap['nhats'])
     uniform = 1.0 / nhats if nhats > 0 else 0.0
     phi = np.full((nV, nhats), uniform, dtype=_f64)
@@ -251,7 +253,7 @@ def _compute_sparse_phi_gpu(rex, cheap, chunk):
     return {'phi': phi, 'kappa': kappa}
 
 
-def compute_sparse_phi(rex, cheap, chunk=1024, backend=None):
+def compute_sparse_phi(rex, cheap, chunk=1024, backend=None, device=None):
     """Per-vertex Green's character phi and coherence kappa, given the cheap bundle.
 
     phi(v,k) = [b_v^T RL^-1 hat_k RL^-1 b_v] / [b_v^T RL^-1 b_v], b_v = B1[v,:], via
@@ -272,7 +274,7 @@ def compute_sparse_phi(rex, cheap, chunk=1024, backend=None):
         from rexgraph import scale_propagator as _spg
         if nV * nE >= _spg._GPU_MIN_WORK and _spg._resolve_backend(backend) == "gpu":
             try:
-                return _compute_sparse_phi_gpu(rex, cheap, chunk)
+                return _compute_sparse_phi_gpu(rex, cheap, chunk, device=device)
             except Exception:
                 pass                                    # any GPU issue -> CPU tiling
         from rexgraph import compute as _compute
@@ -408,7 +410,6 @@ def channel_spectral_gaps(rex):
     _smallest_positive_eig. Normalized G (I - D^-1/2 K D^-1/2) is not a Gram, so it also
     uses the general path. This is the exact spectral-gap metric; it is NOT the
     edge-centric relaxation object (see the moment tower / relaxation accessors)."""
-    import numpy as _np
     chan = dict(build_sparse_channels(rex))
     B1 = _b1_csr(rex)
     nE = int(rex.nE)

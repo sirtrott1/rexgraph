@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._hypermanifold - Filtered manifold sequence and dimensional analysis.
+rexgraph.core._hypermanifold: Filtered manifold sequence and dimensional analysis.
 
 The hypermanifold is the filtered family M1 < M2 < ... < Mk where
 each inclusion adds new cells, new Dirac eigenmodes, one Bianchi

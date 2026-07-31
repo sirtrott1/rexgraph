@@ -1,10 +1,10 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._dirac - Dirac operator on the graded cell space.
+rexgraph.core._dirac: Dirac operator on the graded cell space.
 
 The Dirac operator D = d + d* acts on the graded vector space
-V = R^nV + R^nE + R^nF. It encodes the full chain complex structure
+V = R^nV + R^nE + R^nF. It encodes the full relational complex structure
 in a single symmetric matrix.
 
 D^2 = blkdiag(L0, L1, L2) by the chain condition B1*B2 = 0.

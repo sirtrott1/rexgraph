@@ -7,9 +7,10 @@
 # CUDA build (GPU kernels via CMake; requires CUDA toolkit and cupy):
 #   REX_BUILD_CUDA=1 pip install .
 #
-# The meson backend compiles .pyx to .c to .so with OpenMP
-# parallelism. CMake is invoked separately for .cu compilation
-# when CUDA support is requested.
+# The meson backend compiles .pyx to .c to .so. Parallelism comes from the
+# threaded BLAS the kernels call and from rexgraph.compute above them, not from
+# prange: the kernels are compiled with -fopenmp but contain no parallel loops.
+# CMake is invoked separately for .cu compilation when CUDA support is requested.
 
 [build-system]
 requires = [
@@ -24,7 +25,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.0.4"
+version = "1.0.5"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 license = {text = "Apache License 2.0"}
@@ -117,7 +118,9 @@ rex-dashboard = "rexgraph.viz.dashboard:main"
 # URLs
 [project.urls]
 Homepage = "https://github.com/sirtrott1/rexgraph"
-Documentation = "https://github.com/sirtrott1/rexgraph/tree/main/docs"
+# the published branch has no docs/ directory; README is the documentation entry
+# point, and a 404 in package metadata is worse than pointing at what exists.
+Documentation = "https://github.com/sirtrott1/rexgraph#readme"
 Repository = "https://github.com/sirtrott1/rexgraph"
 Issues = "https://github.com/sirtrott1/rexgraph/issues"
 

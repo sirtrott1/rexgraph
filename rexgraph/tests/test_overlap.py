@@ -13,7 +13,6 @@ Verifies:
     - Degenerate cases (isolated edges, single edge)
 """
 import numpy as np
-import pytest
 
 from rexgraph.core import _overlap
 

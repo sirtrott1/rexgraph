@@ -31,7 +31,7 @@ import json
 import os
 import tempfile
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -106,11 +106,16 @@ def structural_signature(rex, meta: Optional[dict] = None,
         # spread it FIRST so the temporal overrides applied after it (object_type,
         # T, checkpoint_times) are the ones that survive in the merged dict.
         base = structural_signature(rex.reconstruct_at(rex.T - 1), meta, tags)
+        times = [float(x) for x in getattr(rex, "_times", [])]
         return {
             **base,
             "object_type": "TemporalRex",
             "T": int(rex.T),
             "checkpoint_times": cp_times,
+            # the history's span on its own clock, so a store can be asked which
+            # records cover a moment without opening a single blob.
+            "t_first": times[0] if times else None,
+            "t_last": times[-1] if times else None,
         }
     meta = meta or (getattr(rex, "_agent_meta", {}) or {})
     sig: Dict[str, Any] = {
@@ -208,17 +213,35 @@ def _priv(meta):
         return meta or {}
 
 
-def _matches(sig: Dict[str, Any], q: Dict[str, Any]) -> bool:
+def _record_labels(sig: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -> set:
+    """The record's vocabulary, lowercased.
+
+    Prefers meta["vertex_labels"], which is the FULL set. `labels_sample` is what its
+    name says -- twelve entries -- so a prefilter built on it silently misses any
+    document whose matching term falls outside them. Falls back to it only when meta
+    carries nothing, where a lossy filter still beats no filter.
+    """
+    labels = (meta or {}).get("vertex_labels") or sig.get("labels_sample") or []
+    return {str(x).lower() for x in labels}
+
+
+def _matches(sig: Dict[str, Any], q: Dict[str, Any],
+             meta: Optional[Dict[str, Any]] = None) -> bool:
     """Evaluate a structural query against a signature.
 
     Supported keys: min_nV/max_nV, min_nE/max_nE, min_nF,
     min_betti1/max_betti1, min_kappa/max_kappa, chain_valid,
-    has_voids (bool), tags_any (list), tags_all (list), source.
+    has_voids (bool), tags_any (list), tags_all (list), source,
+    labels_any (list), labels_all (list).
     """
     def betti(i):
         b = sig.get("betti")
         return b[i] if (b and len(b) > i) else 0
     checks = [
+        ("labels_any", lambda v: bool(_record_labels(sig, meta)
+                                      & {str(x).lower() for x in v})),
+        ("labels_all", lambda v: {str(x).lower() for x in v}
+                                 <= _record_labels(sig, meta)),
         ("min_nV", lambda v: sig.get("nV", 0) >= v),
         ("max_nV", lambda v: sig.get("nV", 0) <= v),
         ("min_nE", lambda v: sig.get("nE", 0) >= v),
@@ -327,11 +350,20 @@ class RCStore:
         except Exception:
             pass
 
-    def list(self, limit: int = 100, offset: int = 0) -> List[ComplexRecord]:
+    def list(self, limit: int = 100, offset: int = 0, *, as_of=None,
+             valid_at=None, include_history: bool = False) -> List[ComplexRecord]:
+        """The store's records. `as_of`/`valid_at` read it AS IT STOOD, selecting the
+        version current at that transaction/validity time instead of the latest."""
         raise NotImplementedError
 
-    def query(self, limit: int = 100, **predicate) -> List[ComplexRecord]:
-        """Structural query: select complexes by their topology."""
+    def query(self, limit: int = 100, *, as_of=None, valid_at=None,
+              **predicate) -> List[ComplexRecord]:
+        """Structural query: select complexes by their topology.
+
+        `as_of`/`valid_at` apply the predicate to the version that was current then,
+        not to the latest one. That distinction is the whole point: matching a
+        predicate against today's record and then reading yesterday's blob silently
+        drops anything whose structure or vocabulary has since changed."""
         raise NotImplementedError
 
     def delete(self, id: str) -> bool:
@@ -409,15 +441,18 @@ class MemoryStore(RCStore):
     def history(self, id):
         return list(self._recs.get(id, []))
 
-    def list(self, limit=100, offset=0, include_history=False):
+    def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
+             include_history=False):
         recs = ([r for rs in self._recs.values() for r in rs] if include_history
-                else [self._select_version(rs, None, None) for rs in self._recs.values()])
+                else [self._select_version(rs, as_of, valid_at)
+                      for rs in self._recs.values()])
         recs = [r for r in recs if r is not None]
         recs.sort(key=lambda r: -r.tx_from)
         return recs[offset:offset + limit]
 
-    def query(self, limit=100, **predicate):
-        return [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate)][:limit]
+    def query(self, limit=100, *, as_of=None, valid_at=None, **predicate):
+        return [r for r in self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
+                if _matches(r.signature, predicate, r.meta)][:limit]
 
     def delete(self, id):
         existed = id in self._recs
@@ -438,49 +473,131 @@ class FileStore(RCStore):
         self.root = root
         os.makedirs(os.path.join(root, "blobs"), exist_ok=True)
         self._index_path = os.path.join(root, "index.json")
+        self._log_path = os.path.join(root, "index.log")
+        # Loaded once. Re-reading the index on every call, and rewriting it on every
+        # put, is what made ingest quadratic; the log means the cache stays authoritative
+        # and each change costs one line.
+        self._idx = self._read_index()
 
     def _read_index(self) -> Dict[str, List[ComplexRecord]]:
         """Load index.json into `{id -> [ComplexRecord, ...]}`. A legacy
         `{id -> record_dict}` index (one dict per id, no version list) is
         wrapped as a single-element list; `from_dict` backfills the missing
         bitemporal fields so it reads as version 1."""
-        if not os.path.exists(self._index_path):
-            return {}
-        try:
-            with open(self._index_path) as f:
-                raw = json.load(f)
-        except Exception:
-            return {}
         idx: Dict[str, List[ComplexRecord]] = {}
-        for id, v in raw.items():
-            if isinstance(v, dict):
-                idx[id] = [ComplexRecord.from_dict(v)]
-            else:
-                idx[id] = [ComplexRecord.from_dict(x) for x in v]
+        # A snapshot, if one exists: written by an older version of this store, or
+        # left by compaction. Read first so the log layers on top of it.
+        if os.path.exists(self._index_path):
+            try:
+                with open(self._index_path) as f:
+                    raw = json.load(f)
+                for id, v in raw.items():
+                    if isinstance(v, dict):
+                        idx[id] = [ComplexRecord.from_dict(v)]
+                    else:
+                        idx[id] = [ComplexRecord.from_dict(x) for x in v]
+            except Exception:
+                idx = {}
+        # then the append-only log. Rewriting the whole index on every put made the
+        # cost of a put grow with the store: 4 ms at a hundred records, 35 ms at
+        # sixteen hundred, which is quadratic ingest. One line per change instead.
+        if os.path.exists(self._log_path):
+            try:
+                with open(self._log_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            break            # torn tail: the rest is unwritable
+                        rid = entry.get("id")
+                        if entry.get("op") == "delete":
+                            idx.pop(rid, None)
+                            continue
+                        rec = ComplexRecord.from_dict(entry["record"])
+                        versions = idx.setdefault(rid, [])
+                        versions = [r for r in versions if r.version != rec.version]
+                        for prior in versions:
+                            if prior.tx_to is None:
+                                prior.tx_to = rec.tx_from
+                        versions.append(rec)
+                        versions.sort(key=lambda r: r.version)
+                        idx[rid] = versions
+            except OSError:
+                pass
         return idx
 
+    def _append_log(self, entry: dict) -> None:
+        with open(self._log_path, "a", encoding="utf-8") as f:
+            from rexgraph.io._compat import dumps
+            f.write(dumps(entry) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+
     def _write_index(self, idx: Dict[str, List[ComplexRecord]]):
+        """Write a full snapshot and drop the log. This is compaction, not the write
+        path: callers that used it to persist one change now append instead."""
         raw = {id: [r.to_dict() for r in versions] for id, versions in idx.items()}
         tmp = self._index_path + ".tmp"
         with open(tmp, "w") as f:
             json.dump(raw, f)
         os.replace(tmp, self._index_path)
+        try:
+            os.remove(self._log_path)
+        except OSError:
+            pass
+
+    def compact(self) -> dict:
+        """Fold the log into a snapshot. Optional: reading is correct either way."""
+        before = os.path.getsize(self._log_path) if os.path.exists(self._log_path) else 0
+        self._write_index(self._read_index())
+        return {"log_bytes_reclaimed": before}
+
+    @staticmethod
+    def _safe_name(id: str) -> str:
+        """Filesystem-safe, REVERSIBLE, collision-free encoding of a record id.
+
+        The shared codec, with the path reserved set (which includes '@', the version
+        separator used below). The previous scheme replaced every non-alphanumeric
+        character with '_', which is lossy: 'core/alpha' and 'core_alpha' both became
+        'core_alpha', so the second put silently overwrote the first blob while the
+        index kept both records. Ids like 'doc:agent/rcdb.py' are exactly what a
+        knowledge core is keyed by.
+        """
+        from rexgraph.io.rex_state import RESERVED_PATH, encode_name
+        return encode_name(id, RESERVED_PATH)
+
+    @staticmethod
+    def _sanitized_name(id: str) -> str:
+        """The pre-fix lossy encoding, kept so existing stores stay readable."""
+        return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
 
     def _blob_path(self, id: str, version: int) -> str:
-        safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
-        return os.path.join(self.root, "blobs", "%s@%d.safetensors" % (safe, version))
+        return os.path.join(self.root, "blobs",
+                            "%s@%d.safetensors" % (self._safe_name(id), version))
+
+    def _blob_read_paths(self, id: str, version: int):
+        """Every path a blob for (id, version) may live at, newest scheme first: the
+        reversible encoding, then the lossy one, then the pre-versioned layout."""
+        b = os.path.join(self.root, "blobs")
+        return [
+            os.path.join(b, "%s@%d.safetensors" % (self._safe_name(id), version)),
+            os.path.join(b, "%s@%d.safetensors" % (self._sanitized_name(id), version)),
+            self._legacy_blob_path(id),
+        ]
 
     def _legacy_blob_path(self, id: str) -> str:
-        safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
-        return os.path.join(self.root, "blobs", safe + ".safetensors")
+        return os.path.join(self.root, "blobs", self._sanitized_name(id) + ".safetensors")
 
     def next_version(self, id):
-        rs = self._read_index().get(id)
+        rs = self._idx.get(id)
         return (rs[-1].version + 1) if rs else 1
 
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to):
         now = _now()
-        idx = self._read_index()
+        idx = self._idx
         versions = idx.setdefault(id, [])
         v = (versions[-1].version + 1) if versions else 1
         for r in versions:
@@ -493,11 +610,11 @@ class FileStore(RCStore):
         versions.append(rec)
         with open(self._blob_path(id, v), "wb") as f:
             f.write(serialize_complex(rex))
-        self._write_index(idx)
+        self._append_log({"op": "put", "id": id, "record": rec.to_dict()})
         return rec
 
     def get_record(self, id, *, as_of=None, valid_at=None):
-        idx = self._read_index()
+        idx = self._idx
         rec = self._select_version(idx.get(id, []), as_of, valid_at)
         if rec is None:
             split = self._split_versioned_id(id)
@@ -509,9 +626,9 @@ class FileStore(RCStore):
         return rec
 
     def _read_blob(self, id, version):
-        p = self._blob_path(id, version)
-        if not os.path.exists(p) and version == 1:
-            p = self._legacy_blob_path(id)          # legacy store: no @version suffix
+        # try every encoding a blob may have been written under, newest first
+        p = next((q for q in self._blob_read_paths(id, version) if os.path.exists(q)),
+                 self._blob_path(id, version))
         if not os.path.exists(p):
             return None
         with open(p, "rb") as f:
@@ -531,28 +648,31 @@ class FileStore(RCStore):
         return deserialize_complex(blob) if blob is not None else None
 
     def history(self, id):
-        return list(self._read_index().get(id, []))
+        return list(self._idx.get(id, []))
 
-    def list(self, limit=100, offset=0, include_history=False):
-        idx = self._read_index()
+    def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
+             include_history=False):
+        idx = self._idx
         recs = ([r for versions in idx.values() for r in versions] if include_history
-                else [self._select_version(versions, None, None) for versions in idx.values()])
+                else [self._select_version(versions, as_of, valid_at)
+                      for versions in idx.values()])
         recs = [r for r in recs if r is not None]
         recs.sort(key=lambda r: -r.tx_from)
         return recs[offset:offset + limit]
 
-    def query(self, limit=100, **predicate):
-        out = [r for r in self.list(limit=10 ** 9) if _matches(r.signature, predicate)]
+    def query(self, limit=100, *, as_of=None, valid_at=None, **predicate):
+        out = [r for r in self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
+               if _matches(r.signature, predicate, r.meta)]
         return out[:limit]
 
     def delete(self, id):
-        idx = self._read_index()
+        idx = self._idx
         versions = idx.pop(id, None)
         existed = versions is not None
         if existed:
-            self._write_index(idx)
+            self._append_log({"op": "delete", "id": id})
             for r in versions:
-                for p in (self._blob_path(id, r.version), self._legacy_blob_path(id)):
+                for p in self._blob_read_paths(id, r.version):
                     try:
                         os.unlink(p)
                     except OSError:
@@ -599,8 +719,31 @@ class SQLStore(RCStore):
             Column("tx_from", Float), Column("tx_to", Float),
             Column("valid_from", Float), Column("valid_to", Float),
         )
+        # Inverted index over the vocabulary. Retrieval's prefilter is "which records
+        # share a token with this query", and answering that by reading every row back
+        # into Python is the whole scale problem. One indexed row per (record, label)
+        # lets the database answer it.
+        self.labels_table = Table(
+            f"{table}_labels", self.meta,
+            Column("id", String(256), primary_key=True),
+            Column("version", Integer, primary_key=True),
+            Column("label", String(256), primary_key=True),
+        )
         self.meta.create_all(self.engine)
         self._migrate_index_columns(table)
+        self._create_label_index(table)
+
+    def _create_label_index(self, table):
+        """Index the label column. Idempotent, and never fatal: a store that cannot
+        create the index still answers correctly through the Python residual path."""
+        from sqlalchemy import text as _text
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(_text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_labels_label "
+                    f"ON {table}_labels (label)"))
+        except Exception:
+            pass
 
     def _migrate_index_columns(self, table):
         """Add indexed columns to a pre-existing table and backfill from the
@@ -732,6 +875,10 @@ class SQLStore(RCStore):
                           created=now, blob=blob, version=v, tx_from=now, tx_to=None,
                           valid_from=vfrom, valid_to=valid_to, **_sig_index_values(sig))
             conn.execute(insert(self.table).values(**values))
+            labels = sorted(_record_labels(sig, meta))
+            if labels:
+                conn.execute(insert(self.labels_table),
+                             [{"id": id, "version": v, "label": lab} for lab in labels])
         return ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
                              tx_from=now, tx_to=None, valid_from=vfrom, valid_to=valid_to)
 
@@ -795,18 +942,41 @@ class SQLStore(RCStore):
                                 .order_by(self.table.c.version)).fetchall()
         return [self._row_to_record(r) for r in rows]
 
-    def list(self, limit=100, offset=0, include_history=False):
-        from sqlalchemy import select
+    def _temporal_conds(self, as_of, valid_at, include_history):
+        """Row selection for a point in transaction and/or validity time.
+
+        A version is current AT a time when it opened on or before it and had not yet
+        been closed. With neither given this is the open row, which is what the store
+        always did; the difference is that the caller can now name a different one.
+        """
+        from sqlalchemy import or_
+        t = self.table
+        conds = []
+        if as_of is not None:
+            conds.append(t.c.tx_from <= as_of)
+            conds.append(or_(t.c.tx_to.is_(None), t.c.tx_to > as_of))
+        if valid_at is not None:
+            conds.append(or_(t.c.valid_from.is_(None), t.c.valid_from <= valid_at))
+            conds.append(or_(t.c.valid_to.is_(None), t.c.valid_to > valid_at))
+        if not conds and not include_history:
+            conds.append(t.c.tx_to.is_(None))
+        return conds
+
+    def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
+             include_history=False):
+        from sqlalchemy import and_, select
         t = self.table
         stmt = select(*self._record_cols())
-        if not include_history:
-            stmt = stmt.where(t.c.tx_to.is_(None))
+        conds = self._temporal_conds(as_of, valid_at, include_history)
+        if conds:
+            stmt = stmt.where(and_(*conds))
         stmt = stmt.order_by(t.c.tx_from.desc()).limit(limit).offset(offset)
         with self.engine.connect() as conn:
             rows = conn.execute(stmt).fetchall()
         return [self._row_to_record(r) for r in rows]
 
-    def query(self, limit=100, include_history=False, **predicate):
+    def query(self, limit=100, include_history=False, *, as_of=None,
+              valid_at=None, **predicate):
         # push the indexed predicates into SQL; apply the rest (tags, voids)
         # in Python only over the narrowed candidate set.
         from sqlalchemy import select, and_
@@ -828,18 +998,38 @@ class SQLStore(RCStore):
             if predicate.get(key) is not None:
                 conds.append(build(predicate[key]))
                 pushed.add(key)
-        if not include_history:
-            conds.append(t.c.tx_to.is_(None))
+        # the vocabulary predicate resolves in the indexed label table, so a
+        # "which records share a token" prefilter never leaves the database.
+        lt = self.labels_table
+        for key, op in (("labels_any", "any"), ("labels_all", "all")):
+            vals = predicate.get(key)
+            if not vals:
+                continue
+            wanted = sorted({str(x).lower() for x in vals})
+            sub = (select(lt.c.id)
+                   .where(and_(lt.c.id == t.c.id, lt.c.version == t.c.version,
+                               lt.c.label.in_(wanted))))
+            if op == "all":
+                from sqlalchemy import func
+                sub = (sub.group_by(lt.c.id)
+                          .having(func.count(func.distinct(lt.c.label)) == len(wanted)))
+            conds.append(sub.exists())
+            pushed.add(key)
+        conds.extend(self._temporal_conds(as_of, valid_at, include_history))
         stmt = select(*self._record_cols())
         if conds:
             stmt = stmt.where(and_(*conds))
         stmt = stmt.order_by(t.c.created.desc())
+        residual = {k: v for k, v in predicate.items() if k not in pushed}
+        if not residual:
+            # nothing left for Python to reject, so stop the database at `limit`
+            # instead of materializing every match and slicing afterwards.
+            stmt = stmt.limit(limit)
         with self.engine.connect() as conn:
             rows = conn.execute(stmt).fetchall()
-        residual = {k: v for k, v in predicate.items() if k not in pushed}
         out = [self._row_to_record(r) for r in rows]
         if residual:
-            out = [r for r in out if _matches(r.signature, residual)]
+            out = [r for r in out if _matches(r.signature, residual, r.meta)]
         return out[:limit]
 
     def delete(self, id):
@@ -848,6 +1038,8 @@ class SQLStore(RCStore):
             existed = conn.execute(select(self.table.c.id).where(
                 self.table.c.id == id)).first() is not None
             conn.execute(delete(self.table).where(self.table.c.id == id))
+            # the label index is a projection of the record; it must not outlive it
+            conn.execute(delete(self.labels_table).where(self.labels_table.c.id == id))
         if existed:
             self._emit("rcdb.delete", id, 0, {})
         return existed
@@ -855,12 +1047,24 @@ class SQLStore(RCStore):
 
 # backend registry + URI opener
 
-_BACKENDS: Dict[str, Callable[[str], RCStore]] = {}
+from rexgraph.registry import Registry
+
+_BACKENDS = Registry("rcdb backend")
 
 
 def register_backend(scheme: str, factory: Callable[[str], RCStore]) -> None:
     """Register a backend factory for a URI scheme (e.g. 'redis')."""
-    _BACKENDS[scheme] = factory
+    _BACKENDS.register(scheme, factory)
+
+
+def unregister_backend(scheme: str):
+    """Remove a backend factory. Returns it, or None if it was not registered."""
+    return _BACKENDS.unregister(scheme)
+
+
+def available_backends() -> List[str]:
+    """Every registered URI scheme."""
+    return _BACKENDS.available()
 
 
 def _labels_of(rec: "ComplexRecord", rex) -> list:
@@ -974,9 +1178,8 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
     ``{id, match, shared, tags, source}`` sorted by match descending, where
     ``match`` is a 0-1 similarity a UI can show as a percentage.
     """
-    from rexgraph.graph import cross_complex_bridge
-    import math
-    qset = set(query_labels)
+    from agent.scoring import interfacing_score
+    qset = {str(x).lower() for x in (query_labels or [])}
     out = []
     for rec in store.list(limit=10 ** 9):
         if exclude_id is not None and rec.id == exclude_id:
@@ -991,29 +1194,33 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
             if cand is None:
                 continue
             cand_labels = _labels_of(rec, cand)
-            bridge = cross_complex_bridge(query_rex, cand, query_labels, cand_labels)
-            n_shared = int(bridge.get("n_shared", 0) or 0)
-            if n_shared == 0:
+            r = interfacing_score(cand, cand_labels, query_labels)
+            if r["n_shared"] == 0:
                 continue
-            corr = float(bridge.get("kappa", {}).get("correlation", 0.0) or 0.0)
-            # combine agreement with how much overlaps (confidence)
-            denom = max(len(query_labels), len(cand_labels), 1)
-            overlap = n_shared / denom
-            match = max(0.0, 0.5 * (corr + 1) * math.sqrt(overlap))
+            # `match` is documented as a 0-1 number a UI shows as a percentage, but
+            # ||iv|| is unbounded. s/(1+s) is monotone, so the ranking is the
+            # scorer's ranking exactly, and bounded, so the percentage means
+            # something. Same map the retrieval path uses for the same reason.
+            s_raw = r["score"]
+            match = s_raw / (1.0 + s_raw) if s_raw > 0 else 0.0
             out.append({
                 "id": rec.id,
                 "match": round(match, 4),
-                "shared": n_shared,
+                "score": round(s_raw, 6),
+                "character": [round(x, 4) for x in r["character"]],
+                "coverage": round(r["coverage"], 4),
+                "shared": r["n_shared"],
                 "tags": rec.signature.get("tags", []),
                 "source": rec.signature.get("source", ""),
             })
         except Exception:
             continue
-    out.sort(key=lambda r: -r["match"])
+    out.sort(key=lambda r: (-r["match"], str(r["id"])))
     return out[:top_k]
 
 
-def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=None):
+def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=None,
+                       *, valid_from=None):
     """Store a new version only if the schema actually changed vs the latest
     (different tables or different topology). Enables auto-lineage on repeated
     reflection without spamming identical versions. Returns version info with
@@ -1034,7 +1241,8 @@ def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=Non
         if new_labels == old_labels and new_betti == old_betti:
             return {"id": f"{lineage_id}@{latest_rec.version}", "lineage_id": lineage_id,
                     "version": latest_rec.version, "unchanged": True}
-    info = put_version(store, lineage_id, rex, meta=meta, tags=tags)
+    info = put_version(store, lineage_id, rex, meta=meta, tags=tags,
+                       valid_from=valid_from)
     info["unchanged"] = False
     return info
 
@@ -1243,18 +1451,87 @@ def compare(store: RCStore, id_a: str, id_b: str):
     }
 
 
+def migrate(src: RCStore, dst: RCStore, *, ids=None, limit: int = 10 ** 9) -> dict:
+    """Copy records from one store into another, every version, oldest first.
+
+    Written against the RCStore contract alone, so it works for any pair of backends
+    without either knowing the other exists -- which is what makes the choice of
+    backend reversible rather than a commitment. Existing records in `dst` are left
+    alone; a colliding id gains versions rather than losing its own.
+    """
+    wanted = list(ids) if ids is not None else [r.id for r in src.list(limit=limit)]
+    n_records = n_versions = 0
+    for rid in wanted:
+        history = src.history(rid)
+        if not history:
+            continue
+        n_records += 1
+        for rec in sorted(history, key=lambda r: r.version):
+            rex = src.get_version(rid, rec.version)
+            if rex is None:
+                continue
+            dst.put(rid, rex, meta=rec.meta,
+                    tags=list((rec.signature or {}).get("tags", [])),
+                    valid_from=rec.valid_from, valid_to=rec.valid_to)
+            n_versions += 1
+    return {"records": n_records, "versions": n_versions,
+            "src": getattr(src, "backend", "?"), "dst": getattr(dst, "backend", "?")}
+
+
+def _existing_backend(path: str):
+    """Which backend already owns `path`, if any. Choosing must never orphan data:
+    a directory written by one store has to reopen as that store."""
+    import os
+    if not os.path.isdir(path):
+        return None
+    if os.path.exists(os.path.join(path, "records.log")):
+        return "rex"
+    if os.path.exists(os.path.join(path, "index.json")) or \
+            os.path.exists(os.path.join(path, "index.log")):
+        return "file"
+    return None
+
+
+def recommend_backend(path: str = "", *, uri: str = "") -> dict:
+    """Which backend to use, and why.
+
+    Order of deference: an explicit URI scheme, then whatever already lives at the
+    path, then the embedded store. SQL is not chosen automatically even when a
+    driver is installed -- it needs a server or a file the caller names, and
+    guessing a database is not a decision a library should make for someone.
+    """
+    if uri:
+        scheme = urlparse(uri).scheme
+        if scheme and scheme not in ("auto", "file"):
+            return {"backend": scheme, "reason": f"explicit in the uri ({scheme}://)"}
+    found = _existing_backend(path) if path else None
+    if found:
+        return {"backend": found,
+                "reason": f"a {found} store already exists at this path"}
+    return {"backend": "rex",
+            "reason": "embedded, append-only: constant-cost writes, three files, "
+                      "no server"}
+
+
 def open_store(uri: str = "memory://") -> RCStore:
     """Open an RCStore from a URI.
 
+    auto:///path                    -> whatever already lives there, else RexStore
+    s3://…, gs://…, az://…          -> ObjectStore (needs s3fs / gcsfs / adlfs)
     memory://                       -> MemoryStore
-    file:///path  or  /path         -> FileStore
+    rex:///path                     -> RexStore (embedded, append-only, no server)
+    file:///path  or  /path         -> FileStore (legacy: quadratic ingest)
     sqlite:///f.db, postgresql://…  -> SQLStore (any SQLAlchemy backend)
     <custom>://…                    -> a registered backend
     """
     parsed = urlparse(uri)
     scheme = parsed.scheme or "file"
+    if scheme == "auto":
+        path = uri[len("auto://"):] or "./rcdb"
+        chosen = recommend_backend(path)["backend"]
+        return open_store(f"{chosen}://{path}")
     if scheme in _BACKENDS:
-        return _BACKENDS[scheme](uri)
+        return _BACKENDS.require(scheme)(uri)
     if scheme == "memory":
         return MemoryStore()
     if scheme == "file":
@@ -1265,6 +1542,60 @@ def open_store(uri: str = "memory://") -> RCStore:
 
 
 # built-in registrations
+def _open_rexstore(uri: str):
+    from .rexstore import RexStore
+    path = uri[len("rex://"):] if uri.startswith("rex://") else uri
+    return RexStore(path or "./rexdb")
+
+
+def _open_objectstore(uri: str):
+    from .objectstore import ObjectStore
+    return ObjectStore(uri)
+
+
 register_backend("memory", lambda uri: MemoryStore())
+register_backend("rex", _open_rexstore)
+# one backend, every provider: fsspec routes the wire protocol to its driver.
+for _scheme in ("s3", "gs", "gcs", "az", "abfs", "adl"):
+    register_backend(_scheme, _open_objectstore)
 register_backend("file", lambda uri: FileStore(
     uri[len("file://"):] if uri.startswith("file://") else uri))
+
+
+# The process-wide default store
+#
+# Before this existed, the only code resolving REXGRAPH_RCDB_URI lived inside
+# server/routes/rcdb.py, so every non-HTTP consumer fell back to its own
+# `MemoryStore()` and silently discarded whatever it wrote. Callers that want a
+# specific store still pass one; callers that just want "the store" get this.
+
+_DEFAULT_STORE: Optional[RCStore] = None
+
+
+def default_store_uri() -> str:
+    """The configured store URI: REXGRAPH_RCDB_URI, else a file store under the
+    config dir (REXGRAPH_CONFIG_DIR, else ~/.config/rexgraph)."""
+    uri = os.environ.get("REXGRAPH_RCDB_URI")
+    if uri:
+        return uri
+    base = os.environ.get("REXGRAPH_CONFIG_DIR",
+                          os.path.join(os.path.expanduser("~"), ".config", "rexgraph"))
+    return "file://" + os.path.join(base, "rcdb")
+
+
+def default_store() -> RCStore:
+    """The shared default store for this process, opened once.
+
+    Persistent by default: a caller that omits a store keeps its data instead of
+    writing into a throwaway MemoryStore.
+    """
+    global _DEFAULT_STORE
+    if _DEFAULT_STORE is None:
+        _DEFAULT_STORE = open_store(default_store_uri())
+    return _DEFAULT_STORE
+
+
+def reset_default_store() -> None:
+    """Drop the memoized default so the next call re-reads the environment."""
+    global _DEFAULT_STORE
+    _DEFAULT_STORE = None

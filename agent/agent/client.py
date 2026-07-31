@@ -1,9 +1,9 @@
 """
-rexgraph.client - Python client for a running rexgraph server.
+agent.client: Python client for a running rexgraph server.
 
 Usage in a Jupyter notebook:
 
-    from rexgraph.client import RexClient
+    from agent.client import RexClient
 
     rc = RexClient("https://team-server:8000", api_key="...")
 
@@ -25,7 +25,7 @@ Usage in a Jupyter notebook:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 
 class RexClient:

@@ -1,5 +1,5 @@
 """
-agent.chat_model - unified generation layer for chat/synthesis.
+agent.chat_model: unified generation layer for chat/synthesis.
 
 A single place that resolves *which* model to talk to and provides a
 best-effort ``generate()``. Everything that wants an LLM (the chat route,
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, List, Dict
 
 # Runtime override set through configure() / the model-config endpoint.

@@ -1,5 +1,5 @@
 """
-agent.exchange - input/output exchange as a relational complex.
+agent.exchange: input/output exchange as a relational complex.
 
 Each model exchange (input context + query + output) is a single
 relational complex. The exchange edges bridge shared entities
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 

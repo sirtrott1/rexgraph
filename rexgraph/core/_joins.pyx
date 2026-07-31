@@ -1,11 +1,11 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._joins - Chain complex join operations.
+rexgraph.core._joins: Relational complex join operations.
 
 Two complexes share structure through a vertex identification map.
-All joins produce valid chain complexes (B1j @ B2j = 0 guaranteed
-because restriction/extension of chain complexes preserves the chain condition).
+All joins produce valid relational complexes (B1j @ B2j = 0 guaranteed
+because restriction/extension of relational complexes preserves the chain condition).
 """
 
 from __future__ import annotations

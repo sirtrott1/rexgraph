@@ -10,7 +10,7 @@ the fix, and retries: the reactive layer aimed at the training loop instead of t
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import numpy as np
 

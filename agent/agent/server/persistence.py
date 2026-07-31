@@ -1,5 +1,5 @@
 """
-agent.server.persistence - workspace state persistence using rexgraph/io.
+agent.server.persistence: workspace state persistence using rexgraph/io.
 
 Uses the existing I/O layer directly:
     save_rex / load_rex     for RexGraph bundles (.rex)
@@ -22,9 +22,8 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List
 
-import numpy as np
 
 logger = logging.getLogger(__name__)
 

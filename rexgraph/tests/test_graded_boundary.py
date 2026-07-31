@@ -10,7 +10,6 @@ Covers:
   * back-compat: the classic constructors still yield correct ``graded_boundaries``.
 """
 import numpy as np
-import scipy.sparse as sp
 import pytest
 
 from rexgraph.graph import RexGraph

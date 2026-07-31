@@ -1,4 +1,4 @@
-"""rexgraph.dense_matrix - dense materialization and dense-only linear algebra.
+"""rexgraph.dense_matrix: dense materialization and dense-only linear algebra.
 
 The RexGraph numerical core is sparse/exact first: Laplacians assemble as scipy
 CSR (``rexgraph.core._laplacians``), the G-channel Gramian as sparse

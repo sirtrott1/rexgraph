@@ -12,10 +12,8 @@ Verifies:
     - Manual role overrides
 """
 import os
-import tempfile
 
 import numpy as np
-import pytest
 
 from rexgraph.io.csv_loader import (
     ColumnRole,
@@ -23,7 +21,6 @@ from rexgraph.io.csv_loader import (
     classify_columns,
     build_weights,
     build_edge_attrs,
-    GraphData,
     load_edge_csv,
 )
 

@@ -1,4 +1,4 @@
-"""rexgraph.dirac_propagator - the graded Dirac operator as a SPARSE, matrix-free
+"""rexgraph.dirac_propagator: the graded Dirac operator as a SPARSE, matrix-free
 operator, and propagation of graded TENSOR STATES through it.
 
 The Dirac operator ``D = d + d*`` acts on the whole graded space

@@ -1,5 +1,5 @@
 """
-agent.interfaces - the embed contract for the engine.
+agent.interfaces: the embed contract for the engine.
 
 The engine is sovereign: it reads only what it is pointed at, persists only
 structure, holds no credentials it isn't given, and **emits nothing** unless the
@@ -19,8 +19,8 @@ Nothing here reaches the network, writes a file, or records a metric on its own.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Protocol, Tuple, runtime_checkable
 
 
 # observability seam (silent by default)

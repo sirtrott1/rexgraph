@@ -1,4 +1,4 @@
-"""rexgraph._experimental - preserved-but-unwired alternative kernels.
+"""rexgraph._experimental: preserved-but-unwired alternative kernels.
 
 These implementations are correct and verified but are NOT on any live code path;
 they are kept for reference and for cases where the default path is a poor fit.

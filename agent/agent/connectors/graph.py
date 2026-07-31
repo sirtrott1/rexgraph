@@ -1,4 +1,4 @@
-"""agent.connectors.graph - property-graph databases (Neo4j shape).
+"""agent.connectors.graph: property-graph databases (Neo4j shape).
 
 Nodes -> vertices, relationships -> edges. Harness-validatable here against an
 in-memory ``{"nodes": [...], "relationships": [(src, dst), ...]}`` stand-in;
@@ -7,7 +7,7 @@ task - the driver isn't present in-sandbox.
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Tuple
-from . import BaseConnector, Capabilities, ConnectorError
+from . import BaseConnector, Capabilities
 
 
 class GraphConnector(BaseConnector):

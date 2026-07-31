@@ -57,8 +57,11 @@ For a RexGraph, the reconstruction contract is the canonical rex-state
 serializer (`rex_state.to_state`/`from_state`, the same one `.rex`
 bundles delegate to). Its tensors (boundary, B2, w_E, signs,
 edge_types, w_boundary, labels, nested rexes, and so on) are stored
-here with `/` in tensor names replaced by `__`, and its json-safe
-header is stored under the single metadata key `rex_state_header`.
+here VERBATIM: safetensors keys are arbitrary strings, so a nested-rex
+name like `nested/cm_1_sub/0/boundary_ptr` keeps its `/` and needs no
+encoding (unlike .rex, hdf5 and zarr, which reserve `/` as a hierarchy
+separator and go through `rex_state.encode_name`). The json-safe header
+is stored under the single metadata key `rex_state_header`.
 A `rex_meta` key is also written, holding the same header plus any
 requested cache extras (`cached_arrays`, `cache_scalars`); it exists
 so callers that only read `object_type`/`bridge_version` off the
@@ -289,7 +292,7 @@ def rex_to_safetensors(
     # bridge cannot drift from `.rex` (signs, w_boundary, g_channel, nested rexes all round-trip
     # the same way here as they do through bundle.py).
     from .rex_state import to_state
-    from .bundle import _json_default
+    from ._compat import dumps as _dumps
     st = to_state(rex)
     # safetensors keys are arbitrary strings, so nested-rex names with '/' are stored verbatim: no
     # char substitution (the old '/'->'__' was not invertible and collided with '__' metadata keys).
@@ -327,12 +330,12 @@ def rex_to_safetensors(
     # only ever read `object_type`/`bridge_version` off the header (e.g. the format dispatcher in
     # `rexgraph.io`) keep working unchanged.
     st_meta = {
-        "rex_state_header": json.dumps(st.header, default=_json_default),
-        "rex_meta": json.dumps(meta, default=_json_default),
+        "rex_state_header": _dumps(st.header),
+        "rex_meta": _dumps(meta),
         "bridge_version": str(_BRIDGE_VERSION),
     }
     if extra_meta is not None:
-        st_meta["extra_meta"] = json.dumps(extra_meta, default=_json_default)
+        st_meta["extra_meta"] = _dumps(extra_meta)
 
     save_file(tensors, str(out), metadata=st_meta)
     return out
@@ -626,6 +629,9 @@ def temporal_rex_to_safetensors(
         "checkpoint_threshold": float(trex._checkpoint_threshold),
         "checkpoint_times": checkpoint_times,
         "checkpoint_optional": checkpoint_optional,
+        # the step clock: without it a reloaded history can only be addressed by
+        # index, and cannot be lined up against anything recorded in wall time.
+        "times": [float(x) for x in trex._times],
         "bridge_version": _BRIDGE_VERSION,
     }
 
@@ -634,9 +640,18 @@ def temporal_rex_to_safetensors(
     return out
 
 
+def _restore_times(trex, meta):
+    """Reattach the step clock. A file written before it existed has none, and the
+    step index is the identity bridge, so those load exactly as they used to."""
+    times = meta.get("times")
+    if times:
+        trex._times = [float(x) for x in times]
+    while len(trex._times) < trex._T:
+        trex._times.append(float(len(trex._times)))
+
+
 def safetensors_to_temporal_rex(path: Union[str, os.PathLike]):
     """Reconstruct a TemporalRex from a `.safetensors` file."""
-    from ..graph import TemporalRex
 
     _, load_file, _ = _st()
     p = _coerce_path(path)
@@ -718,6 +733,7 @@ def _temporal_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
     )
     if face_snapshots:
         trex._face_snapshots = face_snapshots
+    _restore_times(trex, meta)
     return trex
 
 
@@ -789,6 +805,7 @@ def _temporal_from_loaded_delta(tensors: Dict[str, NDArray], meta: Dict[str, Any
     trex._T = T
     if "checkpoint_threshold" in meta:
         trex._checkpoint_threshold = float(meta["checkpoint_threshold"])
+    _restore_times(trex, meta)
     return trex
 
 

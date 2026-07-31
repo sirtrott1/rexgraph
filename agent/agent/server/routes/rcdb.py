@@ -1,5 +1,5 @@
 """
-agent.server.routes.rcdb - the Relational Complex Database over HTTP.
+agent.server.routes.rcdb: the Relational Complex Database over HTTP.
 
 Stores every analysed complex as a first-class record and lets you query
 the database *by structure* (Betti, coherence, voids), not just by id.
@@ -10,28 +10,19 @@ SQLite locally and Postgres in production.
 
 from __future__ import annotations
 
-import os
 import time
 
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
-from agent.rcdb import open_store
 
 router = APIRouter(prefix="/v1/db")
 
-_STORE = None
-
-
 def _store():
-    global _STORE
-    if _STORE is None:
-        uri = os.environ.get("REXGRAPH_RCDB_URI")
-        if not uri:
-            root = os.path.expanduser("~/.config/rexgraph/rcdb")
-            uri = "file://" + root
-        _STORE = open_store(uri)
-    return _STORE
+    """The process-wide default store. Resolution lives in `agent.rcdb.default_store`
+    so HTTP and non-HTTP callers share one store instead of two resolvers."""
+    from agent.rcdb import default_store
+    return default_store()
 
 
 def _rex_from_body(body: dict):

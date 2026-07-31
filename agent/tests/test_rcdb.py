@@ -160,14 +160,14 @@ def client(tmp_path_factory):
     from fastapi.testclient import TestClient
     db = tmp_path_factory.mktemp("rcdb") / "db.sqlite"
     os.environ["REXGRAPH_RCDB_URI"] = f"sqlite:///{db}"
-    import agent.server.routes.rcdb as R
-    R._STORE = None  # reset module store so it picks up our URI
+    import agent.rcdb as R
+    R.reset_default_store()  # drop the memo so the store picks up our URI
     from agent.server.app import app
     from agent.server.auth import get_auth_manager
     get_auth_manager().disable_auth()
     with TestClient(app) as c:
         yield c
-    R._STORE = None
+    R.reset_default_store()
 
 
 class TestRoutes:
@@ -293,3 +293,103 @@ class TestAutoLineage:
         r3 = client.post("/api/v1/schema/analyze",
                          json={"spec": v2, "lineage_id": "auto"}).json()
         assert r3["version"]["version"] == 2 and r3["version"]["unchanged"] is False
+
+
+# The default store: one resolver, shared, honoring REXGRAPH_RCDB_URI
+@pytest.fixture
+def isolated_default_store():
+    """Reset the memoized default store around each test.
+
+    `default_store()` caches one instance per process on purpose, so a test that
+    repoints it must restore it or later tests inherit a store pointing at a deleted
+    tmp_path.
+    """
+    from agent import rcdb as R
+    R.reset_default_store()
+    try:
+        yield
+    finally:
+        R.reset_default_store()
+
+
+def test_default_store_honors_the_env_uri(tmp_path, monkeypatch, isolated_default_store):
+    """Without a shared default resolver, every non-HTTP consumer built its own
+    MemoryStore() and silently discarded what it wrote."""
+    from agent import rcdb as R
+
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", "file://" + str(tmp_path / "store"))
+    R.reset_default_store()
+    s = R.default_store()
+    assert isinstance(s, R.FileStore)
+    # the same process shares one instance
+    assert R.default_store() is s
+
+
+def test_default_store_falls_back_to_a_file_store(tmp_path, monkeypatch, isolated_default_store):
+    """With no env override the default must still persist, not evaporate."""
+    from agent import rcdb as R
+
+    monkeypatch.delenv("REXGRAPH_RCDB_URI", raising=False)
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    R.reset_default_store()
+    s = R.default_store()
+    assert not isinstance(s, R.MemoryStore)
+
+
+def test_hive_schema_and_query_manager_use_the_default_store(tmp_path, monkeypatch, isolated_default_store):
+    """Constructing either without an explicit store must reach the default, so a
+    versioned self-schema survives the request that created it."""
+    import numpy as np
+    from agent import rcdb as R
+    from agent.hive_schema import HiveSchema
+    from agent.query_manager import QueryManager
+
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", "file://" + str(tmp_path / "store"))
+    R.reset_default_store()
+    shared = R.default_store()
+
+    class _Hive:
+        name = "h"
+        def roster(self):
+            return []
+        def list_bees(self):
+            return []
+
+    assert HiveSchema(_Hive()).store is shared
+    assert QueryManager().store is shared
+
+
+def test_file_store_ids_that_sanitize_alike_do_not_share_a_blob(tmp_path):
+    """_blob_path replaced every non-alphanumeric character with '_', so 'core/alpha'
+    and 'core_alpha' mapped to the same file. The index kept both records, but the
+    second put silently overwrote the first blob and the first id read back as the
+    wrong complex. Knowledge-core ids carry '/' and ':' routinely."""
+    import numpy as np
+    from agent.rcdb import open_store
+    from rexgraph.graph import RexGraph
+
+    st = open_store("file://" + str(tmp_path / "store"))
+    tri = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32))
+    path = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 3], np.int32))
+    st.put("core/alpha", tri)
+    st.put("core_alpha", path)
+
+    got_a, got_b = st.get("core/alpha"), st.get("core_alpha")
+    assert (int(got_a.nV), int(got_a.nE)) == (3, 3), "core/alpha came back as the wrong complex"
+    assert (int(got_b.nV), int(got_b.nE)) == (4, 3)
+
+
+def test_file_store_round_trips_ids_with_path_and_scheme_characters(tmp_path):
+    """The ids v1.0.5 will actually use."""
+    import numpy as np
+    from agent.rcdb import open_store
+    from rexgraph.graph import RexGraph
+
+    st = open_store("file://" + str(tmp_path / "store"))
+    rex = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32))
+    for rid in ("doc:agent/agent/rcdb.py", "core/beta", "a%b", "sub/dir/thing.md"):
+        st.put(rid, rex)
+    for rid in ("doc:agent/agent/rcdb.py", "core/beta", "a%b", "sub/dir/thing.md"):
+        assert st.get(rid) is not None, f"{rid} did not round-trip"
+    assert {r.id for r in st.list()} >= {"doc:agent/agent/rcdb.py", "core/beta",
+                                         "a%b", "sub/dir/thing.md"}

@@ -1,5 +1,6 @@
 """rexgraph.mesh_health: draining-vs-circulating flow, loop localization, bottlenecks."""
 import numpy as np
+import pytest
 
 from rexgraph import mesh_health, harmonic_health
 from rexgraph.mesh_health import mesh_health as mh
@@ -42,6 +43,46 @@ def test_harmonic_health_splits_the_character():
     # an acyclic complex has no harmonic content -> no health ratio (dim_H == 0)
     tree = harmonic_health(RexGraph.from_graph(np.array([0, 0], np.int32), np.array([1, 2], np.int32)))
     assert tree["dim_H"] == 0 and tree["health_ratio"] is None
+
+
+def test_health_ratio_is_the_frustration_over_coparticipation_channels():
+    """health_ratio must weigh L_SG against L_C, the two channels it is named for.
+
+    Reading L1_down/L_O instead gives the constant 1.0 on every unweighted complex,
+    because those two channels share a diagonal and chi is built from diagonals only.
+    """
+    # K4: every edge carries harmonic content, and L_SG/L_C differs from 1
+    src = np.array([0, 0, 0, 1, 1, 2], np.int32)
+    tgt = np.array([1, 2, 3, 2, 3, 3], np.int32)
+    rex = RexGraph.from_graph(src, tgt)
+    hh = harmonic_health(rex, np.ones(6))
+
+    names = list(rex.hat_names)
+    chi = np.asarray(rex.structural_character) * np.asarray(rex._rl4_sparse.diagonal())[:, None]
+    harm = np.abs(hh["harm_per_edge"])
+    expected = (float((harm * chi[:, names.index("L_SG")]).sum())
+                / float((harm * chi[:, names.index("L_C")]).sum()))
+
+    assert hh["health_ratio"] == pytest.approx(expected, rel=1e-9)
+    assert hh["health_ratio"] != pytest.approx(1.0, abs=1e-9)   # not the degenerate pair
+
+
+def test_health_ratio_channels_are_resolved_by_name_not_position():
+    """The two channels must be looked up in hat_names, so a different channel
+    ordering or count cannot silently shift which pair is reported."""
+    src = np.array([0, 0, 0, 1, 1, 2], np.int32)
+    tgt = np.array([1, 2, 3, 2, 3, 3], np.int32)
+    rex = RexGraph.from_graph(src, tgt)
+    hh = harmonic_health(rex, np.ones(6))
+
+    names = list(rex.hat_names)
+    chi = np.asarray(rex.structural_character) * np.asarray(rex._rl4_sparse.diagonal())[:, None]
+    harm = np.abs(hh["harm_per_edge"])
+    # the totals are reported rounded to 6 decimals, so compare at that precision
+    assert hh["frustration_total"] == pytest.approx(
+        float((harm * chi[:, names.index("L_SG")]).sum()), abs=5e-7)
+    assert hh["coparticipation_total"] == pytest.approx(
+        float((harm * chi[:, names.index("L_C")]).sum()), abs=5e-7)
 
 
 def test_retry_storm_is_flagged_and_localized():

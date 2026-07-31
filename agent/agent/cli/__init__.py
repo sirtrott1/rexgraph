@@ -1,5 +1,5 @@
 """
-agent.cli - command-line entry points.
+agent.cli: command-line entry points.
 
 Console scripts (declared in pyproject.toml [project.scripts]):
 

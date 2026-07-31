@@ -1,12 +1,17 @@
-"""rexgraph.graded_boundary - a general, graded, mixed-arity boundary builder.
+"""rexgraph.graded_boundary: a general, graded, mixed-arity boundary builder.
 
-A relational complex (rex) is a finite chain complex
+A relational complex (rex) is a finite sequence of signed integer boundary maps
 
     C_G --B_G--> C_{G-1} --> ... --> C_1 --B_1--> C_0
 
-in which each boundary map ``B_d : C_d -> C_{d-1}`` is a *signed* sparse matrix
-whose COLUMNS carry any number of nonzeros. The number of nonzeros in a column is
-the cell's *arity* and is INDEPENDENT of its *grade* (dimension):
+with entries in {-1, 0, +1}, satisfying the chain condition B_{d-1} B_d = 0 at every
+consecutive pair. Edges are primitive and vertices are derived: a vertex exists exactly
+when some column of B_1 is nonzero in its row. Nothing is assumed beyond the integers:
+no metric, no manifold, no continuity.
+
+Each ``B_d : C_d -> C_{d-1}`` is a *signed* sparse matrix whose COLUMNS carry any number
+of nonzeros. The number of nonzeros in a column is the cell's *arity* and is INDEPENDENT
+of its *grade* (dimension):
 
     nnz = 1  -> a "witness" cell (single face),
     nnz = 2  -> an ordinary cell (pairwise edge / bigon),
@@ -32,7 +37,7 @@ arbitrary orientations. Both forms are accepted per cell.
 """
 from __future__ import annotations
 
-from typing import List, Sequence, Tuple, Union
+from typing import List, Sequence, Tuple
 
 import numpy as np
 import scipy.sparse as sp

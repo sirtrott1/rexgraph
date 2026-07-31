@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from rexgraph.graph import RexGraph
-from rexgraph.io.rex_state import to_state, from_state, RexState, FORMAT_VERSION
+from rexgraph.io.rex_state import to_state, from_state
 
 
 def _simple():
@@ -122,7 +122,7 @@ def test_safetensors_roundtrips_signs_and_attribution(tmp_path):
 
 
 def test_rcstore_roundtrips_full_state(tmp_path):
-    from agent.agent.rcdb import FileStore
+    from agent.rcdb import FileStore
     g = _simple()
     g._agent_meta = {"vertex_labels": ["a", "b", "c", "d"], "source": "unit"}
     store = FileStore(str(tmp_path / "rcdb"))

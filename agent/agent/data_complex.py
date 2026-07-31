@@ -1,4 +1,4 @@
-"""agent.data_complex - records as a relational complex (cluster/relate the DATA, not the schema).
+"""agent.data_complex: records as a relational complex (cluster/relate the DATA, not the schema).
 
 A set of rows becomes a relational complex: each record is a vertex, and two records are joined by an
 edge when they share a value in a `link_on` column (a co-participation). The topology then reads the

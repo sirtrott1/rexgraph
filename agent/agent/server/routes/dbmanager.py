@@ -1,5 +1,5 @@
 """
-agent.server.routes.dbmanager - enterprise database manager.
+agent.server.routes.dbmanager: enterprise database manager.
 
 Save and test connections to any SQL database (or MongoDB), browse a live
 schema, and import it into the RCDB as a diagnosed relational complex.
@@ -13,10 +13,6 @@ is a drop-in.
 
 from __future__ import annotations
 
-import json
-import os
-import re
-from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, Body, HTTPException
 
@@ -126,7 +122,7 @@ async def import_schema(body: dict = Body(...)):
         store_id = body.get("store_id") or (body.get("name") or "imported") + "-schema"
         rex, meta = sc.schema_to_rex(model)
         if rex is not None:
-            from agent.server.routes.rcdb import _store
+            from agent.rcdb import default_store as _store
             _store().put(store_id, rex, meta=meta,
                          tags=(body.get("tags") or []) + ["schema", "imported"])
             report["stored_as"] = store_id

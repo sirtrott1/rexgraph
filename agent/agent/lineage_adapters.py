@@ -1,5 +1,5 @@
 """
-agent.lineage_adapters - represent the platform's own work as relational
+agent.lineage_adapters: represent the platform's own work as relational
 complexes so it becomes queryable structure in the RCDB.
 
 A pipeline run is a DAG of stages (stages = vertices, data-flow / ordering =

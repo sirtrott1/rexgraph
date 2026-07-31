@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._rcfe - RCFE curvature, strain, and conservation laws.
+rexgraph.core._rcfe: RCFE curvature, strain, and conservation laws.
 
 Curvature C(sigma) measures how concentrated face structure is at each edge.
 Strain S = sum C(e) * RL[e,e] is the total structural stress.

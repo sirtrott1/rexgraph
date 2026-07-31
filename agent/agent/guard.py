@@ -1,4 +1,4 @@
-"""agent.guard - rule-based, real-time validity checks on generated content.
+"""agent.guard: rule-based, real-time validity checks on generated content.
 
 A guard is a lightweight worker in the hive. It watches a stream of generated
 tokens (or a finished reply) against a set of rules, flags violations the instant
@@ -46,9 +46,25 @@ class GuardRule:
         return out
 
     def apply_fix(self, text: str) -> str:
+        """Substitute `fix` for every non-exempt hit.
+
+        `fix` is expanded as a regex template, so it may carry group references and a
+        rule can preserve what it matched. That is how the plural is kept: a fix of
+        r"relational complex\\1" against a pattern ending "(es|)" yields "relational
+        complexes" for a plural hit and "relational complex" for a singular one. A fix
+        with no references expands to itself.
+        """
         if self.fix is None or not text:
             return text or ""
-        return self._re.sub(lambda m: m.group(0) if self._exempt(m.group(0)) else self.fix, text)
+
+        def _sub(m):
+            if self._exempt(m.group(0)):
+                return m.group(0)
+            try:
+                return m.expand(self.fix)
+            except re.error:
+                return self.fix          # a fix that is not a valid template is literal
+        return self._re.sub(_sub, text)
 
 
 class OutputGuard:
@@ -88,9 +104,11 @@ class OutputGuard:
 # --- presets ------------------------------------------------------------------
 
 RELATIONAL_COMPLEX_RULES = [
-    GuardRule("relational-complex-term", r"chain[ -]complex(es)?",
+    # "(es|)" rather than "(es)?" so the group always participates and the fix template
+    # can echo it back; an optional group that does not match makes m.expand raise.
+    GuardRule("relational-complex-term", r"chain[ -]complex(es|)",
               "use 'relational complex', not 'chain complex'",
-              fix="relational complex"),
+              fix=r"relational complex\1"),
     GuardRule("relational-complex-hyphen", r"relational-complex",
               "write 'relational complex' unhyphenated, even as an adjective",
               fix="relational complex"),

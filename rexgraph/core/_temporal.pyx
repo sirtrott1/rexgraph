@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._temporal - Temporal bundle storage, BIOES phase detection,
+rexgraph.core._temporal: Temporal bundle storage, BIOES phase detection,
 and lifecycle tracking for temporal rexgraphs.
 
 Delta-encoded snapshot storage with adaptive checkpoints. Sorted-merge
@@ -16,7 +16,7 @@ potential-dominated (geometric) regimes.
 
 Cascade event tracking records edge activation order during signal
 propagation, enabling analysis of perturbation spread through the
-chain complex.
+relational complex.
 
 General boundary variants handle branching edges, self-loops, and
 witness edges alongside standard 2-endpoint edges.
@@ -51,6 +51,9 @@ cdef enum:
     FACE_DIED    = 2
     FACE_SPLIT   = 3
     FACE_MERGE   = 4
+    # a face that deforms into a single successor has not merged with anything:
+    # its existence changed into another structure. That is a mutation.
+    FACE_MUTATE  = 5
 
 
 # Edge encoding
@@ -687,6 +690,48 @@ def edge_lifecycle_i64(list snapshots, bint directed=False):
     return eids, birth, death
 
 
+def edge_intervals(snapshots, directed=False):
+    """Per-cell CONTIGUOUS presence intervals, one row per interval.
+
+    edge_lifecycle reports first_seen and last_seen, so a cell present at t=0, absent
+    at t=1 and back at t=2 is reported as one unbroken life. That reads intermittency
+    as persistence, which is the opposite of what it is: something that keeps dying
+    and returning is not something that stayed.
+
+    Returns (keys, starts, ends), ends INCLUSIVE. A cell alive in several disjoint
+    windows contributes one row per window, so `keys` may repeat.
+    """
+    T = len(snapshots)
+    if T == 0:
+        return (np.array([], dtype=np.int64), np.array([], dtype=np.int32),
+                np.array([], dtype=np.int32))
+    seen = {}
+    for t in range(T):
+        src, tgt = snapshots[t]
+        src = np.asarray(src); tgt = np.asarray(tgt)
+        i64_mode = src.dtype == np.int64
+        for j in range(src.shape[0]):
+            a = int(src[j]); b = int(tgt[j])
+            if not directed and a > b:
+                a, b = b, a
+            key = a * (4294967296 if i64_mode else 2147483648) + b
+            seen.setdefault(key, []).append(t)
+
+    keys, starts, ends = [], [], []
+    for key in sorted(seen):
+        times = seen[key]
+        run_start = prev = times[0]
+        for t in times[1:]:
+            if t == prev + 1:
+                prev = t
+                continue
+            keys.append(key); starts.append(run_start); ends.append(prev)
+            run_start = prev = t
+        keys.append(key); starts.append(run_start); ends.append(prev)
+    return (np.array(keys, dtype=np.int64), np.array(starts, dtype=np.int32),
+            np.array(ends, dtype=np.int32))
+
+
 def edge_lifecycle(snapshots, directed=False):
     """Auto-dispatch by dtype."""
     if len(snapshots) == 0:
@@ -921,13 +966,21 @@ def detect_phases_with_events(np.ndarray[i64, ndim=2] betti_matrix,
                                np.ndarray[i32, ndim=1] face_split,
                                np.ndarray[i32, ndim=1] face_merge,
                                double betti_tol=0.0,
-                               Py_ssize_t event_threshold=1):
+                               Py_ssize_t event_threshold=1,
+                               np.ndarray[i32, ndim=1] edge_born=None,
+                               np.ndarray[i32, ndim=1] edge_died=None):
     """
-    Detect phases using both Betti stability AND face event quiescence.
+    Detect phases using Betti stability AND structural event quiescence.
 
     A phase breaks when:
       (a) any Betti number shifts, OR
-      (b) face structural events (born+died+split+merge) exceed threshold.
+      (b) structural events exceed threshold: face born+died+split+merge, and
+          edge born+died when supplied.
+
+    Edge events matter on their own. A cell dying as another is born leaves every
+    Betti number where it was, so a topology can mutate through a phase boundary
+    that Betti alone cannot see. The churn was already measured and returned; it
+    just never reached this function.
 
 
     Parameters
@@ -947,6 +1000,9 @@ def detect_phases_with_events(np.ndarray[i64, ndim=2] betti_matrix,
     cdef Py_ssize_t K = betti_matrix.shape[1]
     cdef i64[:, ::1] bm = betti_matrix
     cdef i32[::1] fb = face_born, fd = face_died, fs = face_split, fm = face_merge
+    cdef bint has_edge = edge_born is not None and edge_died is not None
+    cdef i32[::1] eb = edge_born if has_edge else np.zeros(T, dtype=np.int32)
+    cdef i32[::1] ed = edge_died if has_edge else np.zeros(T, dtype=np.int32)
     cdef Py_ssize_t t, k
     cdef bint betti_changed, event_exceeded
     cdef Py_ssize_t total_events
@@ -973,7 +1029,7 @@ def detect_phases_with_events(np.ndarray[i64, ndim=2] betti_matrix,
                 betti_changed = True
                 break
 
-        total_events = fb[t] + fd[t] + fs[t] + fm[t]
+        total_events = fb[t] + fd[t] + fs[t] + fm[t] + eb[t] + ed[t]
         event_exceeded = total_events >= event_threshold
 
         if betti_changed or event_exceeded:
@@ -1043,7 +1099,7 @@ def compute_bioes_unified(list edge_snapshots,
                           double phase_tol=0.0,
                           Py_ssize_t min_phase_len=2,
                           Py_ssize_t face_event_threshold=1,
-                          double jaccard_threshold=0.5):
+                          Py_ssize_t min_shared=1):
     """
     Unified BIOES pipeline across all dimensions.
 
@@ -1074,7 +1130,8 @@ def compute_bioes_unified(list edge_snapshots,
     """
     cdef Py_ssize_t T = len(edge_snapshots)
 
-    ec, ebc, edc = compute_edge_metrics(edge_snapshots, directed)
+    ec, e_born, e_died = compute_edge_metrics(edge_snapshots, directed)
+    ebc, edc = e_born, e_died
 
     cdef np.ndarray[i32, ndim=1] f_counts = np.zeros(T, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] f_born = np.zeros(T, dtype=np.int32)
@@ -1083,12 +1140,18 @@ def compute_bioes_unified(list edge_snapshots,
     cdef np.ndarray[i32, ndim=1] f_merge = np.zeros(T, dtype=np.int32)
 
     if len(face_snapshots) == T and T > 0:
-        _, f_counts, _, f_born, f_died, f_split, f_merge = face_lifecycle(
-            face_snapshots, edge_snapshots, directed, jaccard_threshold)
+        (_, f_counts, _, f_born, f_died, f_split, f_merge,
+         f_mutate) = face_lifecycle(face_snapshots, edge_snapshots, directed,
+                                    min_shared)
+        # a mutating face is a structural event like any other; leaving it out of
+        # the totals is what made it invisible to the phase detector.
+        f_merge = (np.asarray(f_merge, dtype=np.int32)
+                   + np.asarray(f_mutate, dtype=np.int32)).astype(np.int32)
 
     p_start, p_end, p_betti, reasons = detect_phases_with_events(
         betti_matrix, f_born, f_died, f_split, f_merge,
-        phase_tol, face_event_threshold)
+        phase_tol, face_event_threshold,
+        edge_born=e_born, edge_died=e_died)
     unified_tags = assign_bioes_tags(T, p_start, p_end, min_phase_len)
 
     per_dim_tags = assign_bioes_per_dimension(T, betti_matrix, phase_tol, min_phase_len)
@@ -1155,7 +1218,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
                     np.ndarray[i32, ndim=1] src_curr,
                     np.ndarray[i32, ndim=1] tgt_curr,
                     bint directed=False,
-                    double jaccard_threshold=0.5):
+                    Py_ssize_t min_shared=1):
     """
     Track face correspondence between consecutive snapshots.
 
@@ -1169,7 +1232,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
         -1 if died.
     curr_to_prev : int32[nF_curr]
         -1 if born.
-    jaccard_scores : float64[nF_curr]
+    shared : float64[nF_curr]  boundary cells shared with the matched predecessor
     """
     cdef Py_ssize_t nF_prev = B2_cp_prev.shape[0] - 1
     cdef Py_ssize_t nF_curr = B2_cp_curr.shape[0] - 1
@@ -1185,6 +1248,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
                                             src_curr, tgt_curr, fc, directed))
 
     cdef dict prev_lookup = {}
+    cdef dict exact = {}
     for fp in range(nF_prev):
         key = bytes(prev_faces[fp].data)
         prev_lookup[key] = fp
@@ -1201,30 +1265,39 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
             fp = prev_lookup[key]
             c2pv[fc] = <i32>fp
             p2cv[fp] = <i32>fc
-            jv[fc] = 1.0
+            jv[fc] = <f64>len(curr_faces[fc])
+            exact[fc] = [fp]
 
+    # Collect EVERY predecessor above threshold, not just the best one. A merge is
+    # several predecessors feeding one successor, so keeping only the best parent
+    # made a genuine merge indistinguishable from its parents being annihilated.
     cdef f64 best_j, j_score
     cdef Py_ssize_t best_fp, inter_size, union_size
+    cdef dict parents = dict(exact)
     for fc in range(nF_curr):
         if c2pv[fc] >= 0:
             continue
         curr_set = set(curr_faces[fc].tolist())
         best_j = 0.0; best_fp = -1
+        matched = []
         for fp in range(nF_prev):
             if p2cv[fp] >= 0:
                 continue
             prev_set = set(prev_faces[fp].tolist())
             inter_size = len(curr_set & prev_set)
-            union_size = len(curr_set | prev_set)
-            if union_size > 0:
-                j_score = <f64>inter_size / <f64>union_size
-                if j_score > best_j:
-                    best_j = j_score; best_fp = fp
+            # A shared boundary cell is an exact structural fact. The old test was
+            # |A n B| / |A u B| >= 0.5, a similarity score with an untunable cutoff
+            # that also cannot see orientation at all -- and it re-derived, badly,
+            # something B2 and the canonical cell keys already state exactly.
+            if inter_size >= min_shared:
+                matched.append(fp)
+            if <f64>inter_size > best_j:
+                best_j = <f64>inter_size; best_fp = fp
         jv[fc] = best_j
-        if best_j >= jaccard_threshold and best_fp >= 0:
+        if matched:
+            parents[fc] = matched
             c2pv[fc] = <i32>best_fp
 
-    cdef Py_ssize_t max_nF = nF_prev if nF_prev > nF_curr else nF_curr
     cdef np.ndarray[i32, ndim=1] events_prev = np.full(nF_prev, FACE_DIED, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] events_curr = np.full(nF_curr, FACE_BORN, dtype=np.int32)
     cdef i32[::1] epv = events_prev, ecv = events_curr
@@ -1233,27 +1306,41 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
         if p2cv[fp] >= 0:
             epv[fp] = FACE_PERSIST
 
+    # how many successors claim each predecessor: > 1 is a split
     cdef dict prev_match_count = {}
-    for fc in range(nF_curr):
-        if c2pv[fc] >= 0:
-            fp = c2pv[fc]
-            if fp not in prev_match_count:
-                prev_match_count[fp] = 0
-            prev_match_count[fp] += 1
-
-    for fp, count in prev_match_count.items():
-        if count > 1:
-            epv[fp] = FACE_SPLIT
+    for fc, fps in parents.items():
+        for fp in fps:
+            prev_match_count[fp] = prev_match_count.get(fp, 0) + 1
 
     for fc in range(nF_curr):
-        if c2pv[fc] >= 0:
-            fp = c2pv[fc]
-            if jv[fc] >= 1.0 - 1e-10:
-                ecv[fc] = FACE_PERSIST
-            elif prev_match_count.get(fp, 0) > 1:
-                ecv[fc] = FACE_SPLIT
+        fps = parents.get(fc)
+        if not fps:
+            continue
+        split_parent = any(prev_match_count.get(fp, 0) > 1 for fp in fps)
+        if fc in exact:
+            ecv[fc] = FACE_PERSIST
+        elif len(fps) > 1:
+            ecv[fc] = FACE_MERGE
+        elif split_parent:
+            ecv[fc] = FACE_SPLIT
+        else:
+            # one predecessor, one successor, partial overlap: the face did not
+            # merge with anything, it changed into another structure.
+            ecv[fc] = FACE_MUTATE
+        for fp in fps:
+            # record the lineage BOTH ways. p2c used to be written only by the
+            # exact-match pass, so every approximate correspondence left its
+            # predecessor reported dead and the ancestry unrecoverable.
+            if p2cv[fp] < 0:
+                p2cv[fp] = <i32>fc
+            if prev_match_count.get(fp, 0) > 1:
+                epv[fp] = FACE_SPLIT
+            elif len(fps) > 1:
+                epv[fp] = FACE_MERGE
+            elif ecv[fc] == FACE_PERSIST:
+                epv[fp] = FACE_PERSIST
             else:
-                ecv[fc] = FACE_MERGE
+                epv[fp] = FACE_MUTATE
 
     return events_prev, events_curr, p2c, c2p, jacc
 
@@ -1267,7 +1354,7 @@ def track_faces_i64(np.ndarray[i64, ndim=1] B2_cp_prev,
                     np.ndarray[i64, ndim=1] src_curr,
                     np.ndarray[i64, ndim=1] tgt_curr,
                     bint directed=False,
-                    double jaccard_threshold=0.5):
+                    Py_ssize_t min_shared=1):
     """Track face correspondence. int64 variant."""
     cdef Py_ssize_t nF_prev = B2_cp_prev.shape[0] - 1
     cdef Py_ssize_t nF_curr = B2_cp_curr.shape[0] - 1
@@ -1283,6 +1370,7 @@ def track_faces_i64(np.ndarray[i64, ndim=1] B2_cp_prev,
                                             src_curr, tgt_curr, fc, directed))
 
     cdef dict prev_lookup = {}
+    cdef dict exact = {}
     for fp in range(nF_prev):
         prev_lookup[bytes(prev_faces[fp].data)] = fp
 
@@ -1296,24 +1384,30 @@ def track_faces_i64(np.ndarray[i64, ndim=1] B2_cp_prev,
         key = bytes(curr_faces[fc].data)
         if key in prev_lookup:
             fp = prev_lookup[key]
-            c2pv[fc] = <i64>fp; p2cv[fp] = <i64>fc; jv[fc] = 1.0
+            c2pv[fc] = <i64>fp; p2cv[fp] = <i64>fc
+            jv[fc] = <f64>len(curr_faces[fc])
+            exact[fc] = [fp]
 
+    # see track_faces_i32: keep every predecessor above threshold, so a merge is
+    # distinguishable from its parents being annihilated, and record the lineage
+    # both ways rather than only on the exact-match pass.
     cdef f64 best_j, j_score
     cdef Py_ssize_t best_fp, inter_size, union_size
+    cdef dict parents = dict(exact)
     for fc in range(nF_curr):
         if c2pv[fc] >= 0: continue
         curr_set = set(curr_faces[fc].tolist())
         best_j = 0.0; best_fp = -1
+        matched = []
         for fp in range(nF_prev):
             if p2cv[fp] >= 0: continue
             prev_set = set(prev_faces[fp].tolist())
             inter_size = len(curr_set & prev_set)
-            union_size = len(curr_set | prev_set)
-            if union_size > 0:
-                j_score = <f64>inter_size / <f64>union_size
-                if j_score > best_j: best_j = j_score; best_fp = fp
+            if inter_size >= min_shared: matched.append(fp)
+            if <f64>inter_size > best_j: best_j = <f64>inter_size; best_fp = fp
         jv[fc] = best_j
-        if best_j >= jaccard_threshold and best_fp >= 0:
+        if matched:
+            parents[fc] = matched
             c2pv[fc] = <i64>best_fp
 
     cdef np.ndarray[i32, ndim=1] ep = np.full(nF_prev, FACE_DIED, dtype=np.int32)
@@ -1324,39 +1418,43 @@ def track_faces_i64(np.ndarray[i64, ndim=1] B2_cp_prev,
         if p2cv[fp] >= 0: epv[fp] = FACE_PERSIST
 
     cdef dict pmc = {}
-    for fc in range(nF_curr):
-        if c2pv[fc] >= 0:
-            fp = <Py_ssize_t>c2pv[fc]
+    for fc, fps in parents.items():
+        for fp in fps:
             pmc[fp] = pmc.get(fp, 0) + 1
 
-    for fp_key, count in pmc.items():
-        if count > 1: epv[fp_key] = FACE_SPLIT
-
     for fc in range(nF_curr):
-        if c2pv[fc] >= 0:
-            fp = <Py_ssize_t>c2pv[fc]
-            if jv[fc] >= 1.0 - 1e-10: ecv[fc] = FACE_PERSIST
-            elif pmc.get(fp, 0) > 1: ecv[fc] = FACE_SPLIT
-            else: ecv[fc] = FACE_MERGE
+        fps = parents.get(fc)
+        if not fps: continue
+        split_parent = any(pmc.get(fp, 0) > 1 for fp in fps)
+        if fc in exact: ecv[fc] = FACE_PERSIST
+        elif len(fps) > 1: ecv[fc] = FACE_MERGE
+        elif split_parent: ecv[fc] = FACE_SPLIT
+        else: ecv[fc] = FACE_MUTATE
+        for fp in fps:
+            if p2cv[fp] < 0: p2cv[fp] = <i64>fc
+            if pmc.get(fp, 0) > 1: epv[fp] = FACE_SPLIT
+            elif len(fps) > 1: epv[fp] = FACE_MERGE
+            elif ecv[fc] == FACE_PERSIST: epv[fp] = FACE_PERSIST
+            else: epv[fp] = FACE_MUTATE
 
     return ep, ec, p2c, c2p, jacc
 
 
 def track_faces(B2_cp_prev, B2_ri_prev, src_prev, tgt_prev,
                 B2_cp_curr, B2_ri_curr, src_curr, tgt_curr,
-                directed=False, jaccard_threshold=0.5):
+                directed=False, min_shared=1):
     """Auto-dispatch by dtype."""
     if B2_cp_prev.dtype == np.int64:
         return track_faces_i64(B2_cp_prev, B2_ri_prev, src_prev, tgt_prev,
                                B2_cp_curr, B2_ri_curr, src_curr, tgt_curr,
-                               directed, jaccard_threshold)
+                               directed, min_shared)
     return track_faces_i32(B2_cp_prev, B2_ri_prev, src_prev, tgt_prev,
                            B2_cp_curr, B2_ri_curr, src_curr, tgt_curr,
-                           directed, jaccard_threshold)
+                           directed, min_shared)
 
 
 def face_lifecycle_i32(list face_snapshots, list edge_snapshots,
-                       bint directed=False, double jaccard_threshold=0.5):
+                       bint directed=False, Py_ssize_t min_shared=1):
     """
     Full face lifecycle across all timesteps.
 
@@ -1365,7 +1463,7 @@ def face_lifecycle_i32(list face_snapshots, list edge_snapshots,
 
     Returns
     -------
-    events_per_step : list of (events_prev, events_curr, p2c, c2p, jaccard)
+    events_per_step : list of (events_prev, events_curr, p2c, c2p, shared)
     face_counts     : int32[T]
     persist_counts  : int32[T]
     born_counts     : int32[T]
@@ -1380,7 +1478,8 @@ def face_lifecycle_i32(list face_snapshots, list edge_snapshots,
     cdef np.ndarray[i32, ndim=1] dc = np.zeros(T, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] sc = np.zeros(T, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] mc = np.zeros(T, dtype=np.int32)
-    cdef i32[::1] fcv = fc, pcv = pc, bcv = bc, dcv = dc, scv = sc, mcv = mc
+    cdef np.ndarray[i32, ndim=1] muc = np.zeros(T, dtype=np.int32)
+    cdef i32[::1] fcv = fc, pcv = pc, bcv = bc, dcv = dc, scv = sc, mcv = mc, mucv = muc
     cdef Py_ssize_t fi, nF_p, nF_c
 
     events_list = []
@@ -1398,7 +1497,7 @@ def face_lifecycle_i32(list face_snapshots, list edge_snapshots,
 
         ep, ec, p2c, c2p, jacc = track_faces_i32(
             cp_p, ri_p, s_p, t_p, cp_c, ri_c, s_c, t_c,
-            directed, jaccard_threshold)
+            directed, min_shared)
         events_list.append((ep, ec, p2c, c2p, jacc))
 
         nF_p = cp_p.shape[0] - 1
@@ -1408,14 +1507,15 @@ def face_lifecycle_i32(list face_snapshots, list edge_snapshots,
             elif ec[fi] == FACE_BORN: bcv[t] += 1
             elif ec[fi] == FACE_SPLIT: scv[t] += 1
             elif ec[fi] == FACE_MERGE: mcv[t] += 1
+            elif ec[fi] == FACE_MUTATE: mucv[t] += 1
         for fi in range(nF_p):
             if ep[fi] == FACE_DIED: dcv[t] += 1
 
-    return events_list, fc, pc, bc, dc, sc, mc
+    return events_list, fc, pc, bc, dc, sc, mc, muc
 
 
 def face_lifecycle_i64(list face_snapshots, list edge_snapshots,
-                       bint directed=False, double jaccard_threshold=0.5):
+                       bint directed=False, Py_ssize_t min_shared=1):
     """Full face lifecycle. int64 variant."""
     cdef Py_ssize_t T = len(face_snapshots), t
     cdef np.ndarray[i32, ndim=1] fc = np.zeros(T, dtype=np.int32)
@@ -1424,7 +1524,8 @@ def face_lifecycle_i64(list face_snapshots, list edge_snapshots,
     cdef np.ndarray[i32, ndim=1] dc = np.zeros(T, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] sc = np.zeros(T, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] mc = np.zeros(T, dtype=np.int32)
-    cdef i32[::1] fcv = fc, pcv = pc, bcv = bc, dcv = dc, scv = sc, mcv = mc
+    cdef np.ndarray[i32, ndim=1] muc = np.zeros(T, dtype=np.int32)
+    cdef i32[::1] fcv = fc, pcv = pc, bcv = bc, dcv = dc, scv = sc, mcv = mc, mucv = muc
     cdef Py_ssize_t fi, nF_p, nF_c
 
     events_list = []
@@ -1441,7 +1542,7 @@ def face_lifecycle_i64(list face_snapshots, list edge_snapshots,
 
         ep, ec, p2c, c2p, jacc = track_faces_i64(
             cp_p, ri_p, s_p, t_p, cp_c, ri_c, s_c, t_c,
-            directed, jaccard_threshold)
+            directed, min_shared)
         events_list.append((ep, ec, p2c, c2p, jacc))
 
         nF_c = cp_c.shape[0] - 1
@@ -1451,14 +1552,15 @@ def face_lifecycle_i64(list face_snapshots, list edge_snapshots,
             elif ec[fi] == FACE_BORN: bcv[t] += 1
             elif ec[fi] == FACE_SPLIT: scv[t] += 1
             elif ec[fi] == FACE_MERGE: mcv[t] += 1
+            elif ec[fi] == FACE_MUTATE: mucv[t] += 1
         for fi in range(nF_p):
             if ep[fi] == FACE_DIED: dcv[t] += 1
 
-    return events_list, fc, pc, bc, dc, sc, mc
+    return events_list, fc, pc, bc, dc, sc, mc, muc
 
 
 def face_lifecycle(face_snapshots, edge_snapshots,
-                   directed=False, jaccard_threshold=0.5):
+                   directed=False, min_shared=1):
     """Auto-dispatch by dtype of first edge snapshot."""
     if len(edge_snapshots) == 0:
         return [], np.array([], dtype=np.int32), np.array([], dtype=np.int32), \
@@ -1466,9 +1568,9 @@ def face_lifecycle(face_snapshots, edge_snapshots,
                np.array([], dtype=np.int32), np.array([], dtype=np.int32)
     if edge_snapshots[0][0].dtype == np.int64:
         return face_lifecycle_i64(face_snapshots, edge_snapshots,
-                                  directed, jaccard_threshold)
+                                  directed, min_shared)
     return face_lifecycle_i32(face_snapshots, edge_snapshots,
-                              directed, jaccard_threshold)
+                              directed, min_shared)
 
 
 # Face delta encoding: faces identified by their constituent edge-keys
@@ -2390,7 +2492,7 @@ def track_faces_general(np.ndarray[i32, ndim=1] B2_cp_prev,
                         np.ndarray[i32, ndim=1] B2_ri_curr,
                         np.ndarray[i32, ndim=1] bp_curr,
                         np.ndarray[i32, ndim=1] bi_curr,
-                        double jaccard_threshold=0.5):
+                        Py_ssize_t min_shared=1):
     """
     Track faces across two snapshots using general boundary edge keys.
 
@@ -2440,7 +2542,7 @@ def track_faces_general(np.ndarray[i32, ndim=1] B2_cp_prev,
                 inter = len(prev_esets[pi_idx] & curr_esets[ci_idx])
                 union = len(prev_esets[pi_idx] | curr_esets[ci_idx])
                 jacc = <f64>inter / <f64>union if union > 0 else 0.0
-                if jacc >= jaccard_threshold:
+                if jacc >= min_shared:
                     children.append(ci)
                     used_curr.add(ci)
             if len(children) > 1:
@@ -2466,7 +2568,7 @@ def track_faces_general(np.ndarray[i32, ndim=1] B2_cp_prev,
                 inter = len(prev_esets[pi_idx] & curr_esets[ci_idx])
                 union = len(prev_esets[pi_idx] | curr_esets[ci_idx])
                 jacc = <f64>inter / <f64>union if union > 0 else 0.0
-                if jacc >= jaccard_threshold:
+                if jacc >= min_shared:
                     parents.append(pi)
             if len(parents) > 1:
                 for pi in parents:
@@ -2494,7 +2596,7 @@ def compute_bioes_unified_general(list edge_snapshots,
                                   double phase_tol=0.0,
                                   Py_ssize_t min_phase_len=2,
                                   Py_ssize_t face_event_threshold=1,
-                                  double jaccard_threshold=0.5):
+                                  Py_ssize_t min_shared=1):
     """
     Unified BIOES pipeline for general boundary snapshots.
 
@@ -2510,7 +2612,8 @@ def compute_bioes_unified_general(list edge_snapshots,
     """
     cdef Py_ssize_t T = len(edge_snapshots)
 
-    ec, ebc, edc = compute_edge_metrics_general(edge_snapshots)
+    ec, e_born, e_died = compute_edge_metrics_general(edge_snapshots)
+    ebc, edc = e_born, e_died
 
     cdef np.ndarray[i32, ndim=1] f_counts = np.zeros(T, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] f_born = np.zeros(T, dtype=np.int32)
@@ -2531,7 +2634,7 @@ def compute_bioes_unified_general(list edge_snapshots,
             evts, np_, nb, nd, ns, nm = track_faces_general(
                 b2cp_p, b2ri_p, bp_p, bi_p,
                 b2cp_c, b2ri_c, bp_c, bi_c,
-                jaccard_threshold)
+                min_shared)
             f_born[t] = <i32>nb
             f_died[t] = <i32>nd
             f_split[t] = <i32>ns
@@ -2539,7 +2642,8 @@ def compute_bioes_unified_general(list edge_snapshots,
 
     p_start, p_end, p_betti, reasons = detect_phases_with_events(
         betti_matrix, f_born, f_died, f_split, f_merge,
-        phase_tol, face_event_threshold)
+        phase_tol, face_event_threshold,
+        edge_born=e_born, edge_died=e_died)
     unified_tags = assign_bioes_tags(T, p_start, p_end, min_phase_len)
 
     per_dim_tags = assign_bioes_per_dimension(T, betti_matrix, phase_tol, min_phase_len)

@@ -1,5 +1,5 @@
 """
-agent.cli.setup - platform-aware dependency installation.
+agent.cli.setup: platform-aware dependency installation.
 
 Three tiers:
     1. Tesseract + pymupdf (always, no prompt)
@@ -10,11 +10,9 @@ Three tiers:
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -423,7 +421,6 @@ def smoke_test_rexgraph() -> bool:
     """Quick sanity check: import rexgraph and build a tiny rex."""
     try:
         from rexgraph.graph import RexGraph
-        import numpy as np
         rex = RexGraph.from_graph([0, 1, 0], [1, 2, 2])
         assert rex.betti == (1, 1, 0), f"Unexpected betti: {rex.betti}"
         return True

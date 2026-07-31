@@ -1,5 +1,5 @@
 """
-agent.server.routes.models - model lifecycle management via ModelManager.
+agent.server.routes.models: model lifecycle management via ModelManager.
 
     GET  /api/v1/models/list          all models with status
     GET  /api/v1/models/status        loaded/available/VRAM summary
@@ -18,7 +18,6 @@ agent.server.routes.models - model lifecycle management via ModelManager.
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Body
 

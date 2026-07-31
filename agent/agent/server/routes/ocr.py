@@ -1,5 +1,5 @@
 """
-agent.server.routes.ocr - OCR endpoint for the agent server.
+agent.server.routes.ocr: OCR endpoint for the agent server.
 
     POST /api/v1/ocr          multipart upload or JSON path
     GET  /api/v1/ocr/status   available backends
@@ -12,7 +12,6 @@ import tempfile
 import time
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/v1")
 

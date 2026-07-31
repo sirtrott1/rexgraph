@@ -1,5 +1,5 @@
 """
-agent.cli.serve - localhost vLLM/SGLang process management.
+agent.cli.serve: localhost vLLM/SGLang process management.
 
     rexgraph-ocr serve                    # start with defaults
     rexgraph-ocr serve --port 10000       # custom port
@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Optional
 
 from .config import (
-    PID_FILE,
     clear_pid,
     load_config,
     process_alive,

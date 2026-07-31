@@ -1,5 +1,5 @@
 """
-agent.server.routes.export - session and workspace export.
+agent.server.routes.export: session and workspace export.
 
     GET  /api/v1/export/session/{id}   export a session's analysis as JSON
     GET  /api/v1/export/workspace      export entire workspace
@@ -8,9 +8,7 @@ agent.server.routes.export - session and workspace export.
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
@@ -90,7 +88,7 @@ async def export_workspace(
 
     if format == "json":
         from agent.server.persistence import (
-            list_document_bundles, load_activity, load_query_history,
+            list_document_bundles, load_query_history,
         )
         return {
             "workspace": ws.name,

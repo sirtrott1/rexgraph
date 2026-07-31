@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._curvature - Lagrangian curvature and the five curvature
+rexgraph.core._curvature: Lagrangian curvature and the five curvature
 localizations, on the sparse/integer path.
 
 Reference: CANONICAL_SPARSE_MATH_REFERENCE Parts IV (Lagrangians) & VIII (five

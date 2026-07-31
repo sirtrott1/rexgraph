@@ -513,7 +513,6 @@ class TestSingularGreensDeflated:
 
     def test_matches_dense_pinv_two_squares(self):
         # oracle-09 complex: two 4-cycles sharing an edge, no faces, beta1 = 2
-        import scipy.sparse as sp
         from rexgraph.scale_propagator import greens_diagonal_deflated
         from rexgraph.harmonic_sparse import cycle_basis
         E = [(0, 1), (1, 2), (2, 3), (3, 0), (1, 4), (4, 5), (5, 2)]
@@ -634,7 +633,6 @@ class TestChannelSpectralGaps:
 
     def test_transpose_duality_exact_T_G(self):
         # T/G gap == lambda_2 of the tiny vertex-dual Laplacian / trace (exact)
-        import scipy.sparse as sp
         g = self._Kk(6)
         B1 = np.asarray(g.B1, float)
         for nm, M in (('L1_down', B1 @ B1.T), ('L_O', np.abs(B1) @ np.abs(B1).T)):

@@ -1,4 +1,4 @@
-"""agent.reactive_hive - the monitor -> schema loop that makes the hive self-organizing.
+"""agent.reactive_hive: the monitor -> schema loop that makes the hive self-organizing.
 
 The hive observes the field on its own coordination complex and mutates its own
 schema in response, versioning each change with its cause. This closes the loop:
@@ -92,7 +92,6 @@ class ReactiveHive:
 
         health_ratio, harm_locus = None, []
         try:
-            from . import agent_complex
             from rexgraph import harmonic_health
             rex, ags, idx, we, edges = self.hive._complex.interaction_complex()
             if rex is not None and int(rex.betti[1]) > 0:

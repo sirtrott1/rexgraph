@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List
 
 import numpy as np
 from numpy.typing import NDArray
@@ -65,6 +65,8 @@ __all__ = [
     "HAS_SCIPY",
     "to_native",
     "json_default",
+    "json_sanitize",
+    "dumps",
     "NumpyJSONEncoder",
     "as_str",
     "ensure_zarr_suffix",
@@ -108,6 +110,32 @@ _INTERNAL_ATTRS = frozenset({
 
 
 # Shared type conversion
+#
+# One encoder, one NaN policy. This used to be nine near-copies across bundle,
+# parquet, arrow, sql, the dashboard and three server routes, with four different
+# answers for a non-finite float -- and none of them worked, because np.float64
+# subclasses Python float and so is serialized directly without ever reaching
+# JSONEncoder.default. A NaN metric therefore wrote a bare `NaN` token into a .rex
+# MANIFEST.json, which is not JSON and JSON.parse rejects. The policy has to be
+# applied to the object BEFORE dumps, which is what json_sanitize does.
+
+#: what a non-finite float becomes. "zero" is the historical io behaviour; "null"
+#: is what a JSON consumer expects for a missing number; "raise" refuses to guess.
+NAN_POLICIES = ("zero", "null", "raise")
+
+
+def _finite(val: float, nan: str = "zero") -> Any:
+    """Apply the non-finite policy to one float. Finite values pass through."""
+    if val == val and val not in (float("inf"), float("-inf")):
+        return val
+    if nan == "zero":
+        return 0.0
+    if nan == "null":
+        return None
+    if nan == "raise":
+        raise ValueError(f"non-finite float {val!r} is not representable in JSON")
+    raise ValueError(f"unknown nan policy {nan!r}, expected one of {NAN_POLICIES}")
+
 
 def to_native(v: Any) -> Any:
     """Convert numpy scalars to Python natives for JSON and attrs.
@@ -117,10 +145,7 @@ def to_native(v: Any) -> Any:
     if isinstance(v, np.integer):
         return int(v)
     if isinstance(v, np.floating):
-        val = float(v)
-        if val != val or val == float("inf") or val == float("-inf"):
-            return 0.0
-        return val
+        return _finite(float(v))
     if isinstance(v, np.bool_):
         return bool(v)
     if isinstance(v, np.ndarray):
@@ -128,20 +153,62 @@ def to_native(v: Any) -> Any:
     return v
 
 
+def json_sanitize(o: Any, nan: str = "zero") -> Any:
+    """Walk `o` and return an equivalent tree of JSON-native types.
+
+    Handles what `default=` cannot reach: non-finite Python floats (and np.float64,
+    which is one), numpy scalars inside arrays, and numpy dict keys. Headers here are
+    KB-scale, so the walk is cheap next to the tensor payload it accompanies.
+    """
+    if isinstance(o, float):                       # covers np.float64
+        return _finite(o, nan)
+    if isinstance(o, (bool, np.bool_)):
+        return bool(o)
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, np.floating):
+        return _finite(float(o), nan)
+    if isinstance(o, np.ndarray):
+        return json_sanitize(o.tolist(), nan)
+    if isinstance(o, dict):
+        return {k if isinstance(k, str) else str(json_sanitize(k, nan)):
+                json_sanitize(v, nan) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [json_sanitize(v, nan) for v in o]
+    if isinstance(o, (set, frozenset)):
+        return [json_sanitize(v, nan) for v in sorted(o)]
+    if isinstance(o, (bytes, np.bytes_)):
+        return o.decode("utf-8")
+    if isinstance(o, np.str_):
+        return str(o)
+    return o
+
+
+def dumps(o: Any, nan: str = "zero", **kwargs: Any) -> str:
+    """json.dumps with the numpy and non-finite policies already applied.
+
+    `allow_nan=False` is a backstop, not the mechanism: json_sanitize has already
+    removed every non-finite value, so a NaN reaching here means the walk missed a
+    container type and we want the loud failure rather than invalid JSON on disk.
+    """
+    kwargs.setdefault("default", json_default)
+    kwargs["allow_nan"] = False
+    return json.dumps(json_sanitize(o, nan), **kwargs)
+
+
 def json_default(o: Any) -> Any:
     """JSON serializer fallback for numpy types.
 
-    Pass as json.dumps(obj, default=json_default).
+    Pass as json.dumps(obj, default=json_default). Prefer `dumps`, which also applies
+    the non-finite policy -- `default` alone cannot, since json never calls it for a
+    float subclass.
     """
     if isinstance(o, np.ndarray):
         return o.tolist()
     if isinstance(o, np.integer):
         return int(o)
     if isinstance(o, np.floating):
-        val = float(o)
-        if val != val or val == float("inf") or val == float("-inf"):
-            return 0.0
-        return val
+        return _finite(float(o))
     if isinstance(o, np.bool_):
         return bool(o)
     if isinstance(o, (set, frozenset)):
@@ -497,14 +564,14 @@ def _dict_to_group(
                     continue
             except (ValueError, TypeError):
                 pass
-            group.attrs[key] = json.dumps(val, default=json_default)
+            group.attrs[key] = dumps(val)
         elif isinstance(val, (int, float, bool, np.integer, np.floating, np.bool_)):
             group.attrs[key] = to_native(val)
         elif isinstance(val, str):
             group.attrs[key] = val
         else:
             try:
-                group.attrs[key] = json.dumps(val, default=json_default)
+                group.attrs[key] = dumps(val)
             except (TypeError, ValueError):
                 pass
 
@@ -861,14 +928,14 @@ def _h5_dict_to_group(
                     continue
             except (ValueError, TypeError):
                 pass
-            group.attrs[key] = json.dumps(val, default=json_default)
+            group.attrs[key] = dumps(val)
         elif isinstance(val, (int, float, bool, np.integer, np.floating, np.bool_)):
             group.attrs[key] = to_native(val)
         elif isinstance(val, str):
             group.attrs[key] = val
         else:
             try:
-                group.attrs[key] = json.dumps(val, default=json_default)
+                group.attrs[key] = dumps(val)
             except (TypeError, ValueError):
                 pass
 

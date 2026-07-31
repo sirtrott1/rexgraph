@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._overlap - Overlap Laplacian L_O on the edge set.
+rexgraph.core._overlap: Overlap Laplacian L_O on the edge set.
 
 Builds L_O in R^{m x m}, capturing geometric similarity between edges.
 Two edges are similar when they share boundary vertices. The similarity

@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._wave - Complex-amplitude wave mechanics on the rex chain complex.
+rexgraph.core._wave: Complex-amplitude wave mechanics on the relational complex.
 
 Complex-valued counterpart to _state.pyx and _transition.pyx. Operates on
 complex amplitudes psi_k in C^n under exp(-i L t) evolution, where L is
@@ -974,7 +974,7 @@ def fidelity_mixed(np.ndarray[np.complex128_t, ndim=2] rho,
 def amplitude_graded_projection(B1, B2,
                                  np.ndarray[f64, ndim=1] amplitudes,
                                  int nV, int nE, int nF):
-    """Amplitude-based graded projection onto the chain complex.
+    """Amplitude-based graded projection onto the relational complex.
 
     Unlike the standard delta-vertex projection (Def 4.5), this uses continuous
     vertex amplitudes with geometric-mean edge coupling over the edge's ACTUAL

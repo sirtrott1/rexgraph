@@ -13,8 +13,6 @@ Verifies:
     - load_json dispatches correctly
 """
 import json
-import os
-import tempfile
 
 import numpy as np
 import pytest

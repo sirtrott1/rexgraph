@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -274,7 +274,6 @@ class OCRFusion:
             MistralOCRClient,
             GOTOCRClient,
             OfflineOCRClient,
-            create_ocr_client,
         )
 
         clients = []
@@ -320,8 +319,6 @@ class OCRFusion:
         -------
         FusionReport
         """
-        from agent.adapters.ocr import OCRAdapter
-        from agent.integrations.unlimited_ocr import is_pdf_file
 
         clients = self._resolve_clients()
         report = FusionReport(source=source)

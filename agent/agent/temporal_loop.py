@@ -1,4 +1,4 @@
-"""agent.agent.temporal_loop: Slice D online loop closure.
+"""agent.temporal_loop: Slice D online loop closure.
 
 ChangeSource turns the Slice C rcdb change-feed (routed through activity.py) into
 a stream of ChangeEvents with the self-write guard; OnlineLoop advances a running

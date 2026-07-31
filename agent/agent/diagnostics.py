@@ -1,5 +1,5 @@
 """
-agent.diagnostics - verify the compiled-kernel surface.
+agent.diagnostics: verify the compiled-kernel surface.
 
 The pipeline is meant to dispatch heavy linear algebra (boundary maps,
 Hodge decomposition, spectral bundles, RCFE strain) into the compiled
@@ -16,7 +16,7 @@ confirm a build before trusting benchmark numbers.
 from __future__ import annotations
 
 import importlib
-from typing import Dict, List
+from typing import Dict
 
 # The core modules the pipeline touches directly or transitively.
 PIPELINE_CRITICAL = [

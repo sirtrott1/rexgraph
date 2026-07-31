@@ -14,7 +14,7 @@ _MODULES = [
     '_sparse',
     '_linalg',
 
-    # Chain complex construction
+    # Relational complex construction
     '_rex',
     '_boundary',
     '_cycles',
@@ -32,6 +32,7 @@ _MODULES = [
     # Topology and curvature
     '_void',
     '_rcfe',
+    '_curvature',
 
     # Dynamics and state
     '_state',

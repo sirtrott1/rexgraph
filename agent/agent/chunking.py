@@ -1,5 +1,5 @@
 """
-agent.chunking - Hodge-based text chunking.
+agent.chunking: Hodge-based text chunking.
 
 Splits text at gradient peaks of the Hodge decomposition.
 Gradient energy concentrates at topic boundaries. Each

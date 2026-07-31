@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._sparse - Sparse matrix storage and operations
+rexgraph.core._sparse: Sparse matrix storage and operations
 """
 
 from __future__ import annotations
@@ -1312,16 +1312,22 @@ def to_dense_f64(A):
     cdef Py_ssize_t i, k
     cdef i32[::1] rp, ci
     cdef i64[::1] rp64, ci64
+    # ACCUMULATE, do not assign. A boundary column may carry two entries at the same
+    # (row, col): a self-loop stores -1 and +1 at its single vertex, and its boundary
+    # is their sum, zero. Assigning let the second entry overwrite the first, so the
+    # dense form showed a spurious +1 (a witness column) where the sparse operator the
+    # kernels read has a cancelling pair. Summing duplicates is also what scipy's own
+    # coo -> dense does. Structures without duplicates are unaffected: += equals = there.
     if csr.idx_bits == 32:
         rp = csr._row_ptr_arr
         ci = csr._col_idx_arr
         for i in range(csr.nrow):
-            for k in range(rp[i], rp[i+1]): Dv[i, ci[k]] = av[k]
+            for k in range(rp[i], rp[i+1]): Dv[i, ci[k]] += av[k]
     else:
         rp64 = csr._row_ptr_arr
         ci64 = csr._col_idx_arr
         for i in range(csr.nrow):
-            for k in range(rp64[i], rp64[i+1]): Dv[i, ci64[k]] = av[k]
+            for k in range(rp64[i], rp64[i+1]): Dv[i, ci64[k]] += av[k]
     return D
 
 def from_dense_f64(np.ndarray[f64, ndim=2] D, double tol=-1.0):

@@ -17,7 +17,6 @@ import os
 import sys
 import time
 import traceback
-from pathlib import Path
 
 
 class TestRunner:
@@ -114,7 +113,6 @@ def test_rexgraph_core(t):
     print("\n── RexGraph Core ──")
     def _basic():
         from rexgraph.graph import RexGraph
-        import numpy as np
         rex = RexGraph.from_graph([0, 1, 0], [1, 2, 2])
         assert rex.nV == 3
         assert rex.nE == 3

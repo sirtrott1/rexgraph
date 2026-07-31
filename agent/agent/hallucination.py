@@ -1,5 +1,5 @@
 """
-agent.hallucination - structural hallucination detection.
+agent.hallucination: structural hallucination detection.
 
 Builds a relational complex from a model response and compares
 its topology against the source document. Structural divergence
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 
@@ -79,7 +79,6 @@ def detect_hallucinations(
     Builds a rex from the response text, aligns entities,
     and checks for structural inconsistencies.
     """
-    from agent.auto import auto_rex
     from agent.adapters.text import TextAdapter
 
     report = HallucinationReport()
@@ -255,7 +254,7 @@ def iterative_rechunk(chunks, report, source_rex, edge_spans, text, max_iters=2)
     Void-creating chunks get merged (missing relationships).
     Channel-mismatch chunks get split (confused structural types).
     """
-    from agent.chunking import hodge_chunk, Chunk
+    from agent.chunking import Chunk
 
     if report.overall_score < 0.2:
         return chunks  # no significant issues

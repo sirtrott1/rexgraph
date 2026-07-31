@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from rexgraph.graph import RexGraph
 
 
@@ -63,3 +62,109 @@ def test_all_formats_agree_on_a_rich_complex(tmp_path):
               RexHDF5Format().read(h5_p), zload(z_p)):
         _assert_full_roundtrip(g, r)
         assert list(r.betti) == list(g.betti)
+
+
+def test_generic_save_supports_safetensors(tmp_path):
+    """io.load routed .safetensors but io.save had no branch for it, so the flagship
+    format was load-only through the generic entry point and save() raised
+    'Unknown format'."""
+    import numpy as np
+    from rexgraph import io
+    from rexgraph.graph import RexGraph
+
+    rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
+                   targets=np.array([1, 2, 0], np.int32))
+    p = tmp_path / "g.safetensors"
+    io.save(str(p), rex)
+    assert p.exists()
+    back = io.load(str(p))
+    assert (int(back.nV), int(back.nE)) == (int(rex.nV), int(rex.nE))
+
+
+def test_generic_save_load_round_trips_every_dependency_free_format(tmp_path):
+    """save and load must accept the same set of formats: an asymmetry means a format
+    you can read is one you cannot write."""
+    import numpy as np
+    from rexgraph import io
+    from rexgraph.graph import RexGraph
+
+    rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
+                   targets=np.array([1, 2, 0], np.int32))
+    for name in ("g.rex", "g.safetensors", "g.json"):
+        p = tmp_path / name
+        io.save(str(p), rex)
+        back = io.load(str(p))
+        assert back is not None, f"{name} did not round-trip"
+        assert int(back.nE) == int(rex.nE), f"{name} lost edges"
+
+
+def test_unknown_extension_is_an_error_not_a_silent_zarr_write(tmp_path):
+    """_detect_format fell through to 'zarr' for anything unrecognized, so a typo like
+    'graph.saftensors' or 'graph.txt' silently wrote a Zarr store under that name. Same
+    failure class as a secret store writing a file named 'vault://team/prod'."""
+    import numpy as np
+    import pytest
+    from rexgraph import io
+    from rexgraph.graph import RexGraph
+
+    rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
+                   targets=np.array([1, 2, 0], np.int32))
+    for bad in ("g.saftensors", "g.txt", "g.parquet"):
+        with pytest.raises(ValueError) as ei:
+            io.save(str(tmp_path / bad), rex)
+        assert "format" in str(ei.value).lower()
+
+
+def test_directory_and_extensionless_heuristics_still_work(tmp_path):
+    """The legitimate heuristics stay: an existing .rex bundle dir, an existing Zarr
+    dir, and an explicit format override."""
+    import numpy as np
+    from rexgraph import io
+    from rexgraph.graph import RexGraph
+
+    rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
+                   targets=np.array([1, 2, 0], np.int32))
+    # explicit override needs no extension at all (save_rex appends .rex itself)
+    p = tmp_path / "explicit"
+    io.save(str(p), rex, format="rex")
+    assert io.load(str(p), format="rex") is not None
+    # and the resulting bundle directory is detected without an override
+    assert io.load(str(p) + ".rex") is not None
+
+
+def test_a_format_can_be_registered_from_outside(tmp_path):
+    """save/load dispatch was a hardcoded if/elif while rcdb.register_backend next door
+    was a real extension point. Adding a format should not mean editing io/__init__."""
+    import numpy as np
+    from rexgraph import io
+    from rexgraph.graph import RexGraph
+
+    written = {}
+
+    def _save(path, obj, **kw):
+        written["path"] = path
+        written["nE"] = int(obj.nE)
+
+    def _load(path, **kw):
+        return written
+
+    io.register_format("demo", save=_save, load=_load, extensions=[".demo"])
+    try:
+        rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
+                       targets=np.array([1, 2, 0], np.int32))
+        p = str(tmp_path / "g.demo")
+        io.save(p, rex)
+        assert written["nE"] == 3
+        assert io.load(p) is written
+        assert "demo" in io.available_formats()
+    finally:
+        io.unregister_format("demo")
+    assert "demo" not in io.available_formats()
+
+
+def test_builtin_formats_are_registered_not_hardcoded():
+    from rexgraph import io
+
+    names = io.available_formats()
+    for expected in ("rex", "safetensors", "json", "zarr", "hdf5"):
+        assert expected in names, f"{expected} missing from the registry"

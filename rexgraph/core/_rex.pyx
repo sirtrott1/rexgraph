@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._rex - Structural operations for the relational complex.
+rexgraph.core._rex: Structural operations for the relational complex.
 
 Array-level kernels for constructing, modifying, querying, and
 projecting rex structures at all dimension levels.

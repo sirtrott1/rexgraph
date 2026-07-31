@@ -1,5 +1,5 @@
 """
-agent.deploy - turn a RexGraph agent/pipeline into a deployable container.
+agent.deploy: turn a RexGraph agent/pipeline into a deployable container.
 
 Generates a self-contained deployment bundle (Dockerfile, compose file,
 entrypoint, config, README) with no runtime dependencies beyond the
@@ -25,7 +25,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 

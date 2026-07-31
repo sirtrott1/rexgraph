@@ -13,10 +13,9 @@ That's the entire API for going from raw data to complete structural analysis.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional
 
 import numpy as np
-from numpy.typing import NDArray
 
 from .adapters import EdgeConstruction
 from .adapters.feature_matrix import FeatureMatrixAdapter
@@ -25,6 +24,20 @@ from .adapters.correlation import AdjacencyAdapter, CorrelationAdapter
 
 # CSV cell tokens treated as missing (mirrors pandas.read_csv default na_values, lowercased)
 _NA_TOKENS = frozenset({"", "na", "n/a", "null", "none", "#n/a", "nan"})
+
+
+def _can_be_path(data: Any) -> bool:
+    """Whether `data` may be probed against the filesystem.
+
+    A `Path` always may. A `str` may only if it is short enough to be a filename and
+    carries no newline: `Path(text).is_file()` on a long string raises OSError
+    ENAMETOOLONG rather than returning False, so probing raw document text with it
+    turns a text input into a crash. `detect_input_type` has always applied this
+    guard; the other probe sites did not.
+    """
+    if isinstance(data, Path):
+        return True
+    return isinstance(data, str) and len(data) < 256 and "\n" not in data
 
 
 def _is_missing_cell(v) -> bool:
@@ -87,6 +100,14 @@ def detect_input_type(data: Any) -> str:
             return "text"
 
         # If it's an existing file or has a recognized extension, dispatch as file
+        # registered scientific containers (SDF/PDB/FASTA/VCF/GFF/BED/h5ad/loom).
+        # Checked before the generic suffixes so .h5ad is not read as .h5.
+        try:
+            from agent.adapters.formats import reader_for
+            if reader_for(p) is not None:
+                return "science_file"
+        except Exception:
+            pass
         if suffix in (".rex", ".zarr", ".h5", ".hdf5", ".arrow", ".parquet", ".safetensors"):
             return "rex_file"
         if suffix == ".json":
@@ -309,7 +330,6 @@ def auto_rex(
     RexGraph
         A relational complex with typed faces, voids, and ∂²=0 holds by construction.
     """
-    from rexgraph.graph import RexGraph
 
     # Fast path: caller already built the edges (e.g. an adapter that
     # runs outside auto_rex, such as OCR-layout, single-cell, or L-R
@@ -363,7 +383,7 @@ def auto_rex(
         edges = adapter.build(data, labels=vertex_labels)
     elif input_type == "text":
         from agent.adapters.text import TextAdapter
-        if isinstance(data, (str, Path)):
+        if _can_be_path(data):
             p = Path(data)
             if p.is_file():
                 data = p.read_text(encoding="utf-8", errors="replace")
@@ -374,6 +394,22 @@ def auto_rex(
                                  "face_selection")}
         adapter = TextAdapter()
         edges = adapter.build(data, **text_kwargs)
+    elif input_type == "science_file":
+        from agent.adapters.formats import read, reader_for
+        name = reader_for(data)
+        out = read(data, **{k: v for k, v in kwargs.items() if k in ("k",)})
+        if name in ("h5ad", "loom"):
+            # a matrix and its axis labels: exactly what the feature path already
+            # takes, so it goes there rather than growing a second one.
+            matrix, _obs, var = out
+            from agent.adapters.feature_matrix import FeatureMatrixAdapter
+            feat_kwargs = {k: v for k, v in kwargs.items()
+                           if k in ("threshold", "typing", "sign", "n_clusters")}
+            adapter = FeatureMatrixAdapter()
+            # features are the vertices, so the VAR axis carries the names
+            edges = adapter.build(matrix, feature_names=var or None, **feat_kwargs)
+        else:
+            edges = out
     elif input_type == "single_cell":
         from agent.adapters.single_cell import SingleCellAdapter
         sc_kwargs = {k: v for k, v in kwargs.items()
@@ -493,7 +529,7 @@ def _fallback_text_or_raise(data, input_type, err, **kwargs):
     """
     from pathlib import Path as _Path
 
-    if isinstance(data, (str, _Path)):
+    if _can_be_path(data):
         p = _Path(data)
         if p.is_file():
             try:

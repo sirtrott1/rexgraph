@@ -1,5 +1,5 @@
 """
-agent.conversation - conversation memory as temporal topology.
+agent.conversation: conversation memory as temporal topology.
 
 Each exchange in a conversation produces an ExchangeResult.
 The sequence of exchanges is a temporal relational complex.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import numpy as np
 

@@ -1,4 +1,4 @@
-"""agent.server.routes.corpus - workspace-scoped corpus analysis."""
+"""agent.server.routes.corpus: workspace-scoped corpus analysis."""
 
 from __future__ import annotations
 import os, tempfile

@@ -1,5 +1,5 @@
 """
-agent.server.routes.pipeline - SSE pipeline endpoint.
+agent.server.routes.pipeline: SSE pipeline endpoint.
 
 Architecture:
   - Files are split by type: OCR (PDF/image) vs direct (CSV/TSV/JSON/text)
@@ -20,9 +20,8 @@ import multiprocessing
 import os
 import queue as queue_module
 import tempfile
-import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 from fastapi import APIRouter, File, Form, UploadFile

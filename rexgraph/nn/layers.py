@@ -1,4 +1,4 @@
-"""rexgraph.nn.layers - composable relational NN building blocks (nn.Module).
+"""rexgraph.nn.layers: composable relational NN building blocks (nn.Module).
 
 The pieces you compose into models, the way message-passing primitives compose in a graph library.
 Each layer takes a fixed Laplacian operator L at forward time and learns the transforms around it,

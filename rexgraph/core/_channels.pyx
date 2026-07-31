@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._channels - Per-channel signal decomposition and group scoring.
+rexgraph.core._channels: Per-channel signal decomposition and group scoring.
 
 Primal signal character decomposes an edge signal's energy across
 typed Laplacian channels via hat^+ quadratic forms. Spectral channel

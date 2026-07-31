@@ -1,5 +1,5 @@
 """
-agent.connectors.sql - the SQL connector (the "out of the box" flagship).
+agent.connectors.sql: the SQL connector (the "out of the box" flagship).
 
 One adapter for the whole SQL *shape*: it wraps the engine's existing
 SQLAlchemy reflection, so a single connector covers Postgres, MySQL/MariaDB,

@@ -7,8 +7,6 @@ giving the frontend interactive access to any part of the analysis.
 
 from __future__ import annotations
 
-import json
-from typing import Optional
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Body
@@ -16,17 +14,13 @@ from fastapi import APIRouter, HTTPException, Body
 router = APIRouter()
 
 
-class _Encoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (np.integer,)):
-            return int(obj)
-        if isinstance(obj, (np.floating,)):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, (np.bool_,)):
-            return bool(obj)
-        return super().default(obj)
+#: the one encoder (rexgraph.io._compat). Non-finite floats go out as null:
+#: a bare NaN token is not JSON and every browser JSON.parse rejects it.
+from rexgraph.io._compat import json_sanitize
+
+
+def _sanitize(obj):
+    return json_sanitize(obj, nan="null")
 
 
 def _get_rex(session_id: str):
@@ -61,7 +55,7 @@ async def get_property(session_id: str, name: str):
     try:
         value = getattr(rex, name)
         # Convert to JSON-safe format
-        result = json.loads(json.dumps({"property": name, "value": value}, cls=_Encoder))
+        result = _sanitize({"property": name, "value": value})
         return result
     except Exception as e:
         raise HTTPException(500, f"Error computing {name}: {e}")
@@ -85,7 +79,7 @@ async def explain_cell(session_id: str, dim: int, idx: int):
 
     try:
         result = rex.explain(dim, idx)
-        return json.loads(json.dumps(result, cls=_Encoder))
+        return _sanitize(result)
     except Exception as e:
         raise HTTPException(500, f"Error explaining cell ({dim}, {idx}): {e}")
 
@@ -176,7 +170,7 @@ async def local_context(session_id: str, body: dict = Body(...)):
         nb["edge_labels"] = [_edge_label(rex, e, labels) for e in nb["edges"]]
         ctx["seed_vertex_indices"] = vidx
         ctx["seed_edge_indices"] = eidx
-        return json.loads(json.dumps(ctx, cls=_Encoder))
+        return _sanitize(ctx)
     except HTTPException:
         raise
     except Exception as e:
@@ -204,7 +198,7 @@ async def hodge_decompose(session_id: str, body: dict = Body(...)):
 
     try:
         result = rex.hodge_full(signal)
-        return json.loads(json.dumps(result, cls=_Encoder))
+        return _sanitize(result)
     except Exception as e:
         raise HTTPException(500, f"Error in Hodge decomposition: {e}")
 
@@ -236,7 +230,7 @@ async def interfacing_vector(session_id: str, body: dict = Body(...)):
             target_weights=target_weights,
             target_signal=signal,
         )
-        return json.loads(json.dumps(result, cls=_Encoder))
+        return _sanitize(result)
     except Exception as e:
         raise HTTPException(500, f"Error computing interfacing vector: {e}")
 

@@ -1,5 +1,5 @@
 """
-agent.cli.ocr - command-line entry point for OCR + the GPU server.
+agent.cli.ocr: command-line entry point for OCR + the GPU server.
 
     rexgraph-ocr status              show platform, backends, server state
     rexgraph-ocr serve [opts]        start the GPU inference/OCR server

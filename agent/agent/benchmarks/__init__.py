@@ -1,4 +1,4 @@
-"""agent.benchmarks - optimizer and model benchmarks for the rexgraph.nn substrate.
+"""agent.benchmarks: optimizer and model benchmarks for the rexgraph.nn substrate.
 
 The Track-2 credibility harness: HodgeAdam vs Adam/AdamW/SGD on recognized tasks, with a fair,
 lr-tuned, verdict-producing A/B. Registered benchmarks: ill-cond (controlled ill-conditioning,

@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._harmonic - the harmonic plane of numbers.
+rexgraph.core._harmonic: the harmonic plane of numbers.
 
 Compiled routines for characterizing the harmonic subspace ker(L_1) on
 relational complexes, with specific focus on prime relational complexes K_k.

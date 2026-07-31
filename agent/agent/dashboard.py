@@ -1,4 +1,4 @@
-"""agent.dashboard - the whole hive network as a live statistics snapshot.
+"""agent.dashboard: the whole hive network as a live statistics snapshot.
 
 Assembles every signal we already compute into one structured dashboard: the roster, the
 coordination health (deadlocks, the Hodge split, per-worker load/coherence/curvature/alignment), the
@@ -9,7 +9,7 @@ the data; `render()` prints terminal panels; the server route serves it live.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 
 def hive_dashboard(hive) -> Dict[str, Any]:

@@ -1,21 +1,23 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._holomorphic - Holomorphic Lagrangian structure on RL_4.
+rexgraph.core._holomorphic: Holomorphic Lagrangian structure on RL_4.
 
 Implements the complex analytic structure of the time-space Lagrangian
-decomposition on the relational complex (RL_4), not the chain complex.
+decomposition on the RL_4 channel hats rather than on the graded Laplacian.
+Both are built on the same relational complex: the graded Laplacian comes
+straight from its boundary maps, the RL_4 hats from its four typed channels.
 
 Key mathematical facts:
     - L_t (time, channel T = hat_0) and L_s (space, channels G+F+C)
       satisfy Cauchy-Riemann conditions within a single analytic domain.
     - f(e) = L_t(e) + i*L_s(e) is holomorphic per edge.
-    - On the chain complex, [L_t, L_s] = 0 identically (algebraic
+    - On the graded Laplacian, [L_t, L_s] = 0 identically (algebraic
       consequence of B_1 B_2 = 0). This is a tautology.
-    - On the relational complex (RL_4 channel hats), [hat_T, hat_S] != 0.
-      The relational operators interact through overlap, frustration,
-      and coupling channels.
-    - The per-edge CR violation |dTdS(e) - dSdT(e)| in the relational
+    - On the RL_4 channel hats, [hat_T, hat_S] != 0. The relational
+      operators interact through overlap, frustration, and coupling
+      channels.
+    - The per-edge CR violation |dTdS(e) - dSdT(e)| on the relational
       complex is a category-specific invariant: each topological regime
       has its own characteristic CR value.
     - At the boundary between two regimes, the CR violation of each
@@ -109,8 +111,8 @@ def relational_cr(list hats):
     and dSdT(e) = (hat_S @ hat_T)[e,e] / hat_T[e,e] from the RL_4 hat operators.
     The CR violation at each edge is |dTdS(e) - dSdT(e)|.
 
-    On the chain complex (L_1 = L_t + L_s), these are identically equal
-    because B_1 B_2 = 0 forces [L_t, L_s] = 0.  On the relational complex
+    On the graded Laplacian (L_1 = L_t + L_s), these are identically equal
+    because B_1 B_2 = 0 forces [L_t, L_s] = 0.  On the RL_4 channel hats
     (RL_4 = hat_T + hat_G + hat_F + hat_C), the channels interact and the
     CR violation is nonzero and category-specific.
 

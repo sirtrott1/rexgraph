@@ -4,7 +4,7 @@ import pytest
 pytest.importorskip("safetensors")
 from rexgraph.graph import RexGraph, TemporalRex
 from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors, safetensors_to_temporal_rex
-from agent.agent.rcdb import open_store
+from agent.rcdb import open_store
 
 
 def test_dogfood_temporal_store_through_rcdb(tmp_path):

@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._field - Cross-dimensional field dynamics on the rex chain complex.
+rexgraph.core._field: Cross-dimensional field dynamics on the relational complex.
 
 Implements the coupled field operator and wave equation on the (E, F)
 field state, where edges and faces are the independent degrees of freedom
@@ -600,7 +600,7 @@ def resonance_frequencies(np.ndarray[f64, ndim=1] freqs,
     """Extract frequencies of EF-resonant modes.
 
     These are the frequencies at which energy transfers between
-    the edge and face tiers of the chain complex.
+    the edge and face tiers of the relational complex.
 
     Returns
     -------

@@ -1,4 +1,4 @@
-"""agent.agentic_db - a live database as a first-class member of the agentic RCDB.
+"""agent.agentic_db: a live database as a first-class member of the agentic RCDB.
 
 An AgenticDB wraps a live SQL database (any SQLAlchemy dialect) and makes it
 interoperate with the hive and the Relational Complex Database (agent.rcdb):
@@ -64,7 +64,7 @@ class AgenticDB:
         from sqlalchemy import create_engine
         self.conn_str = conn_str
         self.writable = writable
-        self.store = store or rcdb.MemoryStore()
+        self.store = store or rcdb.default_store()
         self._engine = create_engine(conn_str)
         self.model = sc.reflect_schema(conn_str)
 

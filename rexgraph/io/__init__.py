@@ -156,75 +156,154 @@ __all__ += [
 ]
 
 
+# --- format registry -----------------------------------------------------------
+#
+# Adding a format means registering one, not editing this module. Mirrors
+# agent.rcdb.register_backend, which is the same pattern one layer up.
+
+from ..registry import Registry
+
+
+class _Format:
+    __slots__ = ("name", "save", "load", "extensions")
+
+    def __init__(self, name, save, load, extensions):
+        self.name = name
+        self.save = save
+        self.load = load
+        self.extensions = tuple(extensions)
+
+
+_FORMATS = Registry("format")
+
+
+def register_format(name, *, save=None, load=None, extensions=()):
+    """Register a storage format under `name`.
+
+    `save(path, obj, **kwargs)` and `load(path, **kwargs)` are the handlers; either may
+    be None for a read-only or write-only format, in which case the corresponding entry
+    point raises. `extensions` are lowercase suffixes (".rex") mapped to this format by
+    `_detect_format`.
+    """
+    fmt = _Format(name, save, load, extensions)
+    _FORMATS.register(name, fmt, extensions=tuple(extensions))
+    return fmt
+
+
+def unregister_format(name):
+    """Remove a registered format. Returns it, or None if it was not registered."""
+    return _FORMATS.unregister(name)
+
+
+def available_formats():
+    """Names of every registered format."""
+    return _FORMATS.available()
+
+
+def format_extensions():
+    """Mapping of extension -> format name, built from the registry."""
+    return {e: name for name, f in _FORMATS.items() for e in f.extensions}
+
+
+def _require(fmt_name, verb):
+    fmt = _FORMATS.get(fmt_name)
+    if fmt is None:
+        raise ValueError(
+            f"Unknown format {fmt_name!r}. Registered: {', '.join(available_formats())}.")
+    handler = getattr(fmt, verb)
+    if handler is None:
+        raise ValueError(f"Format {fmt_name!r} does not support {verb}.")
+    return handler
+
+
 def save(path, obj, *, format=None, **kwargs):
     """Save a RexGraph or TemporalRex to disk."""
-    fmt = _detect_format(path, format)
-    if fmt == "zarr":
-        if not HAS_ZARR:
-            raise ImportError("zarr is required: pip install zarr")
-        save_zarr(path, obj, **kwargs)
-    elif fmt == "hdf5":
-        if not HAS_HDF5:
-            raise ImportError("h5py is required: pip install h5py")
-        save_hdf5(path, obj, **kwargs)
-    elif fmt == "rex":
-        save_rex(path, obj, **kwargs)
-    elif fmt == "json":
-        # Symmetric with load(format="json"): write RexGraph native JSON.
-        import json as _json
-        with open(path, "w", encoding="utf-8") as f:
-            _json.dump(obj.to_json(), f)
-    else:
-        raise ValueError(f"Unknown format {fmt!r}.")
+    return _require(_detect_format(path, format), "save")(path, obj, **kwargs)
 
 
 def load(path, *, format=None, **kwargs):
     """Load a RexGraph or TemporalRex from disk."""
-    fmt = _detect_format(path, format)
-    if fmt == "zarr":
-        if not HAS_ZARR:
-            raise ImportError("zarr is required: pip install zarr")
-        return load_zarr(path, **kwargs)
-    elif fmt == "hdf5":
-        if not HAS_HDF5:
-            raise ImportError("h5py is required: pip install h5py")
-        return load_hdf5(path, **kwargs)
-    elif fmt == "rex":
-        return load_rex(path, **kwargs)
-    elif fmt == "json":
-        return load_json(path, **kwargs)
-    elif fmt == "safetensors":
-        # A .safetensors file can hold either a rex complex or a vector corpus; route by
-        # the stored object_type instead of assuming a rex (which used to TypeError on a
-        # vector/embedding file).
-        from .safetensors_bridge import (
-            _load_meta, safetensors_to_rex, safetensors_to_fingerprints,
-        )
-        if _load_meta(str(path)).get("object_type") == "FingerprintCorpus":
-            return safetensors_to_fingerprints(path)
-        return safetensors_to_rex(path)
-    else:
-        raise ValueError(f"Unknown format {fmt!r}.")
+    return _require(_detect_format(path, format), "load")(path, **kwargs)
 
 
 def _detect_format(path, override=None):
+    """Resolve a path to a format name.
+
+    An UNRECOGNIZED extension is an error, not a default. The fallback used to be
+    "zarr", so `save("graph.saftensors", rex)` silently wrote a Zarr store under a
+    misspelled name and reported success. An extensionless path keeps the directory
+    heuristics, because that is how a Zarr store is normally named.
+    """
     import os
     if override is not None:
         return override.lower()
-    if path.endswith(".zarr"):
-        return "zarr"
-    if path.endswith((".h5", ".hdf5")):
-        return "hdf5"
-    if path.endswith(".rex"):
-        return "rex"
-    if path.endswith(".json"):
-        return "json"
-    if path.endswith(".safetensors"):
-        return "safetensors"
+    exts = format_extensions()
+    _, ext = os.path.splitext(path)
+    if ext.lower() in exts:
+        return exts[ext.lower()]
     if os.path.isdir(path):
         if os.path.exists(os.path.join(path, "MANIFEST.json")):
             return "rex"
         return "zarr"
     if os.path.isfile(path):
         return "hdf5"
+    if ext:
+        raise ValueError(
+            f"Unknown format for extension {ext!r} in {path!r}. Known extensions: "
+            f"{', '.join(sorted(exts))}. Pass format= to override.")
     return "zarr"
+
+
+# --- builtin formats -----------------------------------------------------------
+
+def _save_json(path, obj, **kwargs):
+    import json as _json
+    with open(path, "w", encoding="utf-8") as f:
+        _json.dump(obj.to_json(), f)
+
+
+def _load_safetensors(path, **kwargs):
+    """A .safetensors file holds a rex, a TemporalRex or a vector corpus; route on the
+    stored object_type rather than assuming."""
+    from .safetensors_bridge import (
+        _load_meta, safetensors_to_rex, safetensors_to_fingerprints,
+    )
+    if _load_meta(str(path)).get("object_type") == "FingerprintCorpus":
+        return safetensors_to_fingerprints(path)
+    return safetensors_to_rex(path)
+
+
+def _save_safetensors(path, obj, **kwargs):
+    from .safetensors_bridge import save_safetensors as _s
+    return _s(obj, path, **kwargs)
+
+
+def _needs(pkg, extra):
+    def _raise(*a, **k):
+        raise ImportError(f"{pkg} is required: pip install {extra}")
+    return _raise
+
+
+register_format("rex", save=save_rex, load=load_rex, extensions=[".rex"])
+register_format("json", save=_save_json, load=load_json, extensions=[".json"])
+register_format(
+    "zarr",
+    save=save_zarr if HAS_ZARR else _needs("zarr", "zarr"),
+    load=load_zarr if HAS_ZARR else _needs("zarr", "zarr"),
+    extensions=[".zarr"],
+)
+register_format(
+    "hdf5",
+    save=save_hdf5 if HAS_HDF5 else _needs("h5py", "h5py"),
+    load=load_hdf5 if HAS_HDF5 else _needs("h5py", "h5py"),
+    extensions=[".h5", ".hdf5"],
+)
+register_format(
+    "safetensors",
+    save=_save_safetensors if HAS_SAFETENSORS else _needs("safetensors", "safetensors"),
+    load=_load_safetensors if HAS_SAFETENSORS else _needs("safetensors", "safetensors"),
+    extensions=[".safetensors"],
+)
+
+__all__ += ["register_format", "unregister_format", "available_formats",
+            "format_extensions"]

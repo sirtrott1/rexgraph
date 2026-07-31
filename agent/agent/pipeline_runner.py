@@ -1,5 +1,5 @@
 """
-agent.pipeline_runner - end-to-end document analysis pipeline.
+agent.pipeline_runner: end-to-end document analysis pipeline.
 
     files -> OCR -> corpus -> Hodge chunk -> query -> LLM -> hallucination check -> rechunk
 
@@ -12,7 +12,7 @@ import logging
 import os
 import re
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 

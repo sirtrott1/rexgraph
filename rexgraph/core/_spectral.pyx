@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._spectral - Spectral layout and force-directed refinement.
+rexgraph.core._spectral: Spectral layout and force-directed refinement.
 
 Computes 2D vertex positions in two phases:
 

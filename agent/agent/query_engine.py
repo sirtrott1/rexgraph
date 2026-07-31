@@ -1,5 +1,5 @@
 """
-agent.query_engine - structural, relational-complex-aware question answering.
+agent.query_engine: structural, relational-complex-aware question answering.
 
 Every query becomes its own relational complex. That complex is aligned
 against the document (or corpus) complex to find which concepts and
@@ -15,8 +15,8 @@ complexes + chunks + analysis) with chat.
 
 from __future__ import annotations
 
+import os
 import re
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -122,6 +122,21 @@ def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> Dict[str, Any]:
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+#: Sentences kept per retrieved section. This is an OUTPUT BUDGET, not a decision
+#: threshold: it bounds how much context reaches the model, and nothing about the
+#: ranking depends on it. It was an inline 2, which capped the whole context at 4 to 10
+#: sentences regardless of top_k and left the model to fill the gap with generic prose.
+#: Override with REXGRAPH_SECTION_SENTENCES, or per call via `section_sentences`.
+SECTION_SENTENCES = _env_int("REXGRAPH_SECTION_SENTENCES", 6)
+
+
 def _split_sentences(text: str) -> List[str]:
     return [s.strip() for s in _SENT_SPLIT.split(text or "") if s.strip()]
 
@@ -140,14 +155,31 @@ def _best_sentences(text: str, query_tokens: set, k: int = 2) -> List[str]:
 
 def retrieve_sections(query: str, top_k: int, *, corpus=None,
                       doc_rex=None, doc_meta: Optional[dict] = None,
-                      query_ec=None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+                      query_ec=None,
+                      section_sentences: Optional[int] = None,
+                      store=None, prefix: str = "", candidates: Optional[int] = None,
+                      as_of=None, valid_at=None, mode: str = "hybrid",
+                      temporal: Optional[str] = None,
+                      ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Return (sections, relation).
 
+    - With an RCStore: rank the persisted corpus (see `retrieve_from_store`).
     - With a non-empty CorpusBuilder: delegate to its structural retrieval
       (``corpus.query`` -> chi/spectral/hybrid ranking).
     - Single document (or empty corpus): rank sentences of the source text
       by the coherence-weighted mass of query concepts they contain.
+
+    The three are tried in that order and each falls through to the next, so a
+    store that holds nothing for this query still answers from whatever is local.
     """
+    if store is not None:
+        sections, relation = retrieve_from_store(
+            query, top_k, store=store, prefix=prefix, candidates=candidates,
+            as_of=as_of, valid_at=valid_at, mode=mode, temporal=temporal,
+            section_sentences=section_sentences)
+        if sections:
+            return sections, relation
+
     if corpus is not None:
         try:
             has_docs = len(getattr(corpus, "documents", []) or []) > 0
@@ -168,7 +200,9 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
                     if rec is not None:
                         rmeta = getattr(getattr(rec, "rex", None), "_agent_meta", {}) or {}
                         src = rmeta.get("source_text", "") or getattr(rec, "text", "") or ""
-                        best = _best_sentences(src, q_tokens, 2)
+                        n_sent = (SECTION_SENTENCES if section_sentences is None
+                                  else max(1, int(section_sentences)))
+                        best = _best_sentences(src, q_tokens, n_sent)
                         text = " … ".join(best) if best else src[:300]
                     sections.append({
                         "doc_id": did,
@@ -182,11 +216,157 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
                 pass  # fall through to single-doc
 
     return _single_doc_retrieve(query, top_k, doc_rex=doc_rex,
-                                doc_meta=doc_meta, query_ec=query_ec)
+                                doc_meta=doc_meta, query_ec=query_ec,
+                                section_sentences=section_sentences)
+
+
+
+
+# Store-backed retrieval
+#
+# Two stages, because a signature is queryable without touching a blob: rank the
+# signatures to pick candidates, then deserialize only those and score them with the
+# corpus's own score_document. Scoring every blob would make persistence a pure cost.
+
+#: how many blobs to open per query when the caller does not say. Enough headroom for
+#: the signature prefilter to be wrong about a few, small enough that the store stays
+#: cheaper than holding the corpus in memory.
+STORE_CANDIDATES = _env_int("REXGRAPH_STORE_CANDIDATES", 24)
+
+#: the store predicate is a token match, so it over-returns relative to the ranking.
+#: Pull a multiple of the candidate budget and let the signature affinity order them,
+#: rather than trusting the first `n` rows the store happens to hand back.
+_PREFILTER_SLACK = _env_int("REXGRAPH_PREFILTER_SLACK", 4)
+
+
+def _signature_affinity(sig: Dict[str, Any], q_tokens: set) -> float:
+    """Cheap prefilter score from the stored signature alone.
+
+    labels_sample is a sample, not the vocabulary, so this ORDERS candidates; it
+    never decides the answer. A record with no labels stored still gets a small
+    positive score so it can be opened rather than silently dropped.
+    """
+    labels = {str(x).lower() for x in (sig.get("labels_sample") or [])}
+    if not labels:
+        return 1e-6
+    hit = len(labels & q_tokens)
+    return hit / len(labels | q_tokens) if (labels | q_tokens) else 0.0
+
+
+class _StoreDoc:
+    """The duck type score_document reads: a rex, its labels, an id."""
+
+    __slots__ = ("doc_id", "rex", "vertex_labels", "text", "analysis", "source")
+
+    def __init__(self, doc_id, rex, labels, text, source=""):
+        self.doc_id = doc_id
+        self.rex = rex
+        self.vertex_labels = labels
+        self.text = text
+        self.source = source
+        self.analysis = {}
+
+
+def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
+                        candidates: Optional[int] = None, as_of=None, valid_at=None,
+                        mode: str = "hybrid", temporal: Optional[str] = None,
+                        section_sentences: Optional[int] = None,
+                        ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Rank a persisted corpus without holding it in memory.
+
+    `as_of`/`valid_at` pass straight through to the store, so retrieval inherits the
+    RCDB's bitemporal reads: the corpus can be queried as it stood at a time.
+    """
+    from agent.adapters.text import TextAdapter
+    from agent.corpus import count_shared_entities, score_document
+    from rexgraph.graph import RexGraph
+
+    qec = TextAdapter().build(query, min_count=1, max_vocab=200)
+    if not getattr(qec, "vertex_labels", None):
+        return [], {"mode": "store", "n_ranked": 0}
+    q_tokens = {w.lower() for w in qec.vertex_labels}
+
+    # Ask the store which records share a token. This used to be
+    # store.list(limit=10**6) plus a Python filter, i.e. every record in the store
+    # crossed the process boundary on every query. SQLStore answers it from an
+    # indexed label table; Memory/File match the vocabulary in record meta.
+    #
+    # as_of/valid_at go to the PREFILTER, not just to the per-candidate read. Matching
+    # today's vocabulary and then opening yesterday's blob silently drops any document
+    # whose terms have since been replaced -- a time-travelling query that omits what
+    # was relevant at the time.
+    n_cand = max(1, int(candidates if candidates is not None else STORE_CANDIDATES))
+    try:
+        records = [r for r in store.query(labels_any=sorted(q_tokens),
+                                          limit=n_cand * _PREFILTER_SLACK,
+                                          as_of=as_of, valid_at=valid_at)
+                   if not prefix or r.id.startswith(prefix)]
+    except Exception:
+        return [], {"mode": "store", "n_ranked": 0}
+    if not records:
+        return [], {"mode": "store", "n_ranked": 0}
+
+    q_chi = None
+    if qec.nE > 0:
+        try:
+            q_rex = RexGraph(sources=qec.sources, targets=qec.targets)
+            if qec.n_types > 1:
+                q_rex = q_rex.typed_face_selection(qec.type_labels)
+            q_chi = q_rex.structural_character
+        except Exception:
+            q_chi = None
+
+    records.sort(key=lambda r: -_signature_affinity(r.signature or {}, q_tokens))
+
+    scored = []
+    for rec in records[:n_cand]:
+        try:
+            rex = store.get(rec.id, as_of=as_of, valid_at=valid_at)
+        except Exception:
+            rex = None
+        if rex is None:
+            continue
+        rmeta = getattr(rex, "_agent_meta", {}) or {}
+        labels = list(rmeta.get("vertex_labels")
+                      or (rec.meta or {}).get("vertex_labels") or [])
+        doc = _StoreDoc(rec.id, rex, labels, rmeta.get("source_text", "") or "",
+                        (rec.meta or {}).get("source", ""))
+        scored.append((score_document(doc, qec, q_chi, mode), doc, rec))
+
+    if not scored:
+        return [], {"mode": "store", "n_ranked": 0}
+
+    # same deterministic tiebreak as the in-memory path: store enumeration order
+    # must not decide which of two equally-scoring documents comes back.
+    scored.sort(key=lambda t: (-t[0], str(t[1].doc_id)))
+    n_sent = (SECTION_SENTENCES if section_sentences is None
+              else max(1, int(section_sentences)))
+    sections = []
+    for score, doc, rec in scored[:top_k]:
+        best = _best_sentences(doc.text, q_tokens, n_sent) if doc.text else []
+        sections.append({
+            "doc_id": doc.doc_id,
+            "text": " … ".join(best) if best else doc.text[:300],
+            "score": round(float(score), 4),
+            "shared_entities": count_shared_entities(qec.vertex_labels,
+                                                     doc.vertex_labels),
+            "version": rec.version,
+        })
+    relation = {"mode": "store", "n_ranked": len(scored),
+                "n_records": len(records), "n_opened": len(scored)}
+    if temporal:
+        # rerank the RETURNED sections, not the candidate set: temporal features are
+        # cheap (signatures only) but there is no reason to compute them for
+        # candidates the structural score already ruled out.
+        from agent.temporal import rerank as _temporal_rerank
+        sections = _temporal_rerank(sections, store, mode=temporal)
+        relation["temporal"] = temporal
+    return sections, relation
 
 
 def _single_doc_retrieve(query: str, top_k: int, *, doc_rex=None,
-                         doc_meta: Optional[dict] = None, query_ec=None):
+                         doc_meta: Optional[dict] = None, query_ec=None,
+                         section_sentences: Optional[int] = None):
     doc_meta = doc_meta or {}
     relation = relate_query_to_doc(query_ec, doc_rex, doc_meta) if doc_rex is not None else {"concepts": []}
     concept_weight = {c["concept"].lower(): (c["doc_coherence"] + 0.1)
@@ -296,7 +476,8 @@ def _cache_key(doc_meta: dict, query: str, top_k: int, corpus_id: str = "") -> O
 def answer_query(doc_rex, query: str, results: Optional[dict] = None, *,
                  corpus=None, doc_meta: Optional[dict] = None,
                  top_k: int = 5, use_cache: bool = True,
-                 doc_summary: str = "") -> Dict[str, Any]:
+                 doc_summary: str = "",
+                 section_sentences: Optional[int] = None) -> Dict[str, Any]:
     """End-to-end structural answer for a chat query.
 
     Builds the query complex, retrieves resonant sections from the
@@ -322,7 +503,7 @@ def answer_query(doc_rex, query: str, results: Optional[dict] = None, *,
 
     sections, relation = retrieve_sections(
         query, top_k, corpus=corpus, doc_rex=doc_rex,
-        doc_meta=doc_meta, query_ec=q_ec)
+        doc_meta=doc_meta, query_ec=q_ec, section_sentences=section_sentences)
 
     answer, model_used, token_metrics = synthesize(query, doc_summary, sections, relation)
 

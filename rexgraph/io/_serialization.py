@@ -24,15 +24,17 @@ of .npy files) through a thin adapter interface.
 
 from __future__ import annotations
 
+import abc
 import json
-from typing import Any, Dict, List, Optional, Set, Tuple, Type
+from typing import Any, Dict, List, Optional, Set, Type
 
 import numpy as np
 from numpy.typing import NDArray
 
 from ._compat import (
     as_str,
-    json_default,
+    dumps,
+    json_sanitize,
     to_native,
 )
 
@@ -51,43 +53,56 @@ __all__ = [
 
 # Storage adapter interface
 
-class StorageAdapter:
-    """Abstract interface for writing/reading fields to a storage group.
+class StorageAdapter(abc.ABC):
+    """Uniform put/get over a storage group: Zarr group, HDF5 group, .npy directory.
 
-    Subclasses wrap a Zarr group, HDF5 group, or .npy directory and
-    provide uniform put/get methods for arrays, scalars, dicts, and
-    strings.
+    A contract, not a suggestion. These were plain NotImplementedError stubs, so an
+    adapter missing a method constructed fine and failed later inside a write, on real
+    data. Abstract methods move that to construction time and name what is missing.
+    The behaviour every implementation owes the caller:
+
+    - get_array on an absent name returns None; it does not raise.
+    - get_scalar/get_json/get_string on an absent name return `default`.
+    - has() covers arrays and metadata alike.
+    - subgroup() returns a working adapter over an isolated namespace, and calling it
+      twice with the same name reopens the same group rather than clobbering it.
+    - put_json accepts anything json_sanitize accepts, and a value read back equals
+      what a fresh reader would get from disk (so the non-finite policy applies on
+      put, not only on flush).
+
+    rexgraph/tests/test_storage_adapter_contract.py runs that list against every
+    adapter; a new backend is done when it passes.
     """
 
-    def put_array(self, name: str, arr: NDArray) -> None:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def put_array(self, name: str, arr: NDArray) -> None: ...
 
-    def get_array(self, name: str) -> Optional[NDArray]:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def get_array(self, name: str) -> Optional[NDArray]: ...
 
-    def put_scalar(self, name: str, value: Any) -> None:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def put_scalar(self, name: str, value: Any) -> None: ...
 
-    def get_scalar(self, name: str, default: Any = None) -> Any:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def get_scalar(self, name: str, default: Any = None) -> Any: ...
 
-    def put_json(self, name: str, obj: Any) -> None:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def put_json(self, name: str, obj: Any) -> None: ...
 
-    def get_json(self, name: str, default: Any = None) -> Any:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def get_json(self, name: str, default: Any = None) -> Any: ...
 
-    def put_string(self, name: str, s: str) -> None:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def put_string(self, name: str, s: str) -> None: ...
 
-    def get_string(self, name: str, default: str = "") -> str:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def get_string(self, name: str, default: str = "") -> str: ...
 
-    def has(self, name: str) -> bool:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def has(self, name: str) -> bool: ...
 
-    def subgroup(self, name: str) -> "StorageAdapter":
-        raise NotImplementedError
+    @abc.abstractmethod
+    def subgroup(self, name: str) -> "StorageAdapter": ...
 
 
 # Zarr adapter
@@ -120,7 +135,7 @@ class ZarrAdapter(StorageAdapter):
         return to_native(as_str(val)) if val is not default else default
 
     def put_json(self, name: str, obj: Any) -> None:
-        self._g.attrs[name] = json.dumps(obj, default=json_default)
+        self._g.attrs[name] = dumps(obj)
 
     def get_json(self, name: str, default: Any = None) -> Any:
         raw = self._g.attrs.get(name)
@@ -180,7 +195,7 @@ class HDF5Adapter(StorageAdapter):
         return to_native(as_str(val)) if val is not default else default
 
     def put_json(self, name: str, obj: Any) -> None:
-        self._g.attrs[name] = json.dumps(obj, default=json_default)
+        self._g.attrs[name] = dumps(obj)
 
     def get_json(self, name: str, default: Any = None) -> Any:
         raw = self._g.attrs.get(name)
@@ -233,7 +248,7 @@ class NpyAdapter(StorageAdapter):
     def _save_meta(self) -> None:
         if self._meta is not None:
             self._meta_path.write_text(
-                json.dumps(self._meta, indent=2, default=json_default)
+                dumps(self._meta, indent=2)
             )
 
     def put_array(self, name: str, arr: NDArray) -> None:
@@ -256,7 +271,7 @@ class NpyAdapter(StorageAdapter):
 
     def put_json(self, name: str, obj: Any) -> None:
         meta = self._load_meta()
-        meta[name] = obj
+        meta[name] = json_sanitize(obj)
         self._save_meta()
 
     def get_json(self, name: str, default: Any = None) -> Any:
@@ -562,7 +577,9 @@ def read_result_dict(
 
 # Type resolution
 
-_TYPE_REGISTRY: Dict[str, Type] = {}
+from ..registry import Registry
+
+_TYPE_REGISTRY = Registry("result type")
 
 
 def _resolve_type(type_name: str) -> Optional[Type]:
@@ -585,12 +602,24 @@ def _populate_registry() -> None:
             if (isinstance(obj, type)
                     and issubclass(obj, tuple)
                     and hasattr(obj, "_fields")):
-                _TYPE_REGISTRY[name] = obj
+                _TYPE_REGISTRY.register(name, obj)
     except ImportError:
         pass
+
+
+def available_types() -> list:
+    """Every registered result type."""
+    if not _TYPE_REGISTRY:
+        _populate_registry()
+    return _TYPE_REGISTRY.available()
+
+
+def unregister_type(name: str):
+    """Remove a registered result type."""
+    return _TYPE_REGISTRY.unregister(name)
 
 
 def register_type(cls: Type) -> None:
     """Manually register a NamedTuple class for deserialization."""
     if hasattr(cls, "_fields"):
-        _TYPE_REGISTRY[cls.__name__] = cls
+        _TYPE_REGISTRY.register(cls.__name__, cls)

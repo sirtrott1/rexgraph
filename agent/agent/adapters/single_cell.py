@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import gzip
 import logging
-import os
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 

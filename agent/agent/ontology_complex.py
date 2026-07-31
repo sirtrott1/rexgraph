@@ -1,5 +1,5 @@
 """
-agent.ontology_complex - RDFS/OWL ontologies as typed relational complexes.
+agent.ontology_complex: RDFS/OWL ontologies as typed relational complexes.
 
 The mapping follows arity ≠ grade:
   * ``rdfs:subClassOf`` (binary A ⊑ B) -> a **gradient edge** (the class
@@ -24,7 +24,6 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
-from .diagnostics_thresholds import THRESHOLDS as _TH
 
 _SUBCLASS = {"subclassof", "is_a", "isa", "subsumes"}
 _EQUIV = {"equivalentclass", "sameas", "equivalent"}

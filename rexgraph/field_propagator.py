@@ -1,4 +1,4 @@
-"""rexgraph.field_propagator - matrix-free evolution of the coupled (edge, face)
+"""rexgraph.field_propagator: matrix-free evolution of the coupled (edge, face)
 field on the graded vector space C_1 (+) C_2.
 
 The field operator

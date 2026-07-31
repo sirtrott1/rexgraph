@@ -1,5 +1,5 @@
 """
-agent.server.routes.agents - route surface for the agentic relational complex over the swarm.
+agent.server.routes.agents: route surface for the agentic relational complex over the swarm.
 
 Feed inter-agent messages, then read the monitor (load-bearing agents,
 interaction Hodge, alignment, divergence) and the router (query to most relevant

@@ -1,4 +1,4 @@
-"""rexgraph.compute - the execution backend layer: backends, thread control, and op dispatch.
+"""rexgraph.compute: the execution backend layer: backends, thread control, and op dispatch.
 
 A modular spine so parallel and device-specialized kernels register their implementations and are
 routed here, instead of hardcoding a backend at each call site. Same registry pattern as
@@ -34,13 +34,22 @@ __all__ = [
 
 # backends
 
-_BACKENDS: Dict[str, dict] = {}
+from .registry import Registry
+
+_BACKENDS = Registry("compute backend")
 
 
 def register_backend(name: str, *, available: Callable[[], bool], kind: str = "cpu",
                      description: str = "") -> None:
     """Register a compute backend with an availability probe. kind is 'cpu' or 'gpu'."""
-    _BACKENDS[name] = {"name": name, "available": available, "kind": kind, "description": description}
+    _BACKENDS.register(name, {"name": name, "available": available,
+                              "kind": kind, "description": description},
+                       kind=kind)
+
+
+def unregister_backend(name: str):
+    """Remove a backend. A registry you can only add to leaks across a process."""
+    return _BACKENDS.unregister(name)
 
 
 def _ok(b) -> bool:
@@ -53,18 +62,18 @@ def _ok(b) -> bool:
 def backends() -> List[dict]:
     """Every registered backend with its kind, description, and current availability."""
     return [{"name": b["name"], "kind": b["kind"], "description": b["description"],
-             "available": _ok(b)} for b in _BACKENDS.values()]
+             "available": _ok(b)} for _, b in _BACKENDS.items()]
 
 
 def available_backends() -> List[str]:
-    return [b["name"] for b in _BACKENDS.values() if _ok(b)]
+    return [n for n, b in _BACKENDS.items() if _ok(b)]
 
 
 def best_backend(prefer: Optional[str] = None) -> str:
     """The best available backend: `prefer` if available, else a GPU backend, else cpu."""
-    if prefer and prefer in _BACKENDS and _ok(_BACKENDS[prefer]):
+    if prefer and prefer in _BACKENDS and _ok(_BACKENDS.get(prefer)):
         return prefer
-    for b in _BACKENDS.values():
+    for _, b in _BACKENDS.items():
         if b["kind"] == "gpu" and _ok(b):
             return b["name"]
     return "cpu"
@@ -84,6 +93,17 @@ def set_threads(n: Optional[int]) -> None:
         threadpoolctl.threadpool_limits(n)
     except Exception:
         pass
+
+
+def effective_threads() -> int:
+    """The thread width to actually use: an explicit set_threads if one was given,
+    else what the allocation permits. os.cpu_count() was the old fallback, which on
+    a cluster is the node's core count rather than the job's."""
+    explicit = get_threads()
+    if explicit:
+        return int(explicit)
+    from rexgraph.hardware import cpu_count
+    return cpu_count()
 
 
 def get_threads() -> Optional[int]:
@@ -176,7 +196,7 @@ def _auto_backend() -> Optional[str]:
     if not rec:
         return None
     name = _BACKEND_ALIAS.get(rec, rec)
-    if name in _BACKENDS and _ok(_BACKENDS[name]):
+    if name in _BACKENDS and _ok(_BACKENDS.get(name)):
         return name
     return None
 
@@ -216,7 +236,8 @@ def parallel_map(fn, items, *, threads=None, inner_threads=None):
     bodies stay GIL-bound and gain nothing. Falls back to a serial map for a single worker or item.
 
     Nested-parallelism safety (automatic, not a per-call threshold): the machine's CPU thread
-    BUDGET is `get_threads()` (the configured width) else `os.cpu_count()`. The number of WORKERS
+    BUDGET is `effective_threads()`: the configured width if set, else what the
+    allocation permits (SLURM/affinity/cgroup), NOT the node's core count. The number of WORKERS
     is `min(threads or budget, len(items))`, and while they run the inner native threadpools are
     held to `inner_threads`, defaulting to the BUDGET ARITHMETIC `max(1, budget // workers)` - so
     workers * inner tracks the budget: no oversubscription when a task calls multi-threaded BLAS,
@@ -227,7 +248,7 @@ def parallel_map(fn, items, *, threads=None, inner_threads=None):
     items = list(items)
     if not items:
         return []
-    budget = get_threads() or (os.cpu_count() or 1)              # total CPU thread budget
+    budget = effective_threads()                                 # total CPU thread budget
     cap = threads if threads is not None else budget            # caller's worker cap
     workers = min(cap, len(items))
     if workers <= 1:
@@ -322,7 +343,8 @@ def dispatch(name: str, *args, prefer: Optional[str] = None, **kw):
     the best available backend, then any available one, then cpu. Raises if the op is unknown."""
     impls = _OPS.get(name)
     if not impls:
-        raise KeyError(f"no op registered as {name!r}")
+        raise KeyError(f"no op registered as {name!r}. Registered: "
+                       f"{', '.join(sorted(_OPS)) or '(none)'}")
     pref = prefer or _DEFAULT_BACKEND                        # the active setup's preference, if any
     if pref is None:                                         # nothing explicit -> host-recommended
         pref = _auto_backend()
@@ -372,7 +394,71 @@ def _mps_available() -> bool:
 
 register_backend("cpu", available=lambda: True, kind="cpu",
                  description="Serial / BLAS CPU (always available).")
-register_backend("openmp", available=lambda: (os.cpu_count() or 1) > 1, kind="cpu",
+# --- ops -----------------------------------------------------------------------
+#
+# register_op/dispatch shipped with zero registrations and zero callers, so the
+# extension point could only ever raise. These are the solvers the character and
+# propagator paths actually run, registered per backend, so a caller can ask for
+# an op and let the host decide where it lands.
+
+def _block_cg_cpu(A, B, dinv=None, tol=1e-10, maxit=1000):
+    """Jacobi-preconditioned block CG on the host."""
+    from rexgraph.sparse_character import _block_cg
+    import numpy as _np
+    if dinv is None:
+        d = A.diagonal()
+        dinv = _np.where(_np.abs(d) > 1e-30, 1.0 / d, 1.0)
+    # _block_cg is matrix-free: it takes apply_A(P) -> A @ P, not the matrix, so a
+    # caller can hand it a factored operator instead of an assembled one.
+    apply_A = A if callable(A) else (lambda P: A @ P)
+    return _block_cg(apply_A, _np.asarray(B, dtype=_np.float64), dinv,
+                     tol=tol, maxit=maxit)
+
+
+def _block_cg_gpu(A, B, dinv=None, tol=1e-10, maxit=1000, device=None):
+    """The same solve, resident on the device."""
+    import numpy as _np
+    import torch
+    from rexgraph import scale_propagator as _spg
+    if dinv is None:
+        d = A.diagonal()
+        dinv = _np.where(_np.abs(d) > 1e-30, 1.0 / d, 1.0)
+    dev = _spg._torch_device(device)
+    At = _spg._torch_csr(A, dev)
+    Bt = torch.as_tensor(_np.asarray(B, dtype=_np.float64), dtype=torch.float64,
+                         device=dev)
+    dt = torch.as_tensor(_np.asarray(dinv, dtype=_np.float64), dtype=torch.float64,
+                         device=dev)
+    return _spg._block_cg_gpu(At, Bt, dt, tol=tol, maxit=maxit).cpu().numpy()
+
+
+def _greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
+    """diag(RL4^-1). Already chooses CPU/GPU internally on the work gate; registered
+    so `prefer` reaches it through the same door as everything else."""
+    from rexgraph.scale_propagator import greens_diagonal
+    return greens_diagonal(RL4, tol=tol, chunk=chunk, backend=backend)
+
+
+def _solve_block(L, B, dinv, tol=1e-10, maxit=1000, backend=None):
+    """Solve L X = B by block CG, single- or multi-GPU or CPU as the host allows."""
+    from rexgraph.scale_propagator import block_cg_solve
+    return block_cg_solve(L, B, dinv, tol=tol, maxit=maxit, backend=backend)
+
+
+register_op("block_cg", "cpu", _block_cg_cpu)
+register_op("block_cg", "openmp", _block_cg_cpu)
+register_op("block_cg", "cuda", _block_cg_gpu)
+
+# these two already gate on work size internally, so one implementation serves
+# every backend: `prefer` is passed through rather than selecting the callable.
+for _be in ("cpu", "openmp", "cuda"):
+    register_op("greens_diagonal", _be,
+                lambda *a, _b=_be, **kw: _greens_diagonal(*a, backend=_b, **kw))
+    register_op("solve_block", _be,
+                lambda *a, _b=_be, **kw: _solve_block(*a, backend=_b, **kw))
+
+
+register_backend("openmp", available=lambda: effective_threads() > 1, kind="cpu",
                  description="Parallel CPU: the compiled OpenMP kernels, tuned by the thread width.")
 register_backend("cuda", available=_cuda_available, kind="gpu",
                  description="NVIDIA / ROCm GPU (via torch or cupy).")

@@ -13,7 +13,7 @@ def _to_type(kind: str) -> str:
     k = (kind or "").lower()
     if k.startswith("train:"):
         archetype = k.split(":", 1)[1]
-        from agent.agent.foundry import _CPU_ONLY
+        from .foundry import _CPU_ONLY
         return "cpu_coordination" if archetype in _CPU_ONLY else "gpu_kernel"
     if any(s in k for s in _IO):
         return "io_llm"

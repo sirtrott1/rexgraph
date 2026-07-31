@@ -1,10 +1,10 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._l_gb - Graded boundary Laplacian L_gb.
+rexgraph.core._l_gb: Graded boundary Laplacian L_gb.
 
 The L_gb operator measures structural coupling between adjacent grades
-of a rex chain complex, generalizing the within-grade RL_4 character
+of a relational complex, generalizing the within-grade RL_4 character
 bundle to a between-grade tensor.
 
 Two flavors:
@@ -35,8 +35,11 @@ to 1e-13 relative error.
 Algorithm:
     Eigendecompose the Hodge Dirac at grades d and d+1 (each O(n_E^3)),
     extract sorted absolute eigenvalues, compare via the channel tensor
-    formula. Vertex-driven assembly with optional sparse path for large
-    n_E. Spectrum truncation at top_k_eig defaults to 16.
+    formula. Vertex-driven assembly.
+
+    Dense throughout: every routine here goes through numpy.linalg, there is no
+    sparse path and no spectrum truncation. Earlier text advertised an "optional
+    sparse path for large n_E" and a `top_k_eig` parameter; neither exists.
 """
 
 from __future__ import annotations
@@ -220,7 +223,7 @@ def l_gb_channel_tensor(list hats_A, list hats_B=None):
 
 
 def l_gb_tower(list B_list):
-    """Sweep l_gb across all adjacent grade pairs in a chain complex.
+    """Sweep l_gb across all adjacent grade pairs in a relational complex.
 
     Parameters
     ----------

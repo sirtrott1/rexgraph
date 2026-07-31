@@ -12,14 +12,11 @@ Verifies:
     - write/read_result_dict: roundtrip for mixed array/scalar dicts
     - register_type: manual type registration
 """
-import json
 import os
 import tempfile
 from collections import namedtuple
-from typing import Optional, Tuple
 
 import numpy as np
-import pytest
 
 from rexgraph.io._serialization import (
     NpyAdapter,

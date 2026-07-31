@@ -1,5 +1,5 @@
 """
-rexgraph.types - Typed containers for relational complex data structures.
+rexgraph.rextypes: typed containers for relational complex data structures.
 
 Enumerations mirror integer codes from the Cython layer so that
 Python-level code (graph.py, analysis.py) can refer to them without
@@ -18,7 +18,7 @@ Enumerations:
     EnergyRegime - E_kin/E_pot ratio classification (0-2)
     OperatorChannel - relational Laplacian channel indices
     PredicateOp - query predicate operations (0-6)
-    JoinType - chain complex join types (0-3)
+    JoinType - relational complex join types (0-3)
 
 NamedTuples:
     HodgeDecomposition, HodgeAnalysis - Hodge decomposition results
@@ -54,9 +54,8 @@ NamedTuples:
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import List, NamedTuple, Optional, Sequence, Tuple
+from typing import NamedTuple, Optional, Tuple
 
-import numpy as np
 from numpy.typing import NDArray
 
 
@@ -156,7 +155,7 @@ class PredicateOp(IntEnum):
 
 
 class JoinType(IntEnum):
-    """Join type for chain complex join operations (_joins.pyx)."""
+    """Join type for relational complex join operations (_joins.pyx)."""
     INNER = 0
     LEFT = 1
     OUTER = 2
@@ -792,7 +791,7 @@ class PersistenceDiagram(NamedTuple):
 
 
 class Filtration(NamedTuple):
-    """Filtration values on the chain complex."""
+    """Filtration values on the relational complex."""
 
     filt_v: NDArray
     """Vertex filtration values, f64[nV]."""
@@ -919,7 +918,7 @@ class StandardMetrics(NamedTuple):
 
 
 class JoinResult(NamedTuple):
-    """Result of a chain complex join operation from _joins."""
+    """Result of a relational complex join operation from _joins."""
     B1j: NDArray
     """Joined boundary operator, f64[nVj, nEj]."""
     B2j: NDArray

@@ -1,5 +1,5 @@
 """
-rexgraph.core._temporal_entity_py - Pure-Python fallback for entity-level
+rexgraph.core._temporal_entity_py: Pure-Python fallback for entity-level
 BIOES tagging. Same API as _temporal_entity.pyx, uses numpy vectorization.
 
 Import order: try Cython first, fall back to this.
@@ -43,7 +43,6 @@ def entity_bioes_matrix(birth, death, T):
 
 def entity_bioes_gapped(snapshots, edge_ids, directed=False):
     """Gap-aware per-entity BIOES. Pure Python."""
-    from rexgraph.core._temporal import edge_lifecycle
 
     T = len(snapshots)
     N = len(edge_ids)
