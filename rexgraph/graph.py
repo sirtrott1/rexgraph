@@ -5630,6 +5630,10 @@ class TemporalRex:
         self._directed = directed
         self._general = general
         self._T = len(snapshots)
+        # Wall-clock (or experiment-clock) per step. Absent, the step index IS the
+        # time: the identity bridge, so a store built without timestamps behaves
+        # exactly as it always did.
+        self._times = [float(i) for i in range(self._T)]
 
         # snapshots-backed construction: full snapshots already held in
         # `_snapshots`, so `at(t)` is authoritative and the incremental
@@ -5648,6 +5652,42 @@ class TemporalRex:
     @property
     def T(self) -> int:
         return self._T
+
+    @property
+    def times(self) -> NDArray:
+        """The clock each step was taken on. Defaults to the step index."""
+        return np.asarray(self._times, dtype=_f64)
+
+    def time_at(self, t: int) -> float:
+        """The moment step `t` was taken."""
+        return float(self._times[t])
+
+    def step_at(self, when: float) -> Optional[int]:
+        """The step current at `when`: the latest one taken at or before it.
+
+        Between measurements the complex is whatever the last measurement said, so
+        this is a step function, not an interpolation. None if `when` precedes the
+        first measurement -- there is no complex to report, and reporting step 0
+        would invent one.
+        """
+        times = self._times
+        if not times or when < times[0]:
+            return None
+        lo, hi = 0, len(times) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if times[mid] <= when:
+                lo = mid
+            else:
+                hi = mid - 1
+        return lo
+
+    def reconstruct_at_time(self, when: float) -> Optional[RexGraph]:
+        """The complex as it stood at `when`. The bridge between this store's step
+        index and any clock the rest of the system records in (the RCDB's tx and
+        validity times, an instrument's timestamps, an experiment's passages)."""
+        t = self.step_at(when)
+        return None if t is None else self.reconstruct_at(t)
 
     def at(self, t: int) -> RexGraph:
         snap = self._snapshots[t]
@@ -5768,13 +5808,16 @@ class TemporalRex:
         self._last_state = (cp, ci, cw, cs)
         self._last_face_state = curr_face_state
         self._T = t + 1
+        while len(self._times) < self._T:
+            self._times.append(float(len(self._times)))
 
         for name in ("temporal_index", "edge_lifecycle", "edge_metrics", "face_lifecycle_data"):
             self.__dict__.pop(name, None)
 
         return t
 
-    def append_snapshot(self, rex: RexGraph, *, face: bool = True) -> int:
+    def append_snapshot(self, rex: RexGraph, *, face: bool = True,
+                        at: Optional[float] = None) -> int:
         """Append one new snapshot to a live temporal store, maintaining the
         checkpoint/delta index INCREMENTALLY: one edge diff, one face diff, and an
         int comparison against `_checkpoint_threshold`, O(delta), never a
@@ -5788,7 +5831,14 @@ class TemporalRex:
         Returns the new snapshot's time index.
         """
         self._ensure_index()
-        return self._append_index_entry(rex, face=face, record_snapshot=True)
+        t = self._append_index_entry(rex, face=face, record_snapshot=True)
+        if at is not None:
+            if t and float(at) < self._times[t - 1]:
+                raise ValueError(
+                    f"timestamp {at!r} precedes step {t - 1}'s {self._times[t - 1]!r}; "
+                    "an out-of-order clock makes step_at ambiguous")
+            self._times[t] = float(at)
+        return t
 
     def _ensure_index(self) -> None:
         """Build the checkpoint/delta index used by `reconstruct_at`, if not
@@ -6042,6 +6092,76 @@ class TemporalRex:
             face_event_threshold, min_shared,
         )
 
+    def mutations(self) -> dict:
+        """Paired death and birth at one moment: a cell whose existence changed into
+        another structure.
+
+        A cell dying as another is born, on overlapping boundary, is a topology
+        mutating. Read as an unrelated death plus an unrelated birth it looks like
+        churn; read as one event it is the thing worth knowing. Betti numbers cannot
+        see it at all -- the pair can leave every one of them where it was.
+
+        Pairing is by SHARED BOUNDARY VERTICES, exactly, and the count of them is the
+        magnitude: the same currency the face correspondence uses, with no similarity
+        score and no cutoff. A swap that keeps most of its boundary is a small
+        mutation; one that keeps a single vertex is nearly an unrelated death and
+        birth. The count is reported and the policy is the caller's.
+
+        Greedy on largest overlap, and each cell is paired at most once: one death
+        cannot be the origin of two births, or the count of what happened stops
+        meaning anything.
+
+        Returns t / when / died_key / born_key / shared.
+        """
+        self._ensure_index()
+        d = self.delta_tensor()
+        if len(d["t"]) == 0:
+            return {k: np.asarray([], dtype=dt) for k, dt in
+                    (("t", np.int64), ("when", _f64), ("died_key", np.int64),
+                     ("born_key", np.int64), ("shared", np.int32))}
+
+        # boundary vertex sets, per step, for the cells that appeared or vanished
+        from rexgraph.core._temporal import cell_keys_of
+        verts = {}
+        for t in sorted({int(x) for x in d["t"]} | {int(x) - 1 for x in d["t"]}):
+            if t < 0:
+                continue
+            rex = self.reconstruct_at(t)
+            rex._ensure_clean()
+            bp, bi = rex._boundary_ptr, rex._boundary_idx
+            keys = np.asarray(cell_keys_of(bp, bi, self._directed), dtype=np.int64)
+            for j, k in enumerate(keys):
+                verts[(t, int(k))] = set(np.asarray(bi[bp[j]:bp[j + 1]]).tolist())
+
+        t_out, w_out, dk_out, bk_out, sh_out = [], [], [], [], []
+        for t in sorted({int(x) for x in d["t"]}):
+            at = d["t"] == t
+            died = [int(k) for k, e in zip(d["key"][at], d["existence"][at]) if e < 0]
+            born = [int(k) for k, e in zip(d["key"][at], d["existence"][at]) if e > 0]
+            if not died or not born:
+                continue
+            cand = []
+            for dk in died:
+                dv = verts.get((t - 1, dk), set())
+                for bk in born:
+                    overlap = len(dv & verts.get((t, bk), set()))
+                    if overlap:
+                        cand.append((overlap, dk, bk))
+            cand.sort(key=lambda c: (-c[0], c[1], c[2]))
+            used_d, used_b = set(), set()
+            for overlap, dk, bk in cand:
+                if dk in used_d or bk in used_b:
+                    continue
+                used_d.add(dk); used_b.add(bk)
+                t_out.append(t); w_out.append(self._times[t])
+                dk_out.append(dk); bk_out.append(bk); sh_out.append(overlap)
+
+        return {"t": np.asarray(t_out, dtype=np.int64),
+                "when": np.asarray(w_out, dtype=_f64),
+                "died_key": np.asarray(dk_out, dtype=np.int64),
+                "born_key": np.asarray(bk_out, dtype=np.int64),
+                "shared": np.asarray(sh_out, dtype=np.int32)}
+
     #: BIOES tag codes, matching rexgraph.core._temporal
     TAG_B, TAG_I, TAG_O, TAG_E, TAG_S = 0, 1, 2, 3, 4
 
@@ -6123,7 +6243,7 @@ class TemporalRex:
                 moment[t, tag] = int((tags[t] == tag).sum())
 
         return {"keys": keys, "tags": tags, "orientation": orientation,
-                "moment": moment}
+                "moment": moment, "times": self.times}
 
     def delta_tensor(self, *, dense: bool = False):
         """The temporal delta tensor: per step, the change in each of the composite
@@ -6182,6 +6302,7 @@ class TemporalRex:
 
         out = {
             "t": np.asarray(t_out, dtype=np.int64),
+            "when": np.asarray([self._times[i] for i in t_out], dtype=_f64),
             "key": np.asarray(k_out, dtype=np.int64),
             "existence": np.asarray(e_out, dtype=np.int8),
             "orientation": np.asarray(o_out, dtype=np.int8),

@@ -106,11 +106,16 @@ def structural_signature(rex, meta: Optional[dict] = None,
         # spread it FIRST so the temporal overrides applied after it (object_type,
         # T, checkpoint_times) are the ones that survive in the merged dict.
         base = structural_signature(rex.reconstruct_at(rex.T - 1), meta, tags)
+        times = [float(x) for x in getattr(rex, "_times", [])]
         return {
             **base,
             "object_type": "TemporalRex",
             "T": int(rex.T),
             "checkpoint_times": cp_times,
+            # the history's span on its own clock, so a store can be asked which
+            # records cover a moment without opening a single blob.
+            "t_first": times[0] if times else None,
+            "t_last": times[-1] if times else None,
         }
     meta = meta or (getattr(rex, "_agent_meta", {}) or {})
     sig: Dict[str, Any] = {

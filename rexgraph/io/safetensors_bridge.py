@@ -629,12 +629,25 @@ def temporal_rex_to_safetensors(
         "checkpoint_threshold": float(trex._checkpoint_threshold),
         "checkpoint_times": checkpoint_times,
         "checkpoint_optional": checkpoint_optional,
+        # the step clock: without it a reloaded history can only be addressed by
+        # index, and cannot be lined up against anything recorded in wall time.
+        "times": [float(x) for x in trex._times],
         "bridge_version": _BRIDGE_VERSION,
     }
 
     st_meta = {"rex_meta": json.dumps(meta)}
     save_file(tensors, str(out), metadata=st_meta)
     return out
+
+
+def _restore_times(trex, meta):
+    """Reattach the step clock. A file written before it existed has none, and the
+    step index is the identity bridge, so those load exactly as they used to."""
+    times = meta.get("times")
+    if times:
+        trex._times = [float(x) for x in times]
+    while len(trex._times) < trex._T:
+        trex._times.append(float(len(trex._times)))
 
 
 def safetensors_to_temporal_rex(path: Union[str, os.PathLike]):
@@ -720,6 +733,7 @@ def _temporal_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
     )
     if face_snapshots:
         trex._face_snapshots = face_snapshots
+    _restore_times(trex, meta)
     return trex
 
 
@@ -791,6 +805,7 @@ def _temporal_from_loaded_delta(tensors: Dict[str, NDArray], meta: Dict[str, Any
     trex._T = T
     if "checkpoint_threshold" in meta:
         trex._checkpoint_threshold = float(meta["checkpoint_threshold"])
+    _restore_times(trex, meta)
     return trex
 
 

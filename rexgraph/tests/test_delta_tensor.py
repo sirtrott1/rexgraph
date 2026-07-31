@@ -160,3 +160,92 @@ def test_dense_form_is_available_for_small_histories():
     assert dense.shape == (tr.T, len(keys), 2)
     assert dense[0].sum() == 0, "t=0 has no predecessor, so no delta"
     assert dense[1, :, 1].sum() == -1
+
+
+# --- mutation as one event with a magnitude -----------------------------------
+
+def test_a_swap_sharing_a_vertex_is_one_mutation_not_two_events():
+    """A cell dying as another is born, on the same vertices, is a topology
+    mutating. Reading it as an unrelated death and an unrelated birth loses exactly
+    the thing worth knowing."""
+    src, tgt = _ring(4)
+    tr = TemporalRex([])
+    tr.append_snapshot(RexGraph(sources=np.array([0, 1, 2], np.int32),
+                                targets=np.array([1, 2, 3], np.int32)))
+    # (2,3) dies, (2,0) is born: both bounded by vertex 2
+    tr.append_snapshot(RexGraph(sources=np.array([0, 1, 2], np.int32),
+                                targets=np.array([1, 2, 0], np.int32)))
+    m = tr.mutations()
+    assert len(m["t"]) == 1
+    assert m["t"][0] == 1
+    assert m["shared"][0] >= 1
+
+
+def test_the_magnitude_is_how_much_boundary_survived():
+    """Same currency as the face correspondence: an exact count of shared boundary,
+    not a similarity score."""
+    tr = TemporalRex([])
+    tr.append_snapshot(RexGraph(sources=np.array([0, 5], np.int32),
+                                targets=np.array([1, 6], np.int32)))
+    tr.append_snapshot(RexGraph(sources=np.array([0, 5], np.int32),
+                                targets=np.array([2, 6], np.int32)))
+    m = tr.mutations()
+    # (0,1) -> (0,2) keeps vertex 0
+    assert list(m["shared"]) == [1]
+
+
+def test_an_unrelated_birth_and_death_is_not_a_mutation():
+    """Sharing no boundary means nothing turned into anything."""
+    tr = TemporalRex([])
+    tr.append_snapshot(RexGraph(sources=np.array([0, 4], np.int32),
+                                targets=np.array([1, 5], np.int32)))
+    tr.append_snapshot(RexGraph(sources=np.array([2, 4], np.int32),
+                                targets=np.array([3, 5], np.int32)))
+    m = tr.mutations()
+    assert len(m["t"]) == 0, "unrelated cells were paired as a mutation"
+
+
+def test_a_birth_with_no_death_is_not_a_mutation():
+    tr = TemporalRex([])
+    tr.append_snapshot(RexGraph(sources=np.array([0], np.int32),
+                                targets=np.array([1], np.int32)))
+    tr.append_snapshot(RexGraph(sources=np.array([0, 1], np.int32),
+                                targets=np.array([1, 2], np.int32)))
+    assert len(tr.mutations()["t"]) == 0
+
+
+def test_mutations_name_both_ends():
+    tr = TemporalRex([])
+    tr.append_snapshot(RexGraph(sources=np.array([0, 5], np.int32),
+                                targets=np.array([1, 6], np.int32)))
+    tr.append_snapshot(RexGraph(sources=np.array([0, 5], np.int32),
+                                targets=np.array([2, 6], np.int32)))
+    m = tr.mutations()
+    assert m["died_key"][0] != m["born_key"][0]
+    d = tr.delta_tensor()
+    died = {int(k) for k, e in zip(d["key"], d["existence"]) if e < 0}
+    born = {int(k) for k, e in zip(d["key"], d["existence"]) if e > 0}
+    assert int(m["died_key"][0]) in died and int(m["born_key"][0]) in born
+
+
+def test_mutations_report_the_moment_on_the_real_clock():
+    tr = TemporalRex([])
+    tr.append_snapshot(RexGraph(sources=np.array([0, 5], np.int32),
+                                targets=np.array([1, 6], np.int32)), at=100.0)
+    tr.append_snapshot(RexGraph(sources=np.array([0, 5], np.int32),
+                                targets=np.array([2, 6], np.int32)), at=250.0)
+    m = tr.mutations()
+    assert list(m["when"]) == [250.0]
+
+
+def test_each_cell_is_paired_at_most_once():
+    """One death cannot be the origin of two births, or the count of what happened
+    stops meaning anything."""
+    tr = TemporalRex([])
+    tr.append_snapshot(RexGraph(sources=np.array([0, 7], np.int32),
+                                targets=np.array([1, 8], np.int32)))
+    tr.append_snapshot(RexGraph(sources=np.array([0, 0, 7], np.int32),
+                                targets=np.array([2, 3, 8], np.int32)))
+    m = tr.mutations()
+    assert len(set(m["died_key"].tolist())) == len(m["died_key"])
+    assert len(set(m["born_key"].tolist())) == len(m["born_key"])
