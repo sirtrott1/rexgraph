@@ -61,3 +61,10 @@ agent/frontend/theme-ps2-preview.html
 # verification records, and grounding notes. The durable copy lives in
 # rexgraph-internal/docs/.
 docs/v1.0.4/
+
+# Built by agent/agent/native/build.sh against a LOCAL llama.cpp. The link step
+# bakes -rpath to that build tree, so a committed binary carries one machine's
+# absolute paths and does not run anywhere else -- 1.8 MB of unusable artifact
+# next to the source that produces it. attn_introspect.available() reports False
+# until it is built, so nothing breaks without it.
+agent/agent/native/rex_attn_capture
