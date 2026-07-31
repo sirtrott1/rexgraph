@@ -1401,7 +1401,8 @@ def open_store(uri: str = "memory://") -> RCStore:
     """Open an RCStore from a URI.
 
     memory://                       -> MemoryStore
-    file:///path  or  /path         -> FileStore
+    rex:///path                     -> RexStore (embedded, append-only, no server)
+    file:///path  or  /path         -> FileStore (legacy: quadratic ingest)
     sqlite:///f.db, postgresql://…  -> SQLStore (any SQLAlchemy backend)
     <custom>://…                    -> a registered backend
     """
@@ -1419,7 +1420,14 @@ def open_store(uri: str = "memory://") -> RCStore:
 
 
 # built-in registrations
+def _open_rexstore(uri: str):
+    from .rexstore import RexStore
+    path = uri[len("rex://"):] if uri.startswith("rex://") else uri
+    return RexStore(path or "./rexdb")
+
+
 register_backend("memory", lambda uri: MemoryStore())
+register_backend("rex", _open_rexstore)
 register_backend("file", lambda uri: FileStore(
     uri[len("file://"):] if uri.startswith("file://") else uri))
 
