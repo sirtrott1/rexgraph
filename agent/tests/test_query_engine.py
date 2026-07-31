@@ -214,16 +214,31 @@ def _mini_corpus():
     return c
 
 
-def test_hybrid_scores_stay_in_the_unit_range():
-    """_score_document mixed a Jaccard and a character cosine (both in [0,1]) with the
-    raw quadratic form psi^T RL^+ psi, which is unbounded and reached 729 on a real
-    corpus. The bounded terms then contributed 0.14% of the score, so hybrid ranking
-    was the spectral term alone."""
+def test_scores_are_a_coherent_mass_not_a_mixture_of_incommensurable_terms():
+    """The original defect was mixing a Jaccard and a character cosine (both in [0,1])
+    with the raw quadratic form psi^T RL^+ psi, unbounded and reaching 729 on a real
+    corpus, so the bounded terms contributed 0.14% and hybrid ranking was the spectral
+    term alone.
+
+    The score is now ONE field summed over one seed -- kappa over the vertices the
+    query matched -- so nothing is mixed and there is no unit range to enforce: each
+    kappa is in [0,1], so the score lies in [0, n_shared] and grows with how much of
+    the query the document actually carries."""
     c = _mini_corpus()
     for mode in ("chi", "spectral", "hybrid"):
         qr = c.query("hodge decomposition harmonic projection", top_k=3, mode=mode)
         for s in qr.ranked_sections:
-            assert 0.0 <= s["score"] <= 1.0, f"{mode}: {s['doc_id']} scored {s['score']}"
+            assert s["score"] >= 0.0, f"{mode}: {s['doc_id']} scored {s['score']}"
+    # bounded by the seed size, which is what makes it a mass rather than a sum of
+    # unrelated quantities
+    from agent.adapters.text import TextAdapter
+    from agent.scoring import interfacing_score, shared_indices
+    qec = TextAdapter().build("hodge decomposition harmonic projection",
+                              min_count=1, max_vocab=200)
+    for doc in c.documents:
+        r = interfacing_score(doc.rex, doc.vertex_labels, qec.vertex_labels)
+        assert 0.0 <= r["score"] <= max(r["n_shared"], 1)
+        assert all(0.0 <= k <= 1.0 for k in r["kappa"])
 
 
 def test_hybrid_ranking_is_not_decided_by_the_spectral_term_alone():

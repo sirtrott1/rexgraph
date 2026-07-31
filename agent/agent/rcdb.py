@@ -1172,11 +1172,11 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
                  exclude_id: str = None):
     """Rank stored complexes by structural similarity to a query complex.
 
-    Uses the cross-complex bridge (aligns by shared labels, correlates the
-    per-vertex coherence): the real structural-similarity measure, not a
-    scalar signature match. Returns a list of
-    ``{id, match, shared, tags, source}`` sorted by match descending, where
-    ``match`` is a 0-1 similarity a UI can show as a percentage.
+    Scores through `agent.scoring.interfacing_score`, which reads the query's
+    footprint under each candidate's own coherence field by demand-driven
+    diffusion. Returns ``{id, match, score, shared, context_size, tags, source}``
+    sorted by match descending, where ``match`` is a 0-1 number a UI can show as
+    a percentage.
     """
     from agent.scoring import interfacing_score
     qset = {str(x).lower() for x in (query_labels or [])}
@@ -1207,12 +1207,17 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
                 "id": rec.id,
                 "match": round(match, 4),
                 "score": round(s_raw, 6),
-                "character": [round(x, 4) for x in r["character"]],
-                "coverage": round(r["coverage"], 4),
+                "kappa_mean": round(r["kappa_mean"], 4),
+                "context_size": r["context_size"],
                 "shared": r["n_shared"],
                 "tags": rec.signature.get("tags", []),
                 "source": rec.signature.get("source", ""),
             })
+        except (KeyError, TypeError) as e:
+            # a missing key here is a contract break between this and the scorer,
+            # not a bad record: swallowing it silently returns an empty ranking
+            # and looks like "nothing matched".
+            raise RuntimeError(f"find_similar: scorer contract changed ({e})") from e
         except Exception:
             continue
     out.sort(key=lambda r: (-r["match"], str(r["id"])))

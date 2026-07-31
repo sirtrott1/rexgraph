@@ -70,41 +70,32 @@ def test_an_explicit_target_is_unaffected():
     assert np.allclose(a["iv"], b["iv"])
 
 
-def test_the_scorer_takes_one_solve_not_two():
-    """The reason this exists. Counts the L0 pseudoinverse solves, which is where
-    the cost is."""
-    import rexgraph.sparse_interfacing as si
+def test_the_scorer_no_longer_builds_a_whole_bundle_per_document():
+    """The scorer used to call interfacing_vector per candidate, paying a whole
+    interfacing bundle -- and passing target=None, which scores psi against itself
+    rather than interfacing with anything. It reads coherence_response now, which is
+    demand-driven at the seed, so interfacing_vector is not on that path at all."""
+    import inspect
+
+    from agent import scoring
+
+    src = inspect.getsource(scoring)
+    assert "interfacing_vector" not in src.split('"""')[2], \
+        "the scorer is back on the whole-bundle path"
+    assert "coherence_response" in src
+
+
+def test_the_scorer_reads_only_the_seed():
+    """coherence_response is O(|seed|), so scoring must not touch the full field.
+    Reading rex.coherence would compute every vertex to answer about a handful."""
+    import numpy as np
+
     from agent.scoring import interfacing_score
 
-    rex = _graph()
+    rex = _graph(nV=60, extra=50)
     labels = [f"w{i}" for i in range(rex.nV)]
-
-    calls = []
-    real = si._l0_pinv_matvec
-    si._l0_pinv_matvec = lambda *a, **kw: (calls.append(1), real(*a, **kw))[1]
-    try:
-        r = interfacing_score(rex, labels, ["W0", "W1", "W2", "W3"])
-    finally:
-        si._l0_pinv_matvec = real
-
-    assert r["score"] > 0
-    assert len(calls) == 1, f"{len(calls)} L0 solves for one document"
-
-
-def test_scores_are_unchanged_by_the_optimisation():
-    """A speedup that changes the ranking is not a speedup."""
-    from agent.scoring import interfacing_score
-
-    rex = _graph()
-    labels = [f"w{i}" for i in range(rex.nV)]
-    query = ["W0", "W1", "W2", "W3", "w7"]
-
-    r = interfacing_score(rex, labels, query)
-    # recompute the old way: psi from a throwaway call, then read it back through
-    idx = [0, 1, 2, 3, 7]
-    ti = np.asarray(idx, np.int32)
-    tw = np.ones(len(idx))
-    psi = np.asarray(rex.interfacing_vector(
-        ti, tw, np.zeros(int(rex.nE)))["psi"], dtype=np.float64)
-    old = rex.interfacing_vector(ti, tw, psi)
-    assert np.isclose(r["score"], float(np.linalg.norm(old["iv"])), rtol=1e-9)
+    r = interfacing_score(rex, labels, ["W0", "W1", "W2", "W3"], reading=False)
+    assert r["n_shared"] == 4
+    assert len(r["kappa"]) == 4, "kappa was returned for more than the seed"
+    assert np.allclose(r["kappa"],
+                       np.asarray(rex.coherence_response(np.array([0, 1, 2, 3], np.int32))))
