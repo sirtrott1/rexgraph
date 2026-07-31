@@ -278,3 +278,98 @@ def test_a_vocabulary_query_does_not_scan_every_record(tmp_path):
     store.query(labels_any=["only7"], limit=5)
     store._select_version = real
     assert len(seen) <= 5, f"examined {len(seen)} records for a one-record answer"
+
+
+# --- the index, as tensors ----------------------------------------------------
+
+def test_an_indexed_store_reads_exactly_what_replay_would(tmp_path):
+    """A faster open that answers differently is not an open. Every read is compared
+    against the same store loaded by replaying its log."""
+    import os as _os
+
+    store = _rexstore(tmp_path)
+    for k in range(40):
+        _put(store, f"r{k:03d}", labels=[f"l{k}", "shared", f"x{k % 5}"])
+    _put(store, "r000", labels=["revised", "shared"])
+    store.write_index()
+
+    indexed = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    assert indexed._index is not None, "the index was not used"
+
+    _os.remove(indexed._index_path)
+    replayed = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    assert replayed._index is None
+
+    assert sorted(r.id for r in indexed.list(limit=99)) == \
+           sorted(r.id for r in replayed.list(limit=99))
+    assert [r.version for r in indexed.history("r000")] == \
+           [r.version for r in replayed.history("r000")]
+    assert {r.id for r in indexed.query(labels_any=["shared"], limit=99)} == \
+           {r.id for r in replayed.query(labels_any=["shared"], limit=99)}
+    assert (indexed.get("r000")._agent_meta or {})["vertex_labels"][0] == "revised"
+    assert int(indexed.get("r007").nE) == int(replayed.get("r007").nE)
+
+
+def test_writes_after_an_index_still_appear(tmp_path):
+    """The index covers a prefix of the log; whatever came after it must replay."""
+    store = _rexstore(tmp_path)
+    _put(store, "before")
+    store.write_index()
+    _put(store, "after", labels=["later", "shared"])
+
+    again = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    assert sorted(r.id for r in again.list(limit=9)) == ["after", "before"]
+    assert {r.id for r in again.query(labels_any=["later"], limit=9)} == {"after"}
+
+
+def test_a_record_is_parsed_only_when_it_is_asked_for(tmp_path):
+    """The point of the offset table: opening must not parse every document."""
+    store = _rexstore(tmp_path)
+    for k in range(30):
+        _put(store, f"r{k:03d}")
+    store.write_index()
+
+    again = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    holder = again._recs["r005"]
+    assert holder.__class__.__name__ == "_LazyVersions"
+    assert holder._cache is None, "documents were parsed at open"
+    assert again.get_record("r005").version == 1
+    assert holder._cache is not None
+
+
+def test_a_corrupt_index_falls_back_to_the_log(tmp_path):
+    """An index is derived. Losing it costs speed, never data."""
+    store = _rexstore(tmp_path)
+    _put(store, "a", labels=["kept", "shared"])
+    store.write_index()
+    with open(store._index_path, "wb") as fh:
+        fh.write(b"not a safetensors file")
+
+    again = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    assert again._index is None
+    assert (again.get("a")._agent_meta or {})["vertex_labels"][0] == "kept"
+
+
+def test_compaction_leaves_an_index_behind(tmp_path):
+    import os as _os
+
+    store = _rexstore(tmp_path)
+    for k in range(10):
+        _put(store, f"r{k}")
+    store.compact()
+    assert _os.path.exists(store._index_path)
+    again = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    assert again._index is not None
+    assert len(again.list(limit=99)) == 10
+
+
+def test_a_deleted_record_does_not_come_back_from_the_index(tmp_path):
+    store = _rexstore(tmp_path)
+    _put(store, "a")
+    _put(store, "b")
+    store.write_index()
+    store.delete("a")
+
+    again = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    assert [r.id for r in again.list(limit=9)] == ["b"]
+    assert again.get("a") is None
