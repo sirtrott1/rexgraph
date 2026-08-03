@@ -28,8 +28,8 @@ async def ops_inventory():
 async def ops_compute():
     """The execution layer: available backends, current thread width + preferred backend, registered
     ops, and the active setup's compute config. Drives the compute controls shown in Setups."""
-    from rexgraph import compute
     from agent import hive_config
+    from rexgraph import compute
     prof = hive_config.get_store().active()
     return {"inventory": compute.inventory(),
             "active_setup": (prof.id if prof else None),
@@ -41,8 +41,8 @@ async def ops_compute_set(body: dict = Body(...)):
     """Tune the execution layer and persist it into a setup. body: {threads?, backend?, profile?}.
     Writes the compute config into the setup (shadowing a built-in) and applies it now. Every
     subsequent operation honors it."""
-    from rexgraph import compute
     from agent import hive_config
+    from rexgraph import compute
     store = hive_config.get_store()
     base = store.get(body["profile"]) if body.get("profile") else store.active()
     if base is None:

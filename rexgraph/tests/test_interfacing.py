@@ -6,8 +6,8 @@ sphere position, coverage, efficiency, confidence, and the full bundle.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph.core import _interfacing
+from rexgraph.graph import RexGraph
 
 
 @pytest.fixture

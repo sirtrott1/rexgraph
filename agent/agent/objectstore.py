@@ -31,16 +31,20 @@ and a half-finished upload leaves an object that simply is not referenced.
 
 from __future__ import annotations
 
+import contextlib
 import json
-import os
 import posixpath
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from rexgraph.io._compat import dumps
 
 from .rcdb import (
-    ComplexRecord, RCStore, _matches, _record_labels,
-    deserialize_complex, serialize_complex,
+    ComplexRecord,
+    RCStore,
+    _matches,
+    _record_labels,
+    deserialize_complex,
+    serialize_complex,
 )
 
 MANIFEST = "MANIFEST.json"
@@ -82,8 +86,8 @@ class ObjectStore(RCStore):
     def __init__(self, uri: str):
         self.uri = uri
         self.fs, self.root = _fs_for(uri)
-        self._recs: Dict[str, List[ComplexRecord]] = {}
-        self._labels: Dict[str, set] = {}
+        self._recs: dict[str, list[ComplexRecord]] = {}
+        self._labels: dict[str, set] = {}
         self._seq = 0
         self._ensure_manifest()
         self._load()
@@ -151,7 +155,7 @@ class ObjectStore(RCStore):
         out.sort(key=lambda t: t[0])
         return out
 
-    def _apply(self, entry: Dict[str, Any]) -> None:
+    def _apply(self, entry: dict[str, Any]) -> None:
         rid = entry.get("id")
         if entry.get("op") == "delete":
             self._recs.pop(rid, None)
@@ -172,7 +176,7 @@ class ObjectStore(RCStore):
                 for label in _record_labels(rec.signature, rec.meta):
                     self._labels.setdefault(label, set()).add(rid)
 
-    def _write_journal(self, entry: Dict[str, Any]) -> None:
+    def _write_journal(self, entry: dict[str, Any]) -> None:
         self._seq += 1
         key = self._p(JOURNAL, f"{self._seq:012d}.json")
         with self.fs.open(key, "wb") as fh:
@@ -212,10 +216,8 @@ class ObjectStore(RCStore):
         for ids in self._labels.values():
             ids.discard(id)
         for rec in versions:
-            try:
+            with contextlib.suppress(Exception):
                 self.fs.rm(self._blob_key(id, rec.version))
-            except Exception:
-                pass
         self._emit("rcdb.delete", id, 0, {})
         return True
 
@@ -267,7 +269,7 @@ class ObjectStore(RCStore):
         out.sort(key=lambda r: -r.tx_from)
         return out[:limit]
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         try:
             n_segments = len(self._journal_entries())
         except Exception:
@@ -278,7 +280,7 @@ class ObjectStore(RCStore):
                 "n_labels": len(self._labels),
                 "journal_segments": n_segments}
 
-    def compact(self) -> Dict[str, Any]:
+    def compact(self) -> dict[str, Any]:
         """Fold the journal into a snapshot and delete the segments it replaces.
 
         A listing whose cost grows with every write is how an object-store index
@@ -292,10 +294,8 @@ class ObjectStore(RCStore):
             fh.write(dumps(snap).encode("utf-8"))
         for seq, _ in self._journal_entries():
             if seq <= self._seq:
-                try:
+                with contextlib.suppress(Exception):
                     self.fs.rm(self._p(JOURNAL, f"{seq:012d}.json"))
-                except Exception:
-                    pass
         return {"before": before, "after": self.stats()}
 
     def close(self):

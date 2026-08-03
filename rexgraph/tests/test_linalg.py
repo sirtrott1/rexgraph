@@ -1,18 +1,27 @@
 """Test _linalg module: LAPACK/BLAS wrappers and full RL pipeline."""
+import os
+import sys
+
 import numpy as np
+import pytest
 from numpy.linalg import norm
 from scipy.linalg import pinvh
-import pytest
-import sys, os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # Try to import compiled module; skip if not available
 try:
     from rexgraph.core._linalg import (
-        eigh, svd, lstsq, matrix_rank,
-        gemm_nn, gemm_nt, gemm_tn,
-        pinv_spectral, pinv_matvec,
+        eigh,
+        gemm_nn,
+        gemm_nt,
+        gemm_tn,
+        lstsq,
+        matrix_rank,
+        pinv_matvec,
+        pinv_spectral,
         rl_pipeline,
+        svd,
     )
     HAS_LINALG = True
 except ImportError:

@@ -10,18 +10,20 @@ rows and it emits the complex directly.
 ``(src_label, dst_label, weight)`` tuples.
 """
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple
+
+from typing import Any
+
 from . import BaseConnector, Capabilities, ConnectorError
 
 
 class GenericConnector(BaseConnector):
     CAPABILITIES = Capabilities(weights=True, schemes=("edges", "table"))
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         rows = list(source or [])
         if not rows:
             raise ConnectorError("empty edge list - nothing to form a complex")
-        labels: List[str] = []
+        labels: list[str] = []
         for row in rows:
             for name in (row[0], row[1]):
                 if name not in labels:

@@ -22,13 +22,13 @@ import argparse
 import json
 import sys
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
 
-def _probe_torch() -> Dict[str, Any]:
-    out: Dict[str, Any] = {"torch": None, "device_count": 0, "devices": [],
+def _probe_torch() -> dict[str, Any]:
+    out: dict[str, Any] = {"torch": None, "device_count": 0, "devices": [],
                            "flavour": None}
     try:
         import torch
@@ -53,7 +53,7 @@ def _probe_torch() -> Dict[str, Any]:
     return out
 
 
-def _check(name: str, fn) -> Dict[str, Any]:
+def _check(name: str, fn) -> dict[str, Any]:
     t0 = time.perf_counter()
     try:
         detail = fn()
@@ -151,10 +151,10 @@ def _check_multi_gpu(n):
     return {"devices": torch.cuda.device_count(), "finite": bool(np.all(np.isfinite(diag)))}
 
 
-def run(size: int = 1200) -> Dict[str, Any]:
+def run(size: int = 1200) -> dict[str, Any]:
     """Run every check. Returns the full report."""
     env = _probe_torch()
-    report: Dict[str, Any] = {"environment": env, "checks": []}
+    report: dict[str, Any] = {"environment": env, "checks": []}
     if not env["torch"]:
         report["verdict"] = "torch is not installed: no GPU path is reachable"
         report["ok"] = False
@@ -179,7 +179,7 @@ def run(size: int = 1200) -> Dict[str, Any]:
     return report
 
 
-def main(argv: List[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     ap.add_argument("--size", type=int, default=1200,
                     help="problem size for the solver checks")

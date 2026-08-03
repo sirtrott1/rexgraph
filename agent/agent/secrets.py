@@ -14,10 +14,11 @@ Select via ``REXGRAPH_SECRETS_URI``:
 
 from __future__ import annotations
 
+import builtins
+import contextlib
 import json
 import os
 import re
-from typing import List, Dict
 from urllib.parse import urlparse, urlunparse
 
 
@@ -42,7 +43,7 @@ class SecretStore:
     def put(self, name: str, uri: str, kind: str = "sql") -> None:
         raise NotImplementedError
 
-    def list(self) -> List[Dict]:             # masked; never returns raw creds
+    def list(self) -> builtins.list[dict]:             # masked; never returns raw creds
         raise NotImplementedError
 
     def delete(self, name: str) -> bool:
@@ -71,20 +72,16 @@ class FileSecretStore(SecretStore):
         # env:// backend (REXGRAPH_SECRETS_URI=env://) over a file.
         parent = os.path.dirname(self.path)
         os.makedirs(parent, exist_ok=True)
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(parent, 0o700)
-        except OSError:
-            pass
         tmp = self.path + ".tmp"
         # Open with 0o600 from the start so the secrets never briefly exist world-readable.
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             json.dump(data, f)
         os.replace(tmp, self.path)
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(self.path, 0o600)
-        except OSError:
-            pass
 
     def get(self, name: str) -> str:
         rec = self._load().get(name)
@@ -97,7 +94,7 @@ class FileSecretStore(SecretStore):
         data[name] = {"uri": uri, "kind": kind}
         self._save(data)
 
-    def list(self) -> List[Dict]:
+    def list(self) -> builtins.list[dict]:
         return [{"name": n, "kind": r.get("kind", "sql"), "uri": mask_uri(r["uri"])}
                 for n, r in self._load().items()]
 
@@ -147,7 +144,7 @@ class EnvSecretStore(SecretStore):
         data[name] = {"ref": uri, "kind": kind}
         self._save(data)
 
-    def list(self) -> List[Dict]:
+    def list(self) -> builtins.list[dict]:
         return [{"name": n, "kind": r.get("kind", "sql"), "uri": f"ref:{r['ref']}"}
                 for n, r in self._load().items()]
 

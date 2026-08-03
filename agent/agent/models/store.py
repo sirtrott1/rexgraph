@@ -23,9 +23,9 @@ from pathlib import Path
 import numpy as np
 
 import rexgraph.io as rio
+
 from . import archetypes as A
 from . import data as D
-
 
 # load: any rexgraph.io source -> a DataBundle
 
@@ -112,6 +112,7 @@ def load_checkpoint(path, *, device=None):
     map-located to that device (safetensors ``device=`` is torch's ``map_location`` equivalent, with a
     CPU-load fallback), and the model is moved there, so save-here / load-there always works."""
     from safetensors.torch import load_file
+
     import rexgraph.nn as R
     dev = R.pick_device(device)
     d = Path(os.path.expanduser(path))

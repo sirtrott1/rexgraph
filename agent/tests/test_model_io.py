@@ -16,7 +16,6 @@ import struct
 import numpy as np
 import pytest
 
-
 # GGUF native header parser
 
 def _write_mini_gguf(path):
@@ -121,7 +120,7 @@ def test_safetensors_header_and_summary(tmp_path):
 
 def _have_vectors():
     try:
-        from rexgraph.io import save_vectors, load_vectors  # noqa: F401
+        from rexgraph.io import load_vectors, save_vectors  # noqa: F401
         return True
     except Exception:
         return False
@@ -161,7 +160,7 @@ def test_embedding_corpus_shared_path(tmp_path):
 @pytest.mark.skipif(not _have_vectors(), reason="rexgraph.io safetensors bridge unavailable")
 def test_embedding_complex_from_corpus(tmp_path):
     """Re-analysis of a cached corpus runs the RCF math with no server call."""
-    from agent import model_io, model_introspect
+    from agent import model_introspect, model_io
     rng = np.random.RandomState(2)
     centers = rng.randn(3, 16) * 3
     V = np.vstack([centers[i] + rng.randn(5, 16) * 0.25 for i in range(3)]).astype(np.float32)

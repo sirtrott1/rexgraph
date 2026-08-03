@@ -21,10 +21,10 @@ edge lists, graph/stream stand-ins) pass a scheme as ``uri`` and the structure a
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from . import _SCHEME_MAP, open_connector, to_rexgraph
-from .validate import validate_connector, ValidationReport
+from .validate import ValidationReport, validate_connector
 
 # Per-scheme driver probe: (module to import, pip hint). None => no driver needed
 # (the in-memory/structure path). This powers the app's "not configured" UX so a
@@ -39,13 +39,13 @@ WEIGHTABLE_SCHEMES = frozenset({
 })
 
 
-def weight_kwargs(uri: str, want_weights: bool) -> Dict[str, Any]:
+def weight_kwargs(uri: str, want_weights: bool) -> dict[str, Any]:
     """`{'with_weights': True}` only when weights are requested *and* the scheme
     supports them; otherwise empty (so non-SQL connectors aren't handed an
     argument their constructor doesn't accept)."""
     return ({"with_weights": True}
             if want_weights and _scheme_of(uri) in WEIGHTABLE_SCHEMES else {})
-_DRIVER_PROBE: Dict[str, Tuple[Optional[str], str]] = {
+_DRIVER_PROBE: dict[str, tuple[str | None, str]] = {
     "sqlite": ("sqlalchemy", "pip install sqlalchemy"),
     "postgresql": ("sqlalchemy", "pip install sqlalchemy psycopg2-binary"),
     "postgres": ("sqlalchemy", "pip install sqlalchemy psycopg2-binary"),
@@ -75,7 +75,7 @@ def _scheme_of(uri: str) -> str:
     return scheme.split("+", 1)[0].lower()
 
 
-def driver_status(scheme: str) -> Dict[str, Any]:
+def driver_status(scheme: str) -> dict[str, Any]:
     """Whether the driver for ``scheme`` is importable, plus a pip hint if not.
     In-memory shapes report available=True (no driver needed)."""
     scheme = scheme.lower()
@@ -91,10 +91,10 @@ def driver_status(scheme: str) -> Dict[str, Any]:
         return {"available": False, "hint": hint}
 
 
-def list_connectors() -> List[Dict[str, Any]]:
+def list_connectors() -> list[dict[str, Any]]:
     """The registry, grouped by connector: schemes served, advertised
     capabilities, and driver availability for each scheme."""
-    by_conn: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    by_conn: dict[tuple[str, str], dict[str, Any]] = {}
     for scheme, (mod, cls) in sorted(_SCHEME_MAP.items()):
         key = (mod, cls)
         if key not in by_conn:
@@ -118,7 +118,7 @@ def list_connectors() -> List[Dict[str, Any]]:
     return list(by_conn.values())
 
 
-def _summary(g: Any, meta: Dict[str, Any]) -> Dict[str, Any]:
+def _summary(g: Any, meta: dict[str, Any]) -> dict[str, Any]:
     return {
         "source": meta.get("source"),
         "nV": g.nV, "nE": g.nE, "nF": g.nF,
@@ -129,7 +129,7 @@ def _summary(g: Any, meta: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def read(uri: str, source: Any = None, **kwargs) -> Dict[str, Any]:
+def read(uri: str, source: Any = None, **kwargs) -> dict[str, Any]:
     """Build the complex read-only and return a summary (no storage). For live
     URI sources, ``source`` defaults to the URI itself."""
     connector = open_connector(uri, **kwargs)
@@ -147,8 +147,8 @@ def validate(uri: str, source: Any = None, store_uri: str = "memory://",
 
 
 def ingest(uri: str, record_id: str, *, store: Any = None,
-           store_uri: Optional[str] = None, source: Any = None,
-           tags: Optional[List[str]] = None, **kwargs) -> Dict[str, Any]:
+           store_uri: str | None = None, source: Any = None,
+           tags: list[str] | None = None, **kwargs) -> dict[str, Any]:
     """Build the complex and persist its *structure* into an RCStore. The only
     writing operation, and it writes solely to the host's own store - either a
     pre-opened ``store`` (e.g. the app's singleton) or one opened from

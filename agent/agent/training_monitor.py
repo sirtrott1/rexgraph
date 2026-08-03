@@ -10,7 +10,7 @@ the fix, and retries: the reactive layer aimed at the training loop instead of t
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
@@ -19,7 +19,7 @@ import numpy as np
 _ZERO = 1e-9
 
 
-def diagnose(losses, val=None) -> Dict[str, Any]:
+def diagnose(losses, val=None) -> dict[str, Any]:
     """Structural diagnosis of a loss trajectory. Returns {status, issue, cause, fix}."""
     xs = np.asarray([float(l) for l in losses if l is not None], dtype=float)
     if xs.size < 3:
@@ -101,11 +101,14 @@ class TrainingMonitor:
 
     def train_watched(self, name, archetype, *, data=None, params=None, steps: int = 100,
                       device: str = "auto", optimizer: str = "auto", lr=None, seed: int = 0,
-                      autofix: bool = False, attempts: int = 3, register: bool = True) -> Dict[str, Any]:
+                      autofix: bool = False, attempts: int = 3, register: bool = True) -> dict[str, Any]:
+        import os
+        import tempfile
+
         from agent import models
-        from agent.models import train as _train, store as _store
         from agent.foundry import resolve_device
-        import os, tempfile
+        from agent.models import store as _store
+        from agent.models import train as _train
 
         arch, p = archetype, dict(params or {})
         tried, log = set(), []
@@ -113,7 +116,7 @@ class TrainingMonitor:
         for attempt in range(1, attempts + 1):
             tried.add(arch)
             dev = resolve_device(arch, device)
-            losses: List[float] = []
+            losses: list[float] = []
             try:
                 model, cfg, bundle = models.build(arch, params=p, data=data, seed=seed)
                 res = _train.train_one(model, bundle, optimizer=optimizer, steps=steps, lr=lr,

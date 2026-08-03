@@ -48,13 +48,13 @@ class EdgeConstruction:
     weights: NDArray          # float64, magnitude per edge (>= 0)
     signs: NDArray            # float64, +1 or -1 per edge
     type_labels: NDArray      # int32, type index per edge
-    vertex_labels: List[str]  # human-readable vertex names
+    vertex_labels: list[str]  # human-readable vertex names
     n_types: int              # number of distinct edge types
-    type_names: List[str]     # human-readable name per type index
+    type_names: list[str]     # human-readable name per type index
 
     # Text-position mapping (populated by TextAdapter and OCRAdapter)
-    edge_spans: List[EdgeSpan] = field(default_factory=list)
-    sentence_spans: List[SentenceSpan] = field(default_factory=list)
+    edge_spans: list[EdgeSpan] = field(default_factory=list)
+    sentence_spans: list[SentenceSpan] = field(default_factory=list)
     source_text: str = ""
 
     @property

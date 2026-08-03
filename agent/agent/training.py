@@ -24,11 +24,11 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
 
 import numpy as np
 
@@ -60,12 +60,12 @@ class TrainingExporter:
 
     def __init__(self, corpus=None):
         self.corpus = corpus
-        self.examples: List[TrainingExample] = []
+        self.examples: list[TrainingExample] = []
         if corpus and corpus._built:
             self._extract_from_corpus()
 
     @classmethod
-    def from_files(cls, paths: List[str], **kwargs) -> "TrainingExporter":
+    def from_files(cls, paths: list[str], **kwargs) -> TrainingExporter:
         """Build from files directly."""
         from agent.corpus import CorpusBuilder
         corpus = CorpusBuilder()
@@ -75,7 +75,7 @@ class TrainingExporter:
         return cls(corpus)
 
     @classmethod
-    def from_texts(cls, texts: List[str], doc_ids: List[str] = None) -> "TrainingExporter":
+    def from_texts(cls, texts: list[str], doc_ids: list[str] = None) -> TrainingExporter:
         """Build from text strings."""
         from agent.corpus import CorpusBuilder
         corpus = CorpusBuilder()
@@ -132,10 +132,8 @@ class TrainingExporter:
                 )
 
                 # Document-level features
-                try:
+                with contextlib.suppress(Exception):
                     ex.betti = list(rex.betti)
-                except Exception:
-                    pass
 
                 try:
                     vc = rex.void_complex
@@ -180,7 +178,7 @@ class TrainingExporter:
         return np.array(rows, dtype=np.float32)
 
     @property
-    def feature_names(self) -> List[str]:
+    def feature_names(self) -> list[str]:
         return [
             "kappa", "chi_T", "chi_G", "chi_F", "chi_C",
             "hodge_gradient", "hodge_curl", "hodge_harmonic",
@@ -245,7 +243,7 @@ class TrainingExporter:
             elif target == "channel":
                 targets.append(ex.channel)
             elif target == "kappa":
-                targets.append("%.4f" % ex.kappa)
+                targets.append(f"{ex.kappa:.4f}")
             elif target == "custom":
                 targets.append(ex.target)
             else:
@@ -319,13 +317,13 @@ class TrainingExporter:
         paths = []
         for doc in self.corpus.documents:
             if doc.rex is not None:
-                p = str(Path(output_dir) / ("%s.rex" % doc.doc_id))
+                p = str(Path(output_dir) / (f"{doc.doc_id}.rex"))
                 save_rex(p, doc.rex, cache="all")
                 paths.append(p)
         return paths
 
 
 def _st_import():
-    from safetensors.numpy import save_file, load_file
     from safetensors import safe_open
+    from safetensors.numpy import load_file, save_file
     return save_file, load_file, safe_open

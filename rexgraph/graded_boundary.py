@@ -37,7 +37,7 @@ arbitrary orientations. Both forms are accepted per cell.
 """
 from __future__ import annotations
 
-from typing import List, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 import scipy.sparse as sp
@@ -77,7 +77,7 @@ def _is_signed_cell(cell) -> bool:
     return True
 
 
-def _cell_entries(cell) -> Tuple[np.ndarray, np.ndarray]:
+def _cell_entries(cell) -> tuple[np.ndarray, np.ndarray]:
     """Return ``(indices, signs)`` for one cell.
 
     Plain form ``[i0, i1, ...]`` -> first index ``-1``, the rest ``+1`` (positional).
@@ -94,7 +94,7 @@ def _cell_entries(cell) -> Tuple[np.ndarray, np.ndarray]:
     return idx, sgn
 
 
-def build_graded_boundaries(cells_by_grade) -> List[sp.csr_matrix]:
+def build_graded_boundaries(cells_by_grade) -> list[sp.csr_matrix]:
     """Build the signed boundary maps ``[B_1, B_2, ..., B_G]`` of a graded complex.
 
     Parameters
@@ -115,14 +115,14 @@ def build_graded_boundaries(cells_by_grade) -> List[sp.csr_matrix]:
     if len(cells_by_grade) == 0:
         raise ValueError("cells_by_grade must at least declare the vertex count")
     n_prev = int(cells_by_grade[0])
-    boundaries: List[sp.csr_matrix] = []
+    boundaries: list[sp.csr_matrix] = []
 
     for d in range(1, len(cells_by_grade)):
         cells = cells_by_grade[d]
         n_cells = len(cells)
-        rows: List[np.ndarray] = []
-        cols: List[np.ndarray] = []
-        vals: List[np.ndarray] = []
+        rows: list[np.ndarray] = []
+        cols: list[np.ndarray] = []
+        vals: list[np.ndarray] = []
         for j, cell in enumerate(cells):
             idx, sgn = _cell_entries(cell)
             if idx.shape[0] == 0:
@@ -149,7 +149,7 @@ def build_graded_boundaries(cells_by_grade) -> List[sp.csr_matrix]:
 # Verification, Laplacians, homology
 # ---------------------------------------------------------------------------
 
-def verify_chain(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> Tuple[bool, float]:
+def verify_chain(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> tuple[bool, float]:
     """Sparsely check ``B_d @ B_{d+1} == 0`` for every consecutive pair.
 
     Never densifies: each product is a sparse matmul and only its stored nonzeros
@@ -168,7 +168,7 @@ def verify_chain(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> Tuple[
     return (max_res <= tol), max_res
 
 
-def graded_laplacians(boundaries: Sequence[sp.spmatrix]) -> List[sp.csr_matrix]:
+def graded_laplacians(boundaries: Sequence[sp.spmatrix]) -> list[sp.csr_matrix]:
     """The Hodge Laplacian ``L_d`` per grade, sparse.
 
     ``L_d = B_d^T B_d + B_{d+1} B_{d+1}^T`` with the boundary terms dropped where
@@ -180,7 +180,7 @@ def graded_laplacians(boundaries: Sequence[sp.spmatrix]) -> List[sp.csr_matrix]:
     B = [b.tocsr() for b in boundaries]
     G = len(B)                          # top grade index; grades run 0..G
     sizes = [B[0].shape[0]] + [b.shape[1] for b in B] if B else [0]
-    out: List[sp.csr_matrix] = []
+    out: list[sp.csr_matrix] = []
     for g in range(G + 1):
         n_g = sizes[g]
         L = sp.csr_matrix((n_g, n_g), dtype=_f64)
@@ -193,9 +193,27 @@ def graded_laplacians(boundaries: Sequence[sp.spmatrix]) -> List[sp.csr_matrix]:
 
 
 def _is_integer_matrix(M: sp.spmatrix) -> bool:
-    """True if every stored entry is an integer (the unweighted boundary maps are)."""
+    """True if every stored entry is an integer."""
     d = M.data
     return d.size == 0 or bool(np.all(d == np.round(d)))
+
+
+def _rational_data(M: sp.spmatrix):
+    """The stored entries as exact Fractions, or None if any is not exactly an integer.
+
+    Deliberately NOT a float-to-rational reconstruction. A boundary column carries the
+    share 1/(k-1), so it looks rational, but it has an exact INTEGER representative:
+    scaling by (k-1) gives (-(k-1), +1, ..., +1), still zero-sum and still (-1,+1) at
+    k=2. Rank is invariant under column scaling, so the rank path should be handed that
+    integer form and never see a fraction. Recovering 1/3 from its nearest double by
+    continued fraction would be answering a question that should not have been asked.
+    See `RexGraph._integer_B1`.
+    """
+    from fractions import Fraction as Fr
+    d = M.data
+    if d.size and not bool(np.all(d == np.round(d))):
+        return None
+    return [Fr(int(round(float(x)))) for x in d]
 
 
 from collections import OrderedDict as _OrderedDict
@@ -208,7 +226,7 @@ from collections import OrderedDict as _OrderedDict
 # byte-for-byte the same matrix - zero collision/staleness risk (dict compares keys
 # exactly). Bounded so it never grows without limit; a race only ever costs a redundant
 # (correct) recompute, so it is safe under the coordinator's thread lane too.
-_RANK_MEMO: "_OrderedDict[tuple, int]" = _OrderedDict()
+_RANK_MEMO: _OrderedDict[tuple, int] = _OrderedDict()
 _RANK_MEMO_MAX = 64
 
 
@@ -223,10 +241,18 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
     Memoized on exact matrix content (see :data:`_RANK_MEMO`)."""
     from fractions import Fraction as Fr
     A = M.tocsc()
+    A.sum_duplicates()                      # MUST precede the read: a self-loop stores -1
+                                            # and +1 at the same (row, col), and the column
+                                            # build below is a dict, so an unsummed pair
+                                            # OVERWRITES rather than cancels and a zero
+                                            # column registers a spurious pivot. Measured:
+                                            # rank 2 on a matrix of rank 1.
     A.sort_indices()                        # canonical CSC for a stable content key
     indptr, indices, data = A.indptr, A.indices, A.data
-    idata = np.round(data).astype(np.int64)
-    key = (A.shape, indptr.tobytes(), indices.tobytes(), idata.tobytes())
+    exact = _rational_data(A)
+    if exact is None:
+        return None                         # caller falls back to the float path
+    key = (A.shape, indptr.tobytes(), indices.tobytes(), data.tobytes())
     hit = _RANK_MEMO.get(key)
     if hit is not None:
         _RANK_MEMO.move_to_end(key)
@@ -235,8 +261,11 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
     pivots: dict = {}                       # pivot_row -> reduced column {row: Fraction}
     rank = 0
     for j in range(A.shape[1]):
-        col = {int(indices[k]): Fr(int(idata[k]))
-               for k in range(indptr[j], indptr[j + 1])}
+        col = {}
+        for k in range(indptr[j], indptr[j + 1]):
+            v = exact[k]
+            if v:                           # never register an explicit zero as a pivot
+                col[int(indices[k])] = v
         while col:
             low = max(col)                  # 'low' pivot = highest row index present
             piv = pivots.get(low)
@@ -269,8 +298,9 @@ def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9) -> int:
     """
     if M.nnz == 0 or min(M.shape) == 0:
         return 0
-    if _is_integer_matrix(M):
-        return _exact_rank_reduction(M)
+    exact = _exact_rank_reduction(M)
+    if exact is not None:
+        return exact
     m, n = M.shape
     # Densify only when the matrix is small enough to be harmless; boundary maps of
     # the complexes this module builds are far below this bound.
@@ -289,9 +319,29 @@ def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9) -> int:
 
 
 def _beta0_components(B1: sp.spmatrix) -> int:
-    """beta_0 = number of connected components over the vertices, from the 0/1
-    incidence pattern of ``B_1`` (combinatorial, via union-find on the graph whose
-    cliques are the edge supports). Isolated vertices count as components."""
+    """Number of connected components over the vertices, from the 0/1 incidence
+    pattern of ``B_1`` (combinatorial, via union-find on the graph whose cliques are
+    the edge supports). Isolated vertices count as components.
+
+    This reads the SUPPORT of B_1, so it is a reading of the EXISTENCE tensor, which
+    is a first-class object and not a degraded one. The composite datum factors into
+    three separable axes and each is a usable operator:
+
+        existence     which cells bound which           supp(B_1)
+        orientation   the sign                          the whole of the F channel
+        share         how the mass is divided           1/(k-1), and what carries arity
+
+    The component count is the correct and complete answer for the first of them: how
+    many pieces the incidence pattern falls into. What it is NOT is ``beta_0``, which
+    is a reading of the BOUNDARY: ``n_0 - rank(B_1)``, how many directions the boundary
+    fails to reach. The two coincide exactly when every relation has arity two, because
+    an arity-k relation touches k vertices while contributing rank one. A lone arity-4
+    relation is one component and has ``beta_0 = 3``, and both numbers are right about
+    their own object.
+
+    So use this when the question is about existence, and :func:`betti_numbers` when it
+    is about homology. Answering one with the other is the error, not calling this.
+    """
     nV = B1.shape[0]
     if nV == 0:
         return 0
@@ -317,13 +367,20 @@ def _beta0_components(B1: sp.spmatrix) -> int:
     return len({find(v) for v in range(nV)})
 
 
-def betti_numbers(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> List[int]:
+def betti_numbers(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> list[int]:
     """Betti numbers ``[beta_0, ..., beta_G]`` from ranks.
 
     ``beta_g = dim ker(B_g) - rank(B_{g+1}) = n_g - rank(B_g) - rank(B_{g+1})`` with
-    ``rank(B_0) = rank(B_{G+1}) = 0``. ``beta_0`` is taken combinatorially as the
-    number of connected components (equivalently ``n_0 - rank(B_1)``), which is exact
-    and cheap.
+    ``rank(B_0) = rank(B_{G+1}) = 0``. Grade 0 is the same formula:
+    ``beta_0 = dim ker(B_1^T) = n_0 - rank(B_1)``.
+
+    That is NOT a component count once any relation has arity above two.
+    ``rank(B_1) = n_0 - c`` is a graph identity: a relation of arity k touches k
+    vertices while contributing rank one, so reaching a new vertex stops meaning
+    reaching a new direction, and only the second is what beta_0 counts. A lone
+    arity-4 relation is one component and has ``beta_0 = 3``. Taking the component
+    count there breaks the Euler characteristic, which is the property that fixes the
+    convention without appeal to taste. The two agree on every pairwise complex.
     """
     B = [b.tocsr() for b in boundaries]
     G = len(B)
@@ -332,13 +389,13 @@ def betti_numbers(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> List[
     sizes = [B[0].shape[0]] + [b.shape[1] for b in B]
     ranks = [_sparse_rank(b, tol) for b in B]        # ranks[d] = rank(B_{d+1})
 
-    betti: List[int] = []
+    betti: list[int] = []
     for g in range(G + 1):
         n_g = sizes[g]
         rank_down = ranks[g - 1] if g >= 1 else 0    # rank(B_g)
         rank_up = ranks[g] if g <= G - 1 else 0      # rank(B_{g+1})
         if g == 0:
-            betti.append(_beta0_components(B[0]))
+            betti.append(int(n_g - rank_up))         # n_0 - rank(B_1)
         else:
             betti.append(int(n_g - rank_down - rank_up))
     return betti
@@ -348,7 +405,7 @@ def betti_numbers(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> List[
 # Reading graded boundaries off a RexGraph (single source of truth)
 # ---------------------------------------------------------------------------
 
-def graded_boundaries_from_rex(rex) -> List[sp.csr_matrix]:
+def graded_boundaries_from_rex(rex) -> list[sp.csr_matrix]:
     """The full sparse boundary list ``[B_1, B_2, B_3, ...]`` of a RexGraph.
 
     This is the generalization of ``dirac_propagator._boundaries_from_rex`` and the
@@ -365,7 +422,7 @@ def graded_boundaries_from_rex(rex) -> List[sp.csr_matrix]:
     from rexgraph.core._sparse import to_scipy_csr
 
     B1 = _rex_b1_csr(rex)
-    boundaries: List[sp.csr_matrix] = [B1]
+    boundaries: list[sp.csr_matrix] = [B1]
 
     if int(getattr(rex, "nF", 0)) > 0 and getattr(rex, "_B2_hodge_dual", None) is not None:
         boundaries.append(to_scipy_csr(rex._B2_hodge_dual).tocsr())
@@ -388,7 +445,7 @@ def _rex_b1_csr(rex) -> sp.csr_matrix:
 # ---------------------------------------------------------------------------
 
 def _order_face_ccw(points: np.ndarray, face_idx: Sequence[int],
-                    center: np.ndarray) -> List[int]:
+                    center: np.ndarray) -> list[int]:
     """Order a convex, planar face's vertices CCW as seen from OUTSIDE the solid.
 
     The outward normal is the direction from the solid's centroid to the face
@@ -402,10 +459,7 @@ def _order_face_ccw(points: np.ndarray, face_idx: Sequence[int],
     fc = pts.mean(axis=0)
     normal = fc - center
     nrm = np.linalg.norm(normal)
-    if nrm < 1e-12:
-        normal = np.array([0.0, 0.0, 1.0])
-    else:
-        normal = normal / nrm
+    normal = np.array([0.0, 0.0, 1.0]) if nrm < 1e-12 else normal / nrm
     # An in-plane basis (e1, e2) with e2 = normal x e1, so angle increases CCW
     # about the outward normal.
     ref = np.array([1.0, 0.0, 0.0])
@@ -443,7 +497,7 @@ def _polyhedron_3rex(points: np.ndarray, face_vertex_sets: Sequence[Sequence[int
     # Derive edges from the oriented face loops; store each with a fixed orientation
     # (first-seen direction) so face signs are relative to that stored direction.
     edge_index = {}
-    edges: List[List[int]] = []
+    edges: list[list[int]] = []
     for loop in ordered_faces:
         L = len(loop)
         for k in range(L):
@@ -454,10 +508,10 @@ def _polyhedron_3rex(points: np.ndarray, face_vertex_sets: Sequence[Sequence[int
                 edges.append([a, b])
 
     # Signed grade-2 faces in edge space.
-    faces_signed: List[List[Tuple[int, float]]] = []
+    faces_signed: list[list[tuple[int, float]]] = []
     for loop in ordered_faces:
         L = len(loop)
-        col: List[Tuple[int, float]] = []
+        col: list[tuple[int, float]] = []
         for k in range(L):
             a, b = loop[k], loop[(k + 1) % L]
             eidx = edge_index[frozenset((a, b))]
@@ -530,14 +584,14 @@ def truncated_icosahedron_3rex():
 
     # Corner points, indexed by the ordered pair (vertex, neighbor).
     corner_index = {}
-    corner_pts: List[np.ndarray] = []
+    corner_pts: list[np.ndarray] = []
     for v in range(P.shape[0]):
         for n in neighbors[v]:
             corner_index[(v, n)] = len(corner_pts)
             corner_pts.append(P[v] + (P[n] - P[v]) / 3.0)
     pts = np.array(corner_pts, dtype=_f64)
 
-    face_vertex_sets: List[List[int]] = []
+    face_vertex_sets: list[list[int]] = []
     # Pentagons: the 5 corners around each icosahedron vertex.
     for v in range(P.shape[0]):
         face_vertex_sets.append([corner_index[(v, n)] for n in neighbors[v]])

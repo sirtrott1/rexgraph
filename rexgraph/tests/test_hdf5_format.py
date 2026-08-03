@@ -27,14 +27,13 @@ pytestmark = pytest.mark.skipif(not HAS_HDF5, reason="h5py not installed")
 if HAS_HDF5:
     from rexgraph.io.hdf5_format import (
         RexHDF5Format,
-        save_hdf5,
         load_hdf5,
-        save_hdf5_array,
         load_hdf5_array,
+        save_hdf5,
+        save_hdf5_array,
     )
 
 from rexgraph.graph import RexGraph
-
 
 # Fixtures
 

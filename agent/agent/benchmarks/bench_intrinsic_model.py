@@ -9,6 +9,11 @@ not likelihood). A 2×2 ablation isolates each organ:
 so we see the conventional baseline (standard+Adam), each organ alone, and both together.
 Bidirectional encoder (the symmetric propagator).
 
+HodgeAdam is named explicitly here because it is one arm of the ablation, not because it is a
+recommended default: this model is feature-space, and the routing default (make_optimizer("auto"))
+gives it plain Adam. The cell measures what HodgeAdam does to a standard transformer; that is the
+question, so naming it is the point.
+
 Run:  python -m agent.benchmarks.bench_intrinsic_model [--quick]
 """
 from __future__ import annotations
@@ -20,11 +25,17 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from rexgraph.nn.optim import pick_device, HodgeAdam
-from rexgraph.nn.relational_attention import PropagatorAttention
 from agent.benchmarks.bench_associative_recall import (
-    make_batch, StandardAttention, Encoder,
+    Encoder,
+    StandardAttention,
+    make_batch,
 )
+
+# straight from _experimental: the A/B arm names the demoted optimizer on purpose, so it reads
+# from where it lives rather than through optim's back-compat re-export.
+from rexgraph.nn._experimental import HodgeAdam
+from rexgraph.nn.optim import pick_device
+from rexgraph.nn.relational_attention import PropagatorAttention
 
 
 def run(attn_kind, opt_kind, *, seed, steps, device, lr=3e-3,
@@ -40,7 +51,7 @@ def run(attn_kind, opt_kind, *, seed, steps, device, lr=3e-3,
 
     model = Encoder(vocab, T, d, n_head, n_layer, mk_attn).to(device)
     if opt_kind == "hodge":
-        opt = HodgeAdam(model.parameters(), lr=lr)        # vector Hodge default
+        opt = HodgeAdam(model.parameters(), lr=lr)        # the ablation arm, named on purpose
     else:
         opt = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -74,7 +85,7 @@ def main(argv=None):
         cells = []
         for opt in ("adam", "hodge"):
             accs = [run(attn, opt, seed=s, steps=steps, device=device)[0] for s in seeds]
-            cells.append("%.3f±%.3f" % (float(np.mean(accs)), float(np.std(accs))))
+            cells.append(f"{float(np.mean(accs)):.3f}±{float(np.std(accs)):.3f}")
         tag = "standard attn" if attn == "standard" else "propagator attn"
         print("  %-24s %-10s %-10s" % (tag, cells[0], cells[1]))
     print("\n(top-left = conventional baseline; bottom-right = both relational organs)")

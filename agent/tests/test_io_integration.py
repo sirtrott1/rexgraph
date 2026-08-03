@@ -5,9 +5,7 @@ safetensors bugs), downloadable exports, and custom-model registration."""
 import os
 import tempfile
 
-import numpy as np
 import pytest
-
 
 # rexgraph.io layer: safetensors dispatch
 
@@ -72,9 +70,9 @@ class TestTrainingExporter:
 
 @pytest.fixture(scope="module")
 def client():
-    from fastapi.testclient import TestClient
     from agent.server.app import app
     from agent.server.auth import get_auth_manager
+    from fastapi.testclient import TestClient
     get_auth_manager().disable_auth()  # default posture; a prior run may have enabled it
     with TestClient(app) as c:
         yield c

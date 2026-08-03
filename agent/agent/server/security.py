@@ -12,9 +12,8 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +35,8 @@ def secure_tempfile(suffix=".bin", prefix="rexgraph_"):
     try:
         yield path
     finally:
-        try:
+        with suppress(OSError):
             os.unlink(path)
-        except OSError:
-            pass
 
 
 def cleanup_stale_tempfiles(max_age_hours=24):
@@ -99,18 +96,19 @@ def sanitize_log_message(msg: str, max_len: int = 200) -> str:
 
 # HTTPS configuration
 
-def generate_self_signed_cert(cert_dir: Optional[str] = None) -> dict:
+def generate_self_signed_cert(cert_dir: str | None = None) -> dict:
     """Generate a self-signed TLS certificate for development.
 
     For production, use Let's Encrypt or a proper CA.
     Returns dict with cert_path and key_path.
     """
     try:
+        import datetime
+
         from cryptography import x509
-        from cryptography.x509.oid import NameOID
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
-        import datetime
+        from cryptography.x509.oid import NameOID
     except ImportError:
         return {
             "error": "Install cryptography package: pip install cryptography",
@@ -275,8 +273,9 @@ def add_error_sanitizer(app) -> None:
     Set ``REXGRAPH_DEBUG_ERRORS=1`` to restore verbose errors (dev/debug only).
     """
     import uuid
-    from starlette.exceptions import HTTPException as StarletteHTTPException
+
     from fastapi.responses import JSONResponse
+    from starlette.exceptions import HTTPException as StarletteHTTPException
 
     debug = os.environ.get("REXGRAPH_DEBUG_ERRORS") == "1"
     log = logging.getLogger("agent.server.errors")
@@ -374,10 +373,10 @@ def setup_rate_limiter(app):
         logger.info("rate limiting disabled (RCF_RATE_LIMIT=%r)", general)
         return None
     try:
+        from fastapi.responses import JSONResponse
         from limits import parse
         from limits.storage import MemoryStorage
         from limits.strategies import MovingWindowRateLimiter
-        from fastapi.responses import JSONResponse
     except ImportError:
         logger.warning("`limits` not installed - rate limiting disabled")
         return None

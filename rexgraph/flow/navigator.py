@@ -26,7 +26,6 @@ boundary B1 carries the seed across grades to the vertices it touches.
 from __future__ import annotations
 
 from collections import namedtuple
-from typing import Dict, List, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -90,7 +89,7 @@ def changed_edges(prev_rex, curr_rex) -> EdgeChange:
     return EdgeChange(added=added, removed=removed)
 
 
-def flow_step(rex, region: NDArray) -> Dict[str, object]:
+def flow_step(rex, region: NDArray) -> dict[str, object]:
     """Resolve a unit flow seeded on `region` into the complex's real response.
 
     A unit seed is placed on the region's edges and run through the Hodge
@@ -186,11 +185,11 @@ class FieldNavigator:
     instead of starting fresh.
     """
 
-    def __init__(self, gate: Optional[MalaughGate] = None):
+    def __init__(self, gate: MalaughGate | None = None):
         self.gate = gate if gate is not None else MalaughGate()
         self.flow_calls = 0
 
-    def step(self, rex, change=None, removed_region=None) -> Dict[str, object]:
+    def step(self, rex, change=None, removed_region=None) -> dict[str, object]:
         """Advance the field ONE snapshot. `change` is an EdgeChange(added, removed);
         None means all-added (first step). `removed_region` is the caller-resolved
         int index array (into `rex`) of edges disturbed by removals (see
@@ -212,7 +211,7 @@ class FieldNavigator:
         self.flow_calls += 1
         return {"event": True, "region": region, "flow": res}
 
-    def run(self, trex) -> List[Dict[str, object]]:
+    def run(self, trex) -> list[dict[str, object]]:
         """Walk trex snapshot by snapshot, running flow_step only on gate events.
 
         Delegates each snapshot to step(), which consumes both
@@ -220,7 +219,7 @@ class FieldNavigator:
         endpoints via removed_region_for). Idle steps are {t, event: False};
         events are {t, event: True, region, flow}. On growth-only streams
         (no removals), region == added."""
-        log: List[Dict[str, object]] = []
+        log: list[dict[str, object]] = []
         for i in range(trex.T):
             rex_i = trex.at(i)
             if i > 0:

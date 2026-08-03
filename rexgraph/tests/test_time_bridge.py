@@ -85,7 +85,7 @@ def test_the_delta_tensor_reports_when_in_real_time():
     d = tr.delta_tensor()
     assert "when" in d
     assert len(d["when"]) == len(d["t"])
-    for t, when in zip(d["t"], d["when"]):
+    for t, when in zip(d["t"], d["when"], strict=False):
         assert when == tr.time_at(int(t))
 
 

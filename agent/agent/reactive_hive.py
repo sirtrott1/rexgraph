@@ -23,10 +23,9 @@ Default rules:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .hive_schema import HiveSchema
-
 
 # a NEED -> (worker name, worker_type, specialties). Filling a gap deploys the matching worker.
 # Extensible: pass `provisioners=` to add or override. These cover the common code-team roles and
@@ -47,7 +46,7 @@ class ReactiveHive:
     database), versioning each change with its cause. Every trigger is exact-structural (a Betti
     number, a set difference, a flag), never a tuned threshold."""
 
-    def __init__(self, hive, schema: Optional[HiveSchema] = None, *, store=None, provisioners=None):
+    def __init__(self, hive, schema: HiveSchema | None = None, *, store=None, provisioners=None):
         self.hive = hive
         self.schema = schema or HiveSchema(hive, store=store)
         self._deployed: set = set()          # remember fixes so we do not redeploy each tick
@@ -55,7 +54,7 @@ class ReactiveHive:
         if provisioners:
             self.provisioners.update(provisioners)
 
-    def _deploy(self, name, *, worker_type, specialties, cause, key=None) -> Optional[dict]:
+    def _deploy(self, name, *, worker_type, specialties, cause, key=None) -> dict | None:
         """Deploy a worker, version the schema with the cause, and remember it (idempotent)."""
         key = key or name
         if key in self._deployed:
@@ -76,7 +75,7 @@ class ReactiveHive:
                 return True
         return False
 
-    def observe(self) -> Dict[str, Any]:
+    def observe(self) -> dict[str, Any]:
         """Read the field signals off the coordination complex (all eigen-free).
 
         Beyond the monitor summary, this reads the EXACT harmonic localization and the
@@ -119,10 +118,10 @@ class ReactiveHive:
             "locus": harm_locus or load_locus,                          # exact harmonic support first
         }
 
-    def react(self) -> List[Dict[str, Any]]:
+    def react(self) -> list[dict[str, Any]]:
         """Field-driven rules from the coordination complex; each fix versions the schema."""
         obs = self.observe()
-        actions: List[Dict[str, Any]] = []
+        actions: list[dict[str, Any]] = []
 
         # rule 1: coordination deadlock -> deploy a mediator. EXACT trigger: beta_1 (harmonic
         # dimension) is an integer invariant; > 0 means a cycle exists. No magnitude threshold - the
@@ -150,7 +149,7 @@ class ReactiveHive:
 
         return actions
 
-    def require(self, *needs: str, cause: Optional[str] = None) -> List[Dict[str, Any]]:
+    def require(self, *needs: str, cause: str | None = None) -> list[dict[str, Any]]:
         """Capability gap: for each need NOT already provided by some bee, deploy a specialist for
         it. This is the code-team unlock - a minimal hive declares `require('review','test')` and
         grows the exact roles it lacks. Trigger is exact set-membership (a need is met or it isn't).
@@ -170,7 +169,7 @@ class ReactiveHive:
                 actions.append(a)
         return actions
 
-    def on_consensus(self, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def on_consensus(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         """Reliability gap: a consensus that flagged a divergent worker, or returned a structurally
         unreliable answer (the library's varentropy `reliable` flag == False), -> deploy a verifier.
         Both triggers are structural facts (a non-empty flag list, a boolean), not a score cutoff."""
@@ -180,17 +179,17 @@ class ReactiveHive:
             return []
         why = []
         if flagged:
-            why.append("flagged %s" % flagged)
+            why.append(f"flagged {flagged}")
         if unreliable:
             why.append("structurally unreliable answer")
         a = self._deploy("verifier", worker_type="analyzer:verify", specialties=["verify", "check"],
-                         key="verify", cause="reliability gap (%s) -> deployed verifier" % "; ".join(why))
+                         key="verify", cause="reliability gap ({}) -> deployed verifier".format("; ".join(why)))
         if a:
             a["rule"] = "reliability"
             return [a]
         return []
 
-    def on_query(self, query_state, *, available=None) -> List[Dict[str, Any]]:
+    def on_query(self, query_state, *, available=None) -> list[dict[str, Any]]:
         """Data gap: the query references tables that no attached schema can join (unmatched or
         structurally disconnected). If a registered database in `available` (name -> object with
         `.tables()`/`.table_names()`, or an iterable of table names) covers them, attach it and its
@@ -217,13 +216,13 @@ class ReactiveHive:
             bees = db.attach_to_hive(self.hive) if hasattr(db, "attach_to_hive") else []
             self._deployed.add(db_name)
             links = [(b, "reads") for b in bees]
-            cause = "data gap: query needs %s -> attached database '%s'" % (sorted(need), db_name)
+            cause = f"data gap: query needs {sorted(need)} -> attached database '{db_name}'"
             v = self.schema.attach_resource(db_name, "database", links=links, cause=cause)
             actions.append({"rule": "data", "attached": db_name, "bees": bees,
                             "cause": cause, "version": v.get("version")})
         return actions
 
-    def _infer_needs(self, task: str) -> List[str]:
+    def _infer_needs(self, task: str) -> list[str]:
         """The roles a task implies, by which provisioner keys/specialties its words mention. Exact
         word presence (set membership), not a scored match."""
         t = (task or "").lower()
@@ -234,14 +233,14 @@ class ReactiveHive:
         return needs
 
     def run(self, task: str, *, needs=None, query_state=None, available=None,
-            verify: bool = True, consensus_k: int = 3) -> Dict[str, Any]:
+            verify: bool = True, consensus_k: int = 3) -> dict[str, Any]:
         """Run a task through the team with the reactive layer live - the team reshapes itself while
         it works. In order: fill the capability gaps the task implies (or `needs`, if given); bind
         any missing data (`on_query`); do the work with `collaborate`; if it deadlocked, `react`
         (deploy a mediator); then cross-check with `consensus` and, on a reliability gap, deploy a
         verifier. Returns the answer, the verification, and every reaction taken (each versioned in
         the self-schema)."""
-        reactions: List[Dict[str, Any]] = []
+        reactions: list[dict[str, Any]] = []
 
         # 1. capability gaps: the team grows the roles the task needs
         reactions += self.require(*(needs if needs is not None else self._infer_needs(task)))

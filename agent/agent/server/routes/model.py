@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/v1")
@@ -224,27 +224,26 @@ async def model_generate(
         async def _stream():
             import json as _json
             logprobs = []
-            async with httpx.AsyncClient(timeout=120) as client:
-                async with client.stream(
-                    "POST", f"{server_url}/v1/chat/completions",
-                    json=payload,
-                ) as resp:
-                    async for line in resp.aiter_lines():
-                        body = line[5:].strip() if line.startswith("data:") else ""
-                        if body == "[DONE]":
-                            continue  # hold the terminator; emit ours after metrics
-                        yield line + "\n"
-                        if body:       # accumulate token logprobs off the stream (free)
-                            try:
-                                obj = _json.loads(body)
-                                for ch in obj.get("choices", []):
-                                    lp = ch.get("logprobs") or {}
-                                    for tok in (lp.get("content") or []):
-                                        v = tok.get("logprob")
-                                        if v is not None:
-                                            logprobs.append(float(v))
-                            except Exception:
-                                pass
+            async with httpx.AsyncClient(timeout=120) as client, client.stream(
+                "POST", f"{server_url}/v1/chat/completions",
+                json=payload,
+            ) as resp:
+                async for line in resp.aiter_lines():
+                    body = line[5:].strip() if line.startswith("data:") else ""
+                    if body == "[DONE]":
+                        continue  # hold the terminator; emit ours after metrics
+                    yield line + "\n"
+                    if body:       # accumulate token logprobs off the stream (free)
+                        try:
+                            obj = _json.loads(body)
+                            for ch in obj.get("choices", []):
+                                lp = ch.get("logprobs") or {}
+                                for tok in (lp.get("content") or []):
+                                    v = tok.get("logprob")
+                                    if v is not None:
+                                        logprobs.append(float(v))
+                        except Exception:
+                            pass
             # final metrics frame - token tier only (free); no per-reply complex build
             if logprobs:
                 try:
@@ -329,7 +328,8 @@ async def system_status():
         backends["paddleocr"] = False
     backends["mistral"] = bool(os.environ.get("MISTRAL_API_KEY", ""))
     try:
-        import transformers, torch
+        import torch
+        import transformers
         backends["got_ocr"] = True
     except ImportError:
         backends["got_ocr"] = False

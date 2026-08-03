@@ -11,7 +11,10 @@ import pytest
 
 from rexgraph.io._compat import HAS_HDF5, HAS_ZARR
 from rexgraph.io._serialization import (
-    HDF5Adapter, NpyAdapter, StorageAdapter, ZarrAdapter,
+    HDF5Adapter,
+    NpyAdapter,
+    StorageAdapter,
+    ZarrAdapter,
 )
 
 

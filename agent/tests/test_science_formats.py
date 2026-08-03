@@ -6,18 +6,15 @@ a GFF is intervals on a coordinate, which is an overlap graph; an h5ad is a matr
 container. The formats were simply unhandled, so auto_rex raised on them.
 
 Parsers use h5py and the standard library. anndata, rdkit and biopython are not
-installed and are not required -- these layouts are documented and stable, and a
+installed and are not required: these layouts are documented and stable, and a
 hard dependency on a domain toolkit for a file read would be the wrong trade.
 """
 
 import numpy as np
 import pytest
-
 from agent.adapters import formats
 
-
-# --- fixtures in the real on-disk shapes --------------------------------------
-
+#### fixtures in the real on-disk shapes
 SDF = """benzene
   RexGraph
 
@@ -80,8 +77,7 @@ def _write(tmp_path, name, text):
     return p
 
 
-# --- bonded structure ---------------------------------------------------------
-
+#### bonded structure
 def test_sdf_reads_atoms_as_vertices_and_bonds_as_edges(tmp_path):
     ec = formats.load_sdf(_write(tmp_path, "m.sdf", SDF))
     assert ec.nV == 6
@@ -111,8 +107,7 @@ def test_pdb_reads_atoms_and_explicit_bonds(tmp_path):
     assert "MET" in ec.vertex_labels[0]
 
 
-# --- sequences ----------------------------------------------------------------
-
+#### sequences
 def test_fasta_reads_each_record(tmp_path):
     ec = formats.load_fasta(_write(tmp_path, "s.fasta", FASTA), k=3)
     assert ec.nE > 0
@@ -131,8 +126,7 @@ def test_an_empty_fasta_is_an_error_not_an_empty_complex(tmp_path):
         formats.load_fasta(_write(tmp_path, "e.fasta", ""), k=3)
 
 
-# --- incidence ----------------------------------------------------------------
-
+#### incidence
 def test_vcf_reads_samples_against_variants(tmp_path):
     ec = formats.load_vcf(_write(tmp_path, "v.vcf", VCF))
     assert ec.nV == 6, "3 samples + 3 variants"
@@ -144,17 +138,16 @@ def test_vcf_only_connects_carried_variants(tmp_path):
     """A 0/0 genotype is the absence of an edge, not an edge with weight zero."""
     ec = formats.load_vcf(_write(tmp_path, "v.vcf", VCF))
     pairs = {(ec.vertex_labels[s], ec.vertex_labels[t])
-             for s, t in zip(ec.sources, ec.targets)}
+             for s, t in zip(ec.sources, ec.targets, strict=False)}
     assert ("S2", "v1") not in pairs and ("v1", "S2") not in pairs
     assert ("S1", "v1") in pairs or ("v1", "S1") in pairs
 
 
-# --- intervals ----------------------------------------------------------------
-
+#### intervals
 def test_gff_connects_overlapping_intervals(tmp_path):
     ec = formats.load_gff(_write(tmp_path, "a.gff", GFF))
     pairs = {tuple(sorted((ec.vertex_labels[s], ec.vertex_labels[t])))
-             for s, t in zip(ec.sources, ec.targets)}
+             for s, t in zip(ec.sources, ec.targets, strict=False)}
     assert ("a", "b") in pairs, "100-500 and 400-900 overlap"
     assert ("c", "d") in pairs
     assert ("a", "c") not in pairs, "disjoint intervals must not be joined"
@@ -172,8 +165,7 @@ def test_intervals_on_different_sequences_never_overlap(tmp_path):
     assert ec.nE == 0
 
 
-# --- matrix containers --------------------------------------------------------
-
+#### matrix containers
 def _write_h5ad(path, X, obs, var):
     import h5py
     with h5py.File(path, "w") as f:
@@ -204,8 +196,7 @@ def test_h5ad_routes_through_auto_rex(tmp_path):
     assert int(rex.nV) > 0 and int(rex.nE) > 0
 
 
-# --- registry + dispatch ------------------------------------------------------
-
+#### registry + dispatch
 @pytest.mark.parametrize("ext", [".sdf", ".mol", ".pdb", ".fasta", ".fa", ".vcf",
                                  ".gff", ".gtf", ".bed", ".h5ad", ".loom"])
 def test_every_extension_is_registered(ext):
@@ -236,7 +227,7 @@ def test_auto_rex_recognises_the_new_types(tmp_path):
         assert detect_input_type(str(p)) != "text", f"{name} fell through to text"
 
 
-# --- shapes real files actually have ------------------------------------------
+#### shapes real files actually have
 #
 # Checked against files pulled from UniProt, RCSB and PubChem. The fixtures below
 # are trimmed to the same layout those use, because the failures that matter are
@@ -255,7 +246,7 @@ END
 
 
 def test_a_real_pdb_without_conect_is_not_a_cloud_of_isolated_atoms(tmp_path):
-    """Real structures omit CONECT for standard residues -- 1CA2 carries four of
+    """Real structures omit CONECT for standard residues. 1CA2 carries four of
     them for 2207 atoms. Reading only CONECT gave a complex of isolated points."""
     ec = formats.load_pdb(_write(tmp_path, "p.pdb", REAL_PDB))
     assert ec.nV == 7
@@ -304,12 +295,13 @@ $$$$
     assert list(rex.betti)[1] == 1
 
 
-def test_a_multi_record_sdf_reads_its_first_record(tmp_path):
-    """PubChem ships $$$$-delimited files; a reader that chokes on the delimiter
-    fails on the most common source there is."""
+def test_a_multi_record_sdf_reads_every_record(tmp_path):
+    """PubChem ships $$$$-delimited files, so every record has to be read. Two benzene
+    records are 12 atoms and 12 bonds. Record handling is covered in
+    test_sdf_multi_record.py."""
     two = (SDF.rstrip() + "\n" + SDF)
     ec = formats.load_sdf(_write(tmp_path, "m.sdf", two))
-    assert ec.nV == 6 and ec.nE == 6
+    assert ec.nV == 12 and ec.nE == 12
 
 
 def test_a_uniprot_style_fasta_header_is_parsed(tmp_path):

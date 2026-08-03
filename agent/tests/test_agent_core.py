@@ -5,26 +5,27 @@ Exercises: input type detection, feature matrix adapter edge construction,
 correlation adapter, spectral clustering, auto-threshold, and session basics.
 """
 
-import sys
 import os
+import sys
 import tempfile
+
 import numpy as np
 import pandas as pd
 
 # Add the agent to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from agent.auto import detect_input_type, _classify_csv
+from agent.adapters import EdgeConstruction
+from agent.adapters.correlation import CorrelationAdapter
 from agent.adapters.feature_matrix import (
     FeatureMatrixAdapter,
-    _compute_correlation,
     _auto_threshold,
-    _spectral_cluster_features,
+    _compute_correlation,
     _detect_column_families,
+    _spectral_cluster_features,
 )
-from agent.adapters.correlation import CorrelationAdapter
-from agent.adapters import EdgeConstruction
-from agent.session import Session, create_session, list_sessions
+from agent.auto import _classify_csv, detect_input_type
+from agent.session import Session, list_sessions
 
 
 def test_detect_input_type():
@@ -264,7 +265,9 @@ def test_agent_package_imports_without_pandas():
     # The platform must be pandas-optional: importing the package (which imports auto) in a fresh
     # interpreter must NOT drag in pandas. pandas is a soft dep, loaded only if a DataFrame/table
     # feature is actually exercised.
-    import subprocess, sys, textwrap
+    import subprocess
+    import sys
+    import textwrap
     code = textwrap.dedent("""
         import sys
         import agent                  # runs __init__ -> from .auto import ...
@@ -302,10 +305,12 @@ def test_session():
 def test_csv_missing_values_stay_numeric():
     # A numeric feature CSV with blank cells and NA-style tokens must still classify as feature_csv
     # and keep those columns (as float with NaN), matching pandas read_csv/select_dtypes behavior.
-    import tempfile, os
+    import os
+    import tempfile
+    from pathlib import Path
+
     import numpy as np
     from agent.auto import _classify_csv, _read_numeric_csv
-    from pathlib import Path
     header = ",".join(f"feat_{i}" for i in range(6))
     rows = []
     for r in range(12):

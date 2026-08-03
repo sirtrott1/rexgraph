@@ -14,7 +14,6 @@ import numpy as np
 
 from rexgraph.core import _boundary
 
-
 # Helpers
 
 def _triangle_data():
@@ -189,7 +188,14 @@ class TestBettiNumbers:
 
     def test_betti_from_eigenvalues_triangle(self):
         """Filled triangle: beta = (1, 0, 0)."""
-        from rexgraph.core._laplacians import build_L0, build_L1_down, build_L1_up, build_L1_full, build_L2, eigen_symmetric
+        from rexgraph.core._laplacians import (
+            build_L0,
+            build_L1_down,
+            build_L1_full,
+            build_L1_up,
+            build_L2,
+            eigen_symmetric,
+        )
         B1_dense = np.array([[-1, 0, -1], [1, -1, 0], [0, 1, 1]], dtype=np.float64)
         B2_dense = np.array([[1], [1], [-1]], dtype=np.float64)
         e0, _ = eigen_symmetric(build_L0(B1_dense))

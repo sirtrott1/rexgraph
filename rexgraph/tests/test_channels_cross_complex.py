@@ -6,8 +6,8 @@ types, and graph/analysis integration.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph, cross_complex_bridge
 from rexgraph.core import _channels, _cross_complex
+from rexgraph.graph import RexGraph, cross_complex_bridge
 
 
 @pytest.fixture

@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 
 pytest.importorskip("torch")
-import torch                                                # noqa: E402
+import torch  # noqa: E402
 
-import rexgraph.nn as R                                     # noqa: E402
-from rexgraph.graph import RexGraph                         # noqa: E402
+import rexgraph.nn as R  # noqa: E402
+from rexgraph.graph import RexGraph  # noqa: E402
 
 
 def _L():
@@ -34,7 +34,7 @@ def test_blocks_compose_and_train_with_hodgeadam():
     net = _Net()
     X = torch.randn(nV, 4)
     y = torch.randint(0, 3, (nV,))
-    opt = R.HodgeAdam(net.parameters(), lr=0.05)
+    opt = R.optim.HodgeAdam(net.parameters(), lr=0.05)   # back-compat path; demoted off nn top-level
     first = last = None
     for i in range(30):
         opt.zero_grad()

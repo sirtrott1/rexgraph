@@ -11,7 +11,7 @@ Subpackages:
     viz   - Visualization dashboard.
 """
 
-from . import core
+import sys as _sys
 
 # Result/enumeration types. The module lives at ``rexgraph.rextypes`` rather
 # than ``rexgraph.types`` because a module literally named ``types`` inside the
@@ -21,8 +21,8 @@ from . import core
 # of the stdlib. We keep ``rexgraph.types`` working as a backwards-compatible
 # import alias via sys.modules: this does NOT put a ``types.py`` file back on
 # disk, so the shadow is gone.
-from . import rextypes
-import sys as _sys
+from . import core, rextypes
+
 _sys.modules.setdefault("rexgraph.types", rextypes)
 types = rextypes
 
@@ -37,8 +37,7 @@ except ImportError:
     viz = None
 
 from . import compute
-
-from .mesh_health import mesh_health, harmonic_health
+from .mesh_health import harmonic_health, mesh_health
 
 __version__ = "1.0.5"
 

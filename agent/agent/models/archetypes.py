@@ -5,11 +5,18 @@ Every archetype exposes: a `use_case`, a `defaults` param dict, the `data_kind` 
 `synth` generator, and `build(cfg, bundle)` returning an nn.Module. Select an archetype by name and
 override its defaults. Register new archetypes with `register_archetype(...)`.
 
-Components come from rexgraph.nn (HodgeAdam optimizer, PropagatorAttention, build_attention). These
-archetypes assemble models from that substrate; they are not part of the library.
+Components come from rexgraph.nn (PropagatorAttention, build_attention, the rcf_torch propagators).
+These archetypes assemble models from that substrate; they are not part of the library.
+
+No archetype builds an optimizer: `build(cfg, bundle)` returns the module and `train.train_one`
+routes it through `make_optimizer("auto")`. All four are feature-space models (they consume a
+feature matrix; none exposes `greens_groups()`), so the router gives them plain Adam. `hgnn` uses
+the complex as a fixed operator (B1/L0/L1 buffers) rather than as its parameter space, so it is
+feature-space too: Green's/Hodge preconditioning has nothing to precondition there. For the
+relational-native path, where the parameters ARE a cochain on the complex, see
+`rexgraph.flow.cochain`.
 """
 from __future__ import annotations
-
 
 import numpy as np
 import torch as _t
@@ -17,6 +24,7 @@ import torch.nn as _nn
 import torch.nn.functional as _F
 
 import rexgraph.nn as R
+
 from . import data as _data
 
 ARCHETYPES: dict = {}
@@ -95,7 +103,8 @@ def _build_cnn(cfg, bundle):
 
 
 register_archetype(
-    "cnn", use_case="Image classification. norm=False is where HodgeAdam's conditioning edge shows.",
+    "cnn", use_case="Image classification. norm=False drops the batch norm that fixes conditioning, "
+                    "which is the ill-conditioned setting an optimizer A/B needs.",
     data_kind="image",
     defaults={"in_channels": 3, "n_classes": 4, "depth": 2, "width": 32, "norm": True},
     build=_build_cnn, synth=lambda cfg, seed: _data.synth_images(

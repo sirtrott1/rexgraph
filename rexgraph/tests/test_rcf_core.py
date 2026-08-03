@@ -10,7 +10,7 @@ K4 uniform character theorem.
 32 assertions covering every new module.
 """
 import numpy as np
-from numpy.linalg import norm, eigh, svd
+from numpy.linalg import eigh, norm, svd
 from scipy.linalg import pinvh
 
 

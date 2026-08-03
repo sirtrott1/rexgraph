@@ -1,9 +1,11 @@
 import inspect
+
 import numpy as np
-from rexgraph.graph import RexGraph, TemporalRex
+
+from rexgraph.core._temporal import cell_keys_of
 from rexgraph.flow.navigator import changed_edges
 from rexgraph.flow.online import GreensCochainField
-from rexgraph.core._temporal import cell_keys_of
+from rexgraph.graph import RexGraph, TemporalRex
 
 
 def _rex(src, tgt):

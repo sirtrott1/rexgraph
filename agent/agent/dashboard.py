@@ -9,10 +9,10 @@ the data; `render()` prints terminal panels; the server route serves it live.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 
-def hive_dashboard(hive) -> Dict[str, Any]:
+def hive_dashboard(hive) -> dict[str, Any]:
     """A full snapshot of the hive network's state and information flow."""
     m = hive.monitor()
     st = hive.status()
@@ -21,7 +21,7 @@ def hive_dashboard(hive) -> Dict[str, Any]:
 
     # information flow health: the directed coordination edges, read by the same Hodge machinery
     edges = m.get("edges", []) or []
-    flow: Dict[str, Any] = {}
+    flow: dict[str, Any] = {}
     if edges:
         try:
             from rexgraph import mesh_health
@@ -60,7 +60,7 @@ def hive_dashboard(hive) -> Dict[str, Any]:
     }
 
 
-def render(dash: Dict[str, Any]) -> str:
+def render(dash: dict[str, Any]) -> str:
     """Terminal panels for a dashboard snapshot."""
     o, c, f = dash["overview"], dash["coordination"], dash["information_flow"]
     L = []
@@ -68,15 +68,12 @@ def render(dash: Dict[str, Any]) -> str:
     L.append("  ║ bees %d   queen %s   controllers %s   networks %s"
              % (o["bees"], o["queen"], o["controllers"] or "-", o["networks"] or "-"))
     L.append("  ╟── coordination ───────────────────────────────────────────")
-    L.append("  ║ interactions %s   deadlocks %s   strain %s"
-             % (c["interactions"], c["deadlocks"], c["strain"]))
-    L.append("  ║ flow: draining %s  circulating %s  harmonic %s"
-             % (c["draining"], c["circulating"], c["harmonic"]))
+    L.append("  ║ interactions {}   deadlocks {}   strain {}".format(c["interactions"], c["deadlocks"], c["strain"]))
+    L.append("  ║ flow: draining {}  circulating {}  harmonic {}".format(c["draining"], c["circulating"], c["harmonic"]))
     L.append("  ╟── information flow ───────────────────────────────────────")
-    L.append("  ║ status %s   circulating %s   health_ratio %s"
-             % (f.get("status"), f.get("circulating"), f.get("health_ratio")))
+    L.append("  ║ status {}   circulating {}   health_ratio {}".format(f.get("status"), f.get("circulating"), f.get("health_ratio")))
     for loop in (f.get("stuck_loops") or [])[:2]:
-        L.append("  ║   stuck loop %s (%s)" % (loop.get("services"), loop.get("kind")))
+        L.append("  ║   stuck loop {} ({})".format(loop.get("services"), loop.get("kind")))
     L.append("  ╟── workers ────────────────────────────────────────────────")
     for w in sorted(dash["workers"], key=lambda x: -(x.get("load_bearing") or 0))[:8]:
         L.append("  ║ %-12s load %-5s coh %-5s align %-5s %s"

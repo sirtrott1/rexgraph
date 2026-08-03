@@ -17,7 +17,7 @@ available.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 
 logger = logging.getLogger("rexgraph.nn")
 
@@ -36,7 +36,7 @@ def available() -> bool:
 
 # the registry
 
-_REG: Dict[str, Dict[str, dict]] = {"attention": {}, "optimizer": {}, "model": {}}
+_REG: dict[str, dict[str, dict]] = {"attention": {}, "optimizer": {}, "model": {}}
 
 
 def register(kind: str, name: str, factory: Callable, *, native: bool = False,
@@ -55,7 +55,7 @@ def _avail(meta) -> bool:
         return False
 
 
-def default_name(kind: str) -> Optional[str]:
+def default_name(kind: str) -> str | None:
     for n, m in _REG.get(kind, {}).items():
         if m["default"] and _avail(m):
             return n
@@ -65,7 +65,7 @@ def default_name(kind: str) -> Optional[str]:
     return None
 
 
-def list_components(kind: str) -> List[dict]:
+def list_components(kind: str) -> list[dict]:
     return [{"name": n, "native": m["native"], "default": m["default"],
              "description": m["description"], "available": _avail(m)}
             for n, m in _REG.get(kind, {}).items()]
@@ -78,7 +78,7 @@ def inventory() -> dict:
             "components": {k: list_components(k) for k in _REG}}
 
 
-def build_attention(name: Optional[str], d: int, n_head: int, **kw):
+def build_attention(name: str | None, d: int, n_head: int, **kw):
     """Construct an attention block by name. An unknown/unavailable/failing choice falls back to
     the default (then to 'standard'), with a log note. Returns (module, used)."""
     reg = _REG["attention"]
@@ -95,10 +95,10 @@ def build_attention(name: Optional[str], d: int, n_head: int, **kw):
             return mod, cand
         except Exception as e:
             logger.warning("attention %r failed to build (%s) - trying fallback", cand, e)
-    raise RuntimeError("no attention component could be built (torch installed? %s)" % _HAS_TORCH)
+    raise RuntimeError(f"no attention component could be built (torch installed? {_HAS_TORCH})")
 
 
-def build_optimizer(params, name: Optional[str] = None, lr: Optional[float] = None, **kw):
+def build_optimizer(params, name: str | None = None, lr: float | None = None, **kw):
     """Construct the optimizer chosen by name (defaults to plain Adam, the honest default for
     standard feature-space models). Delegates to `optim.build_optimizer`; requires torch."""
     from rexgraph.nn import optim

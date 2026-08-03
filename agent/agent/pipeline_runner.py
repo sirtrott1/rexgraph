@@ -8,49 +8,90 @@ Every step calls compiled Cython kernels. This module is glue.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
-def _context_quality_gate(source_rex, source_labels, query) -> bool:
-    """Structural-coverage gate: does the source graph cover the query well
-    enough to trust the retrieved context? Returns True (permissive) when it
-    cannot be evaluated.
+#: the gate could not be evaluated, so the caller proceeds unannotated
+GATE_OK = "ok"
+#: measurable but weak coverage: answer, and say the context is thin
+GATE_WARN = "warn"
+#: the query and the source share no vocabulary, so nothing was retrieved
+GATE_REFUSE = "refuse"
 
-    The channel-scored gate uses dense L0-eigenbasis Cython kernels that assume
-    a FULL nV x nV basis. On the universal sparse path the bundle carries only a
+
+def _context_quality_gate(source_rex, source_labels, query) -> dict:
+    """Structural-coverage gate: does the source cover the query well enough to
+    trust the retrieved context?
+
+    Returns {"verdict", "reasons", "score", "n_shared"} where verdict is one of
+    GATE_OK, GATE_WARN, GATE_REFUSE.
+
+    REFUSE is reserved for a MEASURED zero: the query supplies terms and none of
+    them name a vertex, so retrieval returned nothing and any answer would come
+    from the model alone rather than the source. Being unable to evaluate is not
+    the same finding and stays permissive.
+
+    WARN is read off `quality_gate`, which is q(x) = x / (x + median(|x|)) per
+    channel. That puts its own fixed point at 0.5, where a channel scores exactly
+    the median magnitude, so the comparison is against the statistic the kernel
+    already normalises by rather than against a tuned constant.
+
+    The channel-scored path uses dense L0-eigenbasis Cython kernels that assume a
+    FULL nV x nV basis. On the universal sparse path the bundle carries only a
     truncated L0 basis (k<<nV) for nV>2000, so feeding it to those kernels reads
     out of bounds (C-level segfault). Guard on the full basis and skip the gate
-    (default permissive) when it is unavailable.
+    when it is unavailable.
     """
+    def verdict(v, *reasons, score=None, n_shared=None):
+        return {"verdict": v, "reasons": list(reasons),
+                "score": score, "n_shared": n_shared}
+
     if not source_rex or source_rex.nE == 0:
-        return True
+        return verdict(GATE_OK, "no source complex to measure against")
     try:
+        # A token that names a vertex counts however short it is: identifiers are
+        # routinely two characters, and dropping them by length would report zero
+        # coverage for a query that names its subject exactly. The length rule only
+        # decides which NON-matching tokens are substantive enough to judge on.
+        index_of = {str(lbl).lower(): i for i, lbl in enumerate(source_labels)}
+        tokens = [w.lower().strip(".,;:!?()[]\"'") for w in query.split()]
+        shared = [index_of[t] for t in tokens if t in index_of]
+        usable = [t for t in tokens if len(t) > 2 or t in index_of]
+        if not usable:
+            return verdict(GATE_OK, "query carries no terms substantive enough to match")
+        if not shared:
+            return verdict(
+                GATE_REFUSE,
+                f"none of the {len(usable)} query terms name a vertex in the source",
+                n_shared=0)
+
         sb = source_rex.spectral_bundle
         evecs_L0 = sb.get('evecs_L0')
         if evecs_L0 is None or evecs_L0.shape[1] != source_rex.nV:
-            return True  # truncated basis: dense kernels unsafe, stay permissive
+            # truncated basis: dense kernels unsafe, so the channel score is
+            # unavailable. The vocabulary overlap above still stands.
+            return verdict(GATE_OK, "truncated L0 basis, channel score unavailable",
+                           n_shared=len(shared))
+
         from rexgraph.core._interfacing import (
-            build_vertex_source, build_edge_signal,
-            build_response_operators, channel_scores, quality_gate,
+            build_edge_signal,
+            build_response_operators,
+            build_vertex_source,
+            channel_scores,
+            quality_gate,
         )
         deg = source_rex.degree.astype(np.float64)
         vw = 1.0 / np.log(deg + np.e)
-
-        query_words = [w.lower() for w in query.split() if len(w) > 2]
-        shared = [source_labels.index(w) for w in query_words
-                  if w in source_labels]
-        if len(shared) < 1:
-            return True
         ti = np.array(shared, dtype=np.int32)
         tw = np.ones(len(shared), dtype=np.float64)
         rho = build_vertex_source(ti, tw, vw, source_rex.nV)
@@ -70,11 +111,17 @@ def _context_quality_gate(source_rex, source_labels, query) -> bool:
             psi, source_rex.nE,
         )
         gate = quality_gate(ch_scores.reshape(1, -1))
-        if isinstance(gate, np.ndarray):
-            return bool(gate.mean() > 0.3)
-        return True
-    except Exception:
-        return True
+        if not isinstance(gate, np.ndarray):
+            return verdict(GATE_OK, "gate returned no score", n_shared=len(shared))
+        score = float(gate.mean())
+        if score <= 0.5:
+            return verdict(GATE_WARN,
+                           f"channel score {score:.3f} at or below the gate's median "
+                           "fixed point",
+                           score=score, n_shared=len(shared))
+        return verdict(GATE_OK, score=score, n_shared=len(shared))
+    except Exception as exc:
+        return verdict(GATE_OK, f"gate could not be evaluated: {exc}")
 
 
 @dataclass
@@ -114,17 +161,15 @@ class PipelineRunner:
 
     def _emit(self, phase, data):
         for cb in self._callbacks:
-            try:
+            with contextlib.suppress(Exception):
                 cb(phase, data)
-            except Exception:
-                pass
 
     def run(
         self,
-        files: Optional[List[str]] = None,
-        texts: Optional[List[str]] = None,
-        doc_ids: Optional[List[str]] = None,
-        query: Optional[str] = None,
+        files: list[str] | None = None,
+        texts: list[str] | None = None,
+        doc_ids: list[str] | None = None,
+        query: str | None = None,
         max_rechunk: int = 2,
         depth: str = "standard",
         ontology: bool = False,
@@ -251,7 +296,9 @@ class PipelineRunner:
     def _ocr_files(self, files):
         """OCR each file, return (texts, doc_ids)."""
         from agent.integrations.unlimited_ocr import (
-            create_ocr_client, is_pdf_file, is_image_file,
+            create_ocr_client,
+            is_image_file,
+            is_pdf_file,
         )
         client = self._ocr_client or create_ocr_client()
 
@@ -266,7 +313,7 @@ class PipelineRunner:
                     result = client.ocr_image(path)
                     text = result.text
                 else:
-                    with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    with open(path, encoding="utf-8", errors="replace") as f:
                         text = f.read()
 
                 if text and len(text.strip()) > 10:
@@ -316,7 +363,7 @@ class PipelineRunner:
         from agent.corpus import CorpusBuilder
         corpus = CorpusBuilder(max_vocab=self.max_vocab)
         if texts and doc_ids:
-            for text, doc_id in zip(texts, doc_ids):
+            for text, doc_id in zip(texts, doc_ids, strict=False):
                 corpus.add_text(text, doc_id=doc_id)
         for path in (files or []):
             self._add_file_to_corpus(corpus, path)
@@ -336,7 +383,7 @@ class PipelineRunner:
 
     def _ocr_single_file(self, path):
         """OCR a single PDF or image file."""
-        from agent.integrations.unlimited_ocr import create_ocr_client, is_pdf_file, is_image_file
+        from agent.integrations.unlimited_ocr import create_ocr_client, is_image_file, is_pdf_file
         client = self._ocr_client or create_ocr_client()
         try:
             if is_pdf_file(path):
@@ -387,8 +434,8 @@ class PipelineRunner:
 
     def _chunk_documents(self, corpus):
         """Hodge-chunk each document."""
-        from agent.chunking import hodge_chunk
         from agent.adapters.text import TextAdapter
+        from agent.chunking import hodge_chunk
 
         results = []
         ta = TextAdapter()
@@ -430,9 +477,7 @@ class PipelineRunner:
             for did, chunks in all_chunks:
                 if did == doc_id:
                     for chunk in chunks:
-                        if chunk.kappa > 0.5:
-                            context_parts.append(chunk.text)
-                        elif chunk.kappa > 0.2:
+                        if chunk.kappa > 0.5 or chunk.kappa > 0.2:
                             context_parts.append(chunk.text)
                     break
 
@@ -445,9 +490,25 @@ class PipelineRunner:
 
         context = "\n\n".join(context_parts)
 
-        # Quality gate: check if context has sufficient structural coverage
-        context_sufficient = _context_quality_gate(
-            source_rex, source_labels, query)
+        # Structural coverage of the query by the source
+        gate = _context_quality_gate(source_rex, source_labels, query)
+        gate_report = {
+            "context_gate": gate["verdict"],
+            "context_gate_reasons": gate["reasons"],
+            "context_score": gate["score"],
+            "context_sufficient": gate["verdict"] != GATE_REFUSE,
+        }
+
+        # Refusing here is the whole point of a measured zero: the source shares no
+        # vocabulary with the query, so the model would be answering from itself and
+        # the retrieved context would be decoration on top of that.
+        if gate["verdict"] == GATE_REFUSE:
+            why = "; ".join(gate["reasons"])
+            logger.warning("Context gate refused: %s", why)
+            return query_dict, (
+                "The source does not cover this query: "
+                f"{why}. Answering would not be grounded in it."
+            ), gate_report
 
         # Call LLM
         model_response = ""
@@ -455,21 +516,28 @@ class PipelineRunner:
             model_response = self._call_model(query, context)
         except Exception as e:
             logger.warning("Model call failed: %s", e)
-            return query_dict, f"Error: {e}", {}
+            return query_dict, f"Error: {e}", gate_report
+
+        if gate["verdict"] == GATE_WARN:
+            logger.warning("Context gate weak: %s", "; ".join(gate["reasons"]))
+            model_response = (
+                "[thin context: " + "; ".join(gate["reasons"]) + "]\n\n"
+                + model_response
+            )
 
         # Hallucination check via exchange complex
-        hall_report = {}
+        hall_report = dict(gate_report)
         if source_text and model_response:
             report = detect_hallucinations_exchange(
                 source_text, model_response,
             )
-            hall_report = {
+            hall_report.update({
                 "overall_score": report.overall_score,
                 "kappa_correlation": report.kappa_correlation,
                 "n_shared": report.n_shared_entities,
                 "n_flags": report.n_flags,
                 "summary": report.summary(),
-            }
+            })
 
         return query_dict, model_response, hall_report
 

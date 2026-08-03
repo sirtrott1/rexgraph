@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import json as _json
 import sys
-from typing import Optional
 
 from agent.connectors import service as svc
 
@@ -36,7 +35,7 @@ def _resolve(source: str) -> str:
         return source            # treat as a bare scheme (e.g. "ontology")
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="rexgraph-connect",
         description="Connect any source to the engine: list / read / validate / ingest.")

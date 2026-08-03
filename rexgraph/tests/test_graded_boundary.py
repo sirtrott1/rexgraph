@@ -12,9 +12,8 @@ Covers:
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 import rexgraph.graded_boundary as gb
-
+from rexgraph.graph import RexGraph
 
 # ---------------------------------------------------------------------------
 # build_graded_boundaries: arity, signs, d^2 = 0

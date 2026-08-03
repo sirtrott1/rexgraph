@@ -14,7 +14,6 @@ pytest.importorskip("torch")
 from rexgraph import compute
 from rexgraph.nn import optim
 
-
 # (a) pick_device resolves through the compute stack -----------------------------------------------
 
 def test_pick_device_auto_consistent_with_compute_stack():
@@ -46,8 +45,10 @@ def test_pick_device_explicit_overrides_and_cpu_safety():
 # (b) lifecycle round-trip: build -> train -> save -> load(map_location) -> infer ------------------
 
 def test_lifecycle_roundtrip_save_load_infer_on_resolved_backend(tmp_path):
+    from agent.models import store
+    from agent.models import train as T
+
     from agent import models
-    from agent.models import store, train as T
 
     dev = optim.pick_device("auto")
     ckpt = str(tmp_path / "ckpt")
@@ -90,8 +91,9 @@ def test_predict_maps_checkpoint_onto_resolved_device(tmp_path):
 
 def test_train_phase_bridges_setup_backend(tmp_path, monkeypatch):
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    from agent.hive_config import ComputeSpec, HiveProfile
+
     from agent import hive_config, lifecycle
-    from agent.hive_config import HiveProfile, ComputeSpec
     hive_config.reset_store()
     lifecycle.reset_store()
     store = hive_config.get_store()

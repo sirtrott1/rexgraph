@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 
-import pytest
-
-from agent.connectors import service as svc
 from agent.cli import connect as cli
+from agent.connectors import service as svc
 
 
 def _shop_db(path):

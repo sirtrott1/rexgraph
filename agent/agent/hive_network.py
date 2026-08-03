@@ -7,7 +7,7 @@ or drifting. Routing and monitoring reuse the hive and agent_complex machinery a
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+import contextlib
 
 from agent import agent_complex
 from agent.hive import Hive, _tokens
@@ -18,8 +18,8 @@ class HiveNetwork:
     to its own routing; monitor runs the relational-complex monitor on inter-hive traffic."""
 
     def __init__(self):
-        self._hives: Dict[str, Hive] = {}
-        self._specialties: Dict[str, list] = {}
+        self._hives: dict[str, Hive] = {}
+        self._specialties: dict[str, list] = {}
         self._net = agent_complex.AgentComplex()          # the inter-hive complex (hives = cells)
         self._drift = agent_complex.DriftTracker()        # network-grade drift, separate from hives
 
@@ -28,7 +28,7 @@ class HiveNetwork:
         self._hives[name] = hive
         self._specialties[name] = list(specialties or [])
 
-    def hives(self) -> List[str]:
+    def hives(self) -> list[str]:
         return sorted(self._hives)
 
     # -- registry: create / address / remove named hives ----------------------
@@ -52,7 +52,7 @@ class HiveNetwork:
     def get(self, name: str):
         return self._hives.get(name)
 
-    def names(self) -> List[str]:
+    def names(self) -> list[str]:
         return self.hives()
 
     def remove(self, name: str) -> bool:
@@ -60,10 +60,8 @@ class HiveNetwork:
         self._specialties.pop(name, None)
         if h is None:
             return False
-        try:
+        with contextlib.suppress(Exception):
             h.stop_all()
-        except Exception:
-            pass
         from agent import activity
         activity.record("hive:" + name, "remove", scope="hive")
         return True
@@ -89,7 +87,7 @@ class HiveNetwork:
         """Record one inter-hive message into the network complex (the grade-up analog of Hive.relay)."""
         self._net.add_message(sender, recipient, text, **meta)
 
-    def route(self, query: str, top_k: int = 3) -> List[dict]:
+    def route(self, query: str, top_k: int = 3) -> list[dict]:
         """Rank hives for a query, blending inter-hive interaction history with declared specialty -
         the same query-reweighting as Hive.route, one grade up."""
         qt = set(_tokens(query))
@@ -153,7 +151,7 @@ class HiveNetwork:
         return {"hives": {name: h.snapshot() for name, h in self._hives.items()},
                 "network_monitor": self.monitor()}
 
-    def persist(self, store="memory://", *, name: str = "network") -> Optional[str]:
+    def persist(self, store="memory://", *, name: str = "network") -> str | None:
         """Catalogue the inter-hive complex in the RCDB by structural signature, and each member
         hive alongside it (network = ambient complex, hives = subcomplexes). `store` is an open
         RCStore or an RCDB uri (pass a shared store or a persistent uri to retrieve later). Returns
@@ -171,7 +169,7 @@ class HiveNetwork:
 
 # process-wide singleton
 
-_NETWORK: Optional[HiveNetwork] = None
+_NETWORK: HiveNetwork | None = None
 
 
 def get_network() -> HiveNetwork:

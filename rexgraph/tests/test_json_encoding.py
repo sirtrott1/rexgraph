@@ -102,9 +102,9 @@ def test_every_json_writer_shares_the_one_encoder():
     """
     import inspect
 
+    import rexgraph.io.arrow_bridge as arrow
     import rexgraph.io.bundle as bundle
     import rexgraph.io.parquet_bridge as parquet
-    import rexgraph.io.arrow_bridge as arrow
     import rexgraph.io.sql_bridge as sql
     from rexgraph.io._compat import dumps
 

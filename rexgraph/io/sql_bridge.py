@@ -47,7 +47,8 @@ Usage:
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterator, List, Optional
+from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -90,7 +91,7 @@ _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
 def _sa():
     """Lazily import SQLAlchemy."""
     try:
-        from sqlalchemy import create_engine, text, MetaData, Table, Column
+        from sqlalchemy import Column, MetaData, Table, create_engine, text
         from sqlalchemy import types as satypes
         from sqlalchemy.engine import Engine
         from sqlalchemy.pool import StaticPool
@@ -104,7 +105,7 @@ def _sa():
 # Engine management
 
 
-_ENGINE_CACHE: Dict[str, Any] = {}
+_ENGINE_CACHE: dict[str, Any] = {}
 
 
 def get_engine(conn_str: str):
@@ -189,8 +190,8 @@ def _table_exists(engine, name: str) -> bool:
     return sa.inspect(engine).has_table(name)
 
 
-def _write_df(data: Dict[str, NDArray], engine, table: str,
-              dtype: Optional[Dict[str, Any]] = None, *, if_exists: str = "replace") -> None:
+def _write_df(data: dict[str, NDArray], engine, table: str,
+              dtype: dict[str, Any] | None = None, *, if_exists: str = "replace") -> None:
     """Build and populate a table via SQLAlchemy Core: no pandas, no DataFrame.
 
     Persists each column's numpy dtype string into the companion `<table>_meta`
@@ -223,8 +224,8 @@ def _write_df(data: Dict[str, NDArray], engine, table: str,
     _write_meta(engine, table, {"dtypes": dtypes}, merge=(if_exists != "replace"))
 
 
-def _read_table(engine, table: str, *, where: str = "", where_params: Optional[dict] = None,
-                order_by: str = "", columns: Optional[List[str]] = None) -> Dict[str, np.ndarray]:
+def _read_table(engine, table: str, *, where: str = "", where_params: dict | None = None,
+                order_by: str = "", columns: list[str] | None = None) -> dict[str, np.ndarray]:
     """Read a SQL table into a dict of arrays via SQLAlchemy Core reflection.
 
     The table name is never string-interpolated: `sa.Table(..., autoload_with=engine)`
@@ -248,7 +249,7 @@ def _read_table(engine, table: str, *, where: str = "", where_params: Optional[d
         rows = conn.execute(sel, where_params or {}).fetchall()
 
     dtypes = (_read_meta(engine, table) or {}).get("dtypes", {})
-    out: Dict[str, np.ndarray] = {}
+    out: dict[str, np.ndarray] = {}
     for j, k in enumerate(keys):
         col = [r[j] for r in rows]
         out[k] = np.asarray(col, dtype=dtypes[k]) if k in dtypes else np.asarray(col)
@@ -303,7 +304,6 @@ def _read_meta(engine, table: str) -> dict:
 #: existing call sites keep working; `dumps` is what applies the non-finite policy.
 from ._compat import dumps as _dumps
 
-
 # Boundary table (Definition 3.1)
 
 
@@ -357,7 +357,7 @@ def write_boundary_sql(
 def read_boundary_sql(
     conn: Any,
     table: str = "boundary",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read boundary table and reconstruct `boundary_ptr`/`boundary_idx`."""
     engine = _ensure_engine(conn)
     raw = _read_table(engine, table, order_by="edge_idx, position")
@@ -388,7 +388,7 @@ def write_edge_sql(
     conn: Any,
     table: str = "edges",
     *,
-    include: Optional[List[str]] = None,
+    include: list[str] | None = None,
     if_exists: str = "replace",
 ) -> None:
     r"""Write per-edge data to SQL.
@@ -417,7 +417,7 @@ def write_edge_sql(
     # signed endpoint list per edge -- the same general boundary CSR held in
     # the boundary table -- so arity>2 topology round-trips instead of being
     # silently truncated.
-    endpoints: List[str] = []
+    endpoints: list[str] = []
     for e in range(nE):
         lo, hi = int(bp[e]), int(bp[e + 1])
         if hi - lo >= 2:
@@ -430,7 +430,7 @@ def write_edge_sql(
     etypes = rex.edge_types
     etype_names = [_EDGE_TYPE_NAMES.get(int(t), "unknown") for t in etypes]
 
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "edge_idx": np.arange(nE, dtype=np.int32),
         "source": src,
         "target": tgt,
@@ -499,7 +499,7 @@ def write_edge_sql(
 def read_edge_sql(
     conn: Any,
     table: str = "edges",
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     """Read edge table from SQL."""
     engine = _ensure_engine(conn)
     return _read_table(engine, table, order_by="edge_idx")
@@ -513,7 +513,7 @@ def write_vertex_sql(
     conn: Any,
     table: str = "vertices",
     *,
-    include: Optional[List[str]] = None,
+    include: list[str] | None = None,
     if_exists: str = "replace",
 ) -> None:
     r"""Write per-vertex data to SQL.
@@ -525,10 +525,10 @@ def write_vertex_sql(
     engine = _ensure_engine(conn)
     nV = rex.nV
 
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "vertex_idx": np.arange(nV, dtype=np.int32),
     }
-    dtype: Dict[str, Any] = {"vertex_idx": sat.Integer()}
+    dtype: dict[str, Any] = {"vertex_idx": sat.Integer()}
 
     try:
         data["degree"] = np.diag(rex.L0).astype(np.int32)
@@ -575,7 +575,7 @@ def write_vertex_sql(
 def read_vertex_sql(
     conn: Any,
     table: str = "vertices",
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     """Read vertex table from SQL."""
     engine = _ensure_engine(conn)
     return _read_table(engine, table, order_by="vertex_idx")
@@ -642,7 +642,7 @@ def write_face_sql(
 def read_face_sql(
     conn: Any,
     table: str = "faces",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read face table and reconstruct B2 CSC arrays."""
     engine = _ensure_engine(conn)
     raw = _read_table(engine, table, order_by="face_idx, edge_idx")
@@ -699,7 +699,7 @@ def write_persistence_sql(
     else:
         raise TypeError("Expected persistence result dict or PersistenceDiagram")
 
-    data: Dict[str, Any] = {}
+    data: dict[str, Any] = {}
     if pairs.ndim == 2 and pairs.shape[1] >= 5:
         data["birth"] = pairs[:, 0]
         data["death"] = pairs[:, 1]
@@ -727,7 +727,7 @@ def write_persistence_sql(
 
     _write_df(data, engine, table, dtype, if_exists=if_exists)
 
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "rex_table_type": "persistence_table",
         "n_pairs": int(len(pairs)),
     }
@@ -744,7 +744,7 @@ def write_persistence_sql(
 def read_persistence_sql(
     conn: Any,
     table: str = "persistence",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read persistence pairs with metadata (betti, essential)."""
     engine = _ensure_engine(conn)
     result = _read_table(engine, table, order_by="dim, birth")
@@ -815,7 +815,7 @@ def write_filtration_sql(
 def read_filtration_sql(
     conn: Any,
     table: str = "filtration",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read filtration table -> `filt_v`, `filt_e`, `filt_f`."""
     engine = _ensure_engine(conn)
     raw = _read_table(engine, table, order_by="cell_dim, cell_idx")
@@ -853,7 +853,7 @@ def write_temporal_sql(
     T = trex.T
     timesteps = np.arange(T, dtype=np.int32)
 
-    data: Dict[str, Any] = {"timestep": timesteps}
+    data: dict[str, Any] = {"timestep": timesteps}
     nE_arr = np.empty(T, dtype=np.int32)
     nF_arr = np.empty(T, dtype=np.int32)
     b0_arr = np.empty(T, dtype=np.int32)
@@ -895,7 +895,7 @@ def write_temporal_sql(
 def read_temporal_sql(
     conn: Any,
     table: str = "temporal",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Read temporal summary table.
 
     Returns dict with `timestep`, `betti` (T×3 array), `nE`, `nF`,
@@ -904,7 +904,7 @@ def read_temporal_sql(
     engine = _ensure_engine(conn)
     raw = _read_table(engine, table, order_by="timestep")
 
-    result: Dict[str, Any] = {"timestep": raw["timestep"]}
+    result: dict[str, Any] = {"timestep": raw["timestep"]}
 
     betti_cols = [c for c in raw if c.startswith("beta_")]
     if betti_cols:
@@ -922,7 +922,7 @@ def read_temporal_sql(
 
 
 def write_metrics_sql(
-    metrics: Dict[str, NDArray],
+    metrics: dict[str, NDArray],
     conn: Any,
     table: str = "metrics",
     *,
@@ -950,13 +950,13 @@ def write_metrics_sql(
         raise ValueError(f"All arrays must have equal length, got {lengths}")
 
     n = lengths.pop()
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "cell_idx": np.arange(n, dtype=np.int32),
         "cell_dim": np.full(n, cell_dim, dtype=np.int32),
     }
     data.update({k: np.asarray(v) for k, v in metrics.items()})
 
-    dtype: Dict[str, Any] = {
+    dtype: dict[str, Any] = {
         "cell_idx": sat.Integer(),
         "cell_dim": sat.SmallInteger(),
     }
@@ -979,9 +979,9 @@ def read_metrics_sql(
     conn: Any,
     table: str = "metrics",
     *,
-    cell_dim: Optional[int] = None,
+    cell_dim: int | None = None,
     exclude_index: bool = True,
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     """Read metrics table from SQL."""
     engine = _ensure_engine(conn)
 
@@ -1005,7 +1005,7 @@ def read_sql_batches(
     table_or_query: str,
     *,
     chunksize: int = 100_000,
-) -> Iterator[Dict[str, np.ndarray]]:
+) -> Iterator[dict[str, np.ndarray]]:
     """Stream SQL results as batches of arrays.
 
     Parameters
@@ -1183,8 +1183,8 @@ def reconstruct_rex_sql(
     conn: Any,
     *,
     boundary: str,
-    face: Optional[str] = None,
-    edge: Optional[str] = None,
+    face: str | None = None,
+    edge: str | None = None,
 ):
     """Rebuild a full `RexGraph` from separately-named SQL tables.
 
@@ -1207,7 +1207,7 @@ def reconstruct_rex_sql(
     from rexgraph.graph import RexGraph
 
     b = read_boundary_sql(engine, boundary)
-    kw: Dict[str, Any] = {
+    kw: dict[str, Any] = {
         "boundary_ptr": np.asarray(b["boundary_ptr"], dtype=np.int32),
         "boundary_idx": np.asarray(b["boundary_idx"], dtype=np.int32),
         "directed": bool(b.get("directed", False)),

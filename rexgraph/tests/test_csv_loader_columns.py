@@ -5,6 +5,7 @@ rejection. Targets arbitrary-schema data such as wide multi-column TSV exports.
 """
 import numpy as np
 import pytest
+
 from rexgraph.io.csv_loader import load_edge_csv
 
 

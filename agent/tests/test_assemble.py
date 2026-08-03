@@ -1,6 +1,6 @@
 import numpy as np
-from agent.warehouse.assemble import assemble
 from agent.rcdb import FileStore
+from agent.warehouse.assemble import assemble
 
 FIXTURE = ("src\tx1\tdst\tx2\tw\n" +
            "".join(f"A{t}\t.\tB{l}\t.\t{0.1 + 0.7*l + 3.0*t}\n"
@@ -49,7 +49,9 @@ def test_live_path_imports_no_pandas():
     # A fresh interpreter importing the warehouse live path must not drag in pandas. Running in a
     # subprocess makes this a real assertion (an in-process check would be a no-op cache hit, since
     # the modules are already imported by the tests above).
-    import subprocess, sys, textwrap
+    import subprocess
+    import sys
+    import textwrap
     code = textwrap.dedent("""
         import sys
         import agent.warehouse.source

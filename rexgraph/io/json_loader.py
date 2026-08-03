@@ -29,15 +29,15 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Optional, Union
+from typing import Any
 
 import numpy as np
 
 
 def load_json(
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
-    format: Optional[str] = None,
+    format: str | None = None,
     threshold: float = 0.0,
     directed: bool = False,
 ) -> Any:
@@ -61,7 +61,7 @@ def load_json(
     -------
     RexGraph
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
     if format is None:
@@ -145,7 +145,7 @@ def _load_rexgraph_json(data: dict) -> Any:
     return RexGraph(**kw)
 
 
-def load_rexgraph_json(path: Union[str, os.PathLike]) -> Any:
+def load_rexgraph_json(path: str | os.PathLike) -> Any:
     """Load a RexGraph from its native JSON format."""
     return load_json(path, format="rexgraph")
 
@@ -164,7 +164,7 @@ def _load_edge_list_json(data: Any, directed: bool = False) -> Any:
     Metadata columns are classified using the csv_loader pipeline.
     """
     from ..graph import RexGraph
-    from .csv_loader import classify_columns, build_weights
+    from .csv_loader import build_weights, classify_columns
 
     if isinstance(data, dict):
         edges = data.get("edges", data.get("links", []))
@@ -180,7 +180,7 @@ def _load_edge_list_json(data: Any, directed: bool = False) -> Any:
     first = edges[0]
     src_key = _find_key(first, ["source", "src", "from", "head"])
     tgt_key = _find_key(first, ["target", "tgt", "to", "tail", "dest"])
-    meta_keys = [k for k in first.keys() if k not in (src_key, tgt_key)]
+    meta_keys = [k for k in first if k not in (src_key, tgt_key)]
 
     sources, targets = [], []
     meta = {k: [] for k in meta_keys}
@@ -196,7 +196,7 @@ def _load_edge_list_json(data: Any, directed: bool = False) -> Any:
 
     # Vertex index mapping
     vertex_set = set()
-    for s, t in zip(sources, targets):
+    for s, t in zip(sources, targets, strict=False):
         vertex_set.add(s)
         vertex_set.add(t)
     vertices = sorted(vertex_set)
@@ -224,7 +224,7 @@ def _load_edge_list_json(data: Any, directed: bool = False) -> Any:
     )
 
 
-def load_edge_list_json(path: Union[str, os.PathLike], **kwargs) -> Any:
+def load_edge_list_json(path: str | os.PathLike, **kwargs) -> Any:
     """Load a RexGraph from edge-list JSON."""
     return load_json(path, format="edge_list", **kwargs)
 
@@ -296,7 +296,7 @@ def _load_cytoscape_json(data: dict, directed: bool = False) -> Any:
     )
 
 
-def load_cytoscape_json(path: Union[str, os.PathLike], **kwargs) -> Any:
+def load_cytoscape_json(path: str | os.PathLike, **kwargs) -> Any:
     """Load a RexGraph from Cytoscape.js JSON."""
     return load_json(path, format="cytoscape", **kwargs)
 
@@ -350,7 +350,7 @@ def _load_networkx_json(data: dict, directed: bool = False) -> Any:
     )
 
 
-def load_networkx_json(path: Union[str, os.PathLike], **kwargs) -> Any:
+def load_networkx_json(path: str | os.PathLike, **kwargs) -> Any:
     """Load a RexGraph from NetworkX node-link JSON."""
     return load_json(path, format="networkx", **kwargs)
 
@@ -394,7 +394,7 @@ def _load_adjacency_json(
     return RexGraph.from_adjacency(matrix, directed=directed)
 
 
-def load_adjacency_json(path: Union[str, os.PathLike], **kwargs) -> Any:
+def load_adjacency_json(path: str | os.PathLike, **kwargs) -> Any:
     """Load a RexGraph from adjacency matrix JSON."""
     return load_json(path, format="adjacency", **kwargs)
 
@@ -402,7 +402,7 @@ def load_adjacency_json(path: Union[str, os.PathLike], **kwargs) -> Any:
 # Matrix CSV loading (correlation matrices, gene expression)
 
 def load_matrix_csv(
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
     threshold: float = 0.0,
     absolute: bool = True,
@@ -432,7 +432,7 @@ def load_matrix_csv(
 
     from ..graph import RexGraph
 
-    with open(path, "r", encoding="utf-8-sig") as f:
+    with open(path, encoding="utf-8-sig") as f:
         reader = csv.reader(f)
         rows = list(reader)
 

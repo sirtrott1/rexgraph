@@ -6,8 +6,8 @@ oracles; these guard the sparse/integer kernels against silent regression.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph.core import _curvature
+from rexgraph.graph import RexGraph
 
 
 def _rex(edges):

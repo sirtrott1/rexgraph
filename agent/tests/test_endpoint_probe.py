@@ -1,6 +1,7 @@
 """Live-endpoint probing (local_runtime.probe_endpoints) + monitor graph edges."""
-from agent import local_runtime
 from agent.agent_complex import AgentComplex
+
+from agent import local_runtime
 
 
 def test_probe_parses_openai_and_ollama(monkeypatch):

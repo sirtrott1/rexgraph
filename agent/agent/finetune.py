@@ -1,11 +1,13 @@
 """
-agent.finetune: LoRA fine-tune of a Hugging Face model with the RexGraph optimizer (HodgeAdam),
-compared against Adam on this machine's GPU.
+agent.finetune: LoRA fine-tune of a Hugging Face model on this machine's GPU, plus an
+optimizer A/B on the same run.
 
-Adapts a transformer's weights with HodgeAdam on the local torch build, streams the loss through
-the platform's run log, and produces a loadable adapter. The A/B run trains the same model on the
-same data with the same seed under both HodgeAdam and Adam, so the two loss curves are directly
-comparable, and judges on a held-out eval split.
+`finetune()` builds its optimizer with `make_optimizer(optimizer, ...)` and defaults to `"auto"`,
+which routes a feature-space model (this is one: LoRA adapts weight matrices) to plain Adam. It
+streams the loss through the platform's run log and produces a loadable adapter. `finetune_ab()`
+names its two arms deliberately (`("hodge", "adam")` by default): it trains the same model on the
+same data with the same seed under each, so the two loss curves are directly comparable, and judges
+on a held-out eval split. HodgeAdam appears there as an arm under test, not as a recommendation.
 
 Scope: LoRA optimizes the model's weight matrices; the transformer's attention stays standard
 (relational attention is the native-model track, not a llama.cpp/HF retrofit). This exercises the
@@ -20,8 +22,8 @@ import csv
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, Optional
 
 logger = logging.getLogger("rexgraph.finetune")
 
@@ -29,7 +31,7 @@ DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 # A tiny built-in instruction set so a run needs no data setup. Small on purpose: it exercises the
 # optimizer moving weights, not the training of a strong model.
-_TINY_DATA: List[dict] = [
+_TINY_DATA: list[dict] = [
     {"instruction": "What is the capital of France?", "response": "The capital of France is Paris."},
     {"instruction": "Name a primary color.", "response": "Red is a primary color."},
     {"instruction": "What is 2 plus 2?", "response": "2 plus 2 equals 4."},
@@ -110,7 +112,7 @@ def deps_available() -> dict:
             "missing": missing}
 
 
-def _artifacts_dir(run_id: Optional[str]) -> Path:
+def _artifacts_dir(run_id: str | None) -> Path:
     base = Path(os.environ.get("REXGRAPH_CONFIG_DIR", Path.home() / ".config" / "rexgraph"))
     d = base / "runs" / "artifacts" / (run_id or "finetune")
     d.mkdir(parents=True, exist_ok=True)
@@ -123,9 +125,9 @@ def _format(ex: dict) -> str:
     return f"Instruction: {ex.get('instruction','')}\nResponse: {ex.get('response','')}"
 
 
-def load_data(dataset=None, *, text_field: Optional[str] = None,
+def load_data(dataset=None, *, text_field: str | None = None,
               instruction_field: str = "instruction", response_field: str = "response",
-              split: str = "train", limit: Optional[int] = None) -> List[dict]:
+              split: str = "train", limit: int | None = None) -> list[dict]:
     """Load training rows. `dataset` may be:
       - None              -> the built-in tiny set,
       - a local file      -> .jsonl / .json / .csv (rows) or .txt (one text per line),
@@ -134,7 +136,7 @@ def load_data(dataset=None, *, text_field: Optional[str] = None,
     (auto-detects common ones). Use `text_field` for a plain-text column."""
     if dataset is None:
         return list(_TINY_DATA)
-    rows: List[dict] = []
+    rows: list[dict] = []
     p = os.path.expanduser(str(dataset))
     if os.path.exists(p):
         if p.endswith(".jsonl"):
@@ -151,11 +153,11 @@ def load_data(dataset=None, *, text_field: Optional[str] = None,
             with open(p) as f:
                 rows = [{"text": ln.rstrip("\n")} for ln in f if ln.strip()]
     else:
-        from datasets import load_dataset          # HF dataset id
+        from datasets import load_dataset  # HF dataset id
         rows = [dict(r) for r in load_dataset(dataset, split=split)]
     if limit:
         rows = rows[:int(limit)]
-    norm: List[dict] = []
+    norm: list[dict] = []
     for r in rows:
         if not isinstance(r, dict):
             norm.append({"text": str(r)}); continue
@@ -173,13 +175,13 @@ def load_data(dataset=None, *, text_field: Optional[str] = None,
 
 
 def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: int = 60,
-             lora_r: int = 8, lora_alpha: int = 16, lr: Optional[float] = None,
-             seq_len: int = 64, batch: int = 4, seed: int = 0, device: Optional[str] = None,
-             data: Optional[List[dict]] = None, dataset=None, text_field: Optional[str] = None,
+             lora_r: int = 8, lora_alpha: int = 16, lr: float | None = None,
+             seq_len: int = 64, batch: int = 4, seed: int = 0, device: str | None = None,
+             data: list[dict] | None = None, dataset=None, text_field: str | None = None,
              instruction_field: str = "instruction", response_field: str = "response",
-             split: str = "train", data_limit: Optional[int] = None, full: bool = False,
-             target_modules=None, save_dir: Optional[str] = None, on_step: Callable = None,
-             label: Optional[str] = None) -> dict:
+             split: str = "train", data_limit: int | None = None, full: bool = False,
+             target_modules=None, save_dir: str | None = None, on_step: Callable = None,
+             label: str | None = None) -> dict:
     """One fine-tune run with the chosen optimizer, on a given model and data. Loads the HF model
     (`model_id`: a hub id or a local path), optionally wraps it in LoRA (or `full=True` for a full
     fine-tune), trains on `dataset` (see `load_data`) streaming loss, and saves the result. Returns
@@ -188,8 +190,9 @@ def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: i
     if not dep["ready"]:
         return {"skipped": dep["need"], "optimizer": optimizer, "deps": dep}
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import LoraConfig, get_peft_model
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
     from rexgraph.nn import optim
 
     dev = optim.pick_device(device)
@@ -245,8 +248,8 @@ def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: i
         return round(float(lo.item()), 4)
 
     model.train()
-    traj: List[float] = []
-    eval_traj: List[float] = []
+    traj: list[float] = []
+    eval_traj: list[float] = []
     g = torch.Generator().manual_seed(seed)
     for i in range(steps):
         idx = torch.randint(0, len(train_rows), (batch,), generator=g).tolist()

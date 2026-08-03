@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 from .config import (
     CACHE_DIR,
@@ -129,7 +128,7 @@ def has_paddleocr() -> bool:
         return False
 
 
-def has_paddleocr_models(models_dir: Optional[Path] = None) -> bool:
+def has_paddleocr_models(models_dir: Path | None = None) -> bool:
     """Check if PaddleOCR models are cached."""
     # PaddleOCR caches models in ~/.paddleocr/ by default
     paddle_cache = Path.home() / ".paddleocr"
@@ -218,7 +217,7 @@ def _install_torch_for_gpu(platform_info: PlatformInfo, interactive: bool = True
 def install_gpu_backend(
     platform_info: PlatformInfo,
     backend: str = "vllm",
-    model: Optional[str] = None,
+    model: str | None = None,
     interactive: bool = True,
 ) -> bool:
     """Install the inference server and download the GPU OCR model.
@@ -237,30 +236,29 @@ def install_gpu_backend(
     gpu = platform_info.gpu
 
     # Install PyTorch with the right GPU backend first
-    if gpu == "amd":
-        if not _install_torch_for_gpu(platform_info, interactive):
-            if interactive:
-                print("Failed to install PyTorch with ROCm.")
-                print("Install manually:")
-                print("  pip install torch --index-url https://download.pytorch.org/whl/rocm6.2")
-            return False
+    if gpu == "amd" and not _install_torch_for_gpu(platform_info, interactive):
+        if interactive:
+            print("Failed to install PyTorch with ROCm.")
+            print("Install manually:")
+            print("  pip install torch --index-url https://download.pytorch.org/whl/rocm6.2")
+        return False
 
     # Pick the inference server
     if gpu == "amd" and backend == "vllm":
         # vLLM ROCm build
         packages = ["vllm"]
         if interactive:
-            print(f"Installing vLLM (ROCm)...")
+            print("Installing vLLM (ROCm)...")
     elif gpu == "nvidia" and backend == "vllm":
         packages = ["vllm>=0.3"]
         if interactive:
-            print(f"Installing vLLM (CUDA)...")
+            print("Installing vLLM (CUDA)...")
     elif backend == "sglang":
         if gpu == "amd":
             _install_torch_for_gpu(platform_info, interactive)
         packages = ["sglang[all]"]
         if interactive:
-            print(f"Installing SGLang...")
+            print("Installing SGLang...")
     else:
         if interactive:
             print(f"Installing {backend}...")
@@ -303,7 +301,7 @@ def auto_setup(
     skip_gpu: bool = False,
     skip_paddleocr: bool = False,
     gpu_backend: str = "vllm",
-    gpu_model: Optional[str] = None,
+    gpu_model: str | None = None,
 ) -> RexGraphConfig:
     """Run the full setup flow.
 

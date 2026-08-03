@@ -7,21 +7,24 @@ One command starts everything: python run.py
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .state import SessionStore
 from .launch import VERSION
 from .security import (
-    setup_rate_limiter, add_https_hardening, add_security_headers,
-    add_auth_enforcement, add_error_sanitizer, cleanup_stale_tempfiles,
+    add_auth_enforcement,
+    add_error_sanitizer,
+    add_https_hardening,
+    add_security_headers,
+    cleanup_stale_tempfiles,
+    setup_rate_limiter,
 )
+from .state import SessionStore
 
 # Application
 
@@ -99,7 +102,31 @@ def get_store() -> SessionStore:
 
 # Routes
 
-from .routes import upload, analysis, explore, session, chat, ocr, model, corpus, models, pipeline, admin, export, integrations, deploy, rcdb, schema, dbmanager, ontology, connectors, agents, hive, ops, ml
+from .routes import (
+    admin,
+    agents,
+    analysis,
+    chat,
+    connectors,
+    corpus,
+    dbmanager,
+    deploy,
+    explore,
+    export,
+    hive,
+    integrations,
+    ml,
+    model,
+    models,
+    ocr,
+    ontology,
+    ops,
+    pipeline,
+    rcdb,
+    schema,
+    session,
+    upload,
+)
 
 app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(analysis.router, prefix="/api", tags=["analysis"])
@@ -152,6 +179,7 @@ async def index():
 # as a script because we send X-Content-Type-Options: nosniff. Register .jsx as
 # JavaScript so the UI actually runs (keeping the nosniff hardening intact).
 import mimetypes
+
 mimetypes.add_type("text/javascript", ".jsx")
 mimetypes.add_type("text/javascript", ".mjs")
 
@@ -172,6 +200,7 @@ if _FRONTEND_DIR.exists():
 @app.get("/api/health")
 async def health():
     from agent.server.auth import get_auth_manager
+
     from .launch import _check_rexgraph
     mgr = get_auth_manager()
     return {
@@ -203,6 +232,7 @@ def main() -> None:
         RCF_FORWARDED_ALLOW_IPS (trusted proxy IPs for X-Forwarded-Proto)
     """
     import os
+
     from .launch import serve
 
     serve(

@@ -1,8 +1,12 @@
 import numpy as np
-from rexgraph.graph import RexGraph, TemporalRex
+
 from rexgraph.flow.navigator import (
-    FieldNavigator, changed_edges, removed_region_for, EdgeChange,
+    EdgeChange,
+    FieldNavigator,
+    changed_edges,
+    removed_region_for,
 )
+from rexgraph.graph import RexGraph, TemporalRex
 
 
 def _rex(src, tgt):
@@ -107,7 +111,7 @@ def test_run_equals_manual_step_sequence():
             change, rr = None, None
         manual.append({"t": i, **nav_step.step(rex_i, change, rr)})
     assert [e["event"] for e in log] == [e["event"] for e in manual]
-    for a, b in zip(log, manual):
+    for a, b in zip(log, manual, strict=False):
         assert a["t"] == b["t"]
         if a["event"]:
             assert a["region"].tolist() == b["region"].tolist()

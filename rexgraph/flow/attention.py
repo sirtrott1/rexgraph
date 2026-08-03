@@ -1,7 +1,7 @@
 """rexgraph.flow.attention: matrix-free co-participation attention.
 
-Two edges co-participate iff they share an incident vertex (most often the
-shared target/ligand node, but the same structural test applies to any
+Two edges co-participate iff they share an incident vertex (most often a
+high-arity branching vertex, but the same structural test applies to any
 shared endpoint). A masked edge's signal is predicted from its observed
 co-participants, each weighted by a learned compatibility over the two
 edges' inside tensors. Setting gamma=0 collapses the weighting to uniform,
@@ -19,8 +19,6 @@ no eigendecomposition.
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple, Union
-
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize
@@ -30,7 +28,7 @@ from rexgraph.core._sparse import to_scipy_csr
 __all__ = ["coparticipation_neighbors", "coparticipation_attention", "CoParticipationAttention"]
 
 
-def coparticipation_neighbors(rex) -> Tuple[NDArray, NDArray]:
+def coparticipation_neighbors(rex) -> tuple[NDArray, NDArray]:
     """CSR of each edge's co-participants (edges sharing an incident vertex).
 
     Built matrix-free from the signed incidence `rex._B1_dual` (nV x nE):
@@ -56,7 +54,7 @@ def coparticipation_attention(
     inside: NDArray,
     signal: NDArray,
     obs_mask: NDArray,
-    proj: Optional[NDArray] = None,
+    proj: NDArray | None = None,
     gamma: float = 0.0,
 ) -> NDArray:
     """Predict each edge's signal from its OBSERVED co-participants.
@@ -137,11 +135,11 @@ class CoParticipationAttention:
         rex,
         inside: NDArray,
         signal: NDArray,
-        obs_mask: Optional[NDArray] = None,
+        obs_mask: NDArray | None = None,
         mask_frac: float = 0.2,
         seed: int = 0,
         steps: int = 300,
-    ) -> "CoParticipationAttention":
+    ) -> CoParticipationAttention:
         """Fit (proj, gamma) by self-supervised masked reconstruction.
 
         `signal` is assumed zeroed at any edge not actually observed (the
@@ -209,7 +207,7 @@ class CoParticipationAttention:
 
     def predict(
         self,
-        rex_or_nbrs: Union[object, Tuple[NDArray, NDArray]],
+        rex_or_nbrs: object | tuple[NDArray, NDArray],
         inside: NDArray,
         signal: NDArray,
         obs_mask: NDArray,

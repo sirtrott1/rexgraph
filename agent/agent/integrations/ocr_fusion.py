@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -65,7 +65,7 @@ class BackendResult:
     kappa_mean: float = 0.0
     kappa_std: float = 0.0
     dominant_channel: str = ""
-    channel_distribution: Dict[str, int] = field(default_factory=dict)
+    channel_distribution: dict[str, int] = field(default_factory=dict)
 
     # Void analysis
     n_voids: int = 0
@@ -77,7 +77,7 @@ class BackendResult:
 
     # Raw objects (for downstream use)
     rex: Any = None
-    analysis: Dict[str, Any] = field(default_factory=dict)
+    analysis: dict[str, Any] = field(default_factory=dict)
     edge_construction: Any = None
 
     elapsed: float = 0.0
@@ -88,7 +88,7 @@ class FusionReport:
     """Structural comparison of multiple OCR backends on one document."""
 
     source: str
-    backends: List[BackendResult] = field(default_factory=list)
+    backends: list[BackendResult] = field(default_factory=list)
 
     # Comparison metrics
     @property
@@ -96,7 +96,7 @@ class FusionReport:
         return len(self.backends)
 
     @property
-    def hodge_divergence(self) -> Dict[str, float]:
+    def hodge_divergence(self) -> dict[str, float]:
         """Measure how much backends disagree on Hodge structure.
 
         Returns the standard deviation of each Hodge component
@@ -118,7 +118,7 @@ class FusionReport:
         }
 
     @property
-    def kappa_comparison(self) -> Dict[str, Any]:
+    def kappa_comparison(self) -> dict[str, Any]:
         """Compare coherence across backends."""
         if not self.backends:
             return {}
@@ -131,7 +131,7 @@ class FusionReport:
         }
 
     @property
-    def void_comparison(self) -> Dict[str, Any]:
+    def void_comparison(self) -> dict[str, Any]:
         """Compare void structure across backends.
 
         Higher void fraction means more expected relationships
@@ -149,7 +149,7 @@ class FusionReport:
         }
 
     @property
-    def complexity_comparison(self) -> Dict[str, Any]:
+    def complexity_comparison(self) -> dict[str, Any]:
         """Compare topological complexity across backends."""
         if not self.backends:
             return {}
@@ -162,14 +162,14 @@ class FusionReport:
         }
 
     @property
-    def best_coherence(self) -> Optional[str]:
+    def best_coherence(self) -> str | None:
         """Which backend produced the highest mean coherence?"""
         if not self.backends:
             return None
         return max(self.backends, key=lambda b: b.kappa_mean).backend_name
 
     @property
-    def best_structure(self) -> Optional[str]:
+    def best_structure(self) -> str | None:
         """Which backend extracted the richest relational structure?
 
         Measured by number of faces (higher-order relationships).
@@ -179,7 +179,7 @@ class FusionReport:
         return max(self.backends, key=lambda b: b.nF).backend_name
 
     @property
-    def lowest_void_fraction(self) -> Optional[str]:
+    def lowest_void_fraction(self) -> str | None:
         """Which backend had the fewest structural gaps?"""
         if not self.backends:
             return None
@@ -254,7 +254,7 @@ class OCRFusion:
 
     def __init__(
         self,
-        backends: Optional[List] = None,
+        backends: list | None = None,
         strategy: str = "text",
         **adapter_kwargs,
     ):
@@ -269,11 +269,11 @@ class OCRFusion:
             return self._clients
 
         from agent.integrations.unlimited_ocr import (
-            UnlimitedOCRClient,
-            PaddleOCRClient,
-            MistralOCRClient,
             GOTOCRClient,
+            MistralOCRClient,
             OfflineOCRClient,
+            PaddleOCRClient,
+            UnlimitedOCRClient,
         )
 
         clients = []
@@ -349,6 +349,7 @@ class OCRFusion:
     ) -> BackendResult:
         """Run a single backend and analyze the result."""
         import time
+
         from agent.adapters.ocr import OCRAdapter
         from agent.pipeline import AnalysisPipeline
         from rexgraph.graph import RexGraph

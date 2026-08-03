@@ -12,7 +12,6 @@ import pytest
 
 from rexgraph.graph import RexGraph
 
-
 # from_hypergraph complexes with branching (arity>2) edges that share >1 vertex
 CASES = {
     "two_3ary_share2": (np.array([0, 3, 6]), np.array([0, 1, 2, 1, 2, 3])),

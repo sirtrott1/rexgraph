@@ -12,13 +12,11 @@ per version. rcdb.trajectory does the expensive thing (a blob per version plus a
 cross-complex bridge per step) and is the wrong tool inside a query.
 """
 
-import numpy as np
 import pytest
-
-from agent import rcdb
 from agent.corpus import CorpusBuilder
-from agent import query_engine as qe
 
+from agent import query_engine as qe
+from agent import rcdb
 
 SETTLED = ("The boundary map sends an edge to its endpoints. Composing two boundary "
            "maps gives zero. Orientation decides the sign of every entry.")

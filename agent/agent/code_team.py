@@ -14,14 +14,16 @@ tests run in a subprocess.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
 import tempfile
 import textwrap
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from .reactive_hive import ReactiveHive
 
@@ -35,7 +37,7 @@ def _extract_code(reply: str) -> str:
     return (blocks[-1] if blocks else reply).strip()
 
 
-def _run_tests(code: str, tests: List) -> Dict[str, Any]:
+def _run_tests(code: str, tests: list) -> dict[str, Any]:
     """Run candidate code + its hidden tests in a subprocess. tests: list of (call_expr, expected)."""
     if not tests:
         return {"passed": 0, "total": 0, "ok": False, "error": "no tests"}
@@ -63,15 +65,14 @@ def _run_tests(code: str, tests: List) -> Dict[str, Any]:
         return {"passed": 0, "total": len(tests), "ok": False, "error": repr(e)}
     finally:
         if path:
-            try: os.unlink(path)
-            except Exception: pass
+            with contextlib.suppress(Exception): os.unlink(path)
 
 
 class CodeTeam:
     """A concurrent, self-healing code team on top of ReactiveHive."""
 
-    def __init__(self, hive=None, reactive: Optional[ReactiveHive] = None, *, store=None,
-                 generate: Optional[Callable] = None, max_workers: int = 4):
+    def __init__(self, hive=None, reactive: ReactiveHive | None = None, *, store=None,
+                 generate: Callable | None = None, max_workers: int = 4):
         if reactive is None:
             if hive is None:
                 from . import hive as hivemod
@@ -84,7 +85,7 @@ class CodeTeam:
 
     # -- generation + evaluation ----------------------------------------------
 
-    def _generate(self, task: dict, feedback: Optional[str] = None) -> str:
+    def _generate(self, task: dict, feedback: str | None = None) -> str:
         gen = task.get("generate") or self.generate
         if callable(gen):
             return _extract_code(gen(task, feedback))
@@ -100,7 +101,7 @@ class CodeTeam:
             reply = None
         return _extract_code(reply or task.get("code", ""))
 
-    def _gen_eval(self, task: dict, feedback: Optional[str] = None) -> dict:
+    def _gen_eval(self, task: dict, feedback: str | None = None) -> dict:
         """One piece: generate, then evaluate. Run concurrently across pieces so evaluation of one
         overlaps generation of another."""
         code = self._generate(task, feedback=feedback)
@@ -110,9 +111,9 @@ class CodeTeam:
 
     # -- the build ------------------------------------------------------------
 
-    def build(self, tasks: List[dict]) -> Dict[str, Any]:
+    def build(self, tasks: list[dict]) -> dict[str, Any]:
         """Generate + evaluate all pieces concurrently, self-heal failures, then unify a build."""
-        reactions: List[dict] = []
+        reactions: list[dict] = []
         reactions += self.reactive.require("review", "test")     # grow the evaluators up front
 
         t0 = time.perf_counter()

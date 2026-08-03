@@ -19,7 +19,6 @@ import pytest
 from rexgraph.core import _transition
 from rexgraph.graph import RexGraph
 
-
 # Fixtures
 
 @pytest.fixture

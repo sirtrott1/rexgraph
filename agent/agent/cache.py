@@ -19,7 +19,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +40,7 @@ _writes_since_prune = 0
 
 def cache_dir() -> Path:
     root = os.environ.get("REXGRAPH_CACHE_DIR")
-    if root:
-        p = Path(root)
-    else:
-        p = Path.home() / ".cache" / "rexgraph"
+    p = Path(root) if root else Path.home() / ".cache" / "rexgraph"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -69,7 +66,7 @@ def content_key(content: Any, depth: str = "standard", extra: str = "") -> str:
             h.update(str(content).encode("utf-8", "replace"))
     except Exception:
         h.update(repr(content).encode("utf-8", "replace"))
-    h.update(f"|depth={depth}|{extra}|v={CACHE_VERSION}".encode("utf-8"))
+    h.update(f"|depth={depth}|{extra}|v={CACHE_VERSION}".encode())
     return h.hexdigest()
 
 
@@ -107,7 +104,7 @@ def entry_count() -> int:
         return 0
 
 
-def prune(max_entries: Optional[int] = None) -> int:
+def prune(max_entries: int | None = None) -> int:
     """Drop the oldest entries beyond `max_entries`. Returns how many files went."""
     cap = MAX_ENTRIES if max_entries is None else int(max_entries)
     removed = 0
@@ -140,7 +137,7 @@ def _generic_path(key: str) -> Path:
     return cache_dir() / f"{key}.payload.json"
 
 
-def get(key: str) -> Optional[dict]:
+def get(key: str) -> dict | None:
     """Return the cached JSON payload for `key`, or None."""
     if not enabled():
         return None

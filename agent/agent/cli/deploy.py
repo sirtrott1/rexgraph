@@ -12,7 +12,7 @@ import argparse
 import json
 import sys
 
-from agent.deploy import DeploymentSpec, generate_bundle, write_bundle, bundle_to_zip
+from agent.deploy import DeploymentSpec, bundle_to_zip, generate_bundle, write_bundle
 
 
 def main(argv=None):

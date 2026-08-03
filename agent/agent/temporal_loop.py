@@ -8,7 +8,8 @@ store. The default path is torch-free.
 """
 from __future__ import annotations
 
-from typing import Callable, List, NamedTuple, Optional
+from collections.abc import Callable
+from typing import NamedTuple
 
 DERIVED_TAG = "__online_derived__"          # reserved tag marking the loop's own write-backs
 
@@ -32,7 +33,7 @@ class ChangeSource:
         self._sub = None
         self._seen = set()
 
-    def _event_from_pub(self, pub) -> Optional[ChangeEvent]:
+    def _event_from_pub(self, pub) -> ChangeEvent | None:
         action = pub.get("action")
         detail = pub.get("detail") or {}
         tags = detail.get("tags") or []
@@ -78,7 +79,7 @@ class ChangeSource:
             activity.get_log().unsubscribe(self._sub)
             self._sub = None
 
-    def poll(self, *, since=None, limit=200) -> List[ChangeEvent]:
+    def poll(self, *, since=None, limit=200) -> list[ChangeEvent]:
         from agent import activity
         pubs = activity.get_log().events(scope="network", since=since, limit=limit)
         out = []
@@ -106,8 +107,8 @@ class OnlineLoop:
 
     def __init__(self, store, *, navigator=None, learner=None, observe=None,
                  write_back=False, derived_suffix="::online"):
-        from rexgraph.graph import TemporalRex
         from rexgraph.flow.navigator import FieldNavigator
+        from rexgraph.graph import TemporalRex
         self.store = store
         self.navigator = navigator if navigator is not None else FieldNavigator()
         if learner is not None:
@@ -118,10 +119,10 @@ class OnlineLoop:
         self.write_back = bool(write_back)
         self.derived_suffix = derived_suffix
         self.trex = TemporalRex([])
-        self._history: List[StepResult] = []
+        self._history: list[StepResult] = []
         self._dropped = set()
 
-    def on_change(self, ev) -> Optional[StepResult]:
+    def on_change(self, ev) -> StepResult | None:
         from rexgraph.flow.navigator import changed_edges, removed_region_for
         if ev.action == "rcdb.delete":
             self._dropped.add(ev.id)
@@ -166,7 +167,7 @@ class OnlineLoop:
     def run_stream(self, source) -> None:
         source.start(self.on_change)
 
-    def history(self) -> List[StepResult]:
+    def history(self) -> list[StepResult]:
         return list(self._history)
 
     def save(self, path_prefix):
@@ -174,13 +175,14 @@ class OnlineLoop:
         the native field (phi) as two named tensors through the safetensors backend
         the rex-state pipeline uses. Returns (trex_path, field_path)."""
         import numpy as np
-        from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors
         from safetensors.numpy import save_file
+
+        from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors
         trex_path = str(path_prefix) + ".trex.safetensors"
         field_path = str(path_prefix) + ".field.safetensors"
         temporal_rex_to_safetensors(self.trex, trex_path)
         phi = getattr(self.learner, "phi", {})
-        keys = np.asarray(sorted(int(k) for k in phi.keys()), dtype=np.int64)
+        keys = np.asarray(sorted(int(k) for k in phi), dtype=np.int64)
         vals = np.asarray([float(phi[int(k)]) for k in keys.tolist()], dtype=np.float64)
         save_file({"field/keys": keys, "field/values": vals}, field_path)
         return trex_path, field_path
@@ -193,4 +195,4 @@ class OnlineLoop:
         keys = np.asarray(d["field/keys"], dtype=np.int64)
         vals = np.asarray(d["field/values"], dtype=np.float64)
         self.learner.phi = {int(k): float(v)
-                            for k, v in zip(keys.tolist(), vals.tolist())}
+                            for k, v in zip(keys.tolist(), vals.tolist(), strict=False)}

@@ -82,7 +82,7 @@ viz = [
     "flask>=2.0",
 ]
 
-# rexgraph.nn - the differentiable ML substrate (HodgeAdam, propagators, relational attention).
+# rexgraph.nn - the differentiable ML substrate (GreensCochain, propagators, relational attention).
 # Heavy: pulls torch. The numpy hodge_* core works without it.
 nn = [
     "torch>=2.0",
@@ -144,7 +144,18 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
-ignore = ["E501"]
+ignore = [
+    "E501",   # line length: enforced by review, not by the linter
+    "E701",   # `if x: return` and paired statements on one line, used throughout
+    "E702",   # `a.append(x); b.append(y)`, the same compact style
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares dependencies and request bodies as argument defaults, so the call in
+# the default is the framework's interface rather than the mutable-default bug B008 looks
+# for.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Body", "fastapi.File",
+                          "fastapi.Query", "fastapi.Header", "fastapi.Form"]
 
 # Type checking
 [tool.mypy]

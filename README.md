@@ -30,8 +30,8 @@ dispatches the same operators across CPU, OpenMP, CUDA, ROCm, and Apple MPS
 (size-gated, with multi-GPU column tiling, multi-core fan-out, and a CPU fallback),
 so the library runs unchanged on one core, thirty-two cores, an integrated GPU,
 or many GPUs. On top of this `rexgraph.nn` adds a differentiable substrate: the
-HodgeAdam optimizer, relational (propagator) attention, and Green-resolvent
-blocks, all autograd- and GPU-ready.
+GreensCochain optimizer (reached through `make_optimizer("auto")`), relational
+(propagator) attention, and Green-resolvent blocks, all autograd- and GPU-ready.
 
 The `agent` package is a full platform over the core: a FastAPI server and web
 UI, a multi-agent hive that orchestrates language models and custom workers as a
@@ -118,7 +118,7 @@ Core extras, from the repo root (e.g. `pip install ".[io]"`):
 | `io` | zarr, h5py, arrow/parquet, SQL loaders | light |
 | `viz` | dashboard (jinja2, flask) | light |
 | `all` | `io` + `viz` | light |
-| `nn` | torch ML substrate (HodgeAdam, propagators, relational attention) | heavy (torch) |
+| `nn` | torch ML substrate (GreensCochain, propagators, relational attention) | heavy (torch) |
 | `cuda` | GPU kernels (cupy) | heavy (CUDA toolkit) |
 | `dev` | test, lint, type-check, build backend | contributors |
 
@@ -336,7 +336,10 @@ heat = sp.heat_apply(rex.L1_sparse, flow, t=0.5, backend="cuda")
 import rexgraph.nn as rnn
 
 attn, name = rnn.build_attention(None, d=64, n_head=4)  # relational (propagator) attention
-opt = rnn.build_optimizer(attn.parameters(), method="hodge")  # HodgeAdam
+opt, label = rnn.make_optimizer("auto", attn, attn.parameters())
+# "auto" is the router: GreensCochain for a relational-native model whose parameters are
+# cochains on a complex, plain Adam for a standard feature-space model like this one.
+# HodgeAdam / HodgeSGD remain reachable by name (method="hodge"/"hodgesgd") as back-compat.
 dev = rnn.pick_device("auto")              # resolves through the compute backend
 ```
 

@@ -15,12 +15,12 @@ complexes + chunks + analysis) with chat.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
-
 
 # query complex
 
@@ -45,29 +45,25 @@ def build_query_rex(query: str, max_vocab: int = 200):
     return rex, ec
 
 
-def query_signature(rex, ec) -> Dict[str, Any]:
+def query_signature(rex, ec) -> dict[str, Any]:
     """Compact structural signature of the query complex."""
     labels = list(getattr(ec, "vertex_labels", []) or [])
-    sig: Dict[str, Any] = {
+    sig: dict[str, Any] = {
         "n_concepts": len(labels),
         "n_relations": int(getattr(ec, "nE", 0) or 0),
         "concepts": labels[:24],
     }
     if rex is not None:
-        try:
+        with contextlib.suppress(Exception):
             sig["betti"] = [int(b) for b in rex.betti]
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             sig["kappa_mean"] = round(float(np.asarray(rex.coherence).mean()), 4)
-        except Exception:
-            pass
     return sig
 
 
 # query <-> document relation
 
-def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> Dict[str, Any]:
+def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> dict[str, Any]:
     """Align the query's concepts against the document complex.
 
     Uses the compiled ``align_by_labels`` to find shared concepts, then
@@ -104,7 +100,7 @@ def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> Dict[str, Any]:
         except Exception:
             kvals = None
 
-    scored: List[Tuple[str, float]] = []
+    scored: list[tuple[str, float]] = []
     for k, label in enumerate(shared):
         kv = float(kvals[k]) if (kvals is not None and k < len(kvals)) else 0.0
         scored.append((label, round(kv, 4)))
@@ -137,11 +133,11 @@ def _env_int(name: str, default: int) -> int:
 SECTION_SENTENCES = _env_int("REXGRAPH_SECTION_SENTENCES", 6)
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     return [s.strip() for s in _SENT_SPLIT.split(text or "") if s.strip()]
 
 
-def _best_sentences(text: str, query_tokens: set, k: int = 2) -> List[str]:
+def _best_sentences(text: str, query_tokens: set, k: int = 2) -> list[str]:
     """Top-k sentences of ``text`` by overlap with the query tokens."""
     scored = []
     for sent in _split_sentences(text):
@@ -154,13 +150,13 @@ def _best_sentences(text: str, query_tokens: set, k: int = 2) -> List[str]:
 
 
 def retrieve_sections(query: str, top_k: int, *, corpus=None,
-                      doc_rex=None, doc_meta: Optional[dict] = None,
+                      doc_rex=None, doc_meta: dict | None = None,
                       query_ec=None,
-                      section_sentences: Optional[int] = None,
-                      store=None, prefix: str = "", candidates: Optional[int] = None,
+                      section_sentences: int | None = None,
+                      store=None, prefix: str = "", candidates: int | None = None,
                       as_of=None, valid_at=None, mode: str = "hybrid",
-                      temporal: Optional[str] = None,
-                      ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+                      temporal: str | None = None,
+                      ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Return (sections, relation).
 
     - With an RCStore: rank the persisted corpus (see `retrieve_from_store`).
@@ -239,7 +235,7 @@ STORE_CANDIDATES = _env_int("REXGRAPH_STORE_CANDIDATES", 24)
 _PREFILTER_SLACK = _env_int("REXGRAPH_PREFILTER_SLACK", 4)
 
 
-def _signature_affinity(sig: Dict[str, Any], q_tokens: set) -> float:
+def _signature_affinity(sig: dict[str, Any], q_tokens: set) -> float:
     """Cheap prefilter score from the stored signature alone.
 
     labels_sample is a sample, not the vocabulary, so this ORDERS candidates; it
@@ -268,10 +264,10 @@ class _StoreDoc:
 
 
 def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
-                        candidates: Optional[int] = None, as_of=None, valid_at=None,
-                        mode: str = "hybrid", temporal: Optional[str] = None,
-                        section_sentences: Optional[int] = None,
-                        ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+                        candidates: int | None = None, as_of=None, valid_at=None,
+                        mode: str = "hybrid", temporal: str | None = None,
+                        section_sentences: int | None = None,
+                        ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Rank a persisted corpus without holding it in memory.
 
     `as_of`/`valid_at` pass straight through to the store, so retrieval inherits the
@@ -365,8 +361,8 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
 
 
 def _single_doc_retrieve(query: str, top_k: int, *, doc_rex=None,
-                         doc_meta: Optional[dict] = None, query_ec=None,
-                         section_sentences: Optional[int] = None):
+                         doc_meta: dict | None = None, query_ec=None,
+                         section_sentences: int | None = None):
     doc_meta = doc_meta or {}
     relation = relate_query_to_doc(query_ec, doc_rex, doc_meta) if doc_rex is not None else {"concepts": []}
     concept_weight = {c["concept"].lower(): (c["doc_coherence"] + 0.1)
@@ -401,8 +397,8 @@ _SYSTEM_PREAMBLE = (
 )
 
 
-def _fallback_answer(query: str, doc_summary: str, sections: List[Dict],
-                     relation: Dict) -> str:
+def _fallback_answer(query: str, doc_summary: str, sections: list[dict],
+                     relation: dict) -> str:
     parts = []
     if doc_summary:
         parts.append(doc_summary)
@@ -425,8 +421,8 @@ def _fallback_answer(query: str, doc_summary: str, sections: List[Dict],
     return "\n".join(parts)
 
 
-def synthesize(query: str, doc_summary: str, sections: List[Dict],
-               relation: Dict) -> Tuple[str, bool, dict]:
+def synthesize(query: str, doc_summary: str, sections: list[dict],
+               relation: dict) -> tuple[str, bool, dict]:
     """Return (answer_text, model_used, token_metrics). token_metrics is the reply's
     perplexity/varentropy from the model's logprobs (empty for the structural fallback
     or backends without logprobs)."""
@@ -461,7 +457,7 @@ def synthesize(query: str, doc_summary: str, sections: List[Dict],
 
 # orchestration + cache
 
-def _cache_key(doc_meta: dict, query: str, top_k: int, corpus_id: str = "") -> Optional[str]:
+def _cache_key(doc_meta: dict, query: str, top_k: int, corpus_id: str = "") -> str | None:
     try:
         from agent import cache
         basis = (doc_meta or {}).get("source_text", "") or corpus_id
@@ -473,11 +469,11 @@ def _cache_key(doc_meta: dict, query: str, top_k: int, corpus_id: str = "") -> O
         return None
 
 
-def answer_query(doc_rex, query: str, results: Optional[dict] = None, *,
-                 corpus=None, doc_meta: Optional[dict] = None,
+def answer_query(doc_rex, query: str, results: dict | None = None, *,
+                 corpus=None, doc_meta: dict | None = None,
                  top_k: int = 5, use_cache: bool = True,
                  doc_summary: str = "",
-                 section_sentences: Optional[int] = None) -> Dict[str, Any]:
+                 section_sentences: int | None = None) -> dict[str, Any]:
     """End-to-end structural answer for a chat query.
 
     Builds the query complex, retrieves resonant sections from the
@@ -507,7 +503,7 @@ def answer_query(doc_rex, query: str, results: Optional[dict] = None, *,
 
     answer, model_used, token_metrics = synthesize(query, doc_summary, sections, relation)
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "answer": answer,
         "query_complex": q_sig,
         "sections": sections,

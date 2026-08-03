@@ -1,9 +1,7 @@
 """Tests for the pluggable secret storage."""
 
-import os
 
-from agent.secrets import (FileSecretStore, EnvSecretStore, mask_uri,
-                           open_secret_store)
+from agent.secrets import EnvSecretStore, FileSecretStore, mask_uri, open_secret_store
 
 
 def test_mask_hides_password():

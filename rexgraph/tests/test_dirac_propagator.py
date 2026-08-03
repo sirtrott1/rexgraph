@@ -6,14 +6,17 @@ AND branching edges, a face) so the arity-generality is exercised, not assumed.
 """
 
 import numpy as np
-import scipy.sparse as sp
 import pytest
+import scipy.sparse as sp
 
-from rexgraph.graph import RexGraph
-from rexgraph.dirac_propagator import (
-    SparseDirac, dirac_from_rex, dirac_light, dirac_heat,
-)
 from rexgraph.core import _dirac
+from rexgraph.dirac_propagator import (
+    SparseDirac,
+    dirac_from_rex,
+    dirac_heat,
+    dirac_light,
+)
+from rexgraph.graph import RexGraph
 
 
 def _mixed_complex():
@@ -64,7 +67,7 @@ def test_sparse_dirac_matches_dense_assembly():
     # grade sizes agree with the dense reference (nV, nE, nF), dropping empty top grade
     ref_sizes = [int(s) for s in sizes if int(s) > 0]
     assert list(sd.sizes) == ref_sizes[:len(sd.sizes)]
-    assert sd.N == D_dense.shape[0]
+    assert D_dense.shape[0] == sd.N
 
     D_sparse = sd.to_scipy().toarray()
     assert np.allclose(D_sparse, D_dense, atol=1e-12), \
@@ -126,9 +129,13 @@ def test_light_imaginary_part_crosses_grades():
     in-grade. This is the whole point of working in the Dirac vector space."""
     g = _mixed_complex()
     sd = dirac_from_rex(g)
-    # start with all amplitude on grade 0 (vertices)
+    # Start off-constant. A boundary column sums to zero, so B1^T annihilates the
+    # constant vector on grade 0 (level linking: zero column sums put 1 in ker L0).
+    # Seeding every vertex equally therefore transports nothing, and would test the
+    # kernel rather than the transport this is about. The constant case is asserted
+    # for what it is in test_the_constant_vector_is_annihilated below.
     psi0 = np.zeros(sd.N)
-    psi0[sd.grade_slice(0)] = 1.0
+    psi0[sd.grade_slice(0)] = np.array([1.0, -1.0, 0.0])
 
     re, im = sd.light(psi0, t=0.7, order=200)
     e_re = sd.grade_energy(re)
@@ -142,6 +149,23 @@ def test_light_imaginary_part_crosses_grades():
     assert e_h[0] > 1e-6
     if sd.n_grades > 1:
         assert e_h[1] < 1e-9, f"heat leaked across grades: {e_h}"
+
+
+def test_the_constant_vector_is_annihilated():
+    """The other side of the same fact. Every boundary column sums to zero, so
+    B1^T 1 = 0 and a uniform grade-0 seed has nowhere to go: the Dirac off-diagonal
+    block sends it to zero and no grade is crossed. This is the property that makes
+    beta_0 count components at all, and it holds at every arity because the share
+    1/(k-1) is what delivers the zero sum."""
+    g = _mixed_complex()
+    sd = dirac_from_rex(g)
+    B1 = np.asarray(g.B1, dtype=float)
+    assert np.allclose(B1.T @ np.ones(int(g.nV)), 0.0, atol=1e-12)
+
+    psi0 = np.zeros(sd.N)
+    psi0[sd.grade_slice(0)] = 1.0
+    _, im = sd.light(psi0, t=0.7, order=200)
+    assert sd.grade_energy(im)[1] < 1e-12, "a constant seed must not transport"
 
 
 def test_full_2rex_with_faces_matches_dense():
@@ -301,7 +325,7 @@ def test_graded_boundaries_property_is_used_when_present():
 
     used = _boundaries_from_rex(_Wrap())
     assert len(used) == len(fallback)
-    for a, b in zip(used, fallback):
+    for a, b in zip(used, fallback, strict=False):
         assert (a != b).nnz == 0                    # identical boundary maps
     sd = SparseDirac(used)
     assert list(sd.sizes) == [4, 6, 4]
@@ -312,6 +336,7 @@ def test_deprecated_heat_diag_warns_but_still_correct():
     DeprecationWarning yet still returns the correct diag(e^{-tL}) numbers (checked
     against the dense matrix exponential) so existing callers do not crash."""
     from scipy.linalg import expm
+
     from rexgraph import _experimental as _exp
 
     rng = np.random.default_rng(5)

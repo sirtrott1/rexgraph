@@ -37,6 +37,7 @@ Usage:
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import logging
 import os
@@ -44,9 +45,10 @@ import re
 import shutil
 import tempfile
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +114,7 @@ class OCRBatchResult:
         Wall-clock time for the entire batch.
     """
 
-    pages: List[OCRResult] = field(default_factory=list)
+    pages: list[OCRResult] = field(default_factory=list)
     source: str = ""
     total_tokens: int = 0
     total_elapsed: float = 0.0
@@ -132,7 +134,7 @@ class OCRBatchResult:
 
 
 # Utilities
-def _encode_image(image_path: str) -> Dict[str, Any]:
+def _encode_image(image_path: str) -> dict[str, Any]:
     """Encode an image file as a base64 data-URL content block."""
     ext = os.path.splitext(image_path)[1].lower()
     mime_map = {
@@ -172,7 +174,7 @@ def _pdf_to_images_worker(pdf_path: str, out_dir: str, dpi: int) -> int:
     return n
 
 
-def _pdf_to_images(pdf_path: str, dpi: int = 300) -> List[str]:
+def _pdf_to_images(pdf_path: str, dpi: int = 300) -> list[str]:
     """Convert each PDF page to a PNG image.
 
     Requires PyMuPDF (``fitz``).  Returns a list of temporary
@@ -195,7 +197,8 @@ def _pdf_to_images(pdf_path: str, dpi: int = 300) -> List[str]:
 
     try:
         import multiprocessing
-        from concurrent.futures import ProcessPoolExecutor, TimeoutError as FuturesTimeout
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures import TimeoutError as FuturesTimeout
         # Use spawn (not fork) so the child doesn't inherit torch/CUDA state
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as pool:
@@ -211,7 +214,7 @@ def _pdf_to_images(pdf_path: str, dpi: int = 300) -> List[str]:
         if not existing:
             _cleanup_pdf_temp(tmp_dir)
             raise RuntimeError(
-                "PDF conversion failed (subprocess): %s" % e
+                f"PDF conversion failed (subprocess): {e}"
             )
         n_pages = len(existing)
 
@@ -227,13 +230,11 @@ def _cleanup_pdf_temp(tmp_dir: str):
     """Remove a temporary directory created by _pdf_to_images."""
     if tmp_dir and os.path.isdir(tmp_dir):
         import shutil
-        try:
+        with contextlib.suppress(OSError):
             shutil.rmtree(tmp_dir)
-        except OSError:
-            pass
 
 
-def _collect_images_from_dir(directory: str) -> List[str]:
+def _collect_images_from_dir(directory: str) -> list[str]:
     """Collect all image files from a directory, sorted by name."""
     paths = []
     for root, _, files in os.walk(directory):
@@ -359,8 +360,8 @@ class UnlimitedOCRClient:
     def ocr_image(
         self,
         image_path: str,
-        prompt: Optional[str] = None,
-        image_mode: Optional[str] = None,
+        prompt: str | None = None,
+        image_mode: str | None = None,
     ) -> OCRResult:
         """Run OCR on a single image.
 
@@ -405,7 +406,7 @@ class UnlimitedOCRClient:
     def ocr_images(
         self,
         image_paths: Sequence[str],
-        prompt: Optional[str] = None,
+        prompt: str | None = None,
     ) -> OCRBatchResult:
         """Run OCR on multiple images as a single multi-page request.
 
@@ -452,7 +453,7 @@ class UnlimitedOCRClient:
         self,
         pdf_path: str,
         dpi: int = 300,
-        prompt: Optional[str] = None,
+        prompt: str | None = None,
     ) -> OCRBatchResult:
         """Run OCR on a PDF document.
 
@@ -484,7 +485,7 @@ class UnlimitedOCRClient:
     def ocr_directory(
         self,
         directory: str,
-        prompt: Optional[str] = None,
+        prompt: str | None = None,
     ) -> OCRBatchResult:
         """Run OCR on all images in a directory.
 
@@ -507,12 +508,12 @@ class UnlimitedOCRClient:
     # Internals
     def _build_payload(
         self,
-        content: List[Dict],
+        content: list[dict],
         image_mode: str,
         ngram_window: int,
-    ) -> Dict:
+    ) -> dict:
         """Build the request payload."""
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": content}],
             "temperature": DEFAULT_TEMPERATURE,
@@ -541,9 +542,9 @@ class UnlimitedOCRClient:
     def _send_request(
         self,
         requests_mod,
-        payload: Dict,
+        payload: dict,
         source_label: str,
-    ) -> Tuple[str, int]:
+    ) -> tuple[str, int]:
         """Send the request with retries and collect the streamed response."""
         for attempt in range(self.max_retries):
             try:
@@ -575,9 +576,9 @@ class UnlimitedOCRClient:
         return "", 0
 
     @staticmethod
-    def _collect_stream(resp) -> Tuple[str, int]:
+    def _collect_stream(resp) -> tuple[str, int]:
         """Collect a streaming response into text and token count."""
-        chunks: List[str] = []
+        chunks: list[str] = []
         token_count = 0
         for raw_line in resp.iter_lines():
             if not raw_line:
@@ -610,7 +611,7 @@ class UnlimitedOCRClient:
     def _split_pages(
         text: str,
         image_paths: Sequence[str],
-    ) -> List[OCRResult]:
+    ) -> list[OCRResult]:
         """Heuristically split multi-page output into per-page results."""
         # Try splitting on page-break markers the model may emit
         page_pattern = re.compile(
@@ -624,7 +625,7 @@ class UnlimitedOCRClient:
         # Filter empty parts
         parts = [p.strip() for p in parts if p.strip()]
 
-        results: List[OCRResult] = []
+        results: list[OCRResult] = []
         for i, img in enumerate(image_paths):
             page_text = parts[i] if i < len(parts) else ""
             results.append(OCRResult(
@@ -776,9 +777,9 @@ class PaddleOCRClient:
     def is_available(self) -> bool:
         """Check whether PaddleOCR can actually initialize (not just import)."""
         try:
-            import paddleocr  # noqa: F401
             # Also verify paddle itself works (catches circular import issues)
             import paddle
+            import paddleocr  # noqa: F401
             _ = paddle.tensor
             return True
         except Exception:
@@ -920,8 +921,8 @@ class GOTOCRClient:
         cached = self._model_cached()
         if not cached:
             raise RuntimeError(
-                "GOT-OCR2.0 model '%s' is not downloaded. "
-                "Run: make install-got-ocr" % self.model_name
+                f"GOT-OCR2.0 model '{self.model_name}' is not downloaded. "
+                "Run: make install-got-ocr"
             )
 
         self._processor = AutoProcessor.from_pretrained(
@@ -960,8 +961,8 @@ class GOTOCRClient:
         fallback backend.
         """
         try:
-            import torch  # noqa: F401
             import accelerate  # noqa: F401
+            import torch  # noqa: F401
             from transformers import GotOcr2ForConditionalGeneration  # noqa
             return self._model_cached()
         except (ImportError, Exception):
@@ -1057,7 +1058,7 @@ class MistralOCRClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         model: str = "mistral-ocr-latest",
     ):
         self.api_key = api_key or os.environ.get("MISTRAL_API_KEY", "")
@@ -1207,7 +1208,7 @@ class MistralOCRClient:
         return "\n\n".join(parts)
 
     @staticmethod
-    def _extract_pages(response, source: str) -> List[OCRResult]:
+    def _extract_pages(response, source: str) -> list[OCRResult]:
         """Extract per-page results from a Mistral OCR response."""
         if not response or not hasattr(response, "pages"):
             return []
@@ -1253,11 +1254,11 @@ def _try_backend(name, server_url=None, mistral_api_key=None, **kwargs):
 
 
 def create_ocr_client(
-    server_url: Optional[str] = None,
-    mistral_api_key: Optional[str] = None,
-    prefer: Optional[str] = None,
+    server_url: str | None = None,
+    mistral_api_key: str | None = None,
+    prefer: str | None = None,
     **kwargs,
-) -> Union[UnlimitedOCRClient, PaddleOCRClient, MistralOCRClient, GOTOCRClient, OfflineOCRClient]:
+) -> UnlimitedOCRClient | PaddleOCRClient | MistralOCRClient | GOTOCRClient | OfflineOCRClient:
     """Create the best available OCR client.
 
     Default priority (override with ``prefer`` or REXGRAPH_OCR_PRIORITY env var):

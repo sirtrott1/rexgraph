@@ -14,7 +14,6 @@ Uses compiled kernels:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 import numpy as np
 
@@ -30,24 +29,24 @@ class Chunk:
     char_end: int
     sentence_start: int
     sentence_end: int
-    edge_indices: List[int] = field(default_factory=list)
+    edge_indices: list[int] = field(default_factory=list)
     n_edges: int = 0
     kappa: float = 0.0
     hodge_gradient: float = 0.0
     hodge_curl: float = 0.0
     hodge_harmonic: float = 0.0
     dominant_channel: str = ""
-    chi_mean: Optional[List[float]] = None
+    chi_mean: list[float] | None = None
 
 
 def hodge_chunk(
     rex,
-    edge_spans: List[EdgeSpan],
-    sentence_spans: List[SentenceSpan],
+    edge_spans: list[EdgeSpan],
+    sentence_spans: list[SentenceSpan],
     source_text: str,
     min_chunk_chars: int = 200,
     max_chunk_chars: int = 2000,
-) -> List[Chunk]:
+) -> list[Chunk]:
     """Split text into chunks at Hodge gradient peaks.
 
     The gradient component of the Hodge decomposition measures

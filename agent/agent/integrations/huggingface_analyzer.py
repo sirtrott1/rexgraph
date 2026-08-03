@@ -24,7 +24,7 @@ Requirements: pip install rexgraph[huggingface]
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+import contextlib
 
 import numpy as np
 
@@ -97,14 +97,15 @@ def measure_equiweight(D: np.ndarray, nV: int, nE: int, nF: int) -> dict:
 
     Returns per-mode even/odd fractions. Non-harmonic modes should be 0.5.
     """
-    dim = nV + nE + nF
-    gamma = np.ones(dim)
-    gamma[nV:nV + nE] = -1.0
-    Gamma = np.diag(gamma)
+    from rexgraph.dirac_propagator import equiweight_residual, graded_grading
 
-    # ΓD + DΓ is the chiral-grading anticommutator - a structural identity (≈0), not a
-    # measured threshold.
-    anticomm_norm = float(np.linalg.norm(Gamma @ D + D @ Gamma))
+    dim = nV + nE + nF
+    gamma = graded_grading((nV, nE, nF))
+
+    # ΓD + DΓ is the chiral-grading anticommutator: identically 0 on a real complex, so
+    # the number is only meaningful here, on an operator built from attention that has no
+    # obligation to be a graded Dirac. The residual is its distance from being one.
+    anticomm_norm = equiweight_residual(D, (nV, nE, nF), ord="fro")
 
     # Non-harmonic mode count is the EXACT integer dim - dim ker(D) = dim - nullity(D),
     # via rank (no eigenvalue-magnitude threshold).
@@ -119,9 +120,10 @@ def measure_equiweight(D: np.ndarray, nV: int, nE: int, nF: int) -> dict:
         evals, evecs = np.linalg.eigh(D)
         # the null space has dimension n_harmonic - skip exactly that many smallest-|λ|
         nonharm_idx = np.argsort(np.abs(evals))[n_harmonic:]
+        even_mask = gamma > 0                      # the +1 grades: vertices and faces
         for j in nonharm_idx:
             v = evecs[:, j]
-            even = float(np.sum(v[:nV] ** 2) + np.sum(v[nV + nE:] ** 2))
+            even = float(np.sum(v[even_mask] ** 2))
             deviations.append(abs(even - 0.5))
 
     return {
@@ -139,7 +141,7 @@ def analyze_transformer(
     device: str = "cpu",
     max_layers: int = -1,
     attention_threshold: float = 0.05,
-) -> Dict:
+) -> dict:
     """Analyze a HuggingFace transformer for RCF axiom compliance.
 
     Runs inference, captures attention patterns at each layer,
@@ -293,9 +295,9 @@ def analyze_transformer(
 
 def quick_attention_analysis(
     attention_matrix: np.ndarray,
-    token_labels: Optional[List[str]] = None,
+    token_labels: list[str] | None = None,
     threshold: float = 0.05,
-) -> Dict:
+) -> dict:
     """Analyze a single attention matrix without loading a model.
 
     For users who already have attention weights extracted.
@@ -330,10 +332,8 @@ def quick_attention_analysis(
         except Exception:
             pass
 
-        try:
+        with contextlib.suppress(Exception):
             result["kappa_mean"] = round(float(rex.coherence.mean()), 4)
-        except Exception:
-            pass
 
         try:
             flow = np.ones(rex.nE, dtype=np.float64)

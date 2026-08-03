@@ -8,7 +8,9 @@ a set of @cached_property accesses on the RexGraph.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+import contextlib
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -53,7 +55,7 @@ def _sparse_L0(rex):
     return None
 
 
-def _smallest_eigenvalues_L0(rex, k: int = 20) -> Optional[np.ndarray]:
+def _smallest_eigenvalues_L0(rex, k: int = 20) -> np.ndarray | None:
     """Return the k smallest eigenvalues of the graph Laplacian L0 (0, then the
     Fiedler value, ...), computed with a SPARSE truncated solver on a sparse L0.
 
@@ -101,8 +103,8 @@ def _strain_equilibrium_sparse(rex, kappa_f, born_face):
     operators, O(nnz), scale-free. Mirrors `_rcfe.strain_equilibrium`:
       alpha = <B2 κ, B2 pF> / ||B2 pF||²,  δ = face_deficit(κ, alpha, pF),
       σ = B2 δ  (relational strain),  Bianchi: B1 σ = 0."""
-    from rexgraph.core._sparse import to_scipy_csr
     from rexgraph.core._rcfe import face_deficit
+    from rexgraph.core._sparse import to_scipy_csr
     nF = int(rex.nF_hodge)
     kappa_f = np.asarray(kappa_f, dtype=np.float64)
     born_face = np.asarray(born_face, dtype=np.float64)
@@ -172,16 +174,16 @@ class AnalysisPipeline:
 
     def __init__(self, rex):
         self.rex = rex
-        self.results: Dict[str, Any] = {}
-        self.callbacks: List[Callable] = []
+        self.results: dict[str, Any] = {}
+        self.callbacks: list[Callable] = []
         self.current_stage = ""
-        self.completed_stages: List[str] = []
+        self.completed_stages: list[str] = []
 
     def on_stage(self, callback: Callable[[str, dict], None]):
         """Register a callback for progressive stage reporting."""
         self.callbacks.append(callback)
 
-    def run(self, depth: str = "standard") -> Dict[str, Any]:
+    def run(self, depth: str = "standard") -> dict[str, Any]:
         """Run the pipeline to the specified depth.
 
         Parameters
@@ -267,10 +269,8 @@ class AnalysisPipeline:
 
     def _emit(self, stage_name: str, data: dict):
         for cb in self.callbacks:
-            try:
+            with contextlib.suppress(Exception):
                 cb(stage_name, data)
-            except Exception:
-                pass
 
     # Stage implementations
 
@@ -915,12 +915,12 @@ class AnalysisPipeline:
         # ε₁: chain condition (should be 0 for a valid complex)
         result["eps1_chain"] = 0.0 if rex.chain_valid else 1.0
 
-        # ε₃: equiweight ‖ΓD + DΓ‖ ≡ 0 by construction, EXACTLY - no dense Dirac.
-        # The Dirac D connects only consecutive grades and the chiral grading
-        # Γ = diag(+1 vertices, -1 edges, +1 faces) flips sign across each grade, so
-        # every block (γ_i + γ_j)·D_ij vanishes (γ_i = -γ_j on D's support). It is a
-        # structural identity (verified 0.0 on K4/faces/two-squares).
-        result["eps3_equiweight"] = 0.0
+        # ε₃: equiweight ‖ΓD + DΓ‖. The derived axiom, read from the complex rather
+        # than asserted here: RexGraph.equiweight_residual settles it from D's block
+        # structure, so it costs nothing and no dense Dirac is formed. See
+        # rexgraph.dirac_propagator.equiweight_residual for the version that takes a
+        # foreign operator, where the residual is a distance from being a graded Dirac.
+        result["eps3_equiweight"] = float(rex.equiweight_residual)
 
         return result
 
@@ -1024,6 +1024,7 @@ class AnalysisPipeline:
         #    equal enforcement.
         #
         # Both satisfy B1*sigma = 0 (Bianchi identity).
+        se_curv = None
         try:
             nF = rex.nF_hodge
 
@@ -1090,14 +1091,9 @@ class AnalysisPipeline:
         except Exception as e:
             result["equilibrium_error"] = str(e)
 
-        # Per-edge strain from curvature-only equilibrium
+        # Per-edge strain, read off the curvature-only equilibrium solved above
         try:
-            born_zero_2 = np.zeros(rex.nF_hodge, dtype=np.float64)
-            se_primary = _se(
-                B1_d, B2_h, kappa_f,
-                born_zero_2, rex.nV, rex.nE, rex.nF_hodge,
-            )
-            sigma = se_primary.get("sigma")
+            sigma = se_curv.get("sigma") if se_curv is not None else None
             if sigma is not None:
                 result["sigma_per_edge"] = [
                     round(float(s), 6) for s in sigma
@@ -1121,7 +1117,7 @@ class AnalysisPipeline:
                 except Exception:
                     pass
 
-            delta = se_primary.get("delta")
+            delta = se_curv.get("delta") if se_curv is not None else None
             if delta is not None:
                 result["delta_per_face"] = [
                     round(float(d), 6) for d in delta

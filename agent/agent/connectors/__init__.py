@@ -24,7 +24,8 @@ auditable on its own and every paid integration a known, testable quantity.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..interfaces import Capabilities, Connector
 from .build import faces_to_csc, to_rexgraph
@@ -103,7 +104,7 @@ class BaseConnector:
     def capabilities(self) -> Capabilities:
         return self.CAPABILITIES
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:  # pragma: no cover
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:  # pragma: no cover
         raise NotImplementedError(
             "A connector must implement read(source) -> (rex, meta). "
             "See agent.connectors.template for a worked skeleton."
@@ -115,13 +116,13 @@ class BaseConnector:
         rex: Any,
         *,
         vertex_labels: Sequence[str],
-        edges: Sequence[Tuple[str, str]],
+        edges: Sequence[tuple[str, str]],
         source: str,
-        weights: Optional[Sequence[float]] = None,
-        modality: Optional[Sequence[Dict[str, Any]]] = None,
+        weights: Sequence[float] | None = None,
+        modality: Sequence[dict[str, Any]] | None = None,
         faces: Any = None,
-        extra: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[Any, Dict[str, Any]]:
+        extra: dict[str, Any] | None = None,
+    ) -> tuple[Any, dict[str, Any]]:
         """Assemble the standard ``(rex, meta)`` return value, enforcing the
         contract's length invariants so a malformed connector fails loudly at
         the source rather than deep in the engine.
@@ -139,7 +140,7 @@ class BaseConnector:
         for e in edge_pairs:
             if len(e) != 2:
                 raise ConnectorError(f"edge {e!r} is not a (src, dst) pair")
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "vertex_labels": labels,
             "edges": edge_pairs,
             "source": str(source),

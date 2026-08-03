@@ -32,6 +32,7 @@ _f64 = np.float64
 # via the REXGRAPH_GPU_MIN_WORK env var. The RESULT is identical either way - this is a
 # pure performance gate, never a correctness one.
 import os as _os
+
 _GPU_MIN_WORK = int(_os.environ.get("REXGRAPH_GPU_MIN_WORK", 1 << 22))
 
 
@@ -154,6 +155,7 @@ def _torch_csr(R, device):
     GPU kernel (single- and multi-device) so the operator construction lives in one place;
     the tensor is identical on whatever device it is placed."""
     import warnings
+
     import torch
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")                   # torch sparse-CSR beta notice
@@ -390,6 +392,7 @@ def greens_diagonal_deflated(L, H, tol=1e-10, chunk=512):
     cycle space (rexgraph.harmonic_sparse.harmonic_basis / cycle_basis). The full-rank
     SPD RL4 needs no deflation and uses greens_diagonal directly."""
     import scipy.sparse as sp
+
     from rexgraph.sparse_character import _block_cg
     L = _csr(L)
     n = L.shape[0]

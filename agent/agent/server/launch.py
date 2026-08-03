@@ -15,7 +15,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +70,7 @@ def _enforce_bind_safety(host: str) -> None:
     except Exception:
         pass
     raise RuntimeError(
-        "Refusing to bind host %r with authentication DISABLED - this would "
+        f"Refusing to bind host {host!r} with authentication DISABLED - this would "
         "expose an unauthenticated admin API to the network.\n"
         "  Fix one of:\n"
         "    * enable auth:   rexgraph-auth enable   (create a token first: "
@@ -79,7 +78,6 @@ def _enforce_bind_safety(host: str) -> None:
         "    * bind local:    RCF_HOST=127.0.0.1     (the default)\n"
         "    * override:      RCF_ALLOW_INSECURE=1   (only if auth is enforced "
         "upstream, e.g. a reverse proxy, or the port is firewalled)"
-        % host
     )
 
 
@@ -106,7 +104,7 @@ def _secure_by_default() -> None:
     if raw and not supplied:
         print("\n  Authentication is enabled (secure default for a fresh server).")
         print("  Admin token, shown once, save it now:")
-        print("    %s" % raw)
+        print(f"    {raw}")
         print("  Store it:  rexgraph-auth login --url <url> --token <token>")
         print("  Prefer open local dev? start with RCF_ALLOW_INSECURE=1\n")
 
@@ -162,8 +160,8 @@ def _open_browser(url: str) -> None:
         pass  # best-effort; never crash the server for it
 
 
-def resolve_tls(https: bool = False, ssl_cert: Optional[str] = None,
-                ssl_key: Optional[str] = None) -> Tuple[Dict[str, str], str]:
+def resolve_tls(https: bool = False, ssl_cert: str | None = None,
+                ssl_key: str | None = None) -> tuple[dict[str, str], str]:
     """Resolve uvicorn SSL kwargs via the built-in TLS adapters.
 
     One precedence, shared by both launchers:
@@ -175,7 +173,7 @@ def resolve_tls(https: bool = False, ssl_cert: Optional[str] = None,
 
     Returns ``(ssl_kwargs, scheme)`` where scheme is "http" or "https".
     """
-    from .security import get_https_config, generate_self_signed_cert
+    from .security import generate_self_signed_cert, get_https_config
 
     if ssl_cert and ssl_key:
         return {"ssl_certfile": ssl_cert, "ssl_keyfile": ssl_key}, "https"
@@ -201,10 +199,10 @@ def resolve_tls(https: bool = False, ssl_cert: Optional[str] = None,
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000, *, reload: bool = False,
-          https: bool = False, ssl_cert: Optional[str] = None,
-          ssl_key: Optional[str] = None, workers: Optional[int] = None,
+          https: bool = False, ssl_cert: str | None = None,
+          ssl_key: str | None = None, workers: int | None = None,
           open_browser: bool = False,
-          forwarded_allow_ips: Optional[str] = None) -> None:
+          forwarded_allow_ips: str | None = None) -> None:
     """Start the FastAPI app over uvicorn. The single launch path."""
     try:
         import uvicorn

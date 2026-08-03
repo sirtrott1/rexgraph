@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List
 
 import numpy as np
 
@@ -46,7 +45,7 @@ class HallucinationReport:
     chi_divergence: float = 0.0
     hodge_divergence: tuple = (0.0, 0.0, 0.0)
     new_voids: int = 0
-    flagged_claims: List[FlaggedClaim] = field(default_factory=list)
+    flagged_claims: list[FlaggedClaim] = field(default_factory=list)
     overall_score: float = 0.0    # 0 = trustworthy, 1 = hallucinated
 
     @property
@@ -71,7 +70,7 @@ class HallucinationReport:
 def detect_hallucinations(
     source_rex,
     response_text: str,
-    source_labels: List[str],
+    source_labels: list[str],
     threshold: float = 0.3,
 ) -> HallucinationReport:
     """Compare a model response against the source document.
@@ -106,9 +105,9 @@ def detect_hallucinations(
     try:
         from rexgraph.core._cross_complex import (
             align_by_labels,
+            cross_complex_bridge,
             cross_complex_kappa,
             cross_complex_void_fraction,
-            cross_complex_bridge,
         )
 
         shared, idx_a, idx_b = align_by_labels(source_labels, resp_labels)
@@ -239,7 +238,7 @@ def _flag_claims(
         try:
             src_edges = np.array([getattr(f, "_src_edge", 0) for f in flags], dtype=int)
             r_eff = source_rex._effective_resistance_batch(src_edges)
-            for f, r in zip(flags, r_eff):
+            for f, r in zip(flags, r_eff, strict=False):
                 f.criticality = round(float(r), 4)
                 f.severity = round(min(1.0, f.severity * float(r)), 4)  # resistance-weighted
         except Exception:
@@ -261,7 +260,7 @@ def iterative_rechunk(chunks, report, source_rex, edge_spans, text, max_iters=2)
 
     adjusted = list(chunks)
 
-    for iteration in range(max_iters):
+    for _iteration in range(max_iters):
         changes = 0
 
         for i, chunk in enumerate(adjusted):

@@ -99,7 +99,7 @@ for _mod_name in _MODULES:
 
 __all__ = []
 del _importlib, _warnings, _mod_name, _MODULES
-try:
+try:                       # bound only if the loop above ran and/or raised
     del _mod, _names, _e
 except NameError:
     pass

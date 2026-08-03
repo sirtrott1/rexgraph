@@ -6,7 +6,6 @@ import sys
 import types
 
 import pytest
-
 from agent.server import launch
 
 

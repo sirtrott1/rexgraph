@@ -11,11 +11,10 @@ condition) instead of being hand-rolled in the caller. The property under test i
 unchanged: a truncated-basis graph must return a finite score, not a SIGSEGV.
 """
 import numpy as np
-import pytest
-
-from rexgraph.graph import RexGraph
 from agent.corpus import CorpusBuilder
 from agent.pipeline_runner import _context_quality_gate
+
+from rexgraph.graph import RexGraph
 
 
 def _connected_graph(nV, extra_edges=0, seed=0):
@@ -80,21 +79,27 @@ def test_corpus_score_document_large_graph_does_not_segfault():
 
 
 def test_quality_gate_large_graph_is_permissive_not_crash():
-    """The pipeline quality gate skips (returns True) on a truncated-basis graph
-    rather than feeding it to the dense response-operator kernel."""
+    """The gate skips on a truncated-basis graph rather than feeding it to the dense
+    response-operator kernel. Skipping measures nothing, so it cannot refuse."""
+    from agent.pipeline_runner import GATE_OK
+
     rex = _connected_graph(2500, extra_edges=1500)
     labels = _labels(rex.nV)
-    ok = _context_quality_gate(rex, labels, "w0 w1 w2 w3 topic")
-    assert ok is True
+    g = _context_quality_gate(rex, labels, "w0 w1 w2 w3 topic")
+    assert g["verdict"] == GATE_OK
+    assert any("truncated" in r for r in g["reasons"])
 
 
 def test_quality_gate_small_graph_runs_dense_path():
-    """On a small graph (full basis) the gate runs the real dense kernels and
-    returns a bool without error."""
+    """On a small graph the full basis is available, so the dense kernels run and
+    produce a channel score."""
+    from agent.pipeline_runner import GATE_OK, GATE_WARN
+
     rex = _connected_graph(40, extra_edges=30)
     labels = _labels(rex.nV)
-    ok = _context_quality_gate(rex, labels, "w0 w1 w2 w3 w4 topic")
-    assert isinstance(ok, bool)
+    g = _context_quality_gate(rex, labels, "w0 w1 w2 w3 w4 topic")
+    assert g["verdict"] in (GATE_OK, GATE_WARN)
+    assert g["score"] is not None
 
 
 def test_lsqr_matches_dense_edge_signal_on_small_graph():

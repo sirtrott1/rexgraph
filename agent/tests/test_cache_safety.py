@@ -8,9 +8,6 @@ predict. It also had no format version, so a schema change would deserialize sta
 entries into new code rather than miss them, and nothing ever evicted anything.
 """
 
-import json
-import os
-from pathlib import Path
 
 import numpy as np
 import pytest

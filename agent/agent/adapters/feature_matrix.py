@@ -12,8 +12,6 @@ columns are measurements.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
-
 import numpy as np
 from numpy.typing import NDArray
 
@@ -155,7 +153,7 @@ def _kmeans(X: NDArray, k: int, max_iter: int = 50) -> NDArray:
     return labels
 
 
-def _detect_column_families(names: List[str]) -> Optional[NDArray]:
+def _detect_column_families(names: list[str]) -> NDArray | None:
     """Try to detect feature families from column name prefixes.
 
     Looks for common naming patterns:
@@ -203,7 +201,7 @@ class FeatureMatrixAdapter(DomainAdapter):
     def build(
         self,
         X: NDArray,
-        feature_names: Optional[List[str]] = None,
+        feature_names: list[str] | None = None,
         threshold: str | float = "auto",
         typing: str = "auto",
         sign: str = "correlation",
@@ -258,10 +256,7 @@ class FeatureMatrixAdapter(DomainAdapter):
         R = _compute_correlation(X)
 
         # Threshold
-        if threshold == "auto":
-            threshold_val = _auto_threshold(R)
-        else:
-            threshold_val = float(threshold)
+        threshold_val = _auto_threshold(R) if threshold == "auto" else float(threshold)
 
         # Build edges from thresholded correlations. Vectorized over the upper
         # triangle (was an O(n_features²) Python double loop) - identical result,
@@ -309,13 +304,13 @@ class FeatureMatrixAdapter(DomainAdapter):
     def _assign_types(
         self,
         typing: str,
-        feature_names: List[str],
+        feature_names: list[str],
         R: NDArray,
         n_features: int,
         sources: NDArray,
         targets: NDArray,
         n_clusters,
-    ) -> Tuple[NDArray, List[str]]:
+    ) -> tuple[NDArray, list[str]]:
         """Assign edge types based on the chosen strategy."""
 
         # Get vertex-level type labels

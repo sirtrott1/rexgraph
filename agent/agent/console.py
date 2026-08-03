@@ -12,7 +12,7 @@ governor: nothing destructive or outward-facing happens without an explicit conf
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class CommandConsole:
@@ -26,7 +26,7 @@ class CommandConsole:
         self.reactive = reactive
         self.foundry = foundry
 
-    def command(self, text: str, *, scope: str = "hive", confirm: bool = False) -> Dict[str, Any]:
+    def command(self, text: str, *, scope: str = "hive", confirm: bool = False) -> dict[str, Any]:
         verb, _, arg = (text or "").strip().partition(" ")
         handler = getattr(self, "_cmd_" + verb.lower(), None)
         if handler is None:
@@ -36,10 +36,10 @@ class CommandConsole:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    def _verbs(self) -> List[str]:
+    def _verbs(self) -> list[str]:
         return sorted(n[5:] for n in dir(self) if n.startswith("_cmd_"))
 
-    def _scope_target(self, scope: str) -> Optional[str]:
+    def _scope_target(self, scope: str) -> str | None:
         if scope and (scope.startswith("worker:") or scope.startswith("team:")):
             return scope.split(":", 1)[1]
         return None

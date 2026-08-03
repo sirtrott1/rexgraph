@@ -5,8 +5,8 @@ void type composition.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph.core import _faces
+from rexgraph.graph import RexGraph
 
 
 @pytest.fixture

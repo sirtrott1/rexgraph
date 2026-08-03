@@ -5,8 +5,8 @@ quotient filtration.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph.core import _fiber, _quotient
+from rexgraph.graph import RexGraph
 
 
 @pytest.fixture

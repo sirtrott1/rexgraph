@@ -14,7 +14,6 @@ import pytest
 
 from rexgraph.graph import RexGraph
 
-
 # Fixtures
 
 @pytest.fixture
@@ -115,7 +114,7 @@ class TestVertexFaceCount:
 class TestExtraction:
 
     def test_k4_face_count(self, k4):
-        from rexgraph.core._faces import extract_faces, classify_faces
+        from rexgraph.core._faces import classify_faces, extract_faces
         fc = classify_faces(k4._B2_dual, k4._sources, k4._targets)
         vn = [f"v{i}" for i in range(k4.nV)]
         en = [f"e{i}" for i in range(k4.nE)]
@@ -124,7 +123,7 @@ class TestExtraction:
         assert len(faces) == 4
 
     def test_face_has_required_keys(self, k4):
-        from rexgraph.core._faces import extract_faces, classify_faces
+        from rexgraph.core._faces import classify_faces, extract_faces
         fc = classify_faces(k4._B2_dual, k4._sources, k4._targets)
         vn = [f"v{i}" for i in range(k4.nV)]
         en = [f"e{i}" for i in range(k4.nE)]
@@ -138,7 +137,7 @@ class TestExtraction:
             assert 'is_self_loop' in f
 
     def test_triangle_face_size(self, filled_triangle):
-        from rexgraph.core._faces import extract_faces, classify_faces
+        from rexgraph.core._faces import classify_faces, extract_faces
         fc = classify_faces(filled_triangle._B2_dual,
                           filled_triangle._sources, filled_triangle._targets)
         vn = [f"v{i}" for i in range(filled_triangle.nV)]
@@ -149,7 +148,7 @@ class TestExtraction:
         assert faces[0]['size'] == 3  # triangle has 3 boundary edges
 
     def test_k4_no_self_loops(self, k4):
-        from rexgraph.core._faces import extract_faces, classify_faces
+        from rexgraph.core._faces import classify_faces, extract_faces
         fc = classify_faces(k4._B2_dual, k4._sources, k4._targets)
         vn = [f"v{i}" for i in range(k4.nV)]
         en = [f"e{i}" for i in range(k4.nE)]

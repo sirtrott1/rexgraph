@@ -7,9 +7,10 @@ import numpy as np
 
 
 def train_one(spec: dict) -> dict:
+    import torch
+
     from ..models import run as models_run
     from ..models.data import DataBundle, make_splits
-    import torch
     b = DataBundle("hypergraph",
                    torch.as_tensor(np.asarray(spec["X"], np.float32)),
                    torch.as_tensor(np.asarray(spec["y"], np.int64)),
@@ -20,7 +21,7 @@ def train_one(spec: dict) -> dict:
     b.splits = make_splits(int(np.asarray(spec["y"]).shape[0]), seed=int(spec.get("seed", 0)))
     try:
         res = models_run(spec["archetype"], params=spec.get("params"), data=b,
-                         optimizer="hodge", steps=int(spec.get("steps", 80)),
+                         optimizer=spec.get("optimizer", "auto"), steps=int(spec.get("steps", 80)),
                          device=spec.get("device", "cpu"), save_to=spec.get("save_path"),
                          seed=int(spec.get("seed", 0)))
         metric = _final_metric(res)

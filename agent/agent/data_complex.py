@@ -10,7 +10,7 @@ complex): here the returned data is the complex.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -22,7 +22,7 @@ def _row_id(row, i, id_col):
 def _edges(rows, link_cols):
     """Undirected edges (as sorted index pairs) between rows sharing a link value; a star per group
     keeps it sparse while preserving connectivity."""
-    groups: Dict[Any, List[int]] = defaultdict(list)
+    groups: dict[Any, list[int]] = defaultdict(list)
     for i, r in enumerate(rows):
         for col in link_cols:
             v = r.get(col)
@@ -36,7 +36,7 @@ def _edges(rows, link_cols):
     return edges
 
 
-def rows_to_complex(rows: List[dict], *, link_on, id_col: Optional[str] = None):
+def rows_to_complex(rows: list[dict], *, link_on, id_col: str | None = None):
     """Build the record complex. Returns (rex_or_None, meta). Vertices are the records that share at
     least one link value (isolated records carry no edge); labels are the id_col (or the index)."""
     link_cols = [link_on] if isinstance(link_on, str) else list(link_on)
@@ -57,7 +57,7 @@ def rows_to_complex(rows: List[dict], *, link_on, id_col: Optional[str] = None):
     return rex, meta
 
 
-def _components(n: int, edges) -> List[List[int]]:
+def _components(n: int, edges) -> list[list[int]]:
     parent = list(range(n))
 
     def find(a):
@@ -69,14 +69,14 @@ def _components(n: int, edges) -> List[List[int]]:
         ra, rb = find(a), find(b)
         if ra != rb:
             parent[ra] = rb
-    comp: Dict[int, List[int]] = defaultdict(list)
+    comp: dict[int, list[int]] = defaultdict(list)
     for i in range(n):
         comp[find(i)].append(i)
     return list(comp.values())
 
 
-def analyze_rows(rows: List[dict], *, link_on, id_col: Optional[str] = None,
-                 top: int = 5) -> Dict[str, Any]:
+def analyze_rows(rows: list[dict], *, link_on, id_col: str | None = None,
+                 top: int = 5) -> dict[str, Any]:
     """Topological read of a record set: clusters (connected components of the shared-value graph),
     isolated outliers (records that share no link value), and structural centrality (coherence) -
     the hub records vs the peripheral ones. All exact-structural."""
@@ -84,7 +84,7 @@ def analyze_rows(rows: List[dict], *, link_on, id_col: Optional[str] = None,
     row_labels = [_row_id(r, i, id_col) for i, r in enumerate(rows)]
     edges = _edges(rows, link_cols)
     clusters = _components(len(rows), edges)
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "n_rows": len(rows), "link_on": link_cols,
         "n_clusters": len(clusters),
         "clusters": [sorted(row_labels[i] for i in c) for c in sorted(clusters, key=len, reverse=True)],

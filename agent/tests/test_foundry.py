@@ -1,9 +1,15 @@
 """agent.foundry: LMs forge NN worker bees; device placement; the control hierarchy."""
 import pytest
+from agent.foundry import (
+    ModelFoundry,
+    bundle_from_rows,
+    choose_archetype,
+    hierarchy,
+    resolve_device,
+)
 
-from agent import hive as hivemod, agent_complex
-from agent import foundry as fo_mod
-from agent.foundry import ModelFoundry, resolve_device, hierarchy, choose_archetype, bundle_from_rows
+from agent import agent_complex
+from agent import hive as hivemod
 
 
 def test_resolve_device_explicit_and_auto(monkeypatch):

@@ -20,7 +20,7 @@ valid fallback, so the library runs on a machine with no GPU or toolchain.
 from __future__ import annotations
 
 import os
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 
 __all__ = [
     "register_backend", "backends", "available_backends", "best_backend",
@@ -59,17 +59,17 @@ def _ok(b) -> bool:
         return False
 
 
-def backends() -> List[dict]:
+def backends() -> list[dict]:
     """Every registered backend with its kind, description, and current availability."""
     return [{"name": b["name"], "kind": b["kind"], "description": b["description"],
              "available": _ok(b)} for _, b in _BACKENDS.items()]
 
 
-def available_backends() -> List[str]:
+def available_backends() -> list[str]:
     return [n for n, b in _BACKENDS.items() if _ok(b)]
 
 
-def best_backend(prefer: Optional[str] = None) -> str:
+def best_backend(prefer: str | None = None) -> str:
     """The best available backend: `prefer` if available, else a GPU backend, else cpu."""
     if prefer and prefer in _BACKENDS and _ok(_BACKENDS.get(prefer)):
         return prefer
@@ -81,7 +81,7 @@ def best_backend(prefer: Optional[str] = None) -> str:
 
 # thread control (the CPU parallel width for the compiled OpenMP kernels)
 
-def set_threads(n: Optional[int]) -> None:
+def set_threads(n: int | None) -> None:
     """Set the CPU parallel width for the OpenMP kernels via OMP_NUM_THREADS (most effective set
     before the first heavy kernel call). None restores the default (all cores)."""
     if n is None:
@@ -106,23 +106,23 @@ def effective_threads() -> int:
     return cpu_count()
 
 
-def get_threads() -> Optional[int]:
+def get_threads() -> int | None:
     v = os.environ.get("OMP_NUM_THREADS")
     return int(v) if v else None
 
 
 # the preferred backend for dispatch when a call does not name one (set from the active setup)
-_DEFAULT_BACKEND: Optional[str] = None
+_DEFAULT_BACKEND: str | None = None
 
 
-def set_default_backend(name: Optional[str]) -> None:
+def set_default_backend(name: str | None) -> None:
     """Set the backend dispatch prefers when a call passes no `prefer` (None / 'auto' clears it,
     so dispatch falls back to the best available)."""
     global _DEFAULT_BACKEND
     _DEFAULT_BACKEND = name if (name and name != "auto") else None
 
 
-def get_default_backend() -> Optional[str]:
+def get_default_backend() -> str | None:
     return _DEFAULT_BACKEND
 
 
@@ -138,7 +138,7 @@ def get_default_backend() -> Optional[str]:
 # apply_config wins over both.
 
 # _env names -> registered compute-backend names
-_BACKEND_ALIAS: Dict[str, str] = {
+_BACKEND_ALIAS: dict[str, str] = {
     "cuda": "cuda", "rocm": "cuda", "metal": "mps", "cpu": "cpu", "openmp": "openmp",
 }
 _ENV_MOD = None            # cached rexgraph._env module (or None if unavailable)
@@ -172,7 +172,7 @@ def _env_module():
     return mod
 
 
-def recommended_backend() -> Optional[str]:
+def recommended_backend() -> str | None:
     """The raw host recommendation from rexgraph._env (cuda/rocm/vulkan/metal/cpu), honoring
     REXGRAPH_BACKEND. Diagnostic; None if _env is unavailable. Not necessarily a registered
     backend name (e.g. 'vulkan' / 'rocm')."""
@@ -188,7 +188,7 @@ def recommended_backend() -> Optional[str]:
         return None
 
 
-def _auto_backend() -> Optional[str]:
+def _auto_backend() -> str | None:
     """The host recommendation mapped onto a REGISTERED, currently-AVAILABLE backend name, or None
     if there is no such backend (then dispatch falls through to best_backend()/cpu). The costly
     detection is cached; the REXGRAPH_BACKEND override is re-read on each call. Never raises."""
@@ -201,7 +201,7 @@ def _auto_backend() -> Optional[str]:
     return None
 
 
-def apply_config(config: Optional[dict]) -> dict:
+def apply_config(config: dict | None) -> dict:
     """Apply a compute config {threads, backend} (e.g. from a setup profile): sets the CPU thread
     width and the preferred dispatch backend. Absent/None keys keep the current default. Returns the
     effective config, for run logging."""
@@ -213,7 +213,7 @@ def apply_config(config: Optional[dict]) -> dict:
             "available": available_backends()}
 
 
-def _inner_thread_limiter(inner: Optional[int]):
+def _inner_thread_limiter(inner: int | None):
     """Context manager that caps the INNER native threadpools (OpenBLAS / MKL / OpenMP that
     numpy / scipy dispatch to) to `inner` threads for the duration of a parallel region, via
     ``threadpoolctl`` when available, and a no-op (graceful) when it is not. This is the seam that
@@ -255,9 +255,8 @@ def parallel_map(fn, items, *, threads=None, inner_threads=None):
         return [fn(x) for x in items]                          # serial: inner keeps all cores
     inner = inner_threads if inner_threads is not None else max(1, budget // workers)
     from concurrent.futures import ThreadPoolExecutor
-    with _inner_thread_limiter(inner):
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            return list(ex.map(fn, items))
+    with _inner_thread_limiter(inner), ThreadPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(fn, items))
 
 
 # --- GPU enumeration for multi-GPU column tiling -----------------------------------------------
@@ -295,7 +294,7 @@ def gpu_count() -> int:
     return max(0, n)
 
 
-def gpu_devices() -> List[int]:
+def gpu_devices() -> list[int]:
     """The usable GPU device indices ``[0 .. gpu_count()-1]`` (honoring ``REXGRAPH_MAX_GPUS``); empty
     on a CPU-only host. The multi-GPU column tiling assigns one column tile per index in this list."""
     return list(range(gpu_count()))
@@ -325,7 +324,7 @@ def multi_gpu_min_work() -> int:
 
 # op dispatch (device-specialized kernels register their implementations here)
 
-_OPS: Dict[str, Dict[str, Callable]] = {}
+_OPS: dict[str, dict[str, Callable]] = {}
 
 
 def register_op(name: str, backend: str, fn: Callable) -> None:
@@ -334,11 +333,11 @@ def register_op(name: str, backend: str, fn: Callable) -> None:
     _OPS.setdefault(name, {})[backend] = fn
 
 
-def ops() -> List[dict]:
+def ops() -> list[dict]:
     return [{"name": n, "backends": sorted(impls)} for n, impls in sorted(_OPS.items())]
 
 
-def dispatch(name: str, *args, prefer: Optional[str] = None, **kw):
+def dispatch(name: str, *args, prefer: str | None = None, **kw):
     """Run op `name` on the best available backend that implements it - preferring `prefer`, then
     the best available backend, then any available one, then cpu. Raises if the op is unknown."""
     impls = _OPS.get(name)
@@ -348,7 +347,7 @@ def dispatch(name: str, *args, prefer: Optional[str] = None, **kw):
     pref = prefer or _DEFAULT_BACKEND                        # the active setup's preference, if any
     if pref is None:                                         # nothing explicit -> host-recommended
         pref = _auto_backend()
-    order: List[str] = []
+    order: list[str] = []
     if pref:
         order.append(pref)
     order.append(best_backend(pref))
@@ -403,8 +402,9 @@ register_backend("cpu", available=lambda: True, kind="cpu",
 
 def _block_cg_cpu(A, B, dinv=None, tol=1e-10, maxit=1000):
     """Jacobi-preconditioned block CG on the host."""
-    from rexgraph.sparse_character import _block_cg
     import numpy as _np
+
+    from rexgraph.sparse_character import _block_cg
     if dinv is None:
         d = A.diagonal()
         dinv = _np.where(_np.abs(d) > 1e-30, 1.0 / d, 1.0)
@@ -419,6 +419,7 @@ def _block_cg_gpu(A, B, dinv=None, tol=1e-10, maxit=1000, device=None):
     """The same solve, resident on the device."""
     import numpy as _np
     import torch
+
     from rexgraph import scale_propagator as _spg
     if dinv is None:
         d = A.diagonal()

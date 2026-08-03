@@ -4,8 +4,8 @@ original edge complex stays PRIMARY (for tensor fields, the RCDB record, and the
 type); the hypergraph is an HGNN-specific view where each EDGE is a node."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from collections import defaultdict
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -97,8 +97,9 @@ def _hodge_energies(rex, flow):
 def _diffused(rex, flow, t_scales):
     """Signal diffusion in the tensor field: heat_apply on L1 at each t, plus the graded-Dirac heat
     (cross-grade). Returns a (nE, len(t_scales)+1) array of per-edge diffused values, plus names."""
-    import rexgraph.scale_propagator as spg
     from rexgraph.core._sparse import to_scipy_csr
+
+    import rexgraph.scale_propagator as spg
     B1 = to_scipy_csr(rex._B1_dual).astype(np.float64)
     L1 = (B1.T @ B1).tocsr()
     f = np.asarray(flow, dtype=np.float64).reshape(-1, 1)

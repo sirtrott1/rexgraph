@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import os
 import struct
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -67,7 +67,7 @@ def _gguf_value(f, vtype: int):
         (n,) = struct.unpack("<Q", f.read(8))
         # Consume every element (to keep the cursor aligned for later KVs / tensor infos)
         # but only KEEP a small sample - token/merge arrays can be 100k+ entries.
-        sample: List[Any] = []
+        sample: list[Any] = []
         for i in range(n):
             v = _gguf_value(f, elem_type)
             if i < 8:
@@ -79,7 +79,7 @@ def _gguf_value(f, vtype: int):
     raise ValueError(f"unknown GGUF value type {vtype}")
 
 
-def read_gguf_metadata(path: str) -> Dict[str, Any]:
+def read_gguf_metadata(path: str) -> dict[str, Any]:
     """Parse a GGUF header (magic, version, metadata KVs, tensor inventory) WITHOUT reading
     tensor data. Native parser - no llama.cpp / gguf package needed. Returns
     {version, n_tensors, kv, tensors:[{name, shape, ggml_type, type}]}."""
@@ -91,12 +91,12 @@ def read_gguf_metadata(path: str) -> Dict[str, Any]:
         (version,) = struct.unpack("<I", f.read(4))
         (tensor_count,) = struct.unpack("<Q", f.read(8))
         (kv_count,) = struct.unpack("<Q", f.read(8))
-        kv: Dict[str, Any] = {}
+        kv: dict[str, Any] = {}
         for _ in range(kv_count):
             key = _gguf_str(f)
             (vtype,) = struct.unpack("<I", f.read(4))
             kv[key] = _gguf_value(f, vtype)
-        tensors: List[Dict[str, Any]] = []
+        tensors: list[dict[str, Any]] = []
         for _ in range(tensor_count):
             name = _gguf_str(f)
             (ndim,) = struct.unpack("<I", f.read(4))
@@ -111,7 +111,7 @@ def read_gguf_metadata(path: str) -> Dict[str, Any]:
 
 # safetensors header
 
-def read_safetensors_header(path: str) -> Dict[str, Any]:
+def read_safetensors_header(path: str) -> dict[str, Any]:
     """Read the safetensors header (tensor names/dtypes/shapes + __metadata__) WITHOUT
     loading any tensor data. Returns {metadata, tensors:{name:{dtype,shape,n_bytes}}}."""
     p = os.path.expanduser(path)
@@ -127,7 +127,7 @@ def read_safetensors_header(path: str) -> Dict[str, Any]:
 
 # unified summary
 
-def model_summary(path: str) -> Dict[str, Any]:
+def model_summary(path: str) -> dict[str, Any]:
     """Backend-agnostic summary of a model file (GGUF or safetensors) without loading
     weights: format, on-disk size, architecture, parameter count, layer count, embedding
     dimension, and quant/dtype. Used by ``local_runtime`` for offload decisions and by the
@@ -135,7 +135,7 @@ def model_summary(path: str) -> Dict[str, Any]:
     p = os.path.expanduser(path)
     ext = os.path.splitext(p)[1].lower()
     size_gb = round(os.path.getsize(p) / (1024 ** 3), 2) if os.path.exists(p) else None
-    out: Dict[str, Any] = {"format": ext.lstrip("."), "file_gb": size_gb, "arch": None,
+    out: dict[str, Any] = {"format": ext.lstrip("."), "file_gb": size_gb, "arch": None,
                            "n_params": None, "n_layers": None, "embedding_dim": None,
                            "context_length": None, "quant": None, "n_tensors": None}
     try:
@@ -146,9 +146,9 @@ def model_summary(path: str) -> Dict[str, Any]:
             out["arch"] = arch
             out["n_tensors"] = info["n_tensors"]
             if arch:
-                out["n_layers"] = kv.get("%s.block_count" % arch)
-                out["embedding_dim"] = kv.get("%s.embedding_length" % arch)
-                out["context_length"] = kv.get("%s.context_length" % arch)
+                out["n_layers"] = kv.get(f"{arch}.block_count")
+                out["embedding_dim"] = kv.get(f"{arch}.embedding_length")
+                out["context_length"] = kv.get(f"{arch}.context_length")
             out["n_params"] = int(sum(int(np.prod(t["shape"])) for t in tensors if t["shape"]))
             # dominant tensor quant = the modal ggml type over the big tensors
             types = [t["type"] for t in tensors]
@@ -174,7 +174,7 @@ def model_summary(path: str) -> Dict[str, Any]:
 
 # embedding-table extraction (weights)
 
-def extract_embedding_table(path: str, *, limit: Optional[int] = None) -> Dict[str, Any]:
+def extract_embedding_table(path: str, *, limit: int | None = None) -> dict[str, Any]:
     """Load a model's token-embedding matrix from a ``.safetensors`` weight file (vocab × dim)
     so it can be analyzed as a relational complex or persisted via ``save_embedding_corpus``.
     GGUF is not supported here - its embedding tensor is quantized and needs the runtime to
@@ -192,8 +192,7 @@ def extract_embedding_table(path: str, *, limit: Optional[int] = None) -> Dict[s
         keys = set(st.keys())
         name = next((n for n in _EMBED_TENSOR_NAMES if n in keys), None)
         if name is None:
-            raise KeyError("no known token-embedding tensor in %s (looked for %s)"
-                           % (path, ", ".join(_EMBED_TENSOR_NAMES)))
+            raise KeyError("no known token-embedding tensor in {} (looked for {})".format(path, ", ".join(_EMBED_TENSOR_NAMES)))
         mat = np.asarray(st.get_tensor(name))
     if limit is not None and mat.shape[0] > limit:
         mat = mat[:limit]
@@ -203,17 +202,17 @@ def extract_embedding_table(path: str, *, limit: Optional[int] = None) -> Dict[s
 
 # shared embedding-corpus persistence
 
-def save_embedding_corpus(matrix, labels, path: str, *, model: Optional[str] = None,
-                          source: Optional[str] = None,
-                          feature_names: Optional[List[str]] = None,
-                          block_offsets: Optional[Dict[str, Any]] = None,
+def save_embedding_corpus(matrix, labels, path: str, *, model: str | None = None,
+                          source: str | None = None,
+                          feature_names: list[str] | None = None,
+                          block_offsets: dict[str, Any] | None = None,
                           **meta) -> str:
     """Persist an embedding corpus (matrix + labels + provenance) through the ONE
     ``rexgraph.io`` vector container. The single home for embedding round-trips - both
     ``model_introspect`` and weight extraction call this, so there is no duplicated format
     code. Returns the written path."""
     from rexgraph.io import save_vectors
-    md: Dict[str, Any] = {"kind": "embedding_corpus"}
+    md: dict[str, Any] = {"kind": "embedding_corpus"}
     if model:
         md["model"] = str(model)
     if source:

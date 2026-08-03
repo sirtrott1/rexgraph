@@ -15,12 +15,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from typing import List, Optional
 
 import numpy as np
 
 
-def _capture_binary() -> Optional[str]:
+def _capture_binary() -> str | None:
     """Locate the built rex_attn_capture host (env override, then native/ dir)."""
     env = os.environ.get("REX_ATTN_CAPTURE_BIN")
     if env and os.path.exists(os.path.expanduser(env)):
@@ -33,7 +32,7 @@ def available() -> bool:
     return _capture_binary() is not None
 
 
-def _resolve_model(model_path: Optional[str]) -> Optional[str]:
+def _resolve_model(model_path: str | None) -> str | None:
     if model_path:
         return os.path.expanduser(model_path)
     try:                                             # the model local_runtime currently serves
@@ -57,7 +56,7 @@ def _lib_env() -> dict:
     return env
 
 
-def capture_attention(prompt: str, model_path: Optional[str] = None, *, n_gpu_layers: int = 999,
+def capture_attention(prompt: str, model_path: str | None = None, *, n_gpu_layers: int = 999,
                       timeout: float = 120.0) -> dict:
     """Run one forward pass and capture per-layer attention (averaged over heads). Returns
     {n_tokens, n_layers, layers:[{layer, n_kv, n_q, n_head, attn:[[...]]}]}. Raises with
@@ -78,7 +77,7 @@ def capture_attention(prompt: str, model_path: Optional[str] = None, *, n_gpu_la
     return json.loads(out.stdout)
 
 
-def attention_complex(prompt: str, model_path: Optional[str] = None, *, layers: Optional[List[int]] = None,
+def attention_complex(prompt: str, model_path: str | None = None, *, layers: list[int] | None = None,
                       threshold: float = 0.05) -> dict:
     """Capture the model's attention and run the RCF analysis per layer: each layer's [n_q×n_kv]
     map -> relational complex -> Hodge grad/curl/harmonic, four channels, coherence, Betti. This is
@@ -95,7 +94,7 @@ def attention_complex(prompt: str, model_path: Optional[str] = None, *, layers: 
         try:
             r = quick_attention_analysis(A, threshold=threshold)
         except Exception as e:
-            r = {"note": "analysis failed: %s" % type(e).__name__}
+            r = {"note": f"analysis failed: {type(e).__name__}"}
         r["layer"] = L["layer"]; r["n_tokens"] = int(A.shape[0])
         reports.append(r)
     return {"n_tokens": cap.get("n_tokens"), "n_layers": cap.get("n_layers"),

@@ -20,10 +20,9 @@ no defining face is harmonic - an inconsistency, reported as present, not judged
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
-
 
 _SUBCLASS = {"subclassof", "is_a", "isa", "subsumes"}
 _EQUIV = {"equivalentclass", "sameas", "equivalent"}
@@ -37,17 +36,17 @@ def _local(p: str) -> str:
 
 @dataclass
 class OntologyModel:
-    classes: List[str]
-    edges: List[Tuple[str, str, str, str]]      # (from, to, predicate, kind)
-    definitions: List[List[str]] = field(default_factory=list)  # face vertex sets
+    classes: list[str]
+    edges: list[tuple[str, str, str, str]]      # (from, to, predicate, kind)
+    definitions: list[list[str]] = field(default_factory=list)  # face vertex sets
 
-    def class_names(self) -> List[str]:
+    def class_names(self) -> list[str]:
         return list(self.classes)
 
 
-def parse_rdf(triples: List[Tuple[str, str, str]]) -> OntologyModel:
+def parse_rdf(triples: list[tuple[str, str, str]]) -> OntologyModel:
     """Parse (subject, predicate, object) triples into an OntologyModel."""
-    classes: List[str] = []
+    classes: list[str] = []
     seen = set()
     edges, definitions = [], []
 
@@ -83,7 +82,7 @@ def ontology_to_rex(model: OntologyModel):
     idx = {n: i for i, n in enumerate(names)}
     src, tgt, etypes = [], [], []
     directed = {}
-    for (a, b, pred, kind) in model.edges:
+    for (a, b, _pred, kind) in model.edges:
         if a == b:
             continue
         e = len(src)
@@ -97,6 +96,7 @@ def ontology_to_rex(model: OntologyModel):
     if not src:
         return None, meta
     from rexgraph.graph import RexGraph
+
     from .auto import check_analysis_size
     check_analysis_size(len(names), len(src))   # cap oversized ontologies
     S = np.asarray(src, dtype=np.int32)
@@ -161,11 +161,11 @@ def ontology_to_rex(model: OntologyModel):
     return rex, meta
 
 
-def diagnose_ontology(model: OntologyModel) -> Dict[str, Any]:
+def diagnose_ontology(model: OntologyModel) -> dict[str, Any]:
     """Descriptive readout: subsumption hierarchy (gradient), bounded
     definitions (curl), inconsistencies (harmonic subsumption cycles)."""
     rex, meta = ontology_to_rex(model)
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         "n_classes": meta["n_classes"], "n_relations": meta["n_relations"],
         "definitions": meta["definitions"], "findings": [],
     }

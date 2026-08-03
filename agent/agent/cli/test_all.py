@@ -29,18 +29,18 @@ class TestRunner:
     def run(self, name, fn, skip_reason=None):
         if skip_reason:
             self.skipped.append((name, skip_reason))
-            print("  SKIP  %s - %s" % (name, skip_reason))
+            print(f"  SKIP  {name} - {skip_reason}")
             return
         try:
             t0 = time.time()
             result = fn()
             elapsed = time.time() - t0
             self.passed.append(name)
-            detail = " (%s)" % result if result else ""
-            print("  OK    %s (%.1fs)%s" % (name, elapsed, detail))
+            detail = f" ({result})" if result else ""
+            print(f"  OK    {name} ({elapsed:.1f}s){detail}")
         except Exception as e:
             self.failed.append((name, str(e)))
-            print("  FAIL  %s - %s" % (name, e))
+            print(f"  FAIL  {name} - {e}")
             if self.verbose:
                 traceback.print_exc()
 
@@ -52,7 +52,7 @@ class TestRunner:
         if self.failed:
             print("\n  Failed:")
             for name, err in self.failed:
-                print("    %s: %s" % (name, err))
+                print(f"    {name}: {err}")
         print("=" * 50)
         return len(self.failed) == 0
 
@@ -87,9 +87,9 @@ def test_imports(t):
             import importlib
             module = importlib.import_module(m)
             if a:
-                assert hasattr(module, a), "missing %s" % a
+                assert hasattr(module, a), f"missing {a}"
             return a or "ok"
-        t.run("import %s" % mod, _test)
+        t.run(f"import {mod}", _test)
 
 
 def test_platform(t):
@@ -104,7 +104,7 @@ def test_platform(t):
     def _config():
         from agent.cli.config import load_config
         cfg = load_config()
-        return "cache=%s" % cfg.cache_dir
+        return f"cache={cfg.cache_dir}"
     t.run("load_config", _config)
 
 
@@ -171,14 +171,14 @@ def test_ocr(t, test_file=None):
           skip_reason=None if has_tesseract else "tesseract not installed")
 
     def _got_status():
-        from pathlib import Path
         import importlib
+        from pathlib import Path
         libs = (importlib.util.find_spec("transformers") is not None
                 and importlib.util.find_spec("torch") is not None)
         model_dir = Path.home() / ".cache" / "huggingface" / "hub" / "models--stepfun-ai--GOT-OCR-2.0-hf"
         snapshots = model_dir / "snapshots"
         model = snapshots.exists() and any(snapshots.iterdir())
-        return "libs=%s, model=%s" % (libs, model)
+        return f"libs={libs}, model={model}"
     t.run("GOT-OCR status", _got_status)
 
     if test_file and os.path.isfile(test_file):
@@ -191,7 +191,7 @@ def test_ocr(t, test_file=None):
             else:
                 result = client.ocr_image(test_file)
                 return "%d chars" % len(result.text)
-        t.run("OCR file: %s" % os.path.basename(test_file), _ocr_file)
+        t.run(f"OCR file: {os.path.basename(test_file)}", _ocr_file)
 
 
 def test_pipeline(t, test_file=None):
@@ -222,7 +222,7 @@ def test_pipeline(t, test_file=None):
                 len(result.documents),
                 sum(len(c.get("chunks", [])) for c in result.chunks) if result.chunks else 0,
                 result.elapsed)
-        t.run("PipelineRunner.run(file=%s)" % os.path.basename(test_file), _runner_file)
+        t.run(f"PipelineRunner.run(file={os.path.basename(test_file)})", _runner_file)
 
 
 def test_corpus(t):

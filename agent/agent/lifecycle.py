@@ -13,14 +13,16 @@ handler owns the work.
 """
 from __future__ import annotations
 
+import builtins
+import contextlib
 import json
 import logging
 import os
 import traceback
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger("rexgraph.lifecycle")
 
@@ -40,14 +42,14 @@ def _runs_dir() -> Path:
 class RunLog:
     id: str
     phase: str
-    profile: Optional[str] = None
+    profile: str | None = None
     status: str = "running"                 # running | ok | error
     started: str = ""
-    ended: Optional[str] = None
+    ended: str | None = None
     params: dict = field(default_factory=dict)
-    steps: List[dict] = field(default_factory=list)     # [{t, msg}]
-    result: Optional[dict] = None
-    error: Optional[str] = None
+    steps: list[dict] = field(default_factory=list)     # [{t, msg}]
+    result: dict | None = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -66,13 +68,11 @@ class RunContext:
         self.run.steps.append({"t": _now(), "msg": str(msg)})
         logger.info("[%s] %s", self.run.phase, msg)
         if persist:                                  # so a polling client streams progress live
-            try:
+            with contextlib.suppress(Exception):
                 get_store().save(self.run)
-            except Exception:
-                pass
 
 
-PHASES: Dict[str, Dict] = {}
+PHASES: dict[str, dict] = {}
 
 
 def register_phase(name: str, description: str = ""):
@@ -84,14 +84,14 @@ def register_phase(name: str, description: str = ""):
     return deco
 
 
-def phases() -> List[dict]:
+def phases() -> list[dict]:
     return [{"name": n, "description": p["description"]} for n, p in sorted(PHASES.items())]
 
 
 # run store
 
 class RunStore:
-    def __init__(self, directory: Optional[Path] = None, keep: int = 200):
+    def __init__(self, directory: Path | None = None, keep: int = 200):
         self.dir = directory or _runs_dir()
         self.keep = keep
 
@@ -103,7 +103,7 @@ class RunStore:
         self._path(run.id).write_text(json.dumps(run.to_dict(), indent=2))
         self._prune()
 
-    def get(self, run_id: str) -> Optional[RunLog]:
+    def get(self, run_id: str) -> RunLog | None:
         f = self._path(run_id)
         if not f.exists():
             return None
@@ -112,7 +112,7 @@ class RunStore:
         except Exception:
             return None
 
-    def list(self, limit: int = 50, phase: Optional[str] = None) -> List[RunLog]:
+    def list(self, limit: int = 50, phase: str | None = None) -> builtins.list[RunLog]:
         if not self.dir.exists():
             return []
         runs = []
@@ -129,13 +129,11 @@ class RunStore:
     def _prune(self):
         files = sorted(self.dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
         for f in files[self.keep:]:
-            try:
+            with contextlib.suppress(OSError):
                 f.unlink()
-            except OSError:
-                pass
 
 
-_STORE: Optional[RunStore] = None
+_STORE: RunStore | None = None
 
 
 def get_store() -> RunStore:
@@ -162,7 +160,7 @@ def _run_id(phase: str) -> str:
     return f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{phase}-{_counter:03d}"
 
 
-def _apply_compute(ctx: "RunContext") -> None:
+def _apply_compute(ctx: RunContext) -> None:
     """Apply the active setup's execution-layer config (CPU thread width + preferred backend) before
     the phase runs, so every operation on every surface honors it. Process-global and run-logged."""
     spec = getattr(ctx.profile, "compute", None) if ctx.profile else None
@@ -178,7 +176,7 @@ def _apply_compute(ctx: "RunContext") -> None:
         ctx.log(f"compute config skipped ({type(e).__name__}: {e})")
 
 
-def _phase_device(ctx: "RunContext") -> str:
+def _phase_device(ctx: RunContext) -> str:
     """Resolve the training/inference device for a phase, bridging the setup's execution layer to
     the model lifecycle: an explicit ``device`` param wins; otherwise the active setup's
     ``ComputeSpec.backend`` (default 'auto') is resolved through ``rexgraph.nn.pick_device``, so
@@ -195,7 +193,7 @@ def _phase_device(ctx: "RunContext") -> str:
         return dev if isinstance(dev, str) and dev not in ("auto", None) else "cpu"
 
 
-def _execute(ctx: "RunContext"):
+def _execute(ctx: RunContext):
     rl, phase = ctx.run, ctx.run.phase
     try:
         ctx.log(f"phase '{phase}' start (profile={rl.profile or 'none'})")
@@ -213,7 +211,7 @@ def _execute(ctx: "RunContext"):
         get_store().save(rl)
 
 
-def run(phase: str, *, profile_id: Optional[str] = None, background: bool = False,
+def run(phase: str, *, profile_id: str | None = None, background: bool = False,
         **params) -> RunLog:
     """Execute a lifecycle phase for the active (or named) profile, with run-logging. The single
     call every surface (CLI/API/UI) goes through: dispatch, provenance, and audit in one place.
@@ -321,6 +319,7 @@ def _pipeline(ctx: RunContext) -> dict:
 
     Each configured stage streams into the run log. Returns a summary of what ran."""
     import os
+
     from agent import models
     p = ctx.profile
     out: dict = {"stages": []}
@@ -387,6 +386,7 @@ def _pipeline(ctx: RunContext) -> dict:
     if ctx.params.get("sink") and preds is not None:
         try:
             import pandas as pd
+
             import rexgraph.io as rio
             eng = rio.get_engine(ctx.params["sink"])
             col = preds.reshape(len(preds), -1)[:, 0]
@@ -402,7 +402,7 @@ def _pipeline(ctx: RunContext) -> dict:
     return out
 
 
-@register_phase("bench", "Benchmark the optimizer (HodgeAdam vs Adam/AdamW/SGD) on a recognized task.")
+@register_phase("bench", "Benchmark optimizers against each other on a recognized task.")
 def _bench(ctx: RunContext) -> dict:
     """Run an optimizer benchmark, or a fair lr-tuned A/B. params: benchmark (ill-cond / mnist /
     fashion-mnist / cifar10 / matrix-completion), optimizer, steps, ab (bool), optimizers (for A/B).
@@ -583,8 +583,8 @@ def main(argv=None):
             print("no such run"); return
         print(json.dumps(rl.to_dict(), indent=2)); return
     if a.cmd == "compute":
-        from rexgraph import compute as _compute
         from agent import hive_config
+        from rexgraph import compute as _compute
         store = hive_config.get_store()
         if a.threads is None and a.backend is None:                      # info
             prof = store.active()

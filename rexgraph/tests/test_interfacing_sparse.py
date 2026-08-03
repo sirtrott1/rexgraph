@@ -20,13 +20,12 @@ Tolerances
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph.core import _interfacing
+from rexgraph.graph import RexGraph
 from rexgraph.sparse_interfacing import (
     build_interfacing_bundle_sparse,
     pinv_bilinear_form,
 )
-
 
 # --- fixtures ---------------------------------------------------------------
 

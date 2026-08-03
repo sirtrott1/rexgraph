@@ -1,6 +1,8 @@
 """agent.reactive_hive: the monitor->schema loop (deadlock->mediator, divergence->guard)."""
-from agent import hive as hivemod, agent_complex, rcdb
 from agent.reactive_hive import ReactiveHive
+
+from agent import agent_complex, rcdb
+from agent import hive as hivemod
 
 
 def _hive():

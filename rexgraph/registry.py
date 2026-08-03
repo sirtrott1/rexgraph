@@ -15,7 +15,8 @@ take a registration but never give it back.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator, List, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 
 class Registry:
@@ -30,8 +31,8 @@ class Registry:
 
     def __init__(self, what: str):
         self.what = what
-        self._values: Dict[str, Any] = {}
-        self._meta: Dict[str, Dict[str, Any]] = {}
+        self._values: dict[str, Any] = {}
+        self._meta: dict[str, dict[str, Any]] = {}
 
     def register(self, name: str, value: Any, **meta: Any) -> Any:
         """Register `value` under `name`, replacing any previous entry.
@@ -60,13 +61,13 @@ class Registry:
                 f"{', '.join(self.available()) or '(none)'}")
         return self._values[name]
 
-    def meta(self, name: str) -> Dict[str, Any]:
+    def meta(self, name: str) -> dict[str, Any]:
         return dict(self._meta.get(name, {}))
 
-    def available(self) -> List[str]:
+    def available(self) -> list[str]:
         return sorted(self._values)
 
-    def items(self) -> Iterator[Tuple[str, Any]]:
+    def items(self) -> Iterator[tuple[str, Any]]:
         for name in self.available():
             yield name, self._values[name]
 

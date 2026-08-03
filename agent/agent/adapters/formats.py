@@ -2,7 +2,7 @@
 agent.adapters.formats: readers for file types auto_rex could not open.
 
 Each format is read as the structure it already is, so nothing here is domain
-framing -- these are containers, the way .csv is a container:
+framing. These are containers, the way .csv is a container:
 
     .sdf .mol      atoms and bonds        -> labeled graph, bond order as edge type
     .pdb           atoms and CONECT       -> labeled graph
@@ -23,9 +23,7 @@ editing this module or auto_rex's dispatch.
 from __future__ import annotations
 
 import gzip
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -45,17 +43,17 @@ def unregister_reader(name: str):
     return _READERS.unregister(name)
 
 
-def available_readers() -> List[str]:
+def available_readers() -> list[str]:
     return _READERS.available()
 
 
-def available_extensions() -> Dict[str, str]:
+def available_extensions() -> dict[str, str]:
     """extension -> reader name."""
     return {e: name for name in _READERS
             for e in _READERS.meta(name).get("extensions", ())}
 
 
-def reader_for(path) -> Optional[str]:
+def reader_for(path) -> str | None:
     """The reader registered for `path`'s extension, or None.
 
     A .gz suffix is transparent: variant and annotation files are usually shipped
@@ -83,7 +81,7 @@ def _open_text(path):
     p = str(path)
     if p.endswith(".gz"):
         return gzip.open(p, "rt", encoding="utf-8", errors="replace")
-    return open(p, "r", encoding="utf-8", errors="replace")
+    return open(p, encoding="utf-8", errors="replace")
 
 
 def _ec(sources, targets, labels, *, types=None, type_names=None, weights=None):
@@ -105,31 +103,34 @@ def _ec(sources, targets, labels, *, types=None, type_names=None, weights=None):
     )
 
 
-# --- bonded structure ---------------------------------------------------------
+#### bonded structure
+def _sdf_record(lines: list[str], base: int, tag: str):
+    """Parse one MOL record into atom labels and bonds as (src, tgt, order).
 
-def load_sdf(path, **kw) -> EdgeConstruction:
-    """MDL SDF/MOL V2000. Atoms are vertices, bonds are edges, bond order is the
-    edge type -- which is the typed-edge information the complex already carries,
-    so it needs no encoding of its own."""
-    with _open_text(path) as fh:
-        lines = fh.read().splitlines()
+    Atom indices are offset by `base` and labels are prefixed with `tag`, which places
+    the record on its own vertex block. Returns (None, None) when the record has no
+    readable counts line, the shape of the empty chunk after a trailing `$$$$`.
+    """
     if len(lines) < 4:
-        raise ValueError(f"{path}: too short to be an SDF/MOL record")
+        return None, None
     counts = lines[3]
     try:
         n_atoms, n_bonds = int(counts[0:3]), int(counts[3:6])
     except ValueError:
-        raise ValueError(f"{path}: unreadable counts line {counts!r}")
+        return None, None
 
     labels = []
     for i in range(n_atoms):
-        parts = lines[4 + i].split()
+        parts = lines[4 + i].split() if 4 + i < len(lines) else []
         element = parts[3] if len(parts) > 3 else "X"
-        labels.append(f"{element}{i + 1}")
+        labels.append(f"{tag}{element}{i + 1}")
 
-    src, tgt, orders = [], [], []
+    bonds = []
     for j in range(n_bonds):
-        row = lines[4 + n_atoms + j]
+        k = 4 + n_atoms + j
+        if k >= len(lines):
+            break
+        row = lines[k]
         try:
             a, b, order = int(row[0:3]), int(row[3:6]), int(row[6:9])
         except ValueError:
@@ -137,9 +138,44 @@ def load_sdf(path, **kw) -> EdgeConstruction:
             if len(parts) < 3:
                 continue
             a, b, order = int(parts[0]), int(parts[1]), int(parts[2])
-        src.append(a - 1)                      # SDF atom indices are 1-based
-        tgt.append(b - 1)
-        orders.append(order)
+        bonds.append((base + a - 1, base + b - 1, order))   # SDF atom indices are 1-based
+    return labels, bonds
+
+
+def load_sdf(path, **kw) -> EdgeConstruction:
+    """MDL SDF/MOL V2000. Atoms are vertices, bonds are edges, bond order is the edge
+    type, which is typed-edge information the complex already carries.
+
+    An SDF holds several records separated by `$$$$`. All of them are read into one
+    complex. Atom indices are per-record in the format, so each record is offset onto
+    its own vertex block and labelled with the record number, leaving the molecules as
+    separate components with beta_0 counting them.
+    """
+    with _open_text(path) as fh:
+        text = fh.read()
+
+    labels: list[str] = []
+    src: list[int] = []
+    tgt: list[int] = []
+    orders: list[int] = []
+    n_rec = 0
+    for chunk in text.split("$$$$"):
+        lines = chunk.splitlines()
+        while lines and not lines[0].strip():          # leading blank after a delimiter
+            lines.pop(0)
+        tag = "" if n_rec == 0 else f"m{n_rec}:"
+        rec_labels, bonds = _sdf_record(lines, len(labels), tag)
+        if rec_labels is None:
+            continue
+        labels.extend(rec_labels)
+        for a, b, o in bonds:
+            src.append(a)
+            tgt.append(b)
+            orders.append(o)
+        n_rec += 1
+
+    if not n_rec:
+        raise ValueError(f"{path}: no readable SDF/MOL record")
 
     uniq = sorted(set(orders))
     idx = {o: i for i, o in enumerate(uniq)}
@@ -151,19 +187,19 @@ def load_sdf(path, **kw) -> EdgeConstruction:
 def load_pdb(path, *, backbone: bool = True, **kw) -> EdgeConstruction:
     """PDB ATOM records, with CONECT bonds and the residue chain.
 
-    CONECT alone is not enough. Real PDB files omit it for standard residues --
-    those bonds follow from the residue templates -- so 1CA2 gives four bonds for
-    2207 atoms and a complex of isolated points. `backbone` adds the covalent
+    CONECT alone is not enough. Real PDB files omit it for standard residues, whose
+    bonds follow from the residue templates, so 1CA2 gives four bonds for 2207 atoms
+    and a complex of isolated points. `backbone` adds the covalent
     structure that is definitional rather than inferred: atoms within a residue,
     and the peptide bond between consecutive residues of a chain.
 
     Distance-based bond inference is still refused. That is a modelling decision
     with a cutoff in it, and it is not what reading a file means.
     """
-    serial_to_idx: Dict[int, int] = {}
-    labels: List[str] = []
-    conect: List[Tuple[int, int]] = []
-    residues: List[Tuple[str, str, int]] = []      # (chain, resseq, atom index)
+    serial_to_idx: dict[int, int] = {}
+    labels: list[str] = []
+    conect: list[tuple[int, int]] = []
+    residues: list[tuple[str, str, int]] = []      # (chain, resseq, atom index)
     with _open_text(path) as fh:
         for line in fh:
             rec = line[:6].strip()
@@ -184,11 +220,11 @@ def load_pdb(path, *, backbone: bool = True, **kw) -> EdgeConstruction:
     if backbone:
         # atoms of one residue are bonded to each other through it, and successive
         # residues of a chain through the peptide bond. Both follow from the file,
-        # not from a distance cutoff. Built in index space and inverted once --
+        # not from a distance cutoff. Built in index space and inverted once:
         # searching serial_to_idx per edge is O(atoms) inside a loop over atoms.
         idx_to_serial = {idx: serial for serial, idx in serial_to_idx.items()}
-        by_res: Dict[Tuple[str, str], List[int]] = {}
-        order: List[Tuple[str, str]] = []
+        by_res: dict[tuple[str, str], list[int]] = {}
+        order: list[tuple[str, str]] = []
         for chain, resseq, idx in residues:
             key = (chain, resseq)
             if key not in by_res:
@@ -197,9 +233,9 @@ def load_pdb(path, *, backbone: bool = True, **kw) -> EdgeConstruction:
             by_res[key].append(idx)
         for key in order:
             members = by_res[key]
-            for a, b in zip(members, members[1:]):
+            for a, b in zip(members, members[1:], strict=False):
                 conect.append((idx_to_serial[a], idx_to_serial[b]))
-        for prev_key, next_key in zip(order, order[1:]):
+        for prev_key, next_key in zip(order, order[1:], strict=False):
             if prev_key[0] != next_key[0]:
                 continue                       # a different chain is not bonded
             a, b = by_res[prev_key][-1], by_res[next_key][0]
@@ -221,13 +257,12 @@ def load_pdb(path, *, backbone: bool = True, **kw) -> EdgeConstruction:
     return _ec(src, tgt, labels, type_names=["bond"])
 
 
-# --- sequences ----------------------------------------------------------------
-
+#### sequences
 def load_fasta(path, *, k: int = 5, **kw) -> EdgeConstruction:
     """FASTA as a k-mer overlap graph: consecutive k-mers share k-1 characters, and
     that overlap is the edge. The de Bruijn reading, which is the structure a
     sequence already has rather than one imposed on it."""
-    records: List[Tuple[str, str]] = []
+    records: list[tuple[str, str]] = []
     name, buf = None, []
     with _open_text(path) as fh:
         for line in fh:
@@ -245,7 +280,7 @@ def load_fasta(path, *, k: int = 5, **kw) -> EdgeConstruction:
     if not records:
         raise ValueError(f"{path}: no FASTA records")
 
-    index: Dict[str, int] = {}
+    index: dict[str, int] = {}
     src, tgt, weight = [], [], {}
     for _, seq in records:
         prev = None
@@ -258,7 +293,7 @@ def load_fasta(path, *, k: int = 5, **kw) -> EdgeConstruction:
                 key = (prev, cur)
                 weight[key] = weight.get(key, 0.0) + 1.0
             prev = cur
-    for (a, b), w in weight.items():
+    for (a, b), _w in weight.items():
         src.append(a)
         tgt.append(b)
     if not index:
@@ -267,22 +302,21 @@ def load_fasta(path, *, k: int = 5, **kw) -> EdgeConstruction:
     for kmer, i in index.items():
         labels[i] = kmer
     return _ec(src, tgt, labels,
-               weights=[weight[(a, b)] for a, b in zip(src, tgt)],
+               weights=[weight[(a, b)] for a, b in zip(src, tgt, strict=False)],
                type_names=["overlap"])
 
 
-# --- incidence ----------------------------------------------------------------
-
+#### incidence
 def load_vcf(path, **kw) -> EdgeConstruction:
     """VCF as a bipartite incidence between samples and variants.
 
     An edge exists where a sample carries a non-reference allele. A 0/0 genotype is
-    the ABSENCE of an edge, not an edge weighted zero -- existence is a condition of
+    the ABSENCE of an edge, not an edge weighted zero. Existence is a condition of
     the complex, and encoding "no variant" as a present edge would put it in the
     wrong one.
     """
-    samples: List[str] = []
-    variants: List[str] = []
+    samples: list[str] = []
+    variants: list[str] = []
     src, tgt = [], []
     with _open_text(path) as fh:
         for line in fh:
@@ -308,9 +342,8 @@ def load_vcf(path, **kw) -> EdgeConstruction:
     return _ec(src, tgt, samples + variants, type_names=["carries"])
 
 
-# --- intervals ----------------------------------------------------------------
-
-def _interval_overlap_ec(rows: List[Tuple[str, int, int, str]]) -> EdgeConstruction:
+#### intervals
+def _interval_overlap_ec(rows: list[tuple[str, int, int, str]]) -> EdgeConstruction:
     """Intervals sharing a coordinate axis and overlapping become an edge.
 
     Sorted sweep rather than the O(n^2) pair scan, so a whole annotation file is
@@ -320,7 +353,7 @@ def _interval_overlap_ec(rows: List[Tuple[str, int, int, str]]) -> EdgeConstruct
     labels = [name for _, _, _, name in rows]
     order = sorted(range(len(rows)), key=lambda i: (rows[i][0], rows[i][1]))
     src, tgt = [], []
-    active: List[int] = []
+    active: list[int] = []
     for i in order:
         seq, start, end, _ = rows[i]
         active = [j for j in active if rows[j][0] == seq and rows[j][2] > start]
@@ -375,9 +408,8 @@ def load_bed(path, **kw) -> EdgeConstruction:
     return _interval_overlap_ec(rows)
 
 
-# --- matrix containers --------------------------------------------------------
-
-def _h5_index(group) -> List[str]:
+#### matrix containers
+def _h5_index(group) -> list[str]:
     """The axis labels of an AnnData-style dataframe group."""
     key = group.attrs.get("_index", "_index")
     if isinstance(key, bytes):

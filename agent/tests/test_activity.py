@@ -2,7 +2,8 @@
 import json
 import time
 
-from agent import activity, hive as hivemod, agent_complex
+from agent import activity, agent_complex
+from agent import hive as hivemod
 
 
 def _wait(cond, timeout=2.0):

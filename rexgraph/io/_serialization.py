@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import abc
 import json
-from typing import Any, Dict, List, Optional, Set, Type
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -37,7 +37,6 @@ from ._compat import (
     json_sanitize,
     to_native,
 )
-
 
 __all__ = [
     "write_namedtuple",
@@ -78,7 +77,7 @@ class StorageAdapter(abc.ABC):
     def put_array(self, name: str, arr: NDArray) -> None: ...
 
     @abc.abstractmethod
-    def get_array(self, name: str) -> Optional[NDArray]: ...
+    def get_array(self, name: str) -> NDArray | None: ...
 
     @abc.abstractmethod
     def put_scalar(self, name: str, value: Any) -> None: ...
@@ -102,7 +101,7 @@ class StorageAdapter(abc.ABC):
     def has(self, name: str) -> bool: ...
 
     @abc.abstractmethod
-    def subgroup(self, name: str) -> "StorageAdapter": ...
+    def subgroup(self, name: str) -> StorageAdapter: ...
 
 
 # Zarr adapter
@@ -120,7 +119,7 @@ class ZarrAdapter(StorageAdapter):
         g_store_complex(self._g, name, np.asarray(arr),
                         compressor=self._compressor, chunks=self._chunks)
 
-    def get_array(self, name: str) -> Optional[NDArray]:
+    def get_array(self, name: str) -> NDArray | None:
         from ._compat import g_load_complex
         try:
             return g_load_complex(self._g, name)
@@ -156,11 +155,8 @@ class ZarrAdapter(StorageAdapter):
     def has(self, name: str) -> bool:
         return name in self._g or name in self._g.attrs
 
-    def subgroup(self, name: str) -> "ZarrAdapter":
-        if name in self._g:
-            sub = self._g[name]
-        else:
-            sub = self._g.create_group(name)
+    def subgroup(self, name: str) -> ZarrAdapter:
+        sub = self._g[name] if name in self._g else self._g.create_group(name)
         return ZarrAdapter(sub, compressor=self._compressor,
                            chunks=self._chunks)
 
@@ -180,7 +176,7 @@ class HDF5Adapter(StorageAdapter):
         h5_store_complex(self._g, name, np.asarray(arr),
                          compression=self._compression, chunks=self._chunks)
 
-    def get_array(self, name: str) -> Optional[NDArray]:
+    def get_array(self, name: str) -> NDArray | None:
         from ._compat import h5_load_complex
         try:
             return h5_load_complex(self._g, name)
@@ -216,11 +212,8 @@ class HDF5Adapter(StorageAdapter):
     def has(self, name: str) -> bool:
         return name in self._g or name in self._g.attrs
 
-    def subgroup(self, name: str) -> "HDF5Adapter":
-        if name in self._g:
-            sub = self._g[name]
-        else:
-            sub = self._g.create_group(name)
+    def subgroup(self, name: str) -> HDF5Adapter:
+        sub = self._g[name] if name in self._g else self._g.create_group(name)
         return HDF5Adapter(sub, compression=self._compression,
                            chunks=self._chunks)
 
@@ -235,7 +228,7 @@ class NpyAdapter(StorageAdapter):
         self._dir = pathlib.Path(directory)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._meta_path = self._dir / "_meta.json"
-        self._meta: Optional[dict] = None
+        self._meta: dict | None = None
 
     def _load_meta(self) -> dict:
         if self._meta is None:
@@ -255,7 +248,7 @@ class NpyAdapter(StorageAdapter):
         arr = np.asarray(arr)
         np.save(self._dir / f"{name}.npy", arr)
 
-    def get_array(self, name: str) -> Optional[NDArray]:
+    def get_array(self, name: str) -> NDArray | None:
         path = self._dir / f"{name}.npy"
         if path.exists():
             return np.load(path)
@@ -290,7 +283,7 @@ class NpyAdapter(StorageAdapter):
             return True
         return name in self._load_meta()
 
-    def subgroup(self, name: str) -> "NpyAdapter":
+    def subgroup(self, name: str) -> NpyAdapter:
         return NpyAdapter(self._dir / name)
 
 
@@ -349,7 +342,7 @@ def write_namedtuple(
     sub.put_string("_type_name", type_name)
 
     fields = obj._fields if hasattr(obj, "_fields") else []
-    none_fields: List[str] = []
+    none_fields: list[str] = []
 
     for field_name in fields:
         value = getattr(obj, field_name)
@@ -378,7 +371,7 @@ def write_namedtuple(
 def read_namedtuple(
     adapter: StorageAdapter,
     name: str,
-    type_class: Optional[Type] = None,
+    type_class: type | None = None,
 ) -> Any:
     """Read a NamedTuple from storage.
 
@@ -451,7 +444,7 @@ def read_namedtuple(
         hints = {}
 
     for field_name, val in values.items():
-        hint = hints.get(field_name, None)
+        hint = hints.get(field_name)
         if hint is not None and isinstance(val, list):
             hint_str = str(hint)
             if "Tuple" in hint_str:
@@ -466,7 +459,7 @@ def read_namedtuple(
 
 def _read_as_dict(
     adapter: StorageAdapter,
-    none_fields: Set[str],
+    none_fields: set[str],
 ) -> dict:
     """Read all fields from a subgroup into a plain dict."""
     # This is a fallback when we can't resolve the type
@@ -480,7 +473,7 @@ def _write_dict_field(adapter: StorageAdapter, name: str, d: dict) -> None:
     sub = adapter.subgroup(name)
     sub.put_scalar("_is_dict", True)
 
-    arrays: Dict[str, NDArray] = {}
+    arrays: dict[str, NDArray] = {}
     scalars: dict = {}
 
     for k, v in d.items():
@@ -531,7 +524,7 @@ def write_result_dict(
     sub = adapter.subgroup(name)
     sub.put_scalar("_is_result_dict", True)
 
-    array_keys: List[str] = []
+    array_keys: list[str] = []
     json_data: dict = {}
 
     for k, v in data.items():
@@ -582,7 +575,7 @@ from ..registry import Registry
 _TYPE_REGISTRY = Registry("result type")
 
 
-def _resolve_type(type_name: str) -> Optional[Type]:
+def _resolve_type(type_name: str) -> type | None:
     """Look up a NamedTuple class by name.
 
     Lazily populates the registry on first call by importing
@@ -596,8 +589,9 @@ def _resolve_type(type_name: str) -> Optional[Type]:
 def _populate_registry() -> None:
     """Import all NamedTuple types from rexgraph.types."""
     try:
-        from .. import rextypes as _types
         import inspect
+
+        from .. import rextypes as _types
         for name, obj in inspect.getmembers(_types):
             if (isinstance(obj, type)
                     and issubclass(obj, tuple)
@@ -619,7 +613,7 @@ def unregister_type(name: str):
     return _TYPE_REGISTRY.unregister(name)
 
 
-def register_type(cls: Type) -> None:
+def register_type(cls: type) -> None:
     """Manually register a NamedTuple class for deserialization."""
     if hasattr(cls, "_fields"):
         _TYPE_REGISTRY.register(cls.__name__, cls)

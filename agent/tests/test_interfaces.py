@@ -1,11 +1,10 @@
 """Tests for the sovereign-engine seams: silent by default, host-injected
 identity, and label privacy that preserves structural comparison."""
 
-import numpy as np
+from agent.rcdb import MemoryStore, _labels_of, compare
 
 from agent import interfaces as ifc
 from agent import schema_complex as sc
-from agent.rcdb import MemoryStore, compare, _labels_of
 
 
 def teardown_function():

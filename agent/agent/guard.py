@@ -14,8 +14,8 @@ and fixes it, while leaving the legitimate "chain condition" untouched.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Tuple
 
 __all__ = ["GuardRule", "OutputGuard", "RELATIONAL_COMPLEX_RULES", "relational_complex_guard"]
 
@@ -25,8 +25,8 @@ class GuardRule:
     name: str
     pattern: str                              # regex marking a violation
     message: str
-    fix: Optional[str] = None                 # replacement (regex sub) for auto-correct
-    allow: Optional[str] = None               # regex whose matches inside a hit are exempt
+    fix: str | None = None                 # replacement (regex sub) for auto-correct
+    allow: str | None = None               # regex whose matches inside a hit are exempt
     flags: int = re.IGNORECASE
 
     def __post_init__(self):
@@ -36,7 +36,7 @@ class GuardRule:
     def _exempt(self, hit: str) -> bool:
         return bool(self._allow and self._allow.search(hit))
 
-    def violations(self, text: str) -> List[dict]:
+    def violations(self, text: str) -> list[dict]:
         out = []
         for m in self._re.finditer(text or ""):
             if self._exempt(m.group(0)):
@@ -73,13 +73,13 @@ class OutputGuard:
     def __init__(self, rules: Iterable[GuardRule]):
         self.rules = list(rules)
 
-    def check(self, text: str) -> List[dict]:
-        v: List[dict] = []
+    def check(self, text: str) -> list[dict]:
+        v: list[dict] = []
         for r in self.rules:
             v.extend(r.violations(text or ""))
         return sorted(v, key=lambda d: (d["span"][0], d["rule"]))
 
-    def fix(self, text: str) -> Tuple[str, List[dict]]:
+    def fix(self, text: str) -> tuple[str, list[dict]]:
         """Return (corrected_text, violations_found_in_the_original)."""
         found = self.check(text)
         out = text or ""

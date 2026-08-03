@@ -19,7 +19,7 @@ circulating fraction rises before absolute traffic saturates.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
 
 import numpy as np
 
@@ -102,7 +102,7 @@ def _normalize(edges, flow):
     flow = np.asarray(flow, dtype=np.float64).ravel()
     if flow.shape[0] != len(edges):
         raise ValueError(f"flow has {flow.shape[0]} entries but there are {len(edges)} edges")
-    for (a, b), f in zip(edges, flow):
+    for (a, b), f in zip(edges, flow, strict=False):
         if a == b:
             continue                                   # self-loop carries no coordination
         key = (nid(a), nid(b))
@@ -126,10 +126,10 @@ def _align_to_graph(rex, src, tgt, w):
     if gs is None or gt is None:
         return w
     want = {}
-    for (s, t, val) in zip(src.tolist(), tgt.tolist(), w.tolist()):
+    for (s, t, val) in zip(src.tolist(), tgt.tolist(), w.tolist(), strict=False):
         want[(s, t)] = val
     out = np.zeros(len(gs), dtype=np.float64)
-    for e, (s, t) in enumerate(zip(gs.tolist(), gt.tolist())):
+    for e, (s, t) in enumerate(zip(gs.tolist(), gt.tolist(), strict=False)):
         if (s, t) in want:
             out[e] = want[(s, t)]
         elif (t, s) in want:
@@ -189,7 +189,7 @@ def _components(nodes, adj):
     return list(groups.values())
 
 
-def mesh_health(edges: Iterable[Tuple], flow: Optional[Sequence[float]] = None) -> dict:
+def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> dict:
     """Topological health of a coordination graph.
 
     Parameters

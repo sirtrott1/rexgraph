@@ -68,3 +68,6 @@ docs/v1.0.4/
 # next to the source that produces it. attn_introspect.available() reports False
 # until it is built, so nothing breaks without it.
 agent/agent/native/rex_attn_capture
+
+# local release notes, not for the public tree
+CHANGELOG.md

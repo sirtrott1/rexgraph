@@ -3,12 +3,13 @@ import tempfile
 
 import numpy as np
 import pytest
-from rexgraph.graph import RexGraph
+
 from rexgraph.flow.attention import (
     CoParticipationAttention,
-    coparticipation_neighbors,
     coparticipation_attention,
+    coparticipation_neighbors,
 )
+from rexgraph.graph import RexGraph
 
 # A real-data check, pointed at whatever the operator supplies. The path used to
 # be a literal naming a specific private dataset, which put a dataset -- and its
@@ -91,9 +92,10 @@ def _load_binding_subcomplex(n_rows=6000):
 
 def test_attention_path_is_matrix_free(monkeypatch):
     import numpy.linalg as nla
+    import scipy.sparse.linalg as ssla
+
     import rexgraph.core._linalg as _linalg
     import rexgraph.core._sparse as _sparse
-    import scipy.sparse.linalg as ssla
     calls = []
     def spy(mod, name):
         if hasattr(mod, name):

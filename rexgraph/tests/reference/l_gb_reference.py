@@ -27,10 +27,7 @@ repository, it should be reimplemented as a Cython module
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 import numpy as np
-
 
 # Spectrum extraction
 
@@ -70,7 +67,7 @@ def normalized_coherence_spectrum(M: np.ndarray, eps: float = 1e-10) -> np.ndarr
 
 def dirac_spectrum_at_grade(
     B1: np.ndarray,
-    B2: Optional[np.ndarray] = None,
+    B2: np.ndarray | None = None,
     grade: int = 1,
 ) -> np.ndarray:
     """Dirac coherence spectrum at a given grade.
@@ -176,10 +173,7 @@ def l_gb_scalar(spec_d: np.ndarray, spec_d1: np.ndarray) -> dict:
         ma = float(np.dot(v_top, a_norm)) ** 2
         mb = float(np.dot(v_top, b_norm)) ** 2
         # Localization in [-1, 1]: positive = grade d+1, negative = grade d
-        if ma + mb > 1e-15:
-            localization = (mb - ma) / (mb + ma)
-        else:
-            localization = 0.0
+        localization = (mb - ma) / (mb + ma) if ma + mb > 1e-15 else 0.0
     except np.linalg.LinAlgError:
         localization = 0.0
 
@@ -197,8 +191,8 @@ def l_gb_scalar(spec_d: np.ndarray, spec_d1: np.ndarray) -> dict:
 
 
 def l_gb_channel_tensor(
-    hats_A: List[np.ndarray],
-    hats_B: Optional[List[np.ndarray]] = None,
+    hats_A: list[np.ndarray],
+    hats_B: list[np.ndarray] | None = None,
 ) -> np.ndarray:
     """4×4 L_gb channel tensor.
 
@@ -259,7 +253,7 @@ def l_gb_channel_tensor(
 # Tower L_gb across all adjacent grades
 
 
-def l_gb_tower(B_list: List[np.ndarray]) -> List[dict]:
+def l_gb_tower(B_list: list[np.ndarray]) -> list[dict]:
     """Sweep L_gb across all adjacent grade pairs.
 
     For a complex with boundary operators [B1, B2, B3, ...], computes the

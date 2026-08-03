@@ -25,7 +25,6 @@ import os
 import textwrap
 from pathlib import Path
 
-
 # Shared model cache
 
 def resolve_model_cache(platform_info=None) -> Path:
@@ -51,22 +50,22 @@ def resolve_model_cache(platform_info=None) -> Path:
 def _header(job_name, partition, time_limit, mem, cpus, account, gpus=0, array_spec=""):
     lines = [
         "#!/bin/bash",
-        "#SBATCH --job-name=%s" % job_name,
-        "#SBATCH --partition=%s" % partition,
+        f"#SBATCH --job-name={job_name}",
+        f"#SBATCH --partition={partition}",
     ]
     if gpus:
         lines.append("#SBATCH --gres=gpu:%d" % gpus)
     if array_spec:
-        lines.append("#SBATCH --array=%s" % array_spec)
+        lines.append(f"#SBATCH --array={array_spec}")
     lines.extend([
-        "#SBATCH --time=%s" % time_limit,
-        "#SBATCH --mem=%s" % mem,
+        f"#SBATCH --time={time_limit}",
+        f"#SBATCH --mem={mem}",
         "#SBATCH --cpus-per-task=%d" % cpus,
-        "#SBATCH --output=%s-%%j.out" % job_name,
-        "#SBATCH --error=%s-%%j.err" % job_name,
+        f"#SBATCH --output={job_name}-%j.out",
+        f"#SBATCH --error={job_name}-%j.err",
     ])
     if account:
-        lines.append("#SBATCH --account=%s" % account)
+        lines.append(f"#SBATCH --account={account}")
     lines.extend([
         "",
         "set -euo pipefail",
@@ -78,9 +77,9 @@ def _header(job_name, partition, time_limit, mem, cpus, account, gpus=0, array_s
 
 def _activate(conda_env):
     return (
-        "source activate %s 2>/dev/null || conda activate %s 2>/dev/null || true\n"
+        f"source activate {conda_env} 2>/dev/null || conda activate {conda_env} 2>/dev/null || true\n"
         'export REXGRAPH_MODELS=$(python -c "from agent.cli.hpc import resolve_model_cache; print(resolve_model_cache())")\n'
-    ) % (conda_env, conda_env)
+    )
 
 
 # Templates
@@ -95,15 +94,15 @@ def generate_slurm_ocr_batch(
     Starts a GPU OCR server, processes every PDF in input_dir,
     saves each document's RexGraph as a .rex bundle.
     """
-    return _header("rexgraph-ocr", partition, time_limit, mem, 4, account, gpus) + "\n" + _activate(conda_env) + textwrap.dedent("""\
+    return _header("rexgraph-ocr", partition, time_limit, mem, 4, account, gpus) + "\n" + _activate(conda_env) + textwrap.dedent(f"""\
 
         # Start GPU OCR server
         rexgraph-ocr serve --port 10000 &
         OCR_PID=$!
         sleep 30
 
-        INPUT_DIR="%s"
-        OUTPUT_DIR="%s"
+        INPUT_DIR="{input_dir}"
+        OUTPUT_DIR="{output_dir}"
         mkdir -p "$OUTPUT_DIR"
 
         for pdf in "$INPUT_DIR"/*.pdf; do
@@ -123,7 +122,7 @@ if ec.nE > 0:
     if ec.n_types > 1:
         rex = rex.typed_face_selection(ec.type_labels)
     save_document_rex('batch', '$name', rex)
-    print(f'  $name: {rex.nV}V {rex.nE}E')
+    print(f'  $name: {{rex.nV}}V {{rex.nE}}E')
 else:
     print(f'  $name: no edges')
 " 2>&1 | tee -a "$OUTPUT_DIR/$name.log"
@@ -131,7 +130,7 @@ else:
 
         kill $OCR_PID 2>/dev/null
         echo "Done - $(date)"
-    """ % (input_dir, output_dir))
+    """)
 
 
 def generate_slurm_serve(
@@ -191,7 +190,7 @@ def generate_slurm_corpus(
     Reads all files from input_dir, builds relational complexes,
     runs structural analysis, and persists to workspace.
     """
-    return _header("rexgraph-corpus", partition, time_limit, mem, 8, account) + "\n" + _activate(conda_env) + textwrap.dedent("""\
+    return _header("rexgraph-corpus", partition, time_limit, mem, 8, account) + "\n" + _activate(conda_env) + textwrap.dedent(f"""\
 
         python << 'PYSCRIPT'
 from agent.corpus import CorpusBuilder
@@ -199,7 +198,7 @@ from agent.server.persistence import save_document_rex, save_analysis_sql
 import os, time
 
 corpus = CorpusBuilder()
-input_dir = "%s"
+input_dir = "{input_dir}"
 n = 0
 for f in sorted(os.listdir(input_dir)):
     path = os.path.join(input_dir, f)
@@ -208,23 +207,23 @@ for f in sorted(os.listdir(input_dir)):
             corpus.add_document(source=path, doc_id=f)
             n += 1
         except Exception as e:
-            print("Skip %%s: %%s" %% (f, e))
+            print("Skip %s: %s" % (f, e))
 
-print("Added %%d documents" %% n)
+print("Added %d documents" % n)
 t0 = time.time()
-corpus.build(depth="%s")
-print("Built in %%.1fs" %% (time.time() - t0))
+corpus.build(depth="{depth}")
+print("Built in %.1fs" % (time.time() - t0))
 
 for doc in corpus.documents:
     if doc.rex:
-        save_document_rex("%s", doc.doc_id, doc.rex)
-        save_analysis_sql("%s", doc.doc_id, doc.rex, doc.analysis)
-        print("  %%s: %%dV %%dE" %% (doc.doc_id, doc.rex.nV, doc.rex.nE))
+        save_document_rex("{workspace}", doc.doc_id, doc.rex)
+        save_analysis_sql("{workspace}", doc.doc_id, doc.rex, doc.analysis)
+        print("  %s: %dV %dE" % (doc.doc_id, doc.rex.nV, doc.rex.nE))
 
-print("Saved to workspace: %s")
+print("Saved to workspace: {workspace}")
 PYSCRIPT
         echo "Done - $(date)"
-    """ % (input_dir, depth, workspace, workspace, workspace))
+    """)
 
 
 def generate_slurm_training(
@@ -237,23 +236,23 @@ def generate_slurm_training(
     Reads a built corpus from workspace, extracts per-chunk features,
     and saves as safetensors for PyTorch/JAX/HuggingFace.
     """
-    return _header("rexgraph-training", partition, time_limit, mem, 4, account) + "\n" + _activate(conda_env) + textwrap.dedent("""\
+    return _header("rexgraph-training", partition, time_limit, mem, 4, account) + "\n" + _activate(conda_env) + textwrap.dedent(f"""\
 
         python << 'PYSCRIPT'
 from agent.training import TrainingExporter
 from agent.server.persistence import list_document_bundles
 
-docs = list_document_bundles("%s")
-print("Found %%d documents" %% len(docs))
+docs = list_document_bundles("{workspace}")
+print("Found %d documents" % len(docs))
 
 te = TrainingExporter.from_files([])  # will need corpus rebuild
-te.export_features("%s")
-print("Features exported: %%s" %% str(te.feature_matrix().shape))
-te.export_training_pairs("%s".replace(".safetensors", "_pairs.safetensors"), target="%s")
-print("%%d training examples exported" %% len(te.examples))
+te.export_features("{output}")
+print("Features exported: %s" % str(te.feature_matrix().shape))
+te.export_training_pairs("{output}".replace(".safetensors", "_pairs.safetensors"), target="{target}")
+print("%d training examples exported" % len(te.examples))
 PYSCRIPT
         echo "Done - $(date)"
-    """ % (workspace, output, output, target))
+    """)
 
 
 def generate_slurm_array(
@@ -328,7 +327,7 @@ def write_template(template_name, output=None, **kwargs):
     """Generate and optionally write a job template."""
     if template_name not in TEMPLATES:
         available = ", ".join(sorted(TEMPLATES.keys()))
-        raise ValueError("Unknown template: %s. Available: %s" % (template_name, available))
+        raise ValueError(f"Unknown template: {template_name}. Available: {available}")
 
     description, generator = TEMPLATES[template_name]
     script = generator(**kwargs)
@@ -337,7 +336,7 @@ def write_template(template_name, output=None, **kwargs):
         output_path = Path(output)
         output_path.write_text(script)
         os.chmod(str(output_path), 0o755)
-        print("Wrote %s template to %s" % (template_name, output_path))
+        print(f"Wrote {template_name} template to {output_path}")
         return str(output_path)
 
     return script

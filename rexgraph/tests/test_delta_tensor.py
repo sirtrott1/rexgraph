@@ -14,7 +14,6 @@ all and never checkpointed.
 """
 
 import numpy as np
-import pytest
 
 from rexgraph.graph import RexGraph, TemporalRex
 
@@ -223,8 +222,8 @@ def test_mutations_name_both_ends():
     m = tr.mutations()
     assert m["died_key"][0] != m["born_key"][0]
     d = tr.delta_tensor()
-    died = {int(k) for k, e in zip(d["key"], d["existence"]) if e < 0}
-    born = {int(k) for k, e in zip(d["key"], d["existence"]) if e > 0}
+    died = {int(k) for k, e in zip(d["key"], d["existence"], strict=False) if e < 0}
+    born = {int(k) for k, e in zip(d["key"], d["existence"], strict=False) if e > 0}
     assert int(m["died_key"][0]) in died and int(m["born_key"][0]) in born
 
 

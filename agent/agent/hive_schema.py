@@ -18,28 +18,28 @@ ontology, rcdb.version_if_changed's change-only lineage, and the RCDB store.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from . import rcdb
-from .ontology_complex import parse_rdf, ontology_to_rex
+from .ontology_complex import ontology_to_rex, parse_rdf
 
 
 class HiveSchema:
     """The hive's self-structure, snapshotted as a versioned complex in the RCDB."""
 
-    def __init__(self, hive, *, store: Optional[rcdb.RCStore] = None, lineage_id: str = "hive"):
+    def __init__(self, hive, *, store: rcdb.RCStore | None = None, lineage_id: str = "hive"):
         self.hive = hive
         self.store = store or rcdb.default_store()
         self.lineage_id = lineage_id
         # resources the hive is attached to but that are not bees: databases, stores, datasets.
         # name -> {"kind": str, "links": [(bee_name, relation)]}
-        self.resources: Dict[str, Dict[str, Any]] = {}
+        self.resources: dict[str, dict[str, Any]] = {}
 
     # -- the self-schema as triples -> a complex -------------------------------
 
-    def triples(self) -> List[Tuple[str, str, str]]:
+    def triples(self) -> list[tuple[str, str, str]]:
         """(subject, predicate, object) triples describing the hive's whole structure."""
-        t: List[Tuple[str, str, str]] = []
+        t: list[tuple[str, str, str]] = []
         for b in self.hive.bees():
             wt = b.worker_type or f"role:{b.role}"
             parts = wt.split(":")
@@ -82,10 +82,10 @@ class HiveSchema:
 
     # -- history ---------------------------------------------------------------
 
-    def lineage(self) -> List[dict]:
+    def lineage(self) -> list[dict]:
         return rcdb.lineage(self.store, self.lineage_id)
 
-    def evolution(self) -> List[dict]:
+    def evolution(self) -> list[dict]:
         """The tracked life history: each version, why it happened, and its size/topology.
 
         Versions now live on one native version chain under ``self.lineage_id``

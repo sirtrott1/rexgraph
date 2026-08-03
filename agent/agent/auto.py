@@ -13,14 +13,14 @@ That's the entire API for going from raw data to complete structural analysis.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 import numpy as np
 
 from .adapters import EdgeConstruction
-from .adapters.feature_matrix import FeatureMatrixAdapter
-from .adapters.edge_list import EdgeListAdapter
 from .adapters.correlation import AdjacencyAdapter, CorrelationAdapter
+from .adapters.edge_list import EdgeListAdapter
+from .adapters.feature_matrix import FeatureMatrixAdapter
 
 # CSV cell tokens treated as missing (mirrors pandas.read_csv default na_values, lowercased)
 _NA_TOKENS = frozenset({"", "na", "n/a", "null", "none", "#n/a", "nan"})
@@ -214,7 +214,7 @@ def _classify_csv(path: Path) -> str:
     import csv
     sep = '\t' if str(path).endswith('.tsv') else ','
     try:
-        with open(path, "r", newline="") as fh:
+        with open(path, newline="") as fh:
             reader = csv.reader(fh, delimiter=sep)
             header = next(reader)
             rows = []
@@ -295,8 +295,8 @@ def auto_rex(
     typing: str = "auto",
     sign: str = "auto",
     face_selection: str = "typed",
-    feature_names: Optional[List[str]] = None,
-    vertex_labels: Optional[List[str]] = None,
+    feature_names: list[str] | None = None,
+    vertex_labels: list[str] | None = None,
     **kwargs,
 ):
     """Build a typed RexGraph from any supported input.
@@ -549,7 +549,7 @@ def _fallback_text_or_raise(data, input_type, err, **kwargs):
 def _read_numeric_csv(path):
     """Read a CSV and return (X float64[n, k], names) for its numeric columns only. Pandas-free."""
     import csv
-    with open(path, "r", newline="") as fh:
+    with open(path, newline="") as fh:
         reader = csv.reader(fh)
         header = next(reader)
         rows = [r for r in reader if r]

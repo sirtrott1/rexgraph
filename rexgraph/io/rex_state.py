@@ -44,14 +44,14 @@ def encode_name(name: str, reserved: str = RESERVED_HIERARCHY) -> str:
     """Reversible, collision-free encoding of `name` for a container reserving `reserved`."""
     out = name.replace("%", "%25")
     for ch in reserved:
-        out = out.replace(ch, "%%%02X" % ord(ch))
+        out = out.replace(ch, f"%{ord(ch):02X}")
     return out
 
 
 def decode_name(name: str, reserved: str = RESERVED_HIERARCHY) -> str:
     """Inverse of :func:`encode_name` for the same reserved set."""
     for ch in reserved:
-        name = name.replace("%%%02X" % ord(ch), ch)
+        name = name.replace(f"%{ord(ch):02X}", ch)
     return name.replace("%25", "%")
 
 
@@ -215,12 +215,12 @@ def _unpack_cell_metadata(rex, t, h):
         dim, key, kind = col["dim"], col["key"], col["kind"]
         if kind == "num":
             idxs = np.asarray(t[f"cm_{dim}_{key}_idx"]); vals = np.asarray(t[f"cm_{dim}_{key}_val"])
-            for i, v in zip(idxs, vals):
+            for i, v in zip(idxs, vals, strict=False):
                 rex.attach_metadata(dim, int(i), key, float(v))
         elif kind == "str":
             idxs = np.asarray(t[f"cm_{dim}_{key}_idx"])
             vals = _unpack_strings(t[f"cm_{dim}_{key}_valbytes"], t[f"cm_{dim}_{key}_valoffs"])
-            for i, v in zip(idxs, vals):
+            for i, v in zip(idxs, vals, strict=False):
                 rex.attach_metadata(dim, int(i), key, v)
         elif kind == "rex":
             for entry in [n for n in h.get("nested", []) if n["group"] == f"cm_{dim}_{key}"]:

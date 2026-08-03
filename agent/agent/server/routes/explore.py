@@ -7,9 +7,8 @@ giving the frontend interactive access to any part of the analysis.
 
 from __future__ import annotations
 
-
 import numpy as np
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, Body, HTTPException
 
 router = APIRouter()
 

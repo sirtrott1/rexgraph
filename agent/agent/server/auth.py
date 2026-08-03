@@ -13,16 +13,16 @@ what kind of work the team is doing.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
 
-from fastapi import HTTPException, Request, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def _norm_role(role: str) -> str:
     return ROLE_ADMIN if (role or "").strip().lower() == ROLE_ADMIN else ROLE_USER
 
 
-def is_admin(entry: "Optional[TokenEntry]", workspace: str = "default") -> bool:
+def is_admin(entry: TokenEntry | None, workspace: str = "default") -> bool:
     """True if the token holds the admin role IN `workspace`. Roles are per-workspace; the root
     workspace 'default' is the instance, so admin-of-default is the instance administrator."""
     return entry is not None and entry.is_admin_in(workspace)
@@ -61,10 +61,10 @@ class TokenEntry:
     """
     token_hash: str
     user_id: str
-    workspaces: List[str] = field(default_factory=list)  # access list (derived from roles)
+    workspaces: list[str] = field(default_factory=list)  # access list (derived from roles)
     role: str = ROLE_USER                                # legacy scalar view (highest role held)
     created: float = 0.0
-    roles: Dict[str, str] = field(default_factory=dict)  # {workspace: 'admin'|'user'}; '*' = all
+    roles: dict[str, str] = field(default_factory=dict)  # {workspace: 'admin'|'user'}; '*' = all
 
     def __post_init__(self):
         if not self.roles:                               # legacy token: synthesize from role+workspaces
@@ -122,7 +122,7 @@ class WorkspaceState:
         users = set()
         docs = set()
         queries = 0
-        for user, action, target, ts in self.activity_edges:
+        for user, action, target, _ts in self.activity_edges:
             users.add(user)
             if action in ("upload", "add_document"):
                 docs.add(target)
@@ -152,12 +152,13 @@ class WorkspaceState:
 
         try:
             import numpy as np
+
             from rexgraph.graph import RexGraph
 
             # Build vertex set from users and targets
             labels = []
             label_idx = {}
-            for user, action, target, ts in self.activity_edges:
+            for user, _action, target, _ts in self.activity_edges:
                 for entity in [user, target]:
                     if entity and entity not in label_idx:
                         label_idx[entity] = len(labels)
@@ -166,7 +167,7 @@ class WorkspaceState:
             # Build edges from interactions
             sources = []
             targets_arr = []
-            for user, action, target, ts in self.activity_edges:
+            for user, _action, target, _ts in self.activity_edges:
                 if user in label_idx and target in label_idx:
                     src = label_idx[user]
                     tgt = label_idx[target]
@@ -179,7 +180,7 @@ class WorkspaceState:
 
             # Deduplicate edges
             edge_set = {}
-            for s, t in zip(sources, targets_arr):
+            for s, t in zip(sources, targets_arr, strict=False):
                 key = (min(s, t), max(s, t))
                 edge_set[key] = edge_set.get(key, 0) + 1
 
@@ -211,7 +212,7 @@ class WorkspaceState:
 
         # Group query targets by user
         user_queries = defaultdict(set)
-        for user, action, target, ts in self.activity_edges:
+        for user, action, target, _ts in self.activity_edges:
             if action == "query":
                 # Each word in the query is a target entity
                 words = set(target.lower().split())
@@ -246,8 +247,8 @@ class AuthManager:
     """
 
     def __init__(self):
-        self._tokens: Dict[str, TokenEntry] = {}
-        self._workspaces: Dict[str, WorkspaceState] = {}
+        self._tokens: dict[str, TokenEntry] = {}
+        self._workspaces: dict[str, WorkspaceState] = {}
         self._auth_enabled = False
         self._recovery_hash: str = ""
         self._disable_passphrase_hash: str = ""
@@ -299,10 +300,8 @@ class AuthManager:
         }
         config_path.write_text(json.dumps(data, indent=2))
         # Restrict permissions: owner read/write only
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(str(config_path), 0o600)
-        except OSError:
-            pass
 
     @staticmethod
     def _hash(token: str) -> str:
@@ -317,12 +316,12 @@ class AuthManager:
         except Exception:
             return False
 
-    def create_token(self, user_id: str, workspaces: List[str],
+    def create_token(self, user_id: str, workspaces: list[str],
                      role: str = ROLE_USER) -> str:
         """Create a new API token granting `role` in each of `workspaces`. Returns the raw token."""
         return self._mint(user_id, {ws: role for ws in (workspaces or ["default"])})
 
-    def _mint(self, user_id: str, roles: Dict[str, str]) -> str:
+    def _mint(self, user_id: str, roles: dict[str, str]) -> str:
         """Mint a fresh token for `user_id` with a per-workspace roles map. Returns the raw token."""
         import secrets
         raw = secrets.token_urlsafe(32)
@@ -335,12 +334,12 @@ class AuthManager:
 
     # -- member management (the shared-workspace roster, per workspace) --------
 
-    def _tokens_of(self, user_id: str) -> List["TokenEntry"]:
+    def _tokens_of(self, user_id: str) -> list[TokenEntry]:
         return [te for te in self._tokens.values() if te.user_id == user_id]
 
-    def _roles_of(self, user_id: str) -> Dict[str, str]:
+    def _roles_of(self, user_id: str) -> dict[str, str]:
         """The member's merged per-workspace roles across any tokens they hold."""
-        merged: Dict[str, str] = {}
+        merged: dict[str, str] = {}
         for te in self._tokens_of(user_id):
             merged.update(te.roles)
         return merged
@@ -358,7 +357,7 @@ class AuthManager:
         return len(dead)
 
     def add_member(self, user_id: str, role: str = ROLE_USER,
-                   workspace: str = "default") -> Optional[str]:
+                   workspace: str = "default") -> str | None:
         """Grant `user_id` the role in `workspace`. If they are new, mint their token (returned, shown
         once); if they already have one, update its roles IN PLACE (no rotation - their existing token
         keeps working, so their access in other workspaces is untouched) and return None."""
@@ -369,7 +368,7 @@ class AuthManager:
         if not toks:
             return self._mint(user_id, {workspace: role})
         keep = max(toks, key=lambda t: t.created)          # consolidate onto the newest token
-        merged: Dict[str, str] = {}
+        merged: dict[str, str] = {}
         for t in toks:
             merged.update(t.roles)
             if t is not keep:
@@ -380,14 +379,14 @@ class AuthManager:
         self._save_config()
         return None
 
-    def revoke_member(self, user_id: str, workspace: Optional[str] = None) -> int:
+    def revoke_member(self, user_id: str, workspace: str | None = None) -> int:
         """Revoke a member's access. With `workspace`, remove only that workspace's role (their token
         keeps working elsewhere); without it, remove the member entirely. Refuses to remove the last
         admin of any affected workspace. Returns how many members/roles were removed (0 if none)."""
         toks = self._tokens_of(user_id)
         if not toks:
             return 0
-        merged: Dict[str, str] = {}
+        merged: dict[str, str] = {}
         for t in toks:
             merged.update(t.roles)
         removing = set(merged) if workspace is None else ({workspace} if workspace in merged else set())
@@ -395,7 +394,7 @@ class AuthManager:
             return 0
         for ws in removing:
             if merged.get(ws) == ROLE_ADMIN and self._admins_of(ws) <= {user_id}:
-                raise ValueError("cannot revoke the last admin of workspace '%s'" % ws)
+                raise ValueError(f"cannot revoke the last admin of workspace '{ws}'")
         if workspace is None:
             n = self._revoke_user_unsaved(user_id)
             if n:
@@ -414,10 +413,10 @@ class AuthManager:
         self._save_config()
         return 1
 
-    def members(self, workspace: Optional[str] = None) -> List[dict]:
+    def members(self, workspace: str | None = None) -> list[dict]:
         """The roster. With `workspace`, one row per member who has a role there ({user_id, role,
         workspace}); without it, one row per member with their full {user_id, roles} map."""
-        users: Dict[str, dict] = {}
+        users: dict[str, dict] = {}
         for te in self._tokens.values():
             u = users.setdefault(te.user_id, {"user_id": te.user_id, "roles": {}, "created": te.created})
             u["roles"].update(te.roles)
@@ -433,7 +432,7 @@ class AuthManager:
                             "created": m["created"]})
         return sorted(out, key=lambda m: (m["role"] != ROLE_ADMIN, m["user_id"]))
 
-    def verify(self, token: str) -> Optional[TokenEntry]:
+    def verify(self, token: str) -> TokenEntry | None:
         """Verify a bearer token or OIDC JWT. Returns the entry or None."""
         if not self._auth_enabled:
             return TokenEntry(
@@ -498,7 +497,7 @@ class AuthManager:
         """True when no auth.json was found at load time (a fresh install)."""
         return not self._config_existed
 
-    def bootstrap_admin(self, initial_token: Optional[str] = None) -> Optional[str]:
+    def bootstrap_admin(self, initial_token: str | None = None) -> str | None:
         """When auth is enabled with no tokens, mint the first admin token.
 
         Returns the raw token if one was created (to be shown once), else None.
@@ -538,7 +537,7 @@ class AuthManager:
             return False
         return self._verify_hash(key, self._recovery_hash)
 
-    def recover(self, recovery_key: str) -> Optional[str]:
+    def recover(self, recovery_key: str) -> str | None:
         """Use recovery key to create a new admin token.
 
         Returns the raw token string, or None if the key is invalid.
@@ -596,7 +595,7 @@ class AuthManager:
         }
         logger.info("OIDC configured: issuer=%s", issuer)
 
-    def verify_oidc_token(self, token: str) -> Optional[TokenEntry]:
+    def verify_oidc_token(self, token: str) -> TokenEntry | None:
         """Verify a JWT token from the OIDC provider.
 
         Requires: pip install python-jose[cryptography] requests
@@ -605,8 +604,8 @@ class AuthManager:
             return None
 
         try:
-            from jose import jwt as jose_jwt
             import requests
+            from jose import jwt as jose_jwt
 
             # Fetch JWKS (cached in production - this is the simple version)
             jwks = requests.get(self._oidc_config["jwks_uri"], timeout=10).json()
@@ -654,10 +653,10 @@ class AuthManager:
             )
         return self._workspaces[name]
 
-    def list_workspaces(self) -> List[str]:
+    def list_workspaces(self) -> list[str]:
         return sorted(self._workspaces.keys())
 
-    def list_tokens(self) -> List[dict]:
+    def list_tokens(self) -> list[dict]:
         return [
             {
                 "user_id": te.user_id,
@@ -747,7 +746,7 @@ def require_workspace(
     )
 
     if mgr.auth_enabled and not token.can_access(ws_name):
-        raise HTTPException(403, "No access to workspace '%s'" % ws_name)
+        raise HTTPException(403, f"No access to workspace '{ws_name}'")
 
     ws = mgr.get_workspace(ws_name)
     return ws
@@ -763,5 +762,5 @@ async def require_workspace_admin(
     Returns the workspace so routes can use its name.
     """
     if not is_admin(token, ws.name):
-        raise HTTPException(403, "Admin of workspace '%s' required" % ws.name)
+        raise HTTPException(403, f"Admin of workspace '{ws.name}' required")
     return ws

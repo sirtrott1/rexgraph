@@ -2,17 +2,13 @@
 wiring into the server (model setup, per-query complex, retrieval,
 grounded synthesis, chat cache, pipeline<->chat, cross-document)."""
 
-import os
-import tempfile
 
-import numpy as np
 import pytest
-
-from agent import chat_model
-from agent import query_engine as qe
 from agent.adapters.text import TextAdapter
 from agent.auto import build_rex_from_edges
 
+from agent import chat_model
+from agent import query_engine as qe
 
 DOC = ("Cells signal through receptors. Receptors bind ligands and activate "
        "pathways. Pathways regulate gene expression. Genes express proteins "
@@ -142,8 +138,8 @@ class TestAnswerQuery:
 
 @pytest.fixture(scope="module")
 def client():
-    from fastapi.testclient import TestClient
     from agent.server.app import app
+    from fastapi.testclient import TestClient
     with TestClient(app) as c:
         yield c
 
@@ -190,8 +186,8 @@ class TestServerIntegration:
 
 # Retrieval scoring: the hybrid mix must be commensurable
 def _mini_corpus():
-    from agent.corpus import CorpusBuilder
     from agent.adapters.text import TextAdapter
+    from agent.corpus import CorpusBuilder
     ta = TextAdapter()
     docs = {
         "hodge": "hodge decomposition gradient curl harmonic projection cycle basis "
@@ -232,7 +228,7 @@ def test_scores_are_a_coherent_mass_not_a_mixture_of_incommensurable_terms():
     # bounded by the seed size, which is what makes it a mass rather than a sum of
     # unrelated quantities
     from agent.adapters.text import TextAdapter
-    from agent.scoring import interfacing_score, shared_indices
+    from agent.scoring import interfacing_score
     qec = TextAdapter().build("hodge decomposition harmonic projection",
                               min_count=1, max_vocab=200)
     for doc in c.documents:

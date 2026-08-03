@@ -37,8 +37,6 @@ Standalone mode (no running TrustGraph):
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 import numpy as np
 
 from agent.engine import DecisionEngine, EngineResult
@@ -67,10 +65,10 @@ class TrustGraphPipeline:
             workspace=workspace, timeout=timeout,
         )
         self.engine = DecisionEngine()
-        self._last_result: Optional[EngineResult] = None
+        self._last_result: EngineResult | None = None
 
     @classmethod
-    def standalone(cls) -> "TrustGraphPipeline":
+    def standalone(cls) -> TrustGraphPipeline:
         """Create a pipeline for standalone use (no TG instance)."""
         return cls(url=None)
 
@@ -120,7 +118,7 @@ class TrustGraphPipeline:
 
     def analyze_documents(
         self,
-        document_ids: List[str],
+        document_ids: list[str],
         flow: str = "default",
         depth: str = None,
     ) -> EngineResult:
@@ -170,8 +168,8 @@ class TrustGraphPipeline:
 
     def analyze_triples(
         self,
-        triples: List,
-        contexts: Dict[str, List[str]] = None,
+        triples: list,
+        contexts: dict[str, list[str]] = None,
         signal: np.ndarray = None,
         depth: str = None,
     ) -> EngineResult:
@@ -199,11 +197,11 @@ class TrustGraphPipeline:
 
     def query_confidence(
         self,
-        entities: List[str],
+        entities: list[str],
         flow: str = "default",
         rex=None,
-        meta: Dict = None,
-    ) -> Dict:
+        meta: dict = None,
+    ) -> dict:
         """Score structural confidence for a set of entities.
 
         If a previous analysis result is available (from
@@ -256,7 +254,7 @@ class TrustGraphPipeline:
         signal_name: str = "query",
         flow: str = "default",
         rex=None,
-    ) -> Dict:
+    ) -> dict:
         """Decompose an edge signal on the knowledge graph.
 
         Parameters
@@ -317,10 +315,11 @@ class TrustGraphPipeline:
 
     # Helpers
 
-    def _contexts_from_named_graphs(self, triples) -> Optional[Dict]:
+    def _contexts_from_named_graphs(self, triples) -> dict | None:
         """Extract document contexts from triple named graphs."""
         from agent.integrations.trustgraph_adapter import (
-            _triple_to_strings, _extract_context_id,
+            _extract_context_id,
+            _triple_to_strings,
         )
 
         groups = {}
@@ -339,10 +338,11 @@ class TrustGraphPipeline:
 
         return {k: list(v) for k, v in groups.items()}
 
-    def _entities_in_document(self, triples, doc_id) -> List[str]:
+    def _entities_in_document(self, triples, doc_id) -> list[str]:
         """Find all entities mentioned in a specific document."""
         from agent.integrations.trustgraph_adapter import (
-            _triple_to_strings, _extract_context_id,
+            _extract_context_id,
+            _triple_to_strings,
         )
 
         entities = set()

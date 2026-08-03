@@ -33,14 +33,14 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-
 
 # Column role taxonomy
 
@@ -126,16 +126,16 @@ class ColumnProfile:
     is_numeric: bool = False
     has_delimiter: bool = False        # semicolons, pipes
     unique_ratio: float = 0.0         # n_unique / n_values
-    values: List[str] = field(default_factory=list)
-    unique_values: List[str] = field(default_factory=list)
-    counts: Dict[str, int] = field(default_factory=dict)
+    values: list[str] = field(default_factory=list)
+    unique_values: list[str] = field(default_factory=list)
+    counts: dict[str, int] = field(default_factory=dict)
     # Populated for numeric columns
     numeric_min: float = 0.0
     numeric_max: float = 0.0
     numeric_mean: float = 0.0
     # Populated for polarity columns
-    positive_values: List[str] = field(default_factory=list)
-    negative_values: List[str] = field(default_factory=list)
+    positive_values: list[str] = field(default_factory=list)
+    negative_values: list[str] = field(default_factory=list)
     # Name-match confidence (1.0 = matched by name, 0.0 = heuristic only)
     name_matched: bool = False
 
@@ -173,7 +173,7 @@ class ColumnProfile:
         }
 
 
-def _profile_column(name: str, values: List[str]) -> ColumnProfile:
+def _profile_column(name: str, values: list[str]) -> ColumnProfile:
     """Build a statistical profile of a single metadata column."""
     non_empty = [v for v in values if v]
     p = ColumnProfile(name=name, values=values)
@@ -287,8 +287,8 @@ def _detect_polarity(profile: ColumnProfile) -> None:
 
 
 def classify_columns(
-    meta: Dict[str, List[str]],
-) -> Dict[str, ColumnProfile]:
+    meta: dict[str, list[str]],
+) -> dict[str, ColumnProfile]:
     """Profile and classify all metadata columns.
 
     Returns a dict of column_name -> ColumnProfile with assigned roles.
@@ -307,33 +307,33 @@ def classify_columns(
 
 
 def find_by_role(
-    profiles: Dict[str, ColumnProfile], role: str,
-) -> List[ColumnProfile]:
+    profiles: dict[str, ColumnProfile], role: str,
+) -> list[ColumnProfile]:
     """Return all columns with the given role, name-matched first."""
     matches = [p for p in profiles.values() if p.role == role]
     matches.sort(key=lambda p: (not p.name_matched, p.name))
     return matches
 
 
-def get_type_column(profiles: Dict[str, ColumnProfile]) -> Optional[ColumnProfile]:
+def get_type_column(profiles: dict[str, ColumnProfile]) -> ColumnProfile | None:
     """Return the primary type column (for edge coloring)."""
     candidates = find_by_role(profiles, ColumnRole.TYPE)
     return candidates[0] if candidates else None
 
 
-def get_polarity_column(profiles: Dict[str, ColumnProfile]) -> Optional[ColumnProfile]:
+def get_polarity_column(profiles: dict[str, ColumnProfile]) -> ColumnProfile | None:
     """Return the polarity column (for flow sign)."""
     candidates = find_by_role(profiles, ColumnRole.POLARITY)
     return candidates[0] if candidates else None
 
 
-def get_grouping_column(profiles: Dict[str, ColumnProfile]) -> Optional[ColumnProfile]:
+def get_grouping_column(profiles: dict[str, ColumnProfile]) -> ColumnProfile | None:
     """Return the primary grouping column (pathway membership)."""
     candidates = find_by_role(profiles, ColumnRole.GROUPING)
     return candidates[0] if candidates else None
 
 
-def get_ordinal_column(profiles: Dict[str, ColumnProfile]) -> Optional[ColumnProfile]:
+def get_ordinal_column(profiles: dict[str, ColumnProfile]) -> ColumnProfile | None:
     """Return the primary ordinal column (confidence, quality)."""
     candidates = find_by_role(profiles, ColumnRole.ORDINAL)
     return candidates[0] if candidates else None
@@ -351,9 +351,9 @@ _ORDINAL_MAPS = {
 
 
 def build_weights(
-    profiles: Dict[str, ColumnProfile],
+    profiles: dict[str, ColumnProfile],
     nE: int,
-) -> Tuple[np.ndarray, List[str]]:
+) -> tuple[np.ndarray, list[str]]:
     """Construct signed edge weight vector from classified columns.
 
     Weight magnitude comes from the first numeric column (default 1.0).
@@ -376,10 +376,8 @@ def build_weights(
         for j, v in enumerate(p.values):
             if j >= nE:
                 break
-            try:
+            with contextlib.suppress(ValueError):
                 w[j] = float(v) if v else 1.0
-            except ValueError:
-                pass
 
     # Ordinal scaling (multiplicative)
     ordinal_col = get_ordinal_column(profiles)
@@ -409,8 +407,8 @@ def build_weights(
 
 
 def build_edge_attrs(
-    profiles: Dict[str, ColumnProfile],
-) -> Dict[str, list]:
+    profiles: dict[str, ColumnProfile],
+) -> dict[str, list]:
     """Assemble the edge_attrs dict for analyze().
 
     Includes all columns, but ensures the type column is keyed as
@@ -436,16 +434,16 @@ def build_edge_attrs(
 @dataclass
 class GraphData:
     """Parsed and classified CSV data ready for RexGraph construction."""
-    sources: List[str]
-    targets: List[str]
-    vertices: List[str]
+    sources: list[str]
+    targets: list[str]
+    vertices: list[str]
     src_idx: np.ndarray
     tgt_idx: np.ndarray
-    meta: Dict[str, List[str]]
-    profiles: Dict[str, ColumnProfile]
-    edge_attrs: Dict[str, list]
+    meta: dict[str, list[str]]
+    profiles: dict[str, ColumnProfile]
+    edge_attrs: dict[str, list]
     w_E: np.ndarray
-    negative_types: List[str]
+    negative_types: list[str]
     nV: int = 0
     nE: int = 0
 
@@ -508,13 +506,13 @@ class GraphData:
 def load_edge_csv(
     path: str,
     *,
-    roles: Optional[Dict[str, str]] = None,
-    source: Optional[str] = None,
-    target: Optional[str] = None,
-    weight: Optional[str] = None,
-    usecols: Optional[Sequence[str]] = None,
-    delimiter: Optional[str] = None,
-    has_header: Optional[bool] = None,
+    roles: dict[str, str] | None = None,
+    source: str | None = None,
+    target: str | None = None,
+    weight: str | None = None,
+    usecols: Sequence[str] | None = None,
+    delimiter: str | None = None,
+    has_header: bool | None = None,
 ) -> GraphData:
     """Load a CSV edge list with full column role classification.
 
@@ -588,7 +586,7 @@ def load_edge_csv(
                 raise ValueError(f"Empty CSV: {path}")
             width = len(raw_rows[0])
             cols = [f"c{i}" for i in range(width)]
-            rows = [dict(zip(cols, r)) for r in raw_rows]
+            rows = [dict(zip(cols, r, strict=False)) for r in raw_rows]
         else:
             rows = list(csv.DictReader(f, dialect=dialect))
     if not rows:
@@ -641,7 +639,7 @@ def load_edge_csv(
 
     # Vertex index mapping
     vertex_set = set()
-    for s, t in zip(sources, targets):
+    for s, t in zip(sources, targets, strict=False):
         vertex_set.add(s)
         vertex_set.add(t)
     vertices = sorted(vertex_set)
@@ -673,7 +671,7 @@ def load_edge_csv(
             if not np.isfinite(fv):
                 raise ValueError(f"non-finite weight in column {weight!r}")
             w_E[j] = fv
-        negative_types: List[str] = []
+        negative_types: list[str] = []
         edge_attrs[weight] = w_E
     else:
         w_E, negative_types = build_weights(profiles, len(sources))
@@ -681,12 +679,10 @@ def load_edge_csv(
     # Keep numeric metadata columns as typed arrays (not python strings)
     for name, p in profiles.items():
         if p.is_numeric and name in edge_attrs:
-            try:
+            with contextlib.suppress(ValueError):
                 edge_attrs[name] = np.array(
                     [float(v) if v else np.nan for v in p.values], dtype=np.float64,
                 )
-            except ValueError:
-                pass
 
     return GraphData(
         sources=sources, targets=targets,

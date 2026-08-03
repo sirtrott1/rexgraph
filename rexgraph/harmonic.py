@@ -7,15 +7,20 @@ See rexgraph.core._harmonic for full documentation.
 """
 
 from __future__ import annotations
-from typing import Optional
+
 import numpy as np
 
 try:
     from .core._harmonic import (
-        harmonic_basis, harmonic_projectors,
-        prime_removal_analysis, harmonic_product_table,
-        prime_coupling, harmonic_channel_character,
-        harmonic_encode, harmonic_decode, harmonic_leakage,
+        harmonic_basis,
+        harmonic_channel_character,
+        harmonic_decode,
+        harmonic_encode,
+        harmonic_leakage,
+        harmonic_product_table,
+        harmonic_projectors,
+        prime_coupling,
+        prime_removal_analysis,
     )
     _COMPILED = True
 except ImportError:
@@ -24,7 +29,7 @@ except ImportError:
 from .graph import RexGraph
 
 
-def build_prime_complex(k: int, removed_vertex: Optional[int] = None):
+def build_prime_complex(k: int, removed_vertex: int | None = None):
     """Build K_k on the first k primes, optionally removing faces for one vertex."""
     try:
         from sympy import primerange

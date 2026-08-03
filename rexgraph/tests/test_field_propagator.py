@@ -10,8 +10,8 @@ spmm - the shape the parallel/GPU backend batches over.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph import field_propagator as fp
+from rexgraph.graph import RexGraph
 
 
 def _tetra():

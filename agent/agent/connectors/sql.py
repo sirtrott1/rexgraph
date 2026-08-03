@@ -20,7 +20,7 @@ Read-only throughout: schema metadata + aggregate counts only.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from . import BaseConnector, Capabilities, ConnectorError
 
@@ -29,6 +29,20 @@ _SQL_SCHEMES = (
     "sqlite", "postgresql", "postgres", "mysql", "mariadb",
     "oracle", "mssql",
 )
+
+
+def _redact(conn_str: str) -> str:
+    """Strip credentials from a connection string so it can go in an error message.
+
+    A SQLAlchemy URL carries them as `scheme://user:password@host/db`. Everything
+    between `//` and the last `@` is replaced, which covers passwords containing `@`
+    or `:`. Strings with no credentials are returned unchanged.
+    """
+    scheme, sep, rest = conn_str.partition("://")
+    if not sep or "@" not in rest:
+        return conn_str
+    _, _, tail = rest.rpartition("@")
+    return f"{scheme}://***@{tail}"
 
 
 class SQLConnector(BaseConnector):
@@ -48,7 +62,7 @@ class SQLConnector(BaseConnector):
             schemes=_SQL_SCHEMES,
         )
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         conn_str = str(source)
         from ..schema_complex import reflect_schema, schema_to_rex
 
@@ -59,8 +73,8 @@ class SQLConnector(BaseConnector):
                 "no foreign-key edges reflected - nothing to form a complex "
                 f"from (source={_redact(conn_str)})")
 
-        labels: List[str] = list(sm_meta["vertex_labels"])
-        edges: List[Tuple[str, str]] = [tuple(e) for e in sm_meta["edges"]]
+        labels: list[str] = list(sm_meta["vertex_labels"])
+        edges: list[tuple[str, str]] = [tuple(e) for e in sm_meta["edges"]]
         modality = self._modality(model, edges)
         weights = self._weights(conn_str, edges) if self.with_weights else None
 
@@ -77,11 +91,11 @@ class SQLConnector(BaseConnector):
 
     # -- modality: align per-edge with the emitted edge order
     @staticmethod
-    def _modality(model, edges: List[Tuple[str, str]]) -> List[Dict[str, Any]]:
-        by_pair: Dict[Tuple[str, str], Any] = {}
+    def _modality(model, edges: list[tuple[str, str]]) -> list[dict[str, Any]]:
+        by_pair: dict[tuple[str, str], Any] = {}
         for fk in model.foreign_keys:
             by_pair.setdefault((fk.from_table, fk.to_table), fk)
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for a, b in edges:
             fk = by_pair.get((a, b))
             out.append({
@@ -93,7 +107,7 @@ class SQLConnector(BaseConnector):
 
     # -- weights: catalog row counts as a cardinality proxy
     @staticmethod
-    def _weights(conn_str: str, edges: List[Tuple[str, str]]) -> Optional[List[float]]:
+    def _weights(conn_str: str, edges: list[tuple[str, str]]) -> list[float] | None:
         from ..schema_complex import list_tables
         try:
             counts = {t["table"]: float(t.get("rows") or 0)

@@ -21,7 +21,8 @@ quantity, built from each step's change measured against its own magnitude.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 #: structural quantities a signature always carries. Drift and stability are read
 #: from these rather than from the payload.
@@ -46,7 +47,7 @@ def unregister_policy(name: str):
     return _POLICIES.unregister(name)
 
 
-def available_policies() -> List[str]:
+def available_policies() -> list[str]:
     return _POLICIES.available()
 
 
@@ -79,7 +80,7 @@ def _relative_change(a: float, b: float) -> float:
     return min(1.0, abs(b - a) / denom)
 
 
-def temporal_features(store, id: str) -> Dict[str, Any]:
+def temporal_features(store, id: str) -> dict[str, Any]:
     """Per-record temporal features from the stored signatures. Opens no blob.
 
     stability : 1.0 means every revision left the structure where it was; 0.0 means
@@ -109,7 +110,7 @@ def temporal_features(store, id: str) -> Dict[str, Any]:
         "valid_from": getattr(last, "valid_from", None),
     }
 
-    steps: List[float] = []
+    steps: list[float] = []
     for i in range(1, len(sigs)):
         a, b = sigs[i - 1], sigs[i]
         shared = [k for k in QUANTITIES if a.get(k) is not None and b.get(k) is not None]
@@ -136,8 +137,8 @@ def temporal_features(store, id: str) -> Dict[str, Any]:
     return out
 
 
-def recency_weights(items: Sequence[Dict[str, Any]], *,
-                    key: str = "tx_from") -> Dict[str, float]:
+def recency_weights(items: Sequence[dict[str, Any]], *,
+                    key: str = "tx_from") -> dict[str, float]:
     """Map each candidate to a [0, 1] recency weight by its ORDER among the others.
 
     Deliberately not a decay: exp(-t/tau) needs a tau, and no value of tau is
@@ -156,14 +157,14 @@ def recency_weights(items: Sequence[Dict[str, Any]], *,
         return {d: 1.0 for _, d in rows}
     # an unknown timestamp is its OWN lowest bucket, not a share of the oldest known
     # one: absence of evidence must not tie with evidence, let alone outrank it.
-    buckets: List[Any] = ([None] if any(t is None for t, _ in rows) else []) + known
+    buckets: list[Any] = ([None] if any(t is None for t, _ in rows) else []) + known
     n = len(buckets)
     weight = {b: (i + 1) / n for i, b in enumerate(buckets)}
     return {d: weight[t] for t, d in rows}
 
 
-def rerank(sections: List[Dict[str, Any]], store, *, mode: str = "stability",
-           ) -> List[Dict[str, Any]]:
+def rerank(sections: list[dict[str, Any]], store, *, mode: str = "stability",
+           ) -> list[dict[str, Any]]:
     """Reorder structurally-scored sections by a temporal policy.
 
     The structural score is a gate, never a summand: a candidate that matched nothing

@@ -11,7 +11,6 @@ with the psi it already has.
 """
 
 import numpy as np
-import pytest
 
 from rexgraph.graph import RexGraph
 
@@ -89,7 +88,6 @@ def test_the_scorer_reads_only_the_seed():
     """coherence_response is O(|seed|), so scoring must not touch the full field.
     Reading rex.coherence would compute every vertex to answer about a handful."""
     import numpy as np
-
     from agent.scoring import interfacing_score
 
     rex = _graph(nV=60, extra=50)

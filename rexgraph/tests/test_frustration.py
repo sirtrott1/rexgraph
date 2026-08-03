@@ -16,7 +16,6 @@ import pytest
 from rexgraph.core import _frustration
 from rexgraph.graph import RexGraph
 
-
 # Helpers
 
 def _triangle():

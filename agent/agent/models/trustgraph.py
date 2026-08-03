@@ -15,18 +15,16 @@ The path is DB -> TrustGraph core -> complex -> train (models) / store (RCDB) / 
 """
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 from . import data as D
 from . import store as _store
 
 
-def core_to_rex(triples=None, *, url: Optional[str] = None, flow: Optional[str] = None):
+def core_to_rex(triples=None, *, url: str | None = None, flow: str | None = None):
     """Convert a knowledge core into (RexGraph, meta). `triples` is a list of (s,p,o) tuples or
     SimpleTriple (standalone); or pass `url`+`flow` to pull a live TrustGraph flow."""
-    from agent.integrations.trustgraph_adapter import TrustGraphAdapter, SimpleTriple
+    from agent.integrations.trustgraph_adapter import SimpleTriple, TrustGraphAdapter
     adapter = TrustGraphAdapter(url=url) if url else TrustGraphAdapter()
     if flow:
         return adapter.from_flow(flow)

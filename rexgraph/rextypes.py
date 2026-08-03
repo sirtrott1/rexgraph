@@ -54,10 +54,9 @@ NamedTuples:
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 from numpy.typing import NDArray
-
 
 # Enumerations
 
@@ -285,9 +284,9 @@ class SpectralBundle(NamedTuple):
     # RL_1 = L1 + alpha_G * L_O (legacy 2-term relational Laplacian)
     RL_1: object
     """Two-term relational Laplacian, f64[nE, nE] or None."""
-    evals_RL_1: Optional[NDArray]
+    evals_RL_1: NDArray | None
     """Eigenvalues of RL_1."""
-    evecs_RL_1: Optional[NDArray]
+    evecs_RL_1: NDArray | None
     """Eigenvectors of RL_1."""
 
     # K1 overlap matrix
@@ -584,7 +583,7 @@ class QuotientResult(NamedTuple):
     """Quotient boundary B_2, f64[nE', nF']."""
     L1_quot: NDArray
     """Hodge Laplacian on quotient edges, f64[nE', nE']."""
-    betti_rel: Tuple[int, int, int]
+    betti_rel: tuple[int, int, int]
     """Relative Betti numbers (beta_0, beta_1, beta_2)."""
     chain_valid: bool
     """Whether B_1 B_2 = 0 holds on the quotient."""
@@ -598,11 +597,11 @@ class QuotientResult(NamedTuple):
     """Face reindexing, i32[nF]."""
     v_star: int
     """Basepoint index in the quotient."""
-    dims: Tuple[int, int, int]
+    dims: tuple[int, int, int]
     """Quotient dimensions (nV', nE', nF')."""
-    LO_quot: Optional[NDArray]
+    LO_quot: NDArray | None
     """Overlap Laplacian on quotient edges (present when LO is provided)."""
-    RL1_quot: Optional[NDArray]
+    RL1_quot: NDArray | None
     """Relational Laplacian on quotient edges (present when LO is provided)."""
 
 
@@ -733,13 +732,13 @@ class FieldPerturbationResult(NamedTuple):
     nE: int
     nF: int
     T: int
-    wave_KE: Optional[NDArray]
+    wave_KE: NDArray | None
     """Wave kinetic energy (wave mode only), f64[T]."""
-    wave_PE: Optional[NDArray]
+    wave_PE: NDArray | None
     """Wave potential energy (wave mode only), f64[T]."""
-    wave_total: Optional[NDArray]
+    wave_total: NDArray | None
     """Wave total energy (wave mode only, conserved), f64[T]."""
-    velocity_trajectory: Optional[NDArray]
+    velocity_trajectory: NDArray | None
     """dF/dt trajectory (wave mode only), f64[T, nE+nF]."""
 
 
@@ -784,7 +783,7 @@ class PersistenceDiagram(NamedTuple):
     """Finite pairs, shape (k, 5): [birth, death, dim, birth_cell, death_cell]."""
     essential: NDArray
     """Essential classes, shape (k, 3): [birth, inf, dim]."""
-    betti: Tuple[int, int, int]
+    betti: tuple[int, int, int]
     """Betti numbers at the final filtration step."""
     order: NDArray
     """Filtration ordering of all cells, i64[N]."""
@@ -1100,5 +1099,5 @@ class CrossComplexBridge(NamedTuple):
     """Void fraction comparison: {void_fraction_A, void_fraction_B, difference}."""
     n_shared: int
     """Number of shared vertices."""
-    channel: Optional[dict] = None
+    channel: dict | None = None
     """Channel score correlation if provided: {correlation, n_groups}."""

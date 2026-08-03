@@ -22,13 +22,14 @@ a bare, CPU-only, no-toolchain box.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 import platform
 import shutil
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __all__ = [
     "detect_python_env",
@@ -51,7 +52,7 @@ BACKEND_PRIORITY = ["cuda", "rocm", "vulkan", "metal", "cpu"]
 # small, safe helpers
 # ----------------------------------------------------------------------------------------------
 
-def _run(cmd: List[str], timeout: float = 4.0) -> Optional[str]:
+def _run(cmd: list[str], timeout: float = 4.0) -> str | None:
     """Run a command, returning stdout (best-effort) or None. Never raises."""
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -60,7 +61,7 @@ def _run(cmd: List[str], timeout: float = 4.0) -> Optional[str]:
         return None
 
 
-def _have(tool: str) -> Optional[str]:
+def _have(tool: str) -> str | None:
     """Path to an executable on PATH, or None."""
     try:
         return shutil.which(tool)
@@ -76,7 +77,7 @@ def _has_module(name: str) -> bool:
         return False
 
 
-def _first_version_tuple(text: Optional[str]) -> Optional[tuple]:
+def _first_version_tuple(text: str | None) -> tuple | None:
     """Pull the first dotted version (e.g. '14.2.0') out of a --version blob -> (14, 2, 0)."""
     if not text:
         return None
@@ -119,7 +120,7 @@ def _detect_manager() -> str:
         # uv writes a `uv = <version>` line into pyvenv.cfg
         cfg = os.path.join(sys.prefix, "pyvenv.cfg")
         try:
-            with open(cfg, "r", encoding="utf-8", errors="ignore") as fh:
+            with open(cfg, encoding="utf-8", errors="ignore") as fh:
                 body = fh.read().lower()
             if "uv =" in body or "uv=" in body:
                 return "uv"
@@ -131,20 +132,20 @@ def _detect_manager() -> str:
     return "system"
 
 
-def _cc_version(path_or_name: Optional[str]) -> Optional[tuple]:
+def _cc_version(path_or_name: str | None) -> tuple | None:
     if not path_or_name:
         return None
     return _first_version_tuple(_run([path_or_name, "--version"]))
 
 
-def _detect_compiler() -> Dict[str, Any]:
+def _detect_compiler() -> dict[str, Any]:
     """Locate the env's C compiler and the system C compiler and check MAJOR-version consistency.
 
     A prior bug: conda-provided gcc-14 (the env's linker) tried to link objects built by the
     system's gcc-16, and LTO failed. When the env compiler and the bare system compiler differ in
     major version, we surface a warning so the build path can pin one toolchain.
     """
-    info: Dict[str, Any] = {
+    info: dict[str, Any] = {
         "env_cc": None, "env_version": None,
         "system_cc": None, "system_version": None,
         "consistent": True, "warning": None,
@@ -184,9 +185,9 @@ def _detect_compiler() -> Dict[str, Any]:
     return info
 
 
-def detect_python_env() -> Dict[str, Any]:
+def detect_python_env() -> dict[str, Any]:
     """Describe the active Python environment manager and toolchain (best-effort, never raises)."""
-    env: Dict[str, Any] = {
+    env: dict[str, Any] = {
         "manager": "system",
         "python": sys.executable,
         "version": platform.python_version(),
@@ -204,15 +205,11 @@ def detect_python_env() -> Dict[str, Any]:
         env["manager"] = _detect_manager()
     except Exception:
         env["manager"] = "system"
-    try:
+    with contextlib.suppress(Exception):
         env["in_venv"] = (getattr(sys, "base_prefix", sys.prefix) != sys.prefix) or bool(env["virtual_env"])
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         env["frontends"] = [t for t in ("micromamba", "mamba", "conda", "uv", "poetry", "pdm")
                             if _have(t)]
-    except Exception:
-        pass
     try:
         comp = _detect_compiler()
         env["compiler"] = comp
@@ -228,12 +225,12 @@ def detect_python_env() -> Dict[str, Any]:
 # Compute backend detection
 # ----------------------------------------------------------------------------------------------
 
-def _cpu_backend() -> Dict[str, Any]:
+def _cpu_backend() -> dict[str, Any]:
     cores = os.cpu_count() or 1
-    simd: List[str] = []
+    simd: list[str] = []
     try:
         if platform.system() == "Linux" and os.path.exists("/proc/cpuinfo"):
-            with open("/proc/cpuinfo", "r", errors="ignore") as fh:
+            with open("/proc/cpuinfo", errors="ignore") as fh:
                 blob = fh.read().lower()
             for flag in ("avx512f", "avx2", "avx", "sse4_2", "neon", "asimd"):
                 if flag in blob:
@@ -251,12 +248,12 @@ def _cpu_backend() -> Dict[str, Any]:
     }
 
 
-def _detect_amd_igpus() -> List[Dict[str, Any]]:
+def _detect_amd_igpus() -> list[dict[str, Any]]:
     """Integrated/APU AMD GPUs via /sys/class/drm vendor id 0x1002, or lspci VGA/Display lines.
 
     Covers APUs like the AMD "Strix Halo" Ryzen AI Max whose RDNA3.5 iGPU shares system memory.
     """
-    found: List[Dict[str, Any]] = []
+    found: list[dict[str, Any]] = []
     # sysfs: /sys/class/drm/card*/device/vendor == 0x1002 (AMD), no discrete VRAM sysfs => integrated
     try:
         drm = "/sys/class/drm"
@@ -280,7 +277,7 @@ def _detect_amd_igpus() -> List[Dict[str, Any]]:
                     vram_file = os.path.join(dev, "mem_info_vram_total")
                     if os.path.exists(vram_file):
                         with open(vram_file) as fh:
-                            total = int((fh.read().strip() or "0"))
+                            total = int(fh.read().strip() or "0")
                         # >= 4 GiB dedicated strongly suggests a discrete card, not an APU
                         integrated = total < (4 * 1024 * 1024 * 1024)
                 except Exception:
@@ -305,14 +302,14 @@ def _detect_amd_igpus() -> List[Dict[str, Any]]:
     return found
 
 
-def detect_compute_backends() -> List[Dict[str, Any]]:
+def detect_compute_backends() -> list[dict[str, Any]]:
     """Ordered list of compute backends available on this host, with capability info.
 
     Every entry has at least: name, kind ('cpu'|'gpu'), available (True), integrated (bool),
     vendor, via (how it was detected), devices (count), detail (str). CPU is ALWAYS present and
     always last. GPU entries are ordered by BACKEND_PRIORITY. Nothing here raises.
     """
-    backends: List[Dict[str, Any]] = []
+    backends: list[dict[str, Any]] = []
 
     # --- CUDA (NVIDIA) ---
     try:
@@ -427,7 +424,7 @@ def detect_compute_backends() -> List[Dict[str, Any]]:
                          "simd": [], "detail": "CPU"})
 
     # order by BACKEND_PRIORITY (unknown names, if any, before cpu)
-    def _rank(b: Dict[str, Any]) -> int:
+    def _rank(b: dict[str, Any]) -> int:
         try:
             return BACKEND_PRIORITY.index(b["name"])
         except ValueError:
@@ -436,10 +433,10 @@ def detect_compute_backends() -> List[Dict[str, Any]]:
     return backends
 
 
-def _names(available: Any) -> List[str]:
+def _names(available: Any) -> list[str]:
     if available is None:
         available = detect_compute_backends()
-    out: List[str] = []
+    out: list[str] = []
     for item in available:
         if isinstance(item, str):
             out.append(item)
@@ -477,7 +474,7 @@ def recommend_backend(available: Any = None) -> str:
 
 def summary() -> str:
     """A human-readable diagnostic of the Python env, toolchain, and compute backends."""
-    lines: List[str] = []
+    lines: list[str] = []
     try:
         env = detect_python_env()
     except Exception as e:  # pragma: no cover - defensive

@@ -25,8 +25,6 @@ Usage in a Jupyter notebook:
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 
 class RexClient:
     """Client for a running rexgraph agent server."""
@@ -34,7 +32,7 @@ class RexClient:
     def __init__(
         self,
         url: str = "http://localhost:8000",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         workspace: str = "default",
     ):
         self.url = url.rstrip("/")
@@ -45,7 +43,7 @@ class RexClient:
     def _headers(self) -> dict:
         h = {"X-Workspace": self.workspace}
         if self.api_key:
-            h["Authorization"] = "Bearer %s" % self.api_key
+            h["Authorization"] = f"Bearer {self.api_key}"
         return h
 
     def _get(self, path: str, **params) -> dict:
@@ -90,11 +88,11 @@ class RexClient:
 
     # Analysis
     def analysis(self, session_id: str, depth: str = "standard") -> dict:
-        return self._get("/api/analysis/%s" % session_id, depth=depth)
+        return self._get(f"/api/analysis/{session_id}", depth=depth)
 
     # Chat
     def chat(self, session_id: str, message: str) -> dict:
-        return self._post("/api/chat/%s" % session_id, json={"message": message})
+        return self._post(f"/api/chat/{session_id}", json={"message": message})
 
     # Corpus
     def corpus_add_text(self, text: str, doc_id: str = None, date: str = None) -> dict:
@@ -184,7 +182,7 @@ class RexClient:
         return self._post("/api/v1/model/generate", json=body)
 
     # Pipeline
-    def pipeline(self, filepaths: List[str], query: str = None) -> dict:
+    def pipeline(self, filepaths: list[str], query: str = None) -> dict:
         import httpx
         files = [("files", (p.split("/")[-1], open(p, "rb"))) for p in filepaths]
         data = {}
@@ -204,7 +202,7 @@ class RexClient:
 
     # Export
     def export_session(self, session_id: str, format: str = "json") -> dict:
-        return self._get("/api/v1/export/session/%s" % session_id, format=format)
+        return self._get(f"/api/v1/export/session/{session_id}", format=format)
 
     def export_workspace(self, format: str = "json") -> dict:
         return self._get("/api/v1/export/workspace", format=format)
@@ -213,7 +211,7 @@ class RexClient:
         return self._get("/api/v1/export/queries", limit=limit)
 
     # Admin
-    def create_token(self, user_id: str, workspaces: List[str] = None,
+    def create_token(self, user_id: str, workspaces: list[str] = None,
                      role: str = "write") -> dict:
         return self._post("/api/v1/admin/token",
                           json={"user_id": user_id,
@@ -227,4 +225,4 @@ class RexClient:
         return self._get("/api/v1/admin/workspace/activity")
 
     def __repr__(self):
-        return "RexClient(%s, workspace=%s)" % (self.url, self.workspace)
+        return f"RexClient({self.url}, workspace={self.workspace})"

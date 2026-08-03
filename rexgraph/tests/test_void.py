@@ -18,7 +18,6 @@ import pytest
 from rexgraph.core import _void
 from rexgraph.graph import RexGraph
 
-
 # Fixtures
 
 @pytest.fixture

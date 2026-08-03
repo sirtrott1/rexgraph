@@ -26,11 +26,11 @@ def _cmd_status(args) -> int:
     gpu = "rocm" if shutil.which("rocminfo") else (
         "cuda" if shutil.which("nvidia-smi") else "cpu")
     print("Platform")
-    print("  accelerator : %s" % gpu)
+    print(f"  accelerator : {gpu}")
     try:
         from agent.cli.config import detect_platform
         pi = detect_platform()
-        print("  os / arch   : %s / %s" % (
+        print("  os / arch   : {} / {}".format(
             getattr(pi, "os", "?"), getattr(pi, "arch", "?")))
     except Exception:
         pass
@@ -39,7 +39,9 @@ def _cmd_status(args) -> int:
     # Probe each backend's availability without loading heavy models.
     try:
         from agent.integrations.unlimited_ocr import (
-            OfflineOCRClient, PaddleOCRClient, GOTOCRClient,
+            GOTOCRClient,
+            OfflineOCRClient,
+            PaddleOCRClient,
         )
         probes = [
             ("tesseract", lambda: OfflineOCRClient().is_available()),
@@ -55,17 +57,17 @@ def _cmd_status(args) -> int:
         if gpu == "rocm":
             print("  (paddleocr skipped: requires CUDA)")
     except Exception as e:
-        print("  backend probe failed: %s" % e)
+        print(f"  backend probe failed: {e}")
 
     print("\nGPU server")
     try:
         from agent.cli.serve import server_status
         st = server_status()
-        print("  status : %s" % st.get("status"))
+        print("  status : {}".format(st.get("status")))
         if st.get("port"):
-            print("  port   : %s" % st.get("port"))
+            print("  port   : {}".format(st.get("port")))
     except Exception as e:
-        print("  status : unknown (%s)" % e)
+        print(f"  status : unknown ({e})")
     return 0
 
 
@@ -87,17 +89,19 @@ def _cmd_stop(args) -> int:
 
 def _cmd_run(args) -> int:
     from agent.integrations.unlimited_ocr import (
-        create_ocr_client, is_pdf_file, is_image_file,
+        create_ocr_client,
+        is_image_file,
+        is_pdf_file,
     )
     client = create_ocr_client(prefer=args.backend) if args.backend \
         else create_ocr_client()
-    print("OCR backend: %s" % type(client).__name__, file=sys.stderr)
+    print(f"OCR backend: {type(client).__name__}", file=sys.stderr)
 
     outputs = []
     rc = 0
     for path in args.files:
         if not os.path.isfile(path):
-            print("  skip (not a file): %s" % path, file=sys.stderr)
+            print(f"  skip (not a file): {path}", file=sys.stderr)
             rc = 1
             continue
         try:
@@ -106,12 +110,12 @@ def _cmd_run(args) -> int:
             elif is_image_file(path):
                 text = client.ocr_image(path).text
             else:
-                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                with open(path, encoding="utf-8", errors="replace") as fh:
                     text = fh.read()
             outputs.append({"file": path, "chars": len(text), "text": text})
             print("  %s -> %d chars" % (path, len(text)), file=sys.stderr)
         except Exception as e:
-            print("  %s -> FAILED: %s" % (path, e), file=sys.stderr)
+            print(f"  {path} -> FAILED: {e}", file=sys.stderr)
             rc = 1
 
     if args.output:
@@ -120,7 +124,7 @@ def _cmd_run(args) -> int:
                 json.dump(outputs, fh, indent=2)
             else:
                 fh.write("\n\n".join(o["text"] for o in outputs))
-        print("Wrote %s" % args.output, file=sys.stderr)
+        print(f"Wrote {args.output}", file=sys.stderr)
     else:
         if args.json:
             print(json.dumps(outputs, indent=2))

@@ -4,9 +4,9 @@ proc + iGPU threads), keep the per-tier best, deploy it as a bee, infer per edge
 model-agnostic record to the RCDB. Fully programmatic and idempotent."""
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
-import logging
 
 import numpy as np
 
@@ -25,6 +25,7 @@ _DEFAULT_SWEEP = [
 def assemble(path, *, store, hive=None, source=None, target=None, weight=None, usecols=None,
              n_tiers=3, sweep=None, steps=80, save_dir=None) -> dict:
     from rexgraph.coordinator import Coordinator, LanePools
+
     from ..coordinator_adapter import work_units
     from ..foundry import _CPU_ONLY
     if hive is None:

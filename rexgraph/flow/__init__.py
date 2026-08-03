@@ -14,8 +14,11 @@ from rexgraph.flow.attention import (
     coparticipation_neighbors,
 )
 from rexgraph.flow.gate import MalaughGate, malaugh_entropy
+from rexgraph.flow.hyperflow import FlowComplex, build_flow_complex
 
 __all__ = [
+    "FlowComplex",
+    "build_flow_complex",
     "MalaughGate",
     "malaugh_entropy",
     "coparticipation_neighbors",
@@ -35,7 +38,7 @@ except ImportError:
     pass
 
 try:
-    from rexgraph.flow.navigator import FieldNavigator, flow_step, changed_edges
+    from rexgraph.flow.navigator import FieldNavigator, changed_edges, flow_step
 
     __all__ += ["FieldNavigator", "flow_step", "changed_edges"]
 except ImportError:

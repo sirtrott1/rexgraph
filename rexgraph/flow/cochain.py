@@ -5,17 +5,15 @@ logit vector per edge, no features and no embeddings); the class is carried to t
 edges not by the forward pass but by the OPTIMIZER, whose gradient is preconditioned by the complex's
 unsigned co-participation Green's function. Two edges co-participate iff they share an incident vertex
 (``abs(B1).T @ abs(B1)``, unsigned so a shared vertex never cancels); a BRANCHING vertex of arity K
-(a target bound by K ligands) makes all K edges mutual co-participants, which is the arity>2 structure
-a pairwise k-hop view cannot express. On such structure the co-participation channel takes masked-edge
-classification from chance (where plain Adam is stuck, having sent no gradient to a masked edge) to
-strong generalization: the optimizer itself propagates the training signal across the hyperedges.
+makes all K edges mutual co-participants, and that adjacency is the operator the gradient is solved
+through. On such structure the co-participation channel takes masked-edge classification from an
+arbitrary constant (plain Adam sends no gradient to a masked edge, so its row never leaves its init)
+to strong generalization: the optimizer itself propagates the training signal across the complex.
 
 The model exposes ``greens_groups()`` so ``make_optimizer("auto")`` routes it to ``GreensCochain``
 automatically. Everything here is matrix-free and sparse: no signs, no dense operator, no eigensolve.
 """
 from __future__ import annotations
-
-from typing import List, Optional
 
 import numpy as np
 import scipy.sparse as sp
@@ -33,7 +31,7 @@ except Exception:  # pragma: no cover (env without torch)
 __all__ = ["coparticipation_adjacency"]
 
 
-def coparticipation_adjacency(rex, restrict_vertices: Optional[NDArray] = None):
+def coparticipation_adjacency(rex, restrict_vertices: NDArray | None = None):
     """Normalised unsigned co-participation adjacency over the complex's edges, as a torch sparse
     tensor ``[nE, nE]`` ready to hand to ``GreensCochain`` as ``green_adj``.
 
@@ -102,7 +100,7 @@ if _HAS_TORCH:
         def forward(self):
             return self.Z
 
-        def greens_groups(self) -> List[dict]:
+        def greens_groups(self) -> list[dict]:
             return [{
                 "params": [self.Z],
                 "green_adj": self._adj,
@@ -165,7 +163,7 @@ if _HAS_TORCH:
             """Rebuild a model saved by :meth:`save_safetensors`: reconstruct the complex, rebuild the
             co-participation operator (identical, since the complex round-trips losslessly), and load
             the trained cochain. The reloaded model predicts identically to the saved one."""
-            from rexgraph.io.safetensors_bridge import load_safetensors, load_extra
+            from rexgraph.io.safetensors_bridge import load_extra, load_safetensors
 
             full = load_safetensors(path)
             meta = load_extra(path)

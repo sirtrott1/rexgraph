@@ -80,7 +80,7 @@ def test_complexes_come_back_from_the_store_not_the_view(store):
     view = analytics.signature_view(store)
     pairs = view.complexes("nE >= 12", limit=3)
     assert pairs
-    for rid, rex in pairs:
+    for _rid, rex in pairs:
         assert rex is not None and int(rex.nE) >= 12
 
 

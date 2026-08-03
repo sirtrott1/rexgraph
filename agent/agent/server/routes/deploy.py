@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
-from agent.deploy import spec_from_dict, generate_bundle, bundle_to_zip
+from agent.deploy import bundle_to_zip, generate_bundle, spec_from_dict
 
 router = APIRouter(prefix="/v1/deploy")
 

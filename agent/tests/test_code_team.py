@@ -2,8 +2,10 @@
 import threading
 import time
 
-from agent import hive as hivemod, agent_complex
 from agent.code_team import CodeTeam
+
+from agent import agent_complex
+from agent import hive as hivemod
 
 
 def _hive():

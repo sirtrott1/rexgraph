@@ -21,7 +21,6 @@ import pytest
 from rexgraph.core import _l_gb as compiled
 from rexgraph.tests.reference import l_gb_reference as reference
 
-
 # Test fixtures: canonical graph families
 
 
@@ -87,7 +86,10 @@ def test_l_gb_channel_tensor_matches_reference(n):
     """4x4 channel tensor must match reference exactly (up to BLAS noise)."""
     from rexgraph.core._relational import build_RL
     from rexgraph.tests.reference.channels_reference import (
-        build_L_T, build_L_O, build_L_SG, build_L_C,
+        build_L_C,
+        build_L_O,
+        build_L_SG,
+        build_L_T,
     )
     B_1, B_2 = _build_K_n_complex(n)
     W = np.ones(n, dtype=np.float64)
@@ -172,7 +174,7 @@ def test_l_gb_tower_matches_reference(n):
     tower_cmp = compiled.l_gb_tower([B_1, B_2])
     assert len(tower_ref) == len(tower_cmp), \
         f"Tower length mismatch: ref={len(tower_ref)}, cmp={len(tower_cmp)}"
-    for d, (r, c) in enumerate(zip(tower_ref, tower_cmp)):
+    for d, (r, c) in enumerate(zip(tower_ref, tower_cmp, strict=False)):
         assert r["pair"] == c["pair"], f"Pair mismatch at d={d}"
         assert np.allclose(r["L_gb"], c["L_gb"], atol=1e-13), \
             f"L_gb matrix mismatch at pair {r['pair']}"

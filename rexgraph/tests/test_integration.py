@@ -11,7 +11,6 @@ import pytest
 
 from rexgraph.graph import RexGraph, TemporalRex
 
-
 # Fixtures
 
 @pytest.fixture
@@ -708,7 +707,7 @@ class TestDirac:
         pos = sorted([e for e in evals if e > 1e-10])
         neg = sorted([-e for e in evals if e < -1e-10])
         assert len(pos) == len(neg)
-        for p, n in zip(pos, neg):
+        for p, n in zip(pos, neg, strict=False):
             assert abs(p - n) < 1e-8
 
     def test_norm_conservation(self, k4):

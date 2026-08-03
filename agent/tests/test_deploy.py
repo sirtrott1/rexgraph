@@ -4,9 +4,13 @@ import io
 import zipfile
 
 import pytest
-
-from agent.deploy import (DeploymentSpec, generate_bundle, bundle_to_zip,
-                          write_bundle, spec_from_dict)
+from agent.deploy import (
+    DeploymentSpec,
+    bundle_to_zip,
+    generate_bundle,
+    spec_from_dict,
+    write_bundle,
+)
 
 
 class TestSpec:
@@ -89,9 +93,9 @@ class TestBundle:
 
 @pytest.fixture(scope="module")
 def client():
-    from fastapi.testclient import TestClient
     from agent.server.app import app
     from agent.server.auth import get_auth_manager
+    from fastapi.testclient import TestClient
     get_auth_manager().disable_auth()
     with TestClient(app) as c:
         yield c

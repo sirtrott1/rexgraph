@@ -5,8 +5,8 @@ mixing time anisotropy, and face-void dipole.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph.core import _character
+from rexgraph.graph import RexGraph
 
 
 @pytest.fixture

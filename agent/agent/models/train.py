@@ -1,11 +1,12 @@
 """
 train: training loops for a built model, single run, multistep (staged) training, and multi-model
-fusion (ensemble / data-split / stacking). The optimizer is any rexgraph.nn optimizer (HodgeAdam by
-default). The loop dispatches on the DataBundle's `kind`, so one interface trains every archetype.
+fusion (ensemble / data-split / stacking). The optimizer is built by `R.make_optimizer(optimizer,
+...)` with `optimizer="auto"` by default, which routes per model: GreensCochain for a model whose
+parameters are a cochain on a complex (it exposes `greens_groups()`), plain Adam otherwise. Every
+archetype here is feature-space, so in practice that is Adam; any other optimizer is opt-in by name.
+The loop dispatches on the DataBundle's `kind`, so one interface trains every archetype.
 """
 from __future__ import annotations
-
-from typing import List
 
 import torch as _t
 import torch.nn.functional as _F
@@ -150,10 +151,10 @@ def train_one(model, bundle, *, optimizer="auto", steps=200, lr=None, batch=64,
             "final": traj[-1] if traj else None, "trajectory": traj}
 
 
-def train_multistep(model, bundle, stages: List[dict], *, device=None, seed=0) -> dict:
+def train_multistep(model, bundle, stages: list[dict], *, device=None, seed=0) -> dict:
     """Train one model through a sequence of stages on the same (or per-stage) data. Each stage is
-    a dict of train_one overrides: a curriculum, an optimizer schedule (hodge to adam), or a
-    warmup-to-refine lr schedule. Returns per-stage results."""
+    a dict of train_one overrides: a curriculum, an optimizer schedule, or a warmup-to-refine lr
+    schedule. A stage that names no optimizer gets the "auto" route. Returns per-stage results."""
     results = []
     for s, stage in enumerate(stages):
         b = stage.pop("bundle", bundle) if isinstance(stage, dict) else bundle

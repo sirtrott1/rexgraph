@@ -26,8 +26,6 @@ import io
 import json
 import zipfile
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-
 
 # spec
 
@@ -41,7 +39,7 @@ _VALID_EXTRAS = {
 class DeploymentSpec:
     name: str = "rexgraph-agent"
     mode: str = "service"                    # "service" | "pipeline"
-    extras: List[str] = field(default_factory=lambda: ["server"])
+    extras: list[str] = field(default_factory=lambda: ["server"])
     port: int = 8080
     python_version: str = "3.13"        # matches the pinned env (see environment.yml)
     # where to get the packages: "pypi" (pip install by name) or
@@ -59,9 +57,9 @@ class DeploymentSpec:
     backend: str = ""                        # ocr backend, e.g. "tesseract"
     ontology: bool = False
     # the full agent-builder config, embedded for provenance/reference
-    builder_config: Optional[dict] = None
+    builder_config: dict | None = None
 
-    def normalized(self) -> "DeploymentSpec":
+    def normalized(self) -> DeploymentSpec:
         self.mode = self.mode if self.mode in ("service", "pipeline") else "service"
         self.source = self.source if self.source in ("pypi", "local") else "pypi"
         extras = [e for e in self.extras if e in _VALID_EXTRAS]
@@ -308,7 +306,7 @@ except for any LLM endpoint you configure.
 
 # bundle assembly
 
-def generate_bundle(spec: DeploymentSpec) -> Dict[str, str]:
+def generate_bundle(spec: DeploymentSpec) -> dict[str, str]:
     """Return {filename: text_content} for the full deployment bundle."""
     spec = spec.normalized()
     return {
@@ -322,7 +320,7 @@ def generate_bundle(spec: DeploymentSpec) -> Dict[str, str]:
     }
 
 
-def bundle_to_zip(bundle: Dict[str, str]) -> bytes:
+def bundle_to_zip(bundle: dict[str, str]) -> bytes:
     """Zip a bundle dict into bytes (for download)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -334,7 +332,7 @@ def bundle_to_zip(bundle: Dict[str, str]) -> bytes:
     return buf.getvalue()
 
 
-def write_bundle(bundle: Dict[str, str], out_dir: str) -> str:
+def write_bundle(bundle: dict[str, str], out_dir: str) -> str:
     """Write a bundle to a directory on disk. Returns the directory."""
     import os
     os.makedirs(out_dir, exist_ok=True)

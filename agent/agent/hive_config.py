@@ -17,12 +17,12 @@ own compose/attach/spawn. This module decides which bees; `hive` performs the sp
 """
 from __future__ import annotations
 
+import builtins
 import json
 import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import List, Optional
 
 
 def _config_dir() -> Path:
@@ -44,14 +44,14 @@ class BeeSpec:
     source: str = "path"             # path | attach | auto
     model: str = ""                  # gguf path (source=path)
     url: str = ""                    # endpoint (source=attach)
-    specialties: List[str] = field(default_factory=list)
+    specialties: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ComputeSpec:
     """Execution-layer config for a setup: the CPU parallel width and the preferred compute backend.
     Applied via rexgraph.compute before every operation runs (see lifecycle._execute)."""
-    threads: Optional[int] = None    # None -> all cores; an int caps the OpenMP / parallel_map width
+    threads: int | None = None    # None -> all cores; an int caps the OpenMP / parallel_map width
     backend: str = "auto"            # auto (best available for the host, incl. GPU) | cpu |
                                      # openmp | cuda (also the value for ROCm/AMD hosts) | mps.
                                      # 'auto' now resolves to the host's recommended backend, so
@@ -81,9 +81,9 @@ class HiveProfile:
     builtin: bool = False
     # composition: how the swarm is brought up
     compose: str = "auto"            # auto | attach-live | manual | auto+attach
-    budget_gb: Optional[float] = None    # None -> detected budget
+    budget_gb: float | None = None    # None -> detected budget
     max_workers: int = 4
-    bees: List[BeeSpec] = field(default_factory=list)   # used when compose includes 'manual'
+    bees: list[BeeSpec] = field(default_factory=list)   # used when compose includes 'manual'
     # engine preferences (surfaced to the rest of the stack; see apply())
     optimizer: str = "auto"         # auto (routes per model: GreensCochain for cochain-native, else Adam; default) | hodge | adam | greens
     attention: str = "relational"    # relational (RexGraph-native, default) | standard
@@ -91,14 +91,14 @@ class HiveProfile:
     routing: str = "specialty+history"
     compute: ComputeSpec = field(default_factory=ComputeSpec)   # execution-layer tuning
     coordinator: CoordinatorSpec = field(default_factory=CoordinatorSpec)   # coordinator tuning
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = asdict(self)
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> "HiveProfile":
+    def from_dict(cls, d: dict) -> HiveProfile:
         bees = [BeeSpec(**b) if isinstance(b, dict) else b for b in d.get("bees", [])]
         comp = d.get("compute")
         compute = ComputeSpec(**comp) if isinstance(comp, dict) else (comp or ComputeSpec())
@@ -112,7 +112,7 @@ class HiveProfile:
 
 # built-in presets: always available, read-only
 
-BUILTIN_PROFILES: List[HiveProfile] = [
+BUILTIN_PROFILES: list[HiveProfile] = [
     HiveProfile(
         id="solo", name="Solo driver", builtin=True,
         description="One capable queen, no workers. The simplest setup - fast to bring up, "
@@ -154,7 +154,7 @@ _BUILTIN_BY_ID = {p.id: p for p in BUILTIN_PROFILES}
 class ProfileStore:
     """Persistent registry: built-in presets + user-saved profiles + the active pointer."""
 
-    def __init__(self, directory: Optional[Path] = None):
+    def __init__(self, directory: Path | None = None):
         self.dir = directory or _config_dir()
 
     # listing / lookup
@@ -163,7 +163,7 @@ class ProfileStore:
             return []
         return sorted(p for p in self.dir.glob("*.json") if p.name != "active.json")
 
-    def user_profiles(self) -> List[HiveProfile]:
+    def user_profiles(self) -> builtins.list[HiveProfile]:
         out = []
         for f in self._user_files():
             try:
@@ -172,13 +172,13 @@ class ProfileStore:
                 continue
         return out
 
-    def list(self) -> List[HiveProfile]:
+    def list(self) -> builtins.list[HiveProfile]:
         """Built-ins first, then user profiles (user profiles with a built-in id override it)."""
         users = self.user_profiles()
         user_ids = {p.id for p in users}
         return [p for p in BUILTIN_PROFILES if p.id not in user_ids] + users
 
-    def get(self, pid: str) -> Optional[HiveProfile]:
+    def get(self, pid: str) -> HiveProfile | None:
         for f in self._user_files():
             if f.stem == pid:
                 try:
@@ -198,7 +198,7 @@ class ProfileStore:
         (self.dir / f"{profile.id}.json").write_text(json.dumps(profile.to_dict(), indent=2))
         return profile
 
-    def create(self, name: str, base: Optional[str] = None, **overrides) -> HiveProfile:
+    def create(self, name: str, base: str | None = None, **overrides) -> HiveProfile:
         """New user profile, optionally cloned from an existing one (built-in or user)."""
         src = self.get(base) if base else None
         d = src.to_dict() if src else {}
@@ -223,7 +223,7 @@ class ProfileStore:
     def _active_file(self) -> Path:
         return self.dir / "active.json"
 
-    def active_id(self) -> Optional[str]:
+    def active_id(self) -> str | None:
         f = self._active_file()
         if f.exists():
             try:
@@ -232,11 +232,11 @@ class ProfileStore:
                 return None
         return None
 
-    def set_active(self, pid: Optional[str]) -> None:
+    def set_active(self, pid: str | None) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         self._active_file().write_text(json.dumps({"active": pid}))
 
-    def active(self) -> Optional[HiveProfile]:
+    def active(self) -> HiveProfile | None:
         pid = self.active_id()
         return self.get(pid) if pid else None
 
@@ -281,7 +281,7 @@ class ProfileStore:
         return result
 
 
-_STORE: Optional[ProfileStore] = None
+_STORE: ProfileStore | None = None
 
 
 def get_store() -> ProfileStore:

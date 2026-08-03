@@ -22,7 +22,6 @@ import pytest
 from rexgraph.core import _wave
 from rexgraph.graph import RexGraph
 
-
 # Fixtures
 
 @pytest.fixture

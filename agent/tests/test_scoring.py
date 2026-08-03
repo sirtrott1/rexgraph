@@ -17,11 +17,9 @@ coherence field.
 
 import numpy as np
 import pytest
-
 from agent.adapters.text import TextAdapter
 from agent.corpus import CorpusBuilder
 from agent.scoring import interfacing_score, shared_indices
-
 
 DOCS = {
     "boundary": "The boundary map sends an edge to its endpoints. Composing two "
@@ -86,7 +84,6 @@ def test_score_is_the_query_footprint_under_the_document_coherence(corpus):
     """One field summed over one seed, so there is no mixing constant to justify:
     score = sum of kappa over the vertices the query matched."""
     import numpy as np
-
     from agent.scoring import shared_indices
 
     doc = next(d for d in corpus.documents if d.doc_id == "boundary")
@@ -101,7 +98,6 @@ def test_the_demand_driven_read_equals_the_full_field_at_the_seed(corpus):
     only where asked -- not an approximation of it. If that stops holding, the
     cheap read has quietly become a different quantity."""
     import numpy as np
-
     from agent.scoring import shared_indices
 
     doc = next(d for d in corpus.documents if d.doc_id == "channels")
@@ -181,5 +177,5 @@ def test_find_similar_delegates_to_the_shared_scorer():
     out = rcdb.find_similar(store, probe.rex, probe.vertex_labels,
                             top_k=5, exclude_id="boundary")
     assert out, "find_similar returned nothing"
-    assert all(0.0 <= r["match"] for r in out)
+    assert all(r["match"] >= 0.0 for r in out)
     assert [r["match"] for r in out] == sorted((r["match"] for r in out), reverse=True)

@@ -11,12 +11,12 @@ never has to know the CSC face encoding; it may emit faces as a dense
 
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import numpy as np
 
 
-def faces_to_csc(b2_dense: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def faces_to_csc(b2_dense: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Convert a dense face boundary ``B₂`` (shape ``nE × nF``) to the CSC
     ``(col_ptr, row_idx, vals)`` triple the engine expects (one column per
     face, nonzero rows = the edges bounding it). No validity check here - the
@@ -39,7 +39,7 @@ def faces_to_csc(b2_dense: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarr
             np.asarray(vals, dtype=np.float64))
 
 
-def to_rexgraph(rex: Any, meta: Dict[str, Any]):
+def to_rexgraph(rex: Any, meta: dict[str, Any]):
     """Normalise a connector's ``rex`` into a built ``RexGraph`` carrying
     ``_agent_meta`` (so it stores and round-trips).
 

@@ -21,13 +21,12 @@ import numpy as np
 from rexgraph.io._serialization import (
     NpyAdapter,
     _classify_field,
-    write_namedtuple,
     read_namedtuple,
-    write_result_dict,
     read_result_dict,
     register_type,
+    write_namedtuple,
+    write_result_dict,
 )
-
 
 # Field Classification
 

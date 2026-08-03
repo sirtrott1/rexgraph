@@ -17,13 +17,12 @@ Each workspace gets:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import time
 from pathlib import Path
-from typing import List
-
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +73,8 @@ def link_doc_session(workspace: str, doc_id: str, session_id: str) -> None:
     except Exception:
         data = {}
     data[doc_id] = session_id
-    try:
+    with contextlib.suppress(Exception):
         p.write_text(json.dumps(data, indent=2))
-    except Exception:
-        pass
 
 
 def get_doc_session(workspace: str, doc_id: str):
@@ -107,7 +104,7 @@ def doc_session_map(workspace: str) -> dict:
 def save_document_rex(workspace: str, doc_id: str, rex, cache="all"):
     """Save a document's RexGraph as a .rex bundle."""
     from rexgraph.io import save_rex
-    path = str(_docs_dir(workspace) / ("%s.rex" % doc_id))
+    path = str(_docs_dir(workspace) / (f"{doc_id}.rex"))
     save_rex(path, rex, cache=cache)
     return path
 
@@ -115,13 +112,13 @@ def save_document_rex(workspace: str, doc_id: str, rex, cache="all"):
 def load_document_rex(workspace: str, doc_id: str):
     """Load a document's RexGraph from its .rex bundle."""
     from rexgraph.io import load_rex
-    path = str(_docs_dir(workspace) / ("%s.rex" % doc_id))
+    path = str(_docs_dir(workspace) / (f"{doc_id}.rex"))
     if not os.path.exists(path):
         return None
     return load_rex(path)
 
 
-def list_document_bundles(workspace: str) -> List[str]:
+def list_document_bundles(workspace: str) -> list[str]:
     """List all saved document IDs in a workspace."""
     d = _docs_dir(workspace)
     return sorted(
@@ -136,8 +133,10 @@ def save_analysis_sql(workspace: str, doc_id: str, rex, analysis: dict):
     """Save analysis results to SQLite using the SQL bridge."""
     try:
         from rexgraph.io.sql_bridge import (
-            get_engine, write_edge_sql, write_vertex_sql,
+            get_engine,
+            write_edge_sql,
             write_metrics_sql,
+            write_vertex_sql,
         )
     except ImportError:
         logger.warning("SQL bridge not available (install sqlalchemy)")
@@ -283,7 +282,7 @@ def load_query_history(workspace: str, limit: int = 50) -> list:
 
 def save_conversation(workspace: str, session_id: str, exchanges: list):
     """Save conversation exchanges to disk."""
-    path = _convs_dir(workspace) / ("%s.json" % session_id)
+    path = _convs_dir(workspace) / (f"{session_id}.json")
     data = []
     for ex in exchanges:
         data.append({
@@ -326,7 +325,7 @@ def export_workspace(workspace: str, output_path: str, fmt: str = "rex"):
         shutil.copytree(str(ws_dir), output_path, dirs_exist_ok=True)
         return output_path
 
-    raise ValueError("Unknown format: %s" % fmt)
+    raise ValueError(f"Unknown format: {fmt}")
 
 
 # Shared file browsing
@@ -383,7 +382,7 @@ def get_workspace_stats(workspace: str) -> dict:
     activity = load_activity(workspace)
 
     users = set()
-    for user, action, target, ts in activity:
+    for user, _action, _target, _ts in activity:
         users.add(user)
 
     return {

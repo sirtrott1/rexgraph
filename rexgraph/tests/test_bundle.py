@@ -19,13 +19,12 @@ import os
 import numpy as np
 import pytest
 
+from rexgraph.graph import RexGraph
 from rexgraph.io.bundle import (
     RexBundle,
-    save_rex,
     load_rex,
+    save_rex,
 )
-from rexgraph.graph import RexGraph
-
 
 # Fixtures
 

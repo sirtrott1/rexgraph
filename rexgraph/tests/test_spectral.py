@@ -13,7 +13,6 @@ import numpy as np
 
 from rexgraph.core import _spectral
 
-
 # Helpers
 
 def _triangle_evecs():

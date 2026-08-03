@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
+
 from rexgraph.graph import RexGraph
-from rexgraph.io.rex_state import to_state, from_state
+from rexgraph.io.rex_state import from_state, to_state
 
 
 def _simple():
@@ -90,7 +91,7 @@ def test_version_guard():
 
 
 def test_rex_bundle_roundtrips_attribution_and_gchannel(tmp_path):
-    from rexgraph.io.bundle import save_rex, load_rex
+    from rexgraph.io.bundle import load_rex, save_rex
     g = RexGraph.from_graph([0, 1, 2], [1, 2, 0], g_channel="normalized")
     g.set_vertex_attribution(np.array([[0.1], [0.2], [0.3]]))
     p = str(tmp_path / "g.rex")
@@ -101,7 +102,8 @@ def test_rex_bundle_roundtrips_attribution_and_gchannel(tmp_path):
 
 def test_rex_bundle_bad_version_raises(tmp_path):
     import json
-    from rexgraph.io.bundle import save_rex, load_rex
+
+    from rexgraph.io.bundle import load_rex, save_rex
     p = str(tmp_path / "g.rex")
     save_rex(p, _simple())
     mf = tmp_path / "g.rex" / "MANIFEST.json"
@@ -144,7 +146,7 @@ def test_trustgraph_and_agentic_roundtrip_still_work():
 
 # --- final-review fixes (C1 name collision, I2 grade>=3, M3 scalar/array, M4 edge_types) ---
 def test_cell_metadata_key_with_double_underscore_roundtrips(tmp_path):
-    from rexgraph.io.bundle import save_rex, load_rex
+    from rexgraph.io.bundle import load_rex, save_rex
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
     g = _simple()
     g.attach_metadata(1, 0, "node__id", "X7")       # '__' in a user key used to KeyError on load
@@ -155,7 +157,7 @@ def test_cell_metadata_key_with_double_underscore_roundtrips(tmp_path):
 
 
 def test_cell_metadata_slash_vs_underscore_keys_do_not_collide(tmp_path):
-    from rexgraph.io.bundle import save_rex, load_rex
+    from rexgraph.io.bundle import load_rex, save_rex
     g = _simple()
     g.attach_metadata(1, 0, "a/b", "SLASH")
     g.attach_metadata(1, 0, "a__b", "UNDER")

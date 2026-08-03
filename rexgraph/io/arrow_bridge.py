@@ -43,7 +43,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Iterator, Optional, Union
+from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -78,9 +79,9 @@ def _pa():
 
 
 def arrays_to_arrow(
-    arrays: Dict[str, NDArray],
+    arrays: dict[str, NDArray],
     *,
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
 ):
     """Convert a dict of NumPy arrays to a `pyarrow.Table`.
 
@@ -102,8 +103,8 @@ def arrays_to_arrow(
     """
     pa, _ = _pa()
 
-    columns: Dict[str, np.ndarray] = {}
-    array_meta: Dict[str, dict] = {}
+    columns: dict[str, np.ndarray] = {}
+    array_meta: dict[str, dict] = {}
 
     # All columns must have the same length for a valid Arrow table.
     # We pad shorter arrays with NaN/0 to the max length.
@@ -126,7 +127,7 @@ def arrays_to_arrow(
             columns[name] = flat
 
     # Pad to uniform length
-    pa_columns: Dict[str, Any] = {}
+    pa_columns: dict[str, Any] = {}
     for col_name, col_arr in columns.items():
         if len(col_arr) < max_len:
             padded = np.empty(max_len, dtype=col_arr.dtype)
@@ -147,7 +148,7 @@ def arrays_to_arrow(
     return table.replace_schema_metadata(schema_meta)
 
 
-def arrow_to_arrays(table) -> Dict[str, np.ndarray]:
+def arrow_to_arrays(table) -> dict[str, np.ndarray]:
     """Convert a `pyarrow.Table` back to a dict of NumPy arrays.
 
     Reconstructs original shapes, dtypes, and complex values from
@@ -165,18 +166,18 @@ def arrow_to_arrays(table) -> Dict[str, np.ndarray]:
     pa, _ = _pa()
 
     schema_meta = table.schema.metadata or {}
-    array_meta: Dict[str, dict] = {}
+    array_meta: dict[str, dict] = {}
     if b"rex_array_meta" in schema_meta:
         array_meta = json.loads(
             schema_meta[b"rex_array_meta"].decode("utf-8")
         )
 
     # Read all columns into numpy
-    raw: Dict[str, np.ndarray] = {}
+    raw: dict[str, np.ndarray] = {}
     for col_name in table.column_names:
         raw[col_name] = table.column(col_name).to_numpy()
 
-    result: Dict[str, np.ndarray] = {}
+    result: dict[str, np.ndarray] = {}
     consumed: set = set()
 
     for name, info in array_meta.items():
@@ -259,7 +260,7 @@ def arrow_to_rex(table):
     -------
     RexGraph
     """
-    from .rex_state import from_state, RexState
+    from .rex_state import RexState, from_state
 
     schema_meta = table.schema.metadata or {}
     hdr = json.loads(schema_meta[b"rex_user_meta"]) if b"rex_user_meta" in schema_meta else {}
@@ -271,10 +272,10 @@ def arrow_to_rex(table):
 
 
 def write_arrow_ipc(
-    arrays: Dict[str, NDArray],
-    path: Union[str, os.PathLike],
+    arrays: dict[str, NDArray],
+    path: str | os.PathLike,
     *,
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Write a dict of arrays to an Arrow IPC file.
 
@@ -292,12 +293,11 @@ def write_arrow_ipc(
     table = arrays_to_arrow(arrays, metadata=metadata)
     fpath = os.fspath(path)
 
-    with pa.OSFile(fpath, "wb") as sink:
-        with ipc.new_file(sink, table.schema) as writer:
-            writer.write_table(table)
+    with pa.OSFile(fpath, "wb") as sink, ipc.new_file(sink, table.schema) as writer:
+        writer.write_table(table)
 
 
-def read_arrow_ipc(path: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
+def read_arrow_ipc(path: str | os.PathLike) -> dict[str, np.ndarray]:
     """Read arrays from an Arrow IPC file.
 
     Parameters
@@ -322,10 +322,10 @@ def read_arrow_ipc(path: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
 
 
 def read_arrow_batches(
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
     batch_rows: int = 100_000,
-) -> Iterator[Dict[str, np.ndarray]]:
+) -> Iterator[dict[str, np.ndarray]]:
     """Stream an Arrow IPC file as batches of arrays.
 
     Each yielded dict contains the same array names as a full
@@ -357,7 +357,7 @@ def read_arrow_batches(
         # offset and reshape each batch against only the rows it actually
         # holds, dropping any padding rows past an array's true length.
         schema_meta = reader.schema.metadata or {}
-        array_meta: Dict[str, dict] = {}
+        array_meta: dict[str, dict] = {}
         if b"rex_array_meta" in schema_meta:
             array_meta = json.loads(
                 schema_meta[b"rex_array_meta"].decode("utf-8")
@@ -390,8 +390,8 @@ def read_arrow_batches(
 
 
 def _arrow_batch_to_arrays(
-    table, array_meta: Dict[str, dict], row_offset: int
-) -> Dict[str, np.ndarray]:
+    table, array_meta: dict[str, dict], row_offset: int
+) -> dict[str, np.ndarray]:
     """Reconstruct arrays from a single streamed sub-table.
 
     Unlike :func:`arrow_to_arrays`, which assumes the table contains every
@@ -415,12 +415,12 @@ def _arrow_batch_to_arrays(
     -------
     dict of name -> ndarray
     """
-    raw: Dict[str, np.ndarray] = {}
+    raw: dict[str, np.ndarray] = {}
     for col_name in table.column_names:
         raw[col_name] = table.column(col_name).to_numpy()
 
     batch_rows = table.num_rows
-    result: Dict[str, np.ndarray] = {}
+    result: dict[str, np.ndarray] = {}
     consumed: set = set()
 
     for name, info in array_meta.items():

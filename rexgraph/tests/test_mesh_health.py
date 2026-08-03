@@ -2,9 +2,9 @@
 import numpy as np
 import pytest
 
-from rexgraph import mesh_health, harmonic_health
-from rexgraph.mesh_health import mesh_health as mh
+from rexgraph import harmonic_health, mesh_health
 from rexgraph.graph import RexGraph
+from rexgraph.mesh_health import mesh_health as mh
 
 
 def _mesh():

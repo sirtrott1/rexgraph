@@ -11,6 +11,8 @@ ABI - kept as a separate optional module, not vendored.)
 """
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 
 
@@ -51,9 +53,9 @@ def _complex_from_vectors(V: np.ndarray, labels, top_p: float = 0.9) -> dict:
     graph over the rows, sparsify with the nucleus (top_p) rule, and read structural
     perplexity, coherence, Betti, and the load-bearing (bridge) pairs via effective
     resistance. Used by both live embeddings and a reloaded corpus so the math lives once."""
-    from rexgraph.graph import RexGraph
     from agent import metrics as _M
     from agent.integrations.huggingface_analyzer import extract_attention_rex
+    from rexgraph.graph import RexGraph
 
     labels = [str(x)[:48] for x in labels]
     V = np.asarray(V, dtype=np.float64)
@@ -93,10 +95,8 @@ def embedding_complex(texts, url=None, top_p: float = 0.9, persist: str = None) 
     re-analyzed later with ``embedding_complex_from_corpus`` without re-embedding."""
     labels = [str(t)[:48] for t in texts]
     url_r, model = (None, None)
-    try:
+    with contextlib.suppress(Exception):
         url_r, model = _resolve_url()
-    except Exception:
-        pass
     V = embed(texts, url=url or url_r)
     if persist and V.shape[0] >= 1:
         from agent import model_io

@@ -19,7 +19,6 @@ import pytest
 from rexgraph.core import _relational
 from rexgraph.graph import RexGraph
 
-
 # Helpers
 
 def _triangle_operators():

@@ -1,10 +1,12 @@
 """
 benchmarks — standard ML benchmarks for comparing optimizers on real, recognized tasks.
 
-The point: test HodgeAdam (and hodge-arch) against Adam/AdamW/SGD where the community can compare —
-not on toy data. Each benchmark builds a real model + data + eval metric and runs with ANY
+The point: settle optimizer claims (hodge / hodge-arch vs Adam/AdamW/SGD) where the community can
+compare — not on toy data. Each benchmark builds a real model + data + eval metric and runs with ANY
 registered optimizer (`nn.make_optimizer`), streaming loss, so `benchmark_ab` gives a fair,
-held-out comparison and a metric-aware verdict.
+held-out comparison and a metric-aware verdict. Every model here is feature-space, so the routing
+default resolves to plain Adam; the hodge arms are named by the caller because they are what is
+under test.
 
 Two kinds:
   - `ill-cond` — a CONTROLLED ill-conditioned matrix-regression (tunable condition number κ). No
@@ -18,7 +20,7 @@ Everything degrades cleanly without torch/datasets.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, Optional
+from collections.abc import Callable
 
 logger = logging.getLogger("rexgraph.benchmarks")
 
@@ -31,7 +33,7 @@ except Exception:                                    # pragma: no cover
     _HAS_TORCH = False
 
 
-_BENCH: Dict[str, dict] = {}
+_BENCH: dict[str, dict] = {}
 
 
 def register_benchmark(name: str, fn: Callable, *, description: str = "",
@@ -52,11 +54,13 @@ def benchmarks() -> list:
              "available": _ok(b["needs"])} for n, b in sorted(_BENCH.items())]
 
 
-def run_benchmark(name: str, *, optimizer: str = "hodge", steps: int = 200,
-                  lr: Optional[float] = None, device: Optional[str] = None, seed: int = 0,
-                  on_step: Callable = None, label: Optional[str] = None, **kw) -> dict:
-    """Run one benchmark with one optimizer. Returns train + held-out-eval trajectories and the
-    task metric. Graceful: missing torch/datasets → a clear skip, not a crash."""
+def run_benchmark(name: str, *, optimizer: str = "auto", steps: int = 200,
+                  lr: float | None = None, device: str | None = None, seed: int = 0,
+                  on_step: Callable = None, label: str | None = None, **kw) -> dict:
+    """Run one benchmark with one optimizer. `optimizer` defaults to "auto" (the router), so an
+    unnamed run measures what a model of this shape actually trains with; name an optimizer to test
+    a specific one. Returns train + held-out-eval trajectories and the task metric. Graceful:
+    missing torch/datasets → a clear skip, not a crash."""
     if name not in _BENCH:
         return {"skipped": f"unknown benchmark {name!r} (have: {', '.join(sorted(_BENCH))})"}
     b = _BENCH[name]
@@ -123,10 +127,12 @@ def _ill_conditioned(*, optimizer, steps, lr, device, seed, on_step, label,
                      d_in: int = 64, d_out: int = 16, n: int = 512, kappa: float = 1000.0,
                      noise: float = 0.1, **kw):
     """Multi-output linear regression Y = X·W (+ noise) with X's spectrum set so cond(XᵀX) = κ. The
-    weight W is a real matrix (HodgeAdam decomposes it); the Hessian condition number is κ — where
-    a per-component preconditioner should help. `noise` gives a non-trivial optimum (not exactly
-    0), so the metric measures real generalization. Metric = held-out MSE (lower better)."""
-    import rexgraph.nn as nn; from rexgraph.nn import optim
+    weight W is a real matrix, so the hodge arm has something to decompose; the Hessian condition
+    number is κ, the regime a per-component preconditioner is claimed to help. `noise` gives a
+    non-trivial optimum (not exactly 0), so the metric measures real generalization. Metric =
+    held-out MSE (lower better)."""
+    import rexgraph.nn as nn
+    from rexgraph.nn import optim
     _t.manual_seed(seed)
     dev = optim.pick_device(device)
     # X = Q·diag(s), s geometric in [1, sqrt(kappa)] ⇒ cond(XᵀX) = kappa (exactly)
@@ -172,9 +178,11 @@ def _image_clf(dataset_name, image_key, *, optimizer, steps, lr, device, seed, o
                conv: bool = False, **kw):
     """Standard image dataset → test accuracy, with an MLP or (conv=True) a small CNN whose 4-tensor
     kernels exercise the general k-tensor Hodge split. Loads via HF `datasets`."""
-    from datasets import load_dataset
     import numpy as np
-    import rexgraph.nn as nn; from rexgraph.nn import optim
+    from datasets import load_dataset
+
+    import rexgraph.nn as nn
+    from rexgraph.nn import optim
     _t.manual_seed(seed)
     dev = optim.pick_device(device)
     keep_spatial = bool(conv)
@@ -243,9 +251,10 @@ def _image_clf(dataset_name, image_key, *, optimizer, steps, lr, device, seed, o
 def _matrix_completion(*, optimizer, steps, lr, device, seed, on_step, label,
                        m: int = 40, n: int = 40, rank: int = 3, obs: float = 0.4, **kw):
     """Low-rank matrix completion: recover M = A·Bᵀ (rank r) from a random `obs` fraction of its
-    entries by fitting U·Vᵀ. NON-CONVEX, and U/V are real matrices (HodgeAdam decomposes them).
+    entries by fitting U·Vᵀ. NON-CONVEX, and U/V are real matrices, so the hodge arm decomposes them.
     Metric = MSE on the HELD-OUT (unobserved) entries — generalization on a non-convex problem."""
-    import rexgraph.nn as nn; from rexgraph.nn import optim
+    import rexgraph.nn as nn
+    from rexgraph.nn import optim
     _t.manual_seed(seed)
     dev = optim.pick_device(device)
     A = _t.randn(m, rank, device=dev); Bm = _t.randn(n, rank, device=dev)
@@ -285,9 +294,10 @@ def _bilinear_game(*, optimizer, steps, lr, device, seed, on_step, label,
                    d: int = 16, **kw):
     """Bilinear min–max game: minₓ max_Y ⟨X, C·Y⟩ with equilibrium at X=Y=0. Its gradient field is
     purely ROTATIONAL — simultaneous descent/ascent orbits and naive methods don't converge. This
-    is the regime where damping the rotational component (HodgeAdam's `gamma_curl`) is meant to
-    matter. Metric = distance to equilibrium ‖X‖²+‖Y‖² at the end (lower = converged)."""
-    import rexgraph.nn as nn; from rexgraph.nn import optim
+    is the regime where damping the rotational component (the hodge arm's `gamma_curl`) is claimed
+    to matter. Metric = distance to equilibrium ‖X‖²+‖Y‖² at the end (lower = converged)."""
+    import rexgraph.nn as nn
+    from rexgraph.nn import optim
     _t.manual_seed(seed)
     dev = optim.pick_device(device)
     C = _t.randn(d, d, device=dev)

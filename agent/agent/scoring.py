@@ -30,7 +30,8 @@ Lexical overlap remains a candidate prefilter only. It decides what to look at.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -39,17 +40,17 @@ import numpy as np
 MIN_SHARED = 2
 
 
-def _zero(n_shared: int = 0) -> Dict[str, Any]:
+def _zero(n_shared: int = 0) -> dict[str, Any]:
     return {"score": 0.0, "kappa": [], "kappa_mean": 0.0, "context_size": 0,
             "n_load_bearing": 0, "n_frustrated": 0, "n_shared": int(n_shared)}
 
 
 def shared_indices(doc_labels: Sequence[str],
-                   query_labels: Sequence[str]) -> List[int]:
+                   query_labels: Sequence[str]) -> list[int]:
     """Vertex indices in the document matched by the query's vocabulary."""
     if not doc_labels or not query_labels:
         return []
-    pos: Dict[str, int] = {}
+    pos: dict[str, int] = {}
     for i, lab in enumerate(doc_labels):
         pos.setdefault(str(lab).lower(), i)
     out, seen = [], set()
@@ -62,7 +63,7 @@ def shared_indices(doc_labels: Sequence[str],
 
 
 def interfacing_score(rex, doc_labels: Sequence[str], query_labels: Sequence[str],
-                      *, reading: bool = True) -> Dict[str, Any]:
+                      *, reading: bool = True) -> dict[str, Any]:
     """Score a complex against a query vocabulary, by demand-driven read.
 
     `reading=False` skips `agentic_reading` and returns the coherence score alone,

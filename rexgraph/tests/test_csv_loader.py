@@ -16,14 +16,13 @@ import os
 import numpy as np
 
 from rexgraph.io.csv_loader import (
-    ColumnRole,
     ColumnProfile,
-    classify_columns,
-    build_weights,
+    ColumnRole,
     build_edge_attrs,
+    build_weights,
+    classify_columns,
     load_edge_csv,
 )
-
 
 # Helpers
 

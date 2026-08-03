@@ -15,7 +15,6 @@ import time
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import Response
 
-
 router = APIRouter(prefix="/v1/db")
 
 def _store():
@@ -90,12 +89,19 @@ async def db_list(limit: int = 100, offset: int = 0):
 async def db_query(body: dict = Body(...)):
     """Structural query. Body accepts any of: min_nV/max_nV, min_nE/max_nE,
     min_nF, min_betti1/max_betti1, min_kappa/max_kappa, chain_valid,
-    has_voids, tags_any[], tags_all[], source, limit."""
+    has_voids, tags_any[], tags_all[], source, labels_any[], labels_all[], limit.
+
+    The body is splatted into the predicate, so an unsupported key is a malformed
+    request rather than a server fault: the store raises TypeError naming the keys it
+    accepts, and that comes back as a 400 carrying the same list.
+    """
     limit = int(body.pop("limit", 100)) if isinstance(body, dict) else 100
     try:
         recs = _store().query(limit=limit, **(body or {}))
+    except TypeError as e:
+        raise HTTPException(400, str(e)) from e
     except Exception as e:
-        raise HTTPException(500, f"Query failed: {e}")
+        raise HTTPException(500, f"Query failed: {e}") from e
     return {"count": len(recs), "records": [r.to_dict() for r in recs]}
 
 

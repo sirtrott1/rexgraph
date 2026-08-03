@@ -16,7 +16,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 from .config import (
     clear_pid,
@@ -39,9 +38,9 @@ HEALTH_INTERVAL = 2      # seconds between health checks
 
 def serve(
     port: int = DEFAULT_PORT,
-    model: Optional[str] = None,
+    model: str | None = None,
     backend: str = "vllm",
-    extra_args: Optional[list] = None,
+    extra_args: list | None = None,
     foreground: bool = False,
 ) -> bool:
     """Start the GPU inference server.
@@ -137,7 +136,7 @@ def serve(
             return True
         else:
             print(" TIMEOUT")
-            print(f"Server may still be loading. Check: rexgraph-ocr status")
+            print("Server may still be loading. Check: rexgraph-ocr status")
             print(f"Logs: tail -f {log_file}")
             return False
 
@@ -188,7 +187,7 @@ def stop() -> bool:
     return True
 
 
-def find_running_server() -> Optional[str]:
+def find_running_server() -> str | None:
     """Check for a running server and return its URL, or None."""
     pid_data = read_pid()
     if not pid_data:
@@ -224,8 +223,8 @@ def wait_for_health(
 ) -> bool:
     """Poll /health and /v1/models until the server responds 200. Surfaces the server log (what it
     is actually doing - downloading, loading weights) instead of a wall of dots."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     endpoints = [f"{base_url}/health", f"{base_url}/v1/models"]
     deadline = time.time() + timeout

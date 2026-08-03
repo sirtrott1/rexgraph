@@ -76,6 +76,7 @@ async def agents_events(request: Request):
     concurrent streams are capped so a client cannot exhaust connections."""
     import asyncio
     import json
+
     from agent import activity
     if _streams["n"] >= _MAX_STREAMS:
         raise HTTPException(503, "too many live streams")
@@ -143,8 +144,8 @@ async def agents_command(body: dict = Body(...), caller: TokenEntry = Depends(re
         raise HTTPException(400, "need 'command'")
     verb = cmd.strip().split()[0].lower() if cmd.strip() else ""
     if verb in _CONSEQUENTIAL and bool(body.get("confirm", False)) and not is_admin(caller, ws.name):
-        raise HTTPException(403, "Only an admin of workspace '%s' may execute '%s'. Ask an admin, or "
-                                 "omit confirm to get a proposal." % (ws.name, verb))
+        raise HTTPException(403, f"Only an admin of workspace '{ws.name}' may execute '{verb}'. Ask an admin, or "
+                                 "omit confirm to get a proposal.")
     # audit: who ran what, in which workspace, with what role - stamped into the live feed + journal
     from agent import activity as _activity
     _activity.record("user:" + (caller.user_id or "local"), "command",
@@ -152,8 +153,8 @@ async def agents_command(body: dict = Body(...), caller: TokenEntry = Depends(re
                              "confirm": bool(body.get("confirm", False))})
     from agent import hive as hivemod
     from agent.console import CommandConsole
-    from agent.reactive_hive import ReactiveHive
     from agent.foundry import ModelFoundry
+    from agent.reactive_hive import ReactiveHive
     scope = body.get("scope", "hive")
     net = hivemod.get_network()
     h = net.hive(scope.split(":", 1)[1]) if scope.startswith("hive:") else net.hive("default")
