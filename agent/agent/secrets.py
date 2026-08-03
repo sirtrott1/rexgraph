@@ -155,6 +155,28 @@ class EnvSecretStore(SecretStore):
         return existed
 
 
+def resolve_ref(ref: str) -> str:
+    """Resolve a secret *reference* to its value, or "" when it cannot be resolved.
+
+    A reference is an environment variable name or a name in the configured secret store -
+    never the secret itself. Config (a hive profile, a bee) holds only the reference, so a
+    credential is fetched at call time and is never written to disk or serialized by us.
+
+    Environment first (the cheap, container-native case), then the secret store. Missing is
+    not an error: callers degrade to an unauthenticated request rather than crashing, and an
+    unresolved reference must never be sent as if it were a key.
+    """
+    if not ref:
+        return ""
+    val = os.environ.get(ref)
+    if val:
+        return val
+    try:
+        return open_secret_store().get(ref) or ""
+    except Exception:
+        return ""
+
+
 def open_secret_store(uri: str = None) -> SecretStore:
     """Open the configured secret store (``REXGRAPH_SECRETS_URI``)."""
     uri = uri or os.environ.get("REXGRAPH_SECRETS_URI") \
