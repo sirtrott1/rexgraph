@@ -19,7 +19,7 @@ The output is an :class:`EdgeConstruction`, so it flows through
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # A small default panel so the adapter is usable without external files.
 # These are widely-used, well-characterised human L-R pairs; callers with
 # a curated panel (CellPhoneDB, etc.) should pass their own.
-DEFAULT_LR_PAIRS: List[Tuple[str, str]] = [
+DEFAULT_LR_PAIRS: list[tuple[str, str]] = [
     ("TGFB1", "TGFBR1"),
     ("TGFB1", "TGFBR2"),
     ("VEGFA", "FLT1"),
@@ -69,7 +69,7 @@ def _as_type_gene_frame(expression, gene_names=None, cell_types=None):
     if isinstance(expression, dict):
         types = list(expression.keys())
         genes = cell_types  # unused
-        gene_order: List[str] = []
+        gene_order: list[str] = []
         for row in expression.values():
             for g in row:
                 if g not in gene_order:
@@ -109,9 +109,9 @@ class LRInteractionAdapter(DomainAdapter):
     def build(
         self,
         expression,
-        lr_pairs: Optional[Sequence[Tuple[str, str]]] = None,
-        gene_names: Optional[List[str]] = None,
-        cell_types: Optional[List[str]] = None,
+        lr_pairs: Sequence[tuple[str, str]] | None = None,
+        gene_names: list[str] | None = None,
+        cell_types: list[str] | None = None,
         *,
         min_score: float = 0.0,
         self_interactions: bool = False,
@@ -162,11 +162,11 @@ class LRInteractionAdapter(DomainAdapter):
 
         nT = len(types)
         # Accumulate edges keyed by (src, dst, pair_index).
-        src_l: List[int] = []
-        dst_l: List[int] = []
-        w_l: List[float] = []
-        type_l: List[int] = []
-        type_names: List[str] = [f"{l}->{r}" for (l, r) in usable]
+        src_l: list[int] = []
+        dst_l: list[int] = []
+        w_l: list[float] = []
+        type_l: list[int] = []
+        type_names: list[str] = [f"{l}->{r}" for (l, r) in usable]
 
         for pi, (lig, rec) in enumerate(usable):
             li, ri = gidx[lig], gidx[rec]
@@ -221,7 +221,7 @@ class LRInteractionAdapter(DomainAdapter):
         return ec
 
     @staticmethod
-    def _empty(vertex_labels: Optional[List[str]] = None) -> EdgeConstruction:
+    def _empty(vertex_labels: list[str] | None = None) -> EdgeConstruction:
         return EdgeConstruction(
             sources=np.array([], dtype=np.int32),
             targets=np.array([], dtype=np.int32),

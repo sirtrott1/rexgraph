@@ -27,12 +27,15 @@ can plug in their own database or object store without touching the core.
 
 from __future__ import annotations
 
+import builtins
+import contextlib
 import json
 import os
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urlparse
 
 import numpy as np
@@ -61,10 +64,8 @@ def serialize_complex(obj) -> bytes:
         with open(tmp, "rb") as f:
             return f.read()
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
 
 
 def deserialize_complex(blob: bytes):
@@ -82,14 +83,12 @@ def deserialize_complex(blob: bytes):
             f.write(blob)
         return load_safetensors(tmp)["object"]
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
 
 
-def structural_signature(rex, meta: Optional[dict] = None,
-                         tags: Optional[List[str]] = None) -> Dict[str, Any]:
+def structural_signature(rex, meta: dict | None = None,
+                         tags: list[str] | None = None) -> dict[str, Any]:
     """A small, queryable structural summary of a complex.
 
     A TemporalRex gets its own branch: the temporal fields (T, checkpoint_times)
@@ -118,7 +117,7 @@ def structural_signature(rex, meta: Optional[dict] = None,
             "t_last": times[-1] if times else None,
         }
     meta = meta or (getattr(rex, "_agent_meta", {}) or {})
-    sig: Dict[str, Any] = {
+    sig: dict[str, Any] = {
         "object_type": "RexGraph",
         "nV": int(rex.nV), "nE": int(rex.nE), "nF": int(rex.nF),
         "tags": list(tags or []),
@@ -130,10 +129,8 @@ def structural_signature(rex, meta: Optional[dict] = None,
         sig["betti"] = None
     b = sig.get("betti") or []
     sig["betti1"] = int(b[1]) if len(b) > 1 else 0
-    try:
+    with contextlib.suppress(Exception):
         sig["chain_valid"] = bool(rex.chain_valid)
-    except Exception:
-        pass
     try:
         sig["kappa_mean"] = round(float(np.asarray(rex.coherence).mean()), 6)
     except Exception:
@@ -165,14 +162,14 @@ def structural_signature(rex, meta: Optional[dict] = None,
 class ComplexRecord:
     """A stored relational complex + its structural signature."""
     id: str
-    signature: Dict[str, Any]
+    signature: dict[str, Any]
     created: float = field(default_factory=_now)
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
     version: int = 1
     tx_from: float = field(default_factory=_now)
-    tx_to: Optional[float] = None
-    valid_from: Optional[float] = None
-    valid_to: Optional[float] = None
+    tx_to: float | None = None
+    valid_from: float | None = None
+    valid_to: float | None = None
 
     def to_dict(self) -> dict:
         return {"id": self.id, "signature": self.signature, "created": self.created,
@@ -180,7 +177,7 @@ class ComplexRecord:
                 "tx_to": self.tx_to, "valid_from": self.valid_from, "valid_to": self.valid_to}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ComplexRecord":
+    def from_dict(cls, d: dict) -> ComplexRecord:
         created = d.get("created", _now())
         return cls(
             id=d["id"], signature=d.get("signature", {}), created=created,
@@ -191,7 +188,7 @@ class ComplexRecord:
 
 # structural predicate
 
-def _sig_index_values(sig: Dict[str, Any]) -> Dict[str, Any]:
+def _sig_index_values(sig: dict[str, Any]) -> dict[str, Any]:
     """Extract the promoted-to-column values from a signature (for SQLStore)."""
     betti = sig.get("betti") or []
     return {
@@ -213,7 +210,7 @@ def _priv(meta):
         return meta or {}
 
 
-def _record_labels(sig: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -> set:
+def _record_labels(sig: dict[str, Any], meta: dict[str, Any] | None = None) -> set:
     """The record's vocabulary, lowercased.
 
     Prefers meta["vertex_labels"], which is the FULL set. `labels_sample` is what its
@@ -225,14 +222,18 @@ def _record_labels(sig: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -
     return {str(x).lower() for x in labels}
 
 
-def _matches(sig: Dict[str, Any], q: Dict[str, Any],
-             meta: Optional[Dict[str, Any]] = None) -> bool:
+def _matches(sig: dict[str, Any], q: dict[str, Any],
+             meta: dict[str, Any] | None = None) -> bool:
     """Evaluate a structural query against a signature.
 
     Supported keys: min_nV/max_nV, min_nE/max_nE, min_nF,
     min_betti1/max_betti1, min_kappa/max_kappa, chain_valid,
     has_voids (bool), tags_any (list), tags_all (list), source,
     labels_any (list), labels_all (list).
+
+    An unsupported key raises TypeError. Skipping it instead would make the query
+    match every record, which returns a wrong answer that looks like a right one:
+    `query(nE=4)` reads as a filter but the bound is spelled `max_nE`.
     """
     def betti(i):
         b = sig.get("betti")
@@ -257,6 +258,11 @@ def _matches(sig: Dict[str, Any], q: Dict[str, Any],
         ("tags_any", lambda v: bool(set(sig.get("tags", [])) & set(v))),
         ("tags_all", lambda v: set(v).issubset(set(sig.get("tags", [])))),
     ]
+    unknown = sorted(set(q) - {key for key, _ in checks})
+    if unknown:
+        raise TypeError(
+            f"unsupported query key(s): {', '.join(unknown)}. Supported: "
+            f"{', '.join(sorted(key for key, _ in checks))}")
     for key, pred in checks:
         if key in q and q[key] is not None:
             try:
@@ -351,13 +357,13 @@ class RCStore:
             pass
 
     def list(self, limit: int = 100, offset: int = 0, *, as_of=None,
-             valid_at=None, include_history: bool = False) -> List[ComplexRecord]:
+             valid_at=None, include_history: bool = False) -> builtins.list[ComplexRecord]:
         """The store's records. `as_of`/`valid_at` read it AS IT STOOD, selecting the
         version current at that transaction/validity time instead of the latest."""
         raise NotImplementedError
 
     def query(self, limit: int = 100, *, as_of=None, valid_at=None,
-              **predicate) -> List[ComplexRecord]:
+              **predicate) -> builtins.list[ComplexRecord]:
         """Structural query: select complexes by their topology.
 
         `as_of`/`valid_at` apply the predicate to the version that was current then,
@@ -369,7 +375,7 @@ class RCStore:
     def delete(self, id: str) -> bool:
         raise NotImplementedError
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         recs = self.list(limit=10 ** 9)
         n = len(recs)
         return {
@@ -390,8 +396,8 @@ class MemoryStore(RCStore):
     backend = "memory"
 
     def __init__(self):
-        self._recs: Dict[str, List[ComplexRecord]] = {}
-        self._blobs: Dict[Tuple[str, int], bytes] = {}
+        self._recs: dict[str, list[ComplexRecord]] = {}
+        self._blobs: dict[tuple[str, int], bytes] = {}
 
     def next_version(self, id):
         rs = self._recs.get(id)
@@ -479,12 +485,12 @@ class FileStore(RCStore):
         # and each change costs one line.
         self._idx = self._read_index()
 
-    def _read_index(self) -> Dict[str, List[ComplexRecord]]:
+    def _read_index(self) -> dict[str, builtins.list[ComplexRecord]]:
         """Load index.json into `{id -> [ComplexRecord, ...]}`. A legacy
         `{id -> record_dict}` index (one dict per id, no version list) is
         wrapped as a single-element list; `from_dict` backfills the missing
         bitemporal fields so it reads as version 1."""
-        idx: Dict[str, List[ComplexRecord]] = {}
+        idx: dict[str, list[ComplexRecord]] = {}
         # A snapshot, if one exists: written by an older version of this store, or
         # left by compaction. Read first so the log layers on top of it.
         if os.path.exists(self._index_path):
@@ -536,7 +542,7 @@ class FileStore(RCStore):
             f.flush()
             os.fsync(f.fileno())
 
-    def _write_index(self, idx: Dict[str, List[ComplexRecord]]):
+    def _write_index(self, idx: dict[str, builtins.list[ComplexRecord]]):
         """Write a full snapshot and drop the log. This is compaction, not the write
         path: callers that used it to persist one change now append instead."""
         raw = {id: [r.to_dict() for r in versions] for id, versions in idx.items()}
@@ -544,10 +550,8 @@ class FileStore(RCStore):
         with open(tmp, "w") as f:
             json.dump(raw, f)
         os.replace(tmp, self._index_path)
-        try:
+        with contextlib.suppress(OSError):
             os.remove(self._log_path)
-        except OSError:
-            pass
 
     def compact(self) -> dict:
         """Fold the log into a snapshot. Optional: reading is correct either way."""
@@ -673,10 +677,8 @@ class FileStore(RCStore):
             self._append_log({"op": "delete", "id": id})
             for r in versions:
                 for p in self._blob_read_paths(id, r.version):
-                    try:
+                    with contextlib.suppress(OSError):
                         os.unlink(p)
-                    except OSError:
-                        pass
             self._emit("rcdb.delete", id, 0, {})
         return existed
 
@@ -699,8 +701,18 @@ class SQLStore(RCStore):
     }
 
     def __init__(self, conn_str: str, table: str = "rc_complexes"):
-        from sqlalchemy import (create_engine, MetaData, Table, Column,
-                                 String, Float, LargeBinary, Text, Integer, Boolean)
+        from sqlalchemy import (
+            Boolean,
+            Column,
+            Float,
+            Integer,
+            LargeBinary,
+            MetaData,
+            String,
+            Table,
+            Text,
+            create_engine,
+        )
         self._sa = __import__("sqlalchemy")
         self.conn_str = conn_str
         self.engine = create_engine(conn_str)
@@ -794,17 +806,13 @@ class SQLStore(RCStore):
             for col in ("betti1", "kappa_mean", "source"):
                 iname = f"ix_{table}_{col}"
                 if iname not in existing_idx:
-                    try:
+                    with contextlib.suppress(Exception):
                         conn.execute(text(f"CREATE INDEX {iname} ON {table} ({col})"))
-                    except Exception:
-                        pass
             for iname, cols_sql in ((f"ix_{table}_id_txto", "(id, tx_to)"),
                                      (f"ix_{table}_id_validfrom", "(id, valid_from)")):
                 if iname not in existing_idx:
-                    try:
+                    with contextlib.suppress(Exception):
                         conn.execute(text(f"CREATE INDEX {iname} ON {table} {cols_sql}"))
-                    except Exception:
-                        pass
 
     def _ensure_composite_pk(self, table):
         """Repair a legacy id-only primary key to the composite (id, version)
@@ -819,7 +827,7 @@ class SQLStore(RCStore):
         under a temporary name with the composite key declared, the data is
         copied over column by column, and the temporary table is swapped in
         for the original. Other dialects can ALTER the constraint directly."""
-        from sqlalchemy import inspect, text, MetaData
+        from sqlalchemy import MetaData, inspect, text
         insp = inspect(self.engine)
         pk = insp.get_pk_constraint(table).get("constrained_columns") or []
         if sorted(pk) == ["id", "version"]:
@@ -979,7 +987,7 @@ class SQLStore(RCStore):
               valid_at=None, **predicate):
         # push the indexed predicates into SQL; apply the rest (tags, voids)
         # in Python only over the narrowed candidate set.
-        from sqlalchemy import select, and_
+        from sqlalchemy import and_, select
         t = self.table
         builders = {
             "min_nV": lambda v: t.c.nV >= v,
@@ -1062,12 +1070,12 @@ def unregister_backend(scheme: str):
     return _BACKENDS.unregister(scheme)
 
 
-def available_backends() -> List[str]:
+def available_backends() -> list[str]:
     """Every registered URI scheme."""
     return _BACKENDS.available()
 
 
-def _labels_of(rec: "ComplexRecord", rex) -> list:
+def _labels_of(rec: ComplexRecord, rex) -> list:
     """Best-effort vertex labels for a record (from meta, else indices)."""
     labels = (rec.meta or {}).get("vertex_labels")
     if labels:
@@ -1172,11 +1180,11 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
                  exclude_id: str = None):
     """Rank stored complexes by structural similarity to a query complex.
 
-    Uses the cross-complex bridge (aligns by shared labels, correlates the
-    per-vertex coherence): the real structural-similarity measure, not a
-    scalar signature match. Returns a list of
-    ``{id, match, shared, tags, source}`` sorted by match descending, where
-    ``match`` is a 0-1 similarity a UI can show as a percentage.
+    Scores through `agent.scoring.interfacing_score`, which reads the query's
+    footprint under each candidate's own coherence field by demand-driven
+    diffusion. Returns ``{id, match, score, shared, context_size, tags, source}``
+    sorted by match descending, where ``match`` is a 0-1 number a UI can show as
+    a percentage.
     """
     from agent.scoring import interfacing_score
     qset = {str(x).lower() for x in (query_labels or [])}
@@ -1207,12 +1215,17 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
                 "id": rec.id,
                 "match": round(match, 4),
                 "score": round(s_raw, 6),
-                "character": [round(x, 4) for x in r["character"]],
-                "coverage": round(r["coverage"], 4),
+                "kappa_mean": round(r["kappa_mean"], 4),
+                "context_size": r["context_size"],
                 "shared": r["n_shared"],
                 "tags": rec.signature.get("tags", []),
                 "source": rec.signature.get("source", ""),
             })
+        except (KeyError, TypeError) as e:
+            # a missing key here is a contract break between this and the scorer,
+            # not a bad record: swallowing it silently returns an empty ranking
+            # and looks like "nothing matched".
+            raise RuntimeError(f"find_similar: scorer contract changed ({e})") from e
         except Exception:
             continue
     out.sort(key=lambda r: (-r["match"], str(r["id"])))
@@ -1315,7 +1328,7 @@ def drift(store: RCStore, lineage_id: str):
     hist = store.history(lineage_id)
     traj = []
     if hist:
-        for v_a, v_b, rec_a, rec_b in zip(versions, versions[1:], hist, hist[1:]):
+        for v_a, v_b, rec_a, rec_b in zip(versions, versions[1:], hist, hist[1:], strict=False):
             try:
                 rex_a = _get_ver(store, lineage_id, rec_a.version)
                 rex_b = _get_ver(store, lineage_id, rec_b.version)
@@ -1333,7 +1346,7 @@ def drift(store: RCStore, lineage_id: str):
     else:
         # legacy store: no native chain under `lineage_id`, so reconstruct each
         # version through its own display/real id (store.get resolves both).
-        for v_a, v_b in zip(versions, versions[1:]):
+        for v_a, v_b in zip(versions, versions[1:], strict=False):
             try:
                 rex_a, rex_b = store.get(v_a["id"]), store.get(v_b["id"])
                 if rex_a is None or rex_b is None:
@@ -1359,8 +1372,9 @@ def cluster_complexes(store: RCStore, tags_any=None, threshold: float = 0.7):
     then takes connected components at ``threshold``. Returns
     ``{clusters:[{members, avg_coherence, centroid, tags}], singletons, n}``.
     """
-    from rexgraph.graph import cross_complex_bridge
     import math
+
+    from rexgraph.graph import cross_complex_bridge
     recs = store.list(limit=10 ** 9)
     if tags_any:
         tset = set(tags_any)
@@ -1569,7 +1583,7 @@ register_backend("file", lambda uri: FileStore(
 # `MemoryStore()` and silently discarded whatever it wrote. Callers that want a
 # specific store still pass one; callers that just want "the store" get this.
 
-_DEFAULT_STORE: Optional[RCStore] = None
+_DEFAULT_STORE: RCStore | None = None
 
 
 def default_store_uri() -> str:

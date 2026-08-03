@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import json
 import logging
 import math
@@ -21,7 +22,6 @@ import os
 import queue as queue_module
 import tempfile
 from pathlib import Path
-from typing import List
 
 import numpy as np
 from fastapi import APIRouter, File, Form, UploadFile
@@ -124,10 +124,8 @@ def _save_uploads(files):
 
 def _cleanup_temps(paths):
     for p in paths:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(p)
-        except OSError:
-            pass
 
 
 # File ingestion (main process)
@@ -143,7 +141,8 @@ def _ingest_files(file_paths, ocr_client, event_queue, use_fusion=False):
     """
     import re
     import sys
-    from agent.integrations.unlimited_ocr import is_pdf_file, is_image_file
+
+    from agent.integrations.unlimited_ocr import is_image_file, is_pdf_file
 
     print("[ingest] %d files, OCR client: %s" % (
         len(file_paths), type(ocr_client).__name__),
@@ -166,7 +165,7 @@ def _ingest_files(file_paths, ocr_client, event_queue, use_fusion=False):
                       % len(fusion._resolve_clients()),
                       file=sys.stderr, flush=True)
         except Exception as e:
-            print("[ingest] fusion unavailable: %s" % e,
+            print(f"[ingest] fusion unavailable: {e}",
                   file=sys.stderr, flush=True)
 
     for path in file_paths:
@@ -181,16 +180,15 @@ def _ingest_files(file_paths, ocr_client, event_queue, use_fusion=False):
                         report = fusion.compare(path)
                         text = report.best_text()
                     except Exception as e:
-                        print("[ingest]   %s -> fusion failed (%s), "
-                              "falling back" % (p.name, e),
+                        print(f"[ingest]   {p.name} -> fusion failed ({e}), "
+                              "falling back",
                               file=sys.stderr, flush=True)
                         text = ""
                 if not text:
                     if ocr_client is None:
                         # No OCR backend was initialised (direct-only
                         # batch). Skip rather than dereference None.
-                        print("[ingest]   %s -> skipped (no OCR backend)"
-                              % p.name, file=sys.stderr, flush=True)
+                        print(f"[ingest]   {p.name} -> skipped (no OCR backend)", file=sys.stderr, flush=True)
                         continue
                     if is_pdf_file(path):
                         text = ocr_client.ocr_pdf(path).full_text
@@ -215,14 +213,14 @@ def _ingest_files(file_paths, ocr_client, event_queue, use_fusion=False):
                     print("[ingest]   %s -> OCR -> %d chars" % (p.name, len(text)),
                           file=sys.stderr, flush=True)
                 else:
-                    print("[ingest]   %s -> OCR -> empty" % p.name,
+                    print(f"[ingest]   {p.name} -> OCR -> empty",
                           file=sys.stderr, flush=True)
             except Exception as e:
-                print("[ingest]   %s -> OCR FAILED: %s" % (p.name, e),
+                print(f"[ingest]   {p.name} -> OCR FAILED: {e}",
                       file=sys.stderr, flush=True)
         else:
             direct_paths.append(path)
-            print("[ingest]   %s -> direct (%s)" % (p.name, suffix or "text"),
+            print("[ingest]   {} -> direct ({})".format(p.name, suffix or "text"),
                   file=sys.stderr, flush=True)
 
     event_queue.put(("phase", "ingest",
@@ -254,10 +252,8 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
         from agent.pipeline_runner import PipelineRunner
 
         def on_phase(phase, data):
-            try:
+            with contextlib.suppress(Exception):
                 event_queue.put(("phase", phase, _sanitize(data)), timeout=5)
-            except Exception:
-                pass
 
         runner = PipelineRunner()
         runner.on_phase(on_phase)
@@ -296,17 +292,15 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
         event_queue.put(("done", result_dict, None), timeout=10)
 
     except Exception as e:
-        print("[analysis] ERROR: %s" % e, file=sys.stderr, flush=True)
+        print(f"[analysis] ERROR: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
-        try:
+        with contextlib.suppress(Exception):
             event_queue.put(("error", str(e), None), timeout=5)
-        except Exception:
-            pass
 
 
 def _save_to_workspace(runner, workspace):
     try:
-        from agent.server.persistence import save_document_rex, _docs_dir
+        from agent.server.persistence import _docs_dir, save_document_rex
         corpus = getattr(runner, '_last_corpus', None)
         if corpus is None:
             return
@@ -316,7 +310,7 @@ def _save_to_workspace(runner, workspace):
             try:
                 save_document_rex(workspace, doc.doc_id, doc.rex)
                 if doc.text:
-                    text_path = _docs_dir(workspace) / ("%s.txt" % doc.doc_id)
+                    text_path = _docs_dir(workspace) / (f"{doc.doc_id}.txt")
                     text_path.write_text(doc.text, encoding="utf-8")
             except Exception:
                 pass
@@ -390,7 +384,7 @@ def _register_documents(result_data, workspace):
 
 @router.post("/stream")
 async def stream_pipeline(
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     query: str = Form(None),
     depth: str = Form("quick"),
     max_rechunk: int = Form(2),
@@ -426,7 +420,7 @@ async def stream_pipeline(
                     ocr_client = _get_ocr_client(backend)
                 except Exception as e:
                     logger.error("OCR client failed: %s", e)
-                    yield 'event: error\ndata: {"error": "OCR init failed: %s"}\n\n' % str(e).replace('"', '\\"')
+                    yield 'event: error\ndata: {{"error": "OCR init failed: {}"}}\n\n'.format(str(e).replace('"', '\\"'))
                     return
 
             try:
@@ -437,7 +431,7 @@ async def stream_pipeline(
                 )
             except Exception as e:
                 logger.error("Ingestion failed: %s", e)
-                yield 'event: error\ndata: {"error": "Ingestion failed: %s"}\n\n' % str(e).replace('"', '\\"')
+                yield 'event: error\ndata: {{"error": "Ingestion failed: {}"}}\n\n'.format(str(e).replace('"', '\\"'))
                 return
 
             # Yield ingest events
@@ -446,7 +440,7 @@ async def stream_pipeline(
                     msg = ingest_queue.get_nowait()
                     payload = json.dumps(
                         {"phase": msg[1], **msg[2]}, cls=_SafeEncoder)
-                    yield "event: phase\ndata: %s\n\n" % payload
+                    yield f"event: phase\ndata: {payload}\n\n"
                 except Exception:
                     break
 
@@ -495,15 +489,15 @@ async def stream_pipeline(
                 if kind == "phase":
                     payload = json.dumps(
                         {"phase": msg[1], **msg[2]}, cls=_SafeEncoder)
-                    yield "event: phase\ndata: %s\n\n" % payload
+                    yield f"event: phase\ndata: {payload}\n\n"
                 elif kind == "done":
                     result_data = _register_documents(msg[1], workspace)
-                    yield "event: done\ndata: %s\n\n" % json.dumps(
-                        result_data, cls=_SafeEncoder)
+                    yield "event: done\ndata: {}\n\n".format(json.dumps(
+                        result_data, cls=_SafeEncoder))
                     finished = True
                 elif kind == "error":
-                    yield 'event: error\ndata: {"error": "%s"}\n\n' % str(
-                        msg[1]).replace('"', '\\"')
+                    yield 'event: error\ndata: {{"error": "{}"}}\n\n'.format(str(
+                        msg[1]).replace('"', '\\"'))
                     finished = True
 
             while not analysis_queue.empty():
@@ -512,7 +506,7 @@ async def stream_pipeline(
                     if msg[0] == "phase":
                         payload = json.dumps(
                             {"phase": msg[1], **msg[2]}, cls=_SafeEncoder)
-                        yield "event: phase\ndata: %s\n\n" % payload
+                        yield f"event: phase\ndata: {payload}\n\n"
                 except Exception:
                     break
 
@@ -528,10 +522,10 @@ async def stream_pipeline(
                     else:
                         sig_name = "exit code %d" % proc.exitcode
                     yield ('event: error\ndata: {"error": '
-                           '"Analysis worker exited (%s) - most likely the graph '
+                           f'"Analysis worker exited ({sig_name}) - most likely the graph '
                            'was too large/dense for available memory. The server '
                            'is unaffected; try a smaller or sparser input, or lower '
-                           'REXGRAPH_MAX_ANALYSIS_EDGES."}\n\n' % sig_name)
+                           'REXGRAPH_MAX_ANALYSIS_EDGES."}\n\n')
         finally:
             # Always let analysis finish before deleting temp files, even if the
             # client disconnected mid-run, so the worker never reads a file that

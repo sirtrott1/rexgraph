@@ -115,8 +115,8 @@ async def ocr_file(
 @router.get("/ocr/status")
 async def ocr_status():
     """OCR backend detection with install status and commands."""
-    import shutil
     import importlib
+    import shutil
     from pathlib import Path
 
     backends = {}

@@ -16,25 +16,31 @@ Labeled vector corpora (embeddings, structural fingerprints) share one container
     matrix, labels, names, meta = load_vectors("emb.safetensors")
 """
 
-from ._compat import ZARR_V3, HAS_ZARR, HAS_HDF5
+from ._compat import HAS_HDF5, HAS_ZARR, ZARR_V3
 
 __all__ = ["ZARR_V3", "HAS_ZARR", "HAS_HDF5", "save", "load"]
 
 if HAS_ZARR:
-    from .zarr_format import RexZarrFormat, save_zarr, load_zarr
+    from .zarr_format import RexZarrFormat, load_zarr, save_zarr
     __all__ += ["RexZarrFormat", "save_zarr", "load_zarr"]
 
 if HAS_HDF5:
-    from .hdf5_format import RexHDF5Format, save_hdf5, load_hdf5
+    from .hdf5_format import RexHDF5Format, load_hdf5, save_hdf5
     __all__ += ["RexHDF5Format", "save_hdf5", "load_hdf5"]
 
-from .bundle import RexBundle, save_rex, load_rex
+from .bundle import RexBundle, load_rex, save_rex
+
 __all__ += ["RexBundle", "save_rex", "load_rex"]
 
 try:
     from .arrow_bridge import (
-        rex_to_arrow, arrow_to_rex, arrays_to_arrow, arrow_to_arrays,
-        write_arrow_ipc, read_arrow_ipc, read_arrow_batches,
+        arrays_to_arrow,
+        arrow_to_arrays,
+        arrow_to_rex,
+        read_arrow_batches,
+        read_arrow_ipc,
+        rex_to_arrow,
+        write_arrow_ipc,
     )
     __all__ += [
         "rex_to_arrow", "arrow_to_rex", "arrays_to_arrow", "arrow_to_arrays",
@@ -46,18 +52,29 @@ except ImportError:
 
 try:
     from .parquet_bridge import (
-        write_parquet, read_parquet,
-        write_boundary_table, read_boundary_table,
-        write_edge_table, read_edge_table,
-        write_vertex_table, read_vertex_table,
-        write_face_table, read_face_table,
-        write_persistence_table, read_persistence_table,
-        write_filtration_table, read_filtration_table,
-        write_metrics_table, read_metrics_table,
+        read_boundary_table,
+        read_character_table,
+        read_edge_table,
+        read_face_table,
+        read_filtration_table,
+        read_metrics_table,
+        read_parquet,
         read_parquet_batches,
-        write_character_table, read_character_table,
-        write_vertex_character_table, read_vertex_character_table,
-        write_void_table, read_void_table,
+        read_persistence_table,
+        read_vertex_character_table,
+        read_vertex_table,
+        read_void_table,
+        write_boundary_table,
+        write_character_table,
+        write_edge_table,
+        write_face_table,
+        write_filtration_table,
+        write_metrics_table,
+        write_parquet,
+        write_persistence_table,
+        write_vertex_character_table,
+        write_vertex_table,
+        write_void_table,
     )
     __all__ += [
         "write_parquet", "read_parquet",
@@ -80,18 +97,29 @@ except ImportError:
 try:
     from .sql_bridge import (
         get_engine,
-        write_boundary_sql, read_boundary_sql,
-        write_edge_sql, read_edge_sql,
-        write_vertex_sql, read_vertex_sql,
-        write_face_sql, read_face_sql,
-        write_persistence_sql, read_persistence_sql,
-        write_filtration_sql, read_filtration_sql,
-        write_temporal_sql, read_temporal_sql,
-        write_metrics_sql, read_metrics_sql,
+        read_boundary_sql,
+        read_character_sql,
+        read_edge_sql,
+        read_face_sql,
+        read_filtration_sql,
+        read_metrics_sql,
+        read_persistence_sql,
         read_sql_batches,
-        write_character_sql, read_character_sql,
-        write_vertex_character_sql, read_vertex_character_sql,
-        write_void_sql, read_void_sql,
+        read_temporal_sql,
+        read_vertex_character_sql,
+        read_vertex_sql,
+        read_void_sql,
+        write_boundary_sql,
+        write_character_sql,
+        write_edge_sql,
+        write_face_sql,
+        write_filtration_sql,
+        write_metrics_sql,
+        write_persistence_sql,
+        write_temporal_sql,
+        write_vertex_character_sql,
+        write_vertex_sql,
+        write_void_sql,
     )
     __all__ += [
         "get_engine",
@@ -116,10 +144,14 @@ __all__ += ["HAS_ARROW", "HAS_PARQUET", "HAS_SQL"]
 
 try:
     from .safetensors_bridge import (
-        rex_to_safetensors, safetensors_to_rex,
-        temporal_rex_to_safetensors, safetensors_to_temporal_rex,
-        save_safetensors, load_safetensors,
-        fingerprints_to_safetensors, safetensors_to_fingerprints,
+        fingerprints_to_safetensors,
+        load_safetensors,
+        rex_to_safetensors,
+        safetensors_to_fingerprints,
+        safetensors_to_rex,
+        safetensors_to_temporal_rex,
+        save_safetensors,
+        temporal_rex_to_safetensors,
     )
     # Discoverable front door for the labeled-vector-corpus container. The stored schema
     # (object_type="FingerprintCorpus") is unchanged; these are the general names for the
@@ -141,14 +173,20 @@ except ImportError:
 
 __all__ += ["HAS_SAFETENSORS"]
 
-from .csv_loader import load_edge_csv, classify_columns, GraphData, ColumnProfile
+from .csv_loader import ColumnProfile, GraphData, classify_columns, load_edge_csv
+
 __all__ += ["load_edge_csv", "classify_columns", "GraphData", "ColumnProfile"]
 
 from .json_loader import (
-    load_json, load_rexgraph_json, load_edge_list_json,
-    load_cytoscape_json, load_networkx_json, load_adjacency_json,
+    load_adjacency_json,
+    load_cytoscape_json,
+    load_edge_list_json,
+    load_json,
     load_matrix_csv,
+    load_networkx_json,
+    load_rexgraph_json,
 )
+
 __all__ += [
     "load_json", "load_rexgraph_json", "load_edge_list_json",
     "load_cytoscape_json", "load_networkx_json", "load_adjacency_json",
@@ -266,16 +304,13 @@ def _load_safetensors(path, **kwargs):
     """A .safetensors file holds a rex, a TemporalRex or a vector corpus; route on the
     stored object_type rather than assuming."""
     from .safetensors_bridge import (
-        _load_meta, safetensors_to_rex, safetensors_to_fingerprints,
+        _load_meta,
+        safetensors_to_fingerprints,
+        safetensors_to_rex,
     )
     if _load_meta(str(path)).get("object_type") == "FingerprintCorpus":
         return safetensors_to_fingerprints(path)
     return safetensors_to_rex(path)
-
-
-def _save_safetensors(path, obj, **kwargs):
-    from .safetensors_bridge import save_safetensors as _s
-    return _s(obj, path, **kwargs)
 
 
 def _needs(pkg, extra):
@@ -300,7 +335,7 @@ register_format(
 )
 register_format(
     "safetensors",
-    save=_save_safetensors if HAS_SAFETENSORS else _needs("safetensors", "safetensors"),
+    save=save_safetensors if HAS_SAFETENSORS else _needs("safetensors", "safetensors"),
     load=_load_safetensors if HAS_SAFETENSORS else _needs("safetensors", "safetensors"),
     extensions=[".safetensors"],
 )

@@ -10,13 +10,11 @@ vocabulary already carried in record meta. The retrieval prefilter stops being a
 Python scan over everything.
 """
 
-import numpy as np
 import pytest
-
-from agent import rcdb
-from agent import query_engine as qe
 from agent.corpus import CorpusBuilder
 
+from agent import query_engine as qe
+from agent import rcdb
 
 DOCS = {
     "boundary": "The boundary map sends an edge to its endpoints. Composing two "

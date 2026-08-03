@@ -7,9 +7,8 @@ must fail loudly on a malformed connector.
 
 import numpy as np
 import pytest
-
-from agent.interfaces import Capabilities, Connector, apply_label_privacy, configure, reset
 from agent.connectors import BaseConnector, ConnectorError
+from agent.interfaces import Capabilities, Connector, apply_label_privacy, configure, reset
 
 
 class TriangleConnector(BaseConnector):
@@ -168,9 +167,9 @@ def test_harness_fails_capability_overclaim():
 
 # SQL connector (§3.4)
 
+import os
 import sqlite3
 import tempfile
-import os
 
 
 def _make_shop_db():
@@ -304,13 +303,13 @@ def test_stream_connector_in_memory_stand_in():
 
 
 def test_registry_routes_schemes_and_rejects_unknown():
-    from agent.connectors.sql import SQLConnector
-    from agent.connectors.warehouse import WarehouseConnector
     from agent.connectors.document import DocumentConnector
-    from agent.connectors.semantic import SemanticConnector
-    from agent.connectors.graph import GraphConnector
-    from agent.connectors.stream import StreamConnector
     from agent.connectors.generic import GenericConnector
+    from agent.connectors.graph import GraphConnector
+    from agent.connectors.semantic import SemanticConnector
+    from agent.connectors.sql import SQLConnector
+    from agent.connectors.stream import StreamConnector
+    from agent.connectors.warehouse import WarehouseConnector
     assert isinstance(open_connector("postgresql://h/db"), SQLConnector)
     assert isinstance(open_connector("snowflake://a/db"), WarehouseConnector)
     assert isinstance(open_connector("mongodb://h/db"), DocumentConnector)

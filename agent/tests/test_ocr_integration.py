@@ -11,33 +11,28 @@ Does NOT require a running Unlimited-OCR server or GPU.
 
 import os
 import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
-
 from agent.adapters import EdgeConstruction
 from agent.adapters.ocr import (
     OCRAdapter,
-    _parse_sections,
-    _classify_block,
     _build_layout_graph,
-)
-from agent.integrations.unlimited_ocr import (
-    OCRResult,
-    OCRBatchResult,
-    OfflineOCRClient,
-    UnlimitedOCRClient,
-    MistralOCRClient,
-    _encode_image,
-    is_image_file,
-    is_pdf_file,
-    IMAGE_EXTENSIONS,
-    create_ocr_client,
+    _classify_block,
+    _parse_sections,
 )
 from agent.auto import detect_input_type
-
-
+from agent.integrations.unlimited_ocr import (
+    MistralOCRClient,
+    OCRBatchResult,
+    OCRResult,
+    OfflineOCRClient,
+    UnlimitedOCRClient,
+    _encode_image,
+    create_ocr_client,
+    is_image_file,
+    is_pdf_file,
+)
 
 SAMPLE_OCR_OUTPUT = """# Invoice
 
@@ -382,7 +377,7 @@ def test_ocr_adapter_empty_result():
             assert edges.nV == 0 and edges.nE == 0
     os.unlink(f.name)
 
-    print("  ✓ Empty OCR result handled (raised=%s)" % raised)
+    print(f"  ✓ Empty OCR result handled (raised={raised})")
     print()
 
 
@@ -761,8 +756,11 @@ def test_factory_offline_fallback():
     print("── Factory: auto-selection ──")
 
     from agent.integrations.unlimited_ocr import (
-        UnlimitedOCRClient, PaddleOCRClient, MistralOCRClient,
-        GOTOCRClient, OfflineOCRClient,
+        GOTOCRClient,
+        MistralOCRClient,
+        OfflineOCRClient,
+        PaddleOCRClient,
+        UnlimitedOCRClient,
     )
     known_clients = (
         UnlimitedOCRClient, PaddleOCRClient, MistralOCRClient,
@@ -777,15 +775,14 @@ def test_factory_offline_fallback():
             server_url="http://127.0.0.1:99999",
         )
         assert isinstance(client, known_clients), (
-            "Factory returned an unknown client type: %s"
-            % type(client).__name__
+            f"Factory returned an unknown client type: {type(client).__name__}"
         )
         # Whatever it picked must expose the OCR client interface. Every
         # backend implements ocr_image; not all set a backend_name attr.
         assert hasattr(client, "ocr_image"), (
-            "%s is missing ocr_image()" % type(client).__name__
+            f"{type(client).__name__} is missing ocr_image()"
         )
-        print("  ✓ Factory selected: %s" % type(client).__name__)
+        print(f"  ✓ Factory selected: {type(client).__name__}")
     finally:
         if old_key is not None:
             os.environ["MISTRAL_API_KEY"] = old_key

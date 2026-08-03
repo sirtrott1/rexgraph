@@ -20,8 +20,8 @@ import numpy as np
 import pytest
 
 try:
-    import sqlalchemy
     import pandas
+    import sqlalchemy
     HAS_SQL_DEPS = True
 except ImportError:
     HAS_SQL_DEPS = False
@@ -31,31 +31,30 @@ pytestmark = pytest.mark.skipif(not HAS_SQL_DEPS, reason="sqlalchemy/pandas not 
 if HAS_SQL_DEPS:
     from rexgraph.io.sql_bridge import (
         get_engine,
-        write_boundary_sql,
         read_boundary_sql,
-        write_edge_sql,
-        read_edge_sql,
-        write_vertex_sql,
-        read_vertex_sql,
-        write_face_sql,
-        read_face_sql,
-        write_persistence_sql,
-        read_persistence_sql,
-        write_filtration_sql,
-        read_filtration_sql,
-        write_metrics_sql,
-        read_metrics_sql,
-        write_character_sql,
         read_character_sql,
-        write_vertex_character_sql,
+        read_edge_sql,
+        read_face_sql,
+        read_filtration_sql,
+        read_metrics_sql,
+        read_persistence_sql,
         read_vertex_character_sql,
-        write_void_sql,
+        read_vertex_sql,
         read_void_sql,
         reconstruct_rex_sql,
+        write_boundary_sql,
+        write_character_sql,
+        write_edge_sql,
+        write_face_sql,
+        write_filtration_sql,
+        write_metrics_sql,
+        write_persistence_sql,
+        write_vertex_character_sql,
+        write_vertex_sql,
+        write_void_sql,
     )
 
 from rexgraph.graph import RexGraph
-
 
 # Fixtures
 
@@ -305,6 +304,7 @@ class TestNoPandasImport:
         import sys
         sys.modules.pop("pandas", None)
         import importlib
+
         import rexgraph.io.sql_bridge as sb
         importlib.reload(sb)
 
@@ -363,7 +363,8 @@ class TestReconstructRexSql:
 def test_read_sql_batches_accepts_a_connection():
     # store.py passes engine.connect() (a Connection); the Core path must accept it like pandas did.
     import numpy as np
-    from rexgraph.io.sql_bridge import get_engine, write_metrics_sql, read_sql_batches
+
+    from rexgraph.io.sql_bridge import get_engine, read_sql_batches, write_metrics_sql
     eng = get_engine("sqlite:///:memory:")
     write_metrics_sql({"a": np.array([1, 2, 3], np.int64), "b": np.array([0.5, 1.5, 2.5])},
                       eng, "m", cell_dim=0)

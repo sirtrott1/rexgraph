@@ -8,7 +8,8 @@ B₁/B₂ (so FACES — bounded, relevance-selected triangles — are first-clas
 what a pairwise model structurally cannot. The clean attribution is the faces-ablation:
 edge-primary WITH faces vs the SAME net with faces off (≈ pairwise reach).
 
-Everything sparse scatter/gather on B₁/B₂ (O(nnz)), differentiable, trained by vector HodgeAdam.
+Everything sparse scatter/gather on B₁/B₂ (O(nnz)), differentiable, trained by whichever optimizer
+make_optimizer("auto") routes to (these nets carry features, so that is plain Adam).
 Run:  python -m agent.benchmarks.bench_relational_model [--quick]
 """
 from __future__ import annotations
@@ -20,8 +21,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from rexgraph.nn.optim import HodgeAdam, pick_device
-
+from rexgraph.nn import make_optimizer
+from rexgraph.nn.optim import pick_device
 
 # ─────────────────────────── data: random graphs + substructure counts ───────────────────────────
 
@@ -48,12 +49,12 @@ def gen_graph_regular(nV, deg, rng):
 def find_triangles(src, tgt, nV):
     """Relevance-gated faces = the actual triangles (bounded, NOT combinatorial enumeration).
     Returns face_edges [nF,3] (edge indices) and face_signs [nF,3] (∂ orientation +,+,−)."""
-    eidx = {(int(s), int(t)): e for e, (s, t) in enumerate(zip(src, tgt))}
+    eidx = {(int(s), int(t)): e for e, (s, t) in enumerate(zip(src, tgt, strict=False))}
     adj = {v: set() for v in range(nV)}
-    for s, t in zip(src, tgt):
+    for s, t in zip(src, tgt, strict=False):
         adj[int(s)].add(int(t)); adj[int(t)].add(int(s))
     faces = []
-    for e, (i, j) in enumerate(zip(src, tgt)):
+    for _e, (i, j) in enumerate(zip(src, tgt, strict=False)):
         i, j = int(i), int(j)
         for k in adj[i] & adj[j]:                       # common neighbour ⇒ triangle
             a, b, c = sorted((i, j, k))
@@ -215,7 +216,7 @@ class PairwiseGNN(nn.Module):
 
     def forward(self, b):
         XV = self.v0(torch.ones(b["nV"], 1, device=b["src"].device))
-        for msg, upd, ln in zip(self.msg, self.upd, self.ln):
+        for msg, upd, ln in zip(self.msg, self.upd, self.ln, strict=False):
             m = F.gelu(msg(torch.cat([XV[b["src"]], XV[b["tgt"]]], -1)))
             agg = torch.zeros_like(XV)
             agg.index_add_(0, b["tgt"], m); agg.index_add_(0, b["src"], m)
@@ -393,9 +394,12 @@ def _verify_ops():
 # ─────────────────────────── train / eval ───────────────────────────
 
 def train(model_fn, seed, steps, device, target="triangles", graphs="er"):
+    """Returns (R², n_params, optimizer_label). The optimizer comes from the router, not by name:
+    these nets are feature-space (no greens_groups), so "auto" resolves to plain Adam. The label is
+    returned so a run reports which optimizer actually ran."""
     torch.manual_seed(seed)
     model = model_fn().to(device)
-    opt = HodgeAdam(model.parameters(), lr=3e-3)
+    opt, opt_label = make_optimizer("auto", model, model.parameters(), lr=3e-3)
     rng = np.random.default_rng(seed)
     for _ in range(steps):
         b, y = make_batch(64, rng, device, target=target, graphs=graphs)
@@ -408,7 +412,7 @@ def train(model_fn, seed, steps, device, target="triangles", graphs="er"):
         ss_res = ((pred - y) ** 2).sum(); ss_tot = ((y - y.mean()) ** 2).sum()
         r2 = 1 - (ss_res / ss_tot).item()
     n_params = sum(p.numel() for p in model.parameters())
-    return r2, n_params
+    return r2, n_params, opt_label
 
 
 def main(argv=None):
@@ -443,11 +447,12 @@ def main(argv=None):
             ("pairwise GNN (baseline)", lambda: PairwiseGNN(48, 3)),
         ]
     for name, fn in configs:
-        r2s, npar = [], 0
+        r2s, npar, opt_label = [], 0, None
         for s in seeds:
-            r2, npar = train(fn, s, steps, device, a.target, a.graphs)
+            r2, npar, opt_label = train(fn, s, steps, device, a.target, a.graphs)
             r2s.append(r2)
-        print("  %-34s R²=%.3f±%.3f  (%d params)" % (name, float(np.mean(r2s)), float(np.std(r2s)), npar))
+        print("  %-34s R²=%.3f±%.3f  (%d params, %s)"
+              % (name, float(np.mean(r2s)), float(np.std(r2s)), npar, opt_label))
 
 
 if __name__ == "__main__":

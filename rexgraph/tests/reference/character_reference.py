@@ -31,15 +31,12 @@ Reference: rcf_session_bundle/rex_phase_b_v2.py and rexgraph.core._character
 
 from __future__ import annotations
 
-from typing import List, Tuple
-
 import numpy as np
-
 
 # χ (per-edge structural character)
 
 
-def compute_chi(RL: np.ndarray, hats: List[np.ndarray]) -> np.ndarray:
+def compute_chi(RL: np.ndarray, hats: list[np.ndarray]) -> np.ndarray:
     """Per-edge structural character: χ(e, k) = hat_k[e, e] / RL[e, e].
 
     Returns an (n_E, 4) array where each row is a probability distribution
@@ -72,7 +69,7 @@ def compute_chi(RL: np.ndarray, hats: List[np.ndarray]) -> np.ndarray:
 def compute_phi_pseudoinverse(
     B_1: np.ndarray,
     RL: np.ndarray,
-    hats: List[np.ndarray],
+    hats: list[np.ndarray],
 ) -> np.ndarray:
     """Per-vertex structural character via pseudoinverse.
 
@@ -173,7 +170,7 @@ def hodge_decompose(
     B_1: np.ndarray,
     B_2: np.ndarray,
     flow: np.ndarray,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """Decompose an edge signal into gradient + curl + harmonic energies.
 
     Solves:
@@ -254,10 +251,7 @@ def verify_character_identities(
 
     # φ rows sum to 1 (on structural vertices)
     if phi.size > 0:
-        if structural_vertex_mask is not None:
-            phi_sub = phi[structural_vertex_mask]
-        else:
-            phi_sub = phi
+        phi_sub = phi[structural_vertex_mask] if structural_vertex_mask is not None else phi
         if phi_sub.size > 0:
             phi_sums = phi_sub.sum(axis=1)
             phi_max_dev = float(np.max(np.abs(phi_sums - 1.0)))
@@ -265,10 +259,7 @@ def verify_character_identities(
 
     # κ in [0, 1]
     if kappa.size > 0:
-        if structural_vertex_mask is not None:
-            kappa_sub = kappa[structural_vertex_mask]
-        else:
-            kappa_sub = kappa
+        kappa_sub = kappa[structural_vertex_mask] if structural_vertex_mask is not None else kappa
         if kappa_sub.size > 0:
             kmin = float(kappa_sub.min())
             kmax = float(kappa_sub.max())

@@ -1,6 +1,8 @@
 """agent.dashboard: the hive-network snapshot + terminal render."""
-from agent import hive as hivemod, agent_complex
 from agent.dashboard import hive_dashboard, render
+
+from agent import agent_complex
+from agent import hive as hivemod
 
 
 def test_dashboard_snapshot_and_render():

@@ -1,18 +1,25 @@
-"""One ranking, built on the interfacing vector.
+"""One ranking, built on the reads RexGraph provides for exactly this.
 
-score_document mixed a label Jaccard, a cosine of MEAN structural characters and a
-hand-rolled spectral term under fixed 0.3/0.35/0.35 weights; find_similar used a
-kappa correlation times a square-rooted overlap; and interfacing_vector, the
-mechanism both were approximating, was reachable only from an HTTP route.
+Two earlier designs are buried under this file. The first mixed a label Jaccard, a
+cosine of MEAN structural characters and a hand-rolled spectral term under fixed
+0.3/0.35/0.35 weights. The second replaced that with ||iv|| from interfacing_vector
+called with target=None -- which scores psi against itself rather than interfacing
+with anything, and paid a whole-complex bundle for an answer wanted at a few
+vertices.
+
+What the library actually offers is demand-driven: coherence_response reads kappa at
+just the query's vertices and is identical to coherence[seed] rather than an
+approximation, and agentic_reading returns the bounded neighbourhood, the
+load-bearing relations, the frustrated entities under a data-adaptive Tukey fence,
+and context_size. Relevance is the query's footprint under the document's own
+coherence field.
 """
 
 import numpy as np
 import pytest
-
 from agent.adapters.text import TextAdapter
 from agent.corpus import CorpusBuilder
 from agent.scoring import interfacing_score, shared_indices
-
 
 DOCS = {
     "boundary": "The boundary map sends an edge to its endpoints. Composing two "
@@ -30,8 +37,7 @@ DOCS = {
     "harmonic": "The harmonic part of a signal is what neither drains nor circulates. "
                 "Hodge decomposition splits a flow into gradient, curl and harmonic "
                 "pieces. The harmonic dimension counts independent cycles.",
-    # deliberately tiny: structurally degenerate, and the reason the ranking scalar
-    # is the interfacing magnitude rather than its normalized direction.
+    # deliberately tiny: a degenerate complex must not outrank a real one
     "stub": "An edge has a sign. A map has a boundary. A signature has structure.",
 }
 
@@ -74,33 +80,55 @@ def test_the_relevant_document_ranks_first(corpus, query, expected):
     assert rows[0][1] == expected, [(r[1], round(r[0]["score"], 4)) for r in rows[:3]]
 
 
-def test_ranking_on_the_normalized_direction_would_reward_a_degenerate_complex(corpus):
-    """The reason the scalar is ||iv|| and not sphere_pos[0]. sphere_pos is a
-    DIRECTION, so it divides out engagement strength: the stub puts nearly all of
-    its tiny interfacing energy in the T channel and wins on composition alone."""
-    query = "boundary map orientation sign endpoints"
-    rows = _rank(corpus, query)
-    by_direction = sorted(rows, key=lambda t: -t[0]["character"][0])
+def test_score_is_the_query_footprint_under_the_document_coherence(corpus):
+    """One field summed over one seed, so there is no mixing constant to justify:
+    score = sum of kappa over the vertices the query matched."""
+    import numpy as np
+    from agent.scoring import shared_indices
 
-    assert rows[0][1] == "boundary"
-    assert by_direction[0][1] == "stub", "the failure mode this guards is gone; recheck"
-    stub = dict(rows)["stub"] if False else next(r for r, d in rows if d == "stub")
-    boundary = next(r for r, d in rows if d == "boundary")
-    assert stub["character"][0] > boundary["character"][0]
-    assert stub["score"] < boundary["score"]
+    doc = next(d for d in corpus.documents if d.doc_id == "boundary")
+    qec = TextAdapter().build("boundary map orientation", min_count=1, max_vocab=200)
+    r = interfacing_score(doc.rex, doc.vertex_labels, qec.vertex_labels)
+    seed = np.asarray(shared_indices(doc.vertex_labels, qec.vertex_labels), np.int32)
+    assert np.isclose(r["score"], float(np.sum(doc.rex.coherence_response(seed))))
 
 
-def test_score_is_the_magnitude_and_character_is_the_direction(corpus):
-    """Together they are the raw interfacing vector in polar form: nothing dropped,
-    no mixing constant invented."""
-    rows = _rank(corpus, "boundary map orientation sign endpoints")
-    for r, _ in rows:
-        raw = np.asarray(r["channels"], dtype=float)
-        if r["score"] <= 0:
-            continue
-        assert np.isclose(np.linalg.norm(raw), r["score"], rtol=1e-9)
-        recovered = raw / np.linalg.norm(raw)
-        assert np.allclose(recovered, r["character"], atol=1e-9)
+def test_the_demand_driven_read_equals_the_full_field_at_the_seed(corpus):
+    """coherence_response is documented as identical to coherence[seed], computed
+    only where asked -- not an approximation of it. If that stops holding, the
+    cheap read has quietly become a different quantity."""
+    import numpy as np
+    from agent.scoring import shared_indices
+
+    doc = next(d for d in corpus.documents if d.doc_id == "channels")
+    qec = TextAdapter().build("frustration channel overlap", min_count=1, max_vocab=200)
+    seed = np.asarray(shared_indices(doc.vertex_labels, qec.vertex_labels), np.int32)
+    assert seed.size >= 2
+    assert np.allclose(doc.rex.coherence_response(seed),
+                       np.asarray(doc.rex.coherence)[seed])
+
+
+def test_the_agentic_reading_diagnostics_come_back(corpus):
+    """context_size is what a correct answer costs; load_bearing are the bridges;
+    frustrated is a data-adaptive Tukey outlier, not a threshold I chose."""
+    doc = next(d for d in corpus.documents if d.doc_id == "boundary")
+    qec = TextAdapter().build("boundary map orientation sign", min_count=1, max_vocab=200)
+    r = interfacing_score(doc.rex, doc.vertex_labels, qec.vertex_labels)
+    for key in ("context_size", "n_load_bearing", "n_frustrated", "kappa", "kappa_mean"):
+        assert key in r
+    assert r["context_size"] > 0
+    assert len(r["kappa"]) == r["n_shared"]
+
+
+def test_the_reading_can_be_skipped_for_a_large_candidate_set(corpus):
+    """Ranking thousands of candidates should not pay for diagnostics on all of
+    them; the score itself is the cheap part."""
+    doc = next(d for d in corpus.documents if d.doc_id == "boundary")
+    qec = TextAdapter().build("boundary map orientation", min_count=1, max_vocab=200)
+    full = interfacing_score(doc.rex, doc.vertex_labels, qec.vertex_labels)
+    cheap = interfacing_score(doc.rex, doc.vertex_labels, qec.vertex_labels, reading=False)
+    assert cheap["score"] == full["score"]
+    assert cheap["context_size"] == 0 and full["context_size"] > 0
 
 
 def test_no_shared_vocabulary_scores_zero(corpus):
@@ -117,12 +145,6 @@ def test_a_single_shared_token_is_not_a_footprint(corpus):
     assert interfacing_score(doc.rex, doc.vertex_labels, one)["score"] == 0.0
 
 
-def test_diagnostics_come_back_rather_than_being_folded_in(corpus):
-    rows = _rank(corpus, "harmonic hodge gradient curl circulates")
-    top = rows[0][0]
-    for key in ("coverage", "efficiency", "confidence", "magnitude", "n_shared"):
-        assert key in top
-    assert 0.0 <= top["coverage"] <= 1.0
 
 
 def test_an_empty_or_missing_complex_is_handled(corpus):
@@ -155,5 +177,5 @@ def test_find_similar_delegates_to_the_shared_scorer():
     out = rcdb.find_similar(store, probe.rex, probe.vertex_labels,
                             top_k=5, exclude_id="boundary")
     assert out, "find_similar returned nothing"
-    assert all(0.0 <= r["match"] for r in out)
+    assert all(r["match"] >= 0.0 for r in out)
     assert [r["match"] for r in out] == sorted((r["match"] for r in out), reverse=True)

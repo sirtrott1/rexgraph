@@ -1,6 +1,8 @@
 """agent.hive_schema: the hive's structure as a versioned, cause-tagged complex."""
-from agent import hive as hivemod, agent_complex, rcdb
 from agent.hive_schema import HiveSchema
+
+from agent import agent_complex, rcdb
+from agent import hive as hivemod
 
 
 def _hive():

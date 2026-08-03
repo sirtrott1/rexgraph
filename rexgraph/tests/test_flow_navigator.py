@@ -1,7 +1,7 @@
 import numpy as np
+
+from rexgraph.flow import FieldNavigator, flow_step
 from rexgraph.graph import RexGraph, TemporalRex
-from rexgraph.flow import FieldNavigator
-from rexgraph.flow import flow_step
 
 
 def _snaps():
@@ -55,10 +55,11 @@ def test_boundary_block_lands_on_incident_vertices_only():
 def test_flow_path_is_matrix_free(monkeypatch):
     # spy the real dense/eigen solvers the flow path could touch, plus the matrix-free one,
     # so this test cannot go green just because nothing on the path happened to call numpy.linalg.
+    import numpy.linalg as nla
+    import scipy.sparse.linalg as ssla
+
     import rexgraph.core._linalg as _linalg
     import rexgraph.core._sparse as _sparse
-    import scipy.sparse.linalg as ssla
-    import numpy.linalg as nla
     dense_calls, mf_calls = [], []
 
     def spy(mod, name, bucket):

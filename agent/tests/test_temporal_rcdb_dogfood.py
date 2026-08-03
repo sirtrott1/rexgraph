@@ -2,9 +2,10 @@ import numpy as np
 import pytest
 
 pytest.importorskip("safetensors")
-from rexgraph.graph import RexGraph, TemporalRex
-from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors, safetensors_to_temporal_rex
 from agent.rcdb import open_store
+
+from rexgraph.graph import RexGraph, TemporalRex
+from rexgraph.io.safetensors_bridge import safetensors_to_temporal_rex, temporal_rex_to_safetensors
 
 
 def test_dogfood_temporal_store_through_rcdb(tmp_path):
@@ -21,7 +22,7 @@ def test_dogfood_temporal_store_through_rcdb(tmp_path):
     back = safetensors_to_temporal_rex(str(p))
 
     # store the reconstructed snapshots in a REAL FileStore RCDB and read them back
-    store = open_store("file://%s/rcdb" % tmp_path)
+    store = open_store(f"file://{tmp_path}/rcdb")
     try:
         for t in range(back._T):
             r = back.reconstruct_at(t) if not back._snapshots_materialized else back.at(t)
@@ -29,8 +30,8 @@ def test_dogfood_temporal_store_through_rcdb(tmp_path):
             assert rec.id == "snap@%d" % t
         got = store.get("snap@7")
         ref = graphs[7]
-        assert set(zip(got.sources.tolist(), got.targets.tolist())) == \
-               set(zip(ref.sources.tolist(), ref.targets.tolist()))
+        assert set(zip(got.sources.tolist(), got.targets.tolist(), strict=False)) == \
+               set(zip(ref.sources.tolist(), ref.targets.tolist(), strict=False))
         assert len(store.list(limit=100)) == back._T
     finally:
         store.close()

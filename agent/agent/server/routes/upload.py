@@ -11,7 +11,7 @@ import json
 import os
 import tempfile
 
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from agent.auto import auto_rex
 from agent.pipeline import AnalysisPipeline

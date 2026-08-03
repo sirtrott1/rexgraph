@@ -9,12 +9,14 @@ the `rexgraph` repo, which ships only `rexgraph.nn` (the parts to build them).
 | name | use-case | data kind | key params |
 |---|---|---|---|
 | `mlp`  | tabular / vector: classification or regression | vector | `d_hid`, `n_layers`, `task` |
-| `cnn`  | image classification (`norm=False` exercises HodgeAdam's conditioning) | image | `depth`, `width`, `norm` |
+| `cnn`  | image classification (`norm=False` drops the batch norm that fixes conditioning: the ill-conditioned setting for an optimizer A/B) | image | `depth`, `width`, `norm` |
 | `lm`   | sequence / language modeling (next-token) | sequence | `d`, `n_head`, `n_layer`, `attention` (`relational`/`standard`) |
 | `hgnn` | node classification on hypergraphs / higher-order relational data (advection+diffusion, uses signed orientation) | hypergraph | `d_hid`, `n_layers`, `flow`, `oriented` |
 
-Every archetype is built from `rexgraph.nn` components (HodgeAdam optimizer, PropagatorAttention,
-`build_attention`). Register a new one with `register_archetype(...)`.
+Every archetype is built from `rexgraph.nn` components (PropagatorAttention, `build_attention`, the
+rcf_torch propagators). No archetype builds an optimizer: training routes through
+`make_optimizer("auto")`, and since all four are feature-space models that resolves to plain Adam.
+Register a new one with `register_archetype(...)`.
 
 ## Use it (Python)
 
@@ -23,20 +25,23 @@ from agent.models import list_archetypes, run, build
 
 list_archetypes()                          # names, use-cases, and each archetype's params
 
-# single run on synthetic data (default), your optimizer + params
-run("cnn", params={"norm": False}, optimizer="hodge", steps=300)
+# single run on synthetic data (default). optimizer defaults to "auto" (the router)
+run("cnn", params={"norm": False}, steps=300)
 
 # your data
-run("mlp", data="mydata.csv", optimizer="hodge")     # csv/jsonl/npz table
+run("mlp", data="mydata.csv")                        # csv/jsonl/npz table
 run("lm",  data="corpus.txt", params={"attention": "standard"})
+
+# any optimizer by name when you want a specific one (an A/B arm, say)
+run("mlp", data="mydata.csv", optimizer="adamw")
 
 # just build the model (no training)
 model, cfg, bundle = build("hgnn", params={"n_layers": 3})
 
 # multistep: stage training (curriculum / optimizer schedule / warmup to refine)
 run("mlp", mode="multistep", stages=[
-    {"optimizer": "adam",  "steps": 100},          # warm up
-    {"optimizer": "hodge", "steps": 300, "lr": 5e-4},  # refine with the chosen optimizer
+    {"steps": 100},                       # warm up on the routed optimizer
+    {"steps": 300, "lr": 5e-4},           # refine at a lower lr
 ])
 
 # multi-model fusion: ensemble / data-split specialists / stacking
@@ -50,9 +55,9 @@ run("mlp", mode="fusion", fusion="stack", specs=[("mlp", {}), ("mlp", {"n_layers
 
 ```
 python -m models list
-python -m models build     --archetype cnn --set norm=false --optimizer hodge --steps 300
-python -m models build     --archetype mlp --data mydata.csv --optimizer hodge
-python -m models multistep --archetype mlp --stage optimizer=adam,steps=100 --stage optimizer=hodge,steps=300
+python -m models build     --archetype cnn --set norm=false --steps 300
+python -m models build     --archetype mlp --data mydata.csv --optimizer adamw
+python -m models multistep --archetype mlp --stage steps=100 --stage steps=300,lr=5e-4
 python -m models fusion    --spec mlp --spec mlp:d_hid=64 --fusion ensemble
 ```
 

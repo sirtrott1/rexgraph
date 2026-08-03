@@ -13,11 +13,10 @@ than one that is slow, and worse than one that refuses.
 import time
 
 import pytest
-
-from agent import rcdb
-from agent import query_engine as qe
 from agent.corpus import CorpusBuilder
 
+from agent import query_engine as qe
+from agent import rcdb
 
 OLD = ("Frustration tracks sign conflict between neighbouring edges. The overlap "
        "channel counts shared endpoints across the complex.")

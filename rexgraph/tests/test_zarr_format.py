@@ -26,14 +26,13 @@ pytestmark = pytest.mark.skipif(not HAS_ZARR, reason="zarr not installed")
 if HAS_ZARR:
     from rexgraph.io.zarr_format import (
         RexZarrFormat,
-        save_zarr,
         load_zarr,
-        save_zarr_array,
         load_zarr_array,
+        save_zarr,
+        save_zarr_array,
     )
 
 from rexgraph.graph import RexGraph
-
 
 # Fixtures
 

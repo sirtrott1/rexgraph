@@ -15,7 +15,6 @@ import numpy as np
 
 from rexgraph.core import _cycles
 
-
 # Helpers
 
 def _triangle():

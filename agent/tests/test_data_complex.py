@@ -1,8 +1,8 @@
 """agent.data_complex: records as a relational complex - clusters, outliers, centrality."""
 import sqlite3
 
-from agent.data_complex import analyze_rows, rows_to_complex
 from agent.agentic_db import AgenticDB
+from agent.data_complex import analyze_rows, rows_to_complex
 
 
 def test_records_cluster_by_shared_value():

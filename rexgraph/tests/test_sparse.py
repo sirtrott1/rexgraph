@@ -19,7 +19,6 @@ import pytest
 from rexgraph.core import _sparse
 from rexgraph.graph import RexGraph
 
-
 # Helpers
 
 def _make_dual_3x4():

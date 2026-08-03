@@ -23,7 +23,7 @@ Requirements: pip install rexgraph[langchain]
 
 from __future__ import annotations
 
-from typing import Any, Type
+from typing import Any
 
 import numpy as np
 
@@ -100,7 +100,7 @@ class RexConfidenceTool(BaseTool):
         "reliability metrics. Use BEFORE answering uncertain questions. "
         "If void_affinity > 0.5, say you don't have reliable structure."
     )
-    args_schema: Type[BaseModel] = ConfidenceInput
+    args_schema: type[BaseModel] = ConfidenceInput
 
     rex: Any = None  # RexGraph instance
 
@@ -231,7 +231,7 @@ class RexAnalyzeTool(BaseTool):
         "decomposition, Hodge fractions, and void complex. Use to understand "
         "the structural properties of the data."
     )
-    args_schema: Type[BaseModel] = AnalyzeInput
+    args_schema: type[BaseModel] = AnalyzeInput
 
     rex: Any = None
 
@@ -314,7 +314,7 @@ class RexHodgeTool(BaseTool):
         "Decompose a signal into gradient (local), curl (relational), and "
         "harmonic (global) components. Tells you WHERE the information lives."
     )
-    args_schema: Type[BaseModel] = HodgeInput
+    args_schema: type[BaseModel] = HodgeInput
 
     rex: Any = None
 
@@ -363,7 +363,7 @@ class RexExplainTool(BaseTool):
         "Explain a specific vertex (dim=0) or edge (dim=1) by index. "
         "Returns structural character, energy, neighborhood, and role."
     )
-    args_schema: Type[BaseModel] = ExplainInput
+    args_schema: type[BaseModel] = ExplainInput
 
     rex: Any = None
 

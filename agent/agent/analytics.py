@@ -28,8 +28,6 @@ one place a complex lives.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence
-
 #: the scalar columns every signature carries. Anything else stays in the record,
 #: which is where a document belongs.
 COLUMNS = (
@@ -61,7 +59,7 @@ def _num(x, default=0):
 
 
 def signature_rows(store, *, limit: int = 10 ** 9, include_history: bool = False,
-                   as_of=None, valid_at=None) -> List[tuple]:
+                   as_of=None, valid_at=None) -> list[tuple]:
     """Flatten a store's signatures into rows in COLUMNS order."""
     records = store.list(limit=limit, include_history=include_history,
                          as_of=as_of, valid_at=valid_at)
@@ -108,7 +106,7 @@ class SignatureView:
         self._as_of, self._valid_at = as_of, valid_at
         self.refresh()
 
-    def refresh(self) -> "SignatureView":
+    def refresh(self) -> SignatureView:
         """Re-project the store. Cheap: signatures are scalars the store already holds."""
         cols = ", ".join(f"{n} {t}" for n, t in COLUMNS)
         self.con.execute(f"DROP TABLE IF EXISTS {self.TABLE}")
@@ -123,25 +121,25 @@ class SignatureView:
         self.n_rows = len(rows)
         return self
 
-    def sql(self, query: str) -> List[tuple]:
+    def sql(self, query: str) -> list[tuple]:
         """Run SQL against the signature table. `signatures` is the table name."""
         return self.con.execute(query).fetchall()
 
-    def columns(self) -> List[str]:
+    def columns(self) -> list[str]:
         return [n for n, _ in COLUMNS]
 
-    def ids(self, where: str, *, limit: int = 10 ** 9) -> List[str]:
+    def ids(self, where: str, *, limit: int = 10 ** 9) -> list[str]:
         """Record ids matching a SQL predicate -- the bridge back to the store."""
         rows = self.con.execute(
             f"SELECT id FROM {self.TABLE} WHERE {where} LIMIT {int(limit)}").fetchall()
         return [r[0] for r in rows]
 
-    def complexes(self, where: str, *, limit: int = 100) -> List[tuple]:
+    def complexes(self, where: str, *, limit: int = 100) -> list[tuple]:
         """(id, complex) for records matching a predicate. The view selects; the
         store still owns the payload, so nothing is duplicated."""
         return [(rid, self.store.get(rid)) for rid in self.ids(where, limit=limit)]
 
-    def describe(self) -> List[tuple]:
+    def describe(self) -> list[tuple]:
         """Per-column summary statistics, which is usually the first real question."""
         return self.sql(f"SUMMARIZE {self.TABLE}")
 

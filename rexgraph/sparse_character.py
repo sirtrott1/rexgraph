@@ -46,6 +46,7 @@ def build_sparse_channels(rex):
     (verified elementwise on small graphs).
     """
     import scipy.sparse as sp
+
     from rexgraph.core._laplacians import build_L1_down_sparse
 
     nV, nE = int(rex.nV), int(rex.nE)
@@ -55,8 +56,18 @@ def build_sparse_channels(rex):
 
     channels = []
 
+    # The metric enters as a symmetric per-relation scale, T = W B1^T B1 W and G its
+    # unsigned twin. Weighting is per relation and not per sqrt, so a rational weight
+    # keeps both channels rational; sqrt(w) lives in the NORMALIZED G alone. C is the
+    # line-graph degree and is deliberately unweighted: it is pure co-participation.
+    _w = rex.edge_metric
+    _D = sp.diags(_w) if _w is not None else None
+
+    def _metric(X):
+        return X if _D is None else (_D @ X @ _D).tocsr()
+
     # 1. L1_down = B1^T B1
-    channels.append(('L1_down', build_L1_down_sparse(rex._B1_dual).tocsr()))
+    channels.append(('L1_down', _metric(build_L1_down_sparse(rex._B1_dual).tocsr())))
 
     # 2. L_O - the selected G-channel operator (raw Gramian or normalized L_O)
     K = rex.overlap_gramian_sparse.tocsr()               # raw |B1|^T|B1|
@@ -74,7 +85,7 @@ def build_sparse_channels(rex):
 
     # 3. F = T - G frustration (INTEGER, Def 3.3): off-diag T-G (0 same-orientation,
     #    -2 opposite at a shared vertex), diagonal = Σ|off-diag|. Pure integer.
-    T = build_L1_down_sparse(rex._B1_dual).tocsr()       # B1^T B1 (signed Gram)
+    T = _metric(build_L1_down_sparse(rex._B1_dual).tocsr())   # W B1^T B1 W (signed Gram)
     Foff = (T - K).tocsr()                               # T - G (G = K here)
     Foff.setdiag(0.0); Foff.eliminate_zeros()
     d_f = np.asarray(abs(Foff).sum(axis=1)).ravel()
@@ -91,7 +102,12 @@ def build_sparse_channels(rex):
     #    Def 3.4 means orientation/edge-weight independent, NOT binary: the shared-vertex
     #    count is pure topology and is carried here (identical to the old form on any
     #    complex where no two edges share >1 vertex).
-    K_off = (K - sp.diags(K.diagonal())).tocsr()         # G_off = shared-vertex counts
+    # C reads the UNWEIGHTED overlap: co-participation is a topological fact about which
+    # relations meet, not a geometric one about how far apart they are. Weighting it too
+    # shifts every channel (measured 0.286 flat against the canonical 0.351/0.351/
+    # 0.172/0.126 on a triangle with one relation at weight 5).
+    Kc = rex.overlap_counts_sparse.tocsr()
+    K_off = (Kc - sp.diags(Kc.diagonal())).tocsr()       # G_off = shared-vertex counts
     deg_L = np.asarray(K_off.sum(axis=1)).ravel()        # weighted line-graph degree = Sum shared counts
     L_C = (sp.diags(deg_L) - K_off).tocsr()              # D_L - G_off, weighted line-graph Laplacian
     if float(L_C.diagonal().sum()) > 1e-15:
@@ -212,8 +228,11 @@ def _compute_sparse_phi_gpu(rex, cheap, chunk, device=None):
     applications, and the numerator/denominator reductions all run on the GPU, and
     only the (csize x nhats) phi block comes back. Identical to the CPU path."""
     import warnings
+
     import torch
+
     from rexgraph import scale_propagator as _spg
+
     # resolved, not hardcoded: on a multi-GPU node a hardcoded "cuda" always lands
     # on device 0, so the other cards can never be addressed.
     from rexgraph.scale_propagator import _torch_device
@@ -279,7 +298,7 @@ def compute_sparse_phi(rex, cheap, chunk=1024, backend=None, device=None):
                 pass                                    # any GPU issue -> CPU tiling
         from rexgraph import compute as _compute
         RLc = cheap['RL'].tocsr()
-        hat_by_name = dict(zip(cheap['hat_names'], cheap['hats']))
+        hat_by_name = dict(zip(cheap['hat_names'], cheap['hats'], strict=False))
         apply_rl = lambda P: RLc @ P
         apply_hat = lambda name, P: hat_by_name[name] @ P
         Bs = _b1_csr(rex)
@@ -320,8 +339,9 @@ def _rl_resolvent_apply(rex, B, tol=1e-10):
     solve RL4 X = B gives X = RL4⁻¹ B exactly - the matrix-free resolvent seam behind
     every ``uᵀRL⁺v`` bilinear (spectral channel score, group scores), no eigendecomposition
     and no dense nE×nE inverse. B is (nE, m); returns X (nE, m)."""
-    from rexgraph import scale_propagator as _spg
     import numpy as _np
+
+    from rexgraph import scale_propagator as _spg
     RL = rex._rl4_sparse.tocsr()
     rl_diag = RL.diagonal()
     dinv = _np.where(_np.abs(rl_diag) > 1e-30, 1.0 / rl_diag, 1.0)
@@ -338,8 +358,8 @@ def pinv_quadratic_form(A, v, atol=1e-13, btol=1e-13, iter_lim=20000):
     and ``vᵀ A⁺ v = vᵀ x``. Equals the dense eigenmode pseudoinverse
     ``Σ_{λ_j>0} <u_j,v>²/λ_j`` to machine precision - no eigendecomposition, no explicit
     kernel projection. This is the reusable seam behind every ``vᵀ hat⁺ v`` energy."""
-    import scipy.sparse.linalg as sla
     import scipy.sparse as sp
+    import scipy.sparse.linalg as sla
     v = np.ascontiguousarray(v, dtype=_f64).ravel()
     A = A.tocsr() if sp.issparse(A) else sp.csr_matrix(np.asarray(A, dtype=_f64))
     x = sla.lsqr(A, v, atol=atol, btol=btol, iter_lim=iter_lim)[0]

@@ -2,9 +2,9 @@
 import sqlite3
 
 import pytest
-
 from agent.agentic_db import AgenticDB
-from agent import rcdb, hive, agent_complex
+
+from agent import agent_complex, hive, rcdb
 
 
 @pytest.fixture

@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import tempfile
-
 import pytest
-from fastapi.testclient import TestClient
-
-from agent.server.app import app
 from agent.server import security
+from agent.server.app import app
+from fastapi.testclient import TestClient
 
 
 def test_hsts_only_on_tls():

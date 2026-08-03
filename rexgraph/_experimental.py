@@ -44,7 +44,7 @@ import warnings
 
 import numpy as np
 
-from rexgraph.sparse_character import _b1_csr, _f64, _block_cg
+from rexgraph.sparse_character import _b1_csr, _block_cg, _f64
 
 
 def _hutchinson_phi(apply_rl, apply_hat, active_names, Bs, dinv, nhats,
@@ -216,7 +216,7 @@ def build_factored_operator(rex, chan, active_names, traces):
     dLSG = chan['L_SG'].diagonal() if chan.get('L_SG') is not None else None   # diag(F)
     dLC = chan['L_C'].diagonal() if chan.get('L_C') is not None else None       # diag(C)
     raw = (rex.g_channel == 'raw')
-    trmap = dict(zip(active_names, traces))
+    trmap = dict(zip(active_names, traces, strict=False))
 
     def chan_mv(name, P):
         if name == 'L1_down':                       # T

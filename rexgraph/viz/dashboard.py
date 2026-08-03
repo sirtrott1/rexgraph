@@ -29,8 +29,9 @@ from __future__ import annotations
 
 import json
 import webbrowser
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..graph import RexGraph
@@ -89,7 +90,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(
 # Template loading and data injection
 
 
-def _load_template(path: Optional[Union[str, Path]] = None) -> str:
+def _load_template(path: str | Path | None = None) -> str:
     """Read the JSX template file.
 
     Parameters
@@ -135,18 +136,18 @@ def _inject_data(jsx: str, data: dict) -> str:
 
 
 def generate_dashboard(
-    rex: "RexGraph",
+    rex: RexGraph,
     *,
-    output_path: Union[str, Path] = "rex_dashboard.html",
-    vertex_labels: Optional[Sequence[str]] = None,
-    edge_attrs: Optional[Dict[str, Any]] = None,
-    negative_types: Optional[List[str]] = None,
-    svg_size: Tuple[int, int] = (700, 500),
+    output_path: str | Path = "rex_dashboard.html",
+    vertex_labels: Sequence[str] | None = None,
+    edge_attrs: dict[str, Any] | None = None,
+    negative_types: list[str] | None = None,
+    svg_size: tuple[int, int] = (700, 500),
     title: str = "Rex Dashboard",
     open_browser: bool = False,
     data_only: bool = False,
-    custom_template: Optional[Union[str, Path]] = None,
-) -> Union[str, dict]:
+    custom_template: str | Path | None = None,
+) -> str | dict:
     """Generate a self-contained HTML dashboard from a `RexGraph`.
 
     Calls analyze() to compute the full data contract, injects the
@@ -228,8 +229,8 @@ def generate_dashboard(
 
 
 def to_json(
-    rex: "RexGraph",
-    path: Optional[Union[str, Path]] = None,
+    rex: RexGraph,
+    path: str | Path | None = None,
     **kwargs,
 ) -> dict:
     """Export the analysis as a JSON file or dict.
@@ -267,8 +268,8 @@ def to_json(
 
 
 def create_app(
-    rex: Optional["RexGraph"] = None,
-    data: Optional[Dict[str, Any]] = None,
+    rex: RexGraph | None = None,
+    data: dict[str, Any] | None = None,
     **analyze_kwargs,
 ) -> Any:
     """Create a Flask app serving the dashboard with a live JSON API.
@@ -341,8 +342,8 @@ def create_app(
 
 
 def run_dashboard(
-    rex: Optional["RexGraph"] = None,
-    data: Optional[Dict[str, Any]] = None,
+    rex: RexGraph | None = None,
+    data: dict[str, Any] | None = None,
     host: str = "127.0.0.1",
     port: int = 5000,
     debug: bool = False,

@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List
 
 import numpy as np
 
-from agent.exchange import ExchangeResult, build_exchange_complex, analyze_exchange_sequence
+from agent.exchange import ExchangeResult, analyze_exchange_sequence, build_exchange_complex
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +22,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ConversationState:
     """Tracked state across a conversation."""
-    exchanges: List[ExchangeResult] = field(default_factory=list)
+    exchanges: list[ExchangeResult] = field(default_factory=list)
     exchange_rexes: list = field(default_factory=list)
-    texts: List[Dict] = field(default_factory=list)  # {input, output}
+    texts: list[dict] = field(default_factory=list)  # {input, output}
     drift_report: dict = field(default_factory=dict)
 
 
@@ -101,7 +100,7 @@ class ConversationTracker:
         """Record a reply's token perplexity (from the generate metrics) so the
         session metrics can trend model uncertainty alongside structural coherence."""
         if not hasattr(self, "_reply_ppls"):
-            self._reply_ppls: List = []
+            self._reply_ppls: list = []
         self._reply_ppls.append(
             float(perplexity) if perplexity is not None else None)
 
@@ -111,12 +110,12 @@ class ConversationTracker:
         feed its perplexity into the session trend. The reply text is kept so the
         expensive structural tier can be computed LAZILY on demand, never eagerly."""
         if not hasattr(self, "_exchange_metrics"):
-            self._exchange_metrics: List = []
+            self._exchange_metrics: list = []
         self._exchange_metrics.append({"metrics": metrics or {}, "text": text or ""})
         ppl = ((metrics or {}).get("token") or {}).get("perplexity")
         self.note_reply_perplexity(ppl)
 
-    def exchange_metrics(self, structural: bool = False) -> List[dict]:
+    def exchange_metrics(self, structural: bool = False) -> list[dict]:
         """Per-message metrics for every recorded turn (what the UI reads on navigating
         back to a message). Token metrics are stored/free. When `structural=True`, the
         expensive tier is computed lazily from each stored reply text and CACHED on the
@@ -149,7 +148,7 @@ class ConversationTracker:
         ppls = getattr(self, "_reply_ppls", None)
         return _session_metrics(cohs, ppls)
 
-    def get_memory_edges(self) -> List[str]:
+    def get_memory_edges(self) -> list[str]:
         """Get the entities that persist across all exchanges.
 
         Uses entity_bioes_matrix for per-entity lifecycle tracking
@@ -225,7 +224,7 @@ class ConversationTracker:
 
         # Include the top exchanges as context
         context_parts = []
-        for idx, ex in ranked[:3]:
+        for idx, _ex in ranked[:3]:
             if idx < len(self._state.texts):
                 t = self._state.texts[idx]
                 context_parts.append(t["output"])

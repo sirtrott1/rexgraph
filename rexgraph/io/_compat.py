@@ -17,10 +17,11 @@ mask storage.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -301,7 +302,7 @@ def _numcodecs_blosc_to_v3_codec(comp: Any):
     )
 
 
-def _normalize_create_kwargs(kw: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_create_kwargs(kw: dict[str, Any]) -> dict[str, Any]:
     """Normalize array-creation kwargs across Zarr v2 and v3."""
     out = dict(kw)
 
@@ -524,7 +525,7 @@ def g_load_sparse_csr(group, name: str, *, dense: bool = False):
 def g_store_dict(
     group,
     name: str,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     compressor=None,
     chunks=True,
@@ -540,7 +541,7 @@ def g_store_dict(
 
 def _dict_to_group(
     group,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     compressor=None,
     chunks=True,
@@ -570,13 +571,11 @@ def _dict_to_group(
         elif isinstance(val, str):
             group.attrs[key] = val
         else:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 group.attrs[key] = dumps(val)
-            except (TypeError, ValueError):
-                pass
 
 
-def g_load_dict(group, name: str) -> Dict[str, Any]:
+def g_load_dict(group, name: str) -> dict[str, Any]:
     """Load a dict of arrays and scalars from a Zarr subgroup."""
     try:
         sub = group[name]
@@ -585,9 +584,9 @@ def g_load_dict(group, name: str) -> Dict[str, Any]:
     return _group_to_dict(sub)
 
 
-def _group_to_dict(group) -> Dict[str, Any]:
+def _group_to_dict(group) -> dict[str, Any]:
     """Read a Zarr group into a dict (recursive)."""
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     for key in (group.attrs.keys() if hasattr(group.attrs, "keys") else []):
         if key in _INTERNAL_ATTRS:
@@ -621,7 +620,7 @@ def _group_to_dict(group) -> Dict[str, Any]:
 def g_store_bool_masks(
     group,
     name: str,
-    masks: Dict[str, NDArray],
+    masks: dict[str, NDArray],
     *,
     compressor=None,
     chunks=True,
@@ -637,10 +636,10 @@ def g_store_bool_masks(
                        dtype="u1", compressor=compressor, chunks=chunks)
 
 
-def g_load_bool_masks(group, name: str) -> Dict[str, np.ndarray]:
+def g_load_bool_masks(group, name: str) -> dict[str, np.ndarray]:
     """Load boolean masks from a Zarr subgroup."""
     sub = group[name]
-    result: Dict[str, np.ndarray] = {}
+    result: dict[str, np.ndarray] = {}
     for key in sub.keys() if hasattr(sub, "keys") else []:
         result[key] = np.asarray(sub[key]).astype(bool)
     return result
@@ -662,7 +661,7 @@ def write_text_array(
     Avoids fixed-width |S# dtypes which break across Zarr v2/v3 and
     NumPy 2.x.
     """
-    encoded: List[bytes] = []
+    encoded: list[bytes] = []
     for s in seq:
         if isinstance(s, (bytes, bytearray, memoryview)):
             encoded.append(bytes(s))
@@ -679,10 +678,8 @@ def write_text_array(
 
     vls_name = f"{name}_vls"
     if vls_name in group:
-        try:
+        with contextlib.suppress(Exception):
             del group[vls_name]
-        except Exception:
-            pass
 
     sub = group.create_group(vls_name)
     g_create_array(sub, "values", values, dtype="u1",
@@ -692,7 +689,7 @@ def write_text_array(
     sub.attrs["encoding"] = "utf-8"
 
 
-def read_text_array(group, name: str) -> List[bytes]:
+def read_text_array(group, name: str) -> list[bytes]:
     """Read a string array from legacy fixed-width or ragged layout.
 
     Returns raw bytes. The caller decodes (typically .decode("utf-8")).
@@ -704,9 +701,8 @@ def read_text_array(group, name: str) -> List[bytes]:
     except KeyError:
         obj = None
 
-    if obj is not None and hasattr(obj, "dtype"):
-        if getattr(obj.dtype, "kind", None) == "S":
-            return [bytes(x).rstrip(b"\0") for x in obj[:]]
+    if obj is not None and hasattr(obj, "dtype") and getattr(obj.dtype, "kind", None) == "S":
+        return [bytes(x).rstrip(b"\0") for x in obj[:]]
 
     # Ragged layout
     vls_name = f"{name}_vls"
@@ -718,7 +714,7 @@ def read_text_array(group, name: str) -> List[bytes]:
     if sub is not None:
         vals = sub["values"][:]
         offs = sub["offsets"][:]
-        out: List[bytes] = []
+        out: list[bytes] = []
         for i in range(len(offs) - 1):
             lo, hi = int(offs[i]), int(offs[i + 1])
             out.append(vals[lo:hi].tobytes())
@@ -888,7 +884,7 @@ def h5_load_sparse_csr(group, name: str, *, dense: bool = False):
 def h5_store_dict(
     group,
     name: str,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     compression: str = "lzf",
     chunks: bool = True,
@@ -903,7 +899,7 @@ def h5_store_dict(
 
 def _h5_dict_to_group(
     group,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     *,
     compression: str = "lzf",
     chunks: bool = True,
@@ -934,13 +930,11 @@ def _h5_dict_to_group(
         elif isinstance(val, str):
             group.attrs[key] = val
         else:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 group.attrs[key] = dumps(val)
-            except (TypeError, ValueError):
-                pass
 
 
-def h5_load_dict(group, name: str) -> Dict[str, Any]:
+def h5_load_dict(group, name: str) -> dict[str, Any]:
     """Load a dict of arrays and scalars from an HDF5 subgroup."""
     try:
         sub = group[name]
@@ -949,9 +943,9 @@ def h5_load_dict(group, name: str) -> Dict[str, Any]:
     return _h5_group_to_dict(sub)
 
 
-def _h5_group_to_dict(group) -> Dict[str, Any]:
+def _h5_group_to_dict(group) -> dict[str, Any]:
     """Read an HDF5 group into a dict (recursive)."""
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     for key in group.attrs:
         if key in _INTERNAL_ATTRS:
@@ -986,7 +980,7 @@ def _h5_group_to_dict(group) -> Dict[str, Any]:
 def h5_store_bool_masks(
     group,
     name: str,
-    masks: Dict[str, NDArray],
+    masks: dict[str, NDArray],
     *,
     compression: str = "lzf",
     chunks: bool = True,
@@ -1004,10 +998,10 @@ def h5_store_bool_masks(
         sub.create_dataset(key, data=np.asarray(mask).astype(np.uint8), **kw)
 
 
-def h5_load_bool_masks(group, name: str) -> Dict[str, np.ndarray]:
+def h5_load_bool_masks(group, name: str) -> dict[str, np.ndarray]:
     """Load boolean masks from an HDF5 subgroup."""
     sub = group[name]
-    result: Dict[str, np.ndarray] = {}
+    result: dict[str, np.ndarray] = {}
     for key in sub:
         if isinstance(sub[key], h5py.Dataset):
             result[key] = sub[key][:].astype(bool)
@@ -1019,7 +1013,7 @@ def h5_load_bool_masks(group, name: str) -> Dict[str, np.ndarray]:
 def h5_store_strings(
     group,
     name: str,
-    strings: List[str],
+    strings: list[str],
 ) -> None:
     """Store a list of strings as a variable-length UTF-8 HDF5 dataset."""
     _require_hdf5()
@@ -1027,7 +1021,7 @@ def h5_store_strings(
     group.create_dataset(name, data=np.array(strings, dtype=object), dtype=dt)
 
 
-def h5_load_strings(group, name: str) -> List[str]:
+def h5_load_strings(group, name: str) -> list[str]:
     """Load a list of strings from an HDF5 dataset."""
     return [
         s.decode("utf-8") if isinstance(s, bytes) else str(s)

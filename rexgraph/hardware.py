@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 import platform
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 #: explicit overrides, which always win: an operator who states a number has a
 #: reason, and guessing past them is how a tuned job gets detuned.
@@ -37,7 +37,7 @@ _CGROUP_V1_PERIOD = "/sys/fs/cgroup/cpu/cpu.cfs_period_us"
 _CGROUP_V1_MEM = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
 
 
-def _int_env(name: str) -> Optional[int]:
+def _int_env(name: str) -> int | None:
     """A positive int from the environment, or None. A malformed value is ignored
     rather than fatal: a scheduler quirk should not stop the run."""
     raw = os.environ.get(name)
@@ -50,7 +50,7 @@ def _int_env(name: str) -> Optional[int]:
     return v if v > 0 else None
 
 
-def _read_int(path: str) -> Optional[int]:
+def _read_int(path: str) -> int | None:
     try:
         with open(path) as fh:
             text = fh.read().strip()
@@ -65,7 +65,7 @@ def _read_int(path: str) -> Optional[int]:
     return v if v > 0 else None
 
 
-def _affinity() -> Optional[int]:
+def _affinity() -> int | None:
     """Cores this process may actually run on. Covers taskset and cgroup cpusets,
     which is how both schedulers and containers narrow a process."""
     try:
@@ -74,7 +74,7 @@ def _affinity() -> Optional[int]:
         return None
 
 
-def _cgroup_cpu_quota() -> Optional[int]:
+def _cgroup_cpu_quota() -> int | None:
     """A CPU quota expressed as a whole number of cores, rounded up: half a core of
     quota still needs one worker to use it."""
     try:
@@ -96,7 +96,7 @@ def _cgroup_cpu_quota() -> Optional[int]:
 def cpu_count(*, with_source: bool = False):
     """Usable cores: the smallest of an override, SLURM, affinity, a cgroup quota
     and the machine's own count. Never below 1."""
-    candidates: List[Tuple[int, str]] = []
+    candidates: list[tuple[int, str]] = []
     override = _int_env(ENV_CPUS)
     if override:
         return (override, ENV_CPUS) if with_source else override
@@ -123,7 +123,7 @@ def cpu_count(*, with_source: bool = False):
     return (value, source) if with_source else value
 
 
-def _meminfo_available() -> Optional[int]:
+def _meminfo_available() -> int | None:
     """MemAvailable, not MemTotal: what can actually be allocated without swapping
     is the number that decides whether a chunk size is safe."""
     try:
@@ -143,7 +143,7 @@ def memory_bytes(*, with_source: bool = False):
     if override:
         return (override, ENV_MEMORY) if with_source else override
 
-    candidates: List[Tuple[int, str]] = []
+    candidates: list[tuple[int, str]] = []
     per_node = _int_env("SLURM_MEM_PER_NODE")           # SLURM reports MiB
     if per_node:
         candidates.append((per_node * 1024 * 1024, "SLURM_MEM_PER_NODE"))
@@ -165,10 +165,10 @@ def memory_bytes(*, with_source: bool = False):
     return (int(value), source) if with_source else int(value)
 
 
-def gpus() -> List[Dict[str, Any]]:
+def gpus() -> list[dict[str, Any]]:
     """Visible GPUs and their memory. Honours CUDA_VISIBLE_DEVICES, because torch
     does -- so this reports the job's GPUs, not the node's."""
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     try:
         import torch
     except ImportError:
@@ -190,7 +190,7 @@ def gpus() -> List[Dict[str, Any]]:
     return out
 
 
-def _torch_info() -> Dict[str, Any]:
+def _torch_info() -> dict[str, Any]:
     try:
         import torch
     except ImportError:
@@ -220,7 +220,7 @@ _DMI_DIR = "/sys/class/dmi/id"
 _AZURE_ASSET_TAG = "7783-7084-3265-9085-8269-3286-77"
 
 
-def _dmi(field: str) -> Optional[str]:
+def _dmi(field: str) -> str | None:
     """One DMI field, or None. Unreadable is the normal case in a container."""
     try:
         with open(os.path.join(_DMI_DIR, field)) as fh:
@@ -229,7 +229,7 @@ def _dmi(field: str) -> Optional[str]:
         return None
 
 
-def cloud() -> Dict[str, Any]:
+def cloud() -> dict[str, Any]:
     """Which cloud this is running on, from local signals only.
 
     Returns provider (aws/azure/gcp/oci/None), whatever instance identifier is
@@ -240,7 +240,7 @@ def cloud() -> Dict[str, Any]:
     asset = (_dmi("chassis_asset_tag") or "")
     uuid = (_dmi("product_uuid") or "")
 
-    provider: Optional[str] = None
+    provider: str | None = None
     if "amazon" in vendor.lower() or uuid.lower().startswith("ec2"):
         provider = "aws"
     elif "google" in vendor.lower() or "google" in product.lower():
@@ -282,7 +282,7 @@ def _in_container() -> bool:
         return False
 
 
-def detect() -> Dict[str, Any]:
+def detect() -> dict[str, Any]:
     """Everything a setup profile or a run log should record about the host."""
     cpus, cpu_source = cpu_count(with_source=True)
     mem, mem_source = memory_bytes(with_source=True)
@@ -336,7 +336,7 @@ def summary() -> str:
     return " | ".join(parts)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     import argparse
     import json
 

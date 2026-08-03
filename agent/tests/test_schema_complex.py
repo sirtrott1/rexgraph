@@ -5,7 +5,6 @@ import pytest
 
 from agent import schema_complex as sc
 
-
 CYCLIC_DDL = """
 CREATE TABLE customers (id INT PRIMARY KEY, fav_order INT REFERENCES orders(id));
 CREATE TABLE orders (id INT PRIMARY KEY, customer_id INT REFERENCES customers(id));
@@ -326,6 +325,7 @@ class TestStrain:
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
     import os
+
     from fastapi.testclient import TestClient
     db = tmp_path_factory.mktemp("scdb") / "db.sqlite"
     os.environ["REXGRAPH_RCDB_URI"] = f"sqlite:///{db}"

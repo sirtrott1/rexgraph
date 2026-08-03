@@ -15,7 +15,6 @@ import numpy as np
 
 from rexgraph.core import _linalg
 
-
 # Helpers
 
 def _random_psd(n, seed=42):

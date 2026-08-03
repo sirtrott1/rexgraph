@@ -10,7 +10,7 @@ _block_cg and one preconditioned residual step, pure numpy/scipy.
 """
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional
+from collections.abc import Callable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -51,11 +51,11 @@ class GreensCochainField:
     function over L_C. One propagate + one correction per event, matrix-free."""
 
     def __init__(self, *, green_lam: float = 4.0, green_iters: int = 20,
-                 observe: Optional[Callable] = None):
+                 observe: Callable | None = None):
         self.green_lam = float(green_lam)
         self.green_iters = int(green_iters)
         self.observe = observe if observe is not None else edge_persistence
-        self.phi: Dict[int, float] = {}
+        self.phi: dict[int, float] = {}
         self._pending = None                          # (region_indices, rex_at_predict)
 
     def _sparse_L_C(self, rex):
@@ -82,7 +82,7 @@ class GreensCochainField:
         return np.array([self.phi.get(int(k), 0.0) for k in keys], dtype=np.float64)
 
     def _write_back(self, keys, vec) -> None:
-        for k, x in zip(keys.tolist(), vec.tolist()):
+        for k, x in zip(keys.tolist(), vec.tolist(), strict=False):
             self.phi[int(k)] = float(x)
 
     def _greens_apply(self, L, seed) -> NDArray:
@@ -107,7 +107,7 @@ class GreensCochainField:
         self._write_back(keys, propagated)
         return propagated[region] if region.size else np.zeros(0, dtype=np.float64)
 
-    def correct(self, rex, region, target) -> Dict[str, object]:
+    def correct(self, rex, region, target) -> dict[str, object]:
         """One Green's-preconditioned relational correction of phi toward `target`
         over `region`. Reports pred/target/error(updated)."""
         keys = _keys_of(rex)
@@ -120,16 +120,13 @@ class GreensCochainField:
         if region.size:
             res_full[region] = residual
         L = self._sparse_L_C(rex)
-        if L is None or region.size == 0:
-            step = res_full
-        else:
-            step = self._greens_apply(L, res_full)
+        step = res_full if L is None or region.size == 0 else self._greens_apply(L, res_full)
         phi_vec = phi_vec + step
         self._write_back(keys, phi_vec)
         err = float(np.abs(residual).mean()) if region.size else 0.0
         return {"pred": pred, "target": target, "error": err, "updated": True}
 
-    def predict_then_observe(self, t, change, rex) -> Dict[str, object]:
+    def predict_then_observe(self, t, change, rex) -> dict[str, object]:
         """Predict at t (recorded before observation), then observe + correct the
         PREVIOUS step's pending region against the realized snapshot at t. Keyed by
         canonical cell key so a renumber-free index shift never mis-pairs. `rex` is

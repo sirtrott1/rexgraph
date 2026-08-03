@@ -42,7 +42,7 @@ Requirements: pip install rexgraph[langgraph]
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -61,16 +61,16 @@ class RexStateGraph:
     """
 
     def __init__(self):
-        self._states: Dict[str, Dict] = {}       # name -> metadata
-        self._transitions: List[Dict] = []        # list of {src, tgt, weight, sign, type}
-        self._state_order: List[str] = []         # insertion order
-        self._execution_log: List[str] = []       # sequence of state visits
-        self._rex: Optional[Any] = None           # cached RexGraph
+        self._states: dict[str, dict] = {}       # name -> metadata
+        self._transitions: list[dict] = []        # list of {src, tgt, weight, sign, type}
+        self._state_order: list[str] = []         # insertion order
+        self._execution_log: list[str] = []       # sequence of state visits
+        self._rex: Any | None = None           # cached RexGraph
         self._dirty = True                        # needs rebuild
 
     # Building
 
-    def add_state(self, name: str, metadata: Optional[Dict] = None):
+    def add_state(self, name: str, metadata: dict | None = None):
         """Register a state (node) in the graph."""
         if name not in self._states:
             self._states[name] = metadata or {}
@@ -148,12 +148,12 @@ class RexStateGraph:
 
     # Analysis
 
-    def analyze(self) -> Dict:
+    def analyze(self) -> dict:
         """Full structural analysis of the state graph."""
         from rexgraph.analysis import analyze
         return analyze(self.rex, vertex_labels=self._state_order)
 
-    def transition_confidence(self, src: str, tgt: str) -> Dict:
+    def transition_confidence(self, src: str, tgt: str) -> dict:
         """Confidence assessment for a specific transition.
 
         Uses the void complex and interfacing vector to determine
@@ -219,7 +219,7 @@ class RexStateGraph:
 
         return result
 
-    def should_continue(self, harmonic_threshold: float = 0.4) -> Dict:
+    def should_continue(self, harmonic_threshold: float = 0.4) -> dict:
         """Should the agent continue executing?
 
         If the execution path is harmonic-dominated (stuck in topological
@@ -258,7 +258,7 @@ class RexStateGraph:
 
         return result
 
-    def detect_cycles(self) -> Dict:
+    def detect_cycles(self) -> dict:
         """Detect structural cycles in the state graph.
 
         Uses Betti numbers: β₁ > 0 means independent cycles exist.
@@ -288,7 +288,7 @@ class RexStateGraph:
 
         return result
 
-    def decompose_path(self, path: List[str]) -> Dict:
+    def decompose_path(self, path: list[str]) -> dict:
         """Hodge-decompose a specific execution path.
 
         Given a sequence of state visits, construct the path signal
@@ -334,7 +334,7 @@ class RexStateGraph:
         except Exception as e:
             return {"error": str(e)}
 
-    def channel_profile(self) -> Dict:
+    def channel_profile(self) -> dict:
         """Four-channel decomposition of the state graph.
 
         T (Hodge): structural transitions - the agent follows the graph

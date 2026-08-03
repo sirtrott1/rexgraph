@@ -1,9 +1,11 @@
 import os
 import time
+
 import numpy as np
 import pytest
-from rexgraph.graph import RexGraph
 from agent.rcdb import ComplexRecord
+
+from rexgraph.graph import RexGraph
 
 
 def _rex(nedges=3):
@@ -81,7 +83,7 @@ def test_filestore_versions_and_legacy_read(tmp_path):
 
 def test_sqlstore_append_only_and_migration(tmp_path):
     from agent.rcdb import open_store
-    uri = "sqlite:///%s/rc.db" % tmp_path
+    uri = f"sqlite:///{tmp_path}/rc.db"
     st = open_store(uri)
     st.put("g", _rex(3)); st.put("g", _rex(6))
     assert [r.version for r in st.history("g")] == [1, 2]
@@ -102,10 +104,11 @@ def test_change_feed_emitted(tmp_path, uri_factory):
     (and other parametrizations, sharing the same process-wide singleton log) cannot be
     mistaken for this one's."""
     from agent.rcdb import open_store
+
     from agent import activity
     id_ = "cf_" + uri_factory
-    uri = {"memory": "memory://", "file": "file://%s/db" % tmp_path,
-           "sql": "sqlite:///%s/rc.db" % tmp_path}[uri_factory]
+    uri = {"memory": "memory://", "file": f"file://{tmp_path}/db",
+           "sql": f"sqlite:///{tmp_path}/rc.db"}[uri_factory]
     log = activity.get_log()
     st = open_store(uri)
     st.put(id_, _rex(3))
@@ -121,7 +124,7 @@ def test_change_feed_emitted(tmp_path, uri_factory):
 
 
 def test_lineage_incremental_no_full_scan():
-    from agent.rcdb import MemoryStore, put_version, lineage
+    from agent.rcdb import MemoryStore, lineage, put_version
     st = MemoryStore()
     put_version(st, "L", _rex(3)); put_version(st, "L", _rex(4)); put_version(st, "L", _rex(5))
     lin = lineage(st, "L")
@@ -133,6 +136,7 @@ def test_lineage_incremental_no_full_scan():
 
 def test_put_temporal_rex_payload():
     from agent.rcdb import MemoryStore
+
     from rexgraph.graph import TemporalRex
     st = MemoryStore()
     trex = TemporalRex([])
@@ -150,7 +154,7 @@ def test_sqlstore_legacy_idonly_pk_upgrades_and_versions(tmp_path):
     import sqlalchemy as sa
     from agent.rcdb import open_store, serialize_complex
     dbfile = tmp_path / "legacy.db"
-    uri = "sqlite:///%s" % dbfile
+    uri = f"sqlite:///{dbfile}"
     # hand build a pre Slice C table: PRIMARY KEY (id) only, no temporal columns, one row
     eng = sa.create_engine(uri)
     with eng.begin() as c:
@@ -176,7 +180,7 @@ def test_sqlstore_legacy_idonly_pk_upgrades_and_versions(tmp_path):
 
 
 def test_trajectory_reports_signed_movement():
-    from agent.rcdb import MemoryStore, trajectory, drift
+    from agent.rcdb import MemoryStore, drift, trajectory
     st = MemoryStore()
     st.put("g", _rex(3)); st.put("g", _rex(5)); st.put("g", _rex(4))
     traj = trajectory(st, "g")
@@ -191,7 +195,7 @@ def test_trajectory_reports_signed_movement():
 
 
 def test_get_ver_falls_back_for_backend_without_get_version():
-    from agent.rcdb import MemoryStore, _get_ver, RCStore
+    from agent.rcdb import MemoryStore, RCStore, _get_ver
     class NoGetVersion(MemoryStore):
         backend = "nogv"
     # remove the override so it inherits the ABC stub path (simulate a custom backend)
@@ -218,9 +222,9 @@ def _open(backend, tmp_path, name="db"):
     if backend == "memory":
         return open_store("memory://")
     if backend == "file":
-        return open_store("file://%s/%s" % (tmp_path, name))
+        return open_store(f"file://{tmp_path}/{name}")
     if backend == "sql":
-        return open_store("sqlite:///%s/%s.db" % (tmp_path, name))
+        return open_store(f"sqlite:///{tmp_path}/{name}.db")
     raise ValueError(backend)
 
 
@@ -277,7 +281,8 @@ def test_legacy_read_backfills_to_version_1_all_backends(backend, tmp_path):
     """A pre-Slice-C record shape (no version/tx_from/tx_to/valid_from/valid_to)
     reads back as version 1 on every backend."""
     import json
-    from agent.rcdb import MemoryStore, FileStore, open_store, ComplexRecord, serialize_complex
+
+    from agent.rcdb import ComplexRecord, FileStore, MemoryStore, open_store, serialize_complex
     rex = _rex(3)
     legacy_sig = {"nV": 4, "nE": 3}
     if backend == "memory":
@@ -298,7 +303,7 @@ def test_legacy_read_backfills_to_version_1_all_backends(backend, tmp_path):
     else:
         import sqlalchemy as sa
         dbfile = tmp_path / "legacy.db"
-        uri = "sqlite:///%s" % dbfile
+        uri = f"sqlite:///{dbfile}"
         eng = sa.create_engine(uri)
         with eng.begin() as c:
             c.exec_driver_sql(
@@ -324,7 +329,7 @@ def test_incremental_version_index_all_backends(backend, tmp_path):
     """next_version/lineage are keyed per id (an O(1) lookup on that id's own
     chain), not a rescan of every stored complex: an unrelated id's writes
     never perturb another lineage's version numbering."""
-    from agent.rcdb import put_version, lineage
+    from agent.rcdb import lineage, put_version
     st = _open(backend, tmp_path)
     put_version(st, "L", _rex(3)); put_version(st, "L", _rex(4)); put_version(st, "L", _rex(5))
     assert [x["version"] for x in lineage(st, "L")] == [1, 2, 3]
@@ -354,7 +359,7 @@ def test_opt_in_temporalrex_payload_round_trip_all_backends(backend, tmp_path):
 
 @pytest.mark.parametrize("backend", _ALL_BACKENDS)
 def test_trajectory_signed_movement_all_backends(backend, tmp_path):
-    from agent.rcdb import trajectory, drift
+    from agent.rcdb import drift, trajectory
     st = _open(backend, tmp_path)
     st.put("g", _rex(3)); st.put("g", _rex(5)); st.put("g", _rex(4))
     traj = trajectory(st, "g")
@@ -395,7 +400,7 @@ def test_display_id_resolves_via_get_all_backends(backend, tmp_path):
 def test_compare_accepts_lineage_display_ids_all_backends(backend, tmp_path):
     """compare() takes the exact display ids lineage() hands back, on every
     backend, now that get/get_record resolve them (Fix A)."""
-    from agent.rcdb import lineage, compare
+    from agent.rcdb import compare, lineage
     st = _open(backend, tmp_path)
     st.put("M", _rex(3))
     st.put("M", _rex(5))
@@ -413,7 +418,7 @@ def test_lineage_legacy_meta_scheme_fallback(backend, tmp_path):
     carrying meta["lineage"]. lineage()/drift() must still read it: history("L")
     is empty (no such id was ever put), so the legacy meta.lineage scan is the
     only source, and its output shape must match the old native-chain shape."""
-    from agent.rcdb import lineage, drift
+    from agent.rcdb import drift, lineage
     st = _open(backend, tmp_path)
     t0 = time.time()
     st.put("L@1", _rex(3),
@@ -432,7 +437,7 @@ def test_lineage_legacy_meta_scheme_fallback(backend, tmp_path):
 def test_lineage_native_chain_unchanged():
     """Guard against the fallback disturbing the happy path: a normal
     put_version chain still returns exactly the same display-id rows."""
-    from agent.rcdb import MemoryStore, put_version, lineage
+    from agent.rcdb import MemoryStore, lineage, put_version
     st = MemoryStore()
     put_version(st, "N", _rex(3))
     put_version(st, "N", _rex(5))
@@ -461,8 +466,9 @@ def test_dogfood_versioned_store_timetravel_and_trend(tmp_path):
     versioned store, time travel to prior states, confirm the change feed rode
     the shared activity journal, and confirm trajectory shows the trend."""
     from agent.rcdb import open_store, trajectory
+
     from agent import activity
-    st = open_store("file://%s/db" % tmp_path)
+    st = open_store(f"file://{tmp_path}/db")
     times = []
     for k in (2, 3, 4, 5, 4):
         rec = st.put("dev", _rex(k))

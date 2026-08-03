@@ -21,8 +21,9 @@ CLI:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -43,7 +44,7 @@ class CheckResult:
 @dataclass
 class ValidationReport:
     connector: str
-    checks: List[CheckResult] = field(default_factory=list)
+    checks: list[CheckResult] = field(default_factory=list)
 
     def add(self, name: str, passed: bool, detail: str = "") -> None:
         self.checks.append(CheckResult(name, passed, detail))
@@ -188,7 +189,7 @@ def _load(spec: str) -> Callable:
     return inst
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     import sys
     argv = argv if argv is not None else sys.argv[1:]
     if not argv:

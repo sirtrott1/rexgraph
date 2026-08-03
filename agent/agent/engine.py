@@ -29,7 +29,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -77,7 +77,7 @@ class AnalysisPlan:
     interpretation_strategy: str = "structural"
 
     # Decision log
-    decisions: List[Decision] = field(default_factory=list)
+    decisions: list[Decision] = field(default_factory=list)
 
     def log(self, stage, key, value, rationale, alternatives=None):
         self.decisions.append(Decision(
@@ -92,11 +92,11 @@ class EngineResult:
     """Complete output of the engine."""
     plan: AnalysisPlan
     rex: Any                           # RexGraph
-    meta: Dict[str, Any]
-    analysis: Dict[str, Any]
-    signal_decomposition: Optional[Dict] = None
-    interpretation: Optional[Dict] = None
-    enrichment: Optional[List] = None
+    meta: dict[str, Any]
+    analysis: dict[str, Any]
+    signal_decomposition: dict | None = None
+    interpretation: dict | None = None
+    enrichment: list | None = None
     session: Any = None
 
     def save(self, path: str, format: str = None, cache: str = "all"):
@@ -207,7 +207,7 @@ class EngineResult:
                 json.dump(enrichment_data, f, indent=2)
 
     @classmethod
-    def load(cls, path: str, format: str = None) -> "EngineResult":
+    def load(cls, path: str, format: str = None) -> EngineResult:
         """Load a saved EngineResult from disk.
 
         Parameters
@@ -433,7 +433,7 @@ class DecisionEngine:
         plan.adapter = adapter_map.get(input_type, "auto")
 
         plan.log("input", "type", input_type,
-                 f"Detected from data shape/content",
+                 "Detected from data shape/content",
                  list(adapter_map.keys()))
 
     def _decide_edge_construction(self, plan, data, **kwargs):

@@ -10,10 +10,8 @@ signature (identity), cross-complex coherence (similarity), and drift (change).
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
 
-
-def sequence_to_rex(labels: List[str], edges: Optional[List[Tuple]] = None,
+def sequence_to_rex(labels: list[str], edges: list[tuple] | None = None,
                     kind: str = "sequence"):
     """Build a complex from a labeled node list.
 
@@ -44,13 +42,13 @@ def sequence_to_rex(labels: List[str], edges: Optional[List[Tuple]] = None,
     return rex, meta
 
 
-def run_to_rex(stages: List[str], edges: Optional[List[Tuple]] = None):
+def run_to_rex(stages: list[str], edges: list[tuple] | None = None):
     """A pipeline run -> a complex over its stages (linear unless the caller
     supplies branch/dependency edges)."""
     return sequence_to_rex(stages, edges=edges, kind="pipeline-run")
 
 
-def conversation_to_rex(turns: List[str], edges: Optional[List[Tuple]] = None):
+def conversation_to_rex(turns: list[str], edges: list[tuple] | None = None):
     """A conversation -> a complex over its turns (a chain, or a branch tree if
     edges are supplied)."""
     return sequence_to_rex(turns, edges=edges, kind="conversation")

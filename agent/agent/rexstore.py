@@ -31,11 +31,18 @@ from __future__ import annotations
 import json
 import os
 import struct
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from rexgraph.io._compat import dumps
 
-from .rcdb import ComplexRecord, RCStore, _matches, _record_labels, deserialize_complex, serialize_complex
+from .rcdb import (
+    ComplexRecord,
+    RCStore,
+    _matches,
+    _record_labels,
+    deserialize_complex,
+    serialize_complex,
+)
 
 #: length prefix for a log entry. 4 bytes little-endian, so a record header is
 #: capped at 4 GiB -- signatures are KB-scale, so the cap is theoretical.
@@ -113,32 +120,32 @@ class RexIndex:
     def __init__(self, path: str):
         self.path = path
         self._f = None
-        self.ids: List[str] = []
-        self.vocab: List[str] = []
+        self.ids: list[str] = []
+        self.vocab: list[str] = []
         self.log_bytes = 0
         self._doc_ptr = None
         self._doc_blob = None
         self._rec_ptr = None
         self._label_ptr = None
         self._label_rec = None
-        self._id_pos: Dict[str, int] = {}
-        self._vocab_pos: Dict[str, int] = {}
+        self._id_pos: dict[str, int] = {}
+        self._vocab_pos: dict[str, int] = {}
 
     # -- write ------------------------------------------------------------------
 
     @staticmethod
-    def write(path: str, recs: Dict[str, List[ComplexRecord]],
-              blob_at: Dict[tuple, tuple], log_bytes: int) -> None:
+    def write(path: str, recs: dict[str, list[ComplexRecord]],
+              blob_at: dict[tuple, tuple], log_bytes: int) -> None:
         import numpy as np
         from safetensors.numpy import save_file
 
         ids = sorted(recs)
-        docs: List[bytes] = []
+        docs: list[bytes] = []
         doc_ptr = [0]
         rec_ptr = [0]
-        vocab: Dict[str, int] = {}
-        rows: List[int] = []
-        cols: List[int] = []
+        vocab: dict[str, int] = {}
+        rows: list[int] = []
+        cols: list[int] = []
         for pos, rid in enumerate(ids):
             versions = list(recs[rid])
             for rec in versions:
@@ -220,7 +227,7 @@ class RexIndex:
             self._doc_blob = self._f.get_tensor("doc_blob")
         return self._doc_blob
 
-    def records_for(self, rid: str) -> List[ComplexRecord]:
+    def records_for(self, rid: str) -> list[ComplexRecord]:
         """Parse one id's documents. The reason the index is worth having: this is
         paid per record asked for, not per record stored."""
         pos = self._id_pos.get(rid)
@@ -251,7 +258,7 @@ class RexIndex:
                 return int(off), int(ln)
         return None
 
-    def ids_for_label(self, label: str) -> List[str]:
+    def ids_for_label(self, label: str) -> list[str]:
         """A vocabulary lookup is a CSR row slice."""
         cid = self._vocab_pos.get(label)
         if cid is None:
@@ -276,13 +283,13 @@ class RexStore(RCStore):
         self._records_path = os.path.join(self.root, RECORDS)
         self._blobs_path = os.path.join(self.root, BLOBS)
         self._index_path = os.path.join(self.root, INDEX)
-        self._index: Optional[RexIndex] = None
+        self._index: RexIndex | None = None
         if not os.path.exists(self._manifest_path):
             with open(self._manifest_path, "w", encoding="utf-8") as fh:
                 fh.write(dumps({"format": "rexstore", "version": FORMAT_VERSION}))
-        self._recs: Dict[str, List[ComplexRecord]] = {}
-        self._blob_at: Dict[tuple, tuple] = {}       # (id, version) -> (offset, len)
-        self._labels: Dict[str, set] = {}            # label -> {id}
+        self._recs: dict[str, list[ComplexRecord]] = {}
+        self._blob_at: dict[tuple, tuple] = {}       # (id, version) -> (offset, len)
+        self._labels: dict[str, set] = {}            # label -> {id}
         self._load()
 
     # --- log ------------------------------------------------------------------
@@ -320,7 +327,7 @@ class RexStore(RCStore):
             self._tail_count += 1
             pos = start + n
 
-    def _apply(self, entry: Dict[str, Any]) -> None:
+    def _apply(self, entry: dict[str, Any]) -> None:
         rid = entry["id"]
         if entry.get("op") == "delete":
             for rec in self._recs.pop(rid, []):
@@ -348,7 +355,7 @@ class RexStore(RCStore):
         for label in _record_labels(rec.signature, rec.meta):
             self._labels.setdefault(label, set()).add(rid)
 
-    def _append(self, entry: Dict[str, Any]) -> None:
+    def _append(self, entry: dict[str, Any]) -> None:
         payload = dumps(entry).encode("utf-8")
         with open(self._records_path, "ab") as fh:
             fh.write(_LEN.pack(len(payload)))
@@ -473,7 +480,7 @@ class RexStore(RCStore):
         out.sort(key=lambda r: -r.tx_from)
         return out[:limit]
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         def _size(path):
             try:
                 return os.path.getsize(path)
@@ -488,7 +495,7 @@ class RexStore(RCStore):
             "n_labels": len(self._labels),
         }
 
-    def compact(self) -> Dict[str, Any]:
+    def compact(self) -> dict[str, Any]:
         """Rewrite both logs keeping only live versions, then swap them in.
 
         Append-only means deleted records leave their bytes behind. Compaction is

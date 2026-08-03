@@ -1,5 +1,6 @@
 import numpy as np
-from rexgraph.graph import RexGraph, _TIER_B1_ONLY
+
+from rexgraph.graph import _TIER_B1_ONLY, RexGraph
 
 
 def _line_graph(n=6):

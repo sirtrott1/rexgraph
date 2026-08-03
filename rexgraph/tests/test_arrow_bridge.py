@@ -29,15 +29,14 @@ if HAS_PYARROW:
     from rexgraph.io.arrow_bridge import (
         arrays_to_arrow,
         arrow_to_arrays,
-        rex_to_arrow,
         arrow_to_rex,
-        write_arrow_ipc,
-        read_arrow_ipc,
         read_arrow_batches,
+        read_arrow_ipc,
+        rex_to_arrow,
+        write_arrow_ipc,
     )
 
 from rexgraph.graph import RexGraph
-
 
 # Fixtures
 
@@ -194,9 +193,8 @@ class TestBatchReads:
         import pyarrow as pa
         import pyarrow.ipc as ipc
 
-        with pa.OSFile(path, "wb") as sink:
-            with ipc.new_file(sink, table.schema) as writer:
-                writer.write_table(table, max_chunksize=max_chunksize)
+        with pa.OSFile(path, "wb") as sink, ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table, max_chunksize=max_chunksize)
 
     def test_multi_batch_streaming_matches_single_read(self):
         # Arrays of different lengths -> padded to a common flat length, then

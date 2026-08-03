@@ -9,7 +9,6 @@ type and sign columns.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -29,7 +28,7 @@ class EdgeListAdapter(DomainAdapter):
     def build(
         self,
         path: str,
-        roles: Optional[dict] = None,
+        roles: dict | None = None,
         face_selection: str = "typed",
         **kwargs,
     ) -> EdgeConstruction:

@@ -20,8 +20,7 @@ Nothing here reaches the network, writes a file, or records a metric on its own.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol, Tuple, runtime_checkable
-
+from typing import Any, Protocol, runtime_checkable
 
 # observability seam (silent by default)
 
@@ -96,7 +95,7 @@ class Capabilities:
     weights: bool = False          # can emit per-edge weights (enables strain)
     modality: bool = False         # can emit per-edge FK modality (enables lint)
     faces: bool = False            # can emit a B₂ face selection (enables curvature)
-    schemes: Tuple[str, ...] = ()  # source-URI schemes this connector handles
+    schemes: tuple[str, ...] = ()  # source-URI schemes this connector handles
 
     def summary(self) -> str:
         have = [n for n in ("topology", "weights", "modality", "faces")
@@ -145,7 +144,7 @@ class Connector(Protocol):
     ``faces`` are supplied. Customer/proprietary connectors live *outside* the
     core, depending only on this seam - never editing the engine.
     """
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]: ...
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]: ...
 
     def capabilities(self) -> Capabilities:
         """What this connector can supply (topology always; optionally weights,
@@ -197,11 +196,11 @@ def apply_label_privacy(meta: dict) -> dict:
     return m
 
 
-def configure(logger: Optional[Logger] = None,
-              metrics: Optional[Metrics] = None,
-              identity: Optional[Identity] = None,
-              label_privacy: Optional[str] = None,
-              label_salt: Optional[str] = None) -> None:
+def configure(logger: Logger | None = None,
+              metrics: Metrics | None = None,
+              identity: Identity | None = None,
+              label_privacy: str | None = None,
+              label_salt: str | None = None) -> None:
     """Host wires in its own observability/identity/privacy. Anything left None
     keeps the inert default. This is the only way telemetry is ever enabled or
     label privacy is turned on."""

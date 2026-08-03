@@ -13,7 +13,7 @@ import platform
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Paths
 
@@ -83,9 +83,7 @@ def detect_platform() -> PlatformInfo:
     elif info.os == "linux":
         if shutil.which("apt-get"):
             info.package_manager = "apt"
-        elif shutil.which("dnf"):
-            info.package_manager = "dnf"
-        elif shutil.which("yum"):
+        elif shutil.which("dnf") or shutil.which("yum"):
             info.package_manager = "dnf"
         elif shutil.which("pacman"):
             info.package_manager = "pacman"
@@ -140,8 +138,8 @@ def detect_platform() -> PlatformInfo:
 
 def _detect_gpu():
     """Detect GPU type, name, VRAM, and CUDA version."""
-    import subprocess
     import shutil
+    import subprocess
 
     gpu_type = "none"
     gpu_name = ""
@@ -313,10 +311,10 @@ class RexGraphConfig:
     trustgraph_url: str = ""
 
     # Custom model paths (model_id -> local path)
-    model_paths: Dict[str, str] = field(default_factory=dict)
+    model_paths: dict[str, str] = field(default_factory=dict)
 
     # Pipeline model assignments (purpose -> model_id)
-    pipeline_models: Dict[str, str] = field(default_factory=dict)
+    pipeline_models: dict[str, str] = field(default_factory=dict)
 
     # Metadata
     last_setup: str = ""
@@ -361,7 +359,7 @@ def save_pid(pid: int, port: int, backend: str = "") -> None:
         json.dump(data, f)
 
 
-def read_pid() -> Optional[Dict[str, Any]]:
+def read_pid() -> dict[str, Any] | None:
     """Read the PID file. Returns None if missing or unparseable."""
     if not PID_FILE.exists():
         return None

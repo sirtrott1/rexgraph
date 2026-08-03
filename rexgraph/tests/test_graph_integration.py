@@ -4,9 +4,10 @@ Simulates the exact call chain that RexGraph's cached bundles use,
 verifying each stage produces correct results.
 """
 import numpy as np
+import pytest
 from numpy.linalg import norm, svd
 from scipy.linalg import pinvh
-import pytest
+
 
 def build_test_complex():
     edges = [(0,1),(1,2),(0,2),(0,3),(1,3)]

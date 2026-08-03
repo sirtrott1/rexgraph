@@ -68,13 +68,13 @@ def get_stored_auth() -> tuple:
 
 def _request(method, url, token=None, json_data=None, verify=True):
     """Make an HTTP request to the rexgraph server."""
-    import urllib.request
-    import urllib.error
     import ssl
+    import urllib.error
+    import urllib.request
 
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = "Bearer %s" % token
+        headers["Authorization"] = f"Bearer {token}"
 
     data = None
     if json_data is not None:
@@ -111,22 +111,22 @@ def cmd_create(args):
 
     workspaces = [w.strip() for w in (args.workspaces or "default").split(",") if w.strip()]
     # NOTE: endpoint is /token (singular); the server body is user_id/workspaces/role.
-    status, data = _request("POST", "%s/api/v1/admin/token" % url,
+    status, data = _request("POST", f"{url}/api/v1/admin/token",
                             token=token,
                             json_data={"user_id": args.name,
                                        "workspaces": workspaces,
                                        "role": args.role})
 
     if status == 200 and "token" in data:
-        print("Token created: %s" % data["token"])
-        print("User: %s  role: %s  workspaces: %s" % (
+        print("Token created: {}".format(data["token"]))
+        print("User: {}  role: {}  workspaces: {}".format(
             args.name, args.role, ",".join(workspaces)))
         if args.save:
             creds = _load_creds()
             creds["url"] = url
             creds["token"] = data["token"]
             _save_creds(creds)
-            print("Saved to %s" % CRED_FILE)
+            print(f"Saved to {CRED_FILE}")
     else:
         print("Failed (%d): %s" % (status, data.get("error", data)),
               file=sys.stderr)
@@ -142,7 +142,7 @@ def cmd_list(args):
     url = args.url or _load_creds().get("url", "http://localhost:8000")
     token = _load_creds().get("token", "")
 
-    status, data = _request("GET", "%s/api/v1/admin/tokens" % url, token=token)
+    status, data = _request("GET", f"{url}/api/v1/admin/tokens", token=token)
 
     if status == 200:
         tokens = data.get("tokens", [])
@@ -153,7 +153,7 @@ def cmd_list(args):
             name = t.get("name", "unnamed")
             created = t.get("created", "?")
             prefix = t.get("prefix", "?")
-            print("  %s...  name=%s  created=%s" % (prefix, name, created))
+            print(f"  {prefix}...  name={name}  created={created}")
     else:
         print("Failed (%d): %s" % (status, data.get("error", data)),
               file=sys.stderr)
@@ -164,18 +164,18 @@ def cmd_test(args):
     url = args.url or _load_creds().get("url", "http://localhost:8000")
     token = _load_creds().get("token", "")
 
-    print("Testing: %s" % url)
+    print(f"Testing: {url}")
 
     # Health check (no auth)
-    status, data = _request("GET", "%s/api/health" % url)
+    status, data = _request("GET", f"{url}/api/health")
     if status == 200:
-        print("  Health: OK (%s)" % data.get("status", "?"))
+        print("  Health: OK ({})".format(data.get("status", "?")))
     else:
         print("  Health: FAILED (%d)" % status)
         sys.exit(1)
 
     # Auth check
-    status, data = _request("GET", "%s/api/v1/admin/tokens" % url, token=token)
+    status, data = _request("GET", f"{url}/api/v1/admin/tokens", token=token)
     if status == 200:
         n = len(data.get("tokens", []))
         enabled = data.get("auth_enabled", n > 0)
@@ -193,7 +193,7 @@ def cmd_test(args):
         print("  TLS: no (use --url https://... for secure connections)")
 
     # Model status
-    status, data = _request("GET", "%s/api/v1/models/status" % url,
+    status, data = _request("GET", f"{url}/api/v1/models/status",
                             token=token)
     if status == 200:
         print("  Models: %d loaded, %d available" % (
@@ -217,11 +217,11 @@ def cmd_enable(args):
     token = args.admin_token or _load_creds().get("token", "")
     # Set the disable passphrase at enable time so auth can later be turned off.
     passphrase = _prompt_passphrase(confirm=True)
-    status, data = _request("POST", "%s/api/v1/admin/auth/enable" % url, token=token,
+    status, data = _request("POST", f"{url}/api/v1/admin/auth/enable", token=token,
                             json_data={"passphrase": passphrase})
     if status == 200 and data.get("auth_enabled"):
         print("Authentication ENABLED - all API calls now require a bearer token.")
-        print("Disable passphrase set: %s" % data.get("disable_passphrase_set", False))
+        print("Disable passphrase set: {}".format(data.get("disable_passphrase_set", False)))
         if not token:
             print("You have no stored admin token. Create one BEFORE you lose access:")
             print("  rexgraph-auth create --name admin --role admin --save")
@@ -238,7 +238,7 @@ def cmd_passphrase(args):
     url = args.url or _load_creds().get("url", "http://localhost:8000")
     token = args.admin_token or _load_creds().get("token", "")
     passphrase = _prompt_passphrase(confirm=True)
-    status, data = _request("POST", "%s/api/v1/admin/auth/passphrase" % url, token=token,
+    status, data = _request("POST", f"{url}/api/v1/admin/auth/passphrase", token=token,
                             json_data={"passphrase": passphrase})
     if status == 200 and data.get("disable_passphrase_set"):
         print("Disable passphrase set.")
@@ -252,7 +252,7 @@ def cmd_disable(args):
     url = args.url or _load_creds().get("url", "http://localhost:8000")
     token = args.admin_token or _load_creds().get("token", "")
     passphrase = _prompt_passphrase(confirm=False)
-    status, data = _request("POST", "%s/api/v1/admin/auth/disable" % url, token=token,
+    status, data = _request("POST", f"{url}/api/v1/admin/auth/disable", token=token,
                             json_data={"passphrase": passphrase})
     if status == 200 and data.get("auth_enabled") is False:
         print("Authentication DISABLED - the API is now open. Do not expose the "
@@ -269,14 +269,14 @@ def cmd_disable(args):
 def cmd_status(args):
     """Show whether auth is enabled on a server (no token required)."""
     url = args.url or _load_creds().get("url", "http://localhost:8000")
-    status, data = _request("GET", "%s/api/health" % url)
+    status, data = _request("GET", f"{url}/api/health")
     if status != 200:
         print("Server unreachable at %s (%d)" % (url, status), file=sys.stderr)
         sys.exit(1)
-    print("Server:     %s" % url)
+    print(f"Server:     {url}")
     print("Auth:       %s" % ("ENABLED" if data.get("auth_enabled") else "disabled (open)"))
-    print("Backend:    rexgraph %s" % data.get("rexgraph", "?"))
-    print("Workspaces: %s" % ", ".join(data.get("workspaces", []) or ["default"]))
+    print("Backend:    rexgraph {}".format(data.get("rexgraph", "?")))
+    print("Workspaces: {}".format(", ".join(data.get("workspaces", []) or ["default"])))
 
 
 def cmd_login(args):
@@ -287,17 +287,17 @@ def cmd_login(args):
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     _save_creds(creds)
-    print("Credentials saved to %s" % CRED_FILE)
-    print("  URL: %s" % args.url)
-    print("  Token: %s...%s" % (args.token[:8], args.token[-4:])
+    print(f"Credentials saved to {CRED_FILE}")
+    print(f"  URL: {args.url}")
+    print(f"  Token: {args.token[:8]}...{args.token[-4:]}"
           if len(args.token) > 12 else "  Token: (short)")
 
     # Test the connection
-    status, data = _request("GET", "%s/api/health" % args.url)
+    status, data = _request("GET", f"{args.url}/api/health")
     if status == 200:
         print("  Connection: OK")
     else:
-        print("  Warning: could not connect to %s" % args.url)
+        print(f"  Warning: could not connect to {args.url}")
 
 
 def cmd_whoami(args):
@@ -306,12 +306,12 @@ def cmd_whoami(args):
     if not creds:
         print("No credentials stored. Run: rexgraph-auth login")
         return
-    print("  URL: %s" % creds.get("url", "(not set)"))
+    print("  URL: {}".format(creds.get("url", "(not set)")))
     token = creds.get("token", "")
     if token:
-        print("  Token: %s...%s" % (token[:8], token[-4:])
-              if len(token) > 12 else "  Token: %s" % token)
-    print("  Saved: %s" % creds.get("saved_at", "?"))
+        print(f"  Token: {token[:8]}...{token[-4:]}"
+              if len(token) > 12 else f"  Token: {token}")
+    print("  Saved: {}".format(creds.get("saved_at", "?")))
 
 
 def cmd_logout(args):
@@ -343,8 +343,8 @@ def cmd_gen_cert(args):
         "-out", str(cert_path),
         "-days", str(days),
         "-nodes",  # no passphrase
-        "-subj", "/CN=%s" % domain,
-        "-addext", "subjectAltName=DNS:%s,DNS:localhost,IP:127.0.0.1" % domain,
+        "-subj", f"/CN={domain}",
+        "-addext", f"subjectAltName=DNS:{domain},DNS:localhost,IP:127.0.0.1",
     ]
 
     try:
@@ -354,25 +354,23 @@ def cmd_gen_cert(args):
               file=sys.stderr)
         sys.exit(1)
     except subprocess.CalledProcessError as e:
-        print("Error: %s" % e.stderr.decode(), file=sys.stderr)
+        print(f"Error: {e.stderr.decode()}", file=sys.stderr)
         sys.exit(1)
 
     os.chmod(str(key_path), 0o600)
 
     print("TLS certificate generated:")
-    print("  Key:  %s" % key_path)
-    print("  Cert: %s" % cert_path)
+    print(f"  Key:  {key_path}")
+    print(f"  Cert: {cert_path}")
     print("")
     print("Start server with TLS:")
-    print("  make serve SSL_KEY=%s SSL_CERT=%s" % (key_path, cert_path))
+    print(f"  make serve SSL_KEY={key_path} SSL_CERT={cert_path}")
     print("")
     print("Or directly:")
-    print("  cd agent && python run.py --ssl-cert %s --ssl-key %s" % (
-        cert_path, key_path))
+    print(f"  cd agent && python run.py --ssl-cert {cert_path} --ssl-key {key_path}")
     print("")
     print("Or via the console script (rcf-server):")
-    print("  REXGRAPH_TLS_CERT=%s REXGRAPH_TLS_KEY=%s rcf-server" % (
-        cert_path, key_path))
+    print(f"  REXGRAPH_TLS_CERT={cert_path} REXGRAPH_TLS_KEY={key_path} rcf-server")
 
 
 def cmd_member(args):
@@ -389,22 +387,22 @@ def cmd_member(args):
         if not args.name:
             print("--name is required for 'member add'", file=sys.stderr)
             sys.exit(1)
-        status, data = _request("POST", "%s/api/v1/admin/members?workspace=%s" % (url, ws), token=token,
+        status, data = _request("POST", f"{url}/api/v1/admin/members?workspace={ws}", token=token,
                                 json_data={"user_id": args.name, "role": args.role})
         if status == 200 and data.get("token"):
-            print("Member added to '%s': %s  role: %s" % (ws, args.name, data.get("role", args.role)))
-            print("Token (give it to them, shown once): %s" % data["token"])
+            print("Member added to '{}': {}  role: {}".format(ws, args.name, data.get("role", args.role)))
+            print("Token (give it to them, shown once): {}".format(data["token"]))
         elif status == 200:
-            print("Member '%s' updated in '%s': role %s (their existing token is unchanged)." % (
+            print("Member '{}' updated in '{}': role {} (their existing token is unchanged).".format(
                 args.name, ws, data.get("role", args.role)))
         else:
             print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
             sys.exit(1)
     elif args.action == "list":
-        status, data = _request("GET", "%s/api/v1/admin/members?workspace=%s" % (url, ws), token=token)
+        status, data = _request("GET", f"{url}/api/v1/admin/members?workspace={ws}", token=token)
         if status == 200:
             members = data.get("members", [])
-            print("workspace: %s" % data.get("workspace", ws))
+            print("workspace: {}".format(data.get("workspace", ws)))
             if not members:
                 print("  (no members)")
                 return
@@ -418,12 +416,12 @@ def cmd_member(args):
         if not args.name:
             print("--name is required for 'member revoke'", file=sys.stderr)
             sys.exit(1)
-        q = "?workspace=%s%s" % (ws, "&all=true" if args.all else "")
-        status, data = _request("DELETE", "%s/api/v1/admin/members/%s%s" % (url, args.name, q),
+        q = "?workspace={}{}".format(ws, "&all=true" if args.all else "")
+        status, data = _request("DELETE", f"{url}/api/v1/admin/members/{args.name}{q}",
                                 token=token)
         if status == 200:
-            where = "everywhere" if args.all else ("workspace '%s'" % data.get("workspace", ws))
-            print("Revoked: %s from %s" % (args.name, where))
+            where = "everywhere" if args.all else ("workspace '{}'".format(data.get("workspace", ws)))
+            print(f"Revoked: {args.name} from {where}")
         else:
             print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
             sys.exit(1)
@@ -439,7 +437,7 @@ def cmd_network_init(args):
     token = args.admin_token or _load_creds().get("token", "")
     name = args.name or "admin"
 
-    status, data = _request("POST", "%s/api/v1/admin/members?workspace=default" % url, token=token,
+    status, data = _request("POST", f"{url}/api/v1/admin/members?workspace=default", token=token,
                             json_data={"user_id": name, "role": "admin"})
     if status != 200 or "token" not in data:
         print("Failed to create the first admin (%d): %s" % (status, data.get("error", data)),
@@ -449,16 +447,16 @@ def cmd_network_init(args):
         sys.exit(1)
     admin_token = data["token"]
 
-    status, rdata = _request("POST", "%s/api/v1/admin/recovery-key" % url, token=admin_token)
+    status, rdata = _request("POST", f"{url}/api/v1/admin/recovery-key", token=admin_token)
     recovery = rdata.get("recovery_key") if status == 200 else None
 
     passphrase = _prompt_passphrase(confirm=True)
-    status, edata = _request("POST", "%s/api/v1/admin/auth/enable" % url, token=admin_token,
+    status, edata = _request("POST", f"{url}/api/v1/admin/auth/enable", token=admin_token,
                              json_data={"passphrase": passphrase})
     if status != 200 or not edata.get("auth_enabled"):
         print("Admin created but enabling auth failed (%d): %s" % (status, edata.get("error", edata)),
               file=sys.stderr)
-        print("Save this admin token now: %s" % admin_token, file=sys.stderr)
+        print(f"Save this admin token now: {admin_token}", file=sys.stderr)
         sys.exit(1)
 
     creds = _load_creds()
@@ -468,11 +466,11 @@ def cmd_network_init(args):
 
     print("Shared multi-user network is up. Authentication is ENABLED.")
     print("")
-    print("  Admin user:    %s" % name)
-    print("  Admin token:   %s" % admin_token)
-    print("                 (saved to %s; shown once)" % CRED_FILE)
+    print(f"  Admin user:    {name}")
+    print(f"  Admin token:   {admin_token}")
+    print(f"                 (saved to {CRED_FILE}; shown once)")
     if recovery:
-        print("  Recovery key:  %s" % recovery)
+        print(f"  Recovery key:  {recovery}")
         print("                 (store offline - the only way back if all tokens are lost)")
     print("")
     print("Add members (each gets their own token, shown once):")

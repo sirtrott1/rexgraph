@@ -129,8 +129,8 @@ training = [
     "safetensors>=0.3",
 ]
 
-# LoRA fine-tuning of a Hugging Face model with the rexgraph optimizer (the finetune phase
-# and the HodgeAdam-vs-Adam A/B). Heavy: pulls torch, transformers, peft, datasets.
+# LoRA fine-tuning of a Hugging Face model (the finetune phase and its optimizer A/B).
+# Heavy: pulls torch, transformers, peft, datasets.
 finetune = [
     "transformers>=4.44",
     "peft>=0.11",

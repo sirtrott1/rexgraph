@@ -91,7 +91,7 @@ def test_partition_columns_is_exact_contiguous_cover():
         parts = spg._partition_columns(ncols, nparts)
         assert parts[0][0] == 0 and parts[-1][1] == ncols
         assert all(parts[i][1] == parts[i + 1][0] for i in range(len(parts) - 1))
-        assert all(0 < e - s for s, e in parts)              # no empty tile
+        assert all(e - s > 0 for s, e in parts)              # no empty tile
         assert len(parts) == max(1, min(nparts, ncols))
 
 

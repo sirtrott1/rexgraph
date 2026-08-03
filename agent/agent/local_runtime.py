@@ -17,17 +17,17 @@ Cortex.cpp <-> vLLM by config, and the pure-Python-agent / compiled-Cython-core 
 from __future__ import annotations
 
 import atexit
+import contextlib
 import os
 import shutil
 import socket
 import subprocess
 import time
-from typing import Dict, List, Optional
 
-_PROC: Optional[subprocess.Popen] = None
-_STATE: Dict = {}
-_EMBED_PROC: Optional[subprocess.Popen] = None    # dedicated embedding worker (the beehive embedder)
-_EMBED_STATE: Dict = {}
+_PROC: subprocess.Popen | None = None
+_STATE: dict = {}
+_EMBED_PROC: subprocess.Popen | None = None    # dedicated embedding worker (the beehive embedder)
+_EMBED_STATE: dict = {}
 
 # Backend-agnostic launch defaults. RexGraph is a GENERAL platform - CUDA, ROCm,
 # Vulkan, Metal, and CPU are all first-class; the backend is a build-time choice of the
@@ -114,13 +114,13 @@ def _nvidia_vram_gb() -> float:
         return 0.0
 
 
-def detect_hardware() -> Dict:
+def detect_hardware() -> dict:
     """Detect available inference backends + memory so recommendations and launch args
     adapt to the ACTUAL machine - CUDA/ROCm/Vulkan/Metal/CPU all first-class. Returns
     {os, backends, gpu, ram_gb, model_budget_gb, recommended_backend}."""
     import platform
     osname = platform.system()
-    backends: List[str] = []
+    backends: list[str] = []
     gpu = None
     if shutil.which("nvidia-smi"):
         backends.append("cuda")
@@ -151,7 +151,7 @@ def detect_hardware() -> Dict:
             "recommended_backend": backends[0] if backends else "cpu"}
 
 
-def recommend(budget_gb: Optional[float] = None) -> List[Dict]:
+def recommend(budget_gb: float | None = None) -> list[dict]:
     """Catalog entries that fit ``budget_gb`` (VRAM or unified budget), biggest-that-fits
     first. Defaults to the detected machine's budget."""
     if budget_gb is None:
@@ -160,7 +160,7 @@ def recommend(budget_gb: Optional[float] = None) -> List[Dict]:
     return sorted(fit or CATALOG[:1], key=lambda c: -c["approx_gb"])
 
 
-def find_binary(bin_path: Optional[str] = None) -> Optional[str]:
+def find_binary(bin_path: str | None = None) -> str | None:
     """Locate a llama.cpp-family OpenAI server binary (llama-server or compatible).
     Order: explicit arg -> LLAMA_SERVER_BIN env -> PATH -> common build locations."""
     if bin_path and os.path.exists(os.path.expanduser(bin_path)):
@@ -225,7 +225,7 @@ def _server_log_path(port: int) -> str:
 
 def _tail(path: str, n: int = 30) -> str:
     try:
-        with open(path, "r", errors="replace") as f:
+        with open(path, errors="replace") as f:
             lines = f.readlines()
         return "".join(lines[-n:]).rstrip() or "(server produced no output)"
     except Exception:
@@ -258,11 +258,11 @@ def _wait_health(url: str, timeout: float) -> bool:
     return False
 
 
-def start(model_path: str, *, port: Optional[int] = None, host: Optional[str] = None,
-          n_gpu_layers: Optional[int] = None, ctx_size: Optional[int] = None,
-          flash_attn: Optional[bool] = None, extra_args: Optional[List[str]] = None,
-          bin_path: Optional[str] = None, wait: float = 90.0,
-          register: bool = True) -> Dict:
+def start(model_path: str, *, port: int | None = None, host: str | None = None,
+          n_gpu_layers: int | None = None, ctx_size: int | None = None,
+          flash_attn: bool | None = None, extra_args: list[str] | None = None,
+          bin_path: str | None = None, wait: float = 90.0,
+          register: bool = True) -> dict:
     """Launch a local llama.cpp server for ``model_path`` and register it as the chat
     backend so chat + metrics + agentic run on it. Stops any server this module
     previously started. Returns the runtime state; raises with actionable guidance if
@@ -340,10 +340,8 @@ def stop() -> None:
         try:
             _PROC.wait(timeout=10)
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 _PROC.kill()
-            except Exception:
-                pass
     _PROC = None
     if _STATE.get("url"):
         try:
@@ -368,10 +366,10 @@ def _launch(args, wait: float, binary: str, port: int = 0):
     return proc, logpath
 
 
-def spawn_server(model_path: str, *, port: Optional[int] = None, host: Optional[str] = None,
-                 n_gpu_layers: Optional[int] = None, ctx_size: Optional[int] = None,
-                 flash_attn: Optional[bool] = None, embeddings: bool = False,
-                 extra_args: Optional[List[str]] = None, bin_path: Optional[str] = None,
+def spawn_server(model_path: str, *, port: int | None = None, host: str | None = None,
+                 n_gpu_layers: int | None = None, ctx_size: int | None = None,
+                 flash_attn: bool | None = None, embeddings: bool = False,
+                 extra_args: list[str] | None = None, bin_path: str | None = None,
                  wait: float = 90.0):
     """Launch an INDEPENDENT llama-server and return ``(Popen, state)`` WITHOUT touching the
     module singletons or the global chat-backend registration. The primitive the hive uses for
@@ -400,12 +398,9 @@ def spawn_server(model_path: str, *, port: Optional[int] = None, host: Optional[
     url = f"http://{host}:{port}"
     if not _wait_health(url, wait):
         code = proc.poll()
-        try:
+        with contextlib.suppress(Exception):
             proc.terminate()
-        except Exception:
-            pass
-        raise RuntimeError("worker server did not become ready in %.0fs%s\n--- log tail (%s) ---\n%s"
-                           % (wait, f" (exit {code})" if code is not None else "", logpath, _tail(logpath)))
+        raise RuntimeError("worker server did not become ready in {:.0f}s{}\n--- log tail ({}) ---\n{}".format(wait, f" (exit {code})" if code is not None else "", logpath, _tail(logpath)))
     state = {"url": url, "model": os.path.basename(mp), "model_path": mp, "pid": proc.pid,
              "binary": binary, "ctx_size": ctx, "n_gpu_layers": ngl, "embeddings": bool(embeddings)}
     try:
@@ -416,8 +411,8 @@ def spawn_server(model_path: str, *, port: Optional[int] = None, host: Optional[
     return proc, state
 
 
-def start_embedder(model_path: str, *, port: Optional[int] = None, host: Optional[str] = None,
-                   wait: float = 90.0, bin_path: Optional[str] = None) -> Dict:
+def start_embedder(model_path: str, *, port: int | None = None, host: str | None = None,
+                   wait: float = 90.0, bin_path: str | None = None) -> dict:
     """Launch a DEDICATED embedding worker (`llama-server --embeddings`) - the beehive's
     nomic-embed-text bee. It runs ALONGSIDE the chat model so the swarm's semantic
     alignment/hallucination signal (agent_complex.model_embed_fn) is always live, independent of
@@ -438,8 +433,7 @@ def start_embedder(model_path: str, *, port: Optional[int] = None, host: Optiona
     url = f"http://{host}:{port}"
     if not _wait_health(url, wait):
         code = _EMBED_PROC.poll(); stop_embedder()
-        raise RuntimeError("embedding worker did not become ready in %.0fs%s\n--- log tail (%s) ---\n%s"
-                           % (wait, f" (exit {code})" if code is not None else "", logpath, _tail(logpath)))
+        raise RuntimeError("embedding worker did not become ready in {:.0f}s{}\n--- log tail ({}) ---\n{}".format(wait, f" (exit {code})" if code is not None else "", logpath, _tail(logpath)))
     _EMBED_STATE.clear()
     _EMBED_STATE.update({"url": url, "model": os.path.basename(mp), "model_path": mp,
                          "pid": _EMBED_PROC.pid, "binary": binary})
@@ -454,15 +448,13 @@ def stop_embedder() -> None:
         try:
             _EMBED_PROC.wait(timeout=10)
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 _EMBED_PROC.kill()
-            except Exception:
-                pass
     _EMBED_PROC = None
     _EMBED_STATE.clear()
 
 
-def embed_url() -> Optional[str]:
+def embed_url() -> str | None:
     """The endpoint to use for embeddings: the dedicated embedding worker if running, else the
     main chat model (if it serves embeddings), else None."""
     if _EMBED_STATE.get("url"):
@@ -470,12 +462,12 @@ def embed_url() -> Optional[str]:
     return _STATE.get("url") or None
 
 
-def embed_status() -> Dict:
+def embed_status() -> dict:
     running = _EMBED_PROC is not None and _EMBED_PROC.poll() is None
     return {"running": bool(running), "url": embed_url(), **_EMBED_STATE}
 
 
-def status() -> Dict:
+def status() -> dict:
     """Runtime status: whether a managed server is running, whether a llama.cpp binary is
     installed, the detected hardware (backends/VRAM/RAM), and the model recommendations
     that fit THIS machine - so the UI/CLI adapt to any host (CUDA/ROCm/Vulkan/Metal/CPU),
@@ -491,7 +483,7 @@ def status() -> Dict:
             "detected": detected, "embedder": embed_status(), **_STATE}
 
 
-def pull(repo: str, filename: str, dest_dir: Optional[str] = None) -> str:
+def pull(repo: str, filename: str, dest_dir: str | None = None) -> str:
     """Download a GGUF from Hugging Face (needs huggingface_hub). Returns the local
     path. Large files - check the catalog `approx_gb` first. Repo/file names drift, so
     they are explicit here rather than hardcoded."""
@@ -507,7 +499,7 @@ def pull(repo: str, filename: str, dest_dir: Optional[str] = None) -> str:
     return hf_hub_download(repo_id=repo, filename=filename, local_dir=dest)
 
 
-def _default_scan_dirs() -> List[str]:
+def _default_scan_dirs() -> list[str]:
     """Where local models actually land, across the common toolchains. Extend with
     REXGRAPH_MODEL_DIRS (os.pathsep-separated) for non-standard locations."""
     home = os.path.expanduser("~")
@@ -531,7 +523,7 @@ def _default_scan_dirs() -> List[str]:
     return out
 
 
-def discover_local_models(extra_dirs: Optional[List[str]] = None, max_files: int = 400) -> List[Dict]:
+def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 400) -> list[dict]:
     """AUTO-DETECT models already on disk - no curated registry, no manual paths. Walks the
     common model locations (HF hub cache, ollama, LM Studio, ~/models, our pull() dir, plus
     REXGRAPH_MODEL_DIRS) and reports every GGUF file (llama.cpp-loadable, ready for start())
@@ -556,7 +548,7 @@ def discover_local_models(extra_dirs: Optional[List[str]] = None, max_files: int
             return "rexgraph"
         return "dir"
 
-    found: Dict[str, Dict] = {}
+    found: dict[str, dict] = {}
     n = 0
     # 1) GGUF files anywhere under the roots (llama.cpp / this runtime can load these directly).
     for root in roots:
@@ -617,10 +609,8 @@ def discover_local_models(extra_dirs: Optional[List[str]] = None, max_files: int
                 for f in os.listdir(rev):
                     fp = os.path.join(rev, f)
                     if os.path.islink(fp) or os.path.isfile(fp):
-                        try:
+                        with contextlib.suppress(OSError):
                             sz += os.path.getsize(os.path.realpath(fp))
-                        except OSError:
-                            pass
             except OSError:
                 pass
             found[key] = {"name": model_id, "path": rev, "size_gb": round(sz / 1e9, 2),
@@ -630,7 +620,7 @@ def discover_local_models(extra_dirs: Optional[List[str]] = None, max_files: int
     return out
 
 
-def _default_probe_targets() -> List[Dict]:
+def _default_probe_targets() -> list[dict]:
     """Well-known local inference servers. Extend with REXGRAPH_PROBE_URLS (os.pathsep or
     comma separated base URLs) for non-standard ports/hosts."""
     t = [
@@ -658,7 +648,7 @@ def _default_probe_targets() -> List[Dict]:
     return out
 
 
-def probe_endpoints(timeout: float = 0.4) -> List[Dict]:
+def probe_endpoints(timeout: float = 0.4) -> list[dict]:
     """PROBE live inference servers already running on this host - not files on disk, actual
     serving endpoints. Hits Ollama's /api/tags and the OpenAI-compatible /v1/models on the
     well-known ports (llama.cpp, vLLM, LM Studio, TGI) + REXGRAPH_PROBE_URLS. Returns only the
@@ -690,7 +680,8 @@ def probe_endpoints(timeout: float = 0.4) -> List[Dict]:
 
 def main(argv=None):
     """CLI: `python -m agent.local_runtime <start MODEL.gguf | status | stop | catalog | discover | endpoints>`."""
-    import argparse, json
+    import argparse
+    import json
     ap = argparse.ArgumentParser(prog="rexgraph-local", description=(
         "Manage a local llama.cpp model as the rexgraph-agent chat backend."))
     sub = ap.add_subparsers(dest="cmd", required=True)

@@ -83,8 +83,8 @@ def _boundaries_from_rex(rex):
         if boundaries:
             return [b.tocsr() for b in boundaries]
 
-    from rexgraph.sparse_character import _b1_csr
     from rexgraph.core._sparse import to_scipy_csr
+    from rexgraph.sparse_character import _b1_csr
 
     boundaries = [_b1_csr(rex).tocsr()]                     # B_1 : nV x nE
     if int(getattr(rex, "nF", 0)) > 0 and rex._B2_hodge_dual is not None:
@@ -339,3 +339,52 @@ def dirac_heat(rex, t, psi0=None):
     if psi0 is None:
         psi0 = _default_seed(sd)
     return sd.heat_squared(psi0, float(t))
+
+
+# ---------------------------------------------------------------------------
+# Equiweight: the derived axiom, and its use as a distance
+# ---------------------------------------------------------------------------
+
+def graded_grading(sizes) -> np.ndarray:
+    """The chiral grading Gamma = diag((-1)^grade) for a graded space, as a +/-1 vector.
+
+    Grade 0 (vertices) and grade 2 (faces) are +1; grade 1 (edges) is -1. The pattern
+    continues by parity at higher grades, which is what makes the identity below hold at
+    every grade rather than only up to faces.
+    """
+    out = []
+    for d, n in enumerate(sizes):
+        out.append(np.full(int(n), 1.0 if d % 2 == 0 else -1.0, dtype=np.float64))
+    return np.concatenate(out) if out else np.zeros(0, dtype=np.float64)
+
+
+def equiweight_residual(D, sizes, *, ord: str = "max") -> float:
+    """||Gamma D + D Gamma||, the equiweight residual of an ARBITRARY graded operator.
+
+    Equiweight is the derived axiom Gamma D + D Gamma = 0. It follows from the chain
+    condition and the definition of D: (Gamma D)[d-1,d] = (-1)^{d-1} B_d while
+    (D Gamma)[d-1,d] = (-1)^d B_d, so the blocks cancel. Because D connects only
+    consecutive grades and consecutive grades have opposite parity, every block vanishes.
+
+    On a relational complex this is identically zero, so measuring it there says nothing.
+    The reason this takes a raw operator rather than a RexGraph is the contrapositive:
+    an operator that fails it is not a graded Dirac, and the residual is a DISTANCE from
+    being one. Entrywise the anticommutator is (gamma_i + gamma_j) * D[i,j], which is 0
+    when i and j sit in grades of opposite parity and 2*D[i,j] when they do not. So the
+    residual measures exactly the mass D puts between same-parity grades, including a
+    grade talking to itself on the diagonal.
+
+    `ord` is "max" (the largest entry) or "fro" (Frobenius). Both are 0 exactly when the
+    identity holds.
+    """
+    D = np.asarray(D, dtype=np.float64)
+    if D.ndim != 2 or D.shape[0] != D.shape[1]:
+        raise ValueError(f"D must be square, got shape {D.shape!r}")
+    g = graded_grading(sizes)
+    if g.shape[0] != D.shape[0]:
+        raise ValueError(
+            f"grade sizes sum to {g.shape[0]} but D is {D.shape[0]}x{D.shape[1]}")
+    anti = g[:, None] * D + D * g[None, :]
+    if ord == "fro":
+        return float(np.sqrt((anti * anti).sum()))
+    return float(np.abs(anti).max()) if anti.size else 0.0

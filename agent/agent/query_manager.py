@@ -23,12 +23,11 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from . import query_engine as qe
 from . import rcdb
 from . import schema_complex as sc
-
 
 # --- schema mapping helpers ---------------------------------------------------
 
@@ -41,19 +40,19 @@ def _same_entity(a: str, b: str) -> bool:
     return a == b or a.rstrip("s") == b.rstrip("s")
 
 
-def _schema_index(model: "sc.SchemaModel"):
+def _schema_index(model: sc.SchemaModel):
     tables = {}
     for name in model.table_names():
         tables[_norm(name)] = name
-    cols: Dict[str, List[str]] = {}
+    cols: dict[str, list[str]] = {}
     for t in model.tables:
         for c in t.columns:
             cols.setdefault(_norm(c), []).append(t.name)
     return tables, cols
 
 
-def _fk_adjacency(model: "sc.SchemaModel"):
-    adj: Dict[str, set] = {n: set() for n in model.table_names()}
+def _fk_adjacency(model: sc.SchemaModel):
+    adj: dict[str, set] = {n: set() for n in model.table_names()}
     for fk in model.foreign_keys:
         if fk.from_table in adj and fk.to_table in adj and fk.from_table != fk.to_table:
             adj[fk.from_table].add(fk.to_table)
@@ -61,7 +60,7 @@ def _fk_adjacency(model: "sc.SchemaModel"):
     return adj
 
 
-def _shortest_path(adj, a: str, b: str) -> Optional[List[str]]:
+def _shortest_path(adj, a: str, b: str) -> list[str] | None:
     if a == b:
         return [a]
     seen = {a}
@@ -78,7 +77,7 @@ def _shortest_path(adj, a: str, b: str) -> Optional[List[str]]:
     return None
 
 
-def _relate_to_schema(concepts: List[str], model: Optional["sc.SchemaModel"]) -> Dict[str, Any]:
+def _relate_to_schema(concepts: list[str], model: sc.SchemaModel | None) -> dict[str, Any]:
     """Map a query's concepts onto the schema complex: which tables/columns it
     touches, whether those tables are joinable, and which concepts match nothing."""
     if model is None:
@@ -137,9 +136,9 @@ def _relate_to_schema(concepts: List[str], model: Optional["sc.SchemaModel"]) ->
 class QueryState:
     step: int
     text: str
-    signature: Dict[str, Any]
-    concepts: List[str]
-    schema: Dict[str, Any]
+    signature: dict[str, Any]
+    concepts: list[str]
+    schema: dict[str, Any]
     rex: Any = field(default=None, repr=False)
 
     def public(self) -> dict:
@@ -155,7 +154,7 @@ def _build_state(step: int, text: str, model) -> QueryState:
                       schema=_relate_to_schema(concepts, model), rex=rex)
 
 
-def _delta(prev: QueryState, curr: QueryState) -> Dict[str, Any]:
+def _delta(prev: QueryState, curr: QueryState) -> dict[str, Any]:
     a, b = set(prev.concepts), set(curr.concepts)
     union = a | b
     overlap = len(a & b) / len(union) if union else 1.0
@@ -165,15 +164,15 @@ def _delta(prev: QueryState, curr: QueryState) -> Dict[str, Any]:
 class QuerySession:
     """An evolving query: a sequence of QueryStates with convergence dynamics."""
 
-    def __init__(self, text: str, *, model=None, manager: "QueryManager" = None,
-                 sid: Optional[str] = None):
+    def __init__(self, text: str, *, model=None, manager: QueryManager = None,
+                 sid: str | None = None):
         self.id = sid or uuid.uuid4().hex[:12]
         self.model = model
         self.manager = manager
         self.created = time.time()
         self.status = "open"
-        self.answer: Optional[str] = None
-        self.states: List[QueryState] = [_build_state(0, text, model)]
+        self.answer: str | None = None
+        self.states: list[QueryState] = [_build_state(0, text, model)]
 
     def current(self) -> QueryState:
         return self.states[-1]
@@ -184,7 +183,7 @@ class QuerySession:
         self.states.append(st)
         return st
 
-    def convergence(self) -> Dict[str, Any]:
+    def convergence(self) -> dict[str, Any]:
         """The dynamics of the trajectory, read from structure - no magnitude thresholds.
 
         - the persistent CORE is the exact intersection of every state's concepts: what the query
@@ -220,7 +219,7 @@ class QuerySession:
         wandering off it - both read from structure, not a magnitude cutoff."""
         return self.convergence()["progressing"]
 
-    def resolve(self, answer: str) -> "QuerySession":
+    def resolve(self, answer: str) -> QuerySession:
         """Mark the end state and persist the converged query complex to memory."""
         self.status = "resolved"
         self.answer = answer
@@ -228,7 +227,7 @@ class QuerySession:
             self.manager._remember(self)
         return self
 
-    def trajectory(self) -> Dict[str, Any]:
+    def trajectory(self) -> dict[str, Any]:
         return {"id": self.id, "status": self.status, "answer": self.answer,
                 "states": [s.public() for s in self.states],
                 "convergence": self.convergence()}
@@ -238,17 +237,17 @@ class QueryManager:
     """Owns query sessions, links them to a schema complex, and persists resolved queries to
     the RCDB memory so a structurally similar past query can be recalled (the memory worker)."""
 
-    def __init__(self, store: Optional[rcdb.RCStore] = None, schema=None):
+    def __init__(self, store: rcdb.RCStore | None = None, schema=None):
         self.store = store or rcdb.default_store()
         self.schema = schema                       # a SchemaModel, or None
-        self._sessions: Dict[str, QuerySession] = {}
+        self._sessions: dict[str, QuerySession] = {}
 
     def open(self, text: str, *, schema=None) -> QuerySession:
         s = QuerySession(text, model=schema or self.schema, manager=self)
         self._sessions[s.id] = s
         return s
 
-    def get(self, sid: str) -> Optional[QuerySession]:
+    def get(self, sid: str) -> QuerySession | None:
         return self._sessions.get(sid)
 
     def evolve(self, sid: str, text: str) -> QueryState:
@@ -257,7 +256,7 @@ class QueryManager:
     def resolve(self, sid: str, answer: str) -> QuerySession:
         return self._sessions[sid].resolve(answer)
 
-    def _remember(self, session: QuerySession) -> Optional[str]:
+    def _remember(self, session: QuerySession) -> str | None:
         """Memory worker: persist the resolved query complex + its schema footprint."""
         st = session.current()
         if st.rex is None:
@@ -269,7 +268,7 @@ class QueryManager:
         self.store.put(session.id, st.rex, meta=meta, tags=tags)
         return session.id
 
-    def recall(self, text: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def recall(self, text: str, limit: int = 5) -> list[dict[str, Any]]:
         """Find structurally similar past queries in memory, ranked by shared concepts."""
         _, ec = qe.build_query_rex(text)
         concepts = set(qe.query_signature(None, ec).get("concepts", [])) if ec else set()

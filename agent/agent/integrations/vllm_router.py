@@ -32,12 +32,10 @@ Note: Does NOT require vllm itself - the router just picks a model name.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
-
 import numpy as np
 
 
-def _tokenize_simple(text: str) -> List[str]:
+def _tokenize_simple(text: str) -> list[str]:
     """Simple whitespace tokenizer. Production would use a real tokenizer."""
     import re
     text = text.lower()
@@ -45,7 +43,7 @@ def _tokenize_simple(text: str) -> List[str]:
     return [w for w in text.split() if len(w) > 1]
 
 
-def _build_prompt_rex(tokens: List[str], window: int = 3):
+def _build_prompt_rex(tokens: list[str], window: int = 3):
     """Build a small relational complex from prompt tokens.
 
     Edges = co-occurrence within a sliding window.
@@ -88,10 +86,7 @@ def _build_prompt_rex(tokens: List[str], window: int = 3):
 
     rex = RexGraph(sources=sources, targets=targets, w_E=weights)
 
-    if len(set(types.tolist())) > 1:
-        rex = rex.typed_face_selection(types)
-    else:
-        rex = rex.promote()
+    rex = rex.typed_face_selection(types) if len(set(types.tolist())) > 1 else rex.promote()
 
     return rex, vocab
 
@@ -118,10 +113,10 @@ class RexRouter:
 
     def __init__(
         self,
-        models: Dict[str, str],
+        models: dict[str, str],
         default: str = "reasoning",
         void_threshold: float = 0.5,
-        channel_map: Optional[Dict[int, str]] = None,
+        channel_map: dict[int, str] | None = None,
     ):
         """
         Parameters
@@ -150,7 +145,7 @@ class RexRouter:
             except (TypeError, ValueError):
                 self.channel_map[k] = v
 
-    def route(self, text: str, window: int = 3) -> Tuple[str, Dict]:
+    def route(self, text: str, window: int = 3) -> tuple[str, dict]:
         """Route a prompt to the best model.
 
         Returns (model_identifier, diagnostics_dict).
@@ -247,6 +242,6 @@ class RexRouter:
 
         return model, diagnostics
 
-    def route_batch(self, texts: List[str]) -> List[Tuple[str, Dict]]:
+    def route_batch(self, texts: list[str]) -> list[tuple[str, dict]]:
         """Route multiple prompts."""
         return [self.route(text) for text in texts]

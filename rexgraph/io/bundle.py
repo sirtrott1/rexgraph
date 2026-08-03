@@ -75,10 +75,13 @@ import json
 import os
 import pathlib
 import shutil
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from ..graph import RexGraph, TemporalRex
 
 from .rex_state import fname_encode as _fname_encode
 
@@ -92,7 +95,7 @@ _FORMAT_VERSION = 1
 _MAGIC = "rex-bundle"
 
 # Cache groups - same definitions as zarr_format / hdf5_format.
-_CACHE_GROUPS: Dict[str, List[str]] = {
+_CACHE_GROUPS: dict[str, list[str]] = {
     "algebra": [
         "B1", "B2", "L0", "L1", "L2",
         "overlap_adjacency", "L_overlap",
@@ -116,7 +119,7 @@ _CACHE_GROUPS: Dict[str, List[str]] = {
     ],
 }
 
-_ALL_CACHEABLE: Set[str] = set()
+_ALL_CACHEABLE: set[str] = set()
 for _entries in _CACHE_GROUPS.values():
     _ALL_CACHEABLE.update(_entries)
 _ALL_CACHEABLE.update(_CACHE_GROUPS.keys())
@@ -133,7 +136,7 @@ def _ensure_rex(path: str) -> pathlib.Path:
     return p
 
 
-def _resolve_cache(cache) -> Set[str]:
+def _resolve_cache(cache) -> set[str]:
     """Expand cache spec into individual property names."""
     if cache is None:
         return set()
@@ -143,7 +146,7 @@ def _resolve_cache(cache) -> Set[str]:
         if cache in _CACHE_GROUPS:
             return set(_CACHE_GROUPS[cache])
         return {cache}
-    out: Set[str] = set()
+    out: set[str] = set()
     for c in cache:
         if c == "all":
             return set(_ALL_CACHEABLE)
@@ -178,8 +181,9 @@ def _load_npy(
 
 #: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
 #: existing call sites keep working; `dumps` is what applies the non-finite policy.
-from ._compat import dumps as _dumps
+import contextlib
 
+from ._compat import dumps as _dumps
 
 # RexBundle
 
@@ -226,8 +230,8 @@ class RexBundle:
         cls,
         graph,
         *,
-        cache: Union[None, str, List[str]] = None,
-    ) -> "RexBundle":
+        cache: None | str | list[str] = None,
+    ) -> RexBundle:
         """Create an in-memory bundle spec from a RexGraph.
 
         Does not write to disk - call `.save()` to persist.  The
@@ -256,10 +260,10 @@ class RexBundle:
     @classmethod
     def load(
         cls,
-        path: Union[str, os.PathLike],
+        path: str | os.PathLike,
         *,
         mmap: bool = False,
-    ) -> "RexBundle":
+    ) -> RexBundle:
         """Load a bundle from a `.rex` directory.
 
         Parameters
@@ -291,7 +295,7 @@ class RexBundle:
     # Persistence
 
 
-    def save(self, path: Union[str, os.PathLike]) -> None:
+    def save(self, path: str | os.PathLike) -> None:
         """Write this bundle to a `.rex` directory.
 
         If the bundle was created via `from_graph()`, arrays are
@@ -328,7 +332,7 @@ class RexBundle:
     # Reconstruction
 
 
-    def to_graph(self) -> "RexGraph":
+    def to_graph(self) -> RexGraph:
         """Reconstruct a RexGraph from this bundle.
 
         Raises
@@ -342,7 +346,7 @@ class RexBundle:
             )
         return _read_rex_graph(self._root)
 
-    def to_temporal(self) -> "TemporalRex":
+    def to_temporal(self) -> TemporalRex:
         """Reconstruct a TemporalRex from this bundle."""
         if self.object_type != "TemporalRex":
             raise TypeError(
@@ -393,7 +397,7 @@ class RexBundle:
             or (self._root / "cache" / f"{key}.npy").exists()
         )
 
-    def list_arrays(self) -> List[str]:
+    def list_arrays(self) -> list[str]:
         """List all available array names."""
         if self._root is None:
             return []
@@ -494,9 +498,9 @@ def _write_rex_bundle(root: pathlib.Path, rex, cache) -> None:
             (root / "MANIFEST.json").write_text(_dumps(manifest))
 
 
-def _read_rex_graph(root: pathlib.Path) -> "RexGraph":
+def _read_rex_graph(root: pathlib.Path) -> RexGraph:
     """Reconstruct a RexGraph from a .rex directory."""
-    from .rex_state import from_state, RexState
+    from .rex_state import RexState, from_state
     manifest = json.loads((root / "MANIFEST.json").read_text())
     tensors = {}
     for name in manifest.get("tensor_names", []):
@@ -539,7 +543,7 @@ def _write_temporal_bundle(root: pathlib.Path, trex) -> None:
     )
 
 
-def _read_temporal_rex(root: pathlib.Path) -> "TemporalRex":
+def _read_temporal_rex(root: pathlib.Path) -> TemporalRex:
     """Reconstruct a TemporalRex from a .rex directory."""
     from ..graph import TemporalRex
 
@@ -589,16 +593,16 @@ def _read_temporal_rex(root: pathlib.Path) -> "TemporalRex":
 def _write_cache(
     cache_dir: pathlib.Path,
     rex,
-    names: Set[str],
-) -> Tuple[List[str], dict]:
+    names: set[str],
+) -> tuple[list[str], dict]:
     """Write precomputed properties to cache/ directory.
 
     Returns (list of array names written, dict of scalar values).
     """
-    written: List[str] = []
+    written: list[str] = []
     scalars: dict = {}
 
-    def _try_array(prop_name: str, cache_name: Optional[str] = None):
+    def _try_array(prop_name: str, cache_name: str | None = None):
         """Attempt to get a property and save it."""
         cn = cache_name or prop_name
         try:
@@ -645,20 +649,14 @@ def _write_cache(
 
     # topology
     if names & {"topology", "betti"}:
-        try:
+        with contextlib.suppress(Exception):
             scalars["betti"] = list(rex.betti)
-        except Exception:
-            pass
     if names & {"topology", "euler_characteristic"}:
-        try:
+        with contextlib.suppress(Exception):
             scalars["euler_characteristic"] = int(rex.euler_characteristic)
-        except Exception:
-            pass
     if names & {"topology", "chain_valid"}:
-        try:
+        with contextlib.suppress(Exception):
             scalars["chain_valid"] = bool(rex.chain_valid)
-        except Exception:
-            pass
     if names & {"topology", "edge_types"}:
         _try_array("edge_types")
     if names & {"topology", "harmonic_space"}:
@@ -740,7 +738,7 @@ def save_rex(
     path: str,
     obj: Any,
     *,
-    cache: Union[None, str, List[str]] = None,
+    cache: None | str | list[str] = None,
 ) -> None:
     """Save a RexGraph or TemporalRex to a `.rex` bundle.
 

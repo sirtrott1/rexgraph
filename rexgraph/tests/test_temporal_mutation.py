@@ -10,10 +10,9 @@ merged with anything.
 """
 
 import numpy as np
-import pytest
 
-from rexgraph.graph import RexGraph, TemporalRex
 from rexgraph.core import _temporal
+from rexgraph.graph import RexGraph, TemporalRex
 
 B, I, O, E, S = 0, 1, 2, 3, 4
 PERSIST, BORN, DIED, SPLIT, MERGE, MUTATE = 0, 1, 2, 3, 4, 5
@@ -142,7 +141,7 @@ def test_an_edge_that_flickers_is_not_one_continuous_life():
              (np.array([2], np.int32), np.array([3], np.int32)),
              (np.array([0, 2], np.int32), np.array([1, 3], np.int32))]
     keys, starts, ends = _temporal.edge_intervals(snaps)
-    flick = [(int(s), int(e)) for k, s, e in zip(keys, starts, ends) if k == 1]
+    flick = [(int(s), int(e)) for k, s, e in zip(keys, starts, ends, strict=False) if k == 1]
     assert flick == [(0, 0), (2, 2)], f"expected two intervals, got {flick}"
 
 

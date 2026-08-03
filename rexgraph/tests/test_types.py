@@ -15,35 +15,34 @@ Verifies:
 import numpy as np
 
 from rexgraph.types import (
+    BioesTag,
     # Enums
     EdgeType,
-    HodgeComponent,
-    BioesTag,
-    FaceEvent,
-    TransitionKind,
+    EnergyKinPot,
     EnergyRegime,
-    OperatorChannel,
-    PredicateOp,
-    JoinType,
+    FaceEvent,
+    Filtration,
+    HodgeComponent,
     # NamedTuples
     HodgeDecomposition,
-    SpectralBundle,
+    ImputeResult,
+    JoinResult,
+    JoinType,
+    MeasurementResult,
+    OperatorChannel,
+    PredicateOp,
+    PropagationResult,
     RCFBundle,
+    RCFEResult,
+    SchrodingerState,
+    SpectralBundle,
+    StandardMetrics,
+    SubComplex,
+    TransitionKind,
     VertexBundle,
     VoidComplex,
-    RCFEResult,
-    EnergyKinPot,
-    SubComplex,
-    MeasurementResult,
-    Filtration,
-    SchrodingerState,
     WaveState,
-    JoinResult,
-    ImputeResult,
-    PropagationResult,
-    StandardMetrics,
 )
-
 
 # Enumerations
 

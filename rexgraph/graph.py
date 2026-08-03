@@ -28,8 +28,9 @@ with delta-encoded storage, BIOES phase detection, and lifecycle tracking.
 from __future__ import annotations
 
 from collections import namedtuple
+from collections.abc import Sequence
+from fractions import Fraction
 from functools import cached_property
-from typing import Optional, Sequence, Tuple
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -119,9 +120,14 @@ def _serialize_hodge_dict(d: dict) -> dict:
 # Dense materialization + dense-only linear algebra live in the modular
 # rexgraph.dense_matrix; _ensure_dense is kept as the in-module alias so the many
 # call sites here are unchanged while the dense path stays isolated in one file.
+#: distinguishes "caller passed None" (solve the column) from "caller passed
+#: nothing" for the keyword spelling of face_signs.
+_SENTINEL = object()
+
+import contextlib
+
 from rexgraph.dense_matrix import ensure_dense as _ensure_dense
 from rexgraph.dense_matrix import spectral_distance as _spectral_distance
-
 
 # RexGraph
 
@@ -249,26 +255,31 @@ class RexGraph:
     def __init__(
         self,
         *,
-        boundary_ptr: Optional[NDArray] = None,
-        boundary_idx: Optional[NDArray] = None,
-        sources: Optional[NDArray] = None,
-        targets: Optional[NDArray] = None,
-        B2_col_ptr: Optional[NDArray] = None,
-        B2_row_idx: Optional[NDArray] = None,
-        B2_vals: Optional[NDArray] = None,
-        w_E: Optional[NDArray] = None,
-        w_boundary: Optional[dict] = None,
+        boundary_ptr: NDArray | None = None,
+        boundary_idx: NDArray | None = None,
+        sources: NDArray | None = None,
+        targets: NDArray | None = None,
+        B2_col_ptr: NDArray | None = None,
+        B2_row_idx: NDArray | None = None,
+        B2_vals: NDArray | None = None,
+        w_E: NDArray | None = None,
+        w_boundary: dict | None = None,
         directed: bool = False,
-        signs: Optional[NDArray] = None,
+        signs: NDArray | None = None,
         g_channel: str = "raw",
     ):
         # G (overlap) channel form used by the RL4 character:
-        #   "normalized" - L_O = I - D^{-1/2} K D^{-1/2} (float, degree-comparable; default)
-        #   "raw"        - K = |B1|^T |B1| (exact integer co-incidence counts, canonical)
+        #   "raw"        - K = |B1|^T |B1| (DEFAULT). The exact co-incidence Gramian, on
+        #                  the integer/exact tower: integer entries on a pairwise complex,
+        #                  rational once any relation has arity above two, because the
+        #                  boundary share is 1/(k-1).
+        #   "normalized" - L_O = I - D^{-1/2} K D^{-1/2}. D^{-1/2} is a square root, which
+        #                  is one of the few places a float is genuinely unavoidable, so
+        #                  this is the approximation tower. Degree-comparable, opt-in.
         # Both are always available via `L_overlap` / `overlap_gramian`; this only
         # selects which `g_channel_operator` (hence spectral_bundle/RL4) uses.
         if g_channel not in ("normalized", "raw"):
-            raise ValueError("g_channel must be 'normalized' or 'raw', got %r" % g_channel)
+            raise ValueError(f"g_channel must be 'normalized' or 'raw', got {g_channel!r}")
         self._g_channel = g_channel
 
         # General boundary or src/tgt shorthand
@@ -367,7 +378,7 @@ class RexGraph:
         self._pending_edges["signs"].append(
             np.ones(n_new, _i32) if signs is None else _asarray(signs, _i32))
         if w_boundary:
-            for (e_local, v), feat in w_boundary.items():
+            for (e_local, _v), feat in w_boundary.items():
                 self._w_boundary[self._nE + int(e_local)] = feat
         self._nE += n_new
         mx = int(max(int(ns.max()) if n_new else -1, int(nt.max()) if n_new else -1))
@@ -405,15 +416,40 @@ class RexGraph:
         self._dirty = True
         self._invalidate(_TIER_B1_ONLY, _TIER_GLOBAL)
 
-    def add_faces(self, face_edges, face_signs):
-        """Stage new faces (each a list of edge indices + matching +/-1 signs) for
-        O(delta) append. Materialized on next read. Chain validity (B1.B2=0) is
-        enforced by the existing _B2_hodge_dual filter, unchanged."""
+    def add_faces(self, face_edges, face_signs=None, *, signs=_SENTINEL):
+        """Stage new faces for O(delta) append. Materialized on next read.
+
+        `face_signs=None` (or `signs=None`) SOLVES each face column from the chain
+        condition instead of trusting the caller, via `rexgraph.faces.solve_face_column`:
+        B1 c_f = 0 over the rationals. That is the right default for anything but a
+        caller that already knows the orientation, because a grade-2 column is solved
+        rather than declared, and a wrong guess is not an error the caller sees: the
+        _B2_hodge_dual filter drops a chain-invalid face silently, so nF_hodge stays 0,
+        the cycle stays open and nothing says why. A face whose edges bound nothing is
+        skipped, which is the honest answer rather than a forced attachment.
+
+        Passing explicit signs uses them as given, filter included.
+        """
+        if signs is not _SENTINEL:                      # keyword spelling of the same slot
+            face_signs = signs
+        if face_signs is None:
+            from rexgraph.faces import solve_face_column
+            solved_edges, solved_signs = [], []
+            for fe in face_edges:
+                fe = _asarray(fe, _i32)
+                col = solve_face_column(self, fe)
+                if col is None:
+                    continue                            # bounds nothing: do not invent a face
+                solved_edges.append(fe)
+                solved_signs.append(np.asarray([float(x) for x in col], dtype=_f64))
+            face_edges, face_signs = solved_edges, solved_signs
+            if not face_edges:
+                return
         if len(face_edges) != len(face_signs):
             raise ValueError("face_edges and face_signs must have equal length")
         if self._pending_faces is None:
             self._pending_faces = {"edges": [], "signs": []}
-        for fe, fs in zip(face_edges, face_signs):
+        for fe, fs in zip(face_edges, face_signs, strict=False):
             fe = _asarray(fe, _i32)
             fs = np.ascontiguousarray(fs, dtype=_f64)
             if fe.shape[0] != fs.shape[0]:
@@ -676,7 +712,7 @@ class RexGraph:
         targets: ArrayLike,
         *,
         directed: bool = False,
-        w_E: Optional[NDArray] = None,
+        w_E: NDArray | None = None,
         g_channel: str = "raw",
     ) -> RexGraph:
         """Embed a simple graph as a 1-rex. ``g_channel`` selects the overlap G
@@ -825,7 +861,7 @@ class RexGraph:
         optional ``_graded_duals`` list. The full ``[B_1, B_2, B_3, ...]`` list is
         available via :meth:`graded_boundaries` (and hence the sparse Dirac).
         """
-        from rexgraph.graded_boundary import build_graded_boundaries, _cell_entries
+        from rexgraph.graded_boundary import _cell_entries, build_graded_boundaries
 
         n_verts = int(cells_by_grade[0])
         boundaries = build_graded_boundaries(cells_by_grade)
@@ -885,6 +921,68 @@ class RexGraph:
         """
         from rexgraph.graded_boundary import graded_boundaries_from_rex
         return graded_boundaries_from_rex(self)
+
+    def _integer_B1(self):
+        """B1 in its exact INTEGER representative, as scipy CSR, built from the boundary
+        structure so no float is involved at any point.
+
+        The stored column is (-1, 1/(k-1), ..., 1/(k-1)). Scaling it by (k-1) gives
+
+            (-(k-1), +1, +1, ..., +1)
+
+        which is still signed, still sums to zero, and is exactly (-1, +1) at k=2. So the
+        boundary is integral in the right normalisation, and the share is a choice of
+        scale rather than a departure from the integer tower.
+
+        Rank is invariant under column scaling, so anything that only wants a rank should
+        be handed this and never see a fraction. The share is kept in the stored B1
+        because the CHANNELS are not scale-free: T and G weight a wide relation less per
+        leg than a narrow one, which is what the share carries there. The two readings
+        agree wherever scale is free, the same reason spore clears denominators in its
+        cycle basis.
+        """
+        import scipy.sparse as _sp
+        self._ensure_clean()
+        nV, nE = int(self._nV), int(self._nE)
+        if nE == 0:
+            return _sp.csr_matrix((nV, 0), dtype=np.int64)
+        bp, bi = self._boundary_ptr, self._boundary_idx
+        rows, cols, vals = [], [], []
+        if bp is None:                                  # standard-only: every column is (-1,+1)
+            src, tgt = self._ensure_src_tgt()
+            for e in range(nE):
+                s, t = int(src[e]), int(tgt[e])
+                if s == t:
+                    continue                            # self-loop: the pair cancels
+                rows += [s, t]
+                cols += [e, e]
+                vals += [-1, 1]
+        else:
+            for e in range(nE):
+                start, end = int(bp[e]), int(bp[e + 1])
+                k = end - start
+                if k == 0:
+                    continue
+                if k == 1:
+                    rows.append(int(bi[start]))
+                    cols.append(e)
+                    vals.append(1)
+                    continue
+                acc: dict = {}
+                for j in range(start, end):
+                    v = int(bi[j])
+                    acc[v] = acc.get(v, 0) + (-(k - 1) if j == start else 1)
+                for v, c in acc.items():
+                    if c:
+                        rows.append(v)
+                        cols.append(e)
+                        vals.append(int(c))
+        M = _sp.csr_matrix((np.asarray(vals, dtype=np.int64),
+                            (np.asarray(rows, dtype=np.int64), np.asarray(cols, dtype=np.int64))),
+                           shape=(nV, nE))
+        M.sum_duplicates()
+        M.eliminate_zeros()
+        return M
 
     def sparse_dirac(self):
         """The sparse, matrix-free graded Dirac ``D = d + d*`` over the full
@@ -967,7 +1065,7 @@ class RexGraph:
         return self._boundary_idx
 
     @property
-    def sources(self) -> Optional[NDArray]:
+    def sources(self) -> NDArray | None:
         self._ensure_clean()
         if self._sources is not None:
             return self._sources
@@ -978,7 +1076,7 @@ class RexGraph:
         return self._sources
 
     @property
-    def targets(self) -> Optional[NDArray]:
+    def targets(self) -> NDArray | None:
         self._ensure_clean()
         if self._targets is not None:
             return self._targets
@@ -995,7 +1093,7 @@ class RexGraph:
         return bool(np.all(sizes == 2))
 
     @property
-    def w_E(self) -> Optional[NDArray]:
+    def w_E(self) -> NDArray | None:
         return self._w_E
 
     @property
@@ -1032,7 +1130,7 @@ class RexGraph:
     # Vertex degree data (via derive_vertex_set)
 
     @cached_property
-    def _vertex_info(self) -> Tuple[int, NDArray, NDArray, NDArray]:
+    def _vertex_info(self) -> tuple[int, NDArray, NDArray, NDArray]:
         """(nV_derived, degree, in_degree, out_degree) from _rex.derive_vertex_set."""
         src, tgt = self._ensure_src_tgt()
         return _rex.derive_vertex_set(self._nE, src, tgt)
@@ -1053,13 +1151,13 @@ class RexGraph:
     # Incidence CSR
 
     @cached_property
-    def _v2e(self) -> Tuple[NDArray, NDArray]:
+    def _v2e(self) -> tuple[NDArray, NDArray]:
         """Vertex-to-edge CSR adjacency."""
         src, tgt = self._ensure_src_tgt()
         return _rex.build_vertex_to_edge_csr(self._nV, self._nE, src, tgt)
 
     @cached_property
-    def _e2f(self) -> Tuple[NDArray, NDArray]:
+    def _e2f(self) -> tuple[NDArray, NDArray]:
         """Edge-to-face CSR adjacency."""
         self._ensure_clean()
         if self._nF == 0:
@@ -1068,7 +1166,7 @@ class RexGraph:
             self._nE, self._nF, self._B2_col_ptr, self._B2_row_idx
         )
 
-    def _ensure_src_tgt(self) -> Tuple[NDArray, NDArray]:
+    def _ensure_src_tgt(self) -> tuple[NDArray, NDArray]:
         """Return (sources, targets) even for general boundary (first two vertices)."""
         src = self.sources
         tgt = self.targets
@@ -1108,9 +1206,14 @@ class RexGraph:
             elif k == 2 and bi[start] == bi[start + 1]:
                 pass  # self-loop
             else:
+                # signed AND zero-sum at every arity: -1 + (k-1)/(k-1) = 0. The share
+                # is 1 at k=2, so the ordinary edge is exactly (-1, +1) and the standard
+                # path is untouched. Writing +1 here instead gives the star, whose column
+                # sums to k-2; that is the existence tensor, not a boundary.
                 B1[bi[start], e] = -1.0
+                share = 1.0 / (k - 1)
                 for j in range(start + 1, end):
-                    B1[bi[j], e] += 1.0
+                    B1[bi[j], e] += share
         return B1
 
     @cached_property
@@ -1163,7 +1266,7 @@ class RexGraph:
     # BUNDLE 1: Symmetric adjacency CSR
 
     @cached_property
-    def _adjacency_bundle(self) -> Tuple[NDArray, NDArray, NDArray]:
+    def _adjacency_bundle(self) -> tuple[NDArray, NDArray, NDArray]:
         """Symmetric adjacency CSR: (adj_ptr, adj_idx, adj_edge)."""
         src, tgt = self._ensure_src_tgt()
         return _cycles.build_symmetric_adjacency(self._nV, self._nE, src, tgt)
@@ -1225,23 +1328,23 @@ class RexGraph:
 
     @cached_property
     def overlap_gramian(self) -> NDArray:
-        """Raw overlap Gramian K = |B1|^T |B1| - the CANONICAL integer G channel
-        (exact co-incidence counts; reference Part IX). The unnormalized alternate
-        to `L_overlap`. Dense nE x nE, consistent with `L_overlap` (the RL4
-        character consumer is dense; large graphs take the sparse spectral path,
-        which does not form it)."""
+        """Raw overlap Gramian K = |B1|^T |B1|, the exact G channel. Dense nE x nE.
+
+        Exact does not mean integer: the entries are integer on a pairwise complex and
+        rational once any relation has arity above two, since the boundary share is
+        1/(k-1). Both are on the exact tower. `L_overlap` is the normalized alternate and
+        needs D^{-1/2}, which is where the float enters."""
         if self._is_standard_only:
             src, tgt = self._ensure_src_tgt()
             K = _overlap.build_overlap_gramian(self._nV, self._nE, src, tgt)
+            from scipy import sparse as _sp2
+            K = K.tocsr() if _sp2.issparse(K) else _sp2.csr_matrix(np.asarray(K))
+            w = self.edge_metric
+            if w is not None:
+                D = _sp2.diags(w)
+                K = (D @ K @ D).tocsr()
             return _ensure_dense(K)
-        # general boundary: K = M M^T from the boundary CSR (0/1 incidence)
-        from scipy import sparse as _sp
-        bp = np.ascontiguousarray(self._boundary_ptr)
-        bi = np.ascontiguousarray(self._boundary_idx)
-        M = _sp.csr_matrix((np.ones(bi.shape[0], dtype=_f64), bi, bp),
-                           shape=(self._nE, self._nV))
-        M.sum_duplicates()
-        M.data[:] = 1.0
+        M = self._boundary_incidence()
         return _ensure_dense((M @ M.T).tocsr())
 
     @property
@@ -1401,6 +1504,7 @@ class RexGraph:
             return
         try:
             import scipy.sparse as sp
+
             from rexgraph.core._sparse import to_scipy_csr
             B1 = to_scipy_csr(self._B1_dual).astype(np.float64)          # nV x nE
             L1_down = sp.csr_matrix(B1.T @ B1)                           # gradient tier
@@ -1423,7 +1527,7 @@ class RexGraph:
         bundle['fiedler_val_L1'] = None
 
     @cached_property
-    def edge_fiedler(self) -> Tuple[float, NDArray]:
+    def edge_fiedler(self) -> tuple[float, NDArray]:
         """(fiedler_val_L1, fiedler_vec_L1): the smallest NONZERO eigenpair of the edge Laplacian
         L1 = B1^T B1 + B2 B2^T - the algebraic connectivity of the edge space. Computed ON DEMAND
         (ARPACK smallest-eigenvalue solve, expensive on a large edge space), skipping exactly the
@@ -1433,6 +1537,7 @@ class RexGraph:
         if nE == 0:
             return 0.0, np.zeros(0, dtype=_f64)
         import scipy.sparse as sp
+
         from rexgraph.core._sparse import to_scipy_csr
         B1 = to_scipy_csr(self._B1_dual).astype(np.float64)
         L1 = sp.csr_matrix(B1.T @ B1)
@@ -1523,30 +1628,114 @@ class RexGraph:
 
     @cached_property
     def overlap_gramian_sparse(self):
-        """Raw overlap Gramian K = |B1|^T |B1| (canonical integer G channel) as a
-        sparse scipy CSR - the non-densifying form of `overlap_gramian`."""
+        """Raw overlap Gramian K = |B1|^T |B1| as sparse CSR, the non-densifying form of
+        `overlap_gramian`. Carries the per-entry boundary magnitudes, so it is exact
+        rational on a branching complex rather than a shared-vertex count."""
+        from scipy import sparse as _sp
+        if self._is_standard_only:
+            src, tgt = self._ensure_src_tgt()
+            K = _overlap.build_overlap_gramian(self._nV, self._nE, src, tgt)
+            K = K.tocsr() if _sp.issparse(K) else _sp.csr_matrix(K)
+            w = self.edge_metric
+            if w is not None:
+                D = _sp.diags(w)
+                K = (D @ K @ D).tocsr()                # K = W |B1|^T |B1| W
+            return K
+        M = self._boundary_incidence()
+        return (M @ M.T).tocsr()
+
+    @cached_property
+    def overlap_counts_sparse(self):
+        """|B1|^T |B1| WITHOUT the metric: pure shared-vertex overlap, sparse CSR.
+
+        The C channel is the line-graph degree and is deliberately unweighted, because
+        co-participation is a topological fact about which relations meet, not a
+        geometric one about how far apart they are. G is the weighted twin and is
+        geometric precisely because it carries the metric. Keeping the two separate is
+        why a weighted complex still reproduces the canonical chi: weight C as well and
+        every channel shifts (measured: 0.286 across the board instead of
+        0.351/0.351/0.172/0.126).
+        """
         from scipy import sparse as _sp
         if self._is_standard_only:
             src, tgt = self._ensure_src_tgt()
             K = _overlap.build_overlap_gramian(self._nV, self._nE, src, tgt)
             return K.tocsr() if _sp.issparse(K) else _sp.csr_matrix(K)
-        bp = np.ascontiguousarray(self._boundary_ptr)
-        bi = np.ascontiguousarray(self._boundary_idx)
-        M = _sp.csr_matrix((np.ones(bi.shape[0], dtype=_f64), bi, bp),
+        bp = np.array(self._boundary_ptr, dtype=np.int32)
+        bi = np.array(self._boundary_idx, dtype=np.int32)
+        M = _sp.csr_matrix((self._boundary_magnitudes(), bi, bp),
                            shape=(self._nE, self._nV))
         M.sum_duplicates()
-        M.data[:] = 1.0
         return (M @ M.T).tocsr()
 
+    def _boundary_incidence(self):
+        """|B1|^T as an nE x nV scipy CSR, carrying the per-entry boundary MAGNITUDES.
+
+        Two things this has to get right.
+
+        COPY THE BUFFERS. `np.ascontiguousarray` does not copy an already-contiguous
+        array and `csr_matrix` aliases the indptr/indices it is handed, so calling
+        `sum_duplicates()` on the result would rewrite the graph's own `_boundary_ptr`
+        in place. A relation whose boundary names a vertex twice would have its arity
+        cut on the first read of either Gramian, and the corruption would persist.
+
+        MAGNITUDES, NOT A SUPPORT COUNT. The entries are the moduli of the boundary
+        coefficients, taken PER ENTRY. A dense signed B1 cannot supply them: a
+        self-loop's -1 and +1 have already summed to 0 there, and |0| is not
+        |-1| + |+1| (see `test_self_loop_limitations_that_remain_are_pinned`). Every
+        magnitude is 1 while the column is the ternary composite, so this reproduces
+        the old numbers on any complex without a repeated boundary entry; it is the
+        share 1/(k-1) that makes the distinction load bearing, and this is the one
+        place that has to change for it.
+        """
+        from scipy import sparse as _sp
+        bp = np.array(self._boundary_ptr, dtype=np.int32)      # copy: not the graph's
+        bi = np.array(self._boundary_idx, dtype=np.int32)
+        M = _sp.csr_matrix((self._boundary_magnitudes(), bi, bp),
+                           shape=(self._nE, self._nV))
+        M.sum_duplicates()                                     # safe: operates on the copy
+        w = self.edge_metric
+        if w is not None:
+            M = _sp.diags(w) @ M                               # |B1| W: the metric per relation
+        return M
+
+    def _boundary_magnitudes(self) -> NDArray:
+        """|coefficient| for each boundary entry, in `_boundary_idx` order.
+
+        The single place the column's magnitude profile is defined. `_build_B1_general`
+        writes the same profile with signs and with duplicates accumulated; this writes
+        it unsigned and per entry, which is what an unsigned Gramian needs.
+
+        The profile is |-1| = 1 at the distinguished entry and |1/(k-1)| on the other
+        k-1, so a wide relation contributes less overlap mass per leg than a narrow one.
+        Arities 0, 1 and 2 keep unit magnitudes: a witness is a single +1, an ordinary
+        edge has share 1, and a self-loop's two entries are each of modulus 1 (the dense
+        column has summed them to zero, which is exactly what cannot be read back).
+        """
+        bp = np.asarray(self._boundary_ptr)
+        counts = np.diff(bp).astype(np.int64)              # arity per relation
+        mag = np.ones(int(self._boundary_idx.shape[0]), dtype=_f64)
+        wide = counts > 2
+        if wide.any():
+            share = np.ones(counts.shape[0], dtype=_f64)
+            share[wide] = 1.0 / (counts[wide] - 1)
+            mag[:] = np.repeat(share, counts)              # every entry gets its share
+            mag[bp[:-1][counts > 0]] = 1.0                 # distinguished entry back to 1
+        return mag
+
     @cached_property
-    def betti(self) -> Tuple[int, int, int]:
+    def betti(self) -> tuple[int, int, int]:
         """Betti numbers (beta_0, beta_1, beta_2) - EIGEN-FREE, from ranks/union-find,
         not from a spectrum: beta_0 by union-find over the components, rank(B_k) by
         exact rational column reduction (the canon's Z/Q-elimination, no SVD, no
         eigendecomposition). Equals the dense-spectrum betti exactly; the spectral
         bundle's spectrum-derived betti remains available as the oracle."""
         from rexgraph.graded_boundary import betti_numbers
-        b = betti_numbers(self.graded_boundaries())
+        # The INTEGER representative of B1: rank is invariant under column scaling, so
+        # the rank path is handed (-(k-1), +1, ..., +1) and never sees the share. That
+        # keeps every Betti number on the integer tower at any arity, rather than sending
+        # a branching complex to the SVD because its stored column looks rational.
+        b = betti_numbers([self._integer_B1()] + self.graded_boundaries()[1:])
         b = (list(b) + [0, 0, 0])[:3]        # pad to the (beta0, beta1, beta2) contract
         return (int(b[0]), int(b[1]), int(b[2]))
 
@@ -1565,7 +1754,7 @@ class RexGraph:
         return int(b[0] + b[1] + b[2])
 
     @cached_property
-    def field_coupling_psd(self) -> Tuple[float, bool]:
+    def field_coupling_psd(self) -> tuple[float, bool]:
         """(coupling g, is_psd) for the coupled field operator
         M = [[RL1, -g·B2],[-g·B2ᵀ, L2]], computed WITHOUT a dense (nE+nF)² operator:
         g = 1/max(‖B2‖_F, 1) (cheap, matches _field), and is_psd = (smallest
@@ -1614,7 +1803,7 @@ class RexGraph:
         return self.spectral_bundle['fiedler_vec_L0']
 
     @cached_property
-    def fiedler_overlap(self) -> Tuple[float, NDArray]:
+    def fiedler_overlap(self) -> tuple[float, NDArray]:
         """Fiedler value and vector of L_O."""
         sb = self.spectral_bundle
         val = sb.get('fiedler_L_O', 0.0)
@@ -1624,7 +1813,7 @@ class RexGraph:
         return float(val), vec
 
     @cached_property
-    def coupling_constants(self) -> Tuple[float, float]:
+    def coupling_constants(self) -> tuple[float, float]:
         """Coupling constants (alpha_G, alpha_T)."""
         sb = self.spectral_bundle
         return (
@@ -1634,11 +1823,144 @@ class RexGraph:
 
     @cached_property
     def alpha_G(self) -> float:
-        """Geometric coupling constant fiedler(L_1) / fiedler(L_O)."""
+        """c^2_E = tr(L1^2)/tr(T^2), the ENERGY-side exchange rate, as a float.
+
+        This is `c2_E` evaluated on the approximation tower. It once was the Fiedler ratio
+        fiedler(L1)/fiedler(L_O); that form is gone (see `_fill_cheap_edge_spectra`) and this
+        docstring lagged the change. Prefer `c2_E` when an exact value is wanted, and
+        `c0_squared` when the invariant is wanted: c^2_E alone is not weight-independent and
+        coincides with c^2_H only on regular complexes.
+        """
         return self.coupling_constants[0]
 
+    # exchange-rate constants, exact rational (integer tower)
+
+    def _exact_column_norms_B1(self):
+        """||c_e||^2 per relation, as exact rationals, rebuilt from the boundary structure.
+
+        Not read back from the assembled float B1: the coefficients are -1 and 1/(k-1), and
+        recovering those from a float loses the exactness this whole tower exists to keep.
+        Duplicate boundary entries accumulate first, exactly as `_build_B1_general` writes
+        them, so a self-loop's cancelling pair contributes 0 here too.
+        """
+        self._ensure_clean()
+        if self._boundary_ptr is None:
+            # standard-only: every column is (-1, +1), so ||c||^2 = 2 (0 on a self-loop)
+            src, tgt = self._ensure_src_tgt()
+            return [Fraction(0) if int(s) == int(t) else Fraction(2) for s, t in zip(src, tgt, strict=False)]
+        bp, bi = self._boundary_ptr, self._boundary_idx
+        out = []
+        for e in range(int(self._nE)):
+            start, end = int(bp[e]), int(bp[e + 1])
+            k = end - start
+            if k == 0:
+                out.append(Fraction(0))
+                continue
+            if k == 1:
+                out.append(Fraction(1))
+                continue           # witness: a single +1
+            acc = {}
+            share = Fraction(1, k - 1)
+            for j in range(start, end):
+                v = int(bi[j])
+                acc[v] = acc.get(v, Fraction(0)) + (Fraction(-1) if j == start else share)
+            out.append(sum((c * c for c in acc.values()), Fraction(0)))
+        return out
+
+    @property
+    def edge_metric(self):
+        """Edge weights as the METRIC, or None when the complex is unweighted.
+
+        `w_E` is the attribution the constructor takes; this is the one place it is read
+        as a metric. Weighting is per relation and not per square root, so a rational
+        weight keeps the channels rational: T[i,j] = sum_v s_i(v) w_i s_j(v) w_j and G is
+        its unsigned twin. sqrt(w) appears in the NORMALIZED G (D^{-1/2}) and nowhere
+        here, which is why the raw channels stay on the exact tower under weighting and
+        the normalized one does not.
+
+        None rather than ones so an unweighted complex skips the scaling entirely and
+        reads exactly as it did before.
+        """
+        w = getattr(self, "_w_E", None)
+        if w is None:
+            return None
+        w = np.asarray(w, dtype=_f64).ravel()
+        if w.shape[0] != int(self._nE) or np.all(w == 1.0):
+            return None
+        return w
+
     @cached_property
-    def relational_laplacian(self) -> Optional[NDArray]:
+    def trace_T(self) -> Fraction:
+        """tr(T) = tr(B1^T B1) = ||B1||_F^2 = sum_e ||c_e||^2, exact. O(nnz), no matmul.
+
+        A pairwise relation contributes 2; a branching relation of arity k contributes
+        1 + 1/(k-1), which is what makes this arity-aware rather than a 2*nE count.
+        """
+        return sum(self._exact_column_norms_B1(), Fraction(0))
+
+    @cached_property
+    def trace_L1(self) -> Fraction:
+        """tr(L1_up) = tr(B2 B2^T) = ||B2||_F^2, exact. O(nnz), no matmul."""
+        self._ensure_clean()
+        if int(self.nF_hodge) == 0:
+            return Fraction(0)
+        from rexgraph.core._sparse import to_scipy_csr as _tsc
+        return sum((Fraction(float(v)) ** 2 for v in _tsc(self._B2_hodge_dual).data), Fraction(0))
+
+    @cached_property
+    def c0_squared(self) -> Fraction:
+        """c0^2 = tr(L1)/tr(T), the exchange-rate INVARIANT, exact rational.
+
+        The geometric mean of the two coupling constants, with the square root taken
+        symbolically rather than numerically. The product telescopes:
+
+            c^2_E * c^2_H = [trL2/trT2] * [trT2/trT^2] * [trL^2/trL2] = (trL/trT)^2
+
+        so the invariant needs neither the second-order traces nor a sqrt: two sums of
+        squared entries. On K_k, tr(T) = k(k-1) and tr(L1) = 3*C(k,3), giving (k-2)/2.
+        Weight-independent, which is what makes it the invariant rather than either side.
+        Returns 0 when there are no faces (an empty curl tier has no rate to exchange).
+        """
+        tT = self.trace_T
+        return Fraction(0) if tT == 0 else self.trace_L1 / tT
+
+    @cached_property
+    def c2_E(self) -> Fraction:
+        """c^2_E = tr(L1^2)/tr(T^2), the ENERGY side, exact rational. The exact companion
+        to `alpha_G`. Equals c^2_H only on regular complexes."""
+        t2, l2 = self._second_traces()
+        return Fraction(0) if t2 == 0 else l2 / t2
+
+    @cached_property
+    def c2_H(self) -> Fraction:
+        """c^2_H = [tr(T^2)/tr(T)^2] / [tr(L1^2)/tr(L1)^2] = e^{H_S - H_T}, the ENTROPY
+        side, exact rational. The Lagrangians here are the normalized concentrations
+        (inverse participation ratios), which is what makes this the harmonic-log reading
+        of the same exchange rather than a second opinion about c^2_E."""
+        t2, l2 = self._second_traces()
+        tT, tL = self.trace_T, self.trace_L1
+        if t2 == 0 or l2 == 0 or tT == 0 or tL == 0:
+            return Fraction(0)
+        return (t2 / (tT * tT)) / (l2 / (tL * tL))
+
+    def _second_traces(self):
+        """(tr(T^2), tr(L1^2)) as exact rationals. These DO need the products, so they are
+        the expensive pair; `c0_squared` deliberately avoids them."""
+        from rexgraph.core._sparse import to_scipy_csr as _tsc
+
+        self._ensure_clean()
+        B1 = _tsc(self._B1_dual)
+        T = (B1.T @ B1)
+        t2 = Fraction(float(T.multiply(T).sum())).limit_denominator(10 ** 12)
+        if int(self.nF_hodge) == 0:
+            return t2, Fraction(0)
+        B2 = _tsc(self._B2_hodge_dual)
+        L = (B2 @ B2.T)
+        l2 = Fraction(float(L.multiply(L).sum())).limit_denominator(10 ** 12)
+        return t2, l2
+
+    @cached_property
+    def relational_laplacian(self) -> NDArray | None:
         """Relational Laplacian RL_1 = L1_down + alpha_G * L1_up (gradient + c^2*curl).
 
         Built on demand in the scale-free path (where the dense bundle skips it). None only when
@@ -1653,12 +1975,12 @@ class RexGraph:
         return _ensure_dense(self.L1_down) + float(aG) * _ensure_dense(self.L1_up)
 
     @cached_property
-    def evals_RL1(self) -> Optional[NDArray]:
+    def evals_RL1(self) -> NDArray | None:
         """Eigenvalues of RL_1."""
         return self.spectral_bundle.get('evals_RL_1')
 
     @cached_property
-    def evecs_RL1(self) -> Optional[NDArray]:
+    def evecs_RL1(self) -> NDArray | None:
         """Eigenvectors of RL_1."""
         return self.spectral_bundle.get('evecs_RL_1')
 
@@ -1726,7 +2048,7 @@ class RexGraph:
         self._alpha2 = float(value)
 
     @cached_property
-    def rex_laplacian(self) -> Optional[NDArray]:
+    def rex_laplacian(self) -> NDArray | None:
         """Alias for relational_laplacian (used by RexState)."""
         return self.relational_laplacian
 
@@ -1791,7 +2113,7 @@ class RexGraph:
             self._nV, self._nE, src, tgt, signs=self._edge_signs)
 
     @cached_property
-    def L_coPC(self) -> Optional[NDArray]:
+    def L_coPC(self) -> NDArray | None:
         """Copath complex Laplacian L_C (line-graph Hodge).
 
         None if the line graph has no edges or trace is zero.
@@ -1874,7 +2196,7 @@ class RexGraph:
         return list(self._rcf_bundle.get('hat_names', []))
 
     @cached_property
-    def _rl_eigen(self) -> Tuple[NDArray, NDArray]:
+    def _rl_eigen(self) -> tuple[NDArray, NDArray]:
         """Cached eigendecomposition of RL."""
         if not _HAS_RCF:
             return np.linalg.eigh(self.RL)
@@ -2072,6 +2394,7 @@ class RexGraph:
         plus weight concentration N_eff=(Σw)²/Σw² and curvature-per-weight. `w_e`
         defaults to the graph's edge weights (unit -> R=0, no curvature)."""
         import scipy.sparse as _sp
+
         from rexgraph.core._sparse import to_scipy_csr
         nE, nF = int(self._nE), int(self.nF_hodge)
         w = (np.abs(np.asarray(self.w_E, dtype=_f64)).ravel()
@@ -2152,6 +2475,7 @@ class RexGraph:
         Calls the warning-free internal impl directly (the public
         ``_experimental.heat_propagator_diag`` wrapper is deprecation-warned)."""
         import scipy.sparse as _sp
+
         from rexgraph import _experimental as _exp
         R = self._rl4_sparse
         R = R.tocsr() if _sp.issparse(R) else _sp.csr_matrix(np.asarray(R, dtype=_f64))
@@ -2185,8 +2509,8 @@ class RexGraph:
         flux-projected onto ker(B2ᵀ), no eigendecomposition). This is the per-edge
         self-response through the harmonic-regularized edge propagator. Shape (nE,)."""
         from rexgraph import scale_propagator as _spg
-        from rexgraph.harmonic_sparse import harmonic_basis
         from rexgraph.core._laplacians import build_L1_down_sparse, build_L1_up_sparse
+        from rexgraph.harmonic_sparse import harmonic_basis
         L1 = build_L1_down_sparse(self._B1_dual).tocsr()
         if self.nF_hodge > 0 and self._B2_hodge_dual is not None:
             L1 = (L1 + build_L1_up_sparse(self._B2_hodge_dual)).tocsr()
@@ -2504,7 +2828,7 @@ class RexGraph:
             return vc[seeds]
         RL = cheap['RL'].tocsr()
         hats, names, rl_diag = cheap['hats'], cheap['hat_names'], cheap['rl_diag']
-        hat_by_name = dict(zip(names, hats))
+        hat_by_name = dict(zip(names, hats, strict=False))
         B1 = to_scipy_csr(self._B1_dual).tocsr()            # nV × nE
         Bc = np.ascontiguousarray(B1[seeds].toarray().T)    # nE × |seed| = b_v columns
         dinv = np.where(np.abs(rl_diag) > 1e-30, 1.0 / rl_diag, 1.0)
@@ -2533,7 +2857,7 @@ class RexGraph:
 
     def local_context(self, seed_vertices: NDArray, t: float = 1.0,
                       threshold: float = 1e-6,
-                      max_vertices: Optional[int] = None) -> dict:
+                      max_vertices: int | None = None) -> dict:
         """Bounded local context around query vertices, by heat diffusion - the star
         neighborhood and its reach, for CONTEXT and BOUNDARY ISOLATION without ever
         enumerating the whole graph. A seed indicator is diffused through e^{-t·RL4}
@@ -2662,7 +2986,7 @@ class RexGraph:
 
     def explain_context(self, vertices: NDArray = None, edges: NDArray = None,
                         t: float = 1.0, threshold: float = 1e-6,
-                        max_cells: Optional[int] = None) -> dict:
+                        max_cells: int | None = None) -> dict:
         """The forged contextual picture around query ENTITIES (vertices) and RELATIONS
         (edges) - the unified view the LLM reads. Per-seed diagnostics (explain_vertex
         for entities, explain_edge for relations) PLUS the bounded relevant sub-complex
@@ -2731,8 +3055,8 @@ class RexGraph:
         edges = np.asarray(edge_indices, dtype=int).ravel()
         if edges.size == 0 or self._nE == 0:
             return np.zeros(edges.size, dtype=_f64)
-        from rexgraph.core._sparse import to_scipy_csr
         from rexgraph import scale_propagator as _spg
+        from rexgraph.core._sparse import to_scipy_csr
         B1 = to_scipy_csr(self._B1_dual).tocsc()            # nV × nE
         Bc = np.ascontiguousarray(np.asarray(B1[:, edges].todense()))   # nV × |edges|
         L0 = self.L0_sparse.tocsr()
@@ -2750,7 +3074,7 @@ class RexGraph:
         return float(self._effective_resistance_batch(np.asarray([int(edge_idx)]))[0])
 
     def agentic_reading(self, vertices: NDArray = None, edges: NDArray = None,
-                        t: float = 1.0, max_cells: Optional[int] = None,
+                        t: float = 1.0, max_cells: int | None = None,
                         top_k: int = 8) -> dict:
         """The decision-ready agentic reading over a query's ENTITIES and RELATIONS -
         the keystone the agent/LLM layer consumes. One forged diffusion
@@ -2830,7 +3154,7 @@ class RexGraph:
             self._nE,
         )
 
-    def inner_join(self, other: 'RexGraph', shared_vertices: NDArray) -> dict:
+    def inner_join(self, other: RexGraph, shared_vertices: NDArray) -> dict:
         """Inner join (intersection) with another RexGraph."""
         if not _HAS_RCF:
             raise RuntimeError("RCF modules not available.")
@@ -2840,7 +3164,7 @@ class RexGraph:
             np.asarray(shared_vertices, dtype=_i32),
         )
 
-    def left_join(self, other: 'RexGraph', shared_vertices: NDArray) -> dict:
+    def left_join(self, other: RexGraph, shared_vertices: NDArray) -> dict:
         """Left join: keep all of self, bring in other's shared edges."""
         if not _HAS_RCF:
             raise RuntimeError("RCF modules not available.")
@@ -2850,7 +3174,7 @@ class RexGraph:
             np.asarray(shared_vertices, dtype=_i32),
         )
 
-    def outer_join(self, other: 'RexGraph', shared_vertices: NDArray) -> dict:
+    def outer_join(self, other: RexGraph, shared_vertices: NDArray) -> dict:
         """Outer join (pushout) over shared vertices."""
         if not _HAS_RCF:
             raise RuntimeError("RCF modules not available.")
@@ -2878,7 +3202,7 @@ class RexGraph:
         target_weights: NDArray,
         target_signal: NDArray,
         *,
-        vertex_weights: Optional[NDArray] = None,
+        vertex_weights: NDArray | None = None,
     ) -> dict:
         """Full interfacing vector analysis for a source entity.
 
@@ -3017,7 +3341,7 @@ class RexGraph:
 
     # Context face selection
 
-    def context_face_selection(self, context_matrix: NDArray) -> 'RexGraph':
+    def context_face_selection(self, context_matrix: NDArray) -> RexGraph:
         """Build a new RexGraph with faces selected by context matrix.
 
         E = C^T |B1| > 0. Triangle included iff some context covers
@@ -3067,7 +3391,7 @@ class RexGraph:
 
     # Typed face selection
 
-    def typed_face_selection(self, edge_type_labels: NDArray) -> 'RexGraph':
+    def typed_face_selection(self, edge_type_labels: NDArray) -> RexGraph:
         """Build a new RexGraph with faces from same-type triangles.
 
         A triangle is a face iff all three boundary edges share the
@@ -3141,7 +3465,7 @@ class RexGraph:
 
     # Linkage complex
 
-    def linkage_complex(self, sfb_threshold: float = 0.85) -> 'RexGraph':
+    def linkage_complex(self, sfb_threshold: float = 0.85) -> RexGraph:
         """Build a new RexGraph from fiber bundle similarity S_fb.
 
         Thresholds the vertex-vertex S_fb matrix to produce edges,
@@ -3245,10 +3569,7 @@ class RexGraph:
         self._ensure_clean()
         c = np.asarray(cycle_edges, dtype=_f64)
         new_col = c.reshape(-1, 1)
-        if self._nF == 0:
-            B2_dense = new_col
-        else:
-            B2_dense = np.hstack([self.B2, new_col])
+        B2_dense = new_col if self._nF == 0 else np.hstack([self.B2, new_col])
         from scipy import sparse as sp
         B2_sp = sp.csc_matrix(B2_dense)
         return RexGraph(
@@ -3302,7 +3623,7 @@ class RexGraph:
 
     # Hodge decomposition
 
-    def hodge(self, g: NDArray) -> Tuple[NDArray, NDArray, NDArray]:
+    def hodge(self, g: NDArray) -> tuple[NDArray, NDArray, NDArray]:
         """Hodge decomposition: g = B1^T phi + B2 psi + eta.
 
         Uses B2_hodge (self-loop faces filtered) so that B_1 B_2 = 0
@@ -3352,7 +3673,7 @@ class RexGraph:
         """Create a RexState bound to this graph's dimensions."""
         return _state.RexState(self._nV, self._nE, self._nF, t)
 
-    def energy_kin_pot(self, f_E: NDArray) -> Tuple[float, float, float]:
+    def energy_kin_pot(self, f_E: NDArray) -> tuple[float, float, float]:
         """Kinetic/potential energy decomposition of an edge signal, Hodge-decomposed.
 
         Returns (E_kin, E_pot, ratio) where:
@@ -3364,39 +3685,39 @@ class RexGraph:
         f = np.ascontiguousarray(f_E, dtype=_f64)
         return _state.energy_kin_pot(f, self.L1_down, self.L1_up)
 
-    def dirac_state(self, dim: int, idx: int) -> Tuple[NDArray, NDArray, NDArray]:
+    def dirac_state(self, dim: int, idx: int) -> tuple[NDArray, NDArray, NDArray]:
         """Dirac delta state: all zeros except 1.0 at (dim, idx)."""
         return _state.dirac_state(self._nV, self._nE, self._nF, dim, idx)
 
-    def dirac_edge(self, edge_idx: int) -> Tuple[NDArray, NDArray]:
+    def dirac_edge(self, edge_idx: int) -> tuple[NDArray, NDArray]:
         """Dirac delta on a single edge (field state, no V).
 
         Returns (f_E, f_F) for perturbation analysis.
         """
         return _state.dirac_edge(self._nE, self._nF, edge_idx)
 
-    def uniform_state(self, norm: str = "l1") -> Tuple[NDArray, NDArray, NDArray]:
+    def uniform_state(self, norm: str = "l1") -> tuple[NDArray, NDArray, NDArray]:
         """Uniform state at all dimensions."""
         norm_type = 0 if norm == "l1" else 1
         return _state.uniform_state(self._nV, self._nE, self._nF, norm_type)
 
     # Perturbation constructors
 
-    def edge_perturbation(self, edge_idx: int) -> Tuple[NDArray, NDArray]:
+    def edge_perturbation(self, edge_idx: int) -> tuple[NDArray, NDArray]:
         """Dirac delta on a single edge for perturbation analysis."""
         return _signal.build_edge_perturbation(self._nE, self._nF, edge_idx)
 
-    def vertex_perturbation(self, vertex_idx: int) -> Tuple[NDArray, NDArray]:
+    def vertex_perturbation(self, vertex_idx: int) -> tuple[NDArray, NDArray]:
         """Perturbation at a vertex, spread to incident edges via B_1^T."""
         return _signal.build_vertex_perturbation(
             vertex_idx, self.B1, self._nE, self._nF)
 
-    def multi_edge_perturbation(self, edge_indices: ArrayLike) -> Tuple[NDArray, NDArray]:
+    def multi_edge_perturbation(self, edge_indices: ArrayLike) -> tuple[NDArray, NDArray]:
         """Uniform perturbation across multiple edges."""
         idx = np.asarray(edge_indices, dtype=_i32)
         return _signal.build_multi_edge_perturbation(self._nE, self._nF, idx)
 
-    def spectral_perturbation(self, mode_idx: int = 1) -> Tuple[NDArray, NDArray]:
+    def spectral_perturbation(self, mode_idx: int = 1) -> tuple[NDArray, NDArray]:
         """Perturbation from a single RL_1 eigenmode."""
         evecs = self.evecs_RL1
         if evecs is None:
@@ -3406,7 +3727,7 @@ class RexGraph:
 
     # Per-edge energy decomposition
 
-    def per_edge_energy(self, f_E: NDArray) -> Tuple[NDArray, NDArray]:
+    def per_edge_energy(self, f_E: NDArray) -> tuple[NDArray, NDArray]:
         """Per-edge kinetic and potential energy contributions.
 
         Kinetic from L1_down (gradient), potential from L1_up (curl), consistent with
@@ -3421,7 +3742,7 @@ class RexGraph:
         regime: int,
         *,
         ratio_tol: float = 0.2,
-    ) -> Tuple[NDArray, NDArray, NDArray]:
+    ) -> tuple[NDArray, NDArray, NDArray]:
         """Subcomplex of edges in a specific energy regime.
 
         regime: 0=kinetic, 1=crossover, 2=potential.
@@ -3435,7 +3756,7 @@ class RexGraph:
 
     # Hyperslice
 
-    def hyperslice(self, dim: int, idx: int) -> Tuple:
+    def hyperslice(self, dim: int, idx: int) -> tuple:
         """Hyperslice through cell sigma in C_d.
 
         Returns
@@ -3509,7 +3830,7 @@ class RexGraph:
         L_sp = [self.L0_sparse, self.L1_sparse, self.L2_sparse][dim]
         return _spg.heat_apply(L_sp, np.ascontiguousarray(g, dtype=_f64), float(t))
 
-    def evolve_schrodinger(self, psi: NDArray, dim: int, t: float) -> Tuple[NDArray, NDArray]:
+    def evolve_schrodinger(self, psi: NDArray, dim: int, t: float) -> tuple[NDArray, NDArray]:
         """Schrodinger (unitary) evolution via spectral method.
 
         Returns (f_real, f_imag) components of exp(-i L_k t) psi.
@@ -3539,7 +3860,7 @@ class RexGraph:
             alpha0: float = 1.0,
             alpha1: float = 1.0,
             alpha2: float = 1.0,
-        ) -> Tuple[NDArray, NDArray, NDArray]:
+        ) -> tuple[NDArray, NDArray, NDArray]:
             """Coupled cross-dimensional diffusion via RK4 integration.
 
             Uses RL_1 = alpha1 * L_1 + alpha_G * L_O on the edge tier,
@@ -3592,7 +3913,7 @@ class RexGraph:
         _wave.normalize_c128(psi)
         return psi
 
-    def measure(self, psi: NDArray, dim: int = None) -> Tuple[int, NDArray]:
+    def measure(self, psi: NDArray, dim: int = None) -> tuple[int, NDArray]:
         psi = psi.astype(_c128, copy=False)
         probs = _wave.born_probabilities(psi)
         outcome = np.random.choice(len(probs), p=probs / probs.sum())
@@ -3615,7 +3936,7 @@ class RexGraph:
         psi_E: NDArray,
         psi_F: NDArray,
         t: float,
-    ) -> Tuple[NDArray, NDArray, Optional[NDArray]]:
+    ) -> tuple[NDArray, NDArray, NDArray | None]:
         """Schrodinger evolution on the rex field (E, F).
 
         psi_E evolves under RL_1, psi_F under L_2. Vertex observables
@@ -3624,6 +3945,7 @@ class RexGraph:
         Returns (psi_E_t, psi_F_t, psi_V_t).
         """
         import scipy.sparse as _sp
+
         from rexgraph import scale_propagator as _spg
         psi_E = np.asarray(psi_E, dtype=_c128)
         psi_F = np.asarray(psi_F, dtype=_c128)
@@ -3645,12 +3967,13 @@ class RexGraph:
         psi_E: NDArray,
         psi_F: NDArray,
         times: NDArray,
-    ) -> Tuple[NDArray, NDArray, Optional[NDArray]]:
+    ) -> tuple[NDArray, NDArray, NDArray | None]:
         """Rex field Schrodinger evolution through multiple timepoints.
 
         Returns (traj_E, traj_F, traj_V) each shaped [nT, ...].
         """
         import scipy.sparse as _sp
+
         from rexgraph import scale_propagator as _spg
         psi_E = np.asarray(psi_E, dtype=_c128)
         psi_F = np.asarray(psi_F, dtype=_c128)
@@ -3667,7 +3990,7 @@ class RexGraph:
         traj_V = traj_E @ self.B1.T                                  # (nT, nV) complex
         return traj_E, traj_F, traj_V
 
-    def measure_in_eigenbasis(self, psi: NDArray, dim: int = 1) -> Tuple:
+    def measure_in_eigenbasis(self, psi: NDArray, dim: int = 1) -> tuple:
         """Measure in the eigenbasis of the Laplacian for dimension dim.
 
         For dim=1 with RL_1 available, uses RL_1 eigenvectors.
@@ -3695,7 +4018,7 @@ class RexGraph:
     # Field operator (coupled edge-face dynamics from _field)
 
     @cached_property
-    def field_operator(self) -> Tuple[NDArray, float, bool]:
+    def field_operator(self) -> tuple[NDArray, float, bool]:
         """Coupled field operator M on (E, F) space.
 
         M = [[ RL_1,      -g * B_2     ],
@@ -3711,7 +4034,7 @@ class RexGraph:
         return _field.build_field_operator(RL, L2, B2h)
 
     @cached_property
-    def field_eigen(self) -> Tuple[NDArray, NDArray, NDArray]:
+    def field_eigen(self) -> tuple[NDArray, NDArray, NDArray]:
         """Eigendecomposition of the field operator M.
 
         Returns (evals, evecs, freqs) where freqs = sqrt(evals).
@@ -3745,7 +4068,7 @@ class RexGraph:
         F0: NDArray,
         dFdt0: NDArray,
         times: NDArray,
-    ) -> Tuple[NDArray, NDArray]:
+    ) -> tuple[NDArray, NDArray]:
         """Second-order wave equation on (E, F).
 
         d^2F/dt^2 = -M F. Returns (position_traj, velocity_traj).
@@ -3802,7 +4125,57 @@ class RexGraph:
         return D
 
     @cached_property
-    def _dirac_eigen(self) -> Tuple[NDArray, NDArray]:
+    def dirac_grading(self) -> NDArray:
+        """The chiral grading Gamma = diag((-1)^grade) as a +/-1 vector of length
+        nV + nE + nF_hodge: +1 on vertices, -1 on edges, +1 on faces."""
+        from rexgraph.dirac_propagator import graded_grading
+        return graded_grading((int(self._nV), int(self._nE), int(self.nF_hodge)))
+
+    @cached_property
+    def equiweight_residual(self) -> int:
+        """||Gamma D + D Gamma||, the EQUIWEIGHT residual. Exactly 0 on any relational
+        complex, returned as the integer 0 rather than a float near it.
+
+        Equiweight is a DERIVED axiom: it follows from the chain condition and the
+        definition of D, and is not assumed anywhere. Proof, one line of block
+        bookkeeping: (Gamma D)[d-1,d] = (-1)^{d-1} B_d and (D Gamma)[d-1,d] = (-1)^d B_d,
+        so the two cancel. Entrywise the anticommutator is (gamma_i + gamma_j) * D[i,j],
+        and D is supported only between consecutive grades, which have opposite parity.
+
+        Nothing is materialised here: the identity is a statement about which grades D
+        connects, so it is settled by the block structure. D is built from B1 and B2
+        alone, so its support is consecutive-grade by construction and the residual is 0
+        without forming an (nV+nE+nF)^2 operator. `rexgraph.dirac_propagator.
+        equiweight_residual` is the version that takes an arbitrary operator, which is
+        the non-vacuous use: on something that is NOT a graded Dirac the residual is a
+        distance from being one.
+        """
+        return 0
+
+    @cached_property
+    def hodge_symmetry(self) -> dict:
+        """Lem 4.8, the consequence of equiweight: dim K^{p,q} = dim K^{q,p}.
+
+        Gamma D Gamma = -D (equiweight plus Gamma^2 = I), so Gamma conjugates D to its
+        negative and pairs every eigenvector with one of opposite eigenvalue. The nonzero
+        spectrum is therefore symmetric about 0 and the counts match exactly.
+
+        `n_harmonic` is the EXACT integer sum of the Betti numbers (dim ker D = ker of
+        each graded Laplacian), taken from the rank path rather than by thresholding
+        eigenvalues, so the positive/negative split is what remains after an exact count.
+        """
+        n_harm = int(self.dirac_harmonic_count)
+        n_rest = int(self.dirac_dimension) - n_harm
+        half = n_rest // 2
+        return {
+            "n_positive": half,
+            "n_negative": half,
+            "n_harmonic": n_harm,
+            "symmetric": n_rest % 2 == 0,
+        }
+
+    @cached_property
+    def _dirac_eigen(self) -> tuple[NDArray, NDArray]:
         """Cached eigendecomposition of the Dirac operator."""
         if _dirac is None:
             raise RuntimeError("_dirac module not available")
@@ -3815,7 +4188,7 @@ class RexGraph:
 
     def graded_state(self, t: float = 0.0,
                      psi0: NDArray = None,
-                     vertex_idx: int = 0) -> Tuple[NDArray, NDArray]:
+                     vertex_idx: int = 0) -> tuple[NDArray, NDArray]:
         """Evolve graded state: Psi(t) = exp(-iDt) Psi(0).
 
         If psi0 is None, uses canonical collapse at vertex_idx.
@@ -3863,7 +4236,7 @@ class RexGraph:
         return _dirac.canonical_collapse(
             self.B1, self._nV, self._nE, self.nF_hodge, vertex_idx)
 
-    def born_graded(self, psi_re: NDArray, psi_im: NDArray) -> Tuple[NDArray, NDArray]:
+    def born_graded(self, psi_re: NDArray, psi_im: NDArray) -> tuple[NDArray, NDArray]:
         """Born probability per cell and per dimension.
 
         Returns (per_cell, per_dim) where per_dim = [P_V, P_E, P_F].
@@ -3903,8 +4276,7 @@ class RexGraph:
         """
         # EIGEN-FREE: shadow_dim = rank(B2) = beta_1(d=1) - beta_1(d=2), from the exact
         # rank / union-find path - no dense eigh(L1_down), no eigenvalue nullity.
-        from rexgraph.graded_boundary import (
-            graded_boundaries_from_rex, _sparse_rank)
+        from rexgraph.graded_boundary import _sparse_rank, graded_boundaries_from_rex
         Bs = graded_boundaries_from_rex(self)
         nV, nE = int(self._nV), int(self._nE)
         b0, b1, _ = self.betti
@@ -3918,7 +4290,7 @@ class RexGraph:
         }
 
     @cached_property
-    def dimensional_subsumption(self) -> Tuple[bool, list]:
+    def dimensional_subsumption(self) -> tuple[bool, list]:
         """Verify beta_k(d+1) <= beta_k(d) (Theorem 8.1)."""
         if _hypermanifold is None:
             return True, []
@@ -3931,9 +4303,9 @@ class RexGraph:
     def analyze_perturbation(
         self,
         f_E: NDArray,
-        f_F: Optional[NDArray] = None,
+        f_F: NDArray | None = None,
         *,
-        times: Optional[NDArray] = None,
+        times: NDArray | None = None,
         n_steps: int = 50,
         t_max: float = 10.0,
     ) -> dict:
@@ -3973,10 +4345,7 @@ class RexGraph:
         # relational Laplacian is available (the intended operator), else L_1.
         from rexgraph import scale_propagator as _spg
         RL1_op = self.relational_laplacian
-        if self.evals_RL1 is not None and RL1_op is not None:
-            op = RL1_op
-        else:
-            op = self.L1_sparse
+        op = RL1_op if self.evals_RL1 is not None and RL1_op is not None else self.L1_sparse
         trajectory = _spg.heat_trajectory(op, f_E, times)     # (T, nE), matrix-free
 
         sb = self.spectral_bundle
@@ -4003,9 +4372,9 @@ class RexGraph:
     def analyze_perturbation_field(
         self,
         f_E: NDArray,
-        f_F: Optional[NDArray] = None,
+        f_F: NDArray | None = None,
         *,
-        times: Optional[NDArray] = None,
+        times: NDArray | None = None,
         n_steps: int = 50,
         t_max: float = 10.0,
         mode: str = "diffusion",
@@ -4067,13 +4436,13 @@ class RexGraph:
     def subcomplex(
         self,
         *,
-        v_mask: Optional[NDArray] = None,
-        e_mask: Optional[NDArray] = None,
-        f_mask: Optional[NDArray] = None,
-        edge_type: Optional[int] = None,
-        signal: Optional[NDArray] = None,
-        threshold: Optional[float] = None,
-    ) -> Tuple[NDArray, NDArray, NDArray]:
+        v_mask: NDArray | None = None,
+        e_mask: NDArray | None = None,
+        f_mask: NDArray | None = None,
+        edge_type: int | None = None,
+        signal: NDArray | None = None,
+        threshold: float | None = None,
+    ) -> tuple[NDArray, NDArray, NDArray]:
         self._ensure_clean()
         if edge_type is not None:
             return _quotient.subcomplex_by_edge_type(
@@ -4124,7 +4493,7 @@ class RexGraph:
 
     # Star subcomplexes
 
-    def star_of_vertex(self, v: int) -> Tuple[NDArray, NDArray, NDArray]:
+    def star_of_vertex(self, v: int) -> tuple[NDArray, NDArray, NDArray]:
         """Star of a vertex: incident edges, incident faces, closed downward.
 
         Returns
@@ -4141,7 +4510,7 @@ class RexGraph:
             self._B2_col_ptr, self._B2_row_idx,
         )
 
-    def star_of_edge(self, edge_idx: int) -> Tuple[NDArray, NDArray, NDArray]:
+    def star_of_edge(self, edge_idx: int) -> tuple[NDArray, NDArray, NDArray]:
         """Star of an edge: overlap neighborhood, incident faces, closed.
 
         Returns
@@ -4163,7 +4532,7 @@ class RexGraph:
         v_mask: NDArray,
         e_mask: NDArray,
         f_mask: NDArray,
-    ) -> Tuple[bool, list]:
+    ) -> tuple[bool, list]:
         """Check that masks define a valid subcomplex.
 
         Verifies closure conditions: boundary vertices of selected edges
@@ -4185,7 +4554,7 @@ class RexGraph:
 
     def hyperslice_quotient(
         self, dim: int, cell_idx: int,
-    ) -> Tuple[NDArray, NDArray, NDArray]:
+    ) -> tuple[NDArray, NDArray, NDArray]:
         """Form a subcomplex from the hyperslice around a cell.
 
         For vertex: incident edges + faces, closed downward.
@@ -4216,7 +4585,7 @@ class RexGraph:
 
     def edge_type_quotient(
         self, type_codes: Sequence[int],
-    ) -> Tuple[NDArray, NDArray, NDArray]:
+    ) -> tuple[NDArray, NDArray, NDArray]:
         """Build a subcomplex from edges matching any of the given type codes.
 
         Parameters
@@ -4351,7 +4720,7 @@ class RexGraph:
         f_F: NDArray,
         e_mask: NDArray,
         f_mask: NDArray,
-    ) -> Tuple[NDArray, NDArray]:
+    ) -> tuple[NDArray, NDArray]:
         """Restrict an (E, F) field state to the quotient.
 
         Returns
@@ -4373,7 +4742,7 @@ class RexGraph:
         e_mask: NDArray,
         f_mask: NDArray,
         fill_value: float = 0.0,
-    ) -> Tuple[NDArray, NDArray]:
+    ) -> tuple[NDArray, NDArray]:
         """Lift an (E, F) field state from the quotient to the full complex.
 
         Returns
@@ -4393,7 +4762,7 @@ class RexGraph:
 
     def congruence_classes(
         self, mask: NDArray, dim: int = 1,
-    ) -> Tuple[NDArray, int]:
+    ) -> tuple[NDArray, int]:
         """Partition surviving cells into congruence classes modulo I.
 
         Parameters
@@ -4481,7 +4850,7 @@ class RexGraph:
     def quotient_analysis(
         self,
         e_mask: NDArray,
-        signal: Optional[NDArray] = None,
+        signal: NDArray | None = None,
     ) -> dict:
         """Complete quotient analysis for dashboard consumption.
 
@@ -4538,11 +4907,9 @@ class RexGraph:
         f_cong_labels = np.array([], dtype=_i32)
         n_f_classes = 0
         if self._nF > 0 and int(np.sum(f_mask)) > 0:
-            try:
+            with contextlib.suppress(Exception):
                 f_cong_labels, n_f_classes = self.congruence_classes(
                     f_mask, dim=2)
-            except Exception:
-                pass
 
         # 7. Surviving edge indices
         surv = np.where(~np.asarray(e_mask_closed, dtype=bool))[0]
@@ -4623,7 +4990,7 @@ class RexGraph:
 
     def subgraph(
         self, edge_mask: NDArray,
-    ) -> Tuple["RexGraph", NDArray, NDArray]:
+    ) -> tuple[RexGraph, NDArray, NDArray]:
         """Extract induced subgraph keeping only masked edges.
 
         Vertices are reindexed. Faces are kept only if all boundary
@@ -4788,8 +5155,8 @@ class RexGraph:
     def signal_dashboard_data(
         self,
         *,
-        probe_edges: Optional[Sequence[int]] = None,
-        times: Optional[NDArray] = None,
+        probe_edges: Sequence[int] | None = None,
+        times: NDArray | None = None,
         n_steps: int = 50,
         t_max: float = 10.0,
     ) -> dict:
@@ -4914,9 +5281,9 @@ class RexGraph:
     def quotient_dashboard_data(
         self,
         *,
-        vertex_labels: Optional[Sequence[str]] = None,
-        edge_types_str: Optional[Sequence[str]] = None,
-        signal: Optional[NDArray] = None,
+        vertex_labels: Sequence[str] | None = None,
+        edge_types_str: Sequence[str] | None = None,
+        signal: NDArray | None = None,
         max_vertex_presets: int = 8,
     ) -> dict:
         """Precompute quotient presets for the dashboard template.
@@ -5041,11 +5408,11 @@ class RexGraph:
         self,
         kind: str,
         *,
-        signal: Optional[NDArray] = None,
-        positions: Optional[NDArray] = None,
-        eigenvector: Optional[NDArray] = None,
+        signal: NDArray | None = None,
+        positions: NDArray | None = None,
+        eigenvector: NDArray | None = None,
         component: int = 2,
-    ) -> Tuple[NDArray, NDArray, NDArray]:
+    ) -> tuple[NDArray, NDArray, NDArray]:
         v2e_ptr, v2e_idx = self._v2e
         bp, bi = self._boundary_ptr, self._boundary_idx
         b2cp, b2ri = self._B2_col_ptr, self._B2_row_idx
@@ -5224,9 +5591,28 @@ class RexGraph:
         return cell_md if key is None else cell_md.get(key)
 
     def edge_signature(self, edge_idx: int) -> tuple:
-        """Hashable algebraic signature for an edge on Delta^2."""
-        chi = self.structural_character[edge_idx]
-        return (round(float(chi[0]), 6), round(float(chi[1]+chi[3]), 6), round(float(chi[2]), 6))
+        """Hashable algebraic signature for a relation on Delta^2: (T, G+C, F).
+
+        Channels are read by NAME. The character is (nE, nhats) with nhats 3 or 4,
+        because a channel whose trace vanishes is DROPPED and the remaining columns close
+        up, so a positional read is wrong twice over. This indexed chi[3] unconditionally
+        and raised IndexError on any complex with nhats == 3, which is not an edge case:
+        a consistently oriented complex has no head-to-tail disagreement, so trace(F) = 0
+        and F drops, and a bipartite measurement complex is exactly that. Worse where it
+        did not raise, the columns are then (T, G, C), so chi[2] silently reported
+        co-participation as though it were frustration.
+        """
+        #: operator name -> channel. `hat_names` carries the OPERATOR names, and which
+        #: ones are present varies with nhats: L_SG (frustration) is the one that drops
+        #: on a consistently oriented complex, leaving ['L1_down', 'L_O', 'L_C'].
+        chan = {"L1_down": "T", "L_O": "G", "L_SG": "F", "L_C": "C"}
+        chi = np.asarray(self.structural_character)[edge_idx]
+        by_name = {chan.get(n, n): float(v)
+                   for n, v in zip(list(self.hat_names), chi, strict=False)}
+        g = by_name.get                                     # a dropped channel reads 0
+        return (round(g("T", 0.0), 6),
+                round(g("G", 0.0) + g("C", 0.0), 6),
+                round(g("F", 0.0), 6))
 
     def group_edges_by_signature(self) -> dict:
         """Group edges into equivalence classes by algebraic signature."""
@@ -5236,7 +5622,7 @@ class RexGraph:
             groups.setdefault(sig, []).append(e)
         return groups
 
-    def subcomplex_by_criteria(self, criteria: dict) -> "RexGraph":
+    def subcomplex_by_criteria(self, criteria: dict) -> RexGraph:
         """Build a subcomplex from criteria on cell metadata."""
         if not hasattr(self, '_cell_metadata'):
             return self
@@ -5291,7 +5677,7 @@ class RexGraph:
                 new_tri = np.array(face_list, dtype=np.int32)
         return RexGraph.from_simplicial(new_src, new_tgt, new_tri)
 
-    def operator_distance(self, other: "RexGraph", metric: str = 'frobenius') -> float:
+    def operator_distance(self, other: RexGraph, metric: str = 'frobenius') -> float:
         """Distance between RL_4 operators of two complexes."""
         RL_a, RL_b = self.relational_laplacian, other.relational_laplacian
         if RL_a.shape != RL_b.shape:
@@ -5336,7 +5722,7 @@ class RexGraph:
         except Exception: return {'error': 'L_gb not available'}
 
     @classmethod
-    def from_ontology(cls, terms: list, subsumption: list) -> "RexGraph":
+    def from_ontology(cls, terms: list, subsumption: list) -> RexGraph:
         """Build a rex from ontology terms (edges) and subsumption (faces)."""
         if not terms:
             return cls.from_simplicial(np.zeros(0, dtype=np.int32), np.zeros(0, dtype=np.int32), np.zeros((0,3), dtype=np.int32))
@@ -5537,9 +5923,9 @@ def apply_edge_delta(rex, delta):
             idx = np.array([pos[int(k)] for k in delta.mod_keys], dtype=_i32)
         except KeyError as e:
             raise ValueError(
-                "apply_edge_delta: modified-cell key %s not present in the live "
+                f"apply_edge_delta: modified-cell key {e.args[0]} not present in the live "
                 "complex; a persisting cell must resolve, so the delta was applied "
-                "out of order or onto the wrong base state" % e.args[0])
+                "out of order or onto the wrong base state")
         rex.set_cell_attrs(idx,
                            w_E=np.asarray(delta.mod_wE),
                            signs=np.asarray(delta.mod_signs))
@@ -5607,7 +5993,7 @@ class TemporalRex:
         self,
         snapshots: list,
         *,
-        face_snapshots: Optional[list] = None,
+        face_snapshots: list | None = None,
         directed: bool = False,
         general: bool = False,
     ):
@@ -5625,6 +6011,13 @@ class TemporalRex:
         RexGraph. That path round trips w_E, signs, and B2 signs through
         serialize/load/reconstruct.
         """
+        for i, snap in enumerate(snapshots):
+            if isinstance(snap, RexGraph):
+                raise TypeError(
+                    f"snapshots[{i}] is a RexGraph; this constructor takes connectivity "
+                    f"tuples ({'boundary_ptr, boundary_idx' if general else 'sources, targets'}) "
+                    "and would carry no w_E or signs. To keep edge attribution, start from "
+                    "TemporalRex([]) and call append_snapshot(rex) for each one.")
         self._snapshots = snapshots
         self._face_snapshots = face_snapshots or []
         self._directed = directed
@@ -5662,7 +6055,7 @@ class TemporalRex:
         """The moment step `t` was taken."""
         return float(self._times[t])
 
-    def step_at(self, when: float) -> Optional[int]:
+    def step_at(self, when: float) -> int | None:
         """The step current at `when`: the latest one taken at or before it.
 
         Between measurements the complex is whatever the last measurement said, so
@@ -5682,7 +6075,7 @@ class TemporalRex:
                 hi = mid - 1
         return lo
 
-    def reconstruct_at_time(self, when: float) -> Optional[RexGraph]:
+    def reconstruct_at_time(self, when: float) -> RexGraph | None:
         """The complex as it stood at `when`. The bridge between this store's step
         index and any clock the rest of the system records in (the RCDB's tx and
         validity times, an instrument's timestamps, an experiment's passages)."""
@@ -5733,7 +6126,7 @@ class TemporalRex:
             kw["B2_vals"] = b2v
         return RexGraph(**kw)
 
-    def _full_checkpoint(self, t: int, rex: RexGraph) -> Tuple:
+    def _full_checkpoint(self, t: int, rex: RexGraph) -> tuple:
         """Read a full-fidelity checkpoint (connectivity + attribution + faces)
         off an already-built snapshot rex, via the connectivity/attribution
         and face state readers."""
@@ -5741,7 +6134,7 @@ class TemporalRex:
         b2cp, b2ri, b2v, _ = _face_state(rex)
         return (t, bp.copy(), bi.copy(), wE, signs, b2cp.copy(), b2ri.copy(), b2v.copy())
 
-    def _checkpoint_of(self, rex: RexGraph, t: int) -> Tuple:
+    def _checkpoint_of(self, rex: RexGraph, t: int) -> tuple:
         """Full-state checkpoint tuple for `rex` at time `t` (thin alias over
         `_full_checkpoint`, argument order matched to how `_append_index_entry`
         and `append_snapshot` call it)."""
@@ -5817,7 +6210,7 @@ class TemporalRex:
         return t
 
     def append_snapshot(self, rex: RexGraph, *, face: bool = True,
-                        at: Optional[float] = None) -> int:
+                        at: float | None = None) -> int:
         """Append one new snapshot to a live temporal store, maintaining the
         checkpoint/delta index INCREMENTALLY: one edge diff, one face diff, and an
         int comparison against `_checkpoint_threshold`, O(delta), never a
@@ -6057,14 +6450,14 @@ class TemporalRex:
         return [(fsnap[0], fsnap[1]) for fsnap in self._face_snapshots]
 
     @cached_property
-    def temporal_index(self) -> Tuple:
+    def temporal_index(self) -> tuple:
         snaps = self._snapshot_pairs()
         if self._general:
             return _temporal.build_temporal_index_general(snaps)
         return _temporal.build_temporal_index(snaps, self._directed)
 
     @cached_property
-    def edge_lifecycle(self) -> Tuple:
+    def edge_lifecycle(self) -> tuple:
         snaps = self._snapshot_pairs()
         if self._general:
             return _temporal.edge_lifecycle_general(snaps)
@@ -6078,7 +6471,7 @@ class TemporalRex:
         min_phase_len: int = 2,
         face_event_threshold: int = 1,
         min_shared: int = 1,
-    ) -> Tuple:
+    ) -> tuple:
         snaps = self._snapshot_pairs()
         face_snaps = self._face_snapshot_pairs()
         if self._general:
@@ -6136,8 +6529,8 @@ class TemporalRex:
         t_out, w_out, dk_out, bk_out, sh_out = [], [], [], [], []
         for t in sorted({int(x) for x in d["t"]}):
             at = d["t"] == t
-            died = [int(k) for k, e in zip(d["key"][at], d["existence"][at]) if e < 0]
-            born = [int(k) for k, e in zip(d["key"][at], d["existence"][at]) if e > 0]
+            died = [int(k) for k, e in zip(d["key"][at], d["existence"][at], strict=False) if e < 0]
+            born = [int(k) for k, e in zip(d["key"][at], d["existence"][at], strict=False) if e > 0]
             if not died or not born:
                 continue
             cand = []
@@ -6199,7 +6592,7 @@ class TemporalRex:
             signs = rex._signs
             signs = (np.ones(keys.shape[0], _i32) if signs is None
                      else np.asarray(signs, _i32).ravel())
-            present.append({int(k): int(sg) for k, sg in zip(keys, signs)})
+            present.append({int(k): int(sg) for k, sg in zip(keys, signs, strict=False)})
             orient.append(None)
 
         axis = sorted({k for step in present for k in step})
@@ -6282,7 +6675,7 @@ class TemporalRex:
             # signs=None is the all-positive orientation, not an absent one
             signs = (np.ones(keys.shape[0], _i32) if signs is None
                      else np.asarray(signs, _i32).ravel())
-            curr = {int(k): int(sg) for k, sg in zip(keys, signs)}
+            curr = {int(k): int(sg) for k, sg in zip(keys, signs, strict=False)}
             if t:
                 for key, sg in curr.items():
                     was = prev.get(key)
@@ -6317,7 +6710,7 @@ class TemporalRex:
             tensor[out["t"], col, 1] = out["orientation"]
         return tensor, axis
 
-    def temporal_persistence(self, final_rex: Optional[RexGraph] = None) -> dict:
+    def temporal_persistence(self, final_rex: RexGraph | None = None) -> dict:
         R = final_rex or self._snapshot_at(self._T - 1)
         snaps = self._snapshot_pairs()
         if self._general:
@@ -6339,7 +6732,7 @@ class TemporalRex:
     # Energy-domain temporal analysis
 
     @cached_property
-    def edge_metrics(self) -> Tuple[NDArray, NDArray, NDArray]:
+    def edge_metrics(self) -> tuple[NDArray, NDArray, NDArray]:
         """Per-timestep edge counts, births, and deaths.
 
         Returns (edge_counts, edge_born, edge_died) each int32[T].
@@ -6350,7 +6743,7 @@ class TemporalRex:
         return _temporal.compute_edge_metrics(snaps, self._directed)
 
     @cached_property
-    def face_lifecycle_data(self) -> Optional[Tuple]:
+    def face_lifecycle_data(self) -> tuple | None:
         """Face lifecycle tracking across all timesteps.
 
         Returns None if no face snapshots are available.
@@ -6369,7 +6762,7 @@ class TemporalRex:
         *,
         ratio_tol: float = 0.2,
         min_phase_len: int = 2,
-    ) -> Tuple:
+    ) -> tuple:
         """Energy-domain BIOES from kinetic/potential timeseries.
 
         Classifies temporal phases by E_kin/E_pot ratio regime
@@ -6398,7 +6791,7 @@ class TemporalRex:
         *,
         betti_tol: float = 0.0,
         ratio_tol: float = 0.2,
-    ) -> Tuple:
+    ) -> tuple:
         """Joint Betti + energy phase detection.
 
         A phase breaks when any Betti number shifts OR the energy
@@ -6419,7 +6812,7 @@ class TemporalRex:
         self,
         edge_signals: NDArray,
         threshold: float = 0.01,
-    ) -> Tuple[NDArray, NDArray, NDArray]:
+    ) -> tuple[NDArray, NDArray, NDArray]:
         """Edge activation order during signal propagation.
 
         Parameters

@@ -5,11 +5,9 @@ and the toggle must not be reachable from any non-local client. Also covers the
 secure-by-default bootstrap helper.
 """
 import pytest
-from fastapi.testclient import TestClient
-
 from agent.server import auth
 from agent.server.auth import get_auth_manager
-
+from fastapi.testclient import TestClient
 
 # manager-level
 
@@ -66,7 +64,7 @@ def _setup(*, local=True, passphrase="supersecret123", set_pass=True):
 
 
 def _hdr(tok):
-    return {"Authorization": "Bearer %s" % tok}
+    return {"Authorization": f"Bearer {tok}"}
 
 
 def test_disable_requires_passphrase():

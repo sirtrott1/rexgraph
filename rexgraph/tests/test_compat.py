@@ -21,18 +21,17 @@ import numpy as np
 import pytest
 
 from rexgraph.io._compat import (
-    HAS_ZARR,
-    ZARR_V3,
     HAS_HDF5,
     HAS_SCIPY,
-    to_native,
-    json_default,
+    HAS_ZARR,
+    ZARR_V3,
     NumpyJSONEncoder,
     as_str,
     ensure_zarr_suffix,
+    json_default,
     rm_rf,
+    to_native,
 )
-
 
 # Backend Detection
 

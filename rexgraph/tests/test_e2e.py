@@ -9,10 +9,9 @@ Tests the full pipeline:
 Every assertion verifies a mathematical identity from the RCF.
 """
 import numpy as np
-from numpy.linalg import norm, svd, eigh, matrix_rank
-from scipy.linalg import pinvh
 import pytest
-
+from numpy.linalg import eigh, matrix_rank, norm, svd
+from scipy.linalg import pinvh
 
 # Test complex construction helpers
 

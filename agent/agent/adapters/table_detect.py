@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ _MIN_ROWS = 3          # header + at least 2 data rows
 _MIN_COLS = 2
 
 
-def _split_delim(line: str, delim: str) -> List[str]:
+def _split_delim(line: str, delim: str) -> list[str]:
     parts = [c.strip() for c in line.split(delim)]
     # Drop empty leading/trailing cells produced by border pipes.
     if delim == "|":
@@ -37,7 +36,7 @@ def _split_delim(line: str, delim: str) -> List[str]:
     return parts
 
 
-def _split_whitespace(line: str) -> List[str]:
+def _split_whitespace(line: str) -> list[str]:
     # Two-or-more spaces are treated as a column boundary; single spaces
     # inside a cell are preserved.
     return [c.strip() for c in re.split(r"\s{2,}", line.strip()) if c.strip()]
@@ -51,7 +50,7 @@ def _looks_like_rule(line: str) -> bool:
     )
 
 
-def _consistent_block(lines: List[str], splitter) -> Optional[List[List[str]]]:
+def _consistent_block(lines: list[str], splitter) -> list[list[str]] | None:
     """Return the parsed rows if ``lines`` form a consistent column block."""
     rows = []
     counts = []
@@ -80,7 +79,7 @@ def _consistent_block(lines: List[str], splitter) -> Optional[List[List[str]]]:
     return norm
 
 
-def _rows_to_frame(rows: List[List[str]]):
+def _rows_to_frame(rows: list[list[str]]):
     import pandas as pd
 
     header = rows[0]
@@ -107,7 +106,7 @@ def _rows_to_frame(rows: List[List[str]]):
     return df
 
 
-def detect_tables(text: str, min_rows: int = _MIN_ROWS) -> List["pd.DataFrame"]:
+def detect_tables(text: str, min_rows: int = _MIN_ROWS) -> list[pd.DataFrame]:
     """Extract tables from OCR text as DataFrames (best-effort).
 
     Scans for maximal runs of non-empty lines and tries each delimiter

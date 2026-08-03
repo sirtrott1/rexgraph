@@ -27,32 +27,31 @@ pytestmark = pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow not installed")
 
 if HAS_PYARROW:
     from rexgraph.io.parquet_bridge import (
-        write_parquet,
-        read_parquet,
-        write_boundary_table,
         read_boundary_table,
-        write_edge_table,
-        read_edge_table,
-        write_vertex_table,
-        read_vertex_table,
-        write_face_table,
-        read_face_table,
-        write_persistence_table,
-        read_persistence_table,
-        write_filtration_table,
-        read_filtration_table,
-        write_metrics_table,
-        read_metrics_table,
-        write_character_table,
         read_character_table,
-        write_vertex_character_table,
+        read_edge_table,
+        read_face_table,
+        read_filtration_table,
+        read_metrics_table,
+        read_parquet,
+        read_persistence_table,
         read_vertex_character_table,
-        write_void_table,
+        read_vertex_table,
         read_void_table,
+        write_boundary_table,
+        write_character_table,
+        write_edge_table,
+        write_face_table,
+        write_filtration_table,
+        write_metrics_table,
+        write_parquet,
+        write_persistence_table,
+        write_vertex_character_table,
+        write_vertex_table,
+        write_void_table,
     )
 
 from rexgraph.graph import RexGraph
-
 
 # Fixtures
 

@@ -1,4 +1,5 @@
 import numpy as np
+
 from rexgraph.graph import RexGraph
 
 
@@ -23,7 +24,7 @@ def _assert_full_roundtrip(orig, r):
 
 
 def test_arrow_full_roundtrip():
-    from rexgraph.io.arrow_bridge import rex_to_arrow, arrow_to_rex
+    from rexgraph.io.arrow_bridge import arrow_to_rex, rex_to_arrow
     g = _rich()
     _assert_full_roundtrip(g, arrow_to_rex(rex_to_arrow(g)))
 
@@ -38,7 +39,7 @@ def test_hdf5_full_roundtrip(tmp_path):
 
 
 def test_zarr_full_roundtrip(tmp_path):
-    from rexgraph.io import save, load
+    from rexgraph.io import load, save
     g = _rich()
     p = str(tmp_path / "g.zarr")
     save(p, g)
@@ -48,11 +49,12 @@ def test_zarr_full_roundtrip(tmp_path):
 def test_all_formats_agree_on_a_rich_complex(tmp_path):
     # every full-object format reconstructs the SAME rich complex (edge primacy + attribution + signs
     # + g_channel + labels + cell metadata), via the one canonical rex-state encoder.
-    from rexgraph.io.bundle import save_rex, load_rex
-    from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
-    from rexgraph.io.arrow_bridge import rex_to_arrow, arrow_to_rex
+    from rexgraph.io import load as zload
+    from rexgraph.io import save as zsave
+    from rexgraph.io.arrow_bridge import arrow_to_rex, rex_to_arrow
+    from rexgraph.io.bundle import load_rex, save_rex
     from rexgraph.io.hdf5_format import RexHDF5Format
-    from rexgraph.io import save as zsave, load as zload
+    from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
     g = _rich()
     rex_p = str(tmp_path / "g.rex"); save_rex(rex_p, g)
     st_p = str(tmp_path / "g.safetensors"); rex_to_safetensors(g, st_p)
@@ -69,6 +71,7 @@ def test_generic_save_supports_safetensors(tmp_path):
     format was load-only through the generic entry point and save() raised
     'Unknown format'."""
     import numpy as np
+
     from rexgraph import io
     from rexgraph.graph import RexGraph
 
@@ -85,6 +88,7 @@ def test_generic_save_load_round_trips_every_dependency_free_format(tmp_path):
     """save and load must accept the same set of formats: an asymmetry means a format
     you can read is one you cannot write."""
     import numpy as np
+
     from rexgraph import io
     from rexgraph.graph import RexGraph
 
@@ -104,6 +108,7 @@ def test_unknown_extension_is_an_error_not_a_silent_zarr_write(tmp_path):
     failure class as a secret store writing a file named 'vault://team/prod'."""
     import numpy as np
     import pytest
+
     from rexgraph import io
     from rexgraph.graph import RexGraph
 
@@ -119,6 +124,7 @@ def test_directory_and_extensionless_heuristics_still_work(tmp_path):
     """The legitimate heuristics stay: an existing .rex bundle dir, an existing Zarr
     dir, and an explicit format override."""
     import numpy as np
+
     from rexgraph import io
     from rexgraph.graph import RexGraph
 
@@ -136,6 +142,7 @@ def test_a_format_can_be_registered_from_outside(tmp_path):
     """save/load dispatch was a hardcoded if/elif while rcdb.register_backend next door
     was a real extension point. Adding a format should not mean editing io/__init__."""
     import numpy as np
+
     from rexgraph import io
     from rexgraph.graph import RexGraph
 

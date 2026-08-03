@@ -26,7 +26,6 @@ from .l_gb_reference import (
     normalized_coherence_spectrum,
 )
 
-
 # Test helpers
 
 

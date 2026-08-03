@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -22,9 +22,9 @@ class Snapshot:
     step: int
     timestamp: float
     action: str                    # 'upload', 'analyze', 'reconfig', 'explore'
-    params: Dict[str, Any]         # parameters used at this step
-    rex_path: Optional[str]        # path to serialized .rex bundle (if saved)
-    results: Optional[Dict]        # cached analysis results (in memory)
+    params: dict[str, Any]         # parameters used at this step
+    rex_path: str | None        # path to serialized .rex bundle (if saved)
+    results: dict | None        # cached analysis results (in memory)
     summary: str = ""              # one-line summary of this step
 
 
@@ -42,10 +42,10 @@ class Session:
         self.session_dir = self.storage_dir / session_id
         self.session_dir.mkdir(parents=True, exist_ok=True)
 
-        self.snapshots: List[Snapshot] = []
+        self.snapshots: list[Snapshot] = []
         self.current_step: int = -1
         self._current_rex = None
-        self._metadata: Dict[str, Any] = {
+        self._metadata: dict[str, Any] = {
             "session_id": session_id,
             "created": time.time(),
             "name": "",
@@ -63,8 +63,8 @@ class Session:
         self,
         rex,
         action: str,
-        params: Optional[Dict] = None,
-        results: Optional[Dict] = None,
+        params: dict | None = None,
+        results: dict | None = None,
         summary: str = "",
     ):
         """Record a new analysis state.
@@ -131,7 +131,7 @@ class Session:
             return self.at(self.current_step)
         return self._current_rex
 
-    def history(self) -> List[Dict]:
+    def history(self) -> list[dict]:
         """Return the session history as a list of step summaries."""
         return [
             {
@@ -144,7 +144,7 @@ class Session:
             for s in self.snapshots
         ]
 
-    def info(self) -> Dict:
+    def info(self) -> dict:
         """Return session metadata."""
         return {
             **self._metadata,
@@ -218,7 +218,7 @@ def create_session(storage_dir: str = "~/.rexgraph-agent/sessions") -> Session:
     return Session(session_id, storage)
 
 
-def list_sessions(storage_dir: str = "~/.rexgraph-agent/sessions") -> List[Dict]:
+def list_sessions(storage_dir: str = "~/.rexgraph-agent/sessions") -> list[dict]:
     """List all saved sessions."""
     storage = Path(storage_dir).expanduser()
     if not storage.exists():

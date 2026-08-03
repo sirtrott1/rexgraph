@@ -9,10 +9,9 @@ the corpus rather than a place a corpus gets copied to.
 
 import numpy as np
 import pytest
-
-from agent import rcdb
 from agent.corpus import CorpusBuilder
 
+from agent import rcdb
 
 DOCS = {
     "boundary": "The boundary map sends an edge to its endpoints. Composing two "
@@ -132,7 +131,7 @@ def test_a_cached_document_still_carries_its_metadata_on_the_rex():
     RexGraph has no _agent_meta. Latent while everything read doc.meta; live once
     the rex blob is what carries labels and source text into the store, because a
     cached corpus then persists documents stripped of both."""
-    import numpy as np
+
     from agent import cache
     from rexgraph.graph import RexGraph
 

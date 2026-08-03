@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from typing import List, Optional
 
 import numpy as np
 
@@ -30,7 +29,7 @@ class AgentComplex:
     monitor runs the RCF analysis on both."""
 
     def __init__(self):
-        self._msgs: List[dict] = []
+        self._msgs: list[dict] = []
 
     def add_message(self, sender, recipient, text, **meta):
         self._msgs.append({"from": str(sender), "to": str(recipient), "text": str(text), "meta": meta})
@@ -231,10 +230,10 @@ class DriftTracker:
 
     def __init__(self, window: int = 8):
         self.window = window
-        self._hist: List[dict] = []          # per snapshot: {agent: {curvature, alignment}}
-        self._strain: List[float] = []
+        self._hist: list[dict] = []          # per snapshot: {agent: {curvature, alignment}}
+        self._strain: list[float] = []
 
-    def snapshot(self, monitor: dict) -> "DriftTracker":
+    def snapshot(self, monitor: dict) -> DriftTracker:
         """Record one monitor() result as a time point."""
         self._hist.append({a["agent"]: {"curvature": float(a.get("curvature", 0.0) or 0.0),
                                         "alignment": float(a.get("alignment", 0.0) or 0.0)}
@@ -246,7 +245,7 @@ class DriftTracker:
         return self
 
     @staticmethod
-    def _slope(series: List[float]) -> float:
+    def _slope(series: list[float]) -> float:
         n = len(series)
         if n < 2:
             return 0.0
@@ -271,7 +270,7 @@ class DriftTracker:
         """Slope of the network's total strain over time (rising = the field is heating up)."""
         return round(self._slope(self._strain), 4)
 
-    def drifting(self, *, curv_rise: float = 0.05, align_fall: float = -0.05) -> List[str]:
+    def drifting(self, *, curv_rise: float = 0.05, align_fall: float = -0.05) -> list[str]:
         """Agents whose curvature is trending up or alignment trending down over the window - the
         ones starting to detract from the swarm."""
         return [a for a, s in self.trends().items()
@@ -281,11 +280,11 @@ class DriftTracker:
 
 # live registry: the running swarm's shared complex, fed as agents/models interact
 
-_LIVE: Optional["AgentComplex"] = None
-_DRIFT: Optional["DriftTracker"] = None
+_LIVE: AgentComplex | None = None
+_DRIFT: DriftTracker | None = None
 
 
-def get_drift() -> "DriftTracker":
+def get_drift() -> DriftTracker:
     """The process-wide drift tracker: snapshot it with monitor() results over time to detect a
     worker that is beginning to hallucinate or drift from its task (a rising-curvature trend)."""
     global _DRIFT
@@ -299,7 +298,7 @@ def reset_drift():
     _DRIFT = None
 
 
-def get_live() -> "AgentComplex":
+def get_live() -> AgentComplex:
     """The process-wide live agentic complex: the shared structure the runtime appends to as
     agents/models exchange messages (model, memory, and database as one complex)."""
     global _LIVE

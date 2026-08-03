@@ -11,7 +11,9 @@ readout the schema path uses.
 the host already has; no live triple store required.
 """
 from __future__ import annotations
-from typing import Any, Dict, Tuple
+
+from typing import Any
+
 from . import BaseConnector, Capabilities, ConnectorError
 
 
@@ -19,8 +21,8 @@ class SemanticConnector(BaseConnector):
     def capabilities(self) -> Capabilities:
         return Capabilities(faces=True, schemes=("ontology", "rdf", "owl"))
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:
-        from ..ontology_complex import parse_rdf, ontology_to_rex
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
+        from ..ontology_complex import ontology_to_rex, parse_rdf
         model = parse_rdf(list(source or []))
         rex, meta = ontology_to_rex(model)
         if rex is None:

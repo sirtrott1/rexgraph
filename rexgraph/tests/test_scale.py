@@ -25,7 +25,6 @@ import pytest
 
 from rexgraph.graph import RexGraph
 
-
 # Graph generators
 
 def _random_graph(nE, seed=42):
@@ -60,7 +59,7 @@ def _random_simplicial(nE, seed=42):
     tgt[mask] = (tgt[mask] + 1) % nV
     pairs = set()
     clean_src, clean_tgt = [], []
-    for s, t in zip(src, tgt):
+    for s, t in zip(src, tgt, strict=False):
         key = (min(s, t), max(s, t))
         if key not in pairs and s != t:
             pairs.add(key)
@@ -639,7 +638,7 @@ class TestHugeSparse:
     def test_quotient_from_sparse_huge(self, rex):
         """Build quotient from sparse at 500K edges."""
         from rexgraph.core._quotient import build_quotient_from_sparse
-        
+
 
         # Keep only 1000 edges in the quotient
         n_sub = rex.nE - 1000

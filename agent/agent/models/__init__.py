@@ -7,24 +7,35 @@ HGNN) are example models built from rexgraph.nn; they are not part of the librar
 
     from models import list_archetypes, run
     list_archetypes()                                  # names, use-cases, params
-    run("cnn", params={"norm": False}, optimizer="hodge", steps=300)     # synthetic data
-    run("mlp", data="mydata.csv", optimizer="hodge")                     # file data
+    run("cnn", params={"norm": False}, steps=300)       # synthetic data, optimizer="auto"
+    run("mlp", data="mydata.csv")                       # file data
     run("lm",  params={"attention": "standard"})
-    # multistep (staged): warmup with adam, refine with hodge
-    run("mlp", mode="multistep", stages=[{"optimizer":"adam","steps":100},
-                                         {"optimizer":"hodge","steps":200}])
+    run("mlp", data="mydata.csv", optimizer="adamw")    # a named optimizer when you want one
+    # multistep (staged): warm up, then refine at a lower lr
+    run("mlp", mode="multistep", stages=[{"steps":100}, {"steps":200,"lr":5e-4}])
     # multi-model fusion (ensemble / split / stack)
     run("mlp", mode="fusion", specs=[("mlp",{}), ("mlp",{"d_hid":64})], fusion="ensemble")
 """
-from . import archetypes, data, train  # noqa: F401
-from .archetypes import ARCHETYPES, get, merged_cfg, register_archetype  # noqa: F401
-from . import store  # noqa: F401
-from .store import (  # noqa: F401  rexgraph IO bridge
-    load_bundle, save_checkpoint, load_checkpoint, save_complex_rex, to_rcdb,
+from . import (  # noqa: F401
+    archetypes,
+    data,
+    store,  # noqa: F401
+    train,
+    trustgraph,  # noqa: F401
 )
-from . import trustgraph  # noqa: F401
+from .archetypes import ARCHETYPES, get, merged_cfg, register_archetype  # noqa: F401
+from .store import (  # noqa: F401  rexgraph IO bridge
+    load_bundle,
+    load_checkpoint,
+    save_checkpoint,
+    save_complex_rex,
+    to_rcdb,
+)
 from .trustgraph import (  # noqa: F401  TrustGraph ingestion (DB -> knowledge core -> complex)
-    core_to_rex, bundle_from_core, core_to_rcdb, core_to_rex_file,
+    bundle_from_core,
+    core_to_rcdb,
+    core_to_rex,
+    core_to_rex_file,
 )
 
 

@@ -6,7 +6,9 @@ Structure-only: topics -> vertices, schema-registry references between topics
 live cluster is a host-environment task (no broker in-sandbox).
 """
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple
+
+from typing import Any
+
 from . import BaseConnector, Capabilities
 
 
@@ -16,14 +18,14 @@ class StreamConnector(BaseConnector):
     def capabilities(self) -> Capabilities:
         return self.CAPABILITIES
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         if not isinstance(source, dict):
             raise NotImplementedError(
                 "live stream reads need the host's Kafka/Pulsar client; pass an "
                 "in-memory {'topics': [...], 'references': [(from,to),...]} "
                 "structure to validate the shape in-sandbox")
-        topics: List[str] = list(source.get("topics") or [])
-        refs: List[Tuple[str, str]] = [tuple(r) for r in source.get("references") or []]
+        topics: list[str] = list(source.get("topics") or [])
+        refs: list[tuple[str, str]] = [tuple(r) for r in source.get("references") or []]
         for a, b in refs:
             for n in (a, b):
                 if n not in topics:

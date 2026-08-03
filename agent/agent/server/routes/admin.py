@@ -14,11 +14,17 @@ agent.server.routes.admin: workspace and token management.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Body, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from agent.server.auth import (
-    TokenEntry, WorkspaceState, ROLE_USER,
-    get_auth_manager, is_admin, require_auth, require_admin, require_workspace,
+    ROLE_USER,
+    TokenEntry,
+    WorkspaceState,
+    get_auth_manager,
+    is_admin,
+    require_admin,
+    require_auth,
+    require_workspace,
     require_workspace_admin,
 )
 
@@ -111,14 +117,14 @@ async def revoke_member(user_id: str, request: Request,
         target = None
     else:
         if not is_admin(token, ws.name):
-            raise HTTPException(403, "Admin of workspace '%s' required" % ws.name)
+            raise HTTPException(403, f"Admin of workspace '{ws.name}' required")
         target = ws.name
     try:
         n = mgr.revoke_member(user_id, workspace=target)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if n == 0:
-        raise HTTPException(404, "No such member: %s" % user_id)
+        raise HTTPException(404, f"No such member: {user_id}")
     from agent import activity as _activity
     _activity.record("user:" + token.user_id, "member.revoke",
                      detail={"target": user_id, "workspace": target or "(all)"})
@@ -323,6 +329,7 @@ async def delete_workspace_file(
 ):
     """Delete a document from the workspace."""
     import shutil
+
     from agent.server.persistence import _docs_dir
     doc_path = _docs_dir(ws.name) / (doc_id + ".rex")
     if doc_path.exists():
@@ -360,6 +367,7 @@ async def workspace_doc_detail(
 ):
     """Load a document from the workspace and return structural analysis."""
     import numpy as np
+
     from agent.server.persistence import load_document_rex
 
     rex = load_document_rex(ws.name, doc_id)

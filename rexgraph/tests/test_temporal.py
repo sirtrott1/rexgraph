@@ -18,7 +18,6 @@ import numpy as np
 from rexgraph.core import _temporal
 from rexgraph.graph import RexGraph, TemporalRex
 
-
 # Helpers
 
 def _make_snapshots():

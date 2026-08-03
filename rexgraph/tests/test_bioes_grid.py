@@ -11,7 +11,6 @@ own channel rather than inside the tag, because a cell that reverses has persist
 """
 
 import numpy as np
-import pytest
 
 from rexgraph.graph import RexGraph, TemporalRex
 
@@ -131,7 +130,7 @@ def test_the_grid_agrees_with_the_delta_tensor_on_when_things_change():
     tr = _store([[(0, 1)], [(0, 1), (2, 3)], [(0, 1)]])
     g = tr.bioes_grid()
     d = tr.delta_tensor()
-    born = {(int(t), int(k)) for t, k, e in zip(d["t"], d["key"], d["existence"]) if e > 0}
+    born = {(int(t), int(k)) for t, k, e in zip(d["t"], d["key"], d["existence"], strict=False) if e > 0}
     for t, key in born:
         col = list(g["keys"]).index(key)
         assert g["tags"][t, col] in (B, S)

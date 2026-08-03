@@ -1,8 +1,9 @@
 """agent.training_monitor: structural diagnosis of a loss trajectory + live watched training."""
 import pytest
+from agent.training_monitor import TrainingMonitor, diagnose
 
-from agent import hive as hivemod, agent_complex
-from agent.training_monitor import diagnose, TrainingMonitor
+from agent import agent_complex
+from agent import hive as hivemod
 
 
 def test_diagnose_healthy_descent():

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Body, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,8 @@ router = APIRouter(prefix="/v1")
 
 #: the one encoder (rexgraph.io._compat). Non-finite floats go out as null:
 #: a bare NaN token is not JSON and every browser JSON.parse rejects it.
+import contextlib
+
 from rexgraph.io._compat import json_sanitize
 
 
@@ -114,7 +116,7 @@ async def trustgraph_compare(body: dict = Body(...)):
         raise HTTPException(500, f"Flow comparison failed: {e}")
 
     # Strip rex objects from per_flow results
-    for k, v in result.get("per_flow", {}).items():
+    for _k, v in result.get("per_flow", {}).items():
         if isinstance(v, dict):
             v.pop("rex", None)
 
@@ -358,8 +360,8 @@ async def generate_training_data(body: dict = Body(...)):
         from agent.training import TrainingExporter
         exporter = TrainingExporter(corpus=corpus)
 
-        import tempfile
         import os
+        import tempfile
 
         result = {
             "n_samples": len(exporter.examples),
@@ -464,10 +466,8 @@ def _confidence_report(rex) -> dict:
         out["kappa_min"] = round(float(kappa.min()), 4)
     except Exception:
         pass
-    try:
+    with contextlib.suppress(Exception):
         out["chain_valid"] = bool(rex.chain_valid)
-    except Exception:
-        pass
     try:
         vc = rex.void_complex
         out["n_voids"] = vc.get("n_voids", 0)
@@ -524,10 +524,8 @@ async def langchain_analyze(body: dict = Body(...)):
                           "harmonic": round(float(h.get("pct_harm", 0)), 4)}
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             a["kappa_mean"] = round(float(rex.coherence.mean()), 4)
-        except Exception:
-            pass
         return JSONResponse(_sanitize(a))
     except Exception as e:
         raise HTTPException(500, f"Analysis failed: {e}")
@@ -546,8 +544,7 @@ async def trustgraph_analyze(body: dict = Body(...)):
     if not triples:
         raise HTTPException(400, "Provide 'triples' as [[subject, predicate, object], …]")
     try:
-        from agent.integrations.trustgraph_adapter import (
-            TrustGraphAdapter, SimpleTriple)
+        from agent.integrations.trustgraph_adapter import SimpleTriple, TrustGraphAdapter
         adapter = TrustGraphAdapter(url=None)
         tlist = [SimpleTriple(t[0], t[1], t[2]) for t in triples]
         rex, meta = adapter.from_triples(tlist)
@@ -577,10 +574,8 @@ async def trustgraph_analyze(body: dict = Body(...)):
                                    "n_potential": vc.get("n_potential", 0)}
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             out["kappa_mean"] = round(float(rex.coherence.mean()), 4)
-        except Exception:
-            pass
         out["interpretation"] = (
             "Harmonic mass flags knowledge that loops without grounding; "
             "voids are relationships the graph's structure implies but that "
@@ -607,7 +602,8 @@ async def download_training_data(fmt: str = "safetensors", target: str = "summar
     try:
         from agent.training import TrainingExporter
         exporter = TrainingExporter(corpus=corpus)
-        import tempfile, os
+        import os
+        import tempfile
         fd, tmp = tempfile.mkstemp(suffix=".safetensors")
         os.close(fd)
         if fmt == "pairs":

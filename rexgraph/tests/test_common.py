@@ -13,46 +13,46 @@ Verifies:
     - Configuration persistence and reset
 """
 import os
+
 import numpy as np
 import pytest
 
 from rexgraph.core._common import (
-    # Configuration
-    configure_memory,
-    configure_parallelization,
-    configure_threads,
-    configure_algorithms,
-    configure_from_environment,
-    get_configuration,
-    get_parallelization_config,
-    get_algorithm_config,
-    # Feature detection
-    get_openmp_enabled,
-    get_debug_enabled,
-    get_max_threads,
-    get_effective_threads,
-    get_build_info,
     # Error handling
     CoreError,
     CoreMemoryError,
     CoreMemoryLimitError,
-    CoreValueError,
     CoreOverflowError,
-    raise_on_error,
-    check_error,
-    # Validation
-    validate_csr_arrays,
-    validate_array_size,
-    check_parallel_memory,
+    CoreValueError,
     check_dense_allocation,
-    suggest_threads_for_memory,
+    check_error,
+    check_parallel_memory,
+    configure_algorithms,
+    configure_from_environment,
+    # Configuration
+    configure_memory,
+    configure_parallelization,
+    configure_threads,
+    estimate_dense_matrix_bytes,
     # Memory estimation
     estimate_memory_usage,
-    estimate_dense_matrix_bytes,
+    get_algorithm_config,
+    get_build_info,
+    get_configuration,
+    get_debug_enabled,
+    get_effective_threads,
+    get_max_threads,
+    # Feature detection
+    get_openmp_enabled,
+    get_parallelization_config,
+    raise_on_error,
+    suggest_threads_for_memory,
     # Diagnostics
     test_parallel_execution,
+    validate_array_size,
+    # Validation
+    validate_csr_arrays,
 )
-
 
 # Configuration
 

@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-
 from agent.server.dbguard import check_db_uri
 from agent.server.security import add_error_sanitizer
-
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 # dbguard: opt-in DB-URI allow-list
 

@@ -1,63 +1,56 @@
 """
-agent.scoring: one ranking, built on the interfacing vector.
+agent.scoring: one ranking, using the reads the library provides for exactly this.
 
-Three rankings had grown in the tree, none of them using the canonical mechanism:
-`corpus.score_document` mixed a label Jaccard, a cosine between MEAN structural
-characters, and a hand-rolled spectral term under fixed 0.3/0.35/0.35 weights;
-`rcdb.find_similar` used a kappa correlation times a square-rooted overlap; and
-`RexGraph.interfacing_vector` -- the Poisson-lift -> typed-channel -> bilinear-score
-map the whole design is built around -- was reachable only through an HTTP route.
+An earlier version of this module called `interfacing_vector` with `target=None`.
+That was a misreading. In `_interfacing` the target is a TARGET EDGE VECTOR and the
+channel score is a bilinear form I_X = target^T S_X psi between the source's induced
+flow and a target pattern; passing None scores psi against itself, which is a self
+energy and interfaces with nothing. It also built the whole bundle per document,
+paying O(nV . solve) for an answer needed at a handful of vertices.
 
-This is that mechanism used as the ranking:
+RexGraph already answers "what does this query touch in this complex" directly, and
+demand-driven:
 
-    rho  = weighted vertex source from the query tokens present in the document
-    psi  = B1^T L0^+ rho                     the query's induced edge flow
-    iv   = [I_T, I_G, I_F, schrodinger]      psi read through the typed channels
-    score     = ||iv||                       how strongly the query engages the doc
-    character = iv / ||iv||                  which channels it engages through
+    coherence_response(seed)  kappa at just the query's vertices, by diffusion --
+                              O(|seed| . nhats . diffusion), and identical to
+                              coherence[seed] rather than an approximation of it
+    agentic_reading(seed)     the decision-ready reading the agent layer is meant to
+                              consume: the bounded neighborhood, relations ranked by
+                              effective resistance (the bridges), entities whose
+                              coherence is a low outlier under a data-adaptive Tukey
+                              fence, and context_size -- what a correct answer costs
 
-That split is the point, and it is not the obvious choice. sphere_pos alone ranks
-badly: it is a DIRECTION, so normalizing divides out engagement strength. A
-three-sentence stub puts nearly all of its (tiny) interfacing energy in the T
-channel and scores 0.99, beating a document that actually answers the query at
-0.19 -- ranking on it rewards structural poverty. Measured on a 5-document set:
-sphere_pos[0] 5/6, ||iv|| 6/6. Magnitude ranks; direction explains.
+So relevance here is the query's footprint measured by the DOCUMENT's own coherence
+field: sum of kappa over the matched vertices. It grows with how much of the query
+the document carries and with how coherent that footprint is inside it, and it needs
+no mixing constant, because it is one field summed over one seed.
 
-Lexical overlap is no longer a ranking term. It survives as a candidate prefilter
-(`query_engine._signature_affinity`), which is what a token match is good for:
-deciding what to look at, not deciding what is relevant.
-
-No fixed mixing constants. Magnitude and direction are just the raw interfacing
-vector in polar form, so nothing is discarded and nothing is invented; coverage /
-efficiency / confidence come back as diagnostics for the caller's policy rather
-than folded into the number.
+Lexical overlap remains a candidate prefilter only. It decides what to look at.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
-
-#: fewer shared vertices than this and the Poisson source is a point, not a
-#: footprint: L0^+ rho carries no interfacing structure to read.
+#: fewer matched vertices than this and there is no footprint to read: a single
+#: vertex has no neighbourhood for the diffusion to describe.
 MIN_SHARED = 2
 
 
-def _zero(n_shared: int = 0) -> Dict[str, Any]:
-    return {"score": 0.0, "character": [0.0, 0.0, 0.0, 0.0],
-            "channels": [0.0, 0.0, 0.0, 0.0], "magnitude": 0.0,
-            "coverage": 0.0, "efficiency": 0.0, "confidence": {},
-            "n_shared": int(n_shared)}
+def _zero(n_shared: int = 0) -> dict[str, Any]:
+    return {"score": 0.0, "kappa": [], "kappa_mean": 0.0, "context_size": 0,
+            "n_load_bearing": 0, "n_frustrated": 0, "n_shared": int(n_shared)}
 
 
 def shared_indices(doc_labels: Sequence[str],
-                   query_labels: Sequence[str]) -> List[int]:
+                   query_labels: Sequence[str]) -> list[int]:
     """Vertex indices in the document matched by the query's vocabulary."""
     if not doc_labels or not query_labels:
         return []
-    pos: Dict[str, int] = {}
+    pos: dict[str, int] = {}
     for i, lab in enumerate(doc_labels):
         pos.setdefault(str(lab).lower(), i)
     out, seen = [], set()
@@ -70,17 +63,12 @@ def shared_indices(doc_labels: Sequence[str],
 
 
 def interfacing_score(rex, doc_labels: Sequence[str], query_labels: Sequence[str],
-                      *, target_signal: Optional[np.ndarray] = None) -> Dict[str, Any]:
-    """Score a complex against a query vocabulary through the interfacing vector.
+                      *, reading: bool = True) -> dict[str, Any]:
+    """Score a complex against a query vocabulary, by demand-driven read.
 
-    `target_signal` is the edge vector psi is read against. It defaults to psi
-    itself, which makes the channel readings quadratic forms of the induced flow --
-    orientation-invariant, unlike any signal built from raw incidence, and the
-    reading that says how strongly the query engages this document rather than
-    which way its edges happen to point.
-
-    Returns the score plus the diagnostics the bundle already computes; nothing is
-    folded into the scalar that a caller might want to see separately.
+    `reading=False` skips `agentic_reading` and returns the coherence score alone,
+    for callers ranking a large candidate set who want the diagnostics only on what
+    survives.
     """
     if rex is None or int(getattr(rex, "nE", 0) or 0) == 0:
         return _zero()
@@ -88,38 +76,31 @@ def interfacing_score(rex, doc_labels: Sequence[str], query_labels: Sequence[str
     if len(idx) < MIN_SHARED:
         return _zero(len(idx))
 
-    ti = np.asarray(idx, dtype=np.int32)
-    tw = np.ones(len(idx), dtype=np.float64)
+    seed = np.asarray(idx, dtype=np.int32)
     try:
-        # target_signal=None asks the bundle for the self-interfacing reading, which
-        # it resolves from the psi it computes anyway: one L0^+ solve, not the two
-        # a caller pays to obtain psi and then hand it back.
-        iv = rex.interfacing_vector(
-            ti, tw,
-            None if target_signal is None
-            else np.ascontiguousarray(target_signal, dtype=np.float64))
-        mag = float(np.linalg.norm(np.asarray(iv.get("psi"), dtype=np.float64)))
-        if not np.isfinite(mag) or mag <= 0.0:
-            return _zero(len(idx))
+        kappa = np.asarray(rex.coherence_response(seed), dtype=np.float64).ravel()
     except Exception:
         return _zero(len(idx))
-
-    raw = np.asarray(iv.get("iv"), dtype=np.float64).ravel()
-    sp = np.asarray(iv.get("sphere_pos"), dtype=np.float64).ravel()
-    if raw.size == 0 or not np.all(np.isfinite(raw)):
+    kappa = kappa[np.isfinite(kappa)]
+    if kappa.size == 0:
         return _zero(len(idx))
-    cov = float(iv.get("coverage", 0.0) or 0.0)
-    score = float(np.linalg.norm(raw))
-    if not np.isfinite(score) or cov <= 0.0:
-        # no spectral support: the reading exists but nothing backs it.
-        score = 0.0
-    return {
-        "score": max(score, 0.0),
-        "character": [float(x) for x in sp] if np.all(np.isfinite(sp)) else [0.0] * 4,
-        "channels": [float(x) for x in raw],
-        "magnitude": mag,
-        "coverage": cov,
-        "efficiency": float(iv.get("efficiency", 0.0) or 0.0),
-        "confidence": iv.get("confidence", {}),
+
+    out = {
+        # the query's footprint under the document's own coherence field
+        "score": float(kappa.sum()),
+        "kappa": [float(x) for x in kappa],
+        "kappa_mean": float(kappa.mean()),
         "n_shared": len(idx),
+        "context_size": 0,
+        "n_load_bearing": 0,
+        "n_frustrated": 0,
     }
+    if reading:
+        try:
+            ar = rex.agentic_reading(vertices=seed)
+            out["context_size"] = int(ar.get("context_size", 0) or 0)
+            out["n_load_bearing"] = len(ar.get("load_bearing", []) or [])
+            out["n_frustrated"] = len(ar.get("frustrated", []) or [])
+        except Exception:
+            pass
+    return out

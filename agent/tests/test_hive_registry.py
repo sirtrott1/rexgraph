@@ -1,5 +1,6 @@
 """agent.hive_network registry: named hives, isolation, status, and network-scope logging."""
-from agent import hive as hivemod, agent_complex, activity
+from agent import activity, agent_complex
+from agent import hive as hivemod
 
 
 def test_named_hives_registered_and_isolated():

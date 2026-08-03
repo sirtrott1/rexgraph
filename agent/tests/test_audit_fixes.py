@@ -70,7 +70,7 @@ def _make_synthetic_10x(dirpath):
     os.remove(tmp)
     with gzip.open(os.path.join(dirpath, "features.tsv.gz"), "wt") as f:
         for g in genes:
-            f.write("ENSG_%s\t%s\tGene Expression\n" % (g, g))
+            f.write(f"ENSG_{g}\t{g}\tGene Expression\n")
     with gzip.open(os.path.join(dirpath, "barcodes.tsv.gz"), "wt") as f:
         for i in range(cells):
             f.write("BC%d-1\n" % i)
@@ -79,7 +79,9 @@ def _make_synthetic_10x(dirpath):
 
 def test_single_cell_adapter():
     from agent.adapters.single_cell import (
-        is_10x_dir, load_10x, SingleCellAdapter,
+        SingleCellAdapter,
+        is_10x_dir,
+        load_10x,
     )
     with tempfile.TemporaryDirectory() as d:
         _make_synthetic_10x(d)
@@ -145,8 +147,8 @@ def test_no_table_in_prose():
 
 # EdgeConstruction fast path + shared rex construction
 def test_build_rex_from_edges_fastpath():
-    from agent.auto import auto_rex, build_rex_from_edges
     from agent.adapters import EdgeConstruction
+    from agent.auto import auto_rex, build_rex_from_edges
     ec = EdgeConstruction(
         sources=np.array([0, 1, 2], dtype=np.int32),
         targets=np.array([1, 2, 0], dtype=np.int32),
@@ -218,8 +220,8 @@ def test_cache_disabled(monkeypatch):
 
 # 4.2 stage callbacks flow through CorpusBuilder.build
 def test_corpus_stage_callbacks():
-    from agent.corpus import CorpusBuilder
     from agent.adapters import EdgeConstruction
+    from agent.corpus import CorpusBuilder
     ec = EdgeConstruction(
         sources=np.array([0, 1, 2, 3, 0], dtype=np.int32),
         targets=np.array([1, 2, 3, 0, 2], dtype=np.int32),
@@ -239,7 +241,7 @@ def test_corpus_stage_callbacks():
 
 # diagnostics (3.2) runs and reports structure
 def test_diagnostics_summary():
-    from agent.diagnostics import summary, format_report
+    from agent.diagnostics import format_report, summary
     s = summary()
     assert "modules" in s and "method_dispatch" in s
     assert isinstance(format_report(), str)
@@ -247,9 +249,9 @@ def test_diagnostics_summary():
 
 # AnalysisPipeline optional stages degrade gracefully
 def test_optional_stages_graceful_without_faces():
-    from agent.pipeline import AnalysisPipeline
-    from agent.auto import build_rex_from_edges
     from agent.adapters import EdgeConstruction
+    from agent.auto import build_rex_from_edges
+    from agent.pipeline import AnalysisPipeline
     ec = EdgeConstruction(
         sources=np.array([0, 1, 2], dtype=np.int32),
         targets=np.array([1, 2, 0], dtype=np.int32),
@@ -308,7 +310,7 @@ def test_open_secret_store_rejects_an_unrecognized_scheme():
 
 def test_open_secret_store_accepts_a_bare_path_and_known_schemes(tmp_path):
     """A bare path stays a file store, and the two supported schemes keep working."""
-    from agent.secrets import open_secret_store, FileSecretStore, EnvSecretStore
+    from agent.secrets import EnvSecretStore, FileSecretStore, open_secret_store
 
     assert isinstance(open_secret_store(str(tmp_path / "conn.json")), FileSecretStore)
     assert isinstance(open_secret_store("file://" + str(tmp_path / "c.json")), FileSecretStore)
@@ -320,6 +322,7 @@ def test_partition_communities_runs_past_the_early_return():
     """graph.py called _standard.build_adj_weights but never bound _standard, so any
     graph with nE > max_size raised NameError. The early return hid it for small ones."""
     import numpy as np
+
     from rexgraph.graph import RexGraph
 
     rex = RexGraph.from_graph(np.arange(10, dtype=np.int32),
@@ -356,6 +359,7 @@ def test_inverse_centrality_ratio_does_not_warn_on_an_isolated_vertex():
     import warnings
 
     import numpy as np
+
     from rexgraph.graph import RexGraph
 
     # the edge list skips vertex 2, so nV covers it and its degree is 0

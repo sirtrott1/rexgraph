@@ -17,16 +17,15 @@ import json
 import numpy as np
 import pytest
 
-from rexgraph.io.json_loader import (
-    load_json,
-    load_edge_list_json,
-    load_cytoscape_json,
-    load_networkx_json,
-    load_adjacency_json,
-    load_matrix_csv,
-)
 from rexgraph.graph import RexGraph
-
+from rexgraph.io.json_loader import (
+    load_adjacency_json,
+    load_cytoscape_json,
+    load_edge_list_json,
+    load_json,
+    load_matrix_csv,
+    load_networkx_json,
+)
 
 # Helpers
 

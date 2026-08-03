@@ -9,8 +9,8 @@ They skip cleanly on a CPU-only host, so the suite passes everywhere.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph import scale_propagator as spg
+from rexgraph.graph import RexGraph
 
 
 def _has_gpu():

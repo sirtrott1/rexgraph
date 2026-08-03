@@ -16,7 +16,6 @@ confirm a build before trusting benchmark numbers.
 from __future__ import annotations
 
 import importlib
-from typing import Dict
 
 # The core modules the pipeline touches directly or transitively.
 PIPELINE_CRITICAL = [
@@ -32,9 +31,9 @@ def _is_compiled(mod) -> bool:
     return f.endswith((".so", ".pyd")) or ".cpython-" in f
 
 
-def core_module_report() -> Dict[str, dict]:
+def core_module_report() -> dict[str, dict]:
     """Return {module_name: {loaded, compiled, file}} for core modules."""
-    report: Dict[str, dict] = {}
+    report: dict[str, dict] = {}
     try:
         core = importlib.import_module("rexgraph.core")
     except Exception as e:
@@ -57,7 +56,7 @@ def core_module_report() -> Dict[str, dict]:
     return report
 
 
-def method_dispatch_report() -> Dict[str, bool]:
+def method_dispatch_report() -> dict[str, bool]:
     """Run the key RexGraph methods on a tiny complex and record success.
 
     A ``True`` means the method executed (dispatching into whatever
@@ -65,9 +64,10 @@ def method_dispatch_report() -> Dict[str, bool]:
     its Cython kernel is not compiled.
     """
     import numpy as np
+
     from rexgraph.graph import RexGraph
 
-    out: Dict[str, bool] = {}
+    out: dict[str, bool] = {}
     try:
         s = np.array([0, 1, 2, 0, 1, 3], dtype=np.int32)
         t = np.array([1, 2, 0, 2, 3, 0], dtype=np.int32)

@@ -14,7 +14,6 @@ import pytest
 
 from rexgraph.graph import RexGraph
 
-
 # Helpers
 
 def _make_k4():
@@ -66,7 +65,7 @@ class TestCSVLoader:
             [["A", "B", "binding"], ["B", "C", "phosphorylation"],
              ["A", "C", "binding"]],
         )
-        from rexgraph.io.csv_loader import load_edge_csv, ColumnRole
+        from rexgraph.io.csv_loader import ColumnRole, load_edge_csv
         gd = load_edge_csv(csv_path)
         assert gd.profiles["interaction_type"].role == ColumnRole.TYPE
 
@@ -78,7 +77,7 @@ class TestCSVLoader:
              ["RAS", "RAF", "activation"],
              ["P53", "MDM2", "inhibition"]],
         )
-        from rexgraph.io.csv_loader import load_edge_csv, ColumnRole
+        from rexgraph.io.csv_loader import ColumnRole, load_edge_csv
         gd = load_edge_csv(csv_path)
         assert gd.profiles["effect"].role == ColumnRole.POLARITY
         assert "inhibition" in gd.negative_types
@@ -104,7 +103,7 @@ class TestCSVLoader:
             ["source", "target", "score"],
             [["A", "B", "0.9"], ["B", "C", "0.5"], ["A", "C", "0.1"]],
         )
-        from rexgraph.io.csv_loader import load_edge_csv, ColumnRole
+        from rexgraph.io.csv_loader import ColumnRole, load_edge_csv
         gd = load_edge_csv(csv_path)
         assert gd.profiles["score"].role == ColumnRole.NUMERIC
         assert abs(gd.w_E[0] - 0.9) < 1e-10
@@ -116,7 +115,7 @@ class TestCSVLoader:
             ["source", "target", "confidence"],
             [["A", "B", "high"], ["B", "C", "low"], ["A", "C", "medium"]],
         )
-        from rexgraph.io.csv_loader import load_edge_csv, ColumnRole
+        from rexgraph.io.csv_loader import ColumnRole, load_edge_csv
         gd = load_edge_csv(csv_path)
         assert gd.profiles["confidence"].role == ColumnRole.ORDINAL
         # high=1.0, low=0.3, medium=0.6
@@ -131,7 +130,7 @@ class TestCSVLoader:
             [["A", "B", "SIGNOR;KEGG"], ["B", "C", "BioGRID;STRING"],
              ["A", "C", "KEGG"], ["C", "D", "SIGNOR;KEGG;Reactome"]],
         )
-        from rexgraph.io.csv_loader import load_edge_csv, ColumnRole
+        from rexgraph.io.csv_loader import ColumnRole, load_edge_csv
         gd = load_edge_csv(csv_path)
         assert gd.profiles["databases"].role == ColumnRole.EVIDENCE
 
@@ -141,7 +140,7 @@ class TestCSVLoader:
             ["source", "target", "regulation"],
             [["A", "B", "up"], ["B", "C", "down"], ["A", "C", "up"]],
         )
-        from rexgraph.io.csv_loader import load_edge_csv, ColumnRole
+        from rexgraph.io.csv_loader import ColumnRole, load_edge_csv
         # Without override, "regulation" is name-matched to polarity
         gd1 = load_edge_csv(csv_path)
         # With override, force it to type
@@ -443,7 +442,7 @@ class TestBundle:
     def test_roundtrip_triangle(self, tmp_path):
         path = str(tmp_path / "test.rex")
         rex = _make_triangle()
-        from rexgraph.io.bundle import save_rex, load_rex
+        from rexgraph.io.bundle import load_rex, save_rex
         save_rex(path, rex)
         rex2 = load_rex(path)
         assert rex2.nV == rex.nV
@@ -453,7 +452,7 @@ class TestBundle:
     def test_roundtrip_k4(self, tmp_path):
         path = str(tmp_path / "k4.rex")
         rex = _make_k4()
-        from rexgraph.io.bundle import save_rex, load_rex
+        from rexgraph.io.bundle import load_rex, save_rex
         save_rex(path, rex)
         rex2 = load_rex(path)
         assert rex2.nV == 4
@@ -494,7 +493,7 @@ class TestFormatDispatch:
     def test_rex_extension(self, tmp_path):
         path = str(tmp_path / "graph.rex")
         rex = _make_triangle()
-        from rexgraph.io import save, load
+        from rexgraph.io import load, save
         save(path, rex)
         rex2 = load(path)
         assert rex2.nV == rex.nV
@@ -510,7 +509,7 @@ class TestFormatDispatch:
     def test_zarr_raises_without_dep(self, tmp_path):
         path = str(tmp_path / "graph.zarr")
         rex = _make_triangle()
-        from rexgraph.io import save, HAS_ZARR
+        from rexgraph.io import HAS_ZARR, save
         if not HAS_ZARR:
             with pytest.raises(ImportError):
                 save(path, rex)
@@ -518,7 +517,7 @@ class TestFormatDispatch:
     def test_hdf5_raises_without_dep(self, tmp_path):
         path = str(tmp_path / "graph.h5")
         rex = _make_triangle()
-        from rexgraph.io import save, HAS_HDF5
+        from rexgraph.io import HAS_HDF5, save
         if not HAS_HDF5:
             with pytest.raises(ImportError):
                 save(path, rex)
@@ -541,8 +540,8 @@ class TestIOPipeline:
              ["P53", "MDM2", "inhibition", "0.85"],
              ["MDM2", "P53", "inhibition", "0.80"]],
         )
+        from rexgraph.io.bundle import load_rex, save_rex
         from rexgraph.io.csv_loader import load_edge_csv
-        from rexgraph.io.bundle import save_rex, load_rex
 
         gd = load_edge_csv(csv_path)
         rex = gd.to_rex()
@@ -575,8 +574,8 @@ class TestIOPipeline:
                 ],
             }
         })
+        from rexgraph.io.bundle import load_rex, save_rex
         from rexgraph.io.json_loader import load_json
-        from rexgraph.io.bundle import save_rex, load_rex
 
         rex = load_json(json_path)
         assert rex.nV == 5
@@ -592,7 +591,7 @@ class TestIOPipeline:
 def test_name_codec_is_reversible_for_any_reserved_set():
     """One codec, parameterized by what the container reserves. fname_encode (rex, hdf5,
     zarr) and the RCDB FileStore blob namer solved the same problem twice."""
-    from rexgraph.io.rex_state import encode_name, decode_name
+    from rexgraph.io.rex_state import decode_name, encode_name
 
     names = ["plain", "a/b", "a%b", "%2F", "doc:agent/agent/rcdb.py",
              "nested/cm_1_sub/0/boundary_ptr", "a@1", "w*t?", 'q"x', "p|z", ""]
@@ -609,7 +608,7 @@ def test_name_codec_is_reversible_for_any_reserved_set():
 def test_fname_encode_is_the_codec_and_stays_byte_compatible():
     """fname_encode is the '/'-reserved case. Existing .rex, hdf5 and zarr names on disk
     must keep decoding, so the encoding cannot shift."""
-    from rexgraph.io.rex_state import fname_encode, fname_decode, encode_name
+    from rexgraph.io.rex_state import encode_name, fname_decode, fname_encode
 
     for n in ["a/b", "a%b", "plain", "%2F"]:
         assert fname_encode(n) == encode_name(n, "/")

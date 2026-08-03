@@ -9,13 +9,12 @@ the full computation.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import logging
-import concurrent.futures
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from agent.pipeline import AnalysisPipeline
-
 
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
@@ -61,7 +60,7 @@ async def stream_pipeline(pipeline: AnalysisPipeline, depth: str = "standard") -
             yield f"event: stage\ndata: {payload}\n\n"
             stages_received += 1
         except asyncio.TimeoutError:
-            yield f"event: error\ndata: {{\"error\": \"Stage timeout\"}}\n\n"
+            yield "event: error\ndata: {\"error\": \"Stage timeout\"}\n\n"
             break
 
     # Wait for the pipeline to finish fully
@@ -75,4 +74,4 @@ async def stream_pipeline(pipeline: AnalysisPipeline, depth: str = "standard") -
         payload = json.dumps({"error": "Analysis failed"})
         yield f"event: error\ndata: {payload}\n\n"
 
-    yield f"event: done\ndata: {{}}\n\n"
+    yield "event: done\ndata: {}\n\n"

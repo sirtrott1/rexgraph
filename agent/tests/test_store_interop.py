@@ -196,8 +196,9 @@ def test_recommend_backend_explains_itself():
 # protocol, not this layout.
 
 def _objstore(tag=""):
-    from agent.objectstore import ObjectStore
     import uuid
+
+    from agent.objectstore import ObjectStore
     return ObjectStore(f"memory://rcdb-{tag}-{uuid.uuid4().hex[:8]}")
 
 

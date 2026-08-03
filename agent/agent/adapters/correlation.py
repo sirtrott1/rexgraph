@@ -7,8 +7,6 @@ matrices, adjacency matrices - and turn them into typed edges.
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 import numpy as np
 from numpy.typing import NDArray
 
@@ -24,7 +22,7 @@ class CorrelationAdapter(DomainAdapter):
     def build(
         self,
         R: NDArray,
-        labels: Optional[List[str]] = None,
+        labels: list[str] | None = None,
         threshold: str | float = "auto",
         typing: str = "spectral",
         sign: str = "matrix",
@@ -49,10 +47,7 @@ class CorrelationAdapter(DomainAdapter):
         R_work = R.copy()
         np.fill_diagonal(R_work, 0.0)
 
-        if threshold == "auto":
-            threshold_val = _auto_threshold(R_work)
-        else:
-            threshold_val = float(threshold)
+        threshold_val = _auto_threshold(R_work) if threshold == "auto" else float(threshold)
 
         # Build edges - vectorized over the upper triangle (was an O(n²) Python
         # double loop); identical result and edge order (i<j).
@@ -106,7 +101,7 @@ class AdjacencyAdapter(DomainAdapter):
     def build(
         self,
         A: NDArray,
-        labels: Optional[List[str]] = None,
+        labels: list[str] | None = None,
         directed: bool = False,
     ) -> EdgeConstruction:
         """Build edges from an adjacency matrix. No thresholding - every

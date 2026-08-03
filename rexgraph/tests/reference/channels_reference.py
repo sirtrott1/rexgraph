@@ -39,10 +39,7 @@ Reference: rcf_session_bundle/rex_phase_b_v2.py (the corrected version).
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
-
 import numpy as np
-
 
 # Helpers
 
@@ -140,7 +137,7 @@ def build_L_O(B_1: np.ndarray, vertex_weights: np.ndarray) -> np.ndarray:
 
 
 def build_L_SG(B_1: np.ndarray,
-               vertex_weights: Optional[np.ndarray] = None) -> np.ndarray:
+               vertex_weights: np.ndarray | None = None) -> np.ndarray:
     """Frustration Laplacian L_SG = D_{|K_off|} - K_off.
 
     Where:
@@ -226,8 +223,8 @@ def build_channels(
     B_1: np.ndarray,
     B_2: np.ndarray,
     vertex_weights: np.ndarray,
-    frustration_weights: Optional[np.ndarray] = None,
-) -> Tuple[np.ndarray, List[np.ndarray]]:
+    frustration_weights: np.ndarray | None = None,
+) -> tuple[np.ndarray, list[np.ndarray]]:
     """Build all four trace-normalized hat operators and the relational Laplacian.
 
     Returns (RL, [hat_T, hat_G, hat_F, hat_C]) where each hat has trace 1
@@ -274,7 +271,7 @@ def build_channels(
 
 
 def verify_channel_identities(RL: np.ndarray,
-                              hats: List[np.ndarray],
+                              hats: list[np.ndarray],
                               tol: float = 1e-10) -> dict:
     """Verify the framework's algebraic identities on the trace-normalized hats.
 
@@ -291,7 +288,7 @@ def verify_channel_identities(RL: np.ndarray,
 
     # Per-hat trace
     traces = [float(np.trace(h)) for h in hats]
-    for i, (name, tr) in enumerate(zip("TGFC", traces)):
+    for _i, (name, tr) in enumerate(zip("TGFC", traces, strict=False)):
         if abs(tr) > 1e-15:  # only check non-degenerate
             results[f"tr(hat_{name})"] = (tr, abs(tr - 1.0) < tol)
 
@@ -300,7 +297,7 @@ def verify_channel_identities(RL: np.ndarray,
     results["tr(RL)"] = (rl_trace, abs(rl_trace - n_nonzero) < tol)
 
     # PSD checks (smallest eigenvalue >= -tol)
-    for name, h in zip("TGFC", hats):
+    for name, h in zip("TGFC", hats, strict=False):
         if h.size > 0 and np.any(h):
             try:
                 ev_min = float(np.linalg.eigvalsh(h).min())

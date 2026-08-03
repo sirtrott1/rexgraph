@@ -1,7 +1,6 @@
 import numpy as np
 from agent.warehouse import source as S
 
-
 # a tiny inline generic weighted edge list TSV fixture (no pandas, no large file)
 FIXTURE = ("src\tx1\tdst\tx2\tw\n"
            "A1\t.\tB1\t.\t0.5\nA1\t.\tB2\t.\t1.0\nA1\t.\tB3\t.\t50.0\n"

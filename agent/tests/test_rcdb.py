@@ -4,11 +4,15 @@ structural query, and the HTTP routes."""
 import tempfile
 
 import pytest
-
-from agent.rcdb import (open_store, MemoryStore, FileStore, SQLStore,
-                        structural_signature, register_backend)
 from agent.adapters.text import TextAdapter
 from agent.auto import build_rex_from_edges
+from agent.rcdb import (
+    MemoryStore,
+    SQLStore,
+    open_store,
+    register_backend,
+    structural_signature,
+)
 
 
 def _rex(text):
@@ -157,6 +161,7 @@ class TestStructuralSearch:
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
     import os
+
     from fastapi.testclient import TestClient
     db = tmp_path_factory.mktemp("rcdb") / "db.sqlite"
     os.environ["REXGRAPH_RCDB_URI"] = f"sqlite:///{db}"
@@ -202,6 +207,7 @@ class TestRoutes:
 class TestSqlIndex:
     def _rexes(self):
         import numpy as np
+
         from rexgraph.graph import RexGraph
         cycle = RexGraph(sources=np.array([0, 1, 2], dtype=np.int32),
                          targets=np.array([1, 2, 0], dtype=np.int32))   # betti1=1
@@ -234,7 +240,9 @@ class TestSqlIndex:
             assert {r.id for r in s.query(**q)} == {r.id for r in m.query(**q)}
 
     def test_migration_backfills_old_table(self, tmp_path):
-        import sqlite3, json, time
+        import json
+        import sqlite3
+        import time
         dbf = str(tmp_path / "legacy.db")
         con = sqlite3.connect(dbf)
         con.execute("CREATE TABLE rc_complexes(id TEXT PRIMARY KEY, signature TEXT, "
@@ -252,7 +260,7 @@ class TestSqlIndex:
 
 class TestWorkAsComplex:
     def test_run_and_conversation_adapters(self):
-        from agent.lineage_adapters import run_to_rex, conversation_to_rex
+        from agent.lineage_adapters import conversation_to_rex, run_to_rex
         r, meta = run_to_rex(["ocr", "corpus", "analysis", "export"])
         assert r is not None and r.nV == 4 and r.nE == 3
         assert meta["source"] == "pipeline-run"
@@ -339,10 +347,10 @@ def test_default_store_falls_back_to_a_file_store(tmp_path, monkeypatch, isolate
 def test_hive_schema_and_query_manager_use_the_default_store(tmp_path, monkeypatch, isolated_default_store):
     """Constructing either without an explicit store must reach the default, so a
     versioned self-schema survives the request that created it."""
-    import numpy as np
-    from agent import rcdb as R
     from agent.hive_schema import HiveSchema
     from agent.query_manager import QueryManager
+
+    from agent import rcdb as R
 
     monkeypatch.setenv("REXGRAPH_RCDB_URI", "file://" + str(tmp_path / "store"))
     R.reset_default_store()
@@ -366,6 +374,7 @@ def test_file_store_ids_that_sanitize_alike_do_not_share_a_blob(tmp_path):
     wrong complex. Knowledge-core ids carry '/' and ':' routinely."""
     import numpy as np
     from agent.rcdb import open_store
+
     from rexgraph.graph import RexGraph
 
     st = open_store("file://" + str(tmp_path / "store"))
@@ -383,6 +392,7 @@ def test_file_store_round_trips_ids_with_path_and_scheme_characters(tmp_path):
     """The ids v1.0.5 will actually use."""
     import numpy as np
     from agent.rcdb import open_store
+
     from rexgraph.graph import RexGraph
 
     st = open_store("file://" + str(tmp_path / "store"))

@@ -50,7 +50,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
+from collections.abc import Iterator, Sequence
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -93,8 +94,9 @@ def _pq():
 
 #: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
 #: existing call sites keep working; `dumps` is what applies the non-finite policy.
-from ._compat import dumps as _dumps
+import contextlib
 
+from ._compat import dumps as _dumps
 
 # Edge type names matching types.py EdgeType enum (Definition 3.2)
 _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
@@ -104,10 +106,10 @@ _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
 
 
 def write_parquet(
-    data: Dict[str, NDArray],
-    path: Union[str, os.PathLike],
+    data: dict[str, NDArray],
+    path: str | os.PathLike,
     *,
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Write a dict of equal-length 1D arrays to Parquet.
 
@@ -116,8 +118,8 @@ def write_parquet(
     """
     pa, pq = _pq()
 
-    columns: Dict[str, Any] = {}
-    col_meta: Dict[str, dict] = {}
+    columns: dict[str, Any] = {}
+    col_meta: dict[str, dict] = {}
 
     for name, arr in data.items():
         arr = np.asarray(arr)
@@ -132,7 +134,7 @@ def write_parquet(
 
     table = pa.table(columns)
 
-    schema_meta: Dict[bytes, bytes] = {}
+    schema_meta: dict[bytes, bytes] = {}
     if col_meta:
         schema_meta[b"rex_col_meta"] = _dumps(col_meta).encode("utf-8")
     if metadata:
@@ -144,10 +146,10 @@ def write_parquet(
 
 
 def read_parquet(
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
-    columns: Optional[Sequence[str]] = None,
-) -> Dict[str, np.ndarray]:
+    columns: Sequence[str] | None = None,
+) -> dict[str, np.ndarray]:
     """Read a Parquet file into a dict of arrays.
 
     Reassembles 2D arrays that were split by write_parquet().
@@ -157,11 +159,11 @@ def read_parquet(
     table = pq.read_table(os.fspath(path))
 
     schema_meta = table.schema.metadata or {}
-    col_meta: Dict[str, dict] = {}
+    col_meta: dict[str, dict] = {}
     if b"rex_col_meta" in schema_meta:
         col_meta = json.loads(schema_meta[b"rex_col_meta"].decode("utf-8"))
 
-    result: Dict[str, np.ndarray] = {}
+    result: dict[str, np.ndarray] = {}
     consumed: set = set()
 
     for name, info in col_meta.items():
@@ -188,7 +190,7 @@ def read_parquet(
     return result
 
 
-def _read_metadata(path: Union[str, os.PathLike]) -> dict:
+def _read_metadata(path: str | os.PathLike) -> dict:
     """Read rex_metadata from a Parquet file without loading data."""
     pa, pq = _pq()
     schema = pq.read_schema(os.fspath(path))
@@ -203,7 +205,7 @@ def _read_metadata(path: Union[str, os.PathLike]) -> dict:
 
 def write_boundary_table(
     rex,
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
 ) -> None:
     """Write the general boundary operator d_1 to Parquet.
 
@@ -247,8 +249,8 @@ def write_boundary_table(
 
 
 def read_boundary_table(
-    path: Union[str, os.PathLike],
-) -> Dict[str, Any]:
+    path: str | os.PathLike,
+) -> dict[str, Any]:
     """Read boundary table and reconstruct `boundary_ptr`/`boundary_idx`.
 
     Returns
@@ -288,9 +290,9 @@ def read_boundary_table(
 
 def write_edge_table(
     rex,
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
-    include: Optional[List[str]] = None,
+    include: list[str] | None = None,
 ) -> None:
     r"""Write per-edge data to Parquet.
 
@@ -328,7 +330,7 @@ def write_edge_table(
 
     etypes = rex.edge_types
 
-    data: Dict[str, NDArray] = {
+    data: dict[str, NDArray] = {
         "edge_idx": np.arange(nE, dtype=np.int32),
         "source": src,
         "target": tgt,
@@ -376,7 +378,7 @@ def write_edge_table(
     write_parquet(data, path, metadata=meta)
 
 
-def read_edge_table(path: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
+def read_edge_table(path: str | os.PathLike) -> dict[str, np.ndarray]:
     """Read edge table from Parquet."""
     return read_parquet(path)
 
@@ -386,9 +388,9 @@ def read_edge_table(path: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
 
 def write_vertex_table(
     rex,
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
-    include: Optional[List[str]] = None,
+    include: list[str] | None = None,
 ) -> None:
     r"""Write per-vertex data to Parquet.
 
@@ -406,14 +408,12 @@ def write_vertex_table(
         `"fiedler_vector_L0"`, `"eigenvalues_L0"`, `"layout_3d"`.
     """
     nV = rex.nV
-    data: Dict[str, NDArray] = {
+    data: dict[str, NDArray] = {
         "vertex_idx": np.arange(nV, dtype=np.int32),
     }
 
-    try:
+    with contextlib.suppress(Exception):
         data["degree"] = np.diag(rex.L0).astype(np.int32)
-    except Exception:
-        pass
 
     try:
         layout = rex.layout
@@ -444,7 +444,7 @@ def write_vertex_table(
     write_parquet(data, path, metadata=meta)
 
 
-def read_vertex_table(path: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
+def read_vertex_table(path: str | os.PathLike) -> dict[str, np.ndarray]:
     """Read vertex table from Parquet."""
     return read_parquet(path)
 
@@ -454,7 +454,7 @@ def read_vertex_table(path: Union[str, os.PathLike]) -> Dict[str, np.ndarray]:
 
 def write_face_table(
     rex,
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
 ) -> None:
     """Write the face boundary operator B_2 to Parquet.
 
@@ -496,7 +496,7 @@ def write_face_table(
     write_parquet(data, path, metadata=meta)
 
 
-def read_face_table(path: Union[str, os.PathLike]) -> Dict[str, Any]:
+def read_face_table(path: str | os.PathLike) -> dict[str, Any]:
     """Read face table and reconstruct B2 CSC arrays.
 
     Returns `B2_col_ptr`, `B2_row_idx`, `B2_vals`, plus raw columns.
@@ -537,7 +537,7 @@ def read_face_table(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 
 def write_persistence_table(
     result: Any,
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
 ) -> None:
     r"""Write persistence pairs to Parquet.
 
@@ -554,7 +554,7 @@ def write_persistence_table(
     else:
         raise TypeError("Expected persistence result dict or PersistenceDiagram")
 
-    data: Dict[str, NDArray] = {}
+    data: dict[str, NDArray] = {}
     if pairs.ndim == 2 and pairs.shape[1] >= 5:
         data["birth"] = pairs[:, 0]
         data["death"] = pairs[:, 1]
@@ -570,7 +570,7 @@ def write_persistence_table(
     else:
         raise ValueError(f"Unexpected pairs shape: {pairs.shape}")
 
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "rex_table_type": "persistence_table",
         "n_pairs": int(len(pairs)),
     }
@@ -588,7 +588,7 @@ def write_persistence_table(
     write_parquet(data, path, metadata=meta)
 
 
-def read_persistence_table(path: Union[str, os.PathLike]) -> Dict[str, Any]:
+def read_persistence_table(path: str | os.PathLike) -> dict[str, Any]:
     """Read persistence table with metadata (betti, essential)."""
     result = read_parquet(path)
     meta = _read_metadata(path)
@@ -607,7 +607,7 @@ def write_filtration_table(
     filt_v: NDArray,
     filt_e: NDArray,
     filt_f: NDArray,
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
     kind: str = "",
 ) -> None:
@@ -650,7 +650,7 @@ def write_filtration_table(
     write_parquet(data, path, metadata=meta)
 
 
-def read_filtration_table(path: Union[str, os.PathLike]) -> Dict[str, Any]:
+def read_filtration_table(path: str | os.PathLike) -> dict[str, Any]:
     """Read filtration table -> `filt_v`, `filt_e`, `filt_f`."""
     raw = read_parquet(path)
     meta = _read_metadata(path)
@@ -670,8 +670,8 @@ def read_filtration_table(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 
 
 def write_metrics_table(
-    metrics: Dict[str, NDArray],
-    path: Union[str, os.PathLike],
+    metrics: dict[str, NDArray],
+    path: str | os.PathLike,
     *,
     index_name: str = "cell_idx",
 ) -> None:
@@ -695,10 +695,10 @@ def write_metrics_table(
 
 
 def read_metrics_table(
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
     exclude_index: bool = True,
-) -> Dict[str, np.ndarray]:
+) -> dict[str, np.ndarray]:
     """Read metrics table.  Omits index column by default."""
     result = read_parquet(path)
     if exclude_index:
@@ -710,11 +710,11 @@ def read_metrics_table(
 
 
 def read_parquet_batches(
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
     batch_rows: int = 100_000,
-    columns: Optional[Sequence[str]] = None,
-) -> Iterator[Dict[str, np.ndarray]]:
+    columns: Sequence[str] | None = None,
+) -> Iterator[dict[str, np.ndarray]]:
     """Stream a Parquet file as batches of arrays.
 
     Yields dict of name -> ndarray per batch.
@@ -722,7 +722,7 @@ def read_parquet_batches(
     pa, pq = _pq()
 
     pf = pq.ParquetFile(os.fspath(path))
-    pending: List[Dict[str, np.ndarray]] = []
+    pending: list[dict[str, np.ndarray]] = []
     pending_rows = 0
 
     for batch in pf.iter_batches(batch_size=batch_rows, columns=columns):
@@ -739,7 +739,7 @@ def read_parquet_batches(
         yield _merge_dicts(pending)
 
 
-def _merge_dicts(batches: List[Dict[str, np.ndarray]]) -> Dict[str, np.ndarray]:
+def _merge_dicts(batches: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
     """Concatenate a list of column dicts."""
     if len(batches) == 1:
         return batches[0]
@@ -864,7 +864,7 @@ def write_void_table(
             ("fills_beta", pa.int32()),
         ])
         table = pa.table({name: pa.array([], type=typ) for name, typ in zip(
-            schema.names, schema.types)})
+            schema.names, schema.types, strict=False)})
         pq.write_table(table, path)
         return
 

@@ -1,8 +1,12 @@
 """agent.server.routes.corpus: workspace-scoped corpus analysis."""
 
 from __future__ import annotations
-import os, tempfile
-from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, Depends
+
+import os
+import tempfile
+
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
+
 from agent.server.auth import TokenEntry, WorkspaceState, require_auth, require_workspace
 
 router = APIRouter(prefix="/v1/corpus")
@@ -78,7 +82,7 @@ async def build_corpus(
     try:
         corpus.build(depth=depth)
     except Exception as e:
-        raise HTTPException(500, "Build failed: %s" % e)
+        raise HTTPException(500, f"Build failed: {e}")
     docs = []
     for doc in corpus.documents:
         d = {"doc_id": doc.doc_id, "source": doc.source, "date": doc.date}
@@ -201,7 +205,7 @@ async def compare_datasets(
     try:
         return corpus.cross_dataset_comparison(metric=metric)
     except Exception as e:
-        raise HTTPException(500, "Comparison failed: %s" % e)
+        raise HTTPException(500, f"Comparison failed: {e}")
 
 
 @router.post("/trustgraph")
@@ -216,7 +220,7 @@ async def trustgraph_enrichment(
     try:
         return corpus.trustgraph_analysis(depth=depth)
     except Exception as e:
-        raise HTTPException(500, "TrustGraph analysis failed: %s" % e)
+        raise HTTPException(500, f"TrustGraph analysis failed: {e}")
 
 
 @router.post("/reset")

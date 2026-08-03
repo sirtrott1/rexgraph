@@ -1224,7 +1224,7 @@ function Setups(){
             field("Budget GB (blank=auto)",h("input",{className:"input",type:"number",value:draft.budget_gb==null?"":draft.budget_gb,onChange:function(e){edit("budget_gb",e.target.value===""?null:parseFloat(e.target.value))}})),
             field("Max workers",h("input",{className:"input",type:"number",value:draft.max_workers,onChange:function(e){edit("max_workers",parseInt(e.target.value||"0"))}}))),
           h("div",{style:{display:"flex",gap:8}},
-            field("Optimizer",h("select",{className:"input",value:draft.optimizer,onChange:function(e){edit("optimizer",e.target.value)}},optsFor("optimizer",[["hodge","hodge ✦"],["adam","adam"]]).map(function(o){return h("option",{key:o[0],value:o[0],disabled:o[2]},o[1])}))),
+            field("Optimizer",h("select",{className:"input",value:draft.optimizer,onChange:function(e){edit("optimizer",e.target.value)}},[["auto","auto ✦ (routes per model)",false]].concat(optsFor("optimizer",[["greens","greens ✦"],["adam","adam"]])).map(function(o){return h("option",{key:o[0],value:o[0],disabled:o[2]},o[1])}))),
             field("Attention",h("select",{className:"input",value:draft.attention,onChange:function(e){edit("attention",e.target.value)}},optsFor("attention",[["relational","relational ✦"],["standard","standard"]]).map(function(o){return h("option",{key:o[0],value:o[0],disabled:o[2]},o[1])})))),
           h("p",{className:"muted",style:{fontSize:10.5,marginTop:-4}},"✦ = your RexGraph-native component (the default). Switch to a standard PyTorch option any time - the Operations ▸ train phase uses whatever this setup selects."),
           field("Monitor",h("label",{style:{fontSize:12}},h("input",{type:"checkbox",checked:!!draft.monitor_embed,onChange:function(e){edit("monitor_embed",e.target.checked)}})," use the embedder for the semantic alignment signal")),
@@ -1506,7 +1506,7 @@ function Swarm(){
 function ModelStudio(){
   var av=useState([]),arcs=av[0],setArcs=av[1],sv=useState(null),sel=sv[0],setSel=sv[1];
   var pv=useState({}),prm=pv[0],setPrm=pv[1],dv=useState(""),dpath=dv[0],setDp=dv[1];
-  var ov=useState("hodge"),opt=ov[0],setOpt=ov[1],mv=useState("single"),mode=mv[0],setMode=mv[1];
+  var ov=useState("auto"),opt=ov[0],setOpt=ov[1],mv=useState("single"),mode=mv[0],setMode=mv[1];
   var stv=useState(150),steps=stv[0],setSt=stv[1],rv=useState(null),res=rv[0],setRes=rv[1];
   var bv=useState(false),busy=bv[0],setB=bv[1],ev=useState(""),err=ev[0],setE=ev[1];
   var tv=useState("Metformin, treats, Diabetes\nMetformin, activates, AMPK\nAMPK, regulates, Glucose"),tri=tv[0],setTri=tv[1];
@@ -1523,14 +1523,14 @@ function ModelStudio(){
   function traj(r){var t=r&&(r.trajectory||(r.final!=null?[r.final]:null));if(!t||t.length<2)return null;var w=200,hh=32,mn=Math.min.apply(null,t),mx=Math.max.apply(null,t),rg=(mx-mn)||1;return h("svg",{viewBox:"0 0 "+w+" "+hh,style:{width:w,height:hh}},h("polyline",{points:t.map(function(v,i){return (i/(t.length-1)*w).toFixed(1)+","+(hh-((v-mn)/rg)*hh).toFixed(1)}).join(" "),fill:"none",stroke:"var(--accent,#4a7fe0)","stroke-width":1.5}))}
   var selA=arcs.filter(function(a){return a.name===sel})[0];
   return h("div",null,h("h2",null,"Model Studio - build & train on the substrate"),h(Err,{msg:err}),
-    h("p",{className:"muted",style:{fontSize:12,marginTop:-4}},"Pick an archetype, tune it, point it at your data, and train with your optimizer (HodgeAdam by default) - built on ",h("code",null,"rexgraph.nn"),", persisted through the rexgraph IO layer. Modular: archetypes come from the registry."),
+    h("p",{className:"muted",style:{fontSize:12,marginTop:-4}},"Pick an archetype, tune it, point it at your data, and train. The optimizer defaults to auto, which routes per model: GreensCochain when the parameters are a cochain on a complex, plain Adam for these feature-space archetypes. Built on ",h("code",null,"rexgraph.nn"),", persisted through the rexgraph IO layer. Modular: archetypes come from the registry."),
     h(Card,{title:"Build & train"},
       h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}},arcs.map(function(a){return h("button",{key:a.name,className:a.name===sel?"sm primary":"sm",onClick:function(){pick(a)},title:a.use_case},a.name)})),
       selA&&h("p",{className:"muted",style:{fontSize:11,margin:"0 0 8px"}},selA.use_case," · data: ",selA.data_kind),
       selA&&h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}},Object.keys(prm).map(function(k){var v=prm[k];var isB=typeof v==="boolean";return h("div",{key:k},h("label",{style:{fontSize:11,color:"var(--muted)",display:"block"}},k),isB?h("label",{style:{fontSize:12}},h("input",{type:"checkbox",checked:v,onChange:function(e){edit(k,e.target.checked)}})," ",String(v)):h("input",{className:"input",value:v,onChange:function(e){var nv=e.target.value;edit(k,(typeof v==="number"&&nv!==""&&!isNaN(nv))?Number(nv):nv)}}))})),
       selA&&h("div",{className:"input-row",style:{marginTop:10}},
         h("input",{className:"input",style:{flex:2},value:dpath,onChange:function(e){setDp(e.target.value)},placeholder:"data path (parquet/.rex/csv/… - blank = synthetic)"}),
-        h("select",{className:"input",value:opt,onChange:function(e){setOpt(e.target.value)}},["hodge","hodge-arch","adam","sgd","adamw"].map(function(o){return h("option",{key:o,value:o},o)})),
+        h("select",{className:"input",value:opt,onChange:function(e){setOpt(e.target.value)}},["auto","greens","adam","adamw","sgd","hodge","hodge-arch"].map(function(o){return h("option",{key:o,value:o},o)})),
         h("select",{className:"input",value:mode,onChange:function(e){setMode(e.target.value)}},["single","multistep","fusion"].map(function(o){return h("option",{key:o,value:o},o)})),
         h("input",{className:"input",style:{width:80},type:"number",value:steps,onChange:function(e){setSt(Number(e.target.value)||150)}}),
         h("button",{className:"primary",onClick:runTrain,disabled:busy||!sel},busy?"Training…":"Train")),

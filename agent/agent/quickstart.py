@@ -20,13 +20,13 @@ reads: it is safe to run anywhere, including somewhere you are only inspecting.
 
 from __future__ import annotations
 
+import contextlib
 import os
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 #: file types worth counting separately when deciding what a directory IS.
 _TEXTUAL = {".txt", ".md", ".rst", ".json", ".csv", ".tsv", ".pdf"}
@@ -56,21 +56,21 @@ class Plan:
     """What was found and what will happen. Inspect it before running it."""
 
     path: str
-    host: Dict[str, Any]
-    files: Dict[str, int]
+    host: dict[str, Any]
+    files: dict[str, int]
     n_files: int
     total_bytes: int
     readable: int
-    unreadable: List[str]
+    unreadable: list[str]
     backend: str
     backend_reason: str
     store_uri: str
     depth: str
     depth_reason: str
-    missing: Dict[str, str] = field(default_factory=dict)
-    notes: List[str] = field(default_factory=list)
+    missing: dict[str, str] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
 
-    def install_command(self) -> Optional[str]:
+    def install_command(self) -> str | None:
         if not self.missing:
             return None
         return f"{sys.executable} -m pip install " + " ".join(sorted(self.missing))
@@ -102,31 +102,26 @@ class Plan:
         return "\n".join(lines)
 
 
-def _scan(path: str, *, max_files: int = 200_000) -> Dict[str, Any]:
+def _scan(path: str, *, max_files: int = 200_000) -> dict[str, Any]:
     """Count files by extension and total size. Reads no file contents."""
     from agent.adapters.formats import reader_for
 
-    counts: Dict[str, int] = {}
-    unreadable: List[str] = []
+    counts: dict[str, int] = {}
+    unreadable: list[str] = []
     readable = 0
     total = 0
     n = 0
     known_text = _TEXTUAL
     root = Path(path)
-    if root.is_file():
-        entries = [root]
-    else:
-        entries = (p for p in root.rglob("*") if p.is_file())
+    entries = [root] if root.is_file() else (p for p in root.rglob("*") if p.is_file())
     for p in entries:
         n += 1
         if n > max_files:
             break
         ext = p.suffix.lower()
         counts[ext] = counts.get(ext, 0) + 1
-        try:
+        with contextlib.suppress(OSError):
             total += p.stat().st_size
-        except OSError:
-            pass
         if ext in known_text or reader_for(p) is not None:
             readable += 1
         else:
@@ -135,10 +130,10 @@ def _scan(path: str, *, max_files: int = 200_000) -> Dict[str, Any]:
             "readable": readable, "unreadable": unreadable}
 
 
-def plan(path: str = ".", *, store: Optional[str] = None) -> Plan:
+def plan(path: str = ".", *, store: str | None = None) -> Plan:
     """Inspect the host and the data, and decide. Reads only; changes nothing."""
-    from rexgraph import hardware
     from agent import rcdb
+    from rexgraph import hardware
 
     hw = hardware.detect()
     hw["summary"] = hardware.summary()
@@ -196,7 +191,7 @@ def plan(path: str = ".", *, store: Optional[str] = None) -> Plan:
                 depth_reason=why, missing=missing, notes=notes)
 
 
-def install(p: Plan, *, yes: bool = False) -> Dict[str, Any]:
+def install(p: Plan, *, yes: bool = False) -> dict[str, Any]:
     """Install what the plan says is missing. Asks first unless `yes`."""
     cmd = p.install_command()
     if not cmd:
@@ -210,8 +205,8 @@ def install(p: Plan, *, yes: bool = False) -> Dict[str, Any]:
             "stderr": proc.stderr[-2000:] if proc.returncode else ""}
 
 
-def run(p: Plan, *, limit: Optional[int] = None, persist: bool = True,
-        progress=None) -> Dict[str, Any]:
+def run(p: Plan, *, limit: int | None = None, persist: bool = True,
+        progress=None) -> dict[str, Any]:
     """Ingest, build, persist and index, on the plan's own terms.
 
     Returns the corpus and the store. The store is indexed before returning, so the
@@ -235,7 +230,7 @@ def run(p: Plan, *, limit: Optional[int] = None, persist: bool = True,
     built = time.perf_counter() - t0
 
     store = None
-    ids: List[str] = []
+    ids: list[str] = []
     if persist:
         store = rcdb.open_store(p.store_uri)
         ids = corpus.persist(store)
@@ -253,7 +248,7 @@ def run(p: Plan, *, limit: Optional[int] = None, persist: bool = True,
     }
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     import argparse
 
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])

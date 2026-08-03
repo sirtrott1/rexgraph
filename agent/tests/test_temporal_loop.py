@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
+from agent.rcdb import open_store
+from agent.temporal_loop import DERIVED_TAG, ChangeEvent, ChangeSource
 
 from rexgraph.graph import RexGraph
-from agent.rcdb import open_store
-from agent.temporal_loop import ChangeSource, ChangeEvent, DERIVED_TAG
 
 
 def _rex(src, tgt):
@@ -106,7 +106,7 @@ def test_on_change_delete_drops_state_without_append():
     before_T = loop.trex.T
     res = loop.on_change(ChangeEvent("svc", 2, "rcdb.delete", None))
     assert res.t == -1 and res.change is None
-    assert loop.trex.T == before_T                    # a delete does not append a snapshot
+    assert before_T == loop.trex.T                    # a delete does not append a snapshot
 
 
 def test_write_back_creates_guarded_derived_version():
@@ -206,4 +206,4 @@ def test_online_loop_closes_over_memory_feed():
 
 
 def test_online_loop_closes_over_file_feed(tmp_path):
-    _drive_dogfood(open_store("file://%s/rcdb" % tmp_path))
+    _drive_dogfood(open_store(f"file://{tmp_path}/rcdb"))

@@ -17,7 +17,6 @@ import pytest
 from rexgraph.core import _persistence
 from rexgraph.graph import RexGraph
 
-
 # Fixtures
 
 @pytest.fixture

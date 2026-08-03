@@ -38,10 +38,12 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +55,15 @@ class DocumentRecord:
 
     doc_id: str
     source: str = ""
-    date: Optional[str] = None
+    date: str | None = None
     text: str = ""
 
     # Per-document RexGraph (set after build)
     rex: Any = None
     edge_construction: Any = None
-    analysis: Dict[str, Any] = field(default_factory=dict)
-    vertex_labels: List[str] = field(default_factory=list)
-    meta: Dict[str, Any] = field(default_factory=dict)
+    analysis: dict[str, Any] = field(default_factory=dict)
+    vertex_labels: list[str] = field(default_factory=list)
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -69,13 +71,13 @@ class QueryResult:
     """Result of a propagator-based corpus query."""
 
     query_text: str
-    ranked_sections: List[Dict[str, Any]] = field(default_factory=list)
-    query_character: Optional[np.ndarray] = None
+    ranked_sections: list[dict[str, Any]] = field(default_factory=list)
+    query_character: np.ndarray | None = None
     query_rex: Any = None
 
 
 # Entity extraction (lightweight, no external NLP)
-def _extract_entities(text: str, min_len: int = 3) -> List[str]:
+def _extract_entities(text: str, min_len: int = 3) -> list[str]:
     """Extract candidate entities from text.
 
     Uses capitalization and noun-phrase heuristics.
@@ -164,23 +166,23 @@ class CorpusBuilder:
         self.ocr_client = ocr_client
         self.adapter_kwargs = adapter_kwargs
 
-        self.documents: List[DocumentRecord] = []
+        self.documents: list[DocumentRecord] = []
         self._built = False
 
         # Cross-document state (populated by build())
         self._merged_rex = None
-        self._shared_labels: List[str] = []
-        self._doc_edge_types: Optional[np.ndarray] = None
-        self._temporal_snapshots: List = []
+        self._shared_labels: list[str] = []
+        self._doc_edge_types: np.ndarray | None = None
+        self._temporal_snapshots: list = []
 
     # Document ingestion
     def add_document(
         self,
         source: str,
-        doc_id: Optional[str] = None,
-        date: Optional[str] = None,
-        text: Optional[str] = None,
-        edge_construction: Optional[Any] = None,
+        doc_id: str | None = None,
+        date: str | None = None,
+        text: str | None = None,
+        edge_construction: Any | None = None,
     ) -> str:
         """Add a document to the corpus.
 
@@ -213,8 +215,8 @@ class CorpusBuilder:
         self._built = False
         return doc_id
 
-    def add_text(self, text: str, doc_id: Optional[str] = None,
-                 date: Optional[str] = None) -> str:
+    def add_text(self, text: str, doc_id: str | None = None,
+                 date: str | None = None) -> str:
         """Add raw text as a document (no OCR needed)."""
         return self.add_document(
             source="<text>", doc_id=doc_id, date=date, text=text,
@@ -224,9 +226,9 @@ class CorpusBuilder:
         self,
         directory: str,
         recursive: bool = True,
-        extensions: Optional[List[str]] = None,
-        date: Optional[str] = None,
-    ) -> List[str]:
+        extensions: list[str] | None = None,
+        date: str | None = None,
+    ) -> list[str]:
         """Walk a directory and add each supported file as a document.
 
         Parameters
@@ -285,7 +287,7 @@ class CorpusBuilder:
                 # Text files: read content directly
                 if ext in (".txt", ".md"):
                     try:
-                        with open(filepath, "r", errors="replace") as f:
+                        with open(filepath, errors="replace") as f:
                             text = f.read()
                         did = self.add_text(text, doc_id=doc_id, date=date)
                     except Exception as e:
@@ -327,9 +329,9 @@ class CorpusBuilder:
         if len(self.documents) == 0:
             raise ValueError("No documents in corpus")
 
+        from agent import cache as _cache
         from agent.auto import auto_rex, build_rex_from_edges
         from agent.pipeline import AnalysisPipeline
-        from agent import cache as _cache
 
         for doc in self.documents:
             # Content-addressed cache: skip rebuild + analysis when we've
@@ -408,22 +410,18 @@ class CorpusBuilder:
                 _did = doc.doc_id
 
                 def _cb(stage_name, stage_data, _doc_id=_did):
-                    try:
+                    with contextlib.suppress(Exception):
                         stage_callback(_doc_id, stage_name, stage_data)
-                    except Exception:
-                        pass
 
                 pipe.on_stage(_cb)
             doc.analysis = pipe.run(depth=depth)
 
             # Populate the cache for next time (best-effort).
             if cache_key is not None:
-                try:
+                with contextlib.suppress(Exception):
                     _cache.store_rex_and_analysis(
                         cache_key, rex, doc.analysis, doc.meta,
                     )
-                except Exception:
-                    pass
 
         # Sort by date if available
         dated = [d for d in self.documents if d.date]
@@ -452,7 +450,7 @@ class CorpusBuilder:
         self,
         doc_a: int = 0,
         doc_b: int = 1,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compare coherence across two documents.
 
         Calls ``_cross_complex.align_by_labels()`` and
@@ -491,7 +489,7 @@ class CorpusBuilder:
         self,
         doc_a: int = 0,
         doc_b: int = 1,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compare void structure across two documents.
 
         Calls ``_cross_complex.cross_complex_void_fraction()``.
@@ -516,7 +514,7 @@ class CorpusBuilder:
         self,
         doc_a: int = 0,
         doc_b: int = 1,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Full cross-document structural bridge.
 
         Calls ``_cross_complex.cross_complex_bridge()``.
@@ -561,7 +559,7 @@ class CorpusBuilder:
         self,
         phase_tol: float = 0.0,
         min_phase_len: int = 2,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run BIOES temporal tagging across the document sequence.
 
         Each document is a "timestep."  Calls
@@ -620,7 +618,7 @@ class CorpusBuilder:
         gap, plus their corpus-level distribution and diversity (the effective number
         of coherence-distinct documents). Same Rényi calculus as the token/response
         metrics; see agent.metrics."""
-        from agent.metrics import structural_metrics, corpus_metrics
+        from agent.metrics import corpus_metrics, structural_metrics
         docs = [d for d in self.documents if d.rex is not None]
         per_document = []
         for d in docs:
@@ -672,10 +670,8 @@ class CorpusBuilder:
             )
             if qec.n_types > 1:
                 q_rex = q_rex.typed_face_selection(qec.type_labels)
-            try:
+            with contextlib.suppress(Exception):
                 q_chi = q_rex.structural_character
-            except Exception:
-                pass
 
         # Score each document by structural similarity
         results = []
@@ -713,7 +709,7 @@ class CorpusBuilder:
 
     _count_shared_entities = staticmethod(count_shared_entities)
 
-    def to_triples(self) -> List:
+    def to_triples(self) -> list:
         """Generate TrustGraph triples with cross-document provenance.
 
         Calls ``TrustGraphAdapter.to_enrichment_triples()`` per
@@ -748,7 +744,7 @@ class CorpusBuilder:
         # nothing. Output is identical; a corpus with a hub entity in every doc
         # still bridges those pairs (they genuinely share), only faster to reach.
         from agent.integrations.trustgraph_adapter import SimpleTriple
-        posting: Dict[str, List[int]] = {}
+        posting: dict[str, list[int]] = {}
         for i, doc in enumerate(self.documents):
             if doc.rex is None:
                 continue
@@ -855,7 +851,7 @@ class CorpusBuilder:
         self,
         doc_a: int = 0,
         doc_b: int = 1,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Compute bottleneck and Wasserstein distances between
         persistence diagrams of two documents.
 
@@ -866,11 +862,11 @@ class CorpusBuilder:
         self._ensure_built()
         # Persistence diagrams require filtrations - use edge weight filtration
         from rexgraph.core._persistence import (
-            persistence_diagram,
             bottleneck_distance,
-            wasserstein_distance,
-            persistence_landscape,
+            persistence_diagram,
             persistence_entropy,
+            persistence_landscape,
+            wasserstein_distance,
         )
 
         da, db = self.documents[doc_a], self.documents[doc_b]
@@ -1024,8 +1020,8 @@ class CorpusBuilder:
     # rides in the rex's _agent_meta and round-trips through the canonical serializer;
     # what goes in `meta` is only what a reader needs WITHOUT opening the blob.
 
-    def persist(self, store=None, *, prefix: str = "", tags: Optional[List[str]] = None,
-                valid_from=None) -> List[str]:
+    def persist(self, store=None, *, prefix: str = "", tags: list[str] | None = None,
+                valid_from=None) -> list[str]:
         """Write each built document into an RCStore. Returns the ids written.
 
         Re-persisting an unchanged corpus is a no-op on version numbers: each document
@@ -1057,9 +1053,9 @@ class CorpusBuilder:
         return written
 
     @classmethod
-    def from_store(cls, store=None, *, ids: Optional[Sequence[str]] = None,
+    def from_store(cls, store=None, *, ids: Sequence[str] | None = None,
                    prefix: str = "", as_of=None, valid_at=None,
-                   limit: int = 1000, **kwargs) -> "CorpusBuilder":
+                   limit: int = 1000, **kwargs) -> CorpusBuilder:
         """Rehydrate a corpus from an RCStore.
 
         `as_of`/`valid_at` read the store bitemporally, so a corpus can be
@@ -1110,7 +1106,7 @@ class CorpusBuilder:
         return len(self.documents)
 
     @property
-    def document_ids(self) -> List[str]:
+    def document_ids(self) -> list[str]:
         return [d.doc_id for d in self.documents]
 
     def summary(self) -> str:

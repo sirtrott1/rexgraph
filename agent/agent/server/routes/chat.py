@@ -10,6 +10,7 @@ Classifies user intent and dispatches:
 from __future__ import annotations
 
 import json
+
 import numpy as np
 from fastapi import APIRouter, Body
 
@@ -235,7 +236,7 @@ async def chat(session_id: str, body: dict = Body(...)):
 
     if intent_type == "property" and target:
         if target not in _SAFE_PROPERTIES:
-            response = {"text": "Property '%s' is not accessible." % target, "property": None, "viz_update": None}
+            response = {"text": f"Property '{target}' is not accessible.", "property": None, "viz_update": None}
         else:
             try:
                 value = getattr(rex, target)

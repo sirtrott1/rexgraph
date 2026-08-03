@@ -50,7 +50,8 @@ async def export_session(
         return JSONResponse(export)
 
     if rex is not None and format in ("safetensors", "hdf5", "h5"):
-        import tempfile, os
+        import os
+        import tempfile
         suffix = ".safetensors" if format == "safetensors" else ".h5"
         fd, tmp = tempfile.mkstemp(suffix=suffix)
         os.close(fd)
@@ -74,7 +75,7 @@ async def export_session(
         path = save_document_rex(ws.name, session_id, rex)
         return {"path": path, "format": "rex"}
 
-    raise HTTPException(400, "Unsupported format: %s" % format)
+    raise HTTPException(400, f"Unsupported format: {format}")
 
 
 @router.get("/workspace")
@@ -88,7 +89,8 @@ async def export_workspace(
 
     if format == "json":
         from agent.server.persistence import (
-            list_document_bundles, load_query_history,
+            list_document_bundles,
+            load_query_history,
         )
         return {
             "workspace": ws.name,
@@ -98,10 +100,10 @@ async def export_workspace(
         }
 
     from agent.server.security import secure_tempfile
-    with secure_tempfile(suffix=".%s" % format) as tmp:
+    with secure_tempfile(suffix=f".{format}") as tmp:
         _export(ws.name, tmp, fmt=format)
         if os.path.exists(tmp):
-            return FileResponse(tmp, filename="%s.%s" % (ws.name, format))
+            return FileResponse(tmp, filename=f"{ws.name}.{format}")
     raise HTTPException(500, "Export failed")
 
 

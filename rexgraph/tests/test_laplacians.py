@@ -17,7 +17,6 @@ import numpy as np
 
 from rexgraph.core import _laplacians
 
-
 # Helpers
 
 def _triangle_B1():

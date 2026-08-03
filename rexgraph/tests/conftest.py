@@ -1,6 +1,6 @@
 """Shared test fixtures and configuration for rexgraph."""
-import pytest
 import numpy as np
+import pytest
 
 collect_ignore_glob = ["**/*.pyx"]
 

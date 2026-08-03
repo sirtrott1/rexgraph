@@ -16,7 +16,6 @@ import numpy as np
 
 from rexgraph.core import _overlap
 
-
 # Helpers
 
 def _triangle():

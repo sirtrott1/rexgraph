@@ -6,10 +6,9 @@ administrator (enables auth, removes members entirely). A stored role that nothi
 role, so these cover the route-level gating too.
 """
 import pytest
-from fastapi.testclient import TestClient
-
 from agent.server import auth
-from agent.server.auth import get_auth_manager, ROLE_ADMIN, ROLE_USER
+from agent.server.auth import get_auth_manager
+from fastapi.testclient import TestClient
 
 
 def _fresh():

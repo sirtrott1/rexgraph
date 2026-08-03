@@ -24,7 +24,7 @@ cost study in agent.benchmarks. torch is optional; import guarded at use.
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 try:
     import torch as _t
@@ -109,7 +109,7 @@ class PropagatorAttention(_Base):
             elif ch == "curl":
                 y = wave_im
             else:
-                raise ValueError("unknown channel %r" % ch)
+                raise ValueError(f"unknown channel {ch!r}")
             chans.append(y.transpose(1, 2).reshape(B, T, d))    # [B,T,d] per channel
         out = self.proj(_t.cat(chans, dim=-1))
 

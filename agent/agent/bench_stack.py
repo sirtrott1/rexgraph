@@ -28,7 +28,8 @@ import statistics
 import sys
 import tempfile
 import time
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -66,7 +67,7 @@ def _median_ms(fn: Callable, reps: int) -> float:
     return round(statistics.median(xs), 4)
 
 
-def bench_put_breakdown(n: int = 120) -> Dict[str, float]:
+def bench_put_breakdown(n: int = 120) -> dict[str, float]:
     """Where a put's time actually goes. The headline: the signature dominates, so
     the backend is not what makes ingest slow."""
     from agent import rcdb
@@ -91,7 +92,7 @@ def bench_put_breakdown(n: int = 120) -> Dict[str, float]:
     return m
 
 
-def bench_backend(kind: str, n: int, root: str) -> Dict[str, Any]:
+def bench_backend(kind: str, n: int, root: str) -> dict[str, Any]:
     """One backend, from a cold start, with its own fresh payload."""
     from agent import rcdb
 
@@ -145,7 +146,7 @@ def bench_backend(kind: str, n: int, root: str) -> Dict[str, Any]:
     return out
 
 
-def bench_analytics(n: int = 2000) -> Optional[Dict[str, Any]]:
+def bench_analytics(n: int = 2000) -> dict[str, Any] | None:
     """The queries no store can answer, if duckdb is installed."""
     from agent import rcdb
     try:
@@ -173,10 +174,10 @@ def bench_analytics(n: int = 2000) -> Optional[Dict[str, Any]]:
     }
 
 
-def run(n: int = 2000, backends=("rex", "file", "sqlite", "memory")) -> Dict[str, Any]:
+def run(n: int = 2000, backends=("rex", "file", "sqlite", "memory")) -> dict[str, Any]:
     from rexgraph import hardware
 
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         "host": hardware.summary(),
         "hardware": hardware.detect(),
         "put_breakdown": bench_put_breakdown(),
@@ -191,7 +192,7 @@ def run(n: int = 2000, backends=("rex", "file", "sqlite", "memory")) -> Dict[str
     return report
 
 
-def _flatten(report: Dict[str, Any]) -> Dict[str, float]:
+def _flatten(report: dict[str, Any]) -> dict[str, float]:
     out = {}
     for k, v in (report.get("put_breakdown") or {}).items():
         out[f"put.{k}"] = v
@@ -205,8 +206,8 @@ def _flatten(report: Dict[str, Any]) -> Dict[str, float]:
     return out
 
 
-def compare(current: Dict[str, Any], recorded: Dict[str, Any],
-            tolerance: float = TOLERANCE) -> List[Dict[str, Any]]:
+def compare(current: dict[str, Any], recorded: dict[str, Any],
+            tolerance: float = TOLERANCE) -> list[dict[str, Any]]:
     """Figures that moved by more than `tolerance`x, slower or faster.
 
     Faster is reported too: an unexplained speedup usually means the benchmark
@@ -226,7 +227,7 @@ def compare(current: Dict[str, Any], recorded: Dict[str, Any],
     return out
 
 
-def _print(report: Dict[str, Any]) -> None:
+def _print(report: dict[str, Any]) -> None:
     print(f"host: {report['host']}\n")
     pb = report["put_breakdown"]
     print(f"put breakdown (fresh complex): signature {pb['signature_ms']:.2f} ms | "
@@ -253,7 +254,7 @@ def _print(report: Dict[str, Any]) -> None:
               f"aggregate {a['aggregate_ms']:.2f} ms (no store can)")
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     ap.add_argument("-n", "--records", type=int, default=2000)
     ap.add_argument("--save", metavar="PATH", help="record this run as JSON")

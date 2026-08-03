@@ -22,10 +22,10 @@ from pathlib import Path
 
 def _run_via_server(args, files):
     """Send files to a running server's pipeline API."""
-    import urllib.request
-    import urllib.error
-    import ssl
     import io
+    import ssl
+    import urllib.error
+    import urllib.request
 
     url = args.server.rstrip("/")
 
@@ -46,9 +46,9 @@ def _run_via_server(args, files):
 
     for filepath in files:
         filename = os.path.basename(filepath)
-        body.write(("--%s\r\n" % boundary).encode())
+        body.write((f"--{boundary}\r\n").encode())
         body.write(('Content-Disposition: form-data; name="files"; '
-                    'filename="%s"\r\n' % filename).encode())
+                    f'filename="{filename}"\r\n').encode())
         body.write(b"Content-Type: application/octet-stream\r\n\r\n")
         with open(filepath, "rb") as f:
             body.write(f.read())
@@ -56,28 +56,28 @@ def _run_via_server(args, files):
 
     for key, val in [("depth", args.depth), ("workspace", args.workspace)]:
         if val:
-            body.write(("--%s\r\n" % boundary).encode())
-            body.write(('Content-Disposition: form-data; name="%s"\r\n\r\n' % key).encode())
+            body.write((f"--{boundary}\r\n").encode())
+            body.write((f'Content-Disposition: form-data; name="{key}"\r\n\r\n').encode())
             body.write(val.encode())
             body.write(b"\r\n")
 
     if args.query:
-        body.write(("--%s\r\n" % boundary).encode())
+        body.write((f"--{boundary}\r\n").encode())
         body.write(b'Content-Disposition: form-data; name="query"\r\n\r\n')
         body.write(args.query.encode())
         body.write(b"\r\n")
 
-    body.write(("--%s--\r\n" % boundary).encode())
+    body.write((f"--{boundary}--\r\n").encode())
     body_bytes = body.getvalue()
 
     headers = {
-        "Content-Type": "multipart/form-data; boundary=%s" % boundary,
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
     }
     if token:
-        headers["Authorization"] = "Bearer %s" % token
+        headers["Authorization"] = f"Bearer {token}"
 
     req = urllib.request.Request(
-        "%s/api/v1/pipeline/stream" % url,
+        f"{url}/api/v1/pipeline/stream",
         data=body_bytes,
         headers=headers,
         method="POST",
@@ -96,7 +96,7 @@ def _run_via_server(args, files):
                 if line.startswith("data: "):
                     data = json.loads(line[6:])
                     if "phase" in data:
-                        print("  [%s] %s" % (
+                        print("  [{}] {}".format(
                             data.get("phase", "?"),
                             data.get("status", "")),
                             file=sys.stderr)
@@ -109,18 +109,18 @@ def _run_via_server(args, files):
                                     doc.get("doc_id", "?"),
                                     doc.get("nV", 0),
                                     doc.get("nE", 0),
-                                    "%.3f" % doc["kappa_mean"]
+                                    "{:.3f}".format(doc["kappa_mean"])
                                     if doc.get("kappa_mean") is not None
                                     else "-"))
                     elif "error" in data:
-                        print("Error: %s" % data["error"], file=sys.stderr)
+                        print("Error: {}".format(data["error"]), file=sys.stderr)
                         sys.exit(1)
     except urllib.error.HTTPError as e:
         print("Server error (%d): %s" % (e.code, e.read().decode()),
               file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print("Connection failed: %s" % e, file=sys.stderr)
+        print(f"Connection failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -186,7 +186,7 @@ def main():
         ocr_client = create_ocr_client()
 
     if not args.json:
-        print("  OCR: %s" % type(ocr_client).__name__, file=sys.stderr)
+        print(f"  OCR: {type(ocr_client).__name__}", file=sys.stderr)
 
     # Run pipeline
     from agent.pipeline_runner import PipelineRunner
@@ -195,8 +195,8 @@ def main():
         if not args.json:
             status = data.get("status", "")
             doc_id = data.get("doc_id", "")
-            extra = " - %s" % doc_id if doc_id else ""
-            print("  [%s] %s%s" % (phase, status, extra), file=sys.stderr)
+            extra = f" - {doc_id}" if doc_id else ""
+            print(f"  [{phase}] {status}{extra}", file=sys.stderr)
 
     runner = PipelineRunner(ocr_client=ocr_client)
     runner.on_phase(on_phase)
@@ -214,21 +214,21 @@ def main():
     # Save to workspace
     if not args.no_save:
         try:
-            from agent.server.persistence import save_document_rex, _docs_dir
+            from agent.server.persistence import _docs_dir, save_document_rex
             corpus = getattr(runner, '_last_corpus', None)
             if corpus:
                 for doc in corpus.documents:
                     if doc.rex:
                         save_document_rex(args.workspace, doc.doc_id, doc.rex)
                         if doc.text:
-                            text_path = _docs_dir(args.workspace) / ("%s.txt" % doc.doc_id)
+                            text_path = _docs_dir(args.workspace) / (f"{doc.doc_id}.txt")
                             text_path.write_text(doc.text, encoding="utf-8")
                 if not args.json:
-                    print("\n  Saved to workspace: %s" % args.workspace,
+                    print(f"\n  Saved to workspace: {args.workspace}",
                           file=sys.stderr)
         except Exception as e:
             if args.verbose:
-                print("  Warning: workspace save failed: %s" % e,
+                print(f"  Warning: workspace save failed: {e}",
                       file=sys.stderr)
 
     # Format output
@@ -244,8 +244,9 @@ def main():
 
     # Sanitize numpy types
     def sanitize(obj):
-        import numpy as np
         import math
+
+        import numpy as np
         if isinstance(obj, (np.integer,)):
             return int(obj)
         if isinstance(obj, (np.floating, float)):
@@ -266,7 +267,7 @@ def main():
         if args.output:
             Path(args.output).write_text(json_str)
             if not args.json:
-                print("  Output: %s" % args.output, file=sys.stderr)
+                print(f"  Output: {args.output}", file=sys.stderr)
         else:
             print(json_str)
     else:
@@ -277,11 +278,11 @@ def main():
                 doc.get("doc_id", "?"),
                 doc.get("nV", 0), doc.get("nE", 0), doc.get("nF", 0),
                 doc.get("betti", "?"),
-                "%.3f" % doc["kappa_mean"] if doc.get("kappa_mean") is not None else "-",
+                "{:.3f}".format(doc["kappa_mean"]) if doc.get("kappa_mean") is not None else "-",
             ))
             hodge = doc.get("hodge", {})
             if hodge:
-                print("    Hodge: G=%.0f%% C=%.0f%% H=%.0f%%" % (
+                print("    Hodge: G={:.0f}% C={:.0f}% H={:.0f}%".format(
                     (hodge.get("gradient") or 0) * 100,
                     (hodge.get("curl") or 0) * 100,
                     (hodge.get("harmonic") or 0) * 100,
@@ -291,7 +292,7 @@ def main():
             print("\n── Model Response ──\n")
             print("  " + output["model_response"][:500])
 
-        print("\n  %.1fs elapsed" % elapsed)
+        print(f"\n  {elapsed:.1f}s elapsed")
 
 
 if __name__ == "__main__":

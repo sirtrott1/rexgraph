@@ -721,15 +721,16 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
 def _sparse_betti(B1_in, B2_in, int nV, int nE, int nF):
     """Betti numbers, EXACT and arity-aware (matches RexGraph.betti / betti_numbers).
 
-    beta_0: connected components via union-find over the FULL support of each B1 column
-        (:func:`_beta0_components`), so branching hyperedges (columns with arity != 2) are counted
-        correctly. The old reader kept only one source + one target per column, silently assuming
-        arity-2, and overcounted beta_0 on branching/witness columns.
+    beta_0 = n_0 - rank(B_1) = dim ker(B_1^T), the same formula as every other grade.
+        A component count is NOT equivalent once any relation has arity above two:
+        rank(B_1) = n_0 - c is a graph identity, and an arity-k relation touches k
+        vertices while contributing rank one, so a lone arity-4 relation is one
+        component with beta_0 = 3. Taking components there breaks Euler.
     beta_g = n_g - rank(B_g) - rank(B_{g+1}), ranks via exact integer column reduction
         (:func:`_sparse_rank`): beta_1 = nE - rank(B1) - rank(B2); beta_2 = nF - rank(B2).
     No dense eigendecomposition, no Euler shortcut, no float threshold.
     """
-    from rexgraph.graded_boundary import _beta0_components, _sparse_rank
+    from rexgraph.graded_boundary import _sparse_rank
     from scipy.sparse import issparse, csr_matrix
 
     if hasattr(B1_in, 'row_ptr'):
@@ -738,8 +739,8 @@ def _sparse_betti(B1_in, B2_in, int nV, int nE, int nF):
     else:
         B1_sp = B1_in if issparse(B1_in) else csr_matrix(B1_in)
 
-    cdef int beta0 = _beta0_components(B1_sp)
     cdef int rank_B1 = _sparse_rank(B1_sp) if nE > 0 else 0
+    cdef int beta0 = nV - rank_B1
 
     cdef int rank_B2 = 0
     if nF > 0 and nE > 0:

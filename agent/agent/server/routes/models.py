@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import shutil
 
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, Body, HTTPException
 
 router = APIRouter(prefix="/v1/models")
 
@@ -48,7 +48,7 @@ async def pull_model(model_id: str = Body(..., embed=True)):
         path = _mgr().download(model_id)
         return {"status": "downloaded", "model_id": model_id, "path": path}
     except Exception as e:
-        raise HTTPException(500, "Download failed: %s" % e)
+        raise HTTPException(500, f"Download failed: {e}")
 
 
 @router.post("/load")
@@ -68,7 +68,7 @@ async def load_model(
             "type": lm.model_type.value,
         }
     except Exception as e:
-        raise HTTPException(500, "Load failed: %s" % e)
+        raise HTTPException(500, f"Load failed: {e}")
 
 
 @router.post("/unload")
@@ -76,7 +76,7 @@ async def unload_model(model_id: str = Body(..., embed=True)):
     """Unload a model and free VRAM."""
     ok = _mgr().unload(model_id)
     if not ok:
-        raise HTTPException(404, "Model not loaded: %s" % model_id)
+        raise HTTPException(404, f"Model not loaded: {model_id}")
     return {"status": "unloaded", "model_id": model_id}
 
 
@@ -96,7 +96,7 @@ async def deploy_model(
             "url": lm.server_url,
         }
     except Exception as e:
-        raise HTTPException(500, "Deploy failed: %s" % e)
+        raise HTTPException(500, f"Deploy failed: {e}")
 
 
 @router.post("/stop")
@@ -140,7 +140,7 @@ async def remove_model_path(model_id: str):
     """Remove a custom model path registration."""
     ok = _mgr().remove_model_path(model_id)
     if not ok:
-        raise HTTPException(404, "No custom path for: %s" % model_id)
+        raise HTTPException(404, f"No custom path for: {model_id}")
     return {"status": "removed", "model_id": model_id}
 
 
@@ -185,7 +185,7 @@ async def delete_cached_model(model_name: str):
     from agent.cli.config import MODELS_DIR
     target = MODELS_DIR / model_name
     if not target.exists():
-        raise HTTPException(404, "Not found: %s" % model_name)
+        raise HTTPException(404, f"Not found: {model_name}")
     # Unload first if loaded
     for mid in list(_mgr()._loaded.keys()):
         if model_name in mid.replace("/", "--"):

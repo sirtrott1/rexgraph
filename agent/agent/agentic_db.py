@@ -24,7 +24,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import defaultdict, deque
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from . import rcdb
 from . import schema_complex as sc
@@ -52,9 +52,9 @@ def _as_kwargs(data) -> dict:
 class AgenticDB:
     """A live SQL database, bridged into the hive and the RCDB."""
 
-    def __init__(self, conn_str: str, *, store: Optional[rcdb.RCStore] = None,
+    def __init__(self, conn_str: str, *, store: rcdb.RCStore | None = None,
                  writable: bool = False, with_weights: bool = False,
-                 guard_uri: bool = True, schema_id: Optional[str] = None):
+                 guard_uri: bool = True, schema_id: str | None = None):
         if guard_uri:
             try:
                 from .server.dbguard import check_db_uri
@@ -83,12 +83,12 @@ class AgenticDB:
 
     # -- structure -------------------------------------------------------------
 
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """Full topological diagnosis of the live schema (circular FK deps, hierarchy vs
         tension, missing-FK voids, hub tables). The database's structure, as a complex."""
         return sc.diagnose_schema(self.model)
 
-    def tables(self) -> List[Dict[str, Any]]:
+    def tables(self) -> list[dict[str, Any]]:
         return [{"name": t.name, "columns": t.columns, "primary_key": t.primary_key}
                 for t in self.model.tables]
 
@@ -104,7 +104,7 @@ class AgenticDB:
         return "id"
 
     def _fk_edges(self):
-        adj: Dict[str, List[Tuple[str, tuple]]] = defaultdict(list)
+        adj: dict[str, list[tuple[str, tuple]]] = defaultdict(list)
         for fk in self.model.foreign_keys:
             if fk.from_table == fk.to_table:
                 continue
@@ -131,7 +131,7 @@ class AgenticDB:
                 q.append((nb, step))
         return None
 
-    def _join_plan(self, touched: List[str]):
+    def _join_plan(self, touched: list[str]):
         """A join tree covering all touched tables via FK paths (pulling in junctions).
         Returns (ordered_tables, joins) or None if some table is unreachable."""
         if not touched:
@@ -139,7 +139,7 @@ class AgenticDB:
         adj = self._fk_edges()
         tables = [touched[0]]
         tree = {touched[0]}
-        joins: List[Tuple[str, tuple]] = []
+        joins: list[tuple[str, tuple]] = []
         for target in touched[1:]:
             if target in tree:
                 continue
@@ -163,17 +163,17 @@ class AgenticDB:
         with self._engine.connect() as conn:
             res = conn.execute(text(sql))
             cols = list(res.keys())
-            rows = [dict(zip(cols, r)) for r in res.fetchall()]
+            rows = [dict(zip(cols, r, strict=False)) for r in res.fetchall()]
         return rows, cols
 
     # -- read ------------------------------------------------------------------
 
-    def classify(self, text: str) -> Dict[str, Any]:
+    def classify(self, text: str) -> dict[str, Any]:
         """Map arbitrary text/query onto the schema complex: touched tables, joinability,
         the entity words the schema has no home for. The structural read, no SQL run."""
         return self.query_mgr.open(text).current().schema
 
-    def search(self, question: str, *, limit: int = 50) -> Dict[str, Any]:
+    def search(self, question: str, *, limit: int = 50) -> dict[str, Any]:
         """Answer a question by mapping it to tables, building the join from the FK graph, and
         running the SELECT. Refuses references that cannot join."""
         session = self.query_mgr.open(question)
@@ -196,8 +196,8 @@ class AgenticDB:
         return {"question": question, "tables": touched, "join_tables": plan[0],
                 "sql": sql, "columns": cols, "rows": rows, "n": len(rows), "session": session.id}
 
-    def extract(self, table: str, *, columns=None, where: Optional[str] = None,
-                limit: int = 100) -> Dict[str, Any]:
+    def extract(self, table: str, *, columns=None, where: str | None = None,
+                limit: int = 100) -> dict[str, Any]:
         """Read rows from one table (optionally projected/filtered)."""
         if table not in self._table_names():
             return {"error": f"unknown table {table!r}"}
@@ -212,8 +212,8 @@ class AgenticDB:
             return {"table": table, "sql": sql, "error": str(e)}
         return {"table": table, "columns": colnames, "rows": rows, "n": len(rows)}
 
-    def data_complex(self, source: str, *, link_on, id_col: Optional[str] = None,
-                     limit: int = 500) -> Dict[str, Any]:
+    def data_complex(self, source: str, *, link_on, id_col: str | None = None,
+                     limit: int = 500) -> dict[str, Any]:
         """Pull rows (a table name or a SELECT) and analyze the DATA as a relational complex:
         cluster records by shared values (connected components), rank them by structural centrality
         (coherence), and flag isolated outliers. The row-level companion to `health()`/schema
@@ -232,7 +232,7 @@ class AgenticDB:
 
     # -- guarded write ---------------------------------------------------------
 
-    def modify(self, statement: str) -> Dict[str, Any]:
+    def modify(self, statement: str) -> dict[str, Any]:
         """A guarded write. Read-only unless opened writable; a single INSERT/UPDATE/DELETE
         only; DDL and multi-statement input are refused."""
         if not self.writable:
@@ -252,7 +252,7 @@ class AgenticDB:
 
     # -- hive integration ------------------------------------------------------
 
-    def attach_to_hive(self, hive, prefix: str = "db") -> List[str]:
+    def attach_to_hive(self, hive, prefix: str = "db") -> list[str]:
         """Register the database's operations as worker bees so agents run them via hive.invoke().
         Read bees always; the write bee only when the database is writable."""
         added = []

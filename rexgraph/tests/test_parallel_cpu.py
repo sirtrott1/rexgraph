@@ -24,8 +24,8 @@ changes (thread dispatch of the same chunks), nothing else.
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph import compute
+from rexgraph.graph import RexGraph
 from rexgraph.sparse_character import build_sparse_character_cheap, compute_sparse_phi
 
 

@@ -23,11 +23,10 @@ from __future__ import annotations
 import os
 import threading
 from dataclasses import dataclass
-from typing import Optional, List, Dict
 
 # Runtime override set through configure() / the model-config endpoint.
 _override_lock = threading.Lock()
-_override: Dict[str, str] = {}
+_override: dict[str, str] = {}
 
 
 @dataclass
@@ -43,8 +42,8 @@ class ModelTarget:
         return bool(self.url)
 
 
-def configure(url: Optional[str] = None, model: Optional[str] = None,
-              api_key: Optional[str] = None) -> None:
+def configure(url: str | None = None, model: str | None = None,
+              api_key: str | None = None) -> None:
     """Set a runtime override for the chat model (from the setup UI).
 
     Passing ``url=""`` clears the override and falls back to the
@@ -130,9 +129,9 @@ def status() -> dict:
     }
 
 
-def generate(prompt: str, system: Optional[str] = None,
+def generate(prompt: str, system: str | None = None,
              max_tokens: int = 512, temperature: float = 0.3,
-             timeout: float = 120.0) -> Optional[str]:
+             timeout: float = 120.0) -> str | None:
     """Generate a completion, or return None if no model is available.
 
     Synchronous and dependency-light so it works from any context
@@ -147,12 +146,12 @@ def generate(prompt: str, system: Optional[str] = None,
     except Exception:
         return None
 
-    messages: List[Dict[str, str]] = []
+    messages: list[dict[str, str]] = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    payload: Dict = {
+    payload: dict = {
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -186,9 +185,9 @@ def generate(prompt: str, system: Optional[str] = None,
         return None
 
 
-def generate_with_metrics(prompt: str, system: Optional[str] = None,
+def generate_with_metrics(prompt: str, system: str | None = None,
                           max_tokens: int = 512, temperature: float = 0.3,
-                          timeout: float = 120.0) -> Optional[Dict]:
+                          timeout: float = 120.0) -> dict | None:
     """Generate a completion AND its token-level LLM metrics (perplexity, mean
     surprisal, varentropy) from the model's logprobs - the standard LLM metrics,
     computed with the same Rényi/varentropy calculus as the structural metrics
@@ -202,12 +201,12 @@ def generate_with_metrics(prompt: str, system: Optional[str] = None,
     except Exception:
         return None
 
-    messages: List[Dict[str, str]] = []
+    messages: list[dict[str, str]] = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    payload: Dict = {
+    payload: dict = {
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,

@@ -31,7 +31,6 @@ import pytest
 
 from rexgraph.graph import RexGraph, TemporalRex
 
-
 # Fixtures
 
 @pytest.fixture

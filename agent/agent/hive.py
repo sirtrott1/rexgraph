@@ -19,11 +19,11 @@ specialty, a warm one routes by which bee has been carrying the relevant work.
 """
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 from agent import agent_complex
 
@@ -40,10 +40,7 @@ def _tokens(text: str):
 # matter, so "shares nothing" becomes an exact structural signal rather than stopword-inflated. Not
 # a tuned threshold - noise removal. (The embedding path does not need this.)
 _STOPWORDS = frozenset(
-    "the and are for was were that this with from have has had not but all any can will would "
-    "should could into onto off per via out over under near more most some such then than they "
-    "them their there here what when where which who whom how why our your its his her about also "
-    "been being does did done each other same only very just like".split())
+    ["the", "and", "are", "for", "was", "were", "that", "this", "with", "from", "have", "has", "had", "not", "but", "all", "any", "can", "will", "would", "should", "could", "into", "onto", "off", "per", "via", "out", "over", "under", "near", "more", "most", "some", "such", "then", "than", "they", "them", "their", "there", "here", "what", "when", "where", "which", "who", "whom", "how", "why", "our", "your", "its", "his", "her", "about", "also", "been", "being", "does", "did", "done", "each", "other", "same", "only", "very", "just", "like"])
 
 
 # name -> (bee-name base, specialty keywords) heuristics for auto-composition. A worker's declared
@@ -145,11 +142,11 @@ class Bee:
     role: str                       # queen | worker | embedder
     url: str
     model: str = ""
-    specialties: List[str] = field(default_factory=list)   # concept keywords for routing
+    specialties: list[str] = field(default_factory=list)   # concept keywords for routing
     managed: bool = False           # did the hive spawn the process?
-    pid: Optional[int] = None
-    port: Optional[int] = None
-    summary: Optional[dict] = None   # model_io.model_summary (arch/params/dim/quant)
+    pid: int | None = None
+    port: int | None = None
+    summary: dict | None = None   # model_io.model_summary (arch/params/dim/quant)
     capability: str = "generate"     # generate (chat) | predict | score | embed | analyze | transform
     worker_type: str = ""            # ':'-scoped kind for the worker-type ontology (e.g. model:mlp)
     _proc: object = None             # Popen for managed worker bees (not serialized)
@@ -162,8 +159,8 @@ class Bee:
                 "worker_type": self.worker_type, "local": self._handler is not None}
 
 
-def _chat(url: str, model: str, prompt: str, system: Optional[str] = None,
-          max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0) -> Optional[str]:
+def _chat(url: str, model: str, prompt: str, system: str | None = None,
+          max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0) -> str | None:
     """Call one bee's OpenAI-compatible /v1/chat/completions. Returns the reply text, or None if
     unreachable or empty. Targets an explicit url so the call goes to a specific bee, not the
     globally-resolved chat backend."""
@@ -173,7 +170,7 @@ def _chat(url: str, model: str, prompt: str, system: Optional[str] = None,
         return None
     msgs = ([{"role": "system", "content": system}] if system else []) + \
            [{"role": "user", "content": prompt}]
-    payload: Dict = {"messages": msgs, "max_tokens": max_tokens,
+    payload: dict = {"messages": msgs, "max_tokens": max_tokens,
                      "temperature": temperature, "stream": False}
     if model:
         payload["model"] = model
@@ -193,7 +190,7 @@ class Hive:
     best-matching bee, and every message is recorded into the shared relational complex."""
 
     def __init__(self, name: str = "default"):
-        self._bees: Dict[str, Bee] = {}
+        self._bees: dict[str, Bee] = {}
         self.name = name
         # each hive IS its own coordination complex. The 'default' hive uses the process-wide live
         # complex (so the runtime and existing routes observe it); a named hive is isolated.
@@ -254,7 +251,7 @@ class Hive:
         return self.add_worker(name, handler, capability=capability, specialties=specialties,
                                worker_type=worker_type or f"model:{arch}", model=arch)
 
-    def providers(self, capability: str) -> List[str]:
+    def providers(self, capability: str) -> list[str]:
         """Names of worker members that provide a capability (predict/score/embed/analyze/
         transform/generate)."""
         return [b.name for b in self._bees.values()
@@ -283,7 +280,7 @@ class Hive:
         (rex, meta), or None when no worker declares a type. The result is the same object the
         Hodge/ontology diagnosis reads, so the type hierarchy is consistency-checkable (a harmonic
         subsumption cycle is an inconsistency) and routable like any complex."""
-        from agent.ontology_complex import parse_rdf, ontology_to_rex
+        from agent.ontology_complex import ontology_to_rex, parse_rdf
         triples, seen = [], set()
         for b in self._bees.values():
             wt = b.worker_type
@@ -323,8 +320,8 @@ class Hive:
         return result
 
     def spawn(self, name: str, model_path: str, *, role: str = "worker", specialties=None,
-              port: Optional[int] = None, ctx_size: Optional[int] = None,
-              n_gpu_layers: Optional[int] = None, wait: float = 90.0) -> Bee:
+              port: int | None = None, ctx_size: int | None = None,
+              n_gpu_layers: int | None = None, wait: float = 90.0) -> Bee:
         """Bring a bee up as a managed llama.cpp subprocess. queen registers as the chat backend
         (chat/metrics run on it); embedder registers as the embedding endpoint (so the monitor's
         semantic signal is live); worker is an independent server the hive owns. Requires a built
@@ -367,10 +364,8 @@ class Hive:
                 try:
                     bee._proc.terminate(); bee._proc.wait(timeout=10)
                 except Exception:
-                    try:
+                    with contextlib.suppress(Exception):
                         bee._proc.kill()
-                    except Exception:
-                        pass
         return True
 
     def stop_all(self) -> None:
@@ -383,7 +378,7 @@ class Hive:
             _co.unregister_hive_share(self.name)
             self._coord = None
 
-    def attach_live(self) -> List[Bee]:
+    def attach_live(self) -> list[Bee]:
         """Discover running inference servers (local_runtime.probe_endpoints) and attach any not
         already known, so the hive reflects whatever is serving on this host. An endpoint whose
         name/models look like an embedder is tagged as one; the first becomes queen if the hive
@@ -408,7 +403,7 @@ class Hive:
 
     # auto-composition: stand up the best hive that fits, from disk
 
-    def auto_plan(self, budget_gb: Optional[float] = None, **kw) -> dict:
+    def auto_plan(self, budget_gb: float | None = None, **kw) -> dict:
         """Plan a hive (queen, workers, embedder) that fits, from the models on disk and the
         hardware budget. A dry run that spawns nothing. `budget_gb` defaults to the detected
         memory budget."""
@@ -445,7 +440,7 @@ class Hive:
                    for i, e in enumerate(entries)]
         return {"spawned": results, "status": self.status()}
 
-    def auto(self, budget_gb: Optional[float] = None, wait: float = 120.0, **kw) -> dict:
+    def auto(self, budget_gb: float | None = None, wait: float = 120.0, **kw) -> dict:
         """Plan and stand up the best hive that fits on this machine, from the models on disk."""
         plan = self.auto_plan(budget_gb, **kw)
         if not plan["plan"]:
@@ -455,10 +450,10 @@ class Hive:
 
     # accessors
 
-    def bees(self) -> List[Bee]:
+    def bees(self) -> list[Bee]:
         return list(self._bees.values())
 
-    def get(self, name: str) -> Optional[Bee]:
+    def get(self, name: str) -> Bee | None:
         return self._bees.get(name)
 
     @property
@@ -466,14 +461,14 @@ class Hive:
         return any(b.role == "queen" for b in self._bees.values())
 
     @property
-    def queen(self) -> Optional[Bee]:
+    def queen(self) -> Bee | None:
         return next((b for b in self._bees.values() if b.role == "queen"), None)
 
     @property
-    def embedder(self) -> Optional[Bee]:
+    def embedder(self) -> Bee | None:
         return next((b for b in self._bees.values() if b.role == "embedder"), None)
 
-    def workers(self) -> List[Bee]:
+    def workers(self) -> list[Bee]:
         return [b for b in self._bees.values() if b.role == "worker"]
 
     # every interaction is recorded into the relational complex
@@ -483,8 +478,8 @@ class Hive:
         what makes the monitor/graph reflect real swarm traffic. Call it wherever bees message."""
         self._complex.add_message(sender, recipient, text, **meta)
 
-    def ask(self, name: str, prompt: str, *, sender: str = "user", system: Optional[str] = None,
-            max_tokens: int = 512, record: bool = True) -> Optional[str]:
+    def ask(self, name: str, prompt: str, *, sender: str = "user", system: str | None = None,
+            max_tokens: int = 512, record: bool = True) -> str | None:
         """Send a prompt to one bee, return its reply, and by default record both directions of
         the exchange into the complex so the interaction is part of the monitored structure."""
         bee = self._bees.get(name)
@@ -506,7 +501,7 @@ class Hive:
 
     # routing: query-reweighting blended with declared specialty
 
-    def route(self, query: str, top_k: int = 3) -> List[dict]:
+    def route(self, query: str, top_k: int = 3) -> list[dict]:
         """Rank bees for a query. Blends the interaction-history relevance (agent_complex.route,
         which bee has been carrying this kind of work) with each bee's declared specialty overlap,
         so a cold hive routes by specialty and a warm one routes by demonstrated load. The queen
@@ -537,7 +532,7 @@ class Hive:
                     "specialty": 0.0, "history": 0.0, "fallback": True}]
         return top
 
-    def dispatch(self, query: str, *, sender: str = "user", system: Optional[str] = None,
+    def dispatch(self, query: str, *, sender: str = "user", system: str | None = None,
                  record: bool = True) -> dict:
         """Route a query to the best bee and ask it, in one call. Returns {routed, bee, reply}.
 
@@ -566,7 +561,7 @@ class Hive:
 
     _HANDOFF_RE = re.compile(r"^\s*HANDOFF\s+([A-Za-z0-9_\-]+)\s*:\s*(.+)", re.I | re.S)
 
-    def _generate_bees(self) -> List[Bee]:
+    def _generate_bees(self) -> list[Bee]:
         return [b for b in self._bees.values() if b.capability == "generate"]
 
     def _coordinator_obj(self):
@@ -574,6 +569,7 @@ class Hive:
         and this hive's resource share. Cached on the instance."""
         if getattr(self, "_coord", None) is None:
             from rexgraph import coordinator as _co
+
             from .hive_config import coordinator_settings
             cs = coordinator_settings()
             share_frac = 1.0
@@ -602,9 +598,9 @@ class Hive:
         """Dispatch a wave of {id, kind, fn, weight?} tasks through the coordinator, folding timings
         into its cost model. NEVER raises: on any failure (or when the coordinator is disabled) it
         runs the fns serially. Emits a journal event with placement and timings (no content)."""
-        from .hive_config import coordinator_settings
         from . import activity
         from .coordinator_adapter import work_units
+        from .hive_config import coordinator_settings
 
         def _serial(ts: list) -> dict:
             # per-task try/except so one bad fn cannot sink the rest of the wave, and cannot make
@@ -625,13 +621,11 @@ class Hive:
             co = self._coordinator_obj()
             placement = co.plan(units)
             results = co.pools.run(units, placement, cost=co.cost)
-            try:
+            with contextlib.suppress(Exception):
                 activity.record("coordinator", "wave", scope=self.name,
                                 detail={"n": len(tasks),
                                         "lanes": {u["id"]: placement[u["id"]] for u in units},
                                         "kinds": {t["id"]: t.get("kind", "") for t in tasks}})
-            except Exception:
-                pass
             return results
         except Exception as ex:
             logger.warning("coordinator wave failed, serial fallback: %s", ex)
@@ -643,7 +637,7 @@ class Hive:
         rex = self._complex.interaction_complex()[0]
         return int(rex.betti[1]) if rex is not None else 0
 
-    def _resolve_target(self, name: str, subreq: str) -> Optional[str]:
+    def _resolve_target(self, name: str, subreq: str) -> str | None:
         """Map a hand-off target to a real generate-capable bee: exact name, else route by the
         request, else the queen."""
         b = self._bees.get(name)
@@ -929,7 +923,7 @@ class Hive:
             "monitor": self.monitor(),
         }
 
-    def persist(self, store=None, *, name: str = "hive") -> Optional[str]:
+    def persist(self, store=None, *, name: str = "hive") -> str | None:
         """Catalogue the hive's worker-type structure in the RCDB by structural signature, so the
         hive is a first-class stored complex (model = memory = database, queryable by topology).
         `store` is an open RCStore or an RCDB uri; omit it to use `rcdb.default_store()` (persistent,
@@ -979,7 +973,8 @@ def reset_network() -> None:
 
 def main(argv=None):
     """CLI: `python -m agent.hive <status|up|down|attach|route|ask>`."""
-    import argparse, json
+    import argparse
+    import json
     ap = argparse.ArgumentParser(prog="rexgraph-hive", description=(
         "The agent hive: a swarm of local models as a relational complex."))
     sub = ap.add_subparsers(dest="cmd", required=True)

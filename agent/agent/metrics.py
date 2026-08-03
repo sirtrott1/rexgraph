@@ -11,6 +11,8 @@ metrics work here" - they are the relational entropy calculus applied to tokens.
 """
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 
 
@@ -207,10 +209,8 @@ def response_metrics(rex=None, logprobs=None) -> dict:
     are diffuse/unsupported (a fluent-but-hollow answer)."""
     out: dict = {}
     if rex is not None:
-        try:
+        with contextlib.suppress(Exception):
             out["structural"] = structural_metrics(rex)
-        except Exception:
-            pass
     if logprobs is not None:
         out["token"] = token_metrics(logprobs)
     return out

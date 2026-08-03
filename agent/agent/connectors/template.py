@@ -20,10 +20,9 @@ Run this file directly to see the worked example execute end-to-end:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from . import BaseConnector, Capabilities
-
 
 # the skeleton to copy
 
@@ -40,15 +39,15 @@ class MyConnector(BaseConnector):
         schemes=(),         # e.g. ("mysystem",)
     )
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         # TODO 1: READ YOUR SOURCE (read-only)
         # Pull the *structure* only - the entities and how they relate. Never
         # read cell/row values; the engine persists structure, not data.
         # Produce, from your source:
         #   labels : list[str]                 one per entity (vertex)
         #   links  : list[(src_label, dst_label)]   one per relationship (edge)
-        labels: List[str] = []          # e.g. table / node / class names
-        links: List[Tuple[str, str]] = []   # e.g. child->parent FK pairs
+        labels: list[str] = []          # e.g. table / node / class names
+        links: list[tuple[str, str]] = []   # e.g. child->parent FK pairs
 
         # TODO 2: EMIT EDGES
         # Map each relationship to an edge between two vertices. B₁ is built for
@@ -80,7 +79,7 @@ class ExampleEdgesConnector(BaseConnector):
 
     CAPABILITIES = Capabilities(weights=True, schemes=("example",))
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         # ``source`` here is a list of (parent, child, cardinality) triples -
         # e.g. a hand-written schema. A real connector reads this from the
         # system instead of taking it as an argument.
@@ -90,7 +89,7 @@ class ExampleEdgesConnector(BaseConnector):
             ("order_items", "products", 5000),
             ("payments", "orders", 1200),
         ]
-        labels: List[str] = []
+        labels: list[str] = []
         for parent, child, _ in rows:
             for name in (parent, child):
                 if name not in labels:

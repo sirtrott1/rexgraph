@@ -18,7 +18,6 @@ import pytest
 from rexgraph.core import _fiber
 from rexgraph.graph import RexGraph
 
-
 # Fixtures
 
 @pytest.fixture

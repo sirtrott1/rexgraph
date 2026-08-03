@@ -6,7 +6,7 @@ Needs the compiled rexgraph core (RexGraph); skips cleanly if unavailable.
 import pytest
 
 pytest.importorskip("rexgraph.graph")
-from agent.agent_complex import AgentComplex      # noqa: E402
+from agent.agent_complex import AgentComplex  # noqa: E402
 
 
 def _swarm():
@@ -57,6 +57,7 @@ def test_embedding_alignment_recognizes_disjoint_specialist():
     Semantic embeddings recognize it as aligned (a valid specialist) where the lexical signal
     nearly misses it."""
     import re
+
     import numpy as np
     convo = [
         ("router", "bio", "tumor suppressor gene mutation apoptosis cell"),
@@ -68,10 +69,8 @@ def test_embedding_alignment_recognizes_disjoint_specialist():
         ("drift", "router", "i enjoy pizza sunny weather beach vacation"),
     ]
     ac = AgentComplex().add_messages([{"from": a, "to": b, "text": t} for a, b, t in convo])
-    TECH = set("tumor suppressor gene mutation apoptosis cell p53 disrupts inhibitor molecule "
-               "receptor enzyme binding affinity theorem integral eigenvalue decomposition matrix "
-               "diagonalization prove".split())
-    CAS = set("pizza sunny weather beach vacation enjoy".split())
+    TECH = set(["tumor", "suppressor", "gene", "mutation", "apoptosis", "cell", "p53", "disrupts", "inhibitor", "molecule", "receptor", "enzyme", "binding", "affinity", "theorem", "integral", "eigenvalue", "decomposition", "matrix", "diagonalization", "prove"])
+    CAS = set(["pizza", "sunny", "weather", "beach", "vacation", "enjoy"])
 
     def mock_embed(texts):
         return np.array([[len(set(re.findall(r"[a-z]+", t.lower())) & TECH) + 1e-3,

@@ -8,9 +8,9 @@ Sessions are created on upload and persist across server restarts.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
 
-from agent.session import Session, create_session, list_sessions as _list_sessions
+from agent.session import Session, create_session
+from agent.session import list_sessions as _list_sessions
 
 
 class SessionStore:
@@ -19,7 +19,7 @@ class SessionStore:
     def __init__(self, storage_dir: str = "~/.rexgraph-agent/sessions"):
         self.storage_dir = str(Path(storage_dir).expanduser())
         Path(self.storage_dir).mkdir(parents=True, exist_ok=True)
-        self._active: Dict[str, Session] = {}
+        self._active: dict[str, Session] = {}
 
     def create(self, name: str = "") -> Session:
         """Create a new session."""
@@ -29,7 +29,7 @@ class SessionStore:
         self._active[session.session_id] = session
         return session
 
-    def get(self, session_id: str) -> Optional[Session]:
+    def get(self, session_id: str) -> Session | None:
         """Get a session by ID. Loads from disk if not in memory."""
         if session_id in self._active:
             return self._active[session_id]
@@ -43,7 +43,7 @@ class SessionStore:
             pass
         return None
 
-    def list_all(self) -> List[Dict]:
+    def list_all(self) -> list[dict]:
         """List all sessions with metadata."""
         return _list_sessions(self.storage_dir)
 

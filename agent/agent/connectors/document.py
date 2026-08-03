@@ -11,7 +11,9 @@ never returning document values.
 no live service) or a ``mongodb://host/dbname`` URI (sampled live via pymongo).
 """
 from __future__ import annotations
-from typing import Any, Dict, Tuple
+
+from typing import Any
+
 from . import BaseConnector, Capabilities, ConnectorError
 
 
@@ -22,7 +24,7 @@ class DocumentConnector(BaseConnector):
     def capabilities(self) -> Capabilities:
         return Capabilities(modality=False, faces=True, schemes=("mongodb",))
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         from ..schema_complex import infer_mongo_schema, reflect_mongo, schema_to_rex
         if isinstance(source, dict):
             model = infer_mongo_schema(source)

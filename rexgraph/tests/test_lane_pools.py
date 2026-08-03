@@ -1,5 +1,6 @@
 import functools
-from rexgraph.coordinator import LanePools, CostModel
+
+from rexgraph.coordinator import CostModel, LanePools
 
 
 class FakeClock:
@@ -117,7 +118,7 @@ def test_background_reaper_actually_reaps_and_self_exits_real_clock():
 
 
 def test_coordinator_uses_managed_pools_when_given():
-    from rexgraph.coordinator import Coordinator, LanePools, CostModel
+    from rexgraph.coordinator import Coordinator, CostModel, LanePools
     pools = LanePools("h", now=FakeClock())
     co_ = Coordinator(cost=CostModel(), pools=pools)
     units = [{"id": f"t{i}", "type": "io_llm", "fn": (lambda i=i: i + 1)} for i in range(3)]

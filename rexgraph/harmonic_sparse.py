@@ -26,8 +26,9 @@ def _cycle_basis_from_edges(nV, nE, src, tgt):
     matrix C (nE × β₁): columns are the fundamental cycles (±1), each a non-tree
     edge closed by the tree path between its endpoints. Combinatorial (union-find +
     BFS tree paths), no eigensolve, `B1 @ C = 0` by construction."""
-    import scipy.sparse as sp
     from collections import deque
+
+    import scipy.sparse as sp
 
     nV, nE = int(nV), int(nE)
     src = np.asarray(src, dtype=np.int64)

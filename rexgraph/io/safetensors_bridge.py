@@ -115,10 +115,12 @@ Fingerprint corpus export for ML consumption:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pathlib
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+import warnings
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -145,8 +147,8 @@ _BRIDGE_VERSION = 1
 def _st():
     """Lazily import safetensors.numpy. Raise ImportError if missing."""
     try:
-        from safetensors.numpy import save_file, load_file
         from safetensors import safe_open
+        from safetensors.numpy import load_file, save_file
         return save_file, load_file, safe_open
     except ImportError as exc:
         raise ImportError(
@@ -158,7 +160,7 @@ def _st():
 # Cache group resolution (mirrors bundle._CACHE_GROUPS exactly)
 
 
-_CACHE_GROUPS: Dict[str, List[str]] = {
+_CACHE_GROUPS: dict[str, list[str]] = {
     "algebra": [
         "B1", "B2", "L0", "L1", "L2",
         "overlap_adjacency", "L_overlap",
@@ -177,13 +179,13 @@ _CACHE_GROUPS: Dict[str, List[str]] = {
     ],
 }
 
-_ALL_CACHEABLE: Set[str] = set()
+_ALL_CACHEABLE: set[str] = set()
 for _entries in _CACHE_GROUPS.values():
     _ALL_CACHEABLE.update(_entries)
 _ALL_CACHEABLE.update(_CACHE_GROUPS.keys())
 
 
-def _resolve_cache(cache) -> Set[str]:
+def _resolve_cache(cache) -> set[str]:
     """Expand a cache spec into the set of individual property names."""
     if cache is None:
         return set()
@@ -193,7 +195,7 @@ def _resolve_cache(cache) -> Set[str]:
         if cache in _CACHE_GROUPS:
             return set(_CACHE_GROUPS[cache])
         return {cache}
-    out: Set[str] = set()
+    out: set[str] = set()
     for c in cache:
         if c == "all":
             return set(_ALL_CACHEABLE)
@@ -229,7 +231,7 @@ def _as_storable(arr: NDArray) -> NDArray:
     return arr
 
 
-def _coerce_path(path: Union[str, os.PathLike]) -> pathlib.Path:
+def _coerce_path(path: str | os.PathLike) -> pathlib.Path:
     """Normalize path to `pathlib.Path` with `.safetensors` suffix."""
     p = pathlib.Path(path)
     if p.suffix != ".safetensors":
@@ -242,11 +244,11 @@ def _coerce_path(path: Union[str, os.PathLike]) -> pathlib.Path:
 
 def rex_to_safetensors(
     rex,
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
     *,
-    cache: Union[None, str, List[str]] = None,
-    extra_tensors: Optional[Dict[str, NDArray]] = None,
-    extra_meta: Optional[Dict[str, Any]] = None,
+    cache: None | str | list[str] = None,
+    extra_tensors: dict[str, NDArray] | None = None,
+    extra_meta: dict[str, Any] | None = None,
 ) -> pathlib.Path:
     """Write a RexGraph to a `.safetensors` file.
 
@@ -291,22 +293,22 @@ def rex_to_safetensors(
     # The graph itself is encoded through the one canonical rex-state serializer, so this
     # bridge cannot drift from `.rex` (signs, w_boundary, g_channel, nested rexes all round-trip
     # the same way here as they do through bundle.py).
-    from .rex_state import to_state
     from ._compat import dumps as _dumps
+    from .rex_state import to_state
     st = to_state(rex)
     # safetensors keys are arbitrary strings, so nested-rex names with '/' are stored verbatim: no
     # char substitution (the old '/'->'__' was not invertible and collided with '__' metadata keys).
-    tensors: Dict[str, NDArray] = {
+    tensors: dict[str, NDArray] = {
         name: _as_storable(np.asarray(arr))
         for name, arr in st.tensors.items()
     }
-    meta: Dict[str, Any] = dict(st.header)
+    meta: dict[str, Any] = dict(st.header)
 
     # Optional cache groups (unchanged: cache is a bridge-only convenience, not part of the
     # canonical rex-state; it recomputes lazily on load if omitted).
     names = _resolve_cache(cache)
-    cached_arrays: List[str] = []
-    scalar_cache: Dict[str, Any] = {}
+    cached_arrays: list[str] = []
+    scalar_cache: dict[str, Any] = {}
 
     if names:
         _collect_cache(rex, names, tensors, cached_arrays, scalar_cache)
@@ -341,7 +343,7 @@ def rex_to_safetensors(
     return out
 
 
-def load_extra(path: Union[str, os.PathLike]) -> Dict[str, Any]:
+def load_extra(path: str | os.PathLike) -> dict[str, Any]:
     """Read back the `extra_meta` dict written by :func:`rex_to_safetensors`.
 
     Returns `{}` when the file carries no caller-owned metadata. The extra
@@ -355,7 +357,7 @@ def load_extra(path: Union[str, os.PathLike]) -> Dict[str, Any]:
     return json.loads(raw["extra_meta"]) if "extra_meta" in raw else {}
 
 
-def safetensors_to_rex(path: Union[str, os.PathLike]):
+def safetensors_to_rex(path: str | os.PathLike):
     """Reconstruct a RexGraph from a `.safetensors` file.
 
     Only the core reconstruction arrays plus weights are consumed by the
@@ -373,7 +375,7 @@ def safetensors_to_rex(path: Union[str, os.PathLike]):
     -------
     RexGraph
     """
-    from .rex_state import from_state, RexState
+    from .rex_state import RexState, from_state
 
     _, load_file, safe_open = _st()
     p = _coerce_path(path)
@@ -398,7 +400,7 @@ def safetensors_to_rex(path: Union[str, os.PathLike]):
 # Full load (returns both the rex and any cached arrays/scalars)
 
 
-def load_safetensors(path: Union[str, os.PathLike]) -> Dict[str, Any]:
+def load_safetensors(path: str | os.PathLike) -> dict[str, Any]:
     """Load the full contents of a safetensors file as a dict.
 
     Returns a dict with keys:
@@ -434,17 +436,30 @@ def load_safetensors(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 
 
 def save_safetensors(
+    path: str | os.PathLike,
     obj: Any,
-    path: Union[str, os.PathLike],
     *,
-    cache: Union[None, str, List[str]] = None,
+    cache: None | str | list[str] = None,
 ) -> pathlib.Path:
     """Save a RexGraph or TemporalRex to `.safetensors`.
 
-    Dispatches to `rex_to_safetensors` or `temporal_rex_to_safetensors`
-    based on object type.
+    Argument order is `(path, obj)`, matching `save_rex`, `save_zarr` and `save_hdf5`,
+    which lets the format registry hold this function directly.
+
+    `(obj, path)` is also accepted and warns. The two parameters have disjoint types, so
+    a swapped call is detected rather than inferred.
+
+    Dispatches to `rex_to_safetensors` or `temporal_rex_to_safetensors` on object type.
     """
     from ..graph import RexGraph, TemporalRex
+    if isinstance(path, (RexGraph, TemporalRex)):
+        warnings.warn(
+            "save_safetensors takes (path, obj), matching save_rex/save_zarr/save_hdf5. "
+            "The (obj, path) order still works and will be removed in a later release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        path, obj = obj, path
     if isinstance(obj, TemporalRex):
         return temporal_rex_to_safetensors(obj, path)
     if isinstance(obj, RexGraph):
@@ -459,10 +474,10 @@ def save_safetensors(
 
 def _collect_cache(
     rex,
-    names: Set[str],
-    tensors: Dict[str, NDArray],
-    cached_arrays: List[str],
-    scalar_cache: Dict[str, Any],
+    names: set[str],
+    tensors: dict[str, NDArray],
+    cached_arrays: list[str],
+    scalar_cache: dict[str, Any],
 ) -> None:
     """Populate `tensors` and `scalar_cache` with requested cache entries.
 
@@ -471,7 +486,7 @@ def _collect_cache(
     formats without translation.
     """
 
-    def _try_array(prop_name: str, cache_name: Optional[str] = None) -> None:
+    def _try_array(prop_name: str, cache_name: str | None = None) -> None:
         cn = cache_name or prop_name
         try:
             arr = getattr(rex, prop_name)
@@ -505,20 +520,14 @@ def _collect_cache(
 
     # topology
     if names & {"topology", "betti"}:
-        try:
+        with contextlib.suppress(Exception):
             scalar_cache["betti"] = list(rex.betti)
-        except Exception:
-            pass
     if names & {"topology", "euler_characteristic"}:
-        try:
+        with contextlib.suppress(Exception):
             scalar_cache["euler_characteristic"] = int(rex.euler_characteristic)
-        except Exception:
-            pass
     if names & {"topology", "chain_valid"}:
-        try:
+        with contextlib.suppress(Exception):
             scalar_cache["chain_valid"] = bool(rex.chain_valid)
-        except Exception:
-            pass
     if names & {"topology", "edge_types"}:
         _try_array("edge_types")
     if names & {"topology", "harmonic_space"}:
@@ -547,7 +556,7 @@ def _collect_cache(
 
 def temporal_rex_to_safetensors(
     trex,
-    path: Union[str, os.PathLike],
+    path: str | os.PathLike,
 ) -> pathlib.Path:
     """Write a TemporalRex to a `.safetensors` file as a DELTA INDEX
     (checkpoints + deltas), not full per-step snapshots.
@@ -572,14 +581,14 @@ def temporal_rex_to_safetensors(
 
     trex._ensure_index()
 
-    tensors: Dict[str, NDArray] = {}
+    tensors: dict[str, NDArray] = {}
 
     T = trex.T
     directed = bool(trex._directed)
     general = bool(trex._general)
 
     checkpoint_times = [int(c) for c in trex._index_cp_times.tolist()]
-    checkpoint_optional: Dict[str, Dict[str, bool]] = {}
+    checkpoint_optional: dict[str, dict[str, bool]] = {}
     for c in checkpoint_times:
         _, bp, bi, wE, signs, b2cp, b2ri, b2v = trex._index_checkpoints[c]
         tensors[f"checkpoint/{c}/boundary_ptr"] = _as_storable(bp)
@@ -619,7 +628,7 @@ def temporal_rex_to_safetensors(
             tensors[f"face_delta/{t}/born_signs"] = _as_storable(fd.born_signs)
             tensors[f"face_delta/{t}/died_face_keys"] = _as_storable(fd.died_face_keys)
 
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "object_type": "TemporalRex",
         "encoding": "delta",
         "T": int(T),
@@ -650,7 +659,7 @@ def _restore_times(trex, meta):
         trex._times.append(float(len(trex._times)))
 
 
-def safetensors_to_temporal_rex(path: Union[str, os.PathLike]):
+def safetensors_to_temporal_rex(path: str | os.PathLike):
     """Reconstruct a TemporalRex from a `.safetensors` file."""
 
     _, load_file, _ = _st()
@@ -669,15 +678,15 @@ def safetensors_to_temporal_rex(path: Union[str, os.PathLike]):
 # Internal reconstructors used by load_safetensors
 
 
-def _rex_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
+def _rex_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any]):
     # `meta` (the `rex_meta` alias) is the rex-state header for files written by the current
     # `rex_to_safetensors`, so this goes through the same canonical decoder as
     # `safetensors_to_rex` instead of keeping a second, hand-rolled reconstruction here.
-    from .rex_state import from_state, RexState
+    from .rex_state import RexState, from_state
     return from_state(RexState(dict(tensors), meta))
 
 
-def _temporal_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
+def _temporal_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any]):
     # Legacy files (written by an earlier encoder, or any file whose `encoding` is
     # missing) carry full per step snapshots under `snapshot/<t>/...`; that
     # path is unchanged below. Files written by the current
@@ -705,7 +714,7 @@ def _temporal_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
                 tensors[f"snapshot/{t}/targets"],
             ))
 
-    face_snapshots: List[Tuple[NDArray, ...]] = []
+    face_snapshots: list[tuple[NDArray, ...]] = []
     if meta.get("has_face_snapshots"):
         t = 0
         while f"face_snapshot/{t}/B2_col_ptr" in tensors:
@@ -737,7 +746,7 @@ def _temporal_from_loaded(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
     return trex
 
 
-def _temporal_from_loaded_delta(tensors: Dict[str, NDArray], meta: Dict[str, Any]):
+def _temporal_from_loaded_delta(tensors: dict[str, NDArray], meta: dict[str, Any]):
     """Reconstruct a delta backed `TemporalRex` straight from the checkpoint/
     delta tensors `temporal_rex_to_safetensors` wrote (`encoding == "delta"`).
 
@@ -753,14 +762,14 @@ def _temporal_from_loaded_delta(tensors: Dict[str, NDArray], meta: Dict[str, Any
     (every delta was built by `_append_index_entry` with the same
     `self._directed`).
     """
-    from ..graph import TemporalRex, TemporalDelta, FaceDelta
+    from ..graph import FaceDelta, TemporalDelta, TemporalRex
 
     T = int(meta["T"])
     directed = bool(meta.get("directed", False))
     general = bool(meta.get("general", False))
     checkpoint_times = [int(c) for c in meta.get("checkpoint_times", [])]
 
-    index_checkpoints: Dict[int, Tuple] = {}
+    index_checkpoints: dict[int, tuple] = {}
     for c in checkpoint_times:
         bp = tensors[f"checkpoint/{c}/boundary_ptr"]
         bi = tensors[f"checkpoint/{c}/boundary_idx"]
@@ -771,8 +780,8 @@ def _temporal_from_loaded_delta(tensors: Dict[str, NDArray], meta: Dict[str, Any
         b2v = tensors.get(f"checkpoint/{c}/B2_vals")
         index_checkpoints[c] = (c, bp, bi, wE, signs, b2cp, b2ri, b2v)
 
-    index_deltas: List[Optional[Any]] = [None] * T
-    index_face_deltas: List[Optional[Any]] = [None] * T
+    index_deltas: list[Any | None] = [None] * T
+    index_face_deltas: list[Any | None] = [None] * T
     for t in range(T):
         if f"delta/{t}/born_offsets" in tensors:
             index_deltas[t] = TemporalDelta(
@@ -809,7 +818,7 @@ def _temporal_from_loaded_delta(tensors: Dict[str, NDArray], meta: Dict[str, Any
     return trex
 
 
-def _load_meta(path: str) -> Dict[str, Any]:
+def _load_meta(path: str) -> dict[str, Any]:
     """Load and parse the `rex_meta` JSON from a safetensors file header."""
     _, _, safe_open = _st()
     with safe_open(path, framework="numpy") as f:
@@ -833,12 +842,12 @@ def _load_meta(path: str) -> Dict[str, Any]:
 
 def fingerprints_to_safetensors(
     feature_matrix: NDArray,
-    labels: Optional[NDArray],
-    path: Union[str, os.PathLike],
+    labels: NDArray | None,
+    path: str | os.PathLike,
     *,
-    feature_names: Optional[List[str]] = None,
-    block_offsets: Optional[Dict[str, Tuple[int, int]]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
+    feature_names: list[str] | None = None,
+    block_offsets: dict[str, tuple[int, int]] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> pathlib.Path:
     """Write a fingerprint corpus to a `.safetensors` file.
 
@@ -877,11 +886,11 @@ def fingerprints_to_safetensors(
             f"feature_matrix must be 2-D, got shape {feature_matrix.shape}"
         )
 
-    tensors: Dict[str, NDArray] = {
+    tensors: dict[str, NDArray] = {
         "features": _as_storable(feature_matrix),
     }
 
-    fp_meta: Dict[str, Any] = {
+    fp_meta: dict[str, Any] = {
         "object_type": "FingerprintCorpus",
         "n_spans": int(feature_matrix.shape[0]),
         "n_features": int(feature_matrix.shape[1]),
@@ -930,8 +939,8 @@ def fingerprints_to_safetensors(
 
 
 def safetensors_to_fingerprints(
-    path: Union[str, os.PathLike],
-) -> Tuple[NDArray, Optional[NDArray], Optional[List[str]], Dict[str, Any]]:
+    path: str | os.PathLike,
+) -> tuple[NDArray, NDArray | None, list[str] | None, dict[str, Any]]:
     """Load a fingerprint corpus from a `.safetensors` file.
 
     Returns
@@ -958,7 +967,7 @@ def safetensors_to_fingerprints(
 
     features = tensors["features"]
 
-    labels: Optional[NDArray] = None
+    labels: NDArray | None = None
     if meta.get("labels_are_encoded"):
         ids = tensors["label_ids"]
         names = meta.get("label_names", [])

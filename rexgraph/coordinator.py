@@ -37,6 +37,7 @@ class CostModel:
 
 # --- Resource complex + contention sensor (edge-centric delegation complex) ---
 import os
+
 import numpy as np
 
 BRAIN = 0
@@ -200,12 +201,11 @@ def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
 
 
 # --- Dispatch seam: execute an assignment across the compute lanes ---
-import time as _time
-import pickle
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-
-
 import logging as _logging
+import pickle
+import time as _time
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+
 _log = _logging.getLogger(__name__)
 
 
@@ -247,7 +247,7 @@ def _partition_spill(units: list, assignment: dict):
     return by_id, proc, thread, eff
 
 
-def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dict:
+def execute(units: list, assignment: dict, cost: CostModel|None = None) -> dict:
     """Execute each unit's `fn` on its assigned lane: proc -> process pool (true multicore for CPU-
     bound work), thread/igpu -> thread pool (I/O and GPU-launch are GIL-light). Results are keyed by
     id and are INDEPENDENT of lane and order. Folds per-task timing into cost.
@@ -298,7 +298,7 @@ def execute(units: list, assignment: dict, cost: "CostModel|None" = None) -> dic
 import threading
 
 
-def _inner_threads(workers: int, cores_budget: "int|None" = None) -> int:
+def _inner_threads(workers: int, cores_budget: int|None = None) -> int:
     """Inner native (BLAS/OpenMP) thread budget per proc worker: budget // workers, so
     workers * inner tracks the CORE BUDGET this pool is entitled to (the same arithmetic parallel_map
     uses). `cores_budget` is the machine cores for a single coordinator, but the hive's SHARE of the
@@ -342,8 +342,8 @@ class LanePools:
 
     def __init__(self, hive: str = "default", *, now=_time.monotonic,
                  idle_ttl_proc: float = 30.0, idle_ttl_thread: float = 120.0,
-                 affinity: bool = False, cap: "dict|None" = None, reaper_tick: float = 1.0,
-                 cores_budget: "int|None" = None):
+                 affinity: bool = False, cap: dict|None = None, reaper_tick: float = 1.0,
+                 cores_budget: int|None = None):
         self.hive = hive
         self._now = now
         self._ttl = {"proc": idle_ttl_proc, "thread": idle_ttl_thread}
@@ -423,7 +423,7 @@ class LanePools:
                 self.reaper_alive = False
 
     # --- execution ---
-    def run(self, units: list, assignment: dict, cost: "CostModel|None" = None) -> dict:
+    def run(self, units: list, assignment: dict, cost: CostModel|None = None) -> dict:
         by_id, proc_units, thread_units, eff_lane = _partition_spill(units, assignment)
         results = {}
         timings = []
@@ -485,8 +485,8 @@ class Coordinator:
     managed warm lanes; without, it uses per-wave `execute`. `cap` is an optional hive-share-scaled
     capacity used by the actuator."""
 
-    def __init__(self, cost: "CostModel|None" = None, pools: "LanePools|None" = None,
-                 cap: "dict|None" = None):
+    def __init__(self, cost: CostModel|None = None, pools: LanePools|None = None,
+                 cap: dict|None = None):
         self.cost = cost or CostModel()
         self.pools = pools
         self.cap = cap

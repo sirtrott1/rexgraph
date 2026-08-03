@@ -2,8 +2,8 @@
 import pytest
 
 from agent import query_manager as qm
-from agent import schema_complex as sc
 from agent import rcdb
+from agent import schema_complex as sc
 
 
 @pytest.fixture

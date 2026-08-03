@@ -84,7 +84,6 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
 
 import numpy as np
 
@@ -105,7 +104,7 @@ class StepResult:
 class AgentResult:
     """Result of a full agent run."""
     name: str = ""
-    steps: List[StepResult] = field(default_factory=list)
+    steps: list[StepResult] = field(default_factory=list)
     elapsed: float = 0.0
 
     # Accumulated state across steps
@@ -149,7 +148,7 @@ def _step_ocr(files, state, params):
                                    dpi=params.get("dpi", 200))
             else:
                 adapter = TextAdapter()
-                with open(filepath, "r", encoding="utf-8",
+                with open(filepath, encoding="utf-8",
                           errors="replace") as f:
                     text = f.read()
                 ec = adapter.build(text, min_count=params.get("min_count", 1),
@@ -283,11 +282,9 @@ def _step_model(files, state, params):
     prompt = template.format(
         context=context,
         query=query,
-        kappa="%.3f" % first_chunk.kappa if first_chunk else "N/A",
+        kappa=f"{first_chunk.kappa:.3f}" if first_chunk else "N/A",
         channel=first_chunk.dominant_channel if first_chunk else "N/A",
-        hodge="%.2f/%.2f/%.2f" % (
-            first_chunk.hodge_gradient, first_chunk.hodge_curl, first_chunk.hodge_harmonic
-        ) if first_chunk else "N/A",
+        hodge=f"{first_chunk.hodge_gradient:.2f}/{first_chunk.hodge_curl:.2f}/{first_chunk.hodge_harmonic:.2f}" if first_chunk else "N/A",
     )
 
     state["prompt"] = prompt
@@ -453,7 +450,7 @@ def _step_langgraph_analyze(files, state, params):
     try:
         rsg.build()
     except Exception as e:
-        return {"error": "build failed: %s" % e}
+        return {"error": f"build failed: {e}"}
 
     # Full analysis (may fail on some kernels)
     try:
@@ -474,20 +471,17 @@ def _step_langgraph_analyze(files, state, params):
         except Exception:
             pass
 
-        # Should continue?
+    # These read the complex, not the analysis, so they run whether or not the full
+    # analysis succeeded. Indenting them into the handler above made them conditional
+    # on rsg.analyze() raising, so a successful run returned none of them.
+    try:
         threshold = params.get("harmonic_threshold", 0.4)
-        sc = rsg.should_continue(harmonic_threshold=threshold)
-        result["should_continue"] = sc
+        result["should_continue"] = rsg.should_continue(harmonic_threshold=threshold)
 
-        # Cycle detection
-        cycles = rsg.detect_cycles()
-        result["cycles"] = cycles
+        result["cycles"] = rsg.detect_cycles()
 
-        # Path decomposition if execution log exists
         if rsg._execution_log:
-            path_hodge = rsg.decompose_path(rsg._execution_log)
-            result["path_hodge"] = path_hodge
-
+            result["path_hodge"] = rsg.decompose_path(rsg._execution_log)
     except Exception as e:
         result["error"] = str(e)
 
@@ -543,8 +537,10 @@ def _step_langchain_tools(files, state, params):
 
     try:
         from agent.integrations.langchain_tools import (
-            RexConfidenceTool, RexAnalyzeTool,
-            RexHodgeTool, RexExplainTool,
+            RexAnalyzeTool,
+            RexConfidenceTool,
+            RexExplainTool,
+            RexHodgeTool,
         )
         tools = [
             RexConfidenceTool(rex),
@@ -595,7 +591,7 @@ class AgentBuilder:
         self.defaults = config.get("defaults", {})
 
     @classmethod
-    def from_yaml(cls, path: str) -> "AgentBuilder":
+    def from_yaml(cls, path: str) -> AgentBuilder:
         """Load agent config from YAML."""
         try:
             import yaml
@@ -606,14 +602,14 @@ class AgentBuilder:
         return cls(config)
 
     @classmethod
-    def from_json(cls, path: str) -> "AgentBuilder":
+    def from_json(cls, path: str) -> AgentBuilder:
         """Load agent config from JSON."""
         with open(path) as f:
             config = json.load(f)
         return cls(config)
 
     @classmethod
-    def load(cls, path: str) -> "AgentBuilder":
+    def load(cls, path: str) -> AgentBuilder:
         """Load from YAML or JSON (auto-detect)."""
         if path.endswith((".yml", ".yaml")):
             return cls.from_yaml(path)
@@ -635,7 +631,7 @@ class AgentBuilder:
                 json.dump(self.config, f, indent=2)
         return path
 
-    def run(self, files: List[str] = None, query: str = None) -> AgentResult:
+    def run(self, files: list[str] = None, query: str = None) -> AgentResult:
         """Execute the agent pipeline."""
         t0 = time.time()
         result = AgentResult(name=self.name)
@@ -649,7 +645,7 @@ class AgentBuilder:
             step_fn = _STEPS.get(step_type)
             if step_fn is None:
                 sr = StepResult(step_type=step_type, status="error",
-                                error="Unknown step type: %s" % step_type)
+                                error=f"Unknown step type: {step_type}")
                 result.steps.append(sr)
                 continue
 
@@ -699,7 +695,7 @@ class AgentBuilder:
         return result
 
     @staticmethod
-    def available_steps() -> List[str]:
+    def available_steps() -> list[str]:
         """List all registered step types."""
         return sorted(_STEPS.keys())
 

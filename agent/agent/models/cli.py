@@ -1,13 +1,14 @@
 """CLI for the model-builder framework.
 
     python -m models list
-    python -m models build --archetype cnn --set norm=false --optimizer hodge --steps 300
-    python -m models build --archetype mlp --data mydata.csv --optimizer hodge
+    python -m models build --archetype cnn --set norm=false --steps 300
+    python -m models build --archetype mlp --data mydata.csv --optimizer adamw
     python -m models build --archetype lm  --set attention=standard
-    python -m models multistep --archetype mlp --stage optimizer=adam,steps=100 --stage optimizer=hodge,steps=200
+    python -m models multistep --archetype mlp --stage steps=100 --stage steps=200,lr=5e-4
     python -m models fusion --spec mlp --spec mlp:d_hid=64 --fusion ensemble
 """
 import argparse
+import contextlib
 import json
 
 from . import list_archetypes, run
@@ -23,10 +24,8 @@ def _kv(pairs):
             try:
                 v = int(v)
             except ValueError:
-                try:
+                with contextlib.suppress(ValueError):
                     v = float(v)
-                except ValueError:
-                    pass
         out[k] = v
     return out
 
@@ -64,7 +63,7 @@ def main(argv=None):
                   steps=a.steps, seed=a.seed)
     elif a.cmd == "multistep":
         stages = [_kv(s.split(",")) for s in a.stage] or \
-                 [{"optimizer": "adam", "steps": 100}, {"optimizer": "hodge", "steps": 200}]
+                 [{"steps": 100}, {"steps": 200, "lr": 5e-4}]   # warm up, then refine
         res = run(a.archetype, params=params, data=a.data, mode="multistep", stages=stages, seed=a.seed)
     else:  # fusion
         specs = []

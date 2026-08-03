@@ -61,8 +61,10 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 from collections import Counter
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -127,8 +129,8 @@ _NEGATIVE_STEMS = frozenset([
 
 def _build_flow(
     rex: RexGraph,
-    edge_attrs: Optional[Dict[str, Any]],
-    negative_types: Optional[List[str]],
+    edge_attrs: dict[str, Any] | None,
+    negative_types: list[str] | None,
     nE: int,
 ) -> NDArray:
     """Construct a signed flow signal from edge attributes.
@@ -149,10 +151,8 @@ def _build_flow(
         weight_vals = edge_attrs.get("weight")
         if weight_vals is not None and len(weight_vals) == nE:
             for j in range(nE):
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     flow[j] = abs(float(weight_vals[j]))
-                except (ValueError, TypeError):
-                    pass
 
     # Infer negative types from stem matching if not provided
     neg_set = set(negative_types) if negative_types else set()
@@ -178,7 +178,7 @@ def _build_flow(
 # Attribute classification for the dashboard metadata block
 
 def _classify_attributes(
-    edge_attrs: Optional[Dict[str, Any]],
+    edge_attrs: dict[str, Any] | None,
     nE: int,
 ) -> list:
     """Build attribute metadata in the format expected by the dashboard."""
@@ -216,9 +216,9 @@ def _classify_attributes(
 def analyze(
     rex: RexGraph,
     *,
-    vertex_labels: Optional[Sequence[str]] = None,
-    edge_attrs: Optional[Dict[str, Any]] = None,
-    negative_types: Optional[List[str]] = None,
+    vertex_labels: Sequence[str] | None = None,
+    edge_attrs: dict[str, Any] | None = None,
+    negative_types: list[str] | None = None,
     svg_w: int = 700,
     svg_h: int = 500,
     run_perturbation: bool = True,
@@ -260,10 +260,7 @@ def analyze(
     nV, nE, nF = rex.nV, rex.nE, rex.nF
 
     # Labels
-    if vertex_labels is not None:
-        v_names = list(vertex_labels)
-    else:
-        v_names = [f"v{i}" for i in range(nV)]
+    v_names = list(vertex_labels) if vertex_labels is not None else [f"v{i}" for i in range(nV)]
     e_names = [f"e{j + 1}" for j in range(nE)]
 
     # Degree arrays
@@ -608,10 +605,8 @@ def analyze(
     e_weight = np.ones(nE, dtype=_f64)
     if edge_attrs and "weight" in edge_attrs:
         for j in range(min(nE, len(edge_attrs["weight"]))):
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 e_weight[j] = float(edge_attrs["weight"][j])
-            except (ValueError, TypeError):
-                pass
 
     # Overlap pairs
     overlap_raw = rex.overlap_pairs
@@ -1110,7 +1105,7 @@ def analyze(
 
         # Interfacing (if flow signal and _interfacing are available)
         try:
-            from rexgraph.core import _interfacing, _channels
+            from rexgraph.core import _channels, _interfacing
             if flow is not None and nE > 0:
                 # Primal signal character of the flow
                 psc = rex.primal_signal_character(flow)
@@ -1235,10 +1230,10 @@ def _strip_private(d: dict) -> dict:
 def analyze_signal(
     rex: RexGraph,
     *,
-    vertex_labels: Optional[Sequence[str]] = None,
-    edge_attrs: Optional[Dict[str, Any]] = None,
-    negative_types: Optional[List[str]] = None,
-    probe_edges: Optional[List[int]] = None,
+    vertex_labels: Sequence[str] | None = None,
+    edge_attrs: dict[str, Any] | None = None,
+    negative_types: list[str] | None = None,
+    probe_edges: list[int] | None = None,
     n_steps: int = 50,
     t_max: float = 10.0,
     svg_w: int = 700,
@@ -1319,9 +1314,9 @@ def analyze_signal(
 def analyze_quotient(
     rex: RexGraph,
     *,
-    vertex_labels: Optional[Sequence[str]] = None,
-    edge_attrs: Optional[Dict[str, Any]] = None,
-    negative_types: Optional[List[str]] = None,
+    vertex_labels: Sequence[str] | None = None,
+    edge_attrs: dict[str, Any] | None = None,
+    negative_types: list[str] | None = None,
     max_vertex_presets: int = 8,
     svg_w: int = 700,
     svg_h: int = 500,
@@ -1388,10 +1383,10 @@ def analyze_quotient(
 def analyze_all(
     rex: RexGraph,
     *,
-    vertex_labels: Optional[Sequence[str]] = None,
-    edge_attrs: Optional[Dict[str, Any]] = None,
-    negative_types: Optional[List[str]] = None,
-    probe_edges: Optional[List[int]] = None,
+    vertex_labels: Sequence[str] | None = None,
+    edge_attrs: dict[str, Any] | None = None,
+    negative_types: list[str] | None = None,
+    probe_edges: list[int] | None = None,
     signal_steps: int = 50,
     signal_t_max: float = 10.0,
     max_vertex_presets: int = 8,

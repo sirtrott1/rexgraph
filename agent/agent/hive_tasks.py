@@ -8,8 +8,8 @@ def structural_of(text: str) -> dict:
     varentropy-gap reliability signal). CPU-bound and pure in its string input, so it is safe on the
     proc lane. Returns {} when the text has no analyzable structure."""
     try:
-        from agent.query_engine import build_query_rex
         from agent.metrics import structural_metrics
+        from agent.query_engine import build_query_rex
         rex, _ = build_query_rex(text or "")
         return structural_metrics(rex) if rex is not None else {}
     except Exception:

@@ -24,14 +24,13 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 from . import DomainAdapter, EdgeConstruction
 
 
-def _tokenize(text: str) -> List[Tuple[List[str], int, int]]:
+def _tokenize(text: str) -> list[tuple[list[str], int, int]]:
     """Split text into sentences with character offsets.
 
     Returns list of (words, char_start, char_end) tuples.
@@ -49,13 +48,13 @@ def _tokenize(text: str) -> List[Tuple[List[str], int, int]]:
 
 
 def _build_cooccurrence(
-    sentences: List[Tuple[List[str], int, int]],
+    sentences: list[tuple[list[str], int, int]],
     window: int = 0,
     min_count: int = 1,
     max_vocab: int = 500,
-    stopwords: Optional[set] = None,
-) -> Tuple[Dict[str, int], Dict[Tuple[int, int], float],
-           Dict[Tuple[int, int], int], Dict[Tuple[int, int], List[int]]]:
+    stopwords: set | None = None,
+) -> tuple[dict[str, int], dict[tuple[int, int], float],
+           dict[tuple[int, int], int], dict[tuple[int, int], list[int]]]:
     """Build word co-occurrence graph from tokenized sentences.
 
     Returns
@@ -137,9 +136,9 @@ def _build_cooccurrence(
 
 
 def _find_triangles(
-    edges: Dict[Tuple[int, int], float],
+    edges: dict[tuple[int, int], float],
     max_faces: int = 1000,
-) -> List[Tuple[int, int, int]]:
+) -> list[tuple[int, int, int]]:
     """Find triangles in the co-occurrence graph.
 
     A triangle (a, b, c) exists when edges (a,b), (a,c), and (b,c)
@@ -239,7 +238,7 @@ class TextAdapter(DomainAdapter):
 
         # Build sentence spans
         sent_spans = []
-        for idx, (words, cs, ce) in enumerate(sentences):
+        for idx, (_words, cs, ce) in enumerate(sentences):
             sent_spans.append(SentenceSpan(
                 idx=idx, char_start=cs, char_end=ce,
                 text=text[cs:ce],

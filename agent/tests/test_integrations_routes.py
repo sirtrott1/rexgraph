@@ -8,8 +8,8 @@ import pytest
 
 @pytest.fixture(scope="module")
 def client():
-    from fastapi.testclient import TestClient
     from agent.server.app import app
+    from fastapi.testclient import TestClient
     with TestClient(app) as c:
         yield c
 

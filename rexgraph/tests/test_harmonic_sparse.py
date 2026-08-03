@@ -9,9 +9,9 @@ replace the dense one with no loss - which is the whole point of the eigen-free 
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
-from rexgraph.core import _harmonic
 from rexgraph import harmonic_sparse as hs
+from rexgraph.core import _harmonic
+from rexgraph.graph import RexGraph
 
 
 def _P_dense(rex):
@@ -112,9 +112,9 @@ def test_harmonic_basis_from_boundaries_stays_in_ker_b1_on_branching():
     does. Without that, the endpoint reduction invents cycles on branching hyperedges
     and returns vectors outside ker(B1), which _void and _quotient then consume."""
     import scipy.sparse as sp
+
     from rexgraph.graph import RexGraph
-    from rexgraph.harmonic_sparse import (cycle_basis, harmonic_basis,
-                                          harmonic_basis_from_boundaries)
+    from rexgraph.harmonic_sparse import cycle_basis, harmonic_basis, harmonic_basis_from_boundaries
 
     # mixed arity 1, 2, 3, 4; the cycle space is empty (betti_1 == 0)
     h = RexGraph.from_hypergraph(np.array([0, 1, 3, 6, 10], dtype=np.int32),
@@ -139,6 +139,7 @@ def test_harmonic_basis_from_boundaries_matches_cycle_basis_on_a_branching_cycle
     """A branching complex that does carry cycles: the rex-free core must return a
     basis of the right dimension that B1 annihilates."""
     import scipy.sparse as sp
+
     from rexgraph.graph import RexGraph
     from rexgraph.harmonic_sparse import cycle_basis, harmonic_basis_from_boundaries
 

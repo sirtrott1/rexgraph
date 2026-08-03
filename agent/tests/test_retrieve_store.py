@@ -11,11 +11,10 @@ only candidates get deserialized.
 """
 
 import pytest
+from agent.corpus import CorpusBuilder
 
 from agent import query_engine as qe
 from agent import rcdb
-from agent.corpus import CorpusBuilder
-
 
 DOCS = {
     "boundary": "The boundary map sends an edge to its endpoints. Composing two "

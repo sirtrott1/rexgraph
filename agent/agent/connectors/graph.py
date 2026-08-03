@@ -6,7 +6,9 @@ the live path (a ``neo4j://`` URI over the bolt driver) is a host-environment
 task - the driver isn't present in-sandbox.
 """
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple
+
+from typing import Any
+
 from . import BaseConnector, Capabilities
 
 
@@ -16,14 +18,14 @@ class GraphConnector(BaseConnector):
     def capabilities(self) -> Capabilities:
         return self.CAPABILITIES
 
-    def read(self, source: Any) -> Tuple[Any, Dict[str, Any]]:
+    def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         if not isinstance(source, dict):
             raise NotImplementedError(
                 "live property-graph reads need the host's bolt driver; pass an "
                 "in-memory {'nodes': [...], 'relationships': [(src,dst),...]} "
                 "structure to validate the shape in-sandbox")
-        nodes: List[str] = list(source.get("nodes") or [])
-        rels: List[Tuple[str, str]] = [tuple(r) for r in source.get("relationships") or []]
+        nodes: list[str] = list(source.get("nodes") or [])
+        rels: list[tuple[str, str]] = [tuple(r) for r in source.get("relationships") or []]
         for a, b in rels:
             for n in (a, b):
                 if n not in nodes:

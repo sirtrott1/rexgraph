@@ -3,14 +3,20 @@ import tempfile
 
 import numpy as np
 import pytest
-from rexgraph.graph import RexGraph
+
 from rexgraph.flow.attention import (
     CoParticipationAttention,
-    coparticipation_neighbors,
     coparticipation_attention,
+    coparticipation_neighbors,
 )
+from rexgraph.graph import RexGraph
 
-_BINDINGDB_PATH = os.path.expanduser("~/projects/rexgraph/data/bindingdb_kd.raw")
+# A real-data check, pointed at whatever the operator supplies. The path used to
+# be a literal naming a specific private dataset, which put a dataset -- and its
+# location on one machine -- into a tree that is meant to be dataset-agnostic.
+# Unset, the test skips, which is what it already did when the file was absent.
+_REAL_DATA_ENV = "REXGRAPH_TEST_BINDING_TSV"
+_REAL_DATA_PATH = os.path.expanduser(os.environ.get(_REAL_DATA_ENV, ""))
 
 
 def _submode_task(seed=1, nT=80, E=5000):
@@ -50,14 +56,14 @@ def test_fit_learns_the_compatibility():
 
 
 def _load_binding_subcomplex(n_rows=6000):
-    """Real BindingDB Kd subcomplex: read the first `n_rows` data rows to a temp TSV (fast), build
+    """Real affinity-table subcomplex: read the first `n_rows` data rows to a temp TSV (fast), build
     the edge-primal complex (ID2=target as source, ID1=ligand as destination), and the pKd target.
     Returns None if the preserved data file is absent (so CI without the file still passes)."""
-    if not os.path.exists(_BINDINGDB_PATH):
+    if not os.path.exists(_REAL_DATA_PATH):
         return None
     from agent.warehouse import source as S
 
-    with open(_BINDINGDB_PATH) as f_in:
+    with open(_REAL_DATA_PATH) as f_in:
         header = f_in.readline()
         rows = []
         for i, line in enumerate(f_in):
@@ -86,9 +92,10 @@ def _load_binding_subcomplex(n_rows=6000):
 
 def test_attention_path_is_matrix_free(monkeypatch):
     import numpy.linalg as nla
+    import scipy.sparse.linalg as ssla
+
     import rexgraph.core._linalg as _linalg
     import rexgraph.core._sparse as _sparse
-    import scipy.sparse.linalg as ssla
     calls = []
     def spy(mod, name):
         if hasattr(mod, name):
@@ -112,7 +119,8 @@ def test_attention_path_is_matrix_free(monkeypatch):
 def test_binding_subcomplex_honest_ceiling():
     loaded = _load_binding_subcomplex()
     if loaded is None:
-        pytest.skip("bindingdb_kd.raw not present, skipping real-data binding check")
+        pytest.skip(f"set {_REAL_DATA_ENV} to a tab-separated affinity table "
+                    f"to run the real-data check")
     rex, y, inside = loaded
 
     rng = np.random.RandomState(0)

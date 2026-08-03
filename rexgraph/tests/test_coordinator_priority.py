@@ -1,5 +1,5 @@
 import rexgraph.coordinator as co
-from rexgraph.coordinator import CostModel, assign, contention, capacity
+from rexgraph.coordinator import CostModel, assign, capacity, contention
 
 
 def _units(specs):

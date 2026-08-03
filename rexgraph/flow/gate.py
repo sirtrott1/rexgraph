@@ -20,8 +20,6 @@ long-lived streams where that history would otherwise grow without limit.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 import numpy as np
 
 from rexgraph.scale_propagator import malaugh_quantities
@@ -70,10 +68,10 @@ class MalaughGate:
         self.fence_k = float(fence_k)
         self.warmup = int(warmup)
         self.eps = float(eps)
-        self._prev: Optional[float] = None
-        self._hist: List[float] = []
+        self._prev: float | None = None
+        self._hist: list[float] = []
 
-    def observe(self, rex) -> Dict[str, object]:
+    def observe(self, rex) -> dict[str, object]:
         h_t = malaugh_entropy(rex)
 
         if self._prev is None:

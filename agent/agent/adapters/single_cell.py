@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import gzip
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Compact default marker panel (broad lineages). Callers with a proper
 # panel should pass ``markers=...``.
-DEFAULT_MARKERS: Dict[str, List[str]] = {
+DEFAULT_MARKERS: dict[str, list[str]] = {
     "T_cell": ["CD3D", "CD3E", "CD2", "TRAC"],
     "B_cell": ["CD19", "MS4A1", "CD79A", "CD79B"],
     "Myeloid": ["LYZ", "CD68", "ITGAM", "CSF1R"],
@@ -51,7 +51,7 @@ _FEATURE_NAMES = [
 ]
 
 
-def _find(dir_path: Path, names: Sequence[str]) -> Optional[Path]:
+def _find(dir_path: Path, names: Sequence[str]) -> Path | None:
     for n in names:
         p = dir_path / n
         if p.exists():
@@ -75,11 +75,11 @@ def is_10x_dir(path) -> bool:
 def _open_maybe_gz(p: Path):
     if str(p).endswith(".gz"):
         return gzip.open(p, "rt")
-    return open(p, "r")
+    return open(p)
 
 
-def _read_tsv_column(p: Path, col: int = 0) -> List[str]:
-    out: List[str] = []
+def _read_tsv_column(p: Path, col: int = 0) -> list[str]:
+    out: list[str] = []
     with _open_maybe_gz(p) as fh:
         for line in fh:
             parts = line.rstrip("\n").split("\t")
@@ -89,7 +89,7 @@ def _read_tsv_column(p: Path, col: int = 0) -> List[str]:
     return out
 
 
-def load_10x(path) -> Tuple["scipy.sparse.csr_matrix", List[str], List[str]]:
+def load_10x(path) -> tuple[scipy.sparse.csr_matrix, list[str], list[str]]:
     """Load a 10X directory into (cells x genes CSR, barcodes, gene names).
 
     Matrix Market from 10X is genes x cells; this returns the transpose
@@ -150,7 +150,7 @@ def _normalize_log(cxg):
     return normed.tocsr()
 
 
-def score_marker_types(cxg, genes: List[str], markers: Dict[str, List[str]]):
+def score_marker_types(cxg, genes: list[str], markers: dict[str, list[str]]):
     """Assign each cell the marker set with the highest mean expression.
 
     Returns (labels, type_names). Cells with no marker signal get the
@@ -161,7 +161,7 @@ def score_marker_types(cxg, genes: List[str], markers: Dict[str, List[str]]):
     n_cells = cxg.shape[0]
     scores = np.zeros((n_cells, len(type_names)), dtype=np.float64)
 
-    dense_cols: Dict[int, np.ndarray] = {}
+    dense_cols: dict[int, np.ndarray] = {}
 
     def col(j):
         if j not in dense_cols:
@@ -261,8 +261,8 @@ class SingleCellAdapter(DomainAdapter):
     def build(
         self,
         data,
-        markers: Optional[Dict[str, List[str]]] = None,
-        lr_pairs: Optional[Sequence[Tuple[str, str]]] = None,
+        markers: dict[str, list[str]] | None = None,
+        lr_pairs: Sequence[tuple[str, str]] | None = None,
         *,
         n_clusters: int = 6,
         min_score: float = 0.0,

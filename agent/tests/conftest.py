@@ -8,8 +8,9 @@ agent package, so pointing the config dir at a throwaway temp dir here guarantee
 the whole suite stays hermetic. Individual tests may still ``monkeypatch`` it to
 their own ``tmp_path``; that just overrides this (already-safe) default per-test.
 """
-import os
 import atexit
+import contextlib
+import os
 import shutil
 import tempfile
 
@@ -41,7 +42,5 @@ def _isolate_auth_state():
     yield
     from agent.server import auth
     auth.reset_auth_manager()
-    try:
+    with contextlib.suppress(OSError):
         (auth._CONFIG_DIR / "auth.json").unlink()
-    except OSError:
-        pass

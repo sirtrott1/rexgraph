@@ -13,7 +13,6 @@ is a drop-in.
 
 from __future__ import annotations
 
-
 from fastapi import APIRouter, Body, HTTPException
 
 router = APIRouter(prefix="/v1/dbmanager")

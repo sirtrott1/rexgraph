@@ -1,6 +1,7 @@
 import numpy as np
-from rexgraph.graph import RexGraph
+
 from rexgraph.flow import MalaughGate
+from rexgraph.graph import RexGraph
 
 
 def _rex(src, tgt):

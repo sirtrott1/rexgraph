@@ -28,31 +28,36 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
 
+if TYPE_CHECKING:
+    from ..graph import RexGraph, TemporalRex
+
+import contextlib
+
 from ._compat import (
     HAS_ZARR,
     ZARR_V3,
-    ensure_zarr_suffix,
-    rm_rf,
-    open_root_group,
+    as_str,
     create_root_group,
     default_zarr_compressor,
-    normalize_zarr_compressor,
-    g_create_array,
-    g_store_complex,
-    g_load_complex,
-    g_load_sparse_csr,
-    g_store_dict,
-    g_load_dict,
-    g_store_bool_masks,
-    g_load_bool_masks,
-    to_native,
     dumps,
-    as_str,
+    ensure_zarr_suffix,
+    g_create_array,
+    g_load_bool_masks,
+    g_load_complex,
+    g_load_dict,
+    g_load_sparse_csr,
+    g_store_bool_masks,
+    g_store_complex,
+    g_store_dict,
+    normalize_zarr_compressor,
+    open_root_group,
+    rm_rf,
+    to_native,
 )
 
 if HAS_ZARR:
@@ -70,7 +75,7 @@ _FORMAT_VERSION = "2.0.0"
 
 # Cache group definitions
 
-_CACHE_GROUPS: Dict[str, List[str]] = {
+_CACHE_GROUPS: dict[str, list[str]] = {
     "algebra": [
         "B1", "B2", "L0", "L1", "L2",
         "L1_down", "L1_up",
@@ -130,7 +135,7 @@ _CACHE_GROUPS: Dict[str, List[str]] = {
     ],
 }
 
-_ALL_CACHEABLE: Set[str] = set()
+_ALL_CACHEABLE: set[str] = set()
 for _entries in _CACHE_GROUPS.values():
     _ALL_CACHEABLE.update(_entries)
 _ALL_CACHEABLE.update(_CACHE_GROUPS.keys())
@@ -178,7 +183,7 @@ class RexZarrFormat:
     def __init__(
         self,
         compressor: Any = "default",
-        chunks: Union[bool, Tuple[int, ...]] = True,
+        chunks: bool | tuple[int, ...] = True,
         large_threshold: int = 50_000,
     ):
         if not HAS_ZARR:
@@ -250,7 +255,7 @@ class RexZarrFormat:
         path: str,
         obj: Any,
         *,
-        cache: Union[None, str, List[str]] = None,
+        cache: None | str | list[str] = None,
     ) -> None:
         """Write a RexGraph, TemporalRex, or ndarray to disk.
 
@@ -317,10 +322,8 @@ class RexZarrFormat:
 
         objs = root.require_group("objects")
         if name in objs:
-            try:
+            with contextlib.suppress(Exception):
                 del objs[name]
-            except Exception:
-                pass
 
         g = objs.create_group(name)
         if isinstance(obj, TemporalRex):
@@ -348,7 +351,7 @@ class RexZarrFormat:
             return self._load(g, "data")
         raise TypeError(f"Unknown object_type in group '{name}': {t}")
 
-    def list_groups(self, path: str) -> List[str]:
+    def list_groups(self, path: str) -> list[str]:
         """List sub-object names in a container store."""
         path = ensure_zarr_suffix(path)
         if not os.path.exists(path):
@@ -366,7 +369,7 @@ class RexZarrFormat:
         names are `fname_encode`d because Zarr keys are path-like ('/' opens a subgroup), and
         nested-rex tensor names legitimately contain '/'.
         """
-        from .rex_state import to_state, fname_encode
+        from .rex_state import fname_encode, to_state
 
         large = self._is_large(rex)
         st = to_state(rex)
@@ -379,9 +382,9 @@ class RexZarrFormat:
         if cache:
             self._write_cache(g, rex, cache, large)
 
-    def _read_rex_graph(self, g) -> "RexGraph":
+    def _read_rex_graph(self, g) -> RexGraph:
         """Reconstruct a RexGraph from a Zarr group via the canonical rex state."""
-        from .rex_state import from_state, RexState, fname_encode
+        from .rex_state import RexState, fname_encode, from_state
 
         hdr = json.loads(as_str(g.attrs["rex_state_header"]))
         names = json.loads(as_str(g.attrs["tensor_names"]))
@@ -485,7 +488,7 @@ class RexZarrFormat:
             except Exception:
                 pass
 
-    def _read_temporal_rex(self, g) -> "TemporalRex":
+    def _read_temporal_rex(self, g) -> TemporalRex:
         """Reconstruct a TemporalRex from a Zarr group."""
         from ..graph import TemporalRex
 
@@ -530,7 +533,7 @@ class RexZarrFormat:
 
     # Cache resolution
 
-    def _resolve_cache_names(self, cache) -> Set[str]:
+    def _resolve_cache_names(self, cache) -> set[str]:
         """Expand cache spec into individual property names."""
         if cache is None:
             return set()
@@ -541,7 +544,7 @@ class RexZarrFormat:
                 return set(_CACHE_GROUPS[cache])
             return {cache}
 
-        out: Set[str] = set()
+        out: set[str] = set()
         for c in cache:
             if c == "all":
                 return set(_ALL_CACHEABLE)
@@ -616,10 +619,8 @@ class RexZarrFormat:
         for prop in ("eigenvalues_L0", "fiedler_vector_L0",
                       "layout", "layout_3d"):
             if prop in names or "spectral" in names:
-                try:
+                with contextlib.suppress(Exception):
                     self._store(sg, prop, getattr(rex, prop))
-                except Exception:
-                    pass
 
         # Spectral bundle array fields
         for prop in ("evals_L1", "evecs_L1", "evals_L2",
@@ -708,22 +709,16 @@ class RexZarrFormat:
                 pass
 
         if "euler_characteristic" in names or "topology" in names:
-            try:
+            with contextlib.suppress(Exception):
                 tg.attrs["euler_characteristic"] = int(rex.euler_characteristic)
-            except Exception:
-                pass
 
         if "chain_valid" in names or "topology" in names:
-            try:
+            with contextlib.suppress(Exception):
                 tg.attrs["chain_valid"] = bool(rex.chain_valid)
-            except Exception:
-                pass
 
         if "edge_types" in names or "topology" in names:
-            try:
+            with contextlib.suppress(Exception):
                 self._store(tg, "edge_types", rex.edge_types)
-            except Exception:
-                pass
 
         if "cycle_basis" in names or "topology" in names:
             try:
@@ -736,16 +731,12 @@ class RexZarrFormat:
                 pass
 
         if "harmonic_space" in names or "topology" in names:
-            try:
+            with contextlib.suppress(Exception):
                 store_fn(tg, "harmonic_space", rex.harmonic_space)
-            except Exception:
-                pass
 
         if "nF_hodge" in names or "topology" in names:
-            try:
+            with contextlib.suppress(Exception):
                 tg.attrs["nF_hodge"] = int(rex.nF_hodge)
-            except Exception:
-                pass
 
         if "self_loop_face_indices" in names or "topology" in names:
             try:
@@ -757,10 +748,8 @@ class RexZarrFormat:
                 pass
 
         if "B2_hodge" in names or "topology" in names:
-            try:
+            with contextlib.suppress(Exception):
                 store_fn(tg, "B2_hodge", rex.B2_hodge)
-            except Exception:
-                pass
 
     def _write_hodge_cache(self, g, rex, names) -> None:
         hodge_props = {"hodge_decomposition", "hodge_rho"}
@@ -1117,7 +1106,7 @@ class RexZarrFormat:
     def read_signal_result(self, path: str, type_name: str,
                            *, group_name: str = "signal") -> Any:
         """Read a signal result from a store."""
-        from ._serialization import ZarrAdapter, read_namedtuple, _resolve_type
+        from ._serialization import ZarrAdapter, _resolve_type, read_namedtuple
 
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
         sg = root[group_name]
@@ -1189,7 +1178,7 @@ class RexZarrFormat:
 
 # Module-level convenience functions
 
-_default_fmt: Optional[RexZarrFormat] = None
+_default_fmt: RexZarrFormat | None = None
 
 
 def _get_fmt() -> RexZarrFormat:
@@ -1203,7 +1192,7 @@ def save_zarr(
     path: str,
     obj: Any,
     *,
-    cache: Union[None, str, List[str]] = None,
+    cache: None | str | list[str] = None,
     compressor: Any = "default",
 ) -> None:
     """Save a RexGraph, TemporalRex, or array to Zarr format.
@@ -1218,10 +1207,7 @@ def save_zarr(
     compressor
         Override default compressor.
     """
-    if compressor != "default":
-        fmt = RexZarrFormat(compressor=compressor)
-    else:
-        fmt = _get_fmt()
+    fmt = RexZarrFormat(compressor=compressor) if compressor != "default" else _get_fmt()
     fmt.write(path, obj, cache=cache)
 
 

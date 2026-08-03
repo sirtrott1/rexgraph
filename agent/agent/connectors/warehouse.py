@@ -7,8 +7,9 @@ the only delta. Validated against SQLite as a structural stand-in here; point it
 at a live warehouse URI in the host environment (where the driver is installed).
 """
 from __future__ import annotations
-from .sql import SQLConnector
+
 from . import Capabilities
+from .sql import SQLConnector
 
 _WAREHOUSE_SCHEMES = ("snowflake", "bigquery", "redshift", "databricks",
                       "postgresql", "sqlite")

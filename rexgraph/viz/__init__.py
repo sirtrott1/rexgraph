@@ -6,7 +6,7 @@ rexgraph.viz: Visualization for relational complexes.
     generate_dashboard(rex, output_path="dashboard.html", open_browser=True)
 """
 
-from .dashboard import generate_dashboard, to_json, run_dashboard, create_app
+from .dashboard import create_app, generate_dashboard, run_dashboard, to_json
 
 __all__ = [
     "generate_dashboard",

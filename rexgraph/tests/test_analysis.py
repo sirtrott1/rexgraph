@@ -19,17 +19,16 @@ Verifies:
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
 from rexgraph.analysis import (
-    analyze,
-    analyze_signal,
-    analyze_quotient,
-    analyze_all,
     _build_flow,
     _classify_attributes,
     _partition_from_fiedler,
+    analyze,
+    analyze_all,
+    analyze_quotient,
+    analyze_signal,
 )
-
+from rexgraph.graph import RexGraph
 
 # Fixtures
 

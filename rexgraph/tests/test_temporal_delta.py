@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from rexgraph.graph import RexGraph, make_edge_delta, _cell_state
+
+from rexgraph.graph import RexGraph, _cell_state, make_edge_delta
 
 
 def _delta_between(prev, curr, directed=False):
@@ -53,7 +54,7 @@ def test_make_edge_delta_stamps_directed():
 
 
 def test_encode_face_delta_born_died_by_key():
-    from rexgraph.graph import make_face_delta, _face_state
+    from rexgraph.graph import _face_state, make_face_delta
     # triangle with one face over edges [0,1,2]
     prev = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32),
                     B2_col_ptr=np.array([0, 3], np.int32), B2_row_idx=np.array([0, 1, 2], np.int32),
@@ -66,7 +67,7 @@ def test_encode_face_delta_born_died_by_key():
 
 
 def test_make_face_delta_stamps_directed():
-    from rexgraph.graph import make_face_delta, _face_state
+    from rexgraph.graph import _face_state, make_face_delta
     tri = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32),
                    B2_col_ptr=np.array([0, 3], np.int32), B2_row_idx=np.array([0, 1, 2], np.int32),
                    B2_vals=np.array([1.0, 1.0, 1.0], np.float64))
@@ -89,16 +90,17 @@ def test_apply_edge_delta_replays_born_died_modified():
     apply_edge_delta(live, d)
     live.compact()
     # live should now equal curr's connectivity + weights (order may differ; compare as sets)
-    got = set(zip(live.sources.tolist(), live.targets.tolist()))
+    got = set(zip(live.sources.tolist(), live.targets.tolist(), strict=False))
     assert got == {(0, 1), (2, 3)}
     # the persisting (0,1) edge carries its modified weight 99
-    idx = [i for i, (s, t) in enumerate(zip(live.sources.tolist(), live.targets.tolist())) if (s, t) == (0, 1)][0]
+    idx = [i for i, (s, t) in enumerate(zip(live.sources.tolist(), live.targets.tolist(), strict=False)) if (s, t) == (0, 1)][0]
     assert live._w_E[idx] == 99.0
 
 
 def test_apply_edge_delta_raises_on_unresolvable_modified_key():
     import pytest
-    from rexgraph.graph import apply_edge_delta, TemporalDelta
+
+    from rexgraph.graph import TemporalDelta, apply_edge_delta
     live = RexGraph(sources=np.array([0], np.int32), targets=np.array([1], np.int32),
                     w_E=np.array([1.0], np.float64))
     # a delta whose mod_keys references a cell that does not exist in `live`
@@ -114,7 +116,7 @@ def test_apply_edge_delta_raises_on_unresolvable_modified_key():
 
 
 def test_apply_face_delta_replays_born_and_died():
-    from rexgraph.graph import apply_face_delta, make_face_delta, _face_state
+    from rexgraph.graph import _face_state, apply_face_delta, make_face_delta
     tri = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32),
                    B2_col_ptr=np.array([0, 3], np.int32), B2_row_idx=np.array([0, 1, 2], np.int32),
                    B2_vals=np.array([1.0, 1.0, 1.0], np.float64))
@@ -145,7 +147,7 @@ def test_reconstruct_at_matches_direct_build():
     from rexgraph.graph import TemporalRex
     trex = TemporalRex([(s0.sources, s0.targets), (s1.sources, s1.targets)])
     r1 = trex.reconstruct_at(1)
-    assert set(zip(r1.sources.tolist(), r1.targets.tolist())) == {(0, 1), (1, 2), (2, 3)}
+    assert set(zip(r1.sources.tolist(), r1.targets.tolist(), strict=False)) == {(0, 1), (1, 2), (2, 3)}
     assert np.array_equal(np.asarray(r1.betti), np.asarray(s1.betti))
 
 
@@ -189,8 +191,8 @@ def test_reconstruct_at_with_deaths_across_deltas():
     assert any(d is not None for d in trex._index_deltas), "test must exercise delta application"
     for t in range(len(refs)):
         r = trex.reconstruct_at(t)
-        got = set(zip(r.sources.tolist(), r.targets.tolist()))
-        ref = set(zip(refs[t].sources.tolist(), refs[t].targets.tolist()))
+        got = set(zip(r.sources.tolist(), r.targets.tolist(), strict=False))
+        ref = set(zip(refs[t].sources.tolist(), refs[t].targets.tolist(), strict=False))
         assert got == ref, "t=%d: %s != %s" % (t, got, ref)
         assert np.array_equal(np.asarray(r.betti), np.asarray(refs[t].betti))
 
@@ -230,7 +232,7 @@ def test_edge_metrics_delta_backed_matches_snapshots_backed():
     from rexgraph.graph import TemporalRex
     ref = TemporalRex([(x.sources, x.targets) for x in s]).edge_metrics
     got = _as_delta_backed(TemporalRex([(x.sources, x.targets) for x in s])).edge_metrics
-    for r, g in zip(ref, got):
+    for r, g in zip(ref, got, strict=False):
         assert np.array_equal(np.asarray(r), np.asarray(g))
 
 
@@ -246,7 +248,7 @@ def test_temporal_index_delta_backed_matches_snapshots_backed():
         TemporalRex([(x.sources, x.targets) for x in s])).temporal_index
     assert np.array_equal(ref_cp_times, got_cp_times)
     assert len(ref_cps) == len(got_cps)
-    for (rt, rs, rtg), (gt, gs, gtg) in zip(ref_cps, got_cps):
+    for (rt, rs, rtg), (gt, gs, gtg) in zip(ref_cps, got_cps, strict=False):
         assert rt == gt
         assert np.array_equal(rs, gs)
         assert np.array_equal(rtg, gtg)
@@ -260,7 +262,7 @@ def test_bioes_delta_backed_matches_snapshots_backed():
     ref = ref_trex.bioes(betti)
     got_trex = _as_delta_backed(TemporalRex([(x.sources, x.targets) for x in s]))
     got = got_trex.bioes(betti)
-    for r, g in zip(ref, got):
+    for r, g in zip(ref, got, strict=False):
         assert np.array_equal(np.asarray(r), np.asarray(g))
 
 
@@ -286,7 +288,7 @@ def test_cascade_wavefront_delta_backed_matches_snapshots_backed():
     got_wf, got_cumul, got_vact = got_trex.cascade_wavefront(signals)
     assert np.array_equal(ref_cumul, got_cumul)
     assert np.array_equal(ref_vact, got_vact)
-    for r, g in zip(ref_wf, got_wf):
+    for r, g in zip(ref_wf, got_wf, strict=False):
         assert np.array_equal(r, g)
 
 
@@ -326,14 +328,17 @@ def test_ensure_index_is_atomic_on_failure(monkeypatch):
     trex._ensure_index()
     assert trex._index_cp_times is not None
     r = trex.reconstruct_at(3)
-    assert set(zip(r.sources.tolist(), r.targets.tolist())) == \
-           set(zip(graphs[3].sources.tolist(), graphs[3].targets.tolist()))
+    assert set(zip(r.sources.tolist(), r.targets.tolist(), strict=False)) == \
+           set(zip(graphs[3].sources.tolist(), graphs[3].targets.tolist(), strict=False))
 
 
 def test_delta_serialization_roundtrip(tmp_path):
     pytest.importorskip("safetensors")
     from rexgraph.graph import TemporalRex
-    from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors, safetensors_to_temporal_rex
+    from rexgraph.io.safetensors_bridge import (
+        safetensors_to_temporal_rex,
+        temporal_rex_to_safetensors,
+    )
     graphs = [RexGraph(sources=np.arange(k, dtype=np.int32), targets=np.arange(1, k + 1, dtype=np.int32),
                        w_E=np.arange(k, dtype=np.float64) + 1.0) for k in (2, 3, 4)]
     trex = TemporalRex([(g.sources, g.targets) for g in graphs])
@@ -345,13 +350,16 @@ def test_delta_serialization_roundtrip(tmp_path):
     for t in range(3):
         r = back.reconstruct_at(t) if not back._snapshots_materialized else back.at(t)
         ref = graphs[t]
-        assert set(zip(r.sources.tolist(), r.targets.tolist())) == set(zip(ref.sources.tolist(), ref.targets.tolist()))
+        assert set(zip(r.sources.tolist(), r.targets.tolist(), strict=False)) == set(zip(ref.sources.tolist(), ref.targets.tolist(), strict=False))
 
 
 def test_general_mode_roundtrips_as_general(tmp_path):
     pytest.importorskip("safetensors")
     from rexgraph.graph import TemporalRex
-    from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors, safetensors_to_temporal_rex
+    from rexgraph.io.safetensors_bridge import (
+        safetensors_to_temporal_rex,
+        temporal_rex_to_safetensors,
+    )
     snaps = [(np.array([0, 2, 4], np.int32), np.array([0, 1, 2, 0, 1, 3], np.int32))]  # general CSR
     trex = TemporalRex(snaps, general=True)
     p = tmp_path / "g.safetensors"
@@ -372,8 +380,8 @@ def test_changed_edges_reports_added_and_removed():
 
 
 def test_changed_edges_handles_branching_hyperedges():
-    from rexgraph.flow.navigator import changed_edges
     from rexgraph.core._temporal import cell_keys_of
+    from rexgraph.flow.navigator import changed_edges
     # prev: edge (0,1), branching hyperedge over {2,3,4}
     prev = RexGraph(boundary_ptr=np.array([0, 2, 5], np.int32),
                     boundary_idx=np.array([0, 1, 2, 3, 4], np.int32))
@@ -500,14 +508,14 @@ def test_checkpoint_boundary_reconstruct_high_churn():
     assert len(trex._index_cp_times) > 1, "high churn stream must produce more than one checkpoint"
     for t in range(len(refs)):
         r = trex.reconstruct_at(t)
-        got = set(zip(r.sources.tolist(), r.targets.tolist()))
+        got = set(zip(r.sources.tolist(), r.targets.tolist(), strict=False))
         assert got == set(seqs[t]), "t=%d: %s != %s" % (t, got, set(seqs[t]))
 
 
 def test_delta_serialized_smaller_than_full_snapshots(tmp_path):
     pytest.importorskip("safetensors")
     from rexgraph.graph import TemporalRex
-    from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors, rex_to_safetensors
+    from rexgraph.io.safetensors_bridge import rex_to_safetensors, temporal_rex_to_safetensors
     # a large stable base with a SMALL per-step edit (a handful of edges swapped
     # each step, real world "big graph, tiny periodic edits" shape): full
     # per-step serialization pays for the whole boundary CSR every step, the
@@ -543,7 +551,8 @@ def test_delta_serialized_smaller_than_full_snapshots(tmp_path):
 
 
 def test_matrix_free_reconstruct(monkeypatch):
-    import numpy.linalg as nla, scipy.sparse.linalg as ssla
+    import numpy.linalg as nla
+    import scipy.sparse.linalg as ssla
     calls = []
     for mod, name in [(nla, "eig"), (nla, "eigh"), (nla, "svd"), (nla, "pinv"),
                       (ssla, "eigsh"), (ssla, "svds")]:
@@ -563,7 +572,10 @@ def test_matrix_free_reconstruct(monkeypatch):
 def test_serialization_preserves_full_attribution(tmp_path):
     pytest.importorskip("safetensors")
     from rexgraph.graph import TemporalRex
-    from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors, safetensors_to_temporal_rex
+    from rexgraph.io.safetensors_bridge import (
+        safetensors_to_temporal_rex,
+        temporal_rex_to_safetensors,
+    )
 
     def rx(wbase):
         k = 3
@@ -598,9 +610,14 @@ def test_face_signs_survive_serialization():
     this checks the same signed face survives an actual serialize -> load ->
     reconstruct round trip through the APPEND path (Slice D's real usage)."""
     pytest.importorskip("safetensors")
-    import tempfile, os
+    import os
+    import tempfile
+
     from rexgraph.graph import TemporalRex
-    from rexgraph.io.safetensors_bridge import temporal_rex_to_safetensors, safetensors_to_temporal_rex
+    from rexgraph.io.safetensors_bridge import (
+        safetensors_to_temporal_rex,
+        temporal_rex_to_safetensors,
+    )
     tri = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32),
                    B2_col_ptr=np.array([0, 3], np.int32), B2_row_idx=np.array([0, 1, 2], np.int32),
                    B2_vals=np.array([1.0, -1.0, 1.0], np.float64))

@@ -201,13 +201,16 @@ CLI: `rexgraph-local {status, start, stop, pull, recommend}`.
 
 The model builder ships four archetypes, each a starting point that is fully
 customizable through its config and trained with the `rexgraph.nn` substrate
-(the HodgeAdam optimizer, relational/propagator attention, Green-resolvent
-blocks):
+(relational/propagator attention, Green-resolvent blocks, and the optimizer
+`make_optimizer("auto")` routes to). All four are feature-space models, so that
+route gives them plain Adam; the relational-native path, where the parameters
+are a cochain on the complex and the router picks GreensCochain, is
+`rexgraph.flow`:
 
 | Archetype | Data | Notes |
 |-----------|------|-------|
 | `mlp` | tabular / vector | classification or regression |
-| `cnn` | image | HodgeAdam's conditioning edge shows with `norm=False` |
+| `cnn` | image | `norm=False` drops the batch norm that fixes conditioning: the ill-conditioned setting for an optimizer A/B |
 | `hgnn` | hypergraph / higher-order relational | fiber-bundle advection + diffusion on the complex's signed orientation |
 | `lm` | sequence / language | relational (propagator) or standard attention |
 
@@ -216,7 +219,7 @@ from agent.models import list_archetypes, build, run
 
 list_archetypes()                              # cnn / hgnn / lm / mlp with default configs
 model = build("hgnn", feat_dim=16, n_classes=4, d_hid=32, n_layers=2)
-run("train", archetype="hgnn", steps=200)      # train with HodgeAdam on the resolved backend
+run("train", archetype="hgnn", steps=200)      # optimizer="auto" -> Adam here; resolved backend
 ```
 
 Because the archetypes are configs over composable `rexgraph.nn` blocks, custom
@@ -227,7 +230,7 @@ complex, which any archetype can train on:
 
 ```bash
 # POST /api/v1/ml/ingest {triples, labels, train:true, archetype:"hgnn", steps:20}
-# -> relational complex -> trainable bundle -> HGNN trained with HodgeAdam
+# -> relational complex -> trainable bundle -> HGNN trained through make_optimizer("auto")
 ```
 
 CLI: `rexgraph-models {list, build, multistep, fusion}`.

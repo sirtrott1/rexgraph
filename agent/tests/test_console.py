@@ -1,7 +1,9 @@
 """agent.console: scoped commands, chat routing, and governed consequential verbs."""
-from agent import hive as hivemod, agent_complex, rcdb
 from agent.console import CommandConsole
 from agent.reactive_hive import ReactiveHive
+
+from agent import agent_complex, rcdb
+from agent import hive as hivemod
 
 
 def _hive():

@@ -46,6 +46,7 @@ class TestDdlExport:
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
     import os
+
     from fastapi.testclient import TestClient
     # isolate the connections store and RCDB
     cfg = tmp_path_factory.mktemp("cfg")

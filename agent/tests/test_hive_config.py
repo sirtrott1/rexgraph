@@ -1,8 +1,8 @@
 """Hive profiles (agent.hive_config): presets, save/clone/delete, active pointer, apply."""
 import pytest
+from agent.hive_config import BeeSpec, HiveProfile, ProfileStore
 
 from agent import hive, hive_config
-from agent.hive_config import BeeSpec, HiveProfile, ProfileStore
 
 
 @pytest.fixture

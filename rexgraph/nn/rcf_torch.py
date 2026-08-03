@@ -25,7 +25,7 @@ is an optional dep, import guarded.
 from __future__ import annotations
 
 import math
-from typing import Callable, Optional, Tuple
+from collections.abc import Callable
 
 try:
     import torch as _torch
@@ -67,7 +67,7 @@ def cheb_coeffs(func: Callable, K: int, lam_max: float, *, device=None, dtype=No
     return c
 
 
-def cheb_apply(L, X, coeffs, lam_max: Optional[float] = None):
+def cheb_apply(L, X, coeffs, lam_max: float | None = None):
     """Apply Σ_k c_k T_k(L̃) to X, where L̃ = 2L/λ_max - I rescales the spectrum to [-1,1].
     Pure matvec recurrence T_{k+1} = 2L̃T_k - T_{k-1} - O(nnz·K·d), never forms f(L). L may
     be a dense or sparse torch tensor; X is [..., n, d] (or [n, d]). Differentiable."""
@@ -162,7 +162,7 @@ def green_resolvent(x, alpha, matvec_L, tol: float = 1e-5, max_iter: int = 50):
     return _GreenResolvent.apply(x, alpha, matvec_L, tol, max_iter)
 
 
-def heat_apply(L, X, t: float, K: int = 32, lam_max: Optional[float] = None):
+def heat_apply(L, X, t: float, K: int = 32, lam_max: float | None = None):
     """Heat propagator e^{-tL} applied to X (diffusive / gradient routing), eigen-free."""
     _require()
     lam_max = lam_max if lam_max is not None else spectral_bound(L)
@@ -171,7 +171,7 @@ def heat_apply(L, X, t: float, K: int = 32, lam_max: Optional[float] = None):
     return cheb_apply(L, X, c, lam_max)
 
 
-def wave_apply(L, X, t: float, K: int = 32, lam_max: Optional[float] = None) -> Tuple:
+def wave_apply(L, X, t: float, K: int = 32, lam_max: float | None = None) -> tuple:
     """Light/wave propagator e^{-itL} applied to X, returned as (real, imag) =
     (gradient/cos, curl/sin) channels [13]. The imag channel is the directional/rotational
     routing component."""
@@ -266,7 +266,7 @@ def harmonic_projector_apply(H, z):
 
 # harmonic-log (Rényi-2) & varentropy [18,19]
 
-def renyi2(L, eps: float = 1e-12) -> "float":
+def renyi2(L, eps: float = 1e-12) -> float:
     """Harmonic log = Rényi-2 (collision) entropy of the normalized spectrum, eigen-free:
     H₂ = -log( tr(L²)/tr(L)² ) [18]. tr(L²) via the row-norm sum (no matrix square formed)."""
     _require()

@@ -20,7 +20,7 @@ import json
 import os
 import re
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # archetypes whose conv path is CPU-only here; everything else can ride the GPU/iGPU
 _CPU_ONLY = {"cnn"}
@@ -78,15 +78,16 @@ def place_llm(hive, name: str, model_path: str, *, on: str = "igpu", role: str =
                       n_gpu_layers=ngl, wait=wait, **kw)
 
 
-def bundle_from_rows(rows: List[dict], *, target: str, features: Optional[List[str]] = None):
+def bundle_from_rows(rows: list[dict], *, target: str, features: list[str] | None = None):
     """Turn database/query rows into a vector DataBundle for training: numeric feature columns become
     X (non-numeric features are label-encoded), the target column becomes integer classes y. This is
     what lets a forged NN learn on the ACTUAL data instead of a synthetic set."""
     import numpy as np
+
     from agent.models import data as _data
     if not rows:
         raise ValueError("no rows to build a training bundle from")
-    feats = features or [c for c in rows[0].keys() if c != target]
+    feats = features or [c for c in rows[0] if c != target]
 
     def encode(values):
         try:
@@ -106,17 +107,17 @@ def bundle_from_rows(rows: List[dict], *, target: str, features: Optional[List[s
 class ModelFoundry:
     """Forge trained neural networks into worker bees the LMs control."""
 
-    def __init__(self, hive=None, *, store_dir: Optional[str] = None):
+    def __init__(self, hive=None, *, store_dir: str | None = None):
         if hive is None:
             from . import hive as hivemod
             hive = hivemod.get_hive()
         self.hive = hive
         self.store_dir = store_dir or tempfile.mkdtemp(prefix="foundry-")
-        self.forged: List[Dict[str, Any]] = []          # the NN sub-hive this foundry built
+        self.forged: list[dict[str, Any]] = []          # the NN sub-hive this foundry built
 
     def forge(self, name: str, archetype: str, *, data=None, params=None, steps: int = 100,
               device: str = "auto", capability: str = "predict", specialties=None,
-              optimizer: str = "auto", seed: int = 0) -> Dict[str, Any]:
+              optimizer: str = "auto", seed: int = 0) -> dict[str, Any]:
         """Train an NN on `data` (a bundle / a data source / None for the archetype's synthetic set)
         and register it as a worker bee. Returns the model card. Falls back to CPU once if a chosen
         GPU turns out unusable."""
@@ -145,7 +146,7 @@ class ModelFoundry:
         self.forged.append(card)
         return card
 
-    def _ask_coder_for_spec(self, coder, task: str, data) -> Optional[dict]:
+    def _ask_coder_for_spec(self, coder, task: str, data) -> dict | None:
         """Let an LM choose the archetype + params. `coder` is a callable prompt->reply (e.g.
         lambda p: hive.ask('architect', p)). Returns the parsed spec, or None on any failure."""
         from agent import models
@@ -164,7 +165,7 @@ class ModelFoundry:
 
     def forge_from_task(self, name: str, task: str, *, data=None, coder=None, params=None,
                         device: str = "auto", steps: int = 100, capability: str = "predict",
-                        seed: int = 0) -> Dict[str, Any]:
+                        seed: int = 0) -> dict[str, Any]:
         """Forge an NN whose ARCHETYPE is chosen from the task. If a `coder` (an LM) is given it
         picks (and may set params); otherwise, or if its pick is invalid, the structural heuristic
         (`choose_archetype`) does. The coder decides WHAT to build; the foundry builds and places it.
@@ -182,9 +183,9 @@ class ModelFoundry:
         card.update({"task": task, "chosen_by": chosen_by})
         return card
 
-    def forge_on_rows(self, name: str, rows: List[dict], *, target: str, features=None,
+    def forge_on_rows(self, name: str, rows: list[dict], *, target: str, features=None,
                       archetype: str = "auto", task: str = "", coder=None, device: str = "auto",
-                      steps: int = 100, seed: int = 0) -> Dict[str, Any]:
+                      steps: int = 100, seed: int = 0) -> dict[str, Any]:
         """Forge an NN that trains on ACTUAL rows (from a query / a DB table). Builds a bundle from
         the data, then forges. Archetype defaults to what the tabular data implies (mlp) unless a
         coder/explicit choice overrides."""
@@ -197,10 +198,10 @@ class ModelFoundry:
                 archetype = choose_archetype(task, bundle)
         card = self.forge(name, archetype, data=bundle, device=device, steps=steps, seed=seed)
         card.update({"trained_on": "rows", "n_rows": len(rows), "target": target,
-                     "features": features or [c for c in rows[0].keys() if c != target]})
+                     "features": features or [c for c in rows[0] if c != target]})
         return card
 
-    def forge_many(self, specs: List[dict]) -> List[Dict[str, Any]]:
+    def forge_many(self, specs: list[dict]) -> list[dict[str, Any]]:
         """Forge several NNs (each spec: {name, archetype, ...}) into the sub-hive."""
         return [self.forge(s.pop("name"), s.pop("archetype"), **s) for s in (dict(x) for x in specs)]
 
@@ -208,12 +209,12 @@ class ModelFoundry:
         """Drive one forged NN (what an LM does when it uses a network it built)."""
         return self.hive.invoke(name, data, **kw)
 
-    def roster(self) -> List[Dict[str, Any]]:
+    def roster(self) -> list[dict[str, Any]]:
         """The NN sub-hive: each network, its archetype, and its device placement."""
         return [dict(c) for c in self.forged]
 
 
-def hierarchy(hive) -> Dict[str, Any]:
+def hierarchy(hive) -> dict[str, Any]:
     """The hive as a control hierarchy: the language models (chat/generate bees) that CONTROL the
     neural networks (model:* worker bees) beneath them, plus the device each network runs on."""
     controllers, networks = [], []

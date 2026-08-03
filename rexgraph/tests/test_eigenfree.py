@@ -74,6 +74,7 @@ def test_trace_moments_share_one_power_walk_matches_per_order():
     """The moment engine [tr(X),..,tr(X^a)] from one incremental power walk equals per-order
     trace_power, and the Renyi curve reads off it identically (scripts 16/18/19)."""
     import scipy.sparse as sp
+
     from rexgraph import scale_propagator as spg
     rng = np.random.default_rng(0)
     A = sp.random(60, 60, density=0.08, random_state=0); A = (A + A.T).tocsr()
@@ -288,9 +289,10 @@ def test_evolve_field_wave_edge_and_face_are_eigenfree():
     (e^{-i RL1 t} psi_E, e^{-i L2 t} psi_F) against the exact eigh of the sparse
     operators - the face tier is genuinely propagated (no longer frozen when the dense
     L2 spectrum happens to be absent)."""
-    from rexgraph.core import _wave
-    from rexgraph import scale_propagator as _spg
     import scipy.sparse as sp
+
+    from rexgraph import scale_propagator as _spg
+    from rexgraph.core import _wave
     g = _tetra_rex()
     nE, nF = g.nE, int(g.nF_hodge)
     rng = np.random.default_rng(0)
@@ -355,7 +357,7 @@ def test_primal_signal_character_is_eigenfree(edges):
 def test_pinv_quadratic_form_matches_dense_pseudoinverse():
     """sparse_character.pinv_quadratic_form(A, v) = vᵀ A⁺ v for a SINGULAR PSD A via
     LSQR (projects off ker(A) exactly) == the dense eigenmode pseudoinverse."""
-    from rexgraph.sparse_character import pinv_quadratic_form, build_sparse_character_cheap
+    from rexgraph.sparse_character import build_sparse_character_cheap, pinv_quadratic_form
     rex = _rex(_COMPLEXES[0])
     cheap = build_sparse_character_cheap(rex)
     rng = np.random.default_rng(9)
@@ -381,6 +383,7 @@ def test_sparse_betti_is_arity_aware_for_branching_hyperedges():
     """Regression: the sparse bundle-slot Betti used a one-source/one-target column reader that
     assumed arity-2 and overcounted beta0 on branching hyperedges. It must equal exact .betti."""
     import scipy.sparse as sp
+
     from rexgraph.core._laplacians import _sparse_betti
     # {0,1,2} is a branching (arity-3) 1-cell; {2,3},{3,4},{4,2} form a triangle
     ptr = np.array([0, 3, 5, 7, 9]); idx = np.array([0, 1, 2, 2, 3, 3, 4, 4, 2])
@@ -436,8 +439,9 @@ def test_sparse_alpha_G_matches_dense_cheap_exact():
 def test_sparse_edge_fiedler_eigenpair_matches_dense():
     """cheap+exact edge Fiedler eigenpair (value + vector, DEDICATED keys) on the scale-free path
     matches the dense oracle; the vector satisfies L1 v = lambda v."""
-    import rexgraph.core._common as common
     import scipy.sparse as sp
+
+    import rexgraph.core._common as common
     from rexgraph.core._sparse import to_scipy_csr
     saved = common.get_algorithm_config()['eigen_dense_limit']
     try:
@@ -472,6 +476,7 @@ def test_scale_free_never_fills_full_spectrum_keys_with_partial():
     eigenbases need not agree mode-for-mode. The deterministic, degeneracy-robust invariant is that
     the OPERATOR and its full spectrum are the same either way.)"""
     import itertools
+
     import rexgraph.core._common as common
     saved = common.get_algorithm_config()['eigen_dense_limit']
     try:
@@ -513,8 +518,8 @@ class TestSingularGreensDeflated:
 
     def test_matches_dense_pinv_two_squares(self):
         # oracle-09 complex: two 4-cycles sharing an edge, no faces, beta1 = 2
-        from rexgraph.scale_propagator import greens_diagonal_deflated
         from rexgraph.harmonic_sparse import cycle_basis
+        from rexgraph.scale_propagator import greens_diagonal_deflated
         E = [(0, 1), (1, 2), (2, 3), (3, 0), (1, 4), (4, 5), (5, 2)]
         g = RexGraph(sources=np.array([e[0] for e in E], np.int32),
                      targets=np.array([e[1] for e in E], np.int32))
@@ -526,8 +531,8 @@ class TestSingularGreensDeflated:
         assert np.allclose(gd, ref, atol=1e-8)
 
     def test_triangle_beta1_one(self):
-        from rexgraph.scale_propagator import greens_diagonal_deflated
         from rexgraph.harmonic_sparse import cycle_basis
+        from rexgraph.scale_propagator import greens_diagonal_deflated
         g = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32))
         L1 = self._l1_down(g)
         gd = greens_diagonal_deflated(L1, cycle_basis(g))
@@ -535,7 +540,7 @@ class TestSingularGreensDeflated:
 
     def test_full_rank_reduces_to_inverse(self):
         # empty kernel basis -> diag(L^-1); equals greens_diagonal on the SPD RL4
-        from rexgraph.scale_propagator import greens_diagonal_deflated, greens_diagonal
+        from rexgraph.scale_propagator import greens_diagonal, greens_diagonal_deflated
         from rexgraph.sparse_character import build_sparse_character_cheap
         g = RexGraph.from_simplicial(
             np.array([0, 0, 0, 1, 1, 2], np.int32), np.array([1, 2, 3, 2, 3, 3], np.int32),

@@ -6,7 +6,6 @@ the compiled Cython core. Kernel-dependent behaviour is verified
 separately on a compiled build.
 """
 
-import os
 import queue
 
 import numpy as np
@@ -78,7 +77,7 @@ def test_edge_and_feature_adapters_ignore_extra_kwargs(tmp_path):
     try:
         FeatureMatrixAdapter().build(X, max_vocab=200, typing="none")
     except TypeError as e:
-        pytest.fail("max_vocab leaked as a TypeError: %s" % e)
+        pytest.fail(f"max_vocab leaked as a TypeError: {e}")
     except ModuleNotFoundError:
         pass  # compiled kernel absent in a source checkout - not our concern
 
@@ -126,9 +125,9 @@ def test_ocr_cli_entrypoint_exists():
 
 
 def test_new_cli_mains_exist():
+    from agent.cli.config import main as config_main
     from agent.cli.serve import main as serve_main
     from agent.cli.setup import main as setup_main
-    from agent.cli.config import main as config_main
     assert callable(serve_main) and callable(setup_main) and callable(config_main)
     # config show/platform run without side effects
     assert config_main(["platform"]) == 0
@@ -136,8 +135,7 @@ def test_new_cli_mains_exist():
 
 # B4 regression: prose .txt (with commas) must not fail as CSV
 def test_prose_txt_falls_back_to_text(tmp_path):
-    from agent.auto import detect_input_type, _fallback_text_or_raise
-    from agent.adapters.text import TextAdapter
+    from agent.auto import _fallback_text_or_raise, detect_input_type
 
     doc = tmp_path / "prose.txt"
     doc.write_text(

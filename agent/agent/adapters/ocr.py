@@ -42,7 +42,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -51,7 +50,7 @@ from . import DomainAdapter, EdgeConstruction
 logger = logging.getLogger(__name__)
 
 # Section parser
-def _parse_sections(text: str) -> List[Dict]:
+def _parse_sections(text: str) -> list[dict]:
     """Parse OCR output (markdown) into structural sections.
 
     Returns a list of dicts, each with:
@@ -60,10 +59,10 @@ def _parse_sections(text: str) -> List[Dict]:
         body  : str   - section body text
         kind  : str   - 'heading', 'paragraph', 'table', 'list', 'code'
     """
-    sections: List[Dict] = []
+    sections: list[dict] = []
     current_heading = "document"
     current_level = 0
-    current_body: List[str] = []
+    current_body: list[str] = []
 
     def flush():
         body = "\n".join(current_body).strip()
@@ -123,12 +122,12 @@ def _classify_block(text: str) -> str:
 
 # Layout graph construction
 def _build_layout_graph(
-    sections: List[Dict],
+    sections: list[dict],
     max_vertices: int = 500,
-) -> Tuple[
-    List[str],       # vertex labels
-    List[Tuple[int, int, float, int]],  # (src, tgt, weight, type)
-    List[str],       # type names
+) -> tuple[
+    list[str],       # vertex labels
+    list[tuple[int, int, float, int]],  # (src, tgt, weight, type)
+    list[str],       # type names
 ]:
     """Build a graph from document layout structure.
 
@@ -153,7 +152,7 @@ def _build_layout_graph(
             label = f"{sec['kind']}_{i}"
         labels.append(label)
 
-    edges: List[Tuple[int, int, float, int]] = []
+    edges: list[tuple[int, int, float, int]] = []
 
     # Type 0: sequential adjacency
     for i in range(n - 1):
@@ -162,7 +161,7 @@ def _build_layout_graph(
     # Type 1: hierarchical containment
     # Each section at level > 0 is a child of the nearest preceding
     # section at a lower level
-    heading_stack: List[int] = []
+    heading_stack: list[int] = []
     for i, sec in enumerate(sections):
         level = sec["level"]
         # Pop deeper or equal levels
@@ -179,7 +178,7 @@ def _build_layout_graph(
     # Type 2: thematic overlap
     # Build word sets for each section and connect sections
     # that share significant vocabulary
-    word_sets: List[set] = []
+    word_sets: list[set] = []
     stopwords = {
         'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
         'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
@@ -305,13 +304,13 @@ class OCRAdapter(DomainAdapter):
 
     def build(
         self,
-        data: Union[str, List[str]],
+        data: str | list[str],
         strategy: str = "text",
         window: int = 0,
         min_count: int = 1,
         max_vocab: int = 500,
         face_selection: str = "typed",
-        ocr_prompt: Optional[str] = None,
+        ocr_prompt: str | None = None,
         dpi: int = 300,
         **kwargs,
     ) -> EdgeConstruction:
@@ -367,13 +366,14 @@ class OCRAdapter(DomainAdapter):
 
     def _extract_text(
         self,
-        data: Union[str, List[str]],
-        ocr_prompt: Optional[str] = None,
+        data: str | list[str],
+        ocr_prompt: str | None = None,
         dpi: int = 300,
     ) -> str:
         """Run OCR on the input and return the combined text."""
         from agent.integrations.unlimited_ocr import (
-            is_image_file, is_pdf_file,
+            is_image_file,
+            is_pdf_file,
         )
 
         client = self._get_client()

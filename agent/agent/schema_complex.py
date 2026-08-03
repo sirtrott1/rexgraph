@@ -24,23 +24,23 @@ already talks to).
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
 from .diagnostics_thresholds import THRESHOLDS as _TH
-
 
 # schema model
 
 @dataclass
 class ForeignKey:
     from_table: str
-    from_cols: List[str]
+    from_cols: list[str]
     to_table: str
-    to_cols: List[str] = field(default_factory=list)
+    to_cols: list[str] = field(default_factory=list)
     nullable: bool = True          # optional (nullable) vs mandatory participation
     identifying: bool = False      # FK cols are part of the child's PK (composition)
     on_delete: str = ""            # CASCADE / RESTRICT / SET NULL / "" (unknown)
@@ -49,14 +49,14 @@ class ForeignKey:
 @dataclass
 class TableDef:
     name: str
-    columns: List[str] = field(default_factory=list)
-    primary_key: List[str] = field(default_factory=list)
+    columns: list[str] = field(default_factory=list)
+    primary_key: list[str] = field(default_factory=list)
 
 
 @dataclass
 class SchemaModel:
-    tables: List[TableDef] = field(default_factory=list)
-    foreign_keys: List[ForeignKey] = field(default_factory=list)
+    tables: list[TableDef] = field(default_factory=list)
+    foreign_keys: list[ForeignKey] = field(default_factory=list)
 
     def __post_init__(self):
         # infer identifying (FK cols ⊆ child PK) for any parser that didn't set it
@@ -66,7 +66,7 @@ class SchemaModel:
                 if set(fk.from_cols) <= pk[fk.from_table]:
                     fk.identifying = True
 
-    def table_names(self) -> List[str]:
+    def table_names(self) -> list[str]:
         names = [t.name for t in self.tables]
         # include FK-referenced tables even if not explicitly defined
         for fk in self.foreign_keys:
@@ -115,15 +115,15 @@ _TABLE_FK = re.compile(r"foreign\s+key\s*\(\s*([^)]+)\)\s*references\s+"
 _PK_RE = re.compile(r"primary\s+key\s*\(\s*([^)]+)\)", re.IGNORECASE)
 
 
-def _parse_ddl_sqlglot(ddl: str, dialect: Optional[str] = None) -> SchemaModel:
+def _parse_ddl_sqlglot(ddl: str, dialect: str | None = None) -> SchemaModel:
     """Dialect-aware DDL parsing via sqlglot (Oracle/Postgres/MySQL/…)."""
     from sqlglot import exp, parse
     read = dialect if dialect and dialect not in ("auto", "sql") else None
     statements = parse(ddl, read=read)
-    tables: List[TableDef] = []
-    fks: List[ForeignKey] = []
+    tables: list[TableDef] = []
+    fks: list[ForeignKey] = []
 
-    def _ref_table(ref) -> Optional[str]:
+    def _ref_table(ref) -> str | None:
         t = ref.find(exp.Table)
         return t.name if t else None
 
@@ -163,7 +163,7 @@ def _parse_ddl_sqlglot(ddl: str, dialect: Optional[str] = None) -> SchemaModel:
     return SchemaModel(tables=tables, foreign_keys=fks)
 
 
-def parse_schema_ddl(ddl: str, dialect: Optional[str] = None) -> SchemaModel:
+def parse_schema_ddl(ddl: str, dialect: str | None = None) -> SchemaModel:
     """Parse CREATE TABLE / FOREIGN KEY / ALTER DDL into a schema model.
 
     Uses sqlglot (dialect-aware: oracle, postgres, mysql, tsql, snowflake, …)
@@ -179,15 +179,15 @@ def parse_schema_ddl(ddl: str, dialect: Optional[str] = None) -> SchemaModel:
     return _parse_ddl_regex(ddl)
 
 
-def _split_top_level(body: str) -> List[str]:
+def _split_top_level(body: str) -> list[str]:
     """Split a CREATE TABLE body on top-level commas only - commas at paren
     depth 0. A naive ``body.split(",")`` shreds parenthesised, comma-separated
     constraint lists (``PRIMARY KEY(a, b)``, ``FOREIGN KEY (x, y) REFERENCES
     t(p, q)``, ``UNIQUE (a, b)``) mid-list, dropping the constraint and leaving
     a phantom column. Keeping each ``(...)`` intact fixes both."""
-    parts: List[str] = []
+    parts: list[str] = []
     depth = 0
-    cur: List[str] = []
+    cur: list[str] = []
     for ch in body:
         if ch == "(":
             depth += 1
@@ -208,8 +208,8 @@ def _parse_ddl_regex(ddl: str) -> SchemaModel:
     tables, fks = [], []
     for m in _CREATE_RE.finditer(ddl):
         name, body = m.group(1), m.group(2)
-        cols: List[str] = []
-        pk: List[str] = []
+        cols: list[str] = []
+        pk: list[str] = []
         for line in _split_top_level(body):
             line = line.strip()
             if not line:
@@ -287,7 +287,7 @@ def reflect_schema(conn_str: str) -> SchemaModel:
     return SchemaModel(tables=tables, foreign_keys=fks)
 
 
-def infer_mongo_schema(collections: Dict[str, List[dict]]) -> SchemaModel:
+def infer_mongo_schema(collections: dict[str, list[dict]]) -> SchemaModel:
     """Infer a schema from MongoDB-style collections of sample documents.
 
     Document databases have no declared foreign keys, but references are
@@ -299,7 +299,7 @@ def infer_mongo_schema(collections: Dict[str, List[dict]]) -> SchemaModel:
     name_set = {n.lower() for n in names}
     singular = {n[:-1].lower(): n for n in names if n.lower().endswith("s")}
 
-    def _resolve(ref_word: str) -> Optional[str]:
+    def _resolve(ref_word: str) -> str | None:
         w = ref_word.lower()
         # try the whole word, then the trailing segment (favorite_post -> post)
         candidates = [w]
@@ -355,7 +355,7 @@ def reflect_mongo(conn_str: str, db_name: str, sample: int = 100) -> SchemaModel
     return infer_mongo_schema(collections)
 
 
-def export_migration_plan(model: SchemaModel) -> Dict[str, Any]:
+def export_migration_plan(model: SchemaModel) -> dict[str, Any]:
     """Produce a clean, executable order to build the schema.
 
     Returns a create order plus the FKs to add *after* the tables exist
@@ -398,7 +398,7 @@ def export_schema_ddl(model: SchemaModel, dialect: str = "generic") -> str:
     order, cut = topological_order(model)
     cut_set = {(a, b) for a, b in cut}
     by_name = {t.name: t for t in model.tables}
-    fks_by_table: Dict[str, list] = {}
+    fks_by_table: dict[str, list] = {}
     deferred = []
     for fk in model.foreign_keys:
         if (fk.from_table, fk.to_table) in cut_set:
@@ -428,7 +428,7 @@ def export_schema_ddl(model: SchemaModel, dialect: str = "generic") -> str:
     return "\n\n".join(lines) + "\n"
 
 
-def list_tables(conn_str: str, with_counts: bool = False) -> List[dict]:
+def list_tables(conn_str: str, with_counts: bool = False) -> list[dict]:
     """List a live database's tables with column/PK/FK counts (read-only).
     If ``with_counts``, also include a best-effort ``rows`` count per table."""
     from sqlalchemy import create_engine, inspect, text
@@ -467,8 +467,8 @@ def _associative_entities(model: SchemaModel) -> set:
     columns, binding two or more parents. These are the cells that
     genuinely co-participate, so they license a co-participation face.
     """
-    fk_cols: Dict[str, set] = {}
-    fk_count: Dict[str, int] = {}
+    fk_cols: dict[str, set] = {}
+    fk_count: dict[str, int] = {}
     for fk in model.foreign_keys:
         fk_cols.setdefault(fk.from_table, set()).update(fk.from_cols or [])
         fk_count[fk.from_table] = fk_count.get(fk.from_table, 0) + 1
@@ -500,8 +500,8 @@ def _coparticipation_b2(names, sources, targets, model):
     idx = {n: i for i, n in enumerate(names)}
     assoc_idx = {idx[a] for a in _associative_entities(model) if a in idx}
     nE = len(sources)
-    directed: Dict[tuple, list] = {}
-    inc: Dict[int, list] = {}
+    directed: dict[tuple, list] = {}
+    inc: dict[int, list] = {}
     for e in range(nE):
         s, t = int(sources[e]), int(targets[e])
         directed.setdefault((s, t), []).append(e)
@@ -516,7 +516,7 @@ def _coparticipation_b2(names, sources, targets, model):
         return None
 
     def _valid(face):                      # ∂₁∂₂ = 0 : the loop is closed
-        acc: Dict[int, float] = {}
+        acc: dict[int, float] = {}
         for e, sgn in face:
             s, t = int(sources[e]), int(targets[e])
             acc[s] = acc.get(s, 0.0) - sgn
@@ -601,7 +601,7 @@ def _schema_face_b2(names, src, tgt, edge_tables, model, mode):
 
 
 def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
-                  weights: Optional[Dict[str, float]] = None):
+                  weights: dict[str, float] | None = None):
     """Build a typed, directed relational complex from a schema.
 
     Vertices = tables. Edges = foreign keys (child -> parent). Faces are chosen by
@@ -661,10 +661,8 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
         for e, (a, b) in enumerate(edge_tables):
             val = weights.get(f"{a}->{b}")
             if val is not None:
-                try:
+                with contextlib.suppress(TypeError, ValueError):
                     w_arr[e] = max(float(val), 1e-9)
-                except (TypeError, ValueError):
-                    pass
         w_E = w_arr
     from rexgraph.graph import RexGraph
     b2 = (_schema_face_b2(names, src, tgt, edge_tables, model, face_selection)
@@ -682,10 +680,8 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
     else:
         rex = RexGraph(sources=src, targets=tgt, w_E=w_E)
         if face_selection == "promote":         # core face-finder
-            try:
+            with contextlib.suppress(Exception):
                 rex = rex.promote()
-            except Exception:
-                pass
     rex._agent_meta = meta
     return rex, meta
 
@@ -698,7 +694,7 @@ def explore_schema_faces(model: SchemaModel, modes=SCHEMA_FACE_SELECTIONS):
     (autoface) trades harmonic "broken cycle" content for bounded curl; filling only
     genuine junctions (coparticipation) leaves ordinary FK cycles harmonic. Returns
     ``{mode: {n_faces, betti, hodge}}`` - a side-by-side of the schema's options."""
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for mode in modes:
         try:
             rex, _ = schema_to_rex(model, face_selection=mode)
@@ -722,14 +718,14 @@ def explore_schema_faces(model: SchemaModel, modes=SCHEMA_FACE_SELECTIONS):
 
 # cycle finder (actionable circular-dependency output)
 
-def _find_cycles(names: List[str], edges: List[Tuple[str, str]],
-                 max_cycles: Optional[int] = None) -> List[List[str]]:
+def _find_cycles(names: list[str], edges: list[tuple[str, str]],
+                 max_cycles: int | None = None) -> list[list[str]]:
     """Enumerate distinct directed cycles (up to `max_cycles`) via an ITERATIVE
     colored DFS - an explicit stack, so deep schemas cannot raise RecursionError
     (Python's recursion limit is ~1000; reflected schemas can be deeper)."""
     if max_cycles is None:
         max_cycles = _TH.max_cycles
-    adj: Dict[str, List[str]] = {n: [] for n in names}
+    adj: dict[str, list[str]] = {n: [] for n in names}
     for a, b in edges:
         adj.setdefault(a, []).append(b)
         adj.setdefault(b, adj.get(b, []))
@@ -782,14 +778,14 @@ def topological_order(model: SchemaModel):
     not a contradiction.
     """
     names = model.table_names()
-    deps: Dict[str, set] = {n: set() for n in names}   # child -> {parents}
+    deps: dict[str, set] = {n: set() for n in names}   # child -> {parents}
     for fk in model.foreign_keys:
         if (fk.from_table in deps and fk.to_table in deps
                 and fk.from_table != fk.to_table):
             deps[fk.from_table].add(fk.to_table)
-    order: List[str] = []
+    order: list[str] = []
     resolved: set = set()
-    cut: List[Tuple[str, str]] = []
+    cut: list[tuple[str, str]] = []
     remaining = {n: set(p) for n, p in deps.items()}
     while remaining:
         ready = [n for n in remaining if remaining[n] <= resolved]
@@ -943,7 +939,7 @@ def _star_curvature(names, edges, w):
         key=lambda r: -r["strain"])
 
 
-def relation_lint(model: "SchemaModel") -> Dict[str, Any]:
+def relation_lint(model: SchemaModel) -> dict[str, Any]:
     """Data-model lint from the RL4 character: label each foreign key by its
     dominant structural channel, flag ones whose character is anomalous for the
     schema, and surface the tables pulled in conflicting directions (frustration).
@@ -1004,7 +1000,7 @@ def relation_lint(model: "SchemaModel") -> Dict[str, Any]:
     return out
 
 
-def schema_strain(model: "SchemaModel", weights=None):
+def schema_strain(model: SchemaModel, weights=None):
     """Data-forced strain: how the weighting (real data magnitudes) strains
     the schema, on the lens-independent autoface geometry.
 
@@ -1040,10 +1036,8 @@ def schema_strain(model: "SchemaModel", weights=None):
     for e, (a, b) in enumerate(edges):
         key = f"{a}->{b}"
         if key in weights and weights[key] is not None:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 w[e] = max(float(weights[key]), 1e-9)
-            except (TypeError, ValueError):
-                pass
     # gradient-tower curvature localizations (fire on spans/junctions, unlike
     # the face-bound curvature below):
     #   relation_load - per-edge fan-out (which relation)
@@ -1100,7 +1094,7 @@ def schema_strain(model: "SchemaModel", weights=None):
         {"a": f"{edges[i][0]} -> {edges[i][1]}",
          "b": f"{edges[j][0]} -> {edges[j][1]}",
          "coupling": round(float(v), 6)}
-        for i, j, v in zip(Mc.row, Mc.col, Mc.data)
+        for i, j, v in zip(Mc.row, Mc.col, Mc.data, strict=False)
         if i < j and abs(v) > 1e-9]
 
     # harmonic log of the Gram -> effective independent root causes, EIGEN-FREE:
@@ -1144,7 +1138,7 @@ def _row_count(conn, engine, table, approximate=False):
             return 0
 
 
-def pull_cardinality_stats(conn_str: str, model: "SchemaModel" = None,
+def pull_cardinality_stats(conn_str: str, model: SchemaModel = None,
                            approximate: bool = False):
     """Weight each foreign key by real data magnitude from a live database.
 
@@ -1172,13 +1166,13 @@ def pull_cardinality_stats(conn_str: str, model: "SchemaModel" = None,
 
 # diagnosis
 
-def diagnose_schema(model: SchemaModel) -> Dict[str, Any]:
+def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
     """Full topological diagnosis of a schema/ontology."""
     rex, meta = schema_to_rex(model)
     names = meta["vertex_labels"]
     edges = meta["edges"]
 
-    report: Dict[str, Any] = {
+    report: dict[str, Any] = {
         "n_tables": meta["n_tables"],
         "n_foreign_keys": meta["n_foreign_keys"],
         "self_referential_tables": meta["self_referential"],
@@ -1428,7 +1422,7 @@ def diagnose_schema(model: SchemaModel) -> Dict[str, Any]:
     return report
 
 
-def diagnose(source: Any, fmt: str = "auto") -> Dict[str, Any]:
+def diagnose(source: Any, fmt: str = "auto") -> dict[str, Any]:
     """Convenience entry: diagnose from json/ddl/connection string.
 
     fmt: 'json' | 'ddl' | 'connection' | 'auto'.

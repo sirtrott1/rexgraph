@@ -16,13 +16,15 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -140,11 +142,11 @@ class ModelManager:
     """
 
     def __init__(self):
-        self._registry: Dict[str, ModelEntry] = {}
-        self._loaded: Dict[str, LoadedModel] = {}
-        self._custom_paths: Dict[str, str] = {}  # model_id -> path
-        self._custom_loaders: Dict[str, ModelAdapter] = {}  # model_id -> adapter
-        self._pipeline_config: Dict[str, str] = {}  # purpose -> model_id
+        self._registry: dict[str, ModelEntry] = {}
+        self._loaded: dict[str, LoadedModel] = {}
+        self._custom_paths: dict[str, str] = {}  # model_id -> path
+        self._custom_loaders: dict[str, ModelAdapter] = {}  # model_id -> adapter
+        self._pipeline_config: dict[str, str] = {}  # purpose -> model_id
         self._scan_done = False
         self._load_custom_paths()
         self._load_pipeline_config()
@@ -253,11 +255,11 @@ class ModelManager:
         self._save_pipeline_config()
         logger.info("Pipeline %s -> %s", purpose, model_id)
 
-    def get_pipeline_model(self, purpose: str) -> Optional[str]:
+    def get_pipeline_model(self, purpose: str) -> str | None:
         """Get the model assigned to a pipeline stage."""
         return self._pipeline_config.get(purpose)
 
-    def pipeline_config(self) -> Dict[str, str]:
+    def pipeline_config(self) -> dict[str, str]:
         """Get the full pipeline model configuration."""
         return dict(self._pipeline_config)
 
@@ -278,7 +280,7 @@ class ModelManager:
         """
         resolved = os.path.realpath(os.path.expanduser(path))
         if not os.path.isdir(resolved):
-            raise FileNotFoundError("Model path does not exist: %s" % resolved)
+            raise FileNotFoundError(f"Model path does not exist: {resolved}")
 
         self._custom_paths[model_id] = resolved
         self._save_custom_paths()
@@ -305,7 +307,7 @@ class ModelManager:
             return True
         return False
 
-    def get_model_path(self, model_id: str) -> Optional[str]:
+    def get_model_path(self, model_id: str) -> str | None:
         """Resolve the local path for a model.
 
         Priority: custom path -> rexgraph cache -> HF cache -> model_id as-is.
@@ -343,7 +345,7 @@ class ModelManager:
 
     # Registry
 
-    def scan(self) -> List[ModelEntry]:
+    def scan(self) -> list[ModelEntry]:
         """Scan for all known, downloaded, and custom-path models."""
         from agent.cli.config import MODELS_DIR
 
@@ -398,7 +400,7 @@ class ModelManager:
         self._scan_done = True
         return list(self._registry.values())
 
-    def list_models(self) -> List[Dict]:
+    def list_models(self) -> list[dict]:
         """List all models with status."""
         if not self._scan_done:
             self.scan()
@@ -452,13 +454,13 @@ class ModelManager:
         elif entry.model_type == ModelType.CUSTOM:
             return self._load_custom(model_id, device, purpose or entry.purpose)
         else:
-            raise ValueError("Unsupported model type: %s" % entry.model_type)
+            raise ValueError(f"Unsupported model type: {entry.model_type}")
 
     def _load_transformers(self, model_id: str, device: str,
                            purpose: str) -> LoadedModel:
         """Load a HuggingFace transformers model."""
         import torch
-        from transformers import AutoProcessor, AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoProcessor
 
         # Resolve path: custom -> rexgraph cache -> HF cache -> model_id
         model_path = self.get_model_path(model_id) or model_id
@@ -507,7 +509,7 @@ class ModelManager:
     def _load_server(self, model_id: str, model_type: ModelType,
                      purpose: str) -> LoadedModel:
         """Start a vLLM/SGLang server for a model."""
-        from agent.cli.serve import serve, find_running_server, server_status
+        from agent.cli.serve import find_running_server, serve, server_status
 
         # Check if already running
         existing = find_running_server()
@@ -544,14 +546,14 @@ class ModelManager:
             self._loaded[model_id] = lm
             return lm
         else:
-            raise RuntimeError("Failed to start %s server for %s" % (backend, model_id))
+            raise RuntimeError(f"Failed to start {backend} server for {model_id}")
 
     def _load_custom(self, model_id: str, device: str,
                      purpose: str) -> LoadedModel:
         """Load a model using a user-registered adapter."""
         adapter = self._custom_loaders.get(model_id)
         if adapter is None:
-            raise ValueError("No adapter registered for %s" % model_id)
+            raise ValueError(f"No adapter registered for {model_id}")
 
         path = self.get_model_path(model_id) or ""
         logger.info("Loading custom model: %s (adapter=%s)", model_id,
@@ -607,10 +609,8 @@ class ModelManager:
         elif lm.model_type == ModelType.CUSTOM:
             # Call the adapter's unload method
             if isinstance(lm.model_obj, ModelAdapter):
-                try:
+                with contextlib.suppress(Exception):
                     lm.model_obj.unload()
-                except Exception:
-                    pass
             del lm.model_obj
             try:
                 import torch
@@ -639,7 +639,7 @@ class ModelManager:
 
     # Access
 
-    def get(self, model_id: str) -> Optional[LoadedModel]:
+    def get(self, model_id: str) -> LoadedModel | None:
         """Get a loaded model. Does NOT auto-load."""
         lm = self._loaded.get(model_id)
         if lm:
@@ -654,7 +654,7 @@ class ModelManager:
             return lm
         return self.load(model_id, **kwargs)
 
-    def get_by_purpose(self, purpose: str) -> Optional[LoadedModel]:
+    def get_by_purpose(self, purpose: str) -> LoadedModel | None:
         """Get the first loaded model matching a purpose (ocr, chat, etc.)."""
         for lm in self._loaded.values():
             if lm.purpose == purpose:
@@ -665,7 +665,7 @@ class ModelManager:
 
     # Status
 
-    def status(self) -> Dict:
+    def status(self) -> dict:
         """Full status of all models."""
         if not self._scan_done:
             self.scan()
@@ -700,10 +700,11 @@ class ModelManager:
             "vram_total_mb": sum(lm.vram_mb for lm in self._loaded.values()),
         }
 
-    def download(self, model_id: str, callback: Optional[Callable] = None) -> str:
+    def download(self, model_id: str, callback: Callable | None = None) -> str:
         """Download a model from HuggingFace. Returns local path."""
-        from agent.cli.config import MODELS_DIR
         from huggingface_hub import snapshot_download
+
+        from agent.cli.config import MODELS_DIR
 
         dirname = model_id.replace("/", "--")
         local_path = MODELS_DIR / dirname
@@ -728,7 +729,7 @@ class ModelManager:
 
 # Singleton
 
-_manager: Optional[ModelManager] = None
+_manager: ModelManager | None = None
 
 
 def get_manager() -> ModelManager:

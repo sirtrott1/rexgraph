@@ -1,5 +1,9 @@
-import numpy as np, torch, torch.nn as nn, torch.nn.functional as F
+import numpy as np
 import scipy.sparse as sp
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 from rexgraph.nn.optim import GreensCochain
 
 

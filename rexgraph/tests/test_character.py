@@ -13,7 +13,6 @@ import pytest
 
 from rexgraph.graph import RexGraph
 
-
 # Fixtures
 
 @pytest.fixture
@@ -158,7 +157,7 @@ class TestStructuralEntropy:
         from rexgraph.core._character import structural_entropy
         H = structural_entropy(k4.structural_character, k4.nE, k4.nhats)
         assert H >= -1e-10
-        assert H <= np.log(k4.nhats) + 1e-10
+        assert np.log(k4.nhats) + 1e-10 >= H
 
     def test_k4_near_maximum_entropy(self, k4):
         """K4 chi is near-uniform (T=G=C channels equal, only F deviates), so its

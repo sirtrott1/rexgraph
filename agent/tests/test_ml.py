@@ -31,8 +31,8 @@ def test_run_trains_an_archetype():
 
 def test_ml_routes(monkeypatch):
     monkeypatch.setenv("RCF_RATE_LIMIT", "0")
-    from fastapi.testclient import TestClient
     from agent.server.app import app
+    from fastapi.testclient import TestClient
     c = TestClient(app)
     arcs = c.get("/api/v1/ml/archetypes").json()["archetypes"]
     assert {a["name"] for a in arcs} >= {"mlp", "cnn", "lm", "hgnn"}
@@ -80,7 +80,7 @@ def test_predict_infers_and_writes_through_io(tmp_path):
 
 def test_pipeline_phase_threads_the_stages():
     """The pipeline phase runs source -> complex -> train -> predict -> hive worker as one op."""
-    from agent import lifecycle, hive
+    from agent import hive, lifecycle
     hive.reset_hive()
     triples = [["a", "r", "b"], ["b", "r", "c"], ["c", "r", "a"], ["a", "s", "x"], ["b", "s", "y"]]
     rl = lifecycle.run("pipeline", triples=triples, labels={"a": 0, "b": 1, "c": 0},
@@ -114,8 +114,9 @@ def test_train_hardening_schedule_accum_resume(tmp_path):
 def test_compute_config_flows_through_setup_and_operation(tmp_path, monkeypatch):
     """A setup's compute config round-trips, and every operation applies it (run-logged)."""
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    from agent.hive_config import ComputeSpec, HiveProfile
+
     from agent import hive_config, lifecycle
-    from agent.hive_config import HiveProfile, ComputeSpec
     from rexgraph import compute
     # schema round-trips (incl. back-compat: a profile with no compute section)
     p = HiveProfile.from_dict(HiveProfile(id="x", name="X", compute=ComputeSpec(threads=6)).to_dict())
