@@ -141,3 +141,37 @@ def test_divergent_worker_deploys_guard(monkeypatch):
     actions = rh.react()
     assert any(x["rule"] == "divergence" for x in actions)
     assert h.get("guard.rogue") is not None
+
+
+def _embedder_hive(monkeypatch):
+    """A hive whose embedder is ATTACHED (a live server this process does not own) - the
+    normal case when llama-server is started outside the agent."""
+    import numpy as np
+    from agent import model_introspect
+    h = _hive()
+    h.attach("embedder", "http://127.0.0.1:8081", role="embedder", model="bge")
+
+    def fake_embed(texts, url=None, model=None, timeout=60.0):
+        # distinct-but-close vectors: every agent is on-topic, nobody is divergent
+        return np.array([[1.0, 0.1 * i] for i, _ in enumerate(texts)], dtype=float)
+
+    monkeypatch.setattr(model_introspect, "embed", fake_embed)
+    monkeypatch.setattr("agent.local_runtime.embed_url", lambda: None)   # nothing managed
+    return h
+
+
+def test_monitor_uses_an_attached_embedder(monkeypatch):
+    """hive.monitor(embed=True) must use the embedder BEE, not only a locally-managed server."""
+    h = _embedder_hive(monkeypatch)
+    for a, b in [("planner", "coder"), ("coder", "reviewer"), ("reviewer", "planner")]:
+        h.relay(a, b, "waiting on you")
+    assert h.monitor(embed=True)["alignment_mode"] == "embedding"
+
+
+def test_observe_requests_the_semantic_signal(monkeypatch):
+    """react() only acts on divergence in embedding mode, so observe() must ask for it.
+    Otherwise the divergence rule is permanently dead whenever an embedder is available."""
+    h = _embedder_hive(monkeypatch)
+    for a, b in [("planner", "coder"), ("coder", "reviewer"), ("reviewer", "planner")]:
+        h.relay(a, b, "waiting on you")
+    assert ReactiveHive(h).observe()["alignment_mode"] == "embedding"

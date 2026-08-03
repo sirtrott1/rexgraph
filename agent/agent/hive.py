@@ -904,7 +904,10 @@ class Hive:
         hive records into). `embed=True` uses the embedder bee for the semantic alignment signal.
         `track=True` snapshots the drift tracker so repeated calls over time expose which worker is
         starting to detract (a rising-curvature / falling-alignment trend)."""
-        fn = agent_complex.model_embed_fn() if embed else None
+        fn = None
+        if embed:
+            bee = self.embedder                              # attached OR spawned; both are bees
+            fn = agent_complex.model_embed_fn(bee.url if bee is not None else None)
         out = self._complex.monitor(embed_fn=fn)
         if track:
             d = agent_complex.get_drift().snapshot(out)

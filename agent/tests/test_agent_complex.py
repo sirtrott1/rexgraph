@@ -115,3 +115,24 @@ def test_drift_tracker_flags_rising_curvature_and_falling_alignment():
     drifting = set(dt.drifting())
     assert "rise" in drifting and "fall" in drifting and "stable" not in drifting
     assert dt.strain_trend() > 0 and dt.trends()["rise"]["curvature_slope"] > 0
+
+
+def test_model_embed_fn_uses_an_explicit_url(monkeypatch):
+    """An embedder reachable at a known URL must produce a live embed_fn even when no
+    llama.cpp server is MANAGED by local_runtime (i.e. it was attached, not spawned)."""
+    import numpy as np
+    from agent import agent_complex as AC, model_introspect
+
+    seen = {}
+
+    def fake_embed(texts, url=None, model=None, timeout=60.0):
+        seen["url"] = url
+        return np.ones((len(list(texts)), 3), dtype=float)
+
+    monkeypatch.setattr(model_introspect, "embed", fake_embed)
+    monkeypatch.setattr("agent.local_runtime.embed_url", lambda: None)   # nothing managed
+
+    fn = AC.model_embed_fn("http://127.0.0.1:8081")
+    assert fn is not None, "an explicit embedder URL must yield an embed_fn"
+    fn(["a", "b"])
+    assert seen["url"] == "http://127.0.0.1:8081"

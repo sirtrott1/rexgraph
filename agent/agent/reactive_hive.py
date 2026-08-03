@@ -83,7 +83,10 @@ class ReactiveHive:
         rexgraph.harmonic_health: which agents sit on the stuck mode, and whether the
         deadlock is irreducible topological tension (health_ratio > 1) or fillable overlap.
         """
-        m = self.hive.monitor()
+        # ask for the semantic signal: rule 2 below acts on divergence ONLY in embedding mode, so
+        # requesting the lexical monitor here would leave that rule permanently dead. Degrades to
+        # lexical by itself when no embedder is reachable.
+        m = self.hive.monitor(embed=True)
         hodge = m.get("interaction_hodge") or {}
         agents = m.get("agents", [])
         # load-bearing = effective-resistance field; a fallback locus if the harmonic read is absent
