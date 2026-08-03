@@ -144,6 +144,22 @@ def test_plan_no_spawnable_models():
     assert plan["plan"] == []
 
 
+def test_plan_flags_when_embedder_pushes_past_budget():
+    # queen alone fits the usable budget, but the always-included embedder tips it over -
+    # the plan must say so honestly rather than silently over-committing memory.
+    models = _disk(("big-chat-23b", 23.0), ("nomic-embed-text", 1.0))
+    plan = hive.plan_hive(models, budget_gb=32.0)
+    assert plan["planned_gb"] > plan["usable_gb"]          # the embedder does overflow it
+    assert plan["over_budget"] is True                     # ...and the plan admits it
+
+
+def test_plan_not_over_budget_when_it_fits():
+    models = _disk(("qwen3-coder-7b", 6.0), ("phi-4-mini", 2.5),
+                   ("gpt-oss-120b", 65.0), ("nomic-embed-text", 0.3))
+    plan = hive.plan_hive(models, budget_gb=96.0)
+    assert plan["over_budget"] is False
+
+
 def test_auto_plan_uses_detected_and_budget(monkeypatch):
     monkeypatch.setattr("agent.local_runtime.discover_local_models",
                         lambda: _disk(("qwen-7b", 6.0), ("nomic-embed", 0.3)))

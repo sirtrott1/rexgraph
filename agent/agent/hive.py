@@ -93,7 +93,10 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
     Only GGUF are spawnable via llama.cpp (transformers snapshots are skipped). The queen is the
     largest chat model that fits alone. Workers are the remaining chat models, smallest-first,
     added while the running footprint (file size * kv_factor, for KV-cache overhead) stays under
-    the usable budget (budget * (1-headroom)). The cheapest embedder is always included."""
+    the usable budget (budget * (1-headroom)). The cheapest embedder is always included, even if
+    that pushes the total past the usable budget (a hive with no embedder can't route to it at
+    all) - in that case the returned dict's `over_budget` flag is set so callers don't mistake
+    the plan for one that fits."""
     gguf = [m for m in models if m.get("format") == "gguf" and m.get("size_gb", 0) > 0.05]
     embeds = [m for m in gguf if _is_embed(m["name"])]
     chats = [m for m in gguf if not _is_embed(m["name"])]
@@ -130,7 +133,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
         used += em["size_gb"]
 
     return {"plan": plan, "budget_gb": round(budget_gb, 1), "usable_gb": round(usable, 1),
-            "planned_gb": round(used, 1), "n": len(plan),
+            "planned_gb": round(used, 1), "n": len(plan), "over_budget": used > usable,
             "note": ("no chat GGUF fits the budget" if queen is None and not plan else "")}
 
 
