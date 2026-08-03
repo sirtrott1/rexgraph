@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import json
 import os
 import shutil
 import socket
@@ -526,10 +527,13 @@ def _default_scan_dirs() -> list[str]:
 def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 400) -> list[dict]:
     """AUTO-DETECT models already on disk - no curated registry, no manual paths. Walks the
     common model locations (HF hub cache, ollama, LM Studio, ~/models, our pull() dir, plus
-    REXGRAPH_MODEL_DIRS) and reports every GGUF file (llama.cpp-loadable, ready for start())
-    and every HF transformers snapshot (vLLM/transformers-loadable). Each entry carries a
-    `source` (hf-cache/ollama/lmstudio/rexgraph/dir), a `loadable` hint (gguf -> start() here;
-    transformers -> serve via vLLM/transformers), and a size. De-duped by real path."""
+    REXGRAPH_MODEL_DIRS) and reports every GGUF file (llama.cpp-loadable, ready for start()),
+    every ollama model (resolved via its manifest, since ollama's blobs are extension-less and
+    content-addressed - see `_source`), and every HF transformers snapshot
+    (vLLM/transformers-loadable). Each entry carries a `source` (hf-cache/ollama/lmstudio/
+    rexgraph/dir), a `loadable` hint (gguf -> start() here; transformers -> serve via
+    vLLM/transformers; anything else ollama can hold, e.g. an MLX model, llama.cpp cannot load -
+    reported but not loadable), and a size. De-duped by real path."""
     roots = list(_default_scan_dirs())
     for d in (extra_dirs or []):
         d = os.path.expanduser(d)
@@ -574,7 +578,82 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
                                  "size_gb": round(sz, 2), "format": "gguf",
                                  "loadable": "llama.cpp", "source": _source(fp)}
                     n += 1
-    # 2) HF transformers snapshots (models--org--name/snapshots/<hash>) - vLLM/transformers.
+    # 2) Ollama models: stored as content-addressed, EXTENSION-LESS blobs under blobs/, named
+    # only by sha256 digest - so the real name has to come from the manifest at
+    # manifests/<registry>/<namespace>/<name>/<tag>, which we parse to find the model-weight
+    # layer's digest and resolve it to a blob. Ollama can hold non-GGUF models too (e.g. MLX),
+    # which llama.cpp cannot load - sniff the blob's magic bytes rather than trust the tag, so
+    # `format`/`loadable` stay honest for plan_hive's `format == "gguf"` gate.
+    for root in roots:
+        manifests_dir = os.path.join(root, "manifests")
+        blobs_dir = os.path.join(root, "blobs")
+        if not (os.path.isdir(manifests_dir) and os.path.isdir(blobs_dir)):
+            continue
+        for dp, _dn, fns in os.walk(manifests_dir):
+            for fn in fns:
+                if n >= max_files:
+                    break
+                manifest_fp = os.path.join(dp, fn)
+                try:
+                    with open(manifest_fp, encoding="utf-8") as f:
+                        manifest = json.load(f)
+                except (OSError, ValueError):
+                    continue
+                layers = manifest.get("layers", [])
+                parts = os.path.relpath(manifest_fp, manifests_dir).split(os.sep)
+                tag = parts[-1]
+                model = parts[-2] if len(parts) >= 2 else tag
+                namespace = parts[-3] if len(parts) >= 3 else "library"
+                name = f"{model}:{tag}" if namespace == "library" else f"{namespace}/{model}:{tag}"
+
+                layer = next((ly for ly in layers
+                              if str(ly.get("mediaType", "")).endswith(".model")), None)
+                if layer is not None:
+                    # Classic shape: one blob IS the whole model - sniff it for GGUF's magic
+                    # bytes so `format`/`loadable` are honest rather than assumed from the tag.
+                    digest = layer.get("digest", "")
+                    if not digest.startswith("sha256:"):
+                        continue
+                    blob_fp = os.path.join(blobs_dir, digest.replace(":", "-", 1))
+                    try:
+                        rp = os.path.realpath(blob_fp)
+                        if rp in found:
+                            continue
+                        sz = os.path.getsize(blob_fp) / 1e9
+                        with open(blob_fp, "rb") as f:
+                            is_gguf = f.read(4) == b"GGUF"
+                    except OSError:
+                        continue
+                    found[rp] = {"name": name, "path": blob_fp, "size_gb": round(sz, 2),
+                                 "format": "gguf" if is_gguf else "unknown",
+                                 "loadable": "llama.cpp" if is_gguf else "unsupported",
+                                 "source": "ollama"}
+                    n += 1
+                    continue
+
+                # Newer shape (e.g. MLX-format models pulled through ollama): no single
+                # "*.model" layer - the weights are split across many per-tensor blobs, so
+                # there is no one file to hand llama-server. Never gguf/llama.cpp: nothing here
+                # is a spawnable single blob regardless of what the tensors are encoded as.
+                tensor_layers = [ly for ly in layers
+                                  if str(ly.get("mediaType", "")).endswith(".tensor")]
+                if not tensor_layers:
+                    continue
+                rp = os.path.realpath(manifest_fp)
+                if rp in found:
+                    continue
+                sz = 0.0
+                for ly in tensor_layers:
+                    digest = ly.get("digest", "")
+                    if not digest.startswith("sha256:"):
+                        continue
+                    blob_fp = os.path.join(blobs_dir, digest.replace(":", "-", 1))
+                    with contextlib.suppress(OSError):
+                        sz += os.path.getsize(blob_fp)
+                found[rp] = {"name": name, "path": manifest_fp, "size_gb": round(sz / 1e9, 2),
+                             "format": "unknown", "loadable": "unsupported", "source": "ollama"}
+                n += 1
+    # 3) HF transformers snapshots (models--org--name/snapshots/<hash>) - vLLM/transformers.
     for root in roots:
         if not (os.sep + "hub" in root and "huggingface" in root):
             continue
