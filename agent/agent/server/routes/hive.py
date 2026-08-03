@@ -28,7 +28,11 @@ async def hive_monitor(embed: bool = False):
 
 @router.post("/hive/attach")
 async def hive_attach(body: dict = Body(...)):
-    """Attach an already-running endpoint as a bee. body: {name, url, role?, model?, specialties?}."""
+    """Attach an already-running endpoint as a bee.
+
+    body: {name, url, role?, model?, specialties?, api_key_ref?}. `api_key_ref` names an env var /
+    secret-store entry holding the endpoint's credential - the API never accepts or returns a raw
+    key, so a credential cannot arrive over the wire or be echoed back."""
     from agent import hive
     name, url = body.get("name"), body.get("url")
     if not (name and url):
@@ -36,7 +40,8 @@ async def hive_attach(body: dict = Body(...)):
     try:
         b = hive.get_hive().attach(name, url, role=body.get("role", "worker"),
                                    model=body.get("model", ""),
-                                   specialties=body.get("specialties") or [])
+                                   specialties=body.get("specialties") or [],
+                                   api_key_ref=body.get("api_key_ref", ""))
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True, "bee": b.public()}

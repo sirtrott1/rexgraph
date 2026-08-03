@@ -149,40 +149,122 @@ class Bee:
     summary: dict | None = None   # model_io.model_summary (arch/params/dim/quant)
     capability: str = "generate"     # generate (chat) | predict | score | embed | analyze | transform
     worker_type: str = ""            # ':'-scoped kind for the worker-type ontology (e.g. model:mlp)
+    # A secret REFERENCE (env var name / secret-store name) for an authenticated remote provider,
+    # never the credential itself. Resolved per call by _chat_full via agent.secrets.resolve_ref,
+    # so nothing that serializes a Bee can ever carry a key. Empty => unauthenticated bee.
+    api_key_ref: str = ""
     _proc: object = None             # Popen for managed worker bees (not serialized)
     _handler: object = None          # local callable for non-chat workers (not serialized)
 
     def public(self) -> dict:
+        # `has_api_key` reports only the FACT that a credential is configured - never the key and
+        # never the reference. Mirrors chat_model.status(). See api_key_ref above.
         return {"name": self.name, "role": self.role, "url": self.url, "model": self.model,
                 "specialties": self.specialties, "managed": self.managed, "pid": self.pid,
                 "port": self.port, "summary": self.summary, "capability": self.capability,
-                "worker_type": self.worker_type, "local": self._handler is not None}
+                "worker_type": self.worker_type, "local": self._handler is not None,
+                "has_api_key": bool(self.api_key_ref)}
 
 
-def _chat(url: str, model: str, prompt: str, system: str | None = None,
-          max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0) -> str | None:
-    """Call one bee's OpenAI-compatible /v1/chat/completions. Returns the reply text, or None if
-    unreachable or empty. Targets an explicit url so the call goes to a specific bee, not the
-    globally-resolved chat backend."""
+@dataclass
+class ChatResult:
+    """One bee's structured reply. `content` is the text (None when the model answered with tool
+    calls instead of prose), `tool_calls` the OpenAI-style calls to execute, `finish_reason` why
+    generation stopped ('stop' | 'tool_calls' | 'length' | ...), and `reasoning_content` the
+    thinking trace backends like llama.cpp --jinja return alongside the answer.
+
+    The text path (`_chat`) keeps returning a bare string, so this is purely additive: a harness
+    that drives tools opts in via `_chat_full` / `Hive.ask_full`."""
+    content: str | None = None
+    tool_calls: list[dict] = field(default_factory=list)
+    finish_reason: str = ""
+    reasoning_content: str | None = None
+    raw: dict = field(default_factory=dict)
+
+    @property
+    def wants_tools(self) -> bool:
+        return bool(self.tool_calls)
+
+
+def _chat_full(url: str, model: str, prompt: str | None, system: str | None = None,
+               max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0,
+               *, messages: list[dict] | None = None, tools: list[dict] | None = None,
+               tool_choice=None, chat_template_kwargs: dict | None = None,
+               api_key_ref: str = "") -> ChatResult | None:
+    """Call one bee's OpenAI-compatible /v1/chat/completions and return the FULL structured reply.
+
+    `messages` sends a complete history verbatim (the assistant turn carrying tool_calls plus the
+    `role: tool` results) - a tool loop cannot be closed with a single prompt string, so this is
+    what makes the hive drivable by a tool-calling harness. `prompt`/`system` remain the
+    single-turn convenience.
+
+    `api_key_ref` is a secret *reference* resolved at call time (agent.secrets.resolve_ref); the
+    credential is never held on the Bee nor serialized. An unresolvable reference simply sends no
+    Authorization header rather than leaking the reference as a bearer token.
+
+    Returns None if unreachable. Targets an explicit url so the call goes to a specific bee, not
+    the globally-resolved chat backend."""
     try:
         import httpx
     except Exception:
         return None
-    msgs = ([{"role": "system", "content": system}] if system else []) + \
-           [{"role": "user", "content": prompt}]
-    payload: dict = {"messages": msgs, "max_tokens": max_tokens,
+    if messages is None:
+        messages = ([{"role": "system", "content": system}] if system else []) + \
+                   [{"role": "user", "content": prompt}]
+    payload: dict = {"messages": messages, "max_tokens": max_tokens,
                      "temperature": temperature, "stream": False}
     if model:
         payload["model"] = model
+    # only send what was asked for: a backend that does not understand these keys must not see
+    # them on an ordinary chat call.
+    if tools:
+        payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+    elif tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+    if chat_template_kwargs:
+        payload["chat_template_kwargs"] = chat_template_kwargs
+
+    headers = {}
+    key = ""
+    if api_key_ref:
+        from .secrets import resolve_ref
+        key = resolve_ref(api_key_ref)
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+
     try:
         with httpx.Client(timeout=timeout) as c:
-            r = c.post(url.rstrip("/") + "/v1/chat/completions", json=payload)
+            r = c.post(url.rstrip("/") + "/v1/chat/completions", json=payload, headers=headers)
             r.raise_for_status()
             data = r.json()
-        text = "".join(ch.get("message", {}).get("content", "") for ch in data.get("choices", []))
-        return text.strip() or None
     except Exception:
         return None
+
+    choices = data.get("choices") or []
+    text = "".join((ch.get("message", {}).get("content") or "") for ch in choices)
+    first = (choices[0].get("message", {}) if choices else {})
+    calls = []
+    for ch in choices:
+        calls.extend(ch.get("message", {}).get("tool_calls") or [])
+    return ChatResult(content=(text.strip() or None), tool_calls=calls,
+                      finish_reason=(choices[0].get("finish_reason") or "" if choices else ""),
+                      reasoning_content=first.get("reasoning_content"), raw=data)
+
+
+def _chat(url: str, model: str, prompt: str, system: str | None = None,
+          max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0,
+          **kw) -> str | None:
+    """Call one bee's OpenAI-compatible /v1/chat/completions. Returns the reply text, or None if
+    unreachable or empty. Targets an explicit url so the call goes to a specific bee, not the
+    globally-resolved chat backend.
+
+    The text path every existing caller uses (dispatch/collaborate/consensus/guarded_ask), kept
+    string-returning on purpose. Use `_chat_full` for tool calls and finish_reason."""
+    res = _chat_full(url, model, prompt, system=system, max_tokens=max_tokens,
+                     temperature=temperature, timeout=timeout, **kw)
+    return res.content if res is not None else None
 
 
 class Hive:
@@ -207,13 +289,18 @@ class Hive:
     # membership
 
     def attach(self, name: str, url: str, *, role: str = "worker",
-               model: str = "", specialties=None) -> Bee:
+               model: str = "", specialties=None, api_key_ref: str = "") -> Bee:
         """Register a bee for an already-running endpoint (Ollama/vLLM/llama.cpp/etc). The hive
-        references it but does not own its lifecycle. `role` must be queen|worker|embedder."""
+        references it but does not own its lifecycle. `role` must be queen|worker|embedder.
+
+        `api_key_ref` names an env var / secret-store entry holding the endpoint's credential, so
+        an authenticated remote provider (DeepSeek, OpenAI, ...) can be a bee. Pass the reference,
+        never the key: it is resolved per request and never stored or serialized."""
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
         bee = Bee(name=name, role=role, url=url.rstrip("/"), model=model,
-                  specialties=list(specialties or []), managed=False)
+                  specialties=list(specialties or []), managed=False,
+                  api_key_ref=api_key_ref)
         self._bees[name] = bee
         from . import activity as _act
         _act.record("worker:" + name, "attach", detail={"role": role, "model": model})
@@ -492,12 +579,53 @@ class Hive:
         from . import activity as _act
         _use = _act.open_use(bee.model or name, "ask", by="worker:" + name)   # tracks concurrent use
         try:
-            reply = _chat(bee.url, bee.model, prompt, system=system, max_tokens=max_tokens)
+            reply = _chat(bee.url, bee.model, prompt, system=system, max_tokens=max_tokens,
+                          api_key_ref=bee.api_key_ref)
         finally:
             _act.close_use(_use)
         if record and reply:
             self.relay(name, sender, reply)
         return reply
+
+    def ask_full(self, name: str, prompt: str | None = None, *, messages=None,
+                 sender: str = "user", system: str | None = None, max_tokens: int = 512,
+                 temperature: float = 0.3, tools=None, tool_choice=None,
+                 chat_template_kwargs: dict | None = None,
+                 record: bool = True) -> ChatResult | None:
+        """Ask one bee and get its FULL reply (content + tool_calls + finish_reason +
+        reasoning_content) instead of just text - the path a tool-calling harness drives.
+
+        `tools`/`tool_choice` are forwarded to the backend; `messages` sends a complete history
+        verbatim so the assistant's tool_calls turn and the `role: tool` results can be fed back
+        to close a tool loop. ask() is unchanged and still returns a bare string, so every
+        existing caller (dispatch/collaborate/consensus/guarded_ask) is unaffected.
+
+        Only the text of a reply is relayed into the complex; a tool-call turn has no prose, so
+        the recorded message names the tools requested and the topology still sees the exchange."""
+        bee = self._bees.get(name)
+        if bee is None:
+            raise KeyError(f"no bee named {name!r}")
+        if bee._handler is not None:
+            raise ValueError(f"bee {name!r} is a {bee.capability!r} worker; use invoke(), not ask()")
+        if record:
+            self.relay(sender, name, prompt if prompt is not None else str(messages))
+        from . import activity as _act
+        _use = _act.open_use(bee.model or name, "ask", by="worker:" + name)
+        try:
+            res = _chat_full(bee.url, bee.model, prompt, system=system, max_tokens=max_tokens,
+                             temperature=temperature, messages=messages, tools=tools,
+                             tool_choice=tool_choice, chat_template_kwargs=chat_template_kwargs,
+                             api_key_ref=bee.api_key_ref)
+        finally:
+            _act.close_use(_use)
+        if record and res is not None:
+            note = res.content or (
+                "tool_calls: " + ", ".join(
+                    c.get("function", {}).get("name", "?") for c in res.tool_calls)
+                if res.tool_calls else "")
+            if note:
+                self.relay(name, sender, note)
+        return res
 
     # routing: query-reweighting blended with declared specialty
 
