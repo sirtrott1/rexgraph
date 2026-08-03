@@ -17,13 +17,18 @@ from rexgraph.nn import optim
 # (a) pick_device resolves through the compute stack -----------------------------------------------
 
 def test_pick_device_auto_consistent_with_compute_stack():
+    import torch
     dev = optim.pick_device("auto")
-    assert isinstance(dev, str) and dev.split(":")[0] in ("cpu", "cuda", "mps")
-    # invariant: a non-cpu device only when the compute stack reports a usable GPU
-    if dev.split(":")[0] == "cuda":
+    kind = dev.split(":")[0]
+    assert isinstance(dev, str) and kind in ("cpu", "cuda", "mps")
+    # invariant: a non-cpu device only when THAT backend is actually usable. gpu_count() is not
+    # the oracle for "a GPU exists" - it counts CUDA/ROCm devices for multi-GPU column tiling, so
+    # it is 0 on Apple silicon by design while MPS is perfectly usable.
+    if kind == "cuda":
         assert compute.gpu_count() > 0
-    if compute.gpu_count() == 0:
-        assert dev == "cpu"
+    elif kind == "mps":
+        assert torch.backends.mps.is_available()
+    # falling back to cpu is always legal, so there is nothing to assert for it
     # None and 'auto' resolve identically
     assert optim.pick_device(None) == dev
     # the resolved device is real: a tensor lives on it
