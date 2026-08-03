@@ -139,3 +139,13 @@ def test_plan_hive_accepts_explicit_rules():
     models = [{"name": "zzz-7b", "path": "/m/zzz.gguf", "format": "gguf", "size_gb": 4.0}]
     plan = hive.plan_hive(models, budget_gb=32.0, rules=rules)["plan"]
     assert plan[0]["specialties"] == ["zeta"]
+
+
+def test_an_unmatched_worker_still_gets_a_general_specialty():
+    """The queen already falls back to general specialties when nothing matches; a worker got
+    an EMPTY list, so it scored 0 on every cold-hive routing query."""
+    models = [{"name": "big-generalist-70b", "path": "/m/a.gguf", "format": "gguf", "size_gb": 20.0},
+              {"name": "small-generalist-3b", "path": "/m/b.gguf", "format": "gguf", "size_gb": 2.0}]
+    plan = hive.plan_hive(models, budget_gb=64.0)["plan"]
+    worker = next(p for p in plan if p["role"] == "worker")
+    assert worker["specialties"], "an unmatched worker must not be left with no specialties"

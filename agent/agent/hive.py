@@ -88,6 +88,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
     the usable budget (budget * (1-headroom)). The cheapest embedder is always included.
 
     `rules` are the specialty rules used to label each bee; None loads them from config."""
+    from agent.hive_config import GENERAL_SPECIALTIES
     rules = _default_rules() if rules is None else rules
     gguf = [m for m in models if m.get("format") == "gguf" and m.get("size_gb", 0) > 0.05]
     embeds = [m for m in gguf if _is_embed(m["name"])]
@@ -114,8 +115,11 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
             continue
         nm = _worker_name(m["name"], taken, rules=rules); taken.add(nm)
         _, spec = _specialty_of(m["name"], rules=rules)
+        # a generalist worker is not a specialist in anything, but an EMPTY list makes it score 0
+        # on every cold-hive routing query - unreachable until it somehow accrues history. The
+        # queen already had this fallback; the worker branch did not.
         plan.append({"name": nm, "role": "worker", "path": m["path"], "model": m["name"],
-                     "size_gb": m["size_gb"], "specialties": spec})
+                     "size_gb": m["size_gb"], "specialties": spec or list(GENERAL_SPECIALTIES)})
         used += m["size_gb"] * kv_factor
 
     if embeds:
