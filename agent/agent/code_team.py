@@ -18,6 +18,7 @@ import contextlib
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import textwrap
 import time
@@ -55,7 +56,10 @@ def _run_tests(code: str, tests: list) -> dict[str, Any]:
     try:
         with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
             f.write(harness); path = f.name
-        out = subprocess.run(["python", path], capture_output=True, text=True, timeout=10)
+        # sys.executable, not "python": a bare `python` is absent on macOS and on any
+        # non-activated venv, so every piece would score 0/N and the build would read as
+        # "the model wrote bad code" when nothing ever ran.
+        out = subprocess.run([sys.executable, path], capture_output=True, text=True, timeout=10)
         head, _, err = out.stdout.strip().partition("|")
         p, n = (head.split() + ["0", "0"])[:2]
         passed, total = int(p), int(n)
