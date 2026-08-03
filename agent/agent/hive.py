@@ -43,38 +43,30 @@ _STOPWORDS = frozenset(
     ["the", "and", "are", "for", "was", "were", "that", "this", "with", "from", "have", "has", "had", "not", "but", "all", "any", "can", "will", "would", "should", "could", "into", "onto", "off", "per", "via", "out", "over", "under", "near", "more", "most", "some", "such", "then", "than", "they", "them", "their", "there", "here", "what", "when", "where", "which", "who", "whom", "how", "why", "our", "your", "its", "his", "her", "about", "also", "been", "being", "does", "did", "done", "each", "other", "same", "only", "very", "just", "like"])
 
 
-# name -> (bee-name base, specialty keywords) heuristics for auto-composition. A worker's declared
-# specialties drive routing before it has any interaction history.
-_SPECIALTY_HINTS = [
-    (("coder", "-code", "codestral", "starcoder"),
-     "coder", ["python", "code", "function", "refactor", "debug", "algorithm"]),
-    (("math", "mathstral", "numina"),
-     "math", ["math", "calculus", "algebra", "proof", "equation", "numeric"]),
-    (("med", "bio", "clinical", "meditron", "biomistral", "pmc"),
-     "bio", ["biology", "protein", "clinical", "medical", "diagnosis", "gene"]),
-    (("sql", "text2sql", "nsql"),
-     "sql", ["sql", "query", "database", "schema", "join"]),
-    (("-vl", "llava", "vision", "pixtral"),
-     "vision", ["image", "vision", "caption", "ocr"]),
-    (("law", "legal", "saul"),
-     "legal", ["legal", "law", "contract", "statute", "clause"]),
-]
-
-
 def _is_embed(name: str) -> bool:
     return bool(re.search(r"embed|nomic|bge|gte|e5|minilm", name.lower()))
 
 
-def _specialty_of(name: str):
-    low = name.lower()
-    for keys, base, spec in _SPECIALTY_HINTS:
-        if any(k in low for k in keys):
-            return base, spec
+def _default_rules():
+    """Loaded lazily: hive_config imports hive in apply(), so a module-level import would cycle."""
+    from agent.hive_config import load_specialty_rules
+    return load_specialty_rules()
+
+
+def _specialty_of(name: str, rules=None):
+    """(bee-name base, specialty keywords) for a model name, from the specialty RULES.
+
+    Rules come from config (agent.hive_config.load_specialty_rules), so teaching the hive a new
+    model family is a config edit rather than a source edit. Passed explicitly rather than read
+    from a global so a caller holding a profile can supply its own, and so this stays pure."""
+    for rule in (_default_rules() if rules is None else rules):
+        if rule.matches(name):
+            return rule.base, list(rule.specialties)
     return None, []
 
 
-def _worker_name(model_name: str, taken) -> str:
-    base, _ = _specialty_of(model_name)
+def _worker_name(model_name: str, taken, rules=None) -> str:
+    base, _ = _specialty_of(model_name, rules=rules)
     if base is None:
         m = re.match(r"[a-z0-9]+", model_name.lower())
         base = m.group(0) if m else "worker"
@@ -85,7 +77,7 @@ def _worker_name(model_name: str, taken) -> str:
 
 
 def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
-              kv_factor: float = 1.15, max_workers: int = 4) -> dict:
+              kv_factor: float = 1.15, max_workers: int = 4, rules=None) -> dict:
     """Choose a queen, worker bees, and an embedder that fit together within a memory budget,
     given the models detected on disk (local_runtime.discover_local_models). Spawns nothing;
     returns the plan.
@@ -93,7 +85,10 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
     Only GGUF are spawnable via llama.cpp (transformers snapshots are skipped). The queen is the
     largest chat model that fits alone. Workers are the remaining chat models, smallest-first,
     added while the running footprint (file size * kv_factor, for KV-cache overhead) stays under
-    the usable budget (budget * (1-headroom)). The cheapest embedder is always included."""
+    the usable budget (budget * (1-headroom)). The cheapest embedder is always included.
+
+    `rules` are the specialty rules used to label each bee; None loads them from config."""
+    rules = _default_rules() if rules is None else rules
     gguf = [m for m in models if m.get("format") == "gguf" and m.get("size_gb", 0) > 0.05]
     embeds = [m for m in gguf if _is_embed(m["name"])]
     chats = [m for m in gguf if not _is_embed(m["name"])]
@@ -103,7 +98,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
     queen = next((m for m in sorted(chats, key=lambda m: -m["size_gb"])
                   if m["size_gb"] * kv_factor <= usable), None)
     if queen is not None:
-        _, spec = _specialty_of(queen["name"])
+        _, spec = _specialty_of(queen["name"], rules=rules)
         plan.append({"name": "queen", "role": "queen", "path": queen["path"],
                      "model": queen["name"], "size_gb": queen["size_gb"],
                      "specialties": spec or ["general", "plan", "summarize"]})
@@ -117,8 +112,8 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
             break
         if used + m["size_gb"] * kv_factor > usable:
             continue
-        nm = _worker_name(m["name"], taken); taken.add(nm)
-        _, spec = _specialty_of(m["name"])
+        nm = _worker_name(m["name"], taken, rules=rules); taken.add(nm)
+        _, spec = _specialty_of(m["name"], rules=rules)
         plan.append({"name": nm, "role": "worker", "path": m["path"], "model": m["name"],
                      "size_gb": m["size_gb"], "specialties": spec})
         used += m["size_gb"] * kv_factor
