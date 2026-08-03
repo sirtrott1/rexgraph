@@ -325,3 +325,32 @@ def test_consensus_all_agree_no_flags(monkeypatch):
     assert res["flagged"] == []
     assert res["n_workers"] == 3
     assert res["reliability"] > 0.3
+
+
+def test_consensus_uses_an_attached_embedder(monkeypatch):
+    """consensus(embed=True) separates a hallucination from a topically-distinct specialist only
+    on the semantic signal, so it must reach an ATTACHED embedder bee - not just a locally-managed
+    server. Same wiring gap as monitor(embed=True)."""
+    import numpy as np
+    from agent import model_introspect
+
+    seen = {}
+
+    def fake_embed(texts, url=None, model=None, timeout=60.0):
+        seen["url"] = url
+        return np.eye(len(list(texts)), 3, dtype=float)
+
+    monkeypatch.setattr(model_introspect, "embed", fake_embed)
+    monkeypatch.setattr("agent.local_runtime.embed_url", lambda: None)   # nothing managed
+    monkeypatch.setattr(hive, "_chat", _scripted({
+        "m-planner": "paris is the capital of france",
+        "m-coder": "the capital of france is paris",
+        "m-reviewer": "bananas are a tropical fruit",
+    }))
+    h = _team_hive()
+    h.attach("embedder", "http://127.0.0.1:8081", role="embedder", model="bge")
+
+    h.consensus("What is the capital of France?", embed=True,
+                workers=["planner", "coder", "reviewer"])
+    assert seen.get("url") == "http://127.0.0.1:8081", \
+        "consensus(embed=True) did not reach the attached embedder bee"

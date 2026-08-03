@@ -725,6 +725,17 @@ class Hive:
 
     # consensus: aggregate several workers by the STRUCTURE of their agreement
 
+    def _embed_fn(self, embed: bool):
+        """The semantic embedder for this hive, or None to fall back to the lexical signal.
+
+        Resolves through the embedder BEE, so an attached endpoint (a server this process does not
+        own) works as well as a spawned one. Every caller that offers an `embed=` flag goes through
+        here, so the two paths cannot drift apart."""
+        if not embed:
+            return None
+        bee = self.embedder                                  # attached OR spawned; both are bees
+        return agent_complex.model_embed_fn(bee.url if bee is not None else None)
+
     def _answer_vectors(self, texts, embed_fn):
         """Vectorize answers for the agreement complex: semantic embeddings if an embedder is
         available, else lexical concept-count vectors. Returns an (n, d) array."""
@@ -784,8 +795,7 @@ class Hive:
                     "n_workers": 0, "note": "no worker responded"}
 
         labels = list(answers.keys())
-        embed_fn = agent_complex.model_embed_fn() if embed else None
-        V = self._answer_vectors([answers[l] for l in labels], embed_fn)
+        V = self._answer_vectors([answers[l] for l in labels], self._embed_fn(embed))
         Vn = V / np.maximum(np.linalg.norm(V, axis=1, keepdims=True), 1e-9)
         S = Vn @ Vn.T
         n = len(labels)
@@ -904,11 +914,7 @@ class Hive:
         hive records into). `embed=True` uses the embedder bee for the semantic alignment signal.
         `track=True` snapshots the drift tracker so repeated calls over time expose which worker is
         starting to detract (a rising-curvature / falling-alignment trend)."""
-        fn = None
-        if embed:
-            bee = self.embedder                              # attached OR spawned; both are bees
-            fn = agent_complex.model_embed_fn(bee.url if bee is not None else None)
-        out = self._complex.monitor(embed_fn=fn)
+        out = self._complex.monitor(embed_fn=self._embed_fn(embed))
         if track:
             d = agent_complex.get_drift().snapshot(out)
             out["drift"] = {"drifting": d.drifting(), "strain_trend": d.strain_trend(),
