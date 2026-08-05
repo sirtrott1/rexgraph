@@ -114,7 +114,7 @@ _INTERNAL_ATTRS = frozenset({
 #
 # One encoder, one NaN policy. This used to be nine near-copies across bundle,
 # parquet, arrow, sql, the dashboard and three server routes, with four different
-# answers for a non-finite float -- and none of them worked, because np.float64
+# answers for a non-finite float, and none of them worked, because np.float64
 # subclasses Python float and so is serialized directly without ever reaching
 # JSONEncoder.default. A NaN metric therefore wrote a bare `NaN` token into a .rex
 # MANIFEST.json, which is not JSON and JSON.parse rejects. The policy has to be
@@ -201,7 +201,7 @@ def json_default(o: Any) -> Any:
     """JSON serializer fallback for numpy types.
 
     Pass as json.dumps(obj, default=json_default). Prefer `dumps`, which also applies
-    the non-finite policy -- `default` alone cannot, since json never calls it for a
+    the non-finite policy. `default` alone cannot, since json never calls it for a
     float subclass.
     """
     if isinstance(o, np.ndarray):

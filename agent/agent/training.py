@@ -112,7 +112,8 @@ class TrainingExporter:
 
             chunk_rex = RexGraph(sources=ec.sources, targets=ec.targets)
             if ec.n_types > 1:
-                chunk_rex = chunk_rex.typed_face_selection(ec.type_labels)
+                from agent.auto import attach_faces
+                chunk_rex = attach_faces(chunk_rex, type_labels=ec.type_labels)
 
             chunks = hodge_chunk(
                 chunk_rex, ec.edge_spans, ec.sentence_spans,

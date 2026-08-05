@@ -1,1 +1,1 @@
-"""RexGraph Agent - FastAPI web server."""
+"""RexGraph Agent: FastAPI web server."""

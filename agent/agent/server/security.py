@@ -267,7 +267,7 @@ def add_error_sanitizer(app) -> None:
 
     Client errors (4xx) keep their intentional, useful messages. Server faults
     (5xx) and any *unhandled* exception return a generic message plus a short
-    ``error_id`` that is logged server-side with the full detail - so operators
+    ``error_id`` that is logged server-side with the full detail, so operators
     can correlate a report to a log line without exposing internals.
 
     Set ``REXGRAPH_DEBUG_ERRORS=1`` to restore verbose errors (dev/debug only).
@@ -365,7 +365,7 @@ def setup_rate_limiter(app):
     does). Uses the in-process ``limits`` moving-window limiter; for multi-worker
     or HA deployments back it with shared storage (Redis) or limit at the proxy.
 
-    Registered LAST so it is the OUTERMOST middleware - it therefore counts every
+    Registered LAST so it is the OUTERMOST middleware, and therefore counts every
     request (including failed-auth attempts) before auth verification runs.
     """
     general = os.environ.get("RCF_RATE_LIMIT", "240/minute").strip()

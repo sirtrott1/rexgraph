@@ -1,8 +1,8 @@
 """
 Correlation and adjacency matrix adapters.
 
-Handle square symmetric matrices - correlation matrices, similarity
-matrices, adjacency matrices - and turn them into typed edges.
+Handle square symmetric matrices (correlation, similarity, adjacency)
+and turn them into typed edges.
 """
 
 from __future__ import annotations

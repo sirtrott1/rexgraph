@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.arrow_bridge -- Arrow/IPC bridge.
+Tests for rexgraph.io.arrow_bridge: Arrow/IPC bridge.
 
 All tests require pyarrow. Skipped if pyarrow is not installed.
 

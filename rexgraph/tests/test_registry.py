@@ -74,8 +74,7 @@ def test_items_gives_name_and_value():
     assert list(r.items()) == [("a", 1)]
 
 
-# --- every call site is backed by it ------------------------------------------
-
+#### every call site is backed by it
 def test_io_formats_use_the_shared_registry():
     from rexgraph import io
     assert isinstance(io._FORMATS, Registry)
@@ -117,8 +116,8 @@ def test_serialization_types_are_listable():
 
 
 def test_temporal_policies_are_a_registry_not_a_tuple():
-    """The holdout. Rerank policies were a fixed tuple, so a domain-specific one --
-    pseudotime order, a batch-corrected recency -- meant editing the module."""
+    """The holdout. Rerank policies were a fixed tuple, so a domain-specific one
+    (pseudotime order, a batch-corrected recency) meant editing the module."""
     from agent import temporal
     assert set(temporal.available_policies()) >= {"off", "stability", "recency",
                                                   "settled"}

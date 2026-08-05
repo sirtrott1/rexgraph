@@ -1,5 +1,5 @@
 """
-RexGraph Agent - FastAPI application.
+RexGraph Agent: FastAPI application.
 
 Serves the API endpoints and the frontend static files.
 One command starts everything: python run.py
@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .launch import VERSION
+from .launch import CORE_VERSION, VERSION
 from .security import (
     add_auth_enforcement,
     add_error_sanitizer,
@@ -102,10 +102,14 @@ def get_store() -> SessionStore:
 
 # Routes
 
+from agent.session import SnapshotUnreadable
+from fastapi.responses import JSONResponse
+
 from .routes import (
     admin,
     agents,
     analysis,
+    builder,
     chat,
     connectors,
     corpus,
@@ -127,6 +131,17 @@ from .routes import (
     session,
     upload,
 )
+
+@app.exception_handler(SnapshotUnreadable)
+async def _snapshot_unreadable(request, exc):
+    """A stored session that cannot be read is the request's answer, not a crash.
+
+    Seven routes reach a session's complex; handling it here means none of them
+    has to, and none of them can forget to.
+    """
+    return JSONResponse(status_code=422, content={"detail": str(exc),
+                                                  "error": "snapshot_unreadable"})
+
 
 app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(analysis.router, prefix="/api", tags=["analysis"])
@@ -151,6 +166,7 @@ app.include_router(agents.router, prefix="/api", tags=["agents"])
 app.include_router(hive.router, prefix="/api", tags=["hive"])
 app.include_router(ops.router, prefix="/api", tags=["ops"])
 app.include_router(ml.router, prefix="/api", tags=["ml"])
+app.include_router(builder.router, prefix="/api", tags=["builder"])
 
 # Frontend
 
@@ -165,7 +181,12 @@ async def index():
     """Serve the main UI."""
     index_path = _FRONTEND_DIR / "index.html"
     if index_path.exists():
-        return HTMLResponse(index_path.read_text())
+        # the UI reports the package version, not a build or commit id
+        return HTMLResponse(
+            index_path.read_text()
+            .replace("__CORE_VERSION__", CORE_VERSION)
+            .replace("__VERSION__", VERSION)
+        )
     return HTMLResponse(
         "<html><body><h1>RexGraph Agent</h1>"
         "<p>Frontend not built yet. API is live at <a href='/docs'>/docs</a></p>"
@@ -206,6 +227,7 @@ async def health():
     return {
         "status": "ok",
         "version": VERSION,
+        "core_version": CORE_VERSION,
         "rexgraph": _check_rexgraph(),
         "auth_enabled": mgr.auth_enabled,
         "workspaces": mgr.list_workspaces() or ["default"],

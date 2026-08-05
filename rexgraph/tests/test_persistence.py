@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._persistence -- persistent homology.
+Tests for rexgraph.core._persistence: persistent homology.
 
 Verifies:
     - Filtration: monotone (edge >= max boundary vertex), correct shapes

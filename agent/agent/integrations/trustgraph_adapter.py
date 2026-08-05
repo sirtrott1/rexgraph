@@ -634,8 +634,9 @@ class TrustGraphAdapter(DomainAdapter):
             signs=signs_arg,
         )
 
-        if face_selection == "typed" and edges.n_types > 1:
-            rex = rex.typed_face_selection(edges.type_labels)
+        if face_selection not in ("none", None):
+            from agent.auto import attach_faces
+            rex = attach_faces(rex, face_selection, type_labels=edges.type_labels)
         elif face_selection == "promote":
             rex = rex.promote()
 
@@ -1845,7 +1846,7 @@ class TrustGraphAdapter(DomainAdapter):
         confidence = self.subgraph_confidence(rex, entity_indices)
 
         # The real token driver is the BOUNDED relevant sub-complex the query
-        # activates - the relations a correct answer must reconcile - obtained by one
+        # activates (the relations a correct answer must reconcile) obtained by one
         # demand-driven diffusion, not an O(nE) dense B1 scan of the whole graph.
         n_bridges = 0
         context_size = 0

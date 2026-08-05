@@ -7,7 +7,7 @@ readout the schema path uses.
 
     read(source) -> (rex, meta)
 
-``source`` is an iterable of ``(subject, predicate, object)`` triples - the RDF
+``source`` is an iterable of ``(subject, predicate, object)`` triples: the RDF
 the host already has; no live triple store required.
 """
 from __future__ import annotations

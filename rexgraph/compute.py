@@ -126,7 +126,7 @@ def get_default_backend() -> str | None:
     return _DEFAULT_BACKEND
 
 
-# --- host-aware auto backend (lazy, cached, never hardcoded) -----------------------------------
+#### host-aware auto backend (lazy, cached, never hardcoded)
 # When no backend is explicitly requested (no `prefer`, no default set, no config), dispatch
 # resolves the preferred backend DYNAMICALLY for THIS host via rexgraph._env.recommend_backend()
 # instead of assuming one machine's GPU. The _env recommendation (cuda/rocm/vulkan/metal/cpu) is
@@ -259,7 +259,7 @@ def parallel_map(fn, items, *, threads=None, inner_threads=None):
         return list(ex.map(fn, items))
 
 
-# --- GPU enumeration for multi-GPU column tiling -----------------------------------------------
+#### GPU enumeration for multi-GPU column tiling
 # The GPU propagators/solvers apply a SHARED sparse operator to a BLOCK of RHS columns, and that
 # block splits EXACTLY and independently across GPUs: replicate the (small, sparse) operator to each
 # device, hand each device a disjoint column tile, run the SAME on-device kernel per tile, then
@@ -304,7 +304,7 @@ def gpu_devices() -> list[int]:
 # back has fixed overhead, so multi-GPU tiling only engages above a work size LARGER than the
 # single-GPU gate (rexgraph.scale_propagator._GPU_MIN_WORK, ~4.2M). Overridable per host via
 # REXGRAPH_MULTI_GPU_MIN_WORK; default 1<<24 (4x the single-GPU crossover). Like the single-GPU
-# gate this is a PURE performance gate - the tiled result is exact either way, never a correctness
+# gate this is a PURE performance gate: the tiled result is exact either way, never a correctness
 # branch.
 _MULTI_GPU_MIN_WORK = int(os.environ.get("REXGRAPH_MULTI_GPU_MIN_WORK", 1 << 24))
 
@@ -338,7 +338,7 @@ def ops() -> list[dict]:
 
 
 def dispatch(name: str, *args, prefer: str | None = None, **kw):
-    """Run op `name` on the best available backend that implements it - preferring `prefer`, then
+    """Run op `name` on the best available backend that implements it, preferring `prefer`, then
     the best available backend, then any available one, then cpu. Raises if the op is unknown."""
     impls = _OPS.get(name)
     if not impls:
@@ -393,7 +393,7 @@ def _mps_available() -> bool:
 
 register_backend("cpu", available=lambda: True, kind="cpu",
                  description="Serial / BLAS CPU (always available).")
-# --- ops -----------------------------------------------------------------------
+#### ops
 #
 # register_op/dispatch shipped with zero registrations and zero callers, so the
 # extension point could only ever raise. These are the solvers the character and

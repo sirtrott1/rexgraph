@@ -12,8 +12,8 @@ from rexgraph.flow.attention import (
 from rexgraph.graph import RexGraph
 
 # A real-data check, pointed at whatever the operator supplies. The path used to
-# be a literal naming a specific private dataset, which put a dataset -- and its
-# location on one machine -- into a tree that is meant to be dataset-agnostic.
+# be a literal naming a specific private dataset, which put a dataset (and its
+# location on one machine) into a tree that is meant to be dataset-agnostic.
 # Unset, the test skips, which is what it already did when the file was absent.
 _REAL_DATA_ENV = "REXGRAPH_TEST_BINDING_TSV"
 _REAL_DATA_PATH = os.path.expanduser(os.environ.get(_REAL_DATA_ENV, ""))

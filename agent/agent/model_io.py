@@ -177,7 +177,7 @@ def model_summary(path: str) -> dict[str, Any]:
 def extract_embedding_table(path: str, *, limit: int | None = None) -> dict[str, Any]:
     """Load a model's token-embedding matrix from a ``.safetensors`` weight file (vocab × dim)
     so it can be analyzed as a relational complex or persisted via ``save_embedding_corpus``.
-    GGUF is not supported here - its embedding tensor is quantized and needs the runtime to
+    GGUF is not supported here: its embedding tensor is quantized and needs the runtime to
     dequantize; use ``model_introspect.embed`` against the running server instead."""
     p = os.path.expanduser(path)
     ext = os.path.splitext(p)[1].lower()

@@ -1,5 +1,5 @@
 """
-In-model test of the corrected attention on ASSOCIATIVE RECALL — the task that punishes the
+In-model test of the corrected attention on ASSOCIATIVE RECALL, the task that punishes the
 copy/likelihood reflex. A sequence of (key,value) pairs, then a query key; predict the value
 BOUND TO THAT KEY (seen earlier), not the locally-recent token. The load-bearing token is
 distant and not content-obvious, so importance-gated relational routing should help where

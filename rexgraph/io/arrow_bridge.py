@@ -20,7 +20,7 @@ Core API:
     for batch in read_arrow_batches("data.arrow"):
         process(batch["L0"])
 
-All `pyarrow` imports are lazy - the module can be imported without
+All `pyarrow` imports are lazy, so the module can be imported without
 pyarrow installed.  An `ImportError` is raised only when a function
 is actually called.
 

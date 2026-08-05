@@ -2,13 +2,13 @@
 
 A hive is not a fixed set of workers; it is a living schema. Which workers and
 models it holds, what capabilities they provide, which databases and stores it is
-attached to, which datasets are loaded - all of that is structure, and it changes
+attached to, which datasets are loaded: all of that is structure, and it changes
 in response to events: a new task deploys a worker, new data attaches a store, an
 issue adds a guard or reroutes, another hive federates in.
 
 HiveSchema captures that full structure as ONE relational complex (the same kind
 of object as a database schema, a query, or the coordination complex) and versions
-it in the RCDB on every change - only when the topology actually changes, tagged
+it in the RCDB on every change, only when the topology actually changes, tagged
 with the cause. The hive's evolution becomes a tracked lineage: a starting schema
 that mutates in response to queries, data, issues, and deployments, queryable by
 topology like everything else.
@@ -35,8 +35,7 @@ class HiveSchema:
         # name -> {"kind": str, "links": [(bee_name, relation)]}
         self.resources: dict[str, dict[str, Any]] = {}
 
-    # -- the self-schema as triples -> a complex -------------------------------
-
+    #### the self-schema as triples -> a complex
     def triples(self) -> list[tuple[str, str, str]]:
         """(subject, predicate, object) triples describing the hive's whole structure."""
         t: list[tuple[str, str, str]] = []
@@ -58,10 +57,9 @@ class HiveSchema:
         """Build the hive's structure complex. Returns (rex_or_None, meta)."""
         return ontology_to_rex(parse_rdf(self.triples()))
 
-    # -- versioned lifecycle ---------------------------------------------------
-
+    #### versioned lifecycle
     def snapshot(self, cause: str = "") -> dict:
-        """Version the current structure in the RCDB - only if the topology changed since the
+        """Version the current structure in the RCDB, only if the topology changed since the
         last snapshot. `cause` records WHY it changed (a query, new data, an issue, a deploy)."""
         rex, meta = self.complex()
         if rex is None:
@@ -80,8 +78,7 @@ class HiveSchema:
         self.resources.pop(name, None)
         return self.snapshot(cause=cause or f"detached {name}")
 
-    # -- history ---------------------------------------------------------------
-
+    #### history
     def lineage(self) -> list[dict]:
         return rcdb.lineage(self.store, self.lineage_id)
 

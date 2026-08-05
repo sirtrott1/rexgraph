@@ -1,5 +1,5 @@
 """
-HuggingFace transformer analyzer - measure RCF axiom compliance.
+HuggingFace transformer analyzer: measure RCF axiom compliance.
 
 Takes any HuggingFace transformer and measures how closely its internal
 representations match the algebraic structure of a relational complex.

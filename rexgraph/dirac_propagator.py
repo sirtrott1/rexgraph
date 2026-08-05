@@ -114,8 +114,7 @@ class SparseDirac:
         self.N = int(self.offsets[-1])
         self.n_grades = len(self.sizes)
 
-    # -- structure ---------------------------------------------------------------
-
+    #### structure
     def grade_slice(self, d):
         """The index slice of grade ``d`` in the stacked state vector."""
         return slice(int(self.offsets[d]), int(self.offsets[d + 1]))
@@ -141,7 +140,7 @@ class SparseDirac:
 
         A single vector (or a 1-column block) takes the plain serial path. A wider
         block (``N x k``, ``k > 1``) that is large enough tiles its COLUMNS across a
-        thread pool - each tile is an independent set of GIL-releasing sparse
+        thread pool: each tile is an independent set of GIL-releasing sparse
         mat-vecs, exactly the column-tiling pattern of
         ``scale_propagator.greens_diagonal``. Results are bit-identical to serial; the
         gate (:data:`_PARALLEL_MIN_ELEMS`) keeps tiny inputs off the thread pool.
@@ -205,8 +204,7 @@ class SparseDirac:
         except Exception:
             return max(gersh, 1e-12)
 
-    # -- propagation of tensor states -------------------------------------------
-
+    #### propagation of tensor states
     def _cheb_apply(self, func, psi, lam_max, order):
         """Apply ``func(D)`` to a state block ``psi`` (n x k) by a Chebyshev
         polynomial of ``D`` on ``[-lam_max, lam_max]`` - sparse mat-vecs only, no
@@ -280,7 +278,7 @@ class SparseDirac:
 
         - ``times``   : ``float64[T]`` the requested times.
         - ``energy``  : ``float64[T, n_grades]`` Born energy ``||re_d||^2 + ||im_d||^2``
-          on each grade ``d`` at each time - shows amplitude flowing between grades.
+          on each grade ``d`` at each time, which shows amplitude flowing between grades.
         - ``total``   : ``float64[T]`` total energy ``||psi(t)||^2``; constant under the
           unitary ``e^{-itD}`` (a conservation check).
 
@@ -341,10 +339,9 @@ def dirac_heat(rex, t, psi0=None):
     return sd.heat_squared(psi0, float(t))
 
 
-# ---------------------------------------------------------------------------
+#### -
 # Equiweight: the derived axiom, and its use as a distance
-# ---------------------------------------------------------------------------
-
+#### -
 def graded_grading(sizes) -> np.ndarray:
     """The chiral grading Gamma = diag((-1)^grade) for a graded space, as a +/-1 vector.
 

@@ -53,6 +53,12 @@ def available_extensions() -> dict[str, str]:
             for e in _READERS.meta(name).get("extensions", ())}
 
 
+def reader_fn(name: str):
+    """The registered function for a reader name, so a caller can ask what
+    parameters it takes rather than guess which ones to pass through."""
+    return _READERS.get(name)
+
+
 def reader_for(path) -> str | None:
     """The reader registered for `path`'s extension, or None.
 
@@ -119,11 +125,24 @@ def _sdf_record(lines: list[str], base: int, tag: str):
     except ValueError:
         return None, None
 
+    # The counts line is a claim about the record. Trusting it past the end of the
+    # block invented atoms out of the bond table and the M END line, and the real
+    # bonds were then read from beyond the file and lost.
+    need = 4 + n_atoms + n_bonds
+    if need > len(lines):
+        raise ValueError(
+            f"malformed MOL record {tag.rstrip(':') or '1'}: the counts line declares "
+            f"{n_atoms} atoms and {n_bonds} bonds, which needs {need} lines, "
+            f"but the record has {len(lines)}")
+
     labels = []
     for i in range(n_atoms):
-        parts = lines[4 + i].split() if 4 + i < len(lines) else []
-        element = parts[3] if len(parts) > 3 else "X"
-        labels.append(f"{tag}{element}{i + 1}")
+        parts = lines[4 + i].split()
+        if len(parts) < 4:
+            raise ValueError(
+                f"malformed MOL record {tag.rstrip(':') or '1'}: atom line {i + 1} "
+                f"is not an atom: {lines[4 + i]!r}")
+        labels.append(f"{tag}{parts[3]}{i + 1}")
 
     bonds = []
     for j in range(n_bonds):
@@ -179,9 +198,13 @@ def load_sdf(path, **kw) -> EdgeConstruction:
 
     uniq = sorted(set(orders))
     idx = {o: i for i, o in enumerate(uniq)}
+    # Bond order is a magnitude, so it is the edge weight and enters the complex
+    # through W. It is also carried as a type, which names the relation. It is not
+    # part of the face condition: a ring is a ring whichever bonds close it.
     return _ec(src, tgt, labels,
                types=[idx[o] for o in orders],
-               type_names=[f"bond_order_{o}" for o in uniq] or ["bond"])
+               type_names=[f"bond_order_{o}" for o in uniq] or ["bond"],
+               weights=[float(o) for o in orders] or None)
 
 
 def load_pdb(path, *, backbone: bool = True, **kw) -> EdgeConstruction:
@@ -209,43 +232,48 @@ def load_pdb(path, *, backbone: bool = True, **kw) -> EdgeConstruction:
                 res = line[17:20].strip()
                 chain = line[21:22].strip() or "_"
                 resseq = line[22:27].strip()
-                serial_to_idx[serial] = len(labels)
-                residues.append((chain, resseq, len(labels)))
+                serial_to_idx.setdefault(serial, len(labels))
+                residues.append((chain, resseq, len(labels), rec == "ATOM"))
                 labels.append(f"{res}:{name}:{serial}")
             elif rec == "CONECT":
                 nums = [int(line[i:i + 5]) for i in range(6, len(line.rstrip()), 5)
                         if line[i:i + 5].strip().isdigit()]
                 for other in nums[1:]:
                     conect.append((nums[0], other))
+    bonds_idx: list[tuple[int, int]] = []
     if backbone:
-        # atoms of one residue are bonded to each other through it, and successive
+        # Atoms of one residue are bonded to each other through it, and successive
         # residues of a chain through the peptide bond. Both follow from the file,
-        # not from a distance cutoff. Built in index space and inverted once:
-        # searching serial_to_idx per edge is O(atoms) inside a loop over atoms.
-        idx_to_serial = {idx: serial for serial, idx in serial_to_idx.items()}
+        # not from a distance cutoff. Built directly in index space: converting to
+        # serials and back lost every atom of every model but the last, because an
+        # NMR file repeats its serials per MODEL.
         by_res: dict[tuple[str, str], list[int]] = {}
+        polymer: dict[tuple[str, str], bool] = {}
         order: list[tuple[str, str]] = []
-        for chain, resseq, idx in residues:
+        for chain, resseq, idx, is_atom in residues:
             key = (chain, resseq)
             if key not in by_res:
                 by_res[key] = []
+                polymer[key] = is_atom
                 order.append(key)
             by_res[key].append(idx)
         for key in order:
             members = by_res[key]
-            for a, b in zip(members, members[1:], strict=False):
-                conect.append((idx_to_serial[a], idx_to_serial[b]))
+            bonds_idx.extend(zip(members, members[1:], strict=False))
+        # A peptide bond joins consecutive POLYMER residues. Waters, ions, ligands
+        # and sugars arrive as HETATM and are bonded to nothing by adjacency; the
+        # unguarded version chained the waters of any ordinary structure together.
         for prev_key, next_key in zip(order, order[1:], strict=False):
             if prev_key[0] != next_key[0]:
                 continue                       # a different chain is not bonded
-            a, b = by_res[prev_key][-1], by_res[next_key][0]
-            conect.append((idx_to_serial[a], idx_to_serial[b]))
+            if not (polymer[prev_key] and polymer[next_key]):
+                continue
+            bonds_idx.append((by_res[prev_key][-1], by_res[next_key][0]))
 
     src, tgt, seen = [], [], set()
-    for a, b in conect:
-        if a not in serial_to_idx or b not in serial_to_idx:
-            continue
-        i, j = serial_to_idx[a], serial_to_idx[b]
+    pairs = [(serial_to_idx[a], serial_to_idx[b]) for a, b in conect
+             if a in serial_to_idx and b in serial_to_idx] + bonds_idx
+    for i, j in pairs:
         key = (min(i, j), max(i, j))
         if key in seen:
             continue
@@ -331,8 +359,18 @@ def load_vcf(path, **kw) -> EdgeConstruction:
             vid = cols[2] if cols[2] not in (".", "") else f"{cols[0]}:{cols[1]}"
             v_idx = len(samples) + len(variants)
             variants.append(vid)
+            # GT is wherever FORMAT says it is, and it is not always first. Reading
+            # sub-field 0 blind turned a DP-only record's read depth into "carries".
+            keys = cols[8].split(":") if len(cols) > 8 else []
+            try:
+                gt_at = keys.index("GT")
+            except ValueError:
+                continue                       # no genotype, so no carrier to record
             for s_i, cell in enumerate(cols[9:]):
-                gt = cell.split(":")[0].replace("|", "/")
+                parts = cell.split(":")
+                if gt_at >= len(parts):
+                    continue
+                gt = parts[gt_at].replace("|", "/")
                 alleles = [a for a in gt.split("/") if a.isdigit()]
                 if any(int(a) > 0 for a in alleles):
                     src.append(s_i)
@@ -376,15 +414,28 @@ def load_gff(path, **kw) -> EdgeConstruction:
                 continue
             attrs = c[8] if len(c) > 8 else ""
             name = None
+            # Most specific identifier first. GTF has no ID=, so gene_id won for a
+            # gene, its transcripts and its exons alike and every row of one gene
+            # got the same label.
+            found = {}
             for field in attrs.replace('"', "").split(";"):
                 field = field.strip()
-                for key in ("ID=", "gene_id ", "ID ", "Name="):
+                for key in ("ID=", "ID ", "exon_id ", "exon_number ",
+                            "transcript_id ", "gene_id ", "Name="):
                     if field.startswith(key):
-                        name = field[len(key):].strip()
+                        found.setdefault(key.strip(" ="), field[len(key):].strip())
                         break
-                if name:
+            for key in ("ID", "exon_id", "transcript_id", "gene_id", "Name"):
+                if found.get(key):
+                    name = found[key]
                     break
-            rows.append((c[0], int(c[3]), int(c[4]), name or f"{c[0]}:{c[3]}-{c[4]}"))
+            if found.get("exon_number") and name:
+                name = f"{name}:exon{found['exon_number']}"
+            # GFF coordinates are 1-based and inclusive; the sweep is half-open, as
+            # BED is. Passing them through unconverted made features that share a
+            # single base read as disjoint.
+            rows.append((c[0], int(c[3]) - 1, int(c[4]),
+                         name or f"{c[0]}:{c[3]}-{c[4]}"))
     if not rows:
         raise ValueError(f"{path}: no features")
     return _interval_overlap_ec(rows)
@@ -396,8 +447,9 @@ def load_bed(path, **kw) -> EdgeConstruction:
     rows = []
     with _open_text(path) as fh:
         for line in fh:
-            if line.startswith(("#", "track", "browser")) or not line.strip():
-                continue
+            first = line.split()[0] if line.split() else ""
+            if line.startswith("#") or first in ("track", "browser") or not line.strip():
+                continue                       # a contig may legitimately be named track1
             c = line.rstrip("\n").split("\t")
             if len(c) < 3:
                 continue
@@ -415,7 +467,16 @@ def _h5_index(group) -> list[str]:
     if isinstance(key, bytes):
         key = key.decode("utf-8")
     if key not in group:
-        key = next((k for k in group), None)
+        # Falling through to the first key by HDF5 order picked whatever sorted
+        # first, so a boolean flag column became the gene names. Prefer the columns
+        # that hold names, then any text column, and label positionally otherwise.
+        named = ("gene_symbol", "gene_symbols", "gene_name", "gene_names", "symbol",
+                 "feature_name", "gene_ids", "index", "name", "Gene", "CellID")
+        key = next((k for k in named if k in group), None)
+        if key is None:
+            key = next((k for k in group
+                        if getattr(group[k], "dtype", None) is not None
+                        and group[k].dtype.kind in ("S", "U", "O")), None)
     if key is None:
         return []
     return [v.decode("utf-8") if isinstance(v, bytes) else str(v)
@@ -465,15 +526,30 @@ def load_loom(path, **kw):
                     return [v.decode("utf-8") if isinstance(v, bytes) else str(v)
                             for v in f[group][n][:]]
             return []
-        obs = _attr("col_attrs", "CellID", "cell_id")
-        var = _attr("row_attrs", "Gene", "gene")
+        # loompy writes Name/Accession as often as Gene, and a missing lookup left
+        # the genes unnamed rather than falling back to something meaningful.
+        obs = _attr("col_attrs", "CellID", "cell_id", "CellName", "cell_name", "obs_names")
+        var = _attr("row_attrs", "Gene", "gene", "Name", "name", "gene_name",
+                    "GeneName", "Symbol", "Accession", "var_names")
     return X, obs, var
+
+
+def load_bcf(path, **kw):
+    """BCF is the binary encoding of VCF and needs a different reader.
+
+    Registered so the extension gives a straight answer rather than failing inside
+    the text parser with "no #CHROM header", which describes the wrong problem.
+    """
+    raise ValueError(
+        f"{path}: BCF is binary (BGZF), and this reader parses text VCF. "
+        f"Convert it first: `bcftools view -Ov -o out.vcf {path}`")
 
 
 register_reader("sdf", load_sdf, extensions=[".sdf", ".mol"])
 register_reader("pdb", load_pdb, extensions=[".pdb", ".ent"])
 register_reader("fasta", load_fasta, extensions=[".fasta", ".fa", ".fna", ".faa"])
-register_reader("vcf", load_vcf, extensions=[".vcf", ".bcf"])
+register_reader("vcf", load_vcf, extensions=[".vcf"])
+register_reader("bcf", load_bcf, extensions=[".bcf"])
 register_reader("gff", load_gff, extensions=[".gff", ".gff3", ".gtf"])
 register_reader("bed", load_bed, extensions=[".bed"])
 register_reader("h5ad", load_h5ad, extensions=[".h5ad"])

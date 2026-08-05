@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._field -- cross-dimensional field dynamics on (E, F).
+Tests for rexgraph.core._field: cross-dimensional field dynamics on (E, F).
 
 Verifies:
     - Field operator: symmetric, correct shape, PSD for auto coupling

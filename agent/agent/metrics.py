@@ -1,5 +1,5 @@
 """
-Information metrics - perplexity, entropy, varentropy - as ONE calculus over two
+Information metrics (perplexity, entropy, varentropy) as ONE calculus over two
 carriers: the relational spectrum (structural) and an LLM token distribution (the
 standard LLM metrics).
 
@@ -43,7 +43,7 @@ def perplexity(p, order: float = 1.0) -> float:
 
 
 def varentropy(p) -> float:
-    """Var(-log p) under p - the spread of surprisal ("uncertainty of the
+    """Var(-log p) under p: the spread of surprisal ("uncertainty of the
     uncertainty"). ~0 on a flat distribution, grows with heavy tails; equals ½·the
     Shannon-collision gap to leading order (RCF Part D.4 / script 19)."""
     p = _norm(p)
@@ -121,8 +121,8 @@ def _trend(vals) -> str:
 
 def session_metrics(coherence_per_turn, perplexity_per_turn=None) -> dict:
     """Per-SESSION information metrics over a conversation's turns: the trend of
-    structural coherence (is the conversation losing structure?) and - when token
-    metrics were captured per reply - of perplexity (is the model getting more
+    structural coherence (is the conversation losing structure?) and, when token
+    metrics were captured per reply, of perplexity (is the model getting more
     uncertain?), plus per-metric summaries. Trend is over the last 3 turns."""
     out: dict = {"n_turns": len(list(coherence_per_turn))}
     coh = list(coherence_per_turn)
@@ -177,7 +177,7 @@ def reply_metrics(text: str, logprobs=None, token: dict = None,
       structural (only if `structural=True`, ~250 ms): builds the reply's OWN
         relational complex (auto_rex) for structural_perplexity/effective_modes/
         response_coherence + the fluent-but-hollow advisory. This is the expensive
-        tier - computed on demand (when the interface asks), never eagerly on every
+        tier, computed on demand (when the interface asks), never eagerly on every
         reply. Best-effort; never raises. Shared by /model/generate and /chat."""
     out: dict = {}
     if token is not None:
@@ -204,7 +204,7 @@ def reply_metrics(text: str, logprobs=None, token: dict = None,
 def response_metrics(rex=None, logprobs=None) -> dict:
     """Unified reading over whatever is available: the structural metrics of a
     response's relational complex and/or the token metrics of its logprobs. When both
-    are present the agent can compare them - e.g. a low token perplexity but high
+    are present the agent can compare them: a low token perplexity but high
     structural perplexity means the text reads fluently yet the relations it asserts
     are diffuse/unsupported (a fluent-but-hollow answer)."""
     out: dict = {}

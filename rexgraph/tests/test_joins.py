@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._joins -- chain complex join operations.
+Tests for rexgraph.core._joins: chain complex join operations.
 
 Verifies:
     - Shared vertex map: correct matching by label

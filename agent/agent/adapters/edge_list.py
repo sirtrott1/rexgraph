@@ -29,7 +29,7 @@ class EdgeListAdapter(DomainAdapter):
         self,
         path: str,
         roles: dict | None = None,
-        face_selection: str = "typed",
+        face_selection: str = "auto",
         **kwargs,
     ) -> EdgeConstruction:
         """Build typed edges from a CSV or JSON edge list.

@@ -3,7 +3,7 @@
 The tree generated SLURM submission scripts but never read the allocation back:
 thread counts fell through to os.cpu_count(), which on a cluster is the NODE's core
 count, not the job's. An eight-core allocation on a 128-core node would start 128
-workers -- oversubscription that on a shared cluster gets the job killed rather than
+workers: oversubscription that on a shared cluster gets the job killed rather than
 merely running slowly. Memory was not detected at all, so nothing could size itself
 to the box.
 
@@ -118,8 +118,7 @@ def test_an_explicit_set_threads_still_wins(monkeypatch):
         compute.set_threads(None)
 
 
-# --- device selection and op dispatch -----------------------------------------
-
+#### device selection and op dispatch
 def test_the_character_gpu_path_accepts_a_device():
     """sparse_character hardcoded torch.device('cuda'), so on a multi-GPU node it
     always landed on device 0 and could not be pointed anywhere else."""
@@ -185,8 +184,7 @@ def test_an_unknown_op_names_what_is_registered():
     assert "block_cg" in str(ei.value)
 
 
-# --- cloud, not just the scheduler --------------------------------------------
-
+#### cloud, not just the scheduler
 def test_cloud_detection_never_touches_the_network_by_default(monkeypatch):
     """The metadata service is a link-local address that HANGS rather than refuses
     when you are not on that cloud, so detection has to answer from local signals."""

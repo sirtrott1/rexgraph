@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._sparse -- DualCSR sparse storage and operations.
+Tests for rexgraph.core._sparse: DualCSR sparse storage and operations.
 
 Verifies:
     - Construction: COO -> CSR -> DualCSR, correct dimensions

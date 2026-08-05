@@ -132,7 +132,8 @@ class RexStateGraph:
         if len(unique_types) > 1:
             type_map = {t: i for i, t in enumerate(unique_types)}
             type_labels = np.array([type_map[t] for t in types], dtype=np.int32)
-            rex = rex.typed_face_selection(type_labels)
+            from agent.auto import attach_faces
+            rex = attach_faces(rex, type_labels=type_labels)
         else:
             rex = rex.promote()
 
@@ -183,11 +184,11 @@ class RexStateGraph:
         # Void check: is this transition in a structural gap?
         try:
             signal = np.zeros(rex.nE, dtype=np.float64)
-            # Activate edges incident to the source vertex
-            B1 = rex.B1
-            incident = np.where(np.abs(B1[src_idx, :]) > 0)[0]
-            if len(incident) > 0:
-                signal[incident] = 1.0
+            # Edges incident to the source vertex. `star_of_vertex` answers this
+            # directly; reading a row of a materialized dense B1 built an nV x nE
+            # array to look at one row of it.
+            _, e_mask, _ = rex.star_of_vertex(int(src_idx))
+            signal[np.asarray(e_mask, dtype=bool)] = 1.0
 
             dipole = rex.face_void_dipole(signal)
             result["void_affinity"] = round(float(dipole.get("void_affinity", 0)), 4)
@@ -304,18 +305,25 @@ class RexStateGraph:
 
         # Build edge signal from path: activate each edge traversed
         signal = np.zeros(rex.nE, dtype=np.float64)
-        B1 = rex.B1
+
+        # An edge joining two states is in both their stars, so the transition is
+        # the intersection. The scan it replaces was O(len(path) * nE) over a dense
+        # nV x nE matrix to find one edge at a time.
+        stars: dict[int, np.ndarray] = {}
+
+        def _star(v: int) -> np.ndarray:
+            if v not in stars:
+                stars[v] = np.asarray(rex.star_of_vertex(int(v))[1], dtype=bool)
+            return stars[v]
 
         for i in range(len(path) - 1):
             src = name_to_idx.get(path[i])
             tgt = name_to_idx.get(path[i + 1])
             if src is None or tgt is None:
                 continue
-            # Find the edge connecting src and tgt
-            for e in range(rex.nE):
-                if (abs(B1[src, e]) > 0 and abs(B1[tgt, e]) > 0):
-                    signal[e] += 1.0
-                    break
+            both = np.flatnonzero(_star(src) & _star(tgt))
+            if both.size:
+                signal[both[0]] += 1.0     # one traversal, as the scan did
 
         if np.allclose(signal, 0):
             return {"error": "No edges found for path", "path": path}
@@ -337,10 +345,10 @@ class RexStateGraph:
     def channel_profile(self) -> dict:
         """Four-channel decomposition of the state graph.
 
-        T (Hodge): structural transitions - the agent follows the graph
-        G (Overlap): geometric shortcuts - transitions sharing context
-        F (Frustration): conflicted transitions - sign disagreements
-        C (Copath): higher-order structure - meta-transitions
+        T (Hodge): structural transitions, the agent follows the graph
+        G (Overlap): geometric shortcuts, transitions sharing context
+        F (Frustration): conflicted transitions, sign disagreements
+        C (Copath): higher-order structure, meta-transitions
         """
         rex = self.rex
         try:

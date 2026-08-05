@@ -238,7 +238,7 @@ async def create_recovery_key(token: TokenEntry = Depends(_require_admin)):
 async def recover_access(request: Request):
     """Use a recovery key to obtain a new admin token. No auth required.
 
-    This is the only recovery path - there is no filesystem backdoor.
+    This is the only recovery path: there is no filesystem backdoor.
     The recovery key is verified against a bcrypt hash.
     """
     try:
@@ -309,6 +309,43 @@ async def query_overlap(ws: WorkspaceState = Depends(require_workspace)):
     """Detect when multiple users are querying the same structural region."""
     overlaps = ws.detect_query_overlap()
     return {"overlaps": overlaps, "n_overlaps": len(overlaps)}
+
+
+@router.get("/workspace/settings")
+async def get_workspace_settings(
+    token: TokenEntry = Depends(require_auth),
+    ws: WorkspaceState = Depends(require_workspace),
+):
+    """This workspace's settings, with the defaults it falls back to."""
+    from agent import work_recorder as wr
+    from agent.server.persistence import load_settings
+    return {"workspace": ws.name, "settings": load_settings(ws.name),
+            "defaults": {wr.SETTING: False, wr.KIND_SETTING: list(wr.KINDS)},
+            "record_work_kinds_available": list(wr.KINDS)}
+
+
+@router.post("/workspace/settings")
+async def set_workspace_settings(
+    body: dict = Body(...),
+    token: TokenEntry = Depends(require_auth),
+    ws: WorkspaceState = Depends(require_workspace),
+):
+    """Merge changes into this workspace's settings. Sending {record_work: false}
+    turns recording off; nothing already recorded is removed."""
+    from agent import work_recorder as wr
+    from agent.server.persistence import update_settings
+    allowed = {wr.SETTING, wr.KIND_SETTING}
+    unknown = sorted(set(body) - allowed)
+    if unknown:
+        raise HTTPException(400, f"unknown setting(s): {', '.join(unknown)}. "
+                                 f"Supported: {', '.join(sorted(allowed))}")
+    kinds = body.get(wr.KIND_SETTING)
+    if kinds is not None:
+        if not isinstance(kinds, list) or any(k not in wr.KINDS for k in kinds):
+            raise HTTPException(400, f"{wr.KIND_SETTING} must be a list drawn from: "
+                                     f"{', '.join(wr.KINDS)}")
+    ws.record_activity(token.user_id, "workspace_settings", ",".join(sorted(body)))
+    return {"workspace": ws.name, "settings": update_settings(ws.name, body)}
 
 
 @router.get("/workspace/files")

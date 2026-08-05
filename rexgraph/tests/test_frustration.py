@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._frustration -- frustration Laplacian L_SG.
+Tests for rexgraph.core._frustration: frustration Laplacian L_SG.
 
 Verifies:
     - Vertex weights: positive, decrease with degree, w = 1/log(deg+e)

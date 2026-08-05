@@ -1,5 +1,5 @@
 """
-data - load, synthesize, and split data for the model archetypes.
+data: load, synthesize, and split data for the model archetypes.
 
 A DataBundle carries one training set. `kind` tells the trainer how to feed the model
 (vector / image / sequence / hypergraph), `X`/`y` are the tensors, `meta` carries shapes

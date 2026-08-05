@@ -27,7 +27,7 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
-# Schemes that read a LOCAL FILE rather than talk to a server - blocked by the
+# Schemes that read a LOCAL FILE rather than talk to a server, blocked by the
 # REXGRAPH_DB_SAFE preset because they can exfiltrate arbitrary files.
 _FILE_SCHEMES = {"sqlite", "duckdb", "access", "csv"}
 
@@ -70,7 +70,7 @@ def _host_is_local_or_private(host: str) -> bool:
         pass
     # Hostname -> resolve and block if ANY resolved address is loopback/private.
     # This closes the hostname->private-IP SSRF case (e.g. a name that resolves to
-    # 169.254.169.254). Unresolvable names fall through - the real connection just
+    # 169.254.169.254). Unresolvable names fall through: the real connection just
     # fails. Full DNS-rebinding defense needs connect-time IP pinning (out of scope).
     try:
         infos = socket.getaddrinfo(host, None)

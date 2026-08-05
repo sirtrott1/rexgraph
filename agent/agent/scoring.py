@@ -11,14 +11,14 @@ paying O(nV . solve) for an answer needed at a handful of vertices.
 RexGraph already answers "what does this query touch in this complex" directly, and
 demand-driven:
 
-    coherence_response(seed)  kappa at just the query's vertices, by diffusion --
+    coherence_response(seed)  kappa at just the query's vertices, by diffusion.
                               O(|seed| . nhats . diffusion), and identical to
                               coherence[seed] rather than an approximation of it
     agentic_reading(seed)     the decision-ready reading the agent layer is meant to
                               consume: the bounded neighborhood, relations ranked by
                               effective resistance (the bridges), entities whose
                               coherence is a low outlier under a data-adaptive Tukey
-                              fence, and context_size -- what a correct answer costs
+                              fence, and context_size (what a correct answer costs)
 
 So relevance here is the query's footprint measured by the DOCUMENT's own coherence
 field: sum of kappa over the matched vertices. It grows with how much of the query

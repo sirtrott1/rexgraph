@@ -169,7 +169,8 @@ def build_exchange_complex(
 
     # Build RexGraph
     rex = RexGraph(sources=all_sources, targets=all_targets)
-    rex = rex.typed_face_selection(all_types)
+    from agent.auto import attach_faces
+    rex = attach_faces(rex, type_labels=all_types)
 
     # Compute exchange result
     result = ExchangeResult(

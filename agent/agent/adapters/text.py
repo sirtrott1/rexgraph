@@ -187,7 +187,7 @@ class TextAdapter(DomainAdapter):
         window: int = 0,
         min_count: int = 1,
         max_vocab: int = 500,
-        face_selection: str = "typed",
+        face_selection: str = "auto",
         **kwargs,
     ) -> EdgeConstruction:
         """Build a relational complex from raw text with span tracking."""

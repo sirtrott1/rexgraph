@@ -4,7 +4,7 @@ Mirrors ``rexgraph.core._interfacing.build_interfacing_bundle`` field-for-field,
 but NEVER materializes the dense response operator ``S_T = B1^T L0^+ B1`` (nE x nE)
 nor a dense ``L0^+`` / RL eigendecomposition for the parts that do not genuinely
 need the full spectrum. This is the path that removes the arbitrary size ceiling on
-the interfacing vector - the dense ceiling was an implementation choice, not the math.
+the interfacing vector: the dense ceiling was an implementation choice, not the math.
 
 Field taxonomy
 --------------
@@ -78,7 +78,7 @@ def pinv_bilinear_form(A, u, v, atol=1e-13, btol=1e-13, iter_lim=20000):
     off ``ker(A)`` exactly and ``u^T A^+ v = u^T x``. The bilinear generalization of
     ``sparse_character.pinv_quadratic_form`` (``A^+`` symmetric). Equals the dense
     eigenmode pseudoinverse ``sum_{lambda_j>0} <p_j,u><p_j,v>/lambda_j`` to machine
-    precision - no eigendecomposition, no explicit kernel projection."""
+    precision: no eigendecomposition, no explicit kernel projection."""
     import scipy.sparse as sp
     import scipy.sparse.linalg as sla
     u = np.ascontiguousarray(u, dtype=_f64).ravel()
@@ -101,12 +101,12 @@ def _rl_spectrum(rex):
 
     schrodinger / coverage are degree-4 FULL-spectrum functionals of RL4 with no exact
     matrix-free form. When the whole spectrum is affordable (nE within the mode budget)
-    compute it EXACTLY via a dense eigh of RL4 - dense ONLY where the full spectrum is
+    compute it EXACTLY via a dense eigh of RL4, dense ONLY where the full spectrum is
     genuinely needed and cheap, keyed on affordability, NOT on a global bundle cutoff.
     This is the identical basis the dense oracle uses (``rex._rl_eigen`` eigendecomposes
     the same dense-on-demand RL4), so parity stays exact. Above the budget the full
     spectrum is unaffordable, so fall back to a BOUNDED largest-magnitude ``eigsh``
-    surrogate (documented approximation - a fixed-k basis cannot reproduce the full
+    surrogate (documented approximation: a fixed-k basis cannot reproduce the full
     degree-4 density; the caller sees it via the loosened spectral tolerance)."""
     nE = int(rex.nE)
     if nE == 0:
@@ -198,8 +198,8 @@ def build_interfacing_bundle_sparse(rex, target_indices, target_weights,
 
     # target_signal=None means "score psi against itself": the self-interfacing
     # reading, resolved below once psi exists. Callers used to get it by running the
-    # whole bundle twice -- a throwaway call with a zero target purely to obtain psi,
-    # then a real one -- paying two L0^+ solves for one reading.
+    # whole bundle twice (a throwaway call with a zero target purely to obtain psi,
+    # then a real one) paying two L0^+ solves for one reading.
     self_target = target_signal is None
     target = (None if self_target
               else np.ascontiguousarray(target_signal, dtype=_f64).ravel())
@@ -213,19 +213,19 @@ def build_interfacing_bundle_sparse(rex, target_indices, target_weights,
     B1 = _b1_csr(rex)                      # nV x nE signed incidence (sparse)
     L0 = rex.L0_sparse.tocsr()             # nV x nV graph Laplacian B1 B1^T
 
-    # --- rho: weighted vertex source (scatter-add, valid indices only) -----------
+    #### rho: weighted vertex source (scatter-add, valid indices only)
     rho = np.zeros(nV, dtype=_f64)
     valid = (ti >= 0) & (ti < nV)
     np.add.at(rho, ti[valid], tw[valid] * vw[ti[valid]])
 
-    # --- psi = B1^T L0^+ rho : one LSQR solve, exact nullspace deflation ----------
+    #### psi = B1^T L0^+ rho : one LSQR solve, exact nullspace deflation
     y = _l0_pinv_matvec(L0, rho)           # y = L0^+ rho  (in range(L0))
     psi = B1.T @ y                          # nE
     sig_mag = float(np.linalg.norm(psi))
     if self_target:
         target = psi
 
-    # --- channel scores ----------------------------------------------------------
+    #### channel scores
     # I_T = target^T S_T psi = (B1 target)^T L0^+ (B1 psi) = (B1 target)^T y
     # (since L0^+ (B1 psi) = L0^+ L0 y = y; y already deflated onto range(L0)).
     u = B1 @ target                         # nV
@@ -236,12 +236,12 @@ def build_interfacing_bundle_sparse(rex, target_indices, target_weights,
     I_G = float(target @ (L_O @ psi))
     I_F = float(target @ (L_SG @ psi))
 
-    # --- schrodinger + coverage (genuinely spectral over the RL edge spectrum) ----
+    #### schrodinger + coverage (genuinely spectral over the RL edge spectrum)
     evals_rl, evecs_rl = _rl_spectrum(rex)
     pf_val = 1.0 / (float(nV) ** 3) if nV > 0 else 1e-10
     sch, cov = _schrodinger_and_coverage(psi, target, evals_rl, evecs_rl, pf_val)
 
-    # --- assemble ---------------------------------------------------------------
+    #### assemble
     iv_raw = np.array([I_T, I_G, I_F, sch], dtype=_f64)
     norm = float(np.linalg.norm(iv_raw))
     sp_pos = iv_raw / norm if norm > 1e-30 else iv_raw.copy()

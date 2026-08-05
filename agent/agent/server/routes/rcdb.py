@@ -155,27 +155,54 @@ async def db_similar(body: dict = Body(...)):
 
 @router.post("/record-work")
 async def db_record_work(body: dict = Body(...)):
-    """Store a pipeline run or conversation as a complex in the RCDB, so the
-    platform's own work is queryable structure. Body:
-    {kind: 'pipeline-run'|'conversation', labels, edges?, id?, lineage_id?, tags?}.
+    """Record one state of the platform's own work.
+
+    Body: {kind: 'pipeline-run'|'conversation', labels, edges?, lineage_id?, tags?,
+    when?}. The lineage is one record holding a TemporalRex: each call appends a
+    step and stores it as the next version, so the state has both a version and a
+    position in time.
+
+    Calling this route records. The `record_work` workspace setting governs what the
+    platform records BY ITSELF as you use it; a client posting here is asking, and
+    an explicit request does not need the automatic switch to be on.
     """
-    from agent import lineage_adapters as la
-    kind = body.get("kind", "pipeline-run")
+    from agent import work_recorder as wr
     labels = body.get("labels") or []
     if not labels:
         raise HTTPException(400, "Provide 'labels' (stages or turns)")
-    build = la.conversation_to_rex if kind == "conversation" else la.run_to_rex
-    rex, meta = build(labels, edges=body.get("edges"))
-    if rex is None:
-        raise HTTPException(400, "Need at least two connected nodes to form a complex")
-    tags = (body.get("tags") or []) + [kind]
-    if body.get("lineage_id"):
-        from agent.rcdb import put_version
-        info = put_version(_store(), body["lineage_id"], rex, meta=meta, tags=tags)
-        return {"stored": info["id"], "version": info}
-    rid = body.get("id") or f"{kind}-{int(__import__('time').time())}"
-    _store().put(rid, rex, meta=meta, tags=tags)
-    return {"stored": rid}
+    kind = body.get("kind", "pipeline-run")
+    if kind not in wr.KINDS:
+        raise HTTPException(400, f"kind must be one of: {', '.join(wr.KINDS)}")
+    lineage_id = body.get("lineage_id") or body.get("id")
+    if not lineage_id:
+        raise HTTPException(400, "Provide 'lineage_id' (the run or session this belongs to)")
+    info = wr.record(kind, labels, lineage_id=lineage_id,
+                     workspace=body.get("workspace", "default"),
+                     edges=body.get("edges"), tags=body.get("tags"),
+                     when=body.get("when"), force=True)
+    if info is None:
+        return {"recorded": False, "reason": "need at least two states to relate"}
+    return {"recorded": not info.get("unchanged"), **info}
+
+
+@router.get("/recorded")
+async def db_recorded(workspace: str = "default", kind: str = None):
+    """The lineages recorded from this platform's own work, newest first."""
+    from agent import work_recorder as wr
+    return {"lineages": wr.recorded(workspace=workspace, kind=kind)}
+
+
+@router.get("/recorded/{lineage_id}/at")
+async def db_recorded_at(lineage_id: str, when: float):
+    """The recorded state current at a moment: its position in the temporal rex and
+    the complex reconstructed there."""
+    from agent import work_recorder as wr
+    step, rex = wr.state_at(lineage_id, when)
+    if step is None:
+        raise HTTPException(404, "No recorded state at or before that moment")
+    from agent.rcdb import structural_signature
+    return {"lineage_id": lineage_id, "step": step, "when": when,
+            "signature": structural_signature(rex)}
 
 
 @router.get("/lineage/{lineage_id}")

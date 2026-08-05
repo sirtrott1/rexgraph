@@ -20,8 +20,8 @@ they are kept for reference and for cases where the default path is a poor fit.
 
 - ``_cheb_apply`` / ``_spectral_bounds``: apply a general analytic f(L) to a dense
   block via a Chebyshev polynomial of sparse mat-vecs (no eigendecomposition), plus
-  cheap Lanczos spectral bounds. Still LIVE building blocks - referenced by graph.py's
-  Chebyshev heat responses - kept here as the shared primitive.
+  cheap Lanczos spectral bounds. Still LIVE building blocks, referenced by graph.py's
+  Chebyshev heat responses, kept here as the shared primitive.
 
 - ``chebyshev_diag`` / ``heat_propagator_diag``: **DEPRECATED / retired.** These chased
   diag(e^{-tL}) on the EDGE space - the diagonal of a general matrix function, which
@@ -51,7 +51,7 @@ def _hutchinson_phi(apply_rl, apply_hat, active_names, Bs, dinv, nhats,
                     uniform, n_probe=400, seed=0):
     """Vertex character via Hutchinson diagonal estimation (reference Part VII):
     diag(B1 RL^-1 ĥ_k RL^-1 B1^T) and diag(B1 RL^-1 B1^T) from O(n_probe)
-    matrix-free solves for ALL vertices at once - independent of nV. Stochastic
+    matrix-free solves for ALL vertices at once, independent of nV. Stochastic
     (~1/sqrt(n_probe) relative error), UNIFORM at every scale (not a size-gated
     fallback). The default character path is exact block-CG; this is a preserved
     alternative for when an approximate-but-cheap character is explicitly wanted."""
@@ -110,7 +110,7 @@ _DEPRECATION_MSG = (
 def chebyshev_diag(matvec, n, func, lam_max, lam_min=0.0, order=48,
                    mode='exact', n_probe=256, seed=0):
     """DEPRECATED. diag(func(L)) for a GENERAL analytic f via a Chebyshev polynomial of
-    L applied by sparse mat-vecs - no eigendecomposition (Part A.3, script 13).
+    L applied by sparse mat-vecs: no eigendecomposition (Part A.3, script 13).
 
     Superseded by Dirac state propagation (see the module docstring and
     :data:`_DEPRECATION_MSG`). Still returns correct numbers so existing imports keep
@@ -150,7 +150,7 @@ def _chebyshev_diag_impl(matvec, n, func, lam_max, lam_min=0.0, order=48,
 
 
 def _spectral_bounds(R, n):
-    """Cheap (Lanczos) estimates of (λ_min, λ_max) of symmetric R - a few mat-vecs,
+    """Cheap (Lanczos) estimates of (λ_min, λ_max) of symmetric R: a few mat-vecs,
     NOT a full eigendecomposition. Falls back to Gershgorin if Lanczos is unavailable
     or the operator is tiny."""
     gersh = float(np.asarray(np.abs(R).sum(axis=1)).ravel().max()) if n else 1.0
@@ -172,7 +172,7 @@ def heat_propagator_diag(RL4, t, lam_max=None, order=48, mode='exact'):
     """DEPRECATED. diag(e^{-t·RL4}) via the Chebyshev heat propagator (general-f, no
     exact O(nnz) form).
 
-    Superseded by Dirac state propagation - use
+    Superseded by Dirac state propagation. Use
     ``rexgraph.dirac_propagator.SparseDirac.light`` / ``dirac_light`` for grade-crossing
     heat transport, and ``scale_propagator.energy_character`` (short time) +
     ``scale_propagator.harmonic_entropy`` for the exact O(nnz) local heat moments.

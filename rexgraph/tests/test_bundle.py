@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.bundle -- .rex bundle format.
+Tests for rexgraph.io.bundle: .rex bundle format.
 
 No heavy dependencies (only numpy and json). Uses temporary directories.
 

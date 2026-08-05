@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.csv_loader -- CSV edge list loading and column classification.
+Tests for rexgraph.io.csv_loader: CSV edge list loading and column classification.
 
 No heavy dependencies (only csv, numpy). Tests use temporary CSV files.
 

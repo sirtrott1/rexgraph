@@ -25,7 +25,7 @@ class RexState:
     header: dict = field(default_factory=dict)   # KB json safe: version, types, roles, nested names
 
 
-# --- the one name codec ---
+#### the one name codec
 #
 # Containers reserve different characters: a hierarchy backend (.rex, hdf5, zarr) cannot
 # hold '/' in a name, a filesystem path additionally cannot hold '\@:*?"<>|', and
@@ -64,7 +64,7 @@ def fname_decode(name: str) -> str:
     return decode_name(name, RESERVED_HIERARCHY)
 
 
-# --- ragged, string, and metadata packing helpers (binary, no JSON of data) ---
+#### ragged, string, and metadata packing helpers (binary, no JSON of data)
 def _pack_strings(strings):
     """Pack a list of strings into (utf8 bytes uint8 tensor, int64 offsets)."""
     enc = [s.encode("utf-8") for s in strings]
@@ -112,7 +112,7 @@ def _unpack_w_boundary(kt, offs, vt, st=None) -> dict:
     return out
 
 
-# --- the canonical (de)serializer ---
+#### the canonical (de)serializer
 def to_state(rex) -> RexState:
     t, h = {}, {"format_version": FORMAT_VERSION, "object_type": "RexGraph"}
     h["nV"], h["nE"], h["nF"] = int(rex._nV), int(rex._nE), int(rex._nF)
@@ -235,6 +235,15 @@ def from_state(state: RexState):
     h, t = state.header, state.tensors
     ver = h.get("format_version")
     if ver != FORMAT_VERSION:
+        # A bundle written before the canonical rex-state carried its version under
+        # "version" and named its arrays differently. Say that, rather than report
+        # a version of None, so the reader knows the file is old and not corrupt.
+        if ver is None and "version" in h:
+            raise ValueError(
+                f"this bundle was written by an older version of rexgraph "
+                f"(manifest version {h['version']!r}, no format_version) and cannot "
+                f"be read by the current reader, which expects format_version "
+                f"{FORMAT_VERSION}. Rebuild it from its source.")
         raise ValueError(f"unsupported rex state format_version {ver!r} (expected {FORMAT_VERSION})")
     kw = {"boundary_ptr": t["boundary_ptr"], "boundary_idx": t["boundary_idx"],
           "directed": h.get("directed", False), "g_channel": h.get("g_channel", "raw")}
@@ -249,6 +258,14 @@ def from_state(state: RexState):
         kw["w_boundary"] = _unpack_w_boundary(t["wb_keys"], t["wb_offsets"], t["wb_values"],
                                               t.get("wb_scalar"))
     rex = RexGraph(**kw)
+    # Honour the recorded vertex count. The boundary arrays only witness vertices
+    # that carry a relation, so a 0-cell incident to nothing is invisible to them
+    # and the constructor sizes below it. The header already records nV; dropping it
+    # here meant an isolated vertex survived in memory and vanished on reload, which
+    # moved beta_0 across a save.
+    n_declared = int(h.get("nV", 0) or 0)
+    if n_declared > rex.nV:
+        rex._nV = n_declared
     # grades >= 3: restore the graded duals so grade-general homology round-trips
     n_gd = int(h.get("n_graded_duals", 0))
     if n_gd:

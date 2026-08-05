@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._fiber -- fiber character and similarity complex.
+Tests for rexgraph.core._fiber: fiber character and similarity complex.
 
 Verifies:
     - chi_cosine: symmetric, diagonal 1, values in [0, 1] for nonneg chi

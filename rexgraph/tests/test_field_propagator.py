@@ -119,8 +119,7 @@ def test_graded_3rex_field_runs_and_matches_dense():
     np.testing.assert_allclose(fp.field_heat(g, F0, 0.4), _dense_heat(w, V, F0, 0.4), atol=1e-10)
 
 
-# -- tensor METRIC: weighted graded inner product W (sqrt-w default, SPD override) --
-
+#### tensor METRIC: weighted graded inner product W (sqrt-w default, SPD override)
 from scipy.linalg import expm as _expm
 
 

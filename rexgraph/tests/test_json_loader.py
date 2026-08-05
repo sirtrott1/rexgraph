@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.json_loader -- JSON graph format loaders.
+Tests for rexgraph.io.json_loader: JSON graph format loaders.
 
 No heavy dependencies. Tests use temporary JSON files.
 

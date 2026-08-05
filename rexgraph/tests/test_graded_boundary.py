@@ -15,10 +15,9 @@ import pytest
 import rexgraph.graded_boundary as gb
 from rexgraph.graph import RexGraph
 
-# ---------------------------------------------------------------------------
+#### -
 # build_graded_boundaries: arity, signs, d^2 = 0
-# ---------------------------------------------------------------------------
-
+#### -
 def test_mixed_arity_edges_positional_signs():
     """Witness (nnz=1), pairwise (nnz=2) and branching (nnz=3) edges in one grade,
     with positional signs (first -1, rest +1)."""
@@ -78,10 +77,9 @@ def test_mixed_ngon_faces_chain_condition():
     assert ok and res == 0.0
 
 
-# ---------------------------------------------------------------------------
+#### -
 # grade-3 complexes: B1B2 = 0, B2B3 = 0, Betti numbers
-# ---------------------------------------------------------------------------
-
+#### -
 @pytest.mark.parametrize("builder,expect", [
     (gb.solid_octahedron_3rex, dict(nV=6, nE=12, nF=8, arities={3})),
     (gb.square_pyramid_3rex, dict(nV=5, nE=8, nF=5, arities={3, 4})),
@@ -130,10 +128,9 @@ def test_octahedron_shell_is_2sphere():
     assert gb.betti_numbers(B_shell) == [1, 0, 1]
 
 
-# ---------------------------------------------------------------------------
+#### -
 # graded_laplacians
-# ---------------------------------------------------------------------------
-
+#### -
 def test_graded_laplacians_shapes_and_psd():
     """Per-grade Hodge Laplacians L_0..L_G have the right shapes and are symmetric
     PSD; harmonic dimension (ker L_g) matches Betti."""
@@ -152,10 +149,9 @@ def test_graded_laplacians_shapes_and_psd():
         assert nker == betti[g]                           # ker L_g == beta_g
 
 
-# ---------------------------------------------------------------------------
+#### -
 # RexGraph.from_cells: round-trip and graded_boundaries contract
-# ---------------------------------------------------------------------------
-
+#### -
 def test_from_cells_matches_from_simplicial_single_triangle():
     src = np.array([0, 1, 0]); tgt = np.array([1, 2, 2])
     tris = np.array([[0, 1, 2]])
@@ -220,10 +216,9 @@ def test_from_cells_respects_isolated_vertex_count():
     assert r.graded_boundaries()[0].shape == (5, 2)
 
 
-# ---------------------------------------------------------------------------
+#### -
 # Back-compat: classic constructors -> correct graded_boundaries
-# ---------------------------------------------------------------------------
-
+#### -
 def test_hypergraph_is_1rex():
     he_idx = np.array([0, 1, 2, 0, 1, 1, 2], dtype=np.int64)
     he_ptr = np.array([0, 3, 5, 7], dtype=np.int64)

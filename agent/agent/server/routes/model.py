@@ -244,7 +244,7 @@ async def model_generate(
                                         logprobs.append(float(v))
                         except Exception:
                             pass
-            # final metrics frame - token tier only (free); no per-reply complex build
+            # final metrics frame, token tier only (free); no per-reply complex build
             if logprobs:
                 try:
                     from agent.metrics import token_metrics
@@ -277,7 +277,7 @@ async def model_generate(
             text = sanitize_model_response(text)
 
             # Metrics on the reply. Token metrics (perplexity/varentropy) are ~free -
-            # extracted from the logprobs the model already returned - so always on.
+            # extracted from the logprobs the model already returned, so always on.
             # The structural tier (build the reply's own complex, ~250 ms) is opt-in
             # via include_structural, so we never pay it on every reply.
             from agent.metrics import reply_metrics
@@ -414,7 +414,7 @@ async def local_runtime_status():
 
 @router.get("/model/local/discover")
 async def local_runtime_discover():
-    """Auto-detect models already on disk - GGUF files (llama.cpp-loadable) and HF
+    """Auto-detect models already on disk: GGUF files (llama.cpp-loadable) and HF
     transformers snapshots (vLLM/transformers) across the common toolchain locations
     (HF cache, ollama, LM Studio, ~/models, our pull dir, + REXGRAPH_MODEL_DIRS)."""
     from agent import local_runtime
@@ -426,7 +426,7 @@ async def local_runtime_discover():
 async def local_runtime_endpoints():
     """Probe LIVE inference servers running on this host (Ollama / vLLM / llama.cpp /
     LM Studio / TGI on well-known ports + REXGRAPH_PROBE_URLS). Returns the reachable
-    ones and the model ids each is serving - real backends the swarm can wire to."""
+    ones and the model ids each is serving, the real backends the swarm can wire to."""
     from agent import local_runtime
     return {"endpoints": local_runtime.probe_endpoints(),
             "probed": [t["url"] for t in local_runtime._default_probe_targets()]}

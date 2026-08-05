@@ -1,5 +1,5 @@
 """
-relational_attention - attention as a propagator on a content-weighted token complex,
+relational_attention: attention as a propagator on a content-weighted token complex,
 built on the eigen-free rcf_torch primitives.
 
 Standard attention forms softmax(QKᵀ), a dense metric object, and uses it directly as the
@@ -18,7 +18,7 @@ collision-vs-diffusion gap) are computed readouts. `t` (propagation scale) is le
 topology is multi-hop, gradient⊕curl.
 
 v1 stores the T×T content-affinity like standard attention does, but the mixing operator is
-matrix-free; the fully sparse (scatter, no T×T) path uses rcf_torch.cheb_apply_op - see the
+matrix-free; the fully sparse (scatter, no T×T) path uses rcf_torch.cheb_apply_op, see the
 cost study in agent.benchmarks. torch is optional; import guarded at use.
 """
 from __future__ import annotations
@@ -131,7 +131,7 @@ class PropagatorAttention(_Base):
 
 
 class CausalPropagatorAttention(_Base):
-    """Causal relational attention - the decoder-LM form, where causality, sparsity, and
+    """Causal relational attention: the decoder-LM form, where causality, sparsity, and
     multi-hop propagation are one structural choice.
 
     A causal, windowed prior-token neighborhood is simultaneously the causal mask and the

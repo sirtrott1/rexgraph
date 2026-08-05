@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._state -- rex state representation and signal operations.
+Tests for rexgraph.core._state: rex state representation and signal operations.
 
 Verifies:
     - Signal norms: L1, L2, Linf correct values

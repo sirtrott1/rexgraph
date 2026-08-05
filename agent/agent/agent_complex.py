@@ -271,7 +271,7 @@ class DriftTracker:
         return round(self._slope(self._strain), 4)
 
     def drifting(self, *, curv_rise: float = 0.05, align_fall: float = -0.05) -> list[str]:
-        """Agents whose curvature is trending up or alignment trending down over the window - the
+        """Agents whose curvature is trending up or alignment trending down over the window: the
         ones starting to detract from the swarm."""
         return [a for a, s in self.trends().items()
                 if s["n"] >= 2 and (s["curvature_slope"] > curv_rise

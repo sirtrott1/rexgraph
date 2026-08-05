@@ -101,8 +101,7 @@ class OutputGuard:
             yield acc, new
 
 
-# --- presets ------------------------------------------------------------------
-
+#### presets
 RELATIONAL_COMPLEX_RULES = [
     # "(es|)" rather than "(es)?" so the group always participates and the fix template
     # can echo it back; an optional group that does not match makes m.expand raise.

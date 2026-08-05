@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._hypermanifold -- filtered manifold sequence.
+Tests for rexgraph.core._hypermanifold: filtered manifold sequence.
 
 Verifies:
     - Manifold sequence: correct levels, cell counts, Betti numbers

@@ -18,7 +18,7 @@ All quantities here are O(nnz) trace/row reductions or exact fixed-tolerance
 solves; none forms a dense nE×nE operator, calls an eigensolver, or branches to a
 stochastic estimate by size. (The general-f Chebyshev matrix-function diagonal -
 diag(e^{-tL}) for arbitrary t has no exact O(nnz) form and is a dense-or-stochastic
-estimator - lives in rexgraph._experimental, off every live path.)
+estimator, lives in rexgraph._experimental, off every live path.)
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ _f64 = np.float64
 # GPU auto-gate: a Chebyshev apply goes to the GPU only when the work n*order*columns
 # clears this bound (below it, host<->device transfer outweighs the on-device speedup).
 # Default ~4.2M is the measured CPU/GPU crossover on the Strix Halo iGPU; tune per host
-# via the REXGRAPH_GPU_MIN_WORK env var. The RESULT is identical either way - this is a
+# via the REXGRAPH_GPU_MIN_WORK env var. The RESULT is identical either way. This is a
 # pure performance gate, never a correctness one.
 import os as _os
 
@@ -117,7 +117,7 @@ def reliability_gap(X):
     when the cheap value suffices."""
     orders = np.array([2, 3, 4, 5])
     # one shared power walk gives every order's moment (script 16/18/19); the Rényi curve reads off
-    # it - no per-order recomputation, no need to parallelize redundant work.
+    # it: no per-order recomputation, no need to parallelize redundant work.
     tr = trace_moments(X, int(orders.max()))
     Ha = np.array([renyi_from_moments(tr, int(a)) for a in orders])
     # quadratic fit of the Rényi curve H_a vs a, extrapolated to a->1 (Shannon)
@@ -127,7 +127,7 @@ def reliability_gap(X):
             'shannon_est': shannon_est, 'gap': float(shannon_est - H2)}
 
 
-# -- multi-GPU column tiling (embarrassingly parallel over RHS columns) -----------
+#### multi-GPU column tiling (embarrassingly parallel over RHS columns)
 # The GPU propagators/solvers apply ONE shared sparse operator to a BLOCK of RHS columns
 # (state is nE x ncols). Splitting the COLUMN block across GPUs is exact and independent:
 # the operator is IDENTICAL on every device (replicated), only the RHS columns are
@@ -182,11 +182,11 @@ def _partition_columns(ncols, nparts):
 
 def _tile_columns_across_gpus(kernel, ncols, devices, axis=1):
     """Partition range(ncols) into len(devices) balanced contiguous tiles, invoke
-    `kernel(device, col_start, col_stop)` for each tile - each on its own GPU - CONCURRENTLY
+    `kernel(device, col_start, col_stop)` for each tile (each on its own GPU) CONCURRENTLY
     (torch device ops release the GIL, so a thread pool gives real per-device parallelism),
     then concatenate the per-tile numpy results along `axis`. Exact by construction: the
     operator is identical on every device, the column tiles are disjoint and order-preserving,
-    so the concatenation equals the single untiled call. `kernel` is device-agnostic - it may
+    so the concatenation equals the single untiled call. `kernel` is device-agnostic: it may
     ignore `device` and run on the CPU, which is how the tiling math is validated without 2
     physical GPUs (see rexgraph/tests/test_multigpu_dispatch.py)."""
     parts = _partition_columns(ncols, len(devices))
@@ -326,11 +326,11 @@ def _block_cg_gpu_multi(R, B, dinv, devices, tol, maxit):
 def greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
     """diag(RL4⁻¹) EXACT via block-CG solves of RL4·X = I (RL4/RL3 is SPD, trace-
     normalized and well-conditioned). One algorithm at every scale: each solve runs
-    to a FIXED residual tolerance - accuracy is scale-independent, and only the
+    to a FIXED residual tolerance, so accuracy is scale-independent, and only the
     iteration count and the number of identity columns grow with size (more
     compute/memory, never less accuracy). `chunk` tiles the columns purely to bound
     peak memory; it does not change the result. Returns f64[nE]. (The resolvent as a
-    Chebyshev matrix-function - a general-f estimator, not exact - is preserved in
+    Chebyshev matrix-function (a general-f estimator, not exact) is preserved in
     rexgraph._experimental.)"""
     from rexgraph.sparse_character import _block_cg
     R = _csr(RL4)
@@ -435,7 +435,7 @@ def _greens_diagonal_lsqr(L, tol=1e-10):
     """diag(L⁺) for a symmetric PSD L (possibly SINGULAR) with NO kernel basis needed:
     per column, x = lsqr(L, e_i) is the minimum-norm least-squares solution = L⁺ e_i
     (LSQR projects off ker(L) exactly), so diag(L⁺)[i] = x_i. Exact to LSQR tolerance and
-    kernel-robust - the correctness fallback when a supplied harmonic basis is invalid
+    kernel-robust: the correctness fallback when a supplied harmonic basis is invalid
     (e.g. the pairwise cycle basis on branching hyperedges). O(n) solves; the deflation
     path is preferred when a VALID kernel basis is available (block solves, cheaper)."""
     import scipy.sparse.linalg as sla
@@ -449,8 +449,7 @@ def _greens_diagonal_lsqr(L, tol=1e-10):
     return diag
 
 
-# -- Malaugh action <-> moment calculus across a scale tower (oracle 16) ----------
-
+#### Malaugh action <-> moment calculus across a scale tower (oracle 16)
 def action_moment(X):
     """The Malaugh calculus: action <-> moment across a scale tower (oracle 16;
     rcfe_final-5 sec 21.3-21.6). Given a tower of scale-indexed moments
@@ -463,7 +462,7 @@ def action_moment(X):
     returns the tower (np.diff(S) == X[1:]) while the partial sums of the moment telescope
     back to X (X[k] = X[0] + sum_{j<k} DX(j)). Watching both across the tower shows the
     transformation the doc describes: the energy action ACCELERATES (moment grows), the
-    entropy action CONVERGES (moment shrinks). Pure O(len), no eigendecomposition - the
+    entropy action CONVERGES (moment shrinks). Pure O(len), no eigendecomposition: the
     X(k) are the edge-space trace / harmonic-log moments from `malaugh_quantities`.
     Returns {'moment': DX (len-1 along axis 0), 'action': S (same length as X)}."""
     X = np.asarray(X, dtype=_f64)
@@ -501,13 +500,13 @@ def malaugh_quantities(rex):
     }
 
 
-# -- eigen-free heat propagation of SIGNALS (Chebyshev matrix-vector) -------------
-# Applying e^{-tL} to a signal is O(nnz*K) via a Chebyshev polynomial of L -- exact
+#### eigen-free heat propagation of SIGNALS (Chebyshev matrix-vector)
+# Applying e^{-tL} to a signal is O(nnz*K) via a Chebyshev polynomial of L: exact
 # to the polynomial order, ANY t, NO eigendecomposition. (Only the DIAGONAL of
-# e^{-tL} lacks an exact O(nnz) form; the vector/state apply does not -- same insight
+# e^{-tL} lacks an exact O(nnz) form; the vector/state apply does not. Same insight
 # as the sparse Dirac. This is the reusable heat primitive for _signal, the field
 # evolvers, and the NN/LM layer.) Shape: L is symmetric PSD sparse (a Hodge/graph
-# Laplacian); f is (n,) or a block (n, m). Every step is spmv/spmm + a small gemm --
+# Laplacian); f is (n,) or a block (n, m). Every step is spmv/spmm + a small gemm,
 # the ideal multi-core / GPU shape; the mat-vec is `L @ x`, swappable for a
 # compute.dispatch('spmv', ...) backend later without touching callers.
 
@@ -567,7 +566,7 @@ def _heat_order(t, lam_max, given):
 
 def matfunc_apply(L, f, func, order, lam_max=None, backend=None):
     """Apply a GENERAL matrix function func(L) to a signal/block f via a Chebyshev
-    polynomial of L -- O(nnz*order) sparse mat-vecs, NO eigendecomposition. `func` maps
+    polynomial of L: O(nnz*order) sparse mat-vecs, NO eigendecomposition. `func` maps
     eigenvalues (samples in [0, lam_max]) to scalars: e.g. `lambda l: exp(-t*l)` (heat),
     `lambda l: cos(t*sqrt(l))` (wave), `lambda l: 1/(l+s)` (shifted resolvent). L is
     symmetric with spectrum in [0, lam_max]; f is (n,) or a block (n, m). This is the
@@ -659,7 +658,7 @@ def _matfunc_gpu_multi(L, f, coeffs, lam_max, order, devices):
     """Multi-GPU Chebyshev apply: replicate the operator to each device, partition the column
     block of f across `devices`, run the GPU-resident `_matfunc_gpu` on each device's column
     tile, and concatenate. The Chebyshev polynomial is a fixed, data-independent recurrence per
-    column, so the tiled result is BIT-IDENTICAL to the single-device call - only the columns
+    column, so the tiled result is BIT-IDENTICAL to the single-device call: only the columns
     are partitioned; the operator and coefficients are the same on every device."""
     R = _csr(L)
     fa = np.asarray(f, dtype=_f64)
@@ -675,7 +674,7 @@ def _matfunc_gpu_multi(L, f, coeffs, lam_max, order, devices):
 def matfunc_trajectory(L, f, funcs, order, lam_max=None):
     """[func(L) f for func in funcs] sharing ONE set of Chebyshev vectors V_k=T_k(L~)f
     (order sparse mat-vecs TOTAL). Each func is a coefficient combination Sum_k c_k V_k
-    -- a (len(funcs) x order) @ (order x ...) gemm. Returns (len(funcs),) + f.shape."""
+    as a (len(funcs) x order) @ (order x ...) gemm. Returns (len(funcs),) + f.shape."""
     if lam_max is None:
         lam_max = _gershgorin_bound(L) * 1.0001 + 1e-30
     order = int(order)
@@ -746,7 +745,7 @@ def schrodinger_trajectory(L, psi, times, order=None, lam_max=None):
 
 
 def heat_apply(L, f, t, order=None, lam_max=None, backend=None):
-    """e^{-tL} f via a Chebyshev polynomial of L -- O(nnz*order) sparse mat-vecs, no
+    """e^{-tL} f via a Chebyshev polynomial of L: O(nnz*order) sparse mat-vecs, no
     eigendecomposition, any t >= 0. L symmetric PSD sparse; f is (n,) or (n, m).
     Matches the dense e^{-tL} apply to Chebyshev tolerance. Runs on CPU or (via
     `backend` / the compute default) GPU-resident. Returns f-shaped array.
@@ -762,7 +761,7 @@ def heat_trajectory(L, f, times, order=None, lam_max=None):
     """[e^{-tL} f for t in times] sharing ONE set of Chebyshev vectors V_k = T_k(L~)f:
     `order` sparse mat-vecs TOTAL (not per-t), then each timestep is a coefficient
     combination Sum_k c_k(t) V_k. The mat-vecs are spmv/spmm (multi-core/GPU) and the
-    per-t combination is a (T x order) @ (order x ...) gemm -- both dispatchable.
+    per-t combination is a (T x order) @ (order x ...) gemm. Both are dispatchable.
     Returns an array of shape (len(times),) + f.shape."""
     times = np.asarray(times, dtype=_f64).ravel()
     if lam_max is None:

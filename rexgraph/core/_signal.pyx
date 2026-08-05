@@ -453,7 +453,7 @@ def face_emergence(np.ndarray[f64, ndim=2] trajectory,
 
     A face is active at timestep t when the minimum |signal| across
     all its boundary edges exceeds the threshold. This models face
-    "emergence" -- a higher-order structure becomes active when all
+    "emergence": a higher-order structure becomes active when all
     its constituent edges are active.
 
     Parameters

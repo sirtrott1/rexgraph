@@ -199,7 +199,7 @@ def find_running_server() -> str | None:
     if pid and process_alive(pid):
         return f"http://localhost:{port}"
 
-    # PID file exists but process is dead - clean up
+    # PID file exists but the process is dead, so clean up
     clear_pid()
     return None
 

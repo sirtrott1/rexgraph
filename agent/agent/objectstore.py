@@ -8,7 +8,7 @@ the same code path as S3 rather than a stand-in for it.
 
 Object storage cannot append, so RexStore's single growing log is the wrong shape.
 What object stores ARE good at is many immutable objects and a cheap prefix listing,
-so the journal is segmented -- one small object per change -- and the blobs are one
+so the journal is segmented (one small object per change) and the blobs are one
 object each:
 
     <root>/MANIFEST.json          format version
@@ -59,7 +59,7 @@ SCHEMES = ("s3", "gs", "gcs", "az", "abfs", "adl", "memory", "file")
 
 def _fs_for(uri: str):
     """The fsspec filesystem and root path for a URI, with a legible error when the
-    provider's driver is missing -- 'install s3fs' beats an ImportError from three
+    provider's driver is missing: 'install s3fs' beats an ImportError from three
     frames down."""
     try:
         import fsspec
@@ -92,8 +92,7 @@ class ObjectStore(RCStore):
         self._ensure_manifest()
         self._load()
 
-    # --- layout ---------------------------------------------------------------
-
+    #### layout
     def _p(self, *parts) -> str:
         return posixpath.join(self.root, *parts)
 
@@ -113,8 +112,7 @@ class ObjectStore(RCStore):
     def _blob_key(self, id: str, version: int) -> str:
         return self._p(BLOBS, f"{self._safe(id)}@{version}.safetensors")
 
-    # --- load -----------------------------------------------------------------
-
+    #### load
     def _load(self) -> None:
         snapshot_seq = -1
         path = self._p(SNAPSHOT)
@@ -182,8 +180,7 @@ class ObjectStore(RCStore):
         with self.fs.open(key, "wb") as fh:
             fh.write(dumps(entry).encode("utf-8"))
 
-    # --- writes ---------------------------------------------------------------
-
+    #### writes
     def next_version(self, id):
         return (self._recs[id][-1].version + 1) if self._recs.get(id) else 1
 
@@ -221,8 +218,7 @@ class ObjectStore(RCStore):
         self._emit("rcdb.delete", id, 0, {})
         return True
 
-    # --- reads ----------------------------------------------------------------
-
+    #### reads
     def history(self, id):
         return list(self._recs.get(id, []))
 

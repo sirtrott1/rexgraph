@@ -10,9 +10,12 @@ Classifies user intent and dispatches:
 from __future__ import annotations
 
 import json
+import logging
 
 import numpy as np
 from fastapi import APIRouter, Body
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -25,7 +28,7 @@ _SAFE_PROPERTIES = frozenset({
 
 
 def _get_tracker(session_id: str, ws=None):
-    """Get conversation tracker - workspace-scoped if available, session-scoped fallback."""
+    """Get conversation tracker, workspace-scoped if available, session-scoped fallback."""
     if ws is not None:
         return ws.get_tracker(session_id)
     from agent.conversation import ConversationTracker
@@ -224,7 +227,7 @@ async def chat(session_id: str, body: dict = Body(...)):
     if rex is None:
         return {
             "response": "No document loaded in this session. Upload a file "
-            "through the Pipeline tab first, then come back to chat - I'll "
+            "through the Pipeline tab first, then come back to chat. I'll "
             "be able to answer questions using the structural analysis.",
             "session_id": session_id,
         }
@@ -342,7 +345,7 @@ async def chat(session_id: str, body: dict = Body(...)):
             "exchange_edges": ex_result.n_exchange_edges,
             "kappa": ex_result.kappa_mean,
         }
-        # Per-message metrics - token (from the reply's logprobs, if the model path
+        # Per-message metrics: token (from the reply's logprobs, if the model path
         # ran) + structural (the reply's own complex) + fluent-but-hollow advisory -
         # attached to THIS message and stored on the exchange, so returning to any
         # point in the conversation shows its metrics, and the session trend fills in.
@@ -368,5 +371,19 @@ async def chat(session_id: str, body: dict = Body(...)):
                 response["persistent_entities"] = memory[:20]
     except Exception:
         pass
+
+    # Conversational memory: one step of this session's temporal rex per turn, when
+    # the workspace has asked for it. A recording failure is not a chat failure.
+    try:
+        from agent import work_recorder as wr
+        turns = []
+        for i, ex in enumerate(getattr(tracker, "exchanges", []) or []):
+            turns.append(f"{i}:{(getattr(ex, 'query', '') or '')[:60]}")
+        if len(turns) < 2:
+            turns = [f"{i}:turn" for i in range(max(2, len(turns)))]
+        wr.record("conversation", turns, lineage_id=f"chat:{session_id}",
+                  workspace=getattr(_ws, "name", "default") if _ws else "default")
+    except Exception:
+        logger.debug("conversation not recorded for %s", session_id, exc_info=True)
 
     return response

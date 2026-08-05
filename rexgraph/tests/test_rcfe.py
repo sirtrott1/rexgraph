@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._rcfe -- RCFE curvature, strain, and conservation laws.
+Tests for rexgraph.core._rcfe: RCFE curvature, strain, and conservation laws.
 
 Verifies:
     - Curvature: nonnegative, sums to nF, zero when nF=0

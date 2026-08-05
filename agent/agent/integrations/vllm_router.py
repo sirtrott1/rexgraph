@@ -1,5 +1,5 @@
 """
-vLLM prompt router - route prompts using structural character.
+vLLM prompt router: route prompts using structural character.
 
 Instead of using another LLM to decide which model handles a prompt,
 use math. Build a rex from the prompt's token relationships, compute
@@ -26,7 +26,7 @@ Usage:
     # -> ("reasoning", {"confidence": "HIGH", "dominant": "T", ...})
 
 Requirements: pip install rexgraph
-Note: Does NOT require vllm itself - the router just picks a model name.
+Note: Does NOT require vllm itself: the router just picks a model name.
       The caller handles inference with whatever serving framework they use.
 """
 
@@ -86,7 +86,11 @@ def _build_prompt_rex(tokens: list[str], window: int = 3):
 
     rex = RexGraph(sources=sources, targets=targets, w_E=weights)
 
-    rex = rex.typed_face_selection(types) if len(set(types.tolist())) > 1 else rex.promote()
+    # One rule, the canonical one. This branched on the number of edge types, so a
+    # single-type prompt got its whole cycle basis filled and a multi-type one got a
+    # type filter: two different complexes for the same shape of input.
+    from agent.auto import attach_faces
+    rex = attach_faces(rex, type_labels=types)
 
     return rex, vocab
 

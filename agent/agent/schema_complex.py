@@ -18,7 +18,7 @@ topology*:
   * Coherence + degree = structurally central tables ("god tables").
 
 Input can be a JSON spec, SQL DDL, or a live database (reflected via
-SQLAlchemy - so you can diagnose the schema of any database the RCDB
+SQLAlchemy, so you can diagnose the schema of any database the RCDB
 already talks to).
 """
 
@@ -180,7 +180,7 @@ def parse_schema_ddl(ddl: str, dialect: str | None = None) -> SchemaModel:
 
 
 def _split_top_level(body: str) -> list[str]:
-    """Split a CREATE TABLE body on top-level commas only - commas at paren
+    """Split a CREATE TABLE body on top-level commas only: commas at paren
     depth 0. A naive ``body.split(",")`` shreds parenthesised, comma-separated
     constraint lists (``PRIMARY KEY(a, b)``, ``FOREIGN KEY (x, y) REFERENCES
     t(p, q)``, ``UNIQUE (a, b)``) mid-list, dropping the constraint and leaving
@@ -462,7 +462,7 @@ def list_tables(conn_str: str, with_counts: bool = False) -> list[dict]:
 # schema -> relational complex
 
 def _associative_entities(model: SchemaModel) -> set:
-    """Tables whose identity *is* their relationships - associative /
+    """Tables whose identity *is* their relationships: associative /
     junction entities. Signal: a primary key composed of foreign-key
     columns, binding two or more parents. These are the cells that
     genuinely co-participate, so they license a co-participation face.
@@ -484,7 +484,7 @@ def _associative_entities(model: SchemaModel) -> set:
 
 def _coparticipation_b2(names, sources, targets, model):
     """Build co-participation faces as general **k-gons** via the B₂ boundary
-    matrix - not restricted to triangles.
+    matrix, not restricted to triangles.
 
     A face is the ``{0,1}⊗{+,-}`` column: participating edges (`{0,1}`) with
     an orientation sign (`{+,-}`), constrained by ∂₁∂₂ = 0 (a closed loop).
@@ -721,7 +721,7 @@ def explore_schema_faces(model: SchemaModel, modes=SCHEMA_FACE_SELECTIONS):
 def _find_cycles(names: list[str], edges: list[tuple[str, str]],
                  max_cycles: int | None = None) -> list[list[str]]:
     """Enumerate distinct directed cycles (up to `max_cycles`) via an ITERATIVE
-    colored DFS - an explicit stack, so deep schemas cannot raise RecursionError
+    colored DFS with an explicit stack, so deep schemas cannot raise RecursionError
     (Python's recursion limit is ~1000; reflected schemas can be deeper)."""
     if max_cycles is None:
         max_cycles = _TH.max_cycles
@@ -768,7 +768,7 @@ def topological_order(model: SchemaModel):
 
     For create/insert, a referenced (parent) table must exist before the
     referencing (child) table. Returns ``(order, relations_to_cut)``: a
-    topological order over the DAG part, plus a greedy feedback-arc set - the
+    topological order over the DAG part, plus a greedy feedback-arc set: the
     foreign keys to defer/cut so a strict linear order exists. This breaks
     EVERY cycle (harmonic AND bounded/curl), because any cycle blocks a total
     order; the harmonic fraction in the readout then says which of those cuts
@@ -790,7 +790,7 @@ def topological_order(model: SchemaModel):
     while remaining:
         ready = [n for n in remaining if remaining[n] <= resolved]
         if not ready:
-            # a cycle blocks progress - cut one feedback arc and continue
+            # a cycle blocks progress, so cut one feedback arc and continue
             node = min(remaining, key=lambda n: len(remaining[n] - resolved))
             unresolved = remaining[node] - resolved
             parent = sorted(unresolved)[0]
@@ -896,7 +896,7 @@ def _lagrangian_curvature(B1, B2, w):
     participation ratios (= e^{-H}) of the normalized spectrum, so they stay O(1)
     (no int64 overflow). c² = L_T/L_S = (k-2)/2 on Kₖ; curvature = |log c²| =
     |H_S - H_T| (direction-free). When the topology overwhelms the geometry (heavy
-    junctions, few cycles) the curvature is large - closing the gap the face-bound
+    junctions, few cycles) the curvature is large, closing the gap the face-bound
     curvatures leave on spans. The exact integer numerators tr(T²), tr(L₁²) are
     returned as L_T_trace/L_S_trace (unweighted: also c2_exact). c2 is None on a
     pure span (no geometry, L_S = 0); curvature stays large/finite there.
@@ -921,7 +921,7 @@ def _star_curvature(names, edges, w):
     """Per-vertex star curvature (grade-0 localization of R): the weight
     imbalance among each table's incident relations. Unlike face curvature
     (grades 1-2), this is a gradient-tower quantity that fires on spans/
-    junctions - it is nonzero exactly where a table's relations carry
+    junctions: it is nonzero exactly where a table's relations carry
     imbalanced cardinality. Returns a ranked [{table, strain}] list.
     """
     # Math moved to the core: rexgraph.core._curvature.star_curvature is a tight
@@ -982,7 +982,7 @@ def relation_lint(model: SchemaModel) -> dict[str, Any]:
             out["anomalies"].append(rec["relation"])
     fidx = 2 if chi.shape[1] > 2 else -1
     # Conflict tables = statistical OUTLIERS in the frustration channel (Tukey fence,
-    # data-adaptive - same principled test as the relation anomalies above), not a
+    # data-adaptive, the same principled test as the relation anomalies above), not a
     # fixed cutoff. `frustration_ranking` gives every table's exact value so the
     # caller sees the full distribution and can apply its own filter if desired.
     if fidx >= 0 and phi.shape[1] > 2 and phi.shape[0] >= len(names):
@@ -1040,7 +1040,7 @@ def schema_strain(model: SchemaModel, weights=None):
                 w[e] = max(float(weights[key]), 1e-9)
     # gradient-tower curvature localizations (fire on spans/junctions, unlike
     # the face-bound curvature below):
-    #   relation_load - per-edge fan-out (which relation)
+    #   relation_load: per-edge fan-out (which relation)
     #   table_strain  - per-vertex star curvature (which table is the hotspot)
     if np.any(np.abs(w - 1.0) > 1e-9):
         loads = sorted(
@@ -1310,7 +1310,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
         pass
 
     # table roles + impact (blast radius). The character gives each table a
-    # role; degree gives its blast radius - both in plain terms, no vectors.
+    # role; degree gives its blast radius, both in plain terms, no vectors.
     try:
         indeg = {n: 0 for n in names}
         outdeg = {n: 0 for n in names}
@@ -1367,7 +1367,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
             "tables": isolated,
         })
 
-    # descriptive state - a readout, not a judgment. Two INDEPENDENT axes, kept
+    # descriptive state: a readout, not a judgment. Two INDEPENDENT axes, kept
     # separate so they never contradict:
     #   * directed orderability - does a strict insert/delete order exist? That is
     #     purely the FK *dependency* structure: a valid order exists iff there are
@@ -1408,7 +1408,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
     report["readout"] = {
         "cycles_present": directed_cycles,
         # EXACT integer invariants (the decision basis):
-        "harmonic_dimension": harmonic_dim,        # β₁ - persistent unfilled cycles
+        "harmonic_dimension": harmonic_dim,        # β₁: persistent unfilled cycles
         "curl_dimension": curl_dim,                # rank(B₂) - face-filled cycles
         "directed_cut_size": len(cut),             # feedback arcs to reach a DAG
         # informative (flow-dependent) magnitudes, not decision thresholds:

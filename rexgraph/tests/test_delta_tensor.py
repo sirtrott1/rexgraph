@@ -1,6 +1,6 @@
 """The temporal delta tensor: existence and orientation as independent channels.
 
-A relational complex's entries are composite binary -- an existence condition in
+A relational complex's entries are composite binary: an existence condition in
 {0,1} and an orientation in {+1,-1}. They are independent: a cell can persist while
 its orientation reverses, which is a real event and not a weaker form of the cell
 appearing. Differencing each condition separately is what makes the history a
@@ -33,8 +33,7 @@ def _store(sign_history, nE=4):
     return tr
 
 
-# --- the churn counter --------------------------------------------------------
-
+#### the churn counter
 def test_orientation_churn_counts_toward_checkpoints():
     """200 reversals used to produce a single checkpoint (the seed), so the delta
     chain grew without bound and reconstruct_at replayed all of it."""
@@ -64,8 +63,7 @@ def test_checkpointing_does_not_change_what_is_reconstructed():
         assert got.ravel().tolist() == want, f"t={t}"
 
 
-# --- the tensor ---------------------------------------------------------------
-
+#### the tensor
 def test_orientation_reversal_is_recorded_as_an_orientation_event():
     tr = _store([[1, 1, 1, 1], [-1, 1, 1, 1]])
     d = tr.delta_tensor()
@@ -161,8 +159,7 @@ def test_dense_form_is_available_for_small_histories():
     assert dense[1, :, 1].sum() == -1
 
 
-# --- mutation as one event with a magnitude -----------------------------------
-
+#### mutation as one event with a magnitude
 def test_a_swap_sharing_a_vertex_is_one_mutation_not_two_events():
     """A cell dying as another is born, on the same vertices, is a topology
     mutating. Reading it as an unrelated death and an unrelated birth loses exactly

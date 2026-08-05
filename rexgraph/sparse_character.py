@@ -4,7 +4,7 @@ The dense character path (``build_all_laplacians`` -> ``build_RL`` ->
 ``compute_chi`` / ``build_character_bundle``) forms dense nE x nE channel
 Laplacians, RL, and hats, and was therefore gated to ``nE <= eigen_dense_limit``.
 But every RCF channel operator is sparse, so chi / phi / kappa have no intrinsic
-size ceiling - the dense ceiling was an implementation choice, not the math.
+size ceiling: the dense ceiling was an implementation choice, not the math.
 
 This module assembles the four channels as scipy CSR, sums the trace-normalized
 hats into a sparse RL, and computes exactly what the dense path computes:
@@ -69,7 +69,7 @@ def build_sparse_channels(rex):
     # 1. L1_down = B1^T B1
     channels.append(('L1_down', _metric(build_L1_down_sparse(rex._B1_dual).tocsr())))
 
-    # 2. L_O - the selected G-channel operator (raw Gramian or normalized L_O)
+    # 2. L_O: the selected G-channel operator (raw Gramian or normalized L_O)
     K = rex.overlap_gramian_sparse.tocsr()               # raw |B1|^T|B1|
     if rex.g_channel == 'raw':
         L_O = K
@@ -163,7 +163,7 @@ def _block_cg(apply_A, B, dinv, tol=1e-10, maxit=1000):
 
 
 # NOTE: the edge-primacy MATRIX-FREE RL operator (`build_factored_operator`) lives
-# in rexgraph._experimental - it is bit-identical to the assembled channels but was
+# in rexgraph._experimental: it is bit-identical to the assembled channels but was
 # overhead-bound versus a single assembled `RL @ P` matmul at moderate nE, so the
 # default path below uses the assembled matvec. See _experimental.py for details.
 
@@ -171,7 +171,7 @@ def _block_cg(apply_A, B, dinv, tol=1e-10, maxit=1000):
 def build_sparse_character_cheap(rex):
     """The O(nnz) character: assemble the doc-exact channels (T,G,F=T-G,C) and the
     trace-normalized RL once, then the per-edge character chi and star-average chi*
-    from DIAGONALS only - no per-vertex solves, no eigendecomposition. This is the
+    from DIAGONALS only: no per-vertex solves, no eigendecomposition. This is the
     always-affordable layer; the per-vertex Green's phi/kappa (nV solves) is a
     separate, opt-in refinement in ``compute_sparse_phi``.
 
@@ -369,7 +369,7 @@ def pinv_quadratic_form(A, v, atol=1e-13, btol=1e-13, iter_lim=20000):
 def primal_signal_character_sparse(rex, psi):
     """Energy of an edge signal across typed channels, ``E_X = psiᵀ hat_X⁺ psi``
     (returned as fractions summing to 1), eigen-free via LSQR pseudoinverse quadratic
-    forms on the sparse channel hats - NO per-channel eigendecomposition (removes the
+    forms on the sparse channel hats, with NO per-channel eigendecomposition (removes the
     dense ``hat_eigen`` bundle). Equals ``_channels.primal_signal_character`` to ~1e-9."""
     cheap = build_sparse_character_cheap(rex)
     hats = cheap['hats']
@@ -397,7 +397,7 @@ def spectral_channel_score_sparse(rex, source, target, tol=1e-10):
 def _smallest_pos_small_kernel(M, tol=1e-9):
     """Smallest strictly-positive eigenvalue of a sparse symmetric PSD M with a SMALL,
     known kernel (the vertex-dual Laplacians here have kernel = beta_0 components).
-    Dense eigvalsh when affordable (exact); smallest-algebraic Lanczos otherwise - fast
+    Dense eigvalsh when affordable (exact); smallest-algebraic Lanczos otherwise: fast
     and exact precisely because only a few near-zero modes sit below lambda_2."""
     import numpy as _np
     import scipy.sparse.linalg as sla

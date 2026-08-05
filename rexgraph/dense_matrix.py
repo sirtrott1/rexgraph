@@ -11,7 +11,7 @@ pseudoinverse on that path.
 This module is the *modular home* for the places where a dense ``ndarray`` is
 still the right (or the only) representation: materializing a sparse operator for
 a dense consumer, and the genuinely spectral operations that have no cheaper
-sparse form. Keeping them here - rather than scattered inline in ``graph.py`` -
+sparse form. Keeping them here, rather than scattered inline in ``graph.py``,
 makes the dense path explicit and isolated, so it stays available as a fallback
 and is easy to bypass, while the primary code paths remain on the sparse/exact
 kernels.
@@ -28,7 +28,7 @@ def ensure_dense(M):
 
     Pass-through for existing ndarrays and ``None``; densifies scipy sparse /
     ``_sparse`` CSR objects via ``.toarray()``. This is the single densification
-    chokepoint - call it only when a consumer genuinely needs a dense operator.
+    chokepoint: call it only when a consumer genuinely needs a dense operator.
     """
     if isinstance(M, np.ndarray):
         return M
@@ -41,7 +41,7 @@ def spectral_distance(A, B):
     """Sorted-eigenvalue (spectral) distance between two symmetric dense operators.
 
     ``||sort(eig A) - sort(eig B)||_2``. Isolated here because it genuinely needs
-    the full spectrum of both operators - there is no sparse shortcut for an
+    the full spectrum of both operators, and there is no sparse shortcut for an
     all-eigenvalue comparison.
     """
     ea = np.sort(np.linalg.eigvalsh(A))

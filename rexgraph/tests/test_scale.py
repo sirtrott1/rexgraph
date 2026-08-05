@@ -1,5 +1,5 @@
 """
-Scale tests for rexgraph -- correctness and stability from 10 edges
+Scale tests for rexgraph: correctness and stability from 10 edges
 to 500K edges.
 
 Two graph generators:

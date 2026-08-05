@@ -105,8 +105,8 @@ class ConversationTracker:
             float(perplexity) if perplexity is not None else None)
 
     def note_exchange_metrics(self, metrics: dict, text: str = "") -> None:
-        """Store a reply's TOKEN metrics (free) for this turn - per MESSAGE, so they
-        are retrievable when the user returns to any point in the conversation - and
+        """Store a reply's TOKEN metrics (free) for this turn, per MESSAGE, so they
+        are retrievable when the user returns to any point in the conversation, and
         feed its perplexity into the session trend. The reply text is kept so the
         expensive structural tier can be computed LAZILY on demand, never eagerly."""
         if not hasattr(self, "_exchange_metrics"):
@@ -119,7 +119,7 @@ class ConversationTracker:
         """Per-message metrics for every recorded turn (what the UI reads on navigating
         back to a message). Token metrics are stored/free. When `structural=True`, the
         expensive tier is computed lazily from each stored reply text and CACHED on the
-        record - so it is paid once, only if the interface actually drills in."""
+        record, so it is paid once, only if the interface actually drills in."""
         out = []
         for rec in getattr(self, "_exchange_metrics", []):
             m = dict(rec.get("metrics") or {})
@@ -136,7 +136,7 @@ class ConversationTracker:
 
     def session_metrics(self) -> dict:
         """Per-SESSION information metrics: the trend of structural coherence over
-        turns (exchange κ - is the conversation losing structure?) and, when reply
+        turns (exchange κ: is the conversation losing structure?) and, when reply
         perplexities were noted, of model uncertainty, with per-metric summaries.
         Same Rényi/varentropy calculus as the per-reply/document/corpus metrics
         (agent.metrics.session_metrics)."""

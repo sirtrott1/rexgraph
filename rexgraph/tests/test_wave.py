@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._wave -- complex-amplitude wave mechanics.
+Tests for rexgraph.core._wave: complex-amplitude wave mechanics.
 
 Verifies:
     - Normalization: in-place, returns original norm

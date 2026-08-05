@@ -7,7 +7,7 @@ interoperate with the hive and the Relational Complex Database (agent.rcdb):
     the database's *structure* is queryable topology (circular FK dependencies,
     hub tables, missing-FK voids) and part of agentic memory.
   * A natural-language question is mapped onto that schema complex by the query
-    manager: the tables it touches, and - crucially - the JOIN is derived from
+    manager: the tables it touches, and, crucially, the JOIN is derived from
     the schema's FK graph (shortest paths, junction tables auto-inserted), not
     guessed by a model. A question referencing tables with no relational path is
     refused as an invalid reference.
@@ -81,8 +81,7 @@ class AgenticDB:
             self.store.put(self.schema_id, self.rex, meta=dict(self.meta, source="db"),
                            tags=["schema", "db"])
 
-    # -- structure -------------------------------------------------------------
-
+    #### structure
     def health(self) -> dict[str, Any]:
         """Full topological diagnosis of the live schema (circular FK deps, hierarchy vs
         tension, missing-FK voids, hub tables). The database's structure, as a complex."""
@@ -95,8 +94,7 @@ class AgenticDB:
     def _table_names(self) -> set:
         return set(self.model.table_names())
 
-    # -- schema-topological SQL ------------------------------------------------
-
+    #### schema-topological SQL
     def _pk(self, table: str) -> str:
         for t in self.model.tables:
             if t.name == table and t.primary_key:
@@ -166,8 +164,7 @@ class AgenticDB:
             rows = [dict(zip(cols, r, strict=False)) for r in res.fetchall()]
         return rows, cols
 
-    # -- read ------------------------------------------------------------------
-
+    #### read
     def classify(self, text: str) -> dict[str, Any]:
         """Map arbitrary text/query onto the schema complex: touched tables, joinability,
         the entity words the schema has no home for. The structural read, no SQL run."""
@@ -217,7 +214,7 @@ class AgenticDB:
         """Pull rows (a table name or a SELECT) and analyze the DATA as a relational complex:
         cluster records by shared values (connected components), rank them by structural centrality
         (coherence), and flag isolated outliers. The row-level companion to `health()`/schema
-        topology - here the returned data is the complex, not the schema."""
+        topology: here the returned data is the complex, not the schema."""
         if source in self._table_names():
             rows = self.extract(source, limit=limit).get("rows", [])
         else:
@@ -230,8 +227,7 @@ class AgenticDB:
         r["source"] = source
         return r
 
-    # -- guarded write ---------------------------------------------------------
-
+    #### guarded write
     def modify(self, statement: str) -> dict[str, Any]:
         """A guarded write. Read-only unless opened writable; a single INSERT/UPDATE/DELETE
         only; DDL and multi-statement input are refused."""
@@ -250,8 +246,7 @@ class AgenticDB:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    # -- hive integration ------------------------------------------------------
-
+    #### hive integration
     def attach_to_hive(self, hive, prefix: str = "db") -> list[str]:
         """Register the database's operations as worker bees so agents run them via hive.invoke().
         Read bees always; the write bee only when the database is writable."""

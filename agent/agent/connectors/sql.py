@@ -3,7 +3,7 @@ agent.connectors.sql: the SQL connector (the "out of the box" flagship).
 
 One adapter for the whole SQL *shape*: it wraps the engine's existing
 SQLAlchemy reflection, so a single connector covers Postgres, MySQL/MariaDB,
-Oracle, SQL Server, and SQLite via SQLAlchemy's dialects - the driver is the
+Oracle, SQL Server, and SQLite via SQLAlchemy's dialects: the driver is the
 only per-vendor delta, not the code.
 
     read(conn_str) -> (rex, meta)
@@ -13,7 +13,7 @@ co-participations (junction/associative entities). FK modality
 (nullable / identifying / on-delete) rides along as ``meta['modality']``.
 Cardinality weights (which enable data-forced strain) are opt-in via
 ``SQLConnector(with_weights=True)`` because they require reading live row
-counts - approximate, catalog-based counts, never row data.
+counts: approximate, catalog-based counts, never row data.
 
 Read-only throughout: schema metadata + aggregate counts only.
 """
@@ -89,7 +89,7 @@ class SQLConnector(BaseConnector):
             extra={"dialect": conn_str.split(":", 1)[0]},
         )
 
-    # -- modality: align per-edge with the emitted edge order
+    #### modality: align per-edge with the emitted edge order
     @staticmethod
     def _modality(model, edges: list[tuple[str, str]]) -> list[dict[str, Any]]:
         by_pair: dict[tuple[str, str], Any] = {}
@@ -105,7 +105,7 @@ class SQLConnector(BaseConnector):
             })
         return out
 
-    # -- weights: catalog row counts as a cardinality proxy
+    #### weights: catalog row counts as a cardinality proxy
     @staticmethod
     def _weights(conn_str: str, edges: list[tuple[str, str]]) -> list[float] | None:
         from ..schema_complex import list_tables
@@ -114,6 +114,6 @@ class SQLConnector(BaseConnector):
                       for t in list_tables(conn_str, with_counts=True)}
         except Exception:
             return None
-        # weight each FK edge by the child (many-side) row count - the
+        # weight each FK edge by the child (many-side) row count, the
         # cardinality pressure the data puts on that relationship.
         return [max(1.0, counts.get(a, 1.0)) for a, _ in edges]

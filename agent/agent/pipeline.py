@@ -61,7 +61,7 @@ def _smallest_eigenvalues_L0(rex, k: int = 20) -> np.ndarray | None:
 
     Never forms a dense Laplacian. Work is bounded (capped iterations); if the
     solver can't converge cheaply on a very large graph it returns ``None`` and
-    the caller treats the (optional) spectral indicators as unavailable - rather
+    the caller treats the (optional) spectral indicators as unavailable, rather
     than OOM-ing or hanging.
     """
     try:
@@ -151,14 +151,14 @@ class AnalysisPipeline:
     """Progressive analysis pipeline for a RexGraph.
 
     Stages:
-        1. construction - nV, nE, nF, edge types, chain_valid
-        2. topology - betti, euler, dimension
-        3. spectral - eigenvalues, fiedler, coupling_constants
-        4. relational - RL, structural_character, coherence
+        1. construction: nV, nE, nF, edge types, chain_valid
+        2. topology: betti, euler, dimension
+        3. spectral: eigenvalues, fiedler, coupling_constants
+        4. relational: RL, structural_character, coherence
         5. hodge - gradient/curl/harmonic fractions
-        6. void - void complex, eta, fills_beta, void_strain
-        7. epsilon - chain condition, vertex excess, equiweight violation
-        8. advanced - persistence, field, dirac (optional)
+        6. void: void complex, eta, fills_beta, void_strain
+        7. epsilon: chain condition, vertex excess, equiweight violation
+        8. advanced: persistence, field, dirac (optional)
 
     Usage:
         pipe = AnalysisPipeline(rex)
@@ -245,7 +245,7 @@ class AnalysisPipeline:
                 self.completed_stages.append(stage_name)
                 self._emit(stage_name, error_data)
 
-        # kappa fallback (audit 5.2): for text co-occurrence graphs the
+        # kappa fallback: for text co-occurrence graphs the
         # structural coherence can be NaN, leaving kappa blank in the UI.
         # When that happens but a Hodge decomposition exists, use the
         # gradient fraction as a coherence proxy so the value is
@@ -303,9 +303,9 @@ class AnalysisPipeline:
         result = {}
 
         # For large complexes a full dense eigendecomposition of L0 is
-        # wasteful - we only need the low end of the spectrum (Fiedler
+        # wasteful: we only need the low end of the spectrum (Fiedler
         # value, spectral gap, a handful of modes). Use a sparse
-        # truncated solver instead (audit 3.3). Small graphs keep the
+        # truncated solver instead. Small graphs keep the
         # exact dense path via spectral_bundle.
         use_sparse = getattr(rex, "nE", 0) > 100 or getattr(rex, "nV", 0) > 200
         sparse_ok = False
@@ -353,8 +353,8 @@ class AnalysisPipeline:
         result = {}
         import os
 
-        # THE CHARACTER - O(nnz), the reference's default. Everything here is a
-        #    diagonal, row-norm, star aggregation, sparse matvec, or trace - no
+        # THE CHARACTER: O(nnz), the reference's default. Everything here is a
+        #    diagonal, row-norm, star aggregation, sparse matvec, or trace: no
         #    per-vertex inverse solve, no eigendecomposition (SCALE_PROPAGATOR_CALCULUS
         #    Parts A-D; scripts 13-20). The per-vertex Green's φ (the GLOBAL moment) is
         # an optional refinement at the end.
@@ -371,7 +371,7 @@ class AnalysisPipeline:
 
         # (2) Local ENERGY character diag(RL4²) = ‖RL4[e,:]‖² (row-norms, the short-time
         #     heat moment; Part C.3 / script 14), and its per-vertex value via the
-        #     BOUNDARY/star aggregation - the vertex propagator's local end, no solve.
+        #     BOUNDARY/star aggregation: the vertex propagator's local end, no solve.
         try:
             ec = np.asarray(rex.energy_character, dtype=float)
             if ec.size:
@@ -403,7 +403,7 @@ class AnalysisPipeline:
 
         # (4) SCALE BRIDGE (local<->global; Part B / script 15): the closed-k-walk
         #     moments (L0^k)_vv per vertex - the star neighborhood's structure at each
-        #     scale - plus the clustering signal that separates locally-clustered from
+        #     scale, plus the clustering signal that separates locally-clustered from
         #     unclustered members at equal degree. All sparse matvecs, O(nnz).
         try:
             sb = rex.scale_bridge
@@ -418,7 +418,7 @@ class AnalysisPipeline:
         # (5) COHERENCE. Default (Part D.4: "default to H₂"): the global harmonic-log
         #     H₂ = -log(tr RL4²/tr RL4)² (Rényi-2, O(nnz) trace) as the graph-level
         #     coherence, and the per-vertex LOCAL coherence κ_loc (star-consistency of
-        #     χ, O(nnz)). No solves - available at every scale.
+        #     χ, O(nnz)). No solves, available at every scale.
         try:
             result["harmonic_entropy_H2"] = round(float(rex.harmonic_entropy), 6)
             # Varentropy self-diagnostic (script 19): the H₂-H₃ gap certifies when the
@@ -442,7 +442,7 @@ class AnalysisPipeline:
         except Exception:
             pass
 
-        # OPTIONAL GLOBAL REFINEMENT - the per-vertex Green's character φ and
+        # OPTIONAL GLOBAL REFINEMENT: the per-vertex Green's character φ and
         #    coherence κ_greens (the GLOBAL moment, t->∞: diag of B₁ RL4⁺ ĥ RL4⁺ B₁ᵀ).
         #    This is the one quantity that genuinely needs nV solves (its sandwiched
         #    two-inverse form resists selected inversion), so it is a bounded add-on,
@@ -524,14 +524,14 @@ class AnalysisPipeline:
                     float(np.max(np.abs(div_data))), 6
                 )
 
-            # Harmonic mode analysis - combinatorial + low-rank, scale-free.
+            # Harmonic mode analysis: combinatorial + low-rank, scale-free.
             # H = spanning-tree fundamental-cycle basis projected onto ker(B2^T)
             # (rexgraph.harmonic_sparse); P_harm applied low-rank as
-            # H (H^T H)^-1 H^T flow - never the dense nE×nE projector, no eigensolve.
+            # H (H^T H)^-1 H^T flow, never the dense nE×nE projector, no eigensolve.
             # Channel diagonals hat_k[e,e] = structural_character · RL[e,e] (sparse,
             # hybrid) instead of a per-hat eigendecomposition + V diag(λ) V^T rebuild.
             # The dimension of the harmonic (oscillatory) space is β₁ = betti[1], an
-            # EXACT integer - free, no basis to build. The per-mode harmonic SIGNAL
+            # EXACT integer: free, no basis to build. The per-mode harmonic SIGNAL
             # (harmonic_projection = a β₁×β₁ HᵀH solve) is optional detail, gated to
             # the same latency budget as the per-vertex Green's character; the Hodge
             # FRACTIONS + per-edge grad/curl/harm norms above (hodge_full, O(nnz)) are
@@ -735,7 +735,7 @@ class AnalysisPipeline:
             # tens of thousands of degenerate triangles that mix distinct
             # edge types and cost minutes. When that's the case, use the
             # optimized spectral / congruence-quotient characterization
-            # instead - the homologically correct and O(spectral) path.
+            # instead: the homologically correct and O(spectral) path.
             if self._void_bruteforce_intractable(rex):
                 return self._stage_void_spectral(rex)
 
@@ -886,7 +886,7 @@ class AnalysisPipeline:
         try:
             # Congruence classes modulo the empty subcomplex = edges grouped by
             # boundary signature (parallel edges collapse). O(nE) via hashing the
-            # SPARSE B1 columns - not the dense O(nE²) pairwise `congruence_classes`.
+            # SPARSE B1 columns, not the dense O(nE²) pairwise `congruence_classes`.
             from rexgraph.core._sparse import to_scipy_csr
             B1c = to_scipy_csr(rex._B1_dual).tocsc()
             ip, idx, dat = B1c.indptr, B1c.indices, B1c.data
@@ -928,7 +928,7 @@ class AnalysisPipeline:
         rex = self.rex
         result = {}
 
-        # Dirac spectrum diagnostics - EXACT integer invariants, no dense
+        # Dirac spectrum diagnostics: EXACT integer invariants, no dense
         # (nV+nE+nF)² operator and no eigendecomposition: the mode count is the
         # operator dimension, and the harmonic (zero) mode count is dim ker(D) =
         # Σ Betti (total homology). O(1) from the Betti numbers.
@@ -938,7 +938,7 @@ class AnalysisPipeline:
         except Exception:
             pass
 
-        # Coupled field operator - coupling from ‖B₂‖_F (cheap) and PSD from the
+        # Coupled field operator: coupling from ‖B₂‖_F (cheap) and PSD from the
         # SMALLEST eigenvalue of the SPARSE block operator (Lanczos, k=1), no dense
         # (nE+nF)² matrix and no full eigendecomposition.
         try:
@@ -997,7 +997,7 @@ class AnalysisPipeline:
         # deviation from the unweighted ∂²=0 ideal, decomposed by group + weight
         # concentration. Per-face ‖R[:,f]‖ is kappa_f above; this adds the per-VERTEX
         # curvature (which junction bends most), the per-edge rank-1 contributions,
-        # weight concentration N_eff, and curvature-per-weight - all sparse, O(nnz).
+        # weight concentration N_eff, and curvature-per-weight, all sparse, O(nnz).
         try:
             sig = rex.weighted_curvature_signature()
             result["geometric_signature"] = {
@@ -1148,7 +1148,7 @@ class AnalysisPipeline:
         target from the curvature-only regime (t=0) to uniform
         enforcement (t=1) and record how the equilibrium strain norm and
         optimal coupling alpha respond.  This is a genuine one-parameter
-        sweep computed from the compiled kernel - not a placeholder.
+        sweep computed from the compiled kernel, not a placeholder.
 
         Requires faces (nF > 0) and the RCF module.
         """

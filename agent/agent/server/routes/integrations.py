@@ -79,7 +79,7 @@ async def trustgraph_health(body: dict = Body(...)):
         if adapter.url:
             result = adapter.health_snapshot(flow=flow)
         else:
-            # Standalone mode - need triples
+            # Standalone mode, so triples are required
             triples = body.get("triples")
             if not triples:
                 return JSONResponse(_sanitize({
@@ -133,7 +133,11 @@ async def trustgraph_evolution(body: dict = Body(...)):
     try:
         result = adapter.track_evolution(flow=flow, snapshots=snapshots)
     except Exception as e:
-        raise HTTPException(500, f"Evolution tracking failed: {e}")
+        # No configured TrustGraph is the caller's situation, not a server fault.
+        # Its siblings answer that with a 400; this one raised a 500, where the
+        # error sanitizer then replaced the message that said what to do.
+        status = 400 if "url" in str(e).lower() else 500
+        raise HTTPException(status, f"Evolution tracking failed: {e}") from e
 
     return JSONResponse(_sanitize(result))
 
@@ -178,7 +182,7 @@ async def huggingface_analyze(body: dict = Body(...)):
     With ``model``: hooks a HuggingFace transformer and measures how far
     its attention structure departs from a valid relational complex
     (∂²=0 / chain condition, equiweight). Without ``model``: analyzes the
-    text's co-occurrence complex and reports its axiom compliance - clearly
+    text's co-occurrence complex and reports its axiom compliance, clearly
     labeled as ``mode: text_cooccurrence`` so it's not mistaken for a
     transformer probe. Accepts ``session_id`` in place of ``text``.
     """
@@ -409,7 +413,7 @@ async def vllm_route(body: dict = Body(...)):
     """Route a prompt to a model *class* using structural character.
 
     Builds a relational complex from the prompt's token relationships and
-    routes on the dominant RCF channel - no second LLM needed:
+    routes on the dominant RCF channel, no second LLM needed:
       T (topology) -> reasoning · G (geometry) -> creative ·
       F (frustration) -> analytical · C (copath) -> multi-hop.
     Pass optional ``models`` {capability: model_id} to get a concrete id.
@@ -531,11 +535,43 @@ async def langchain_analyze(body: dict = Body(...)):
         raise HTTPException(500, f"Analysis failed: {e}")
 
 
+@router.get("/trustgraph/cores")
+async def trustgraph_cores():
+    """List the knowledge cores available in the workspace, so a graph can be
+    loaded by name instead of pasted in."""
+    try:
+        from agent.integrations.trustgraph_adapter import TrustGraphAdapter
+        return {"cores": TrustGraphAdapter().list_kg_cores()}
+    except Exception as e:
+        raise HTTPException(400, f"cores unavailable: {e}") from e
+
+
+@router.post("/trustgraph/core/analyze")
+async def trustgraph_core_analyze(body: dict = Body(...)):
+    """Load a named core and return its full structural assessment.
+    body: {core_id, flow?, collection?, depth?}."""
+    core_id = (body.get("core_id") or "").strip()
+    if not core_id:
+        raise HTTPException(400, "need 'core_id'")
+    try:
+        from agent.integrations.trustgraph_adapter import TrustGraphAdapter
+        return TrustGraphAdapter().analyze_core(
+            core_id,
+            flow=body.get("flow", "default"),
+            collection=body.get("collection", "default"),
+            depth=body.get("depth", "standard"),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"core analysis failed: {e}") from e
+
+
 @router.post("/trustgraph/analyze")
 async def trustgraph_analyze(body: dict = Body(...)):
     """Full structural analysis of a knowledge graph given as triples.
 
-    Standalone - no TrustGraph server needed. Turns (subject, predicate,
+    Standalone: no TrustGraph server needed. Turns (subject, predicate,
     object) triples into a typed relational complex and returns the
     topology, Hodge decomposition, void complex, and channel character
     that RexGraph computes but a plain knowledge graph can't see.
@@ -590,7 +626,7 @@ async def download_training_data(fmt: str = "safetensors", target: str = "summar
     """Stream generated structural training data as a downloadable file.
 
     Formats: ``safetensors`` (feature matrix) or ``pairs`` (input->target
-    training pairs). Both are safetensors - directly loadable in
+    training pairs). Both are safetensors, directly loadable in
     PyTorch/JAX/HuggingFace for training or fine-tuning on RexGraph's
     structural features.
     """

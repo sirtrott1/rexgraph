@@ -100,8 +100,15 @@ def _detect_format(data: Any) -> str:
         if "matrix" in data or "adjacency" in data:
             return "adjacency"
     elif isinstance(data, list):
-        # List of lists = adjacency matrix
         if data and isinstance(data[0], list):
+            # A list of lists is an adjacency matrix unless the rows are pairs
+            # carrying names: [["a","b"], ...] is an edge list. Numeric pairs stay
+            # adjacency, since [[0,1],[1,0]] is a matrix and reading it as edges
+            # would silently change what the file means.
+            rows = data[:20]
+            if all(isinstance(r, list) and len(r) == 2 for r in rows) and \
+                    any(not _is_numeric(str(v)) for r in rows for v in r):
+                return "edge_list"
             return "adjacency"
         # List of dicts = edge list
         if data and isinstance(data[0], dict):
@@ -176,23 +183,37 @@ def _load_edge_list_json(data: Any, directed: bool = False) -> Any:
     if not edges:
         raise ValueError("Empty edge list.")
 
-    # Detect source/target keys
     first = edges[0]
-    src_key = _find_key(first, ["source", "src", "from", "head"])
-    tgt_key = _find_key(first, ["target", "tgt", "to", "tail", "dest"])
-    meta_keys = [k for k in first if k not in (src_key, tgt_key)]
-
     sources, targets = [], []
-    meta = {k: [] for k in meta_keys}
     signs = []
 
-    for edge in edges:
-        s = str(edge[src_key])
-        t = str(edge[tgt_key])
-        sources.append(s)
-        targets.append(t)
-        for k in meta_keys:
-            meta[k].append(str(edge.get(k, "")))
+    if isinstance(first, (list, tuple)):
+        # ``[[source, target], ...]``: the pair form. Every entry has to be a pair,
+        # since a ragged list is a different structure, not a sloppy edge list.
+        meta_keys, meta = [], {}
+        for i, edge in enumerate(edges):
+            if not isinstance(edge, (list, tuple)) or len(edge) < 2:
+                raise ValueError(
+                    f"Edge {i} is not a [source, target] pair: {edge!r}. An edge list "
+                    "is either pairs or objects carrying source/target keys, not both."
+                )
+            sources.append(str(edge[0]))
+            targets.append(str(edge[1]))
+    elif isinstance(first, dict):
+        src_key = _find_key(first, ["source", "src", "from", "head"])
+        tgt_key = _find_key(first, ["target", "tgt", "to", "tail", "dest"])
+        meta_keys = [k for k in first if k not in (src_key, tgt_key)]
+        meta = {k: [] for k in meta_keys}
+        for edge in edges:
+            sources.append(str(edge[src_key]))
+            targets.append(str(edge[tgt_key]))
+            for k in meta_keys:
+                meta[k].append(str(edge.get(k, "")))
+    else:
+        raise ValueError(
+            f"Edge list entries must be objects with source/target keys, or "
+            f"[source, target] pairs. Got {type(first).__name__}: {first!r}"
+        )
 
     # Vertex index mapping
     vertex_set = set()

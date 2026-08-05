@@ -1,5 +1,5 @@
 """
-trustgraph - ingestion bridge from TrustGraph knowledge cores to rexgraph.
+trustgraph: ingestion bridge from TrustGraph knowledge cores to rexgraph.
 
 TrustGraph structures database inputs into knowledge cores (entities and defined relations). The
 agent's TrustGraphAdapter represents each core as a relational complex. This module converts that

@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._dirac -- Dirac operator and graded state evolution.
+Tests for rexgraph.core._dirac: Dirac operator and graded state evolution.
 
 Verifies:
     - D is real symmetric, correct shape (nV+nE+nF)^2

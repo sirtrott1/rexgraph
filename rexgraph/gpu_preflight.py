@@ -1,7 +1,7 @@
 """
 rexgraph.gpu_preflight: prove the GPU paths on the machine you are paying for.
 
-The GPU paths are torch, so they are portable between CUDA and ROCm in principle --
+The GPU paths are torch, so they are portable between CUDA and ROCm in principle:
 torch presents HIP as "cuda" and the same code runs. In principle is not a claim
 worth making about rented hardware, and the failure modes that matter (no float64
 sparse support, a driver that reports a device it cannot allocate on, a

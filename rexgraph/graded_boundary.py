@@ -56,10 +56,9 @@ __all__ = [
 _f64 = np.float64
 
 
-# ---------------------------------------------------------------------------
+#### -
 # Cell parsing
-# ---------------------------------------------------------------------------
-
+#### -
 def _is_signed_cell(cell) -> bool:
     """True if ``cell`` is in explicit ``[(index, sign), ...]`` form rather than a
     plain list of indices. A signed cell's every element is a length-2 pair whose
@@ -145,10 +144,9 @@ def build_graded_boundaries(cells_by_grade) -> list[sp.csr_matrix]:
     return boundaries
 
 
-# ---------------------------------------------------------------------------
+#### -
 # Verification, Laplacians, homology
-# ---------------------------------------------------------------------------
-
+#### -
 def verify_chain(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> tuple[bool, float]:
     """Sparsely check ``B_d @ B_{d+1} == 0`` for every consecutive pair.
 
@@ -401,10 +399,9 @@ def betti_numbers(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> list[
     return betti
 
 
-# ---------------------------------------------------------------------------
+#### -
 # Reading graded boundaries off a RexGraph (single source of truth)
-# ---------------------------------------------------------------------------
-
+#### -
 def graded_boundaries_from_rex(rex) -> list[sp.csr_matrix]:
     """The full sparse boundary list ``[B_1, B_2, B_3, ...]`` of a RexGraph.
 
@@ -440,10 +437,9 @@ def _rex_b1_csr(rex) -> sp.csr_matrix:
     return to_scipy_csr(rex._B1_dual).tocsr()
 
 
-# ---------------------------------------------------------------------------
+#### -
 # Constructor helpers: genuine grade-3 complexes (d^2 = 0)
-# ---------------------------------------------------------------------------
-
+#### -
 def _order_face_ccw(points: np.ndarray, face_idx: Sequence[int],
                     center: np.ndarray) -> list[int]:
     """Order a convex, planar face's vertices CCW as seen from OUTSIDE the solid.
@@ -451,7 +447,7 @@ def _order_face_ccw(points: np.ndarray, face_idx: Sequence[int],
     The outward normal is the direction from the solid's centroid to the face
     centroid; sorting the (coplanar, convex) face vertices by their polar angle in
     the plane orthogonal to that normal yields the boundary loop with a globally
-    consistent (outward) orientation - which is exactly what makes the closed
+    consistent (outward) orientation, which is exactly what makes the closed
     surface orientable, hence ``B_2 @ 1 = 0`` and ``B_2 B_3 = 0``.
     """
     fi = list(face_idx)
@@ -535,7 +531,7 @@ def _icosahedron():
 
     Edges are vertex pairs at the (minimal) squared distance; triangular faces are
     triples that are pairwise adjacent. Coordinate-driven, so exact and orientation-
-    agnostic - the truncation and orientation are handled downstream.
+    agnostic: the truncation and orientation are handled downstream.
     """
     p = _PHI
     verts = []

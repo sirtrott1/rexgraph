@@ -21,13 +21,14 @@ async def deploy_preview(body: dict = Body(...)):
     try:
         bundle = generate_bundle(spec_from_dict(body))
     except Exception as e:
-        raise HTTPException(400, f"Could not generate bundle: {e}")
-    return {
-        "files": list(bundle.keys()),
-        "Dockerfile": bundle["Dockerfile"],
-        "docker-compose.yml": bundle["docker-compose.yml"],
-        "README.md": bundle["README.md"],
-    }
+        raise HTTPException(400, f"Could not generate bundle: {e}") from e
+    # Every generated file, not three of them. The route listed all seven under
+    # "files" and returned the contents of three, so the entrypoint, the agent
+    # config and the env template could be named but never read.
+    out = {"files": list(bundle.keys())}
+    for name, content in bundle.items():
+        out[name] = content if isinstance(content, str) else content.decode("utf-8", "replace")
+    return out
 
 
 @router.post("/bundle")

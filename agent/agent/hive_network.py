@@ -31,8 +31,7 @@ class HiveNetwork:
     def hives(self) -> list[str]:
         return sorted(self._hives)
 
-    # -- registry: create / address / remove named hives ----------------------
-
+    #### registry: create / address / remove named hives
     def hive(self, name: str = "default"):
         """Get-or-create a named hive (a cell of the network). This is how the 'default' hive and
         every named hive come into being; creation is logged at network scope."""

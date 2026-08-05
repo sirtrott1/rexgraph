@@ -16,6 +16,14 @@ from pathlib import Path
 from typing import Any
 
 
+class SnapshotUnreadable(RuntimeError):
+    """A session snapshot exists but its bundle cannot be loaded.
+
+    Usually a bundle written by an older version of the format. It is a property of
+    the stored session, so callers report it rather than crash on it.
+    """
+
+
 @dataclass
 class Snapshot:
     """One timestep in a session."""
@@ -120,7 +128,15 @@ class Session:
             raise ValueError(f"No serialized rex at step {step}")
 
         from rexgraph.io import load_rex
-        rex = load_rex(snapshot.rex_path)
+        try:
+            rex = load_rex(snapshot.rex_path)
+        except Exception as e:
+            # A snapshot that will not load is this session's problem, not a fault
+            # in whatever is asking for it. Naming the session and step turns an
+            # opaque 500 several frames away into something actionable.
+            raise SnapshotUnreadable(
+                f"session {self.session_id!r} step {step} cannot be read from "
+                f"{snapshot.rex_path}: {e}") from e
         self.current_step = step
         self._current_rex = rex
         return rex

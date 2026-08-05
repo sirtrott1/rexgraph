@@ -78,21 +78,26 @@ def test_corpus_score_document_large_graph_does_not_segfault():
     assert isinstance(score, float) and np.isfinite(score)
 
 
-def test_quality_gate_large_graph_is_permissive_not_crash():
-    """The gate skips on a truncated-basis graph rather than feeding it to the dense
-    response-operator kernel. Skipping measures nothing, so it cannot refuse."""
-    from agent.pipeline_runner import GATE_OK
+def test_quality_gate_large_graph_is_measured_not_skipped():
+    """A large complex gets a real score.
 
+    This used to assert the opposite: the gate skipped when the L0 eigenbasis was
+    truncated, because it hand-fed the dense response-operator kernel and that kernel
+    needs the full basis. It now goes through `interfacing_vector`, which dispatches
+    to the eigen-free sparse bundle, so the size that used to force a skip is just a
+    size. Skipping measured nothing, which meant the gate was blindest on exactly the
+    complexes worth gating."""
     rex = _connected_graph(2500, extra_edges=1500)
     labels = _labels(rex.nV)
     g = _context_quality_gate(rex, labels, "w0 w1 w2 w3 topic")
-    assert g["verdict"] == GATE_OK
-    assert any("truncated" in r for r in g["reasons"])
+    assert g["score"] is not None, f"the gate gave up: {g}"
+    assert np.isfinite(g["score"])
+    assert not any("truncated" in r for r in g["reasons"]), g["reasons"]
 
 
-def test_quality_gate_small_graph_runs_dense_path():
-    """On a small graph the full basis is available, so the dense kernels run and
-    produce a channel score."""
+def test_quality_gate_small_graph_scores_too():
+    """The same path at small size: one implementation, not a dense one and a
+    fallback that measure different things."""
     from agent.pipeline_runner import GATE_OK, GATE_WARN
 
     rex = _connected_graph(40, extra_edges=30)

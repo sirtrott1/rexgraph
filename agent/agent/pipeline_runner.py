@@ -75,41 +75,23 @@ def _context_quality_gate(source_rex, source_labels, query) -> dict:
                 f"none of the {len(usable)} query terms name a vertex in the source",
                 n_shared=0)
 
-        sb = source_rex.spectral_bundle
-        evecs_L0 = sb.get('evecs_L0')
-        if evecs_L0 is None or evecs_L0.shape[1] != source_rex.nV:
-            # truncated basis: dense kernels unsafe, so the channel score is
-            # unavailable. The vocabulary overlap above still stands.
-            return verdict(GATE_OK, "truncated L0 basis, channel score unavailable",
-                           n_shared=len(shared))
-
-        from rexgraph.core._interfacing import (
-            build_edge_signal,
-            build_response_operators,
-            build_vertex_source,
-            channel_scores,
-            quality_gate,
+        # The library already builds this bundle and dispatches it: eigen-free and
+        # sparse at any size, via `sparse_interfacing`. Hand-assembling it from the
+        # dense kernel cost two things. It needed a full L0 eigenbasis, so the gate
+        # silently reported "unavailable" on exactly the large complexes worth
+        # gating; and it passed `g_channel_operator` for G where the library's own
+        # interfacing path passes `L_overlap`, so this score was never the score the
+        # rest of the platform computes.
+        #
+        # target_signal=None is the self-interfacing reading, which is what scoring
+        # psi against itself meant, at one L0^+ solve instead of two.
+        from rexgraph.core._interfacing import quality_gate
+        bundle = source_rex.interfacing_vector(
+            np.array(shared, dtype=np.int32),
+            np.ones(len(shared), dtype=np.float64),
+            None,
         )
-        deg = source_rex.degree.astype(np.float64)
-        vw = 1.0 / np.log(deg + np.e)
-        ti = np.array(shared, dtype=np.int32)
-        tw = np.ones(len(shared), dtype=np.float64)
-        rho = build_vertex_source(ti, tw, vw, source_rex.nV)
-        B1 = np.ascontiguousarray(source_rex.B1, dtype=np.float64)
-        psi = build_edge_signal(
-            rho, B1, sb['evals_L0'],
-            np.ascontiguousarray(evecs_L0, dtype=np.float64),
-            source_rex.nV, source_rex.nE,
-        )
-        resp_ops = build_response_operators(
-            B1, sb['evals_L0'], evecs_L0,
-            source_rex.g_channel_operator, source_rex.L_frustration,
-            source_rex.nV, source_rex.nE,
-        )
-        ch_scores = channel_scores(
-            psi, resp_ops['S_T'], resp_ops['S_G'], resp_ops['S_F'],
-            psi, source_rex.nE,
-        )
+        ch_scores = np.asarray(bundle["scores"], dtype=np.float64)
         gate = quality_gate(ch_scores.reshape(1, -1))
         if not isinstance(gate, np.ndarray):
             return verdict(GATE_OK, "gate returned no score", n_shared=len(shared))
@@ -186,14 +168,14 @@ class PipelineRunner:
             .txt/other  -> read as text -> TextAdapter
 
         When ``ontology`` is True, an optional TrustGraph enrichment stage
-        runs after chunking (audit 1.1).
+        runs after chunking.
         """
         t0 = time.time()
         result = PipelineResult()
 
         # Per-analysis-stage callback -> surfaced as "analysis" phase events
         # so the frontend can show real progress during the long
-        # eigendecomposition/Hodge stages (audit 4.2).
+        # eigendecomposition/Hodge stages.
         def stage_cb(doc_id, stage_name, stage_data):
             payload = {"status": "running", "doc_id": doc_id, "stage": stage_name}
             if isinstance(stage_data, dict) and "error" in stage_data:
@@ -204,7 +186,7 @@ class PipelineRunner:
 
         # Step 1: build one corpus from whatever inputs are present.
         # A mixed batch (OCR texts + direct CSV/JSON/text files) must
-        # include BOTH - previously the texts branch won and direct files
+        # include BOTH: the texts branch used to win and direct files
         # were silently dropped (audit P2).
         have_texts = texts is not None and doc_ids is not None
         have_files = bool(files)
@@ -268,7 +250,7 @@ class PipelineRunner:
         total_chunks = sum(len(dc["chunks"]) for dc in result.chunks)
         self._emit("chunking", {"status": "done", "total_chunks": total_chunks})
 
-        # Optional TrustGraph ontology enrichment (audit 1.1)
+        # Optional TrustGraph ontology enrichment
         if ontology:
             self._emit("ontology", {"status": "running"})
             try:
@@ -330,7 +312,7 @@ class PipelineRunner:
         """Add one direct file to the corpus, routed by type.
 
         OCR-extension files are OCR'd and routed through the OCRAdapter's
-        structure-aware layout path (audit 2.1). Everything else is added
+        structure-aware layout path. Everything else is added
         as a source path so auto_rex picks the right adapter (CSV/JSON/
         feature/text) - never flattened to word co-occurrence (audit P3).
         """

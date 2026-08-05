@@ -73,7 +73,7 @@ class MyConnector(BaseConnector):
 # a worked example that runs immediately
 
 class ExampleEdgesConnector(BaseConnector):
-    """A trivial connector over an in-memory edge list - a stand-in for "any
+    """A trivial connector over an in-memory edge list, a stand-in for "any
     system that can enumerate its relationships." Weighted so strain is
     available. Runs with no external service."""
 

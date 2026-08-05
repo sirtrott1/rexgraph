@@ -41,8 +41,8 @@ _PROVISIONERS = {
 
 
 class ReactiveHive:
-    """Reads structural signals - the coordination field, a consensus result, a query's schema
-    footprint - and mutates the hive's own schema in response (deploying a specialist, attaching a
+    """Reads structural signals (the coordination field, a consensus result, a query's schema
+    footprint) and mutates the hive's own schema in response (deploying a specialist, attaching a
     database), versioning each change with its cause. Every trigger is exact-structural (a Betti
     number, a set difference, a flag), never a tuned threshold."""
 
@@ -151,7 +151,7 @@ class ReactiveHive:
 
     def require(self, *needs: str, cause: str | None = None) -> list[dict[str, Any]]:
         """Capability gap: for each need NOT already provided by some bee, deploy a specialist for
-        it. This is the code-team unlock - a minimal hive declares `require('review','test')` and
+        it. That is what a code team needs: a minimal hive declares `require('review','test')` and
         grows the exact roles it lacks. Trigger is exact set-membership (a need is met or it isn't).
         """
         actions = []
@@ -234,7 +234,7 @@ class ReactiveHive:
 
     def run(self, task: str, *, needs=None, query_state=None, available=None,
             verify: bool = True, consensus_k: int = 3) -> dict[str, Any]:
-        """Run a task through the team with the reactive layer live - the team reshapes itself while
+        """Run a task through the team with the reactive layer live: the team reshapes itself while
         it works. In order: fill the capability gaps the task implies (or `needs`, if given); bind
         any missing data (`on_query`); do the work with `collaborate`; if it deadlocked, `react`
         (deploy a mediator); then cross-check with `consensus` and, on a reliability gap, deploy a

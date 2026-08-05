@@ -6,14 +6,14 @@ The field operator
     M = [[ RL1,     -g B2 ],
          [ -g B2ᵀ,   L2   ]]
 
-acts on a GRADED VECTOR SPACE - the edge block C_1 stacked with the face block C_2.
+acts on a GRADED VECTOR SPACE: the edge block C_1 stacked with the face block C_2.
 A field here is not merely a vector: a block ``F`` of shape ``(nE+nF, m)`` carries a
 TENSOR SHAPE (m components), and the boundary weighting W supplies a TENSOR METRIC
 (the inner product on the graded space). So the field IS a dynamic tensor object -
 static structure = the graded operator M itself, dynamic evolution = a matrix
 function of M applied to the field.
 
-Evolution is matrix-free, via a Chebyshev polynomial of M (assembled SPARSE - never
+Evolution is matrix-free, via a Chebyshev polynomial of M (assembled SPARSE, never
 the dense (nE+nF)^2 matrix):
 
     heat   e^{-tM} F        diffusion on the graded field (M is PSD)
@@ -176,7 +176,7 @@ def _wave_order(t, lam_max, given):
 
 def field_heat(rex, F, t, g=None, order=None, M=None, W=None):
     """Heat evolution ``e^{-t W^{-1}M} F`` of the graded field under the tensor metric
-    W - matrix-free Chebyshev on the SPARSE M (via the W-symmetric conjugate), any t,
+    W, matrix-free Chebyshev on the SPARSE M (via the W-symmetric conjugate), any t,
     no eigendecomposition. W defaults to the sqrt-w boundary weights (identity when the
     complex is unweighted, so this reduces to e^{-tM}); override with a 1D diagonal or
     a full SPD metric. F may be an edge signal (nE), a graded state (nE+nF), or a

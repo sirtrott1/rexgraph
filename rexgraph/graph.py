@@ -138,7 +138,7 @@ def _edge_low_eig(L, n, k):
     Dense ``eigh`` for small ``n`` (LAPACK is faster there); matrix-free ARPACK (``which='SM'``)
     otherwise, so no dense ``nE x nE`` is materialized. Returns ``(evals_ascending, evecs)`` with
     ``evecs[:, i]`` the eigenvector of ``evals[i]``. The caller reads the Fiedler by skipping the
-    exactly-known kernel dimension - no float threshold.
+    exactly-known kernel dimension, no float threshold.
     """
     import numpy as np
     import scipy.sparse as sp
@@ -884,7 +884,7 @@ class RexGraph:
         boundary_idx = (np.concatenate(idx_parts).astype(_i32)
                         if idx_parts else np.zeros(0, dtype=_i32))
 
-        # --- B2 slot: CSC triplet from the grade-2 boundary map (signed, any arity). ---
+        #### B2 slot: CSC triplet from the grade-2 boundary map (signed, any arity).
         b2_kwargs = {}
         if len(boundaries) >= 2:
             B2 = boundaries[1].tocsc()
@@ -906,7 +906,7 @@ class RexGraph:
         if n_verts > rex._nV:
             rex._nV = n_verts
 
-        # --- Grades >= 3 live in the optional _graded_duals list (scipy CSR). ---
+        #### Grades >= 3 live in the optional _graded_duals list (scipy CSR).
         if len(boundaries) >= 3:
             rex._graded_duals = [b.tocsr() for b in boundaries[2:]]
 
@@ -1012,7 +1012,7 @@ class RexGraph:
     def field_heat(self, F: NDArray, t: float, order: int = None, W=None):
         """Heat evolution ``e^{-t·W⁻¹M} F`` of the coupled (edge, face) field on the
         graded space C₁⊕C₂ (M = [[RL1,-gB2],[-gB2ᵀ,L2]]) under the tensor metric ``W``,
-        matrix-free via a Chebyshev polynomial of the SPARSE M - any t, no
+        matrix-free via a Chebyshev polynomial of the SPARSE M: any t, no
         eigendecomposition. ``W`` defaults to the √w boundary-weight metric (identity
         when unweighted, so this is e^{-tM}); pass a 1D diagonal or full SPD metric to
         override. ``F`` may be an edge signal (nE), a graded state (nE+nF), or a
@@ -1449,7 +1449,7 @@ class RexGraph:
         matrix-free ARPACK) plus the cheap+exact edge-space quantities (c^2 = alpha_G,
         the L1 Fiedler eigenpair). This is the SCALE-FREE path and it is now the
         universal default: there is no dense-vs-sparse size cutoff. The edge-space RL /
-        hats / full eigenbases are never eagerly materialized here - the character,
+        hats / full eigenbases are never eagerly materialized here: the character,
         energy, propagation, and interfacing layers all read them matrix-free from the
         sparse RL4 (see sparse_character / sparse_interfacing). The full DENSE relational
         bundle is available ON DEMAND via `_dense_rcf_bundle` (used by the low-level
@@ -1469,7 +1469,7 @@ class RexGraph:
         """The full DENSE relational bundle (RL, hats, nhats, trace_values, hat_names,
         chi, K1, L_C, RL_1 + edge-space eigenbases) via the dense Cython builder.
 
-        Materialized ON DEMAND only - the public scale-free API never touches it (it
+        Materialized ON DEMAND only: the public scale-free API never touches it (it
         reads everything matrix-free from the sparse RL4). It backs the low-level dense
         kernels (`_character.hat_eigen`, `_query.explain_edge`, `_rcfe.coupling_tensor`,
         `_channels.primal_signal_character`, `_interfacing.build_interfacing_bundle`) and
@@ -1478,7 +1478,7 @@ class RexGraph:
         complex is explicitly opting into the dense cost."""
         L_SG = None
         if _HAS_RCF:
-            # F = T - G (integer/exact tower, Def 3.3) - the default frustration.
+            # F = T - G (integer/exact tower, Def 3.3), the default frustration.
             L_SG = _ensure_dense(self.frustration_exact)
         return _laplacians.build_all_laplacians(
             self._B1_dual,
@@ -1601,7 +1601,7 @@ class RexGraph:
     # and the io/viz consumers expect. Those densify nE x nE (nV x nV for L0) and
     # so OOM if accessed on a very large graph. These *_sparse accessors return the
     # SAME operators as scipy CSR (nnz ~ 2*nE) via the sparse core builders - no
-    # densification - for callers that need the operator, not a dense matrix. (The
+    # densification, for callers that need the operator, not a dense matrix. (The
     # agent pipeline already hand-rolls this pattern; see pipeline._sparse_L0.)
 
     @cached_property
@@ -1776,7 +1776,7 @@ class RexGraph:
         M = _sp.bmat([[RL1, (-g) * B2], [(-g) * B2.T, L2]], format='csr')
         n = M.shape[0]
         try:
-            # Same EXACT quantity (smallest eigenvalue of M) either way - this is a
+            # Same EXACT quantity (smallest eigenvalue of M) either way. This is a
             # solver-capability boundary, not an accuracy-at-scale trade: ARPACK's
             # eigsh needs k < n and is unreliable at n≤3, so tiny M uses the direct
             # dense eig; both are exact.
@@ -2083,7 +2083,7 @@ class RexGraph:
         """Doc-exact frustration channel F = T - G (INTEGER, Def 3.3), as a sparse
         scipy CSR. F[i,j] = T[i,j] - G[i,j] off-diagonal (0 same-orientation,
         -2 opposite at a shared vertex), F[i,i] = Σ_j|F[i,j]|. Pure integer - the
-        exact/Hodge tower - built from T = B₁ᵀB₁ and G = |B₁|ᵀ|B₁| (no float weights,
+        exact/Hodge tower, built from T = B₁ᵀB₁ and G = |B₁|ᵀ|B₁| (no float weights,
         unlike the legacy signed-Gramian `L_frustration_weighted`)."""
         from scipy import sparse as _sp
         T = _laplacians.build_L1_down_sparse(self._B1_dual).tocsr()   # B₁ᵀB₁
@@ -2144,7 +2144,7 @@ class RexGraph:
 
         RL is inherently a dense nE x nE object (callers do np.trace / eigvalsh /
         RL.T on it). On the scale-free sparse path the dense bundle never built it,
-        so materialize it ON DEMAND from the sparse RL4 - dense only when the dense
+        so materialize it ON DEMAND from the sparse RL4: dense only when the dense
         accessor is actually touched, never as a fixed size gate. The matrix-free
         moment quantities use self._rl4_sparse and never reach this accessor.
         """
@@ -2158,7 +2158,7 @@ class RexGraph:
         """True when the character/coherence quantities must come from the
         scale-free sparse path: the dense spectral bundle did not build RL (large
         graphs, nE > eigen_dense_limit) but the RCF core is available. Reads the
-        bundle's 'RL' slot directly - it is None in sparse mode - so this never
+        bundle's 'RL' slot directly (it is None in sparse mode) so this never
         allocates the dense RL (which would OOM at scale)."""
         return (_HAS_RCF and self._nE > 0
                 and self.spectral_bundle.get('RL') is None)
@@ -2207,7 +2207,7 @@ class RexGraph:
         """Green function cache: B1 @ RL^-1, S0.
 
         RL3/RL4 is full-rank SPD, so RL^+ = RL^-1: the primary path factors RL
-        once (Cholesky) and solves for B1_RLp directly - no eigendecomposition and
+        once (Cholesky) and solves for B1_RLp directly: no eigendecomposition and
         no dense nE x nE pseudoinverse. Falls back to the spectral pinv path only
         if RL is not numerically SPD (degenerate / empty).
         """
@@ -2319,7 +2319,7 @@ class RexGraph:
     @cached_property
     def vertex_scale_profile(self) -> NDArray:
         """Local scale character (Part B / script 15): the closed-k-walk moments
-        (L0^k)_vv per vertex for k = 0,1,2,3 - the heat kernel's LOCAL end, i.e. the
+        (L0^k)_vv per vertex for k = 0,1,2,3: the heat kernel's LOCAL end, i.e. the
         star neighborhood's structure at each scale, via sparse matvecs / row-norms
         (no eigendecomposition). k≤2 are exact O(nnz) (1, deg, ‖L0[v,:]‖²); k=3 =
         closed 3-walks (clustering/triangles) via one sparse L0² pass. Two vertices
@@ -2425,7 +2425,7 @@ class RexGraph:
                 'weighted': bool(wdev > 1e-12)}
 
     # The character as moments of f(RL4) (scale-propagator calculus)
-    # Eigen-free, O(nnz) or matrix-free polynomial - no per-vertex solve, no
+    # Eigen-free, O(nnz) or matrix-free polynomial: no per-vertex solve, no
     # eigendecomposition (see rexgraph.scale_propagator; scripts 13-20).
 
     @cached_property
@@ -2496,7 +2496,7 @@ class RexGraph:
         RL4 is full-rank SPD so this is a plain inverse diagonal; for a SINGULAR edge
         operator (the edge Laplacian L1, individual channel hats) use
         greens_character_edge / greens_diagonal_singular, which deflate the harmonic
-        kernel - a plain solve here would blow up on the null space."""
+        kernel: a plain solve here would blow up on the null space."""
         from rexgraph import scale_propagator as _spg
         return _spg.greens_diagonal(self._rl4_sparse)
 
@@ -2505,7 +2505,7 @@ class RexGraph:
         """diag(L1⁺) - the Green's character of the SINGULAR edge Laplacian L1 =
         B1ᵀB1 + B2B2ᵀ, eigen-free via harmonic-projector deflation L1⁺=(L1+P_H)⁻¹−P_H
         (oracle 09). P_H projects onto the harmonic space ker(L1) via the combinatorial
-        harmonic basis (rexgraph.harmonic_sparse.harmonic_basis - fundamental cycles
+        harmonic basis (rexgraph.harmonic_sparse.harmonic_basis, fundamental cycles
         flux-projected onto ker(B2ᵀ), no eigendecomposition). This is the per-edge
         self-response through the harmonic-regularized edge propagator. Shape (nE,)."""
         from rexgraph import scale_propagator as _spg
@@ -2527,7 +2527,7 @@ class RexGraph:
 
     @cached_property
     def relaxation(self) -> dict:
-        """Edge-centric relaxation via the MOMENT tower - the canonical relaxation object
+        """Edge-centric relaxation via the MOMENT tower: the canonical relaxation object
         (canon: relaxation = moments of one propagator on the EDGE operators, not a vertex
         Fiedler value). One discoverable entry point onto quantities that already live in
         the tower, all eigen-free:
@@ -2672,7 +2672,7 @@ class RexGraph:
         """Total RCFE strain S = sum C(e) * RL[e,e]."""
         if not _HAS_RCF:
             return 0.0
-        # RL[e,e] from the sparse RL4 diagonal - avoids materializing the dense RL
+        # RL[e,e] from the sparse RL4 diagonal, which avoids materializing the dense RL
         # (which OOMs / is absent on the scale-free sparse path).
         rl_diag = np.ascontiguousarray(self._rl4_sparse.diagonal())
         return float(_rcfe.compute_strain(self.rcfe_curvature, rl_diag, self._nE))
@@ -2768,14 +2768,14 @@ class RexGraph:
         to a SIGNAL by diffusion, not by enumerating vertices. A vertex signal s is
         lifted to its incident edge boundaries through the coboundary B₁ᵀ, diffused
         through the SPARSE relational operator RL4, and projected back to vertices
-        through B₁ - a single diffusion of O(nnz·iters), localized to the edges the
+        through B₁: a single diffusion of O(nnz·iters), localized to the edges the
         signal actually reaches. This is the demand-driven read of the propagator: a
         signal flows through the relevant edge boundaries to the relevant vertices,
         rather than the static O(nV·solve) per-vertex Green's enumeration.
         Scale-free (sparse RL, no per-vertex loop). Modes:
           'heat'   : e^{-t·RL4} - diffusive/local (small t -> tight star, large t ->
                      the global role; the script-15 scale bridge, one signal at a time)
-          'greens' : RL4⁻¹ - the equilibrium/global Green's response, CG to `tol`.
+          'greens' : RL4⁻¹, the equilibrium/global Green's response, CG to `tol`.
         Returns the propagated vertex response (nV,), nonzero on the reached vertices.
         propagate_signal(e_v, 'greens') is column v of S₀ = B₁ RL⁺ B₁ᵀ (so the single
         vertex's global character is ONE diffusion, not nV)."""
@@ -2806,12 +2806,12 @@ class RexGraph:
     def character_response(self, seed_vertices: NDArray,
                            tol: float = 1e-10) -> NDArray:
         """Demand-driven per-vertex character φ(v,k) at just a SEED set of vertices,
-        by diffusion - the dynamic read of the character at the query vertices,
+        by diffusion: the dynamic read of the character at the query vertices,
         O(|seed|·nhats·diffusion) instead of the static O(nV·solve) full enumeration.
         Each seed's incident-edge boundary b_v = B₁[v,:]ᵀ is diffused once through the
         sparse RL4 (block-CG, all seeds at once), then
           φ(v,k) = [b_v^T RL⁻¹ ĥ_k RL⁻¹ b_v] / [b_v^T RL⁻¹ b_v]
-        is read at the seeds - identical to ``vertex_character[seed_vertices]`` but
+        is read at the seeds, identical to ``vertex_character[seed_vertices]`` but
         computed only where asked (you propagate a query, you don't enumerate the
         graph). Returns (len(seed), nhats)."""
         from rexgraph.core._sparse import to_scipy_csr
@@ -2842,7 +2842,7 @@ class RexGraph:
         return out
 
     def coherence_response(self, seed_vertices: NDArray) -> NDArray:
-        """Demand-driven coherence κ at a SEED set of vertices, by diffusion - the
+        """Demand-driven coherence κ at a SEED set of vertices, by diffusion: the
         dynamic read of coherence at just the query vertices,
         O(|seed|·nhats·diffusion) not O(nV·solve). κ(v)=1-0.5‖φ(v)-χ*(v)‖₁ with φ from
         ``character_response`` (Green's diffusion at the seeds) and χ* the star-average
@@ -2858,7 +2858,7 @@ class RexGraph:
     def local_context(self, seed_vertices: NDArray, t: float = 1.0,
                       threshold: float = 1e-6,
                       max_vertices: int | None = None) -> dict:
-        """Bounded local context around query vertices, by heat diffusion - the star
+        """Bounded local context around query vertices, by heat diffusion: the star
         neighborhood and its reach, for CONTEXT and BOUNDARY ISOLATION without ever
         enumerating the whole graph. A seed indicator is diffused through e^{-t·RL4}
         (small t -> tight star, larger t -> wider role; the script-15 scale bridge), and
@@ -2886,7 +2886,7 @@ class RexGraph:
 
     def _explain_vertex_dynamic(self, idx: int) -> dict:
         """Single-vertex diagnostic by DEMAND-DRIVEN diffusion - φ, κ, χ*, the channel
-        discrepancy, degree, incident edges and neighbor vertices - all from the query
+        discrepancy, degree, incident edges and neighbor vertices, all from the query
         vertex via one diffusion + sparse local reads, no full per-vertex enumeration
         and no dense B1/RL. Matches the _query.explain_vertex return contract."""
         from rexgraph.core._sparse import to_scipy_csr
@@ -2921,7 +2921,7 @@ class RexGraph:
         }
 
     def _explain_edge_dynamic(self, idx: int) -> dict:
-        """Single-edge (relation) diagnostic - its place in the Hodge tower plus its
+        """Single-edge (relation) diagnostic: its place in the Hodge tower plus its
         criticality - all from sparse local reads and ONE diffusion, no dense B1/B2/K1
         scans and no eigendecomposition. Matches the _query.explain_edge contract:
           below   = boundary vertices (endpoints)            - sparse B1 column, ∂/down
@@ -2961,7 +2961,7 @@ class RexGraph:
         dominant = int(np.argmax(chi)) if nhats else 0
         # effective_resistance = the CLASSIC bridge measure b_eᵀ L0⁺ b_e (one L0 solve;
         # ->1 = bridge/critical, <1 = redundant). relational_self_response = RL4⁺[e,e]
-        # (the relation's Green's self-energy in the full [T,G,F,C] operator - the value
+        # (the relation's Green's self-energy in the full [T,G,F,C] operator, the value
         # the old dense kernel returned as "effective_resistance", kept but correctly
         # named, and now exact at scale where that kernel NaN'd).
         r_eff = self.effective_resistance(idx) if self._nE > 0 else float('nan')
@@ -2994,7 +2994,7 @@ class RexGraph:
         its incident edge boundaries (B₁ᵀ e_v), an edge seed injects itself (e_e), the
         combined edge signal diffuses through RL4 (e^{-t·RL4}), and the reached edges
         (relations) and their projected vertices (entities) form the isolated
-        neighborhood. One diffusion, localized to the signal's reach - no whole-graph
+        neighborhood. One diffusion, localized to the signal's reach: no whole-graph
         enumeration, scale-free. Seed either grade or both; small t -> tight, larger t ->
         wider. Returns {seed_vertices, seed_edges, neighborhood:{vertices,
         vertex_weights, vertex_coherence, edges, edge_weights, edge_character}}."""
@@ -3062,7 +3062,7 @@ class RexGraph:
         L0 = self.L0_sparse.tocsr()
         d = L0.diagonal()
         dinv = np.where(d > 1e-30, 1.0 / d, 1.0)
-        # block-CG L0⁺ b_e - CPU or GPU-resident (auto, size-gated) via block_cg_solve
+        # block-CG L0⁺ b_e, CPU or GPU-resident (auto, size-gated) via block_cg_solve
         X = _spg.block_cg_solve(L0, Bc, dinv, tol=1e-10)
         return np.einsum('ve,ve->e', Bc, X)
 
@@ -3080,14 +3080,14 @@ class RexGraph:
         the keystone the agent/LLM layer consumes. One forged diffusion
         (``explain_context``) reduced to what a turn needs:
           neighborhood : the bounded relevant sub-complex (entities + relations).
-          load_bearing : relations ranked by effective_resistance - the BRIDGES
+          load_bearing : relations ranked by effective_resistance: the BRIDGES
                          (high = critical/near-unique, removal fragments), top_k.
           frustrated   : entities whose coherence is a LOW outlier (data-adaptive lower
                          Tukey fence on the neighborhood's κ) - the incoherent/frustrated.
           context_size : |reached vertices| + |reached edges| - the bounded relevant
                          size, i.e. the real token/cost driver (how much context a
                          correct answer needs).
-        All demand-driven and bounded - no whole-graph enumeration."""
+        All demand-driven and bounded: no whole-graph enumeration."""
         ctx = self.explain_context(vertices=vertices, edges=edges, t=t,
                                    max_cells=max_cells)
         nb = ctx['neighborhood']
@@ -4275,7 +4275,7 @@ class RexGraph:
         shadow_dim = beta_1(1) - beta_1(2) = rank(B2).
         """
         # EIGEN-FREE: shadow_dim = rank(B2) = beta_1(d=1) - beta_1(d=2), from the exact
-        # rank / union-find path - no dense eigh(L1_down), no eigenvalue nullity.
+        # rank / union-find path: no dense eigh(L1_down), no eigenvalue nullity.
         from rexgraph.graded_boundary import _sparse_rank, graded_boundaries_from_rex
         Bs = graded_boundaries_from_rex(self)
         nV, nE = int(self._nV), int(self._nE)
@@ -5117,7 +5117,7 @@ class RexGraph:
         n_comm = metrics['n_communities']
 
         if n_comm <= 1:
-            # Louvain didn't split - return whole graph
+            # Louvain didn't split, so return the whole graph
             return [(self,
                      np.arange(self._nV, dtype=_i32),
                      np.arange(self._nE, dtype=_i32))]
@@ -6060,7 +6060,7 @@ class TemporalRex:
 
         Between measurements the complex is whatever the last measurement said, so
         this is a step function, not an interpolation. None if `when` precedes the
-        first measurement -- there is no complex to report, and reporting step 0
+        first measurement: there is no complex to report, and reporting step 0
         would invent one.
         """
         times = self._times
@@ -6179,8 +6179,8 @@ class TemporalRex:
             # Modifications count too. Existence and orientation are independent
             # conditions of the composite binary, so a cell reversing orientation is
             # a real change to replay, not a weaker form of one appearing. Counting
-            # only born+died meant a history made entirely of reversals -- the normal
-            # case wherever direction carries the signal -- registered zero churn,
+            # only born+died meant a history made entirely of reversals (the normal
+            # case wherever direction carries the signal) registered zero churn,
             # never checkpointed, and left reconstruct_at replaying the whole chain.
             n_mod = int(d.mod_keys.shape[0])
             self._cumulative_delta += n_born + n_died + n_mod
@@ -6492,7 +6492,7 @@ class TemporalRex:
         A cell dying as another is born, on overlapping boundary, is a topology
         mutating. Read as an unrelated death plus an unrelated birth it looks like
         churn; read as one event it is the thing worth knowing. Betti numbers cannot
-        see it at all -- the pair can leave every one of them where it was.
+        see it at all: the pair can leave every one of them where it was.
 
         Pairing is by SHARED BOUNDARY VERTICES, exactly, and the count of them is the
         magnitude: the same currency the face correspondence uses, with no similarity
@@ -6643,8 +6643,8 @@ class TemporalRex:
         binary's two independent conditions.
 
         A relational complex's entries carry an existence condition in {0,1} and an
-        orientation in {+1,-1}. They vary independently -- a cell can persist while
-        its orientation reverses -- so differencing each separately gives a history
+        orientation in {+1,-1}. They vary independently (a cell can persist while
+        its orientation reverses) so differencing each separately gives a history
         with two channels rather than one churn count:
 
             existence   -1 the cell died, +1 it was born, 0 it persisted
@@ -6657,8 +6657,8 @@ class TemporalRex:
         Cells are identified by their canonical key, so a cell that reverses and
         reverses back is one identity across the history, not three.
 
-        Returns a sparse event view -- t / key / existence / orientation, one row per
-        cell that changed -- or, with ``dense=True``, the (T, n_cells, 2) array plus
+        Returns a sparse event view (t / key / existence / orientation, one row per
+        cell that changed) or, with ``dense=True``, the (T, n_cells, 2) array plus
         the key axis. Step 0 has no predecessor and is all zeros.
         """
         from rexgraph.core._temporal import cell_keys_of

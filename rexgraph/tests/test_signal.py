@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._signal -- perturbation analysis pipeline.
+Tests for rexgraph.core._signal: perturbation analysis pipeline.
 
 Verifies:
     - Perturbation construction: shapes, Dirac delta, vertex-derived, multi-edge, spectral

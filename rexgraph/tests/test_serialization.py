@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io._serialization -- NamedTuple serialization via adapters.
+Tests for rexgraph.io._serialization: NamedTuple serialization via adapters.
 
 Tests focus on NpyAdapter (no Zarr/HDF5 dependency) and the field
 classification, write/read roundtrip, and result dict logic.

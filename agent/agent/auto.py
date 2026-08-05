@@ -119,16 +119,17 @@ def detect_input_type(data: Any) -> str:
         if suffix == ".pdf":
             return "pdf"
         if suffix == ".txt":
-            # .txt is ambiguous: could be a tabular file or prose text.
-            # If the file exists, classify by content; otherwise treat as text.
+            # .txt is ambiguous: could be a tabular file or prose. Classify by
+            # content, but a .txt has to LOOK tabular to be read as a table;
+            # otherwise it is prose, which is what the extension usually means.
             if p.exists():
                 try:
-                    return _classify_csv(p)
+                    return _classify_csv(p, default="text")
                 except Exception:
                     return "text"
             return "text"
 
-        # No recognized extension - could still be a file path if it exists
+        # No recognized extension, but it could still be a file path if it exists
         if isinstance(data, Path) or (isinstance(data, str) and len(data) < 256
                                        and "\n" not in data and p.exists()):
             # Check if it's a 10X single-cell directory first (matrix.mtx +
@@ -156,7 +157,7 @@ def detect_input_type(data: Any) -> str:
         if isinstance(data, str) and (" " in data or "\n" in data or len(data) > 100):
             return "text"
 
-        # Single-word string with no path - assume the user meant a file
+        # Single-word string with no path: assume the user meant a file
         raise ValueError(
             f"String input not recognized as file or text: {data[:60]!r}"
         )
@@ -171,7 +172,7 @@ def detect_input_type(data: Any) -> str:
             raise ValueError(f"Expected 2D array, got {data.ndim}D")
         n, m = data.shape
         if n == m:
-            # Square matrix - check symmetry
+            # Square matrix, so check symmetry
             if np.allclose(data, data.T, atol=1e-10):
                 # Could be correlation or adjacency.
                 diag = np.diag(data)
@@ -209,8 +210,11 @@ def detect_input_type(data: Any) -> str:
     raise TypeError(f"Unsupported input type: {type(data).__name__}")
 
 
-def _classify_csv(path: Path) -> str:
-    """Peek at a CSV/TSV to decide if it's an edge list, feature matrix, or text."""
+def _classify_csv(path: Path, default: str = "edge_csv") -> str:
+    """Peek at a delimited file to decide if it's an edge list, feature matrix, or
+    text. `default` is what to return when nothing in the content settles it: an
+    edge list for a .csv/.tsv, but prose for a .txt, where the extension is the
+    stronger signal and a table is the exception."""
     import csv
     sep = '\t' if str(path).endswith('.tsv') else ','
     try:
@@ -251,14 +255,22 @@ def _classify_csv(path: Path) -> str:
             if sum(len(s) for s in strvals) / len(strvals) > 80:
                 return "text"
 
+    # A table has the same number of fields on every line. Ragged rows mean the
+    # separator is punctuation inside prose, not a delimiter. Only applied where
+    # prose is the fallback (a .txt), since a real CSV may legitimately be ragged.
+    if default == "text" and rows and any(len(r) != n_cols for r in rows):
+        return "text"
+
     # Edge list heuristics: 2-6 columns, first two look like node IDs
     if n_cols <= 6 and n_cols >= 2:
         col0, col1 = header[0].lower(), header[1].lower()
         edge_keywords = {"source", "src", "from", "head", "target", "tgt", "to", "tail", "dest"}
         if col0 in edge_keywords or col1 in edge_keywords:
             return "edge_csv"
-        # first two columns non-numeric (node names) -> edge list
-        if not _is_numeric_col(_col(0)) and not _is_numeric_col(_col(1)):
+        # first two columns non-numeric (node names) -> edge list. Requires actual
+        # rows: with none, `_is_numeric_col([])` is False for every column and a
+        # single line of prose reads as a two-node edge list.
+        if rows and not _is_numeric_col(_col(0)) and not _is_numeric_col(_col(1)):
             return "edge_csv"
 
     # Feature matrix: many numeric columns
@@ -266,7 +278,7 @@ def _classify_csv(path: Path) -> str:
     if numeric_cols >= 5 and numeric_cols / n_cols > 0.5:
         return "feature_csv"
 
-    return "edge_csv"
+    return default
 
 
 def _classify_dataframe(df):
@@ -294,7 +306,7 @@ def auto_rex(
     threshold: str | float = "auto",
     typing: str = "auto",
     sign: str = "auto",
-    face_selection: str = "typed",
+    face_selection: str = "none",
     feature_names: list[str] | None = None,
     vertex_labels: list[str] | None = None,
     **kwargs,
@@ -314,10 +326,17 @@ def auto_rex(
         Edge typing strategy.
     sign : 'auto', 'correlation', or 'positive'
         Edge sign strategy. 'auto' chooses based on input type.
-    face_selection : 'typed', 'promote', or 'none'
-        'typed': same-type triangles -> faces, cross-type -> voids.
-        'promote': fill all detected cycles as faces.
-        'none': no faces (1-rex only).
+    face_selection : 'none' (default), 'auto', 'promote', 'hyper', 'typed',
+        an int, or an iterable of ints
+        A face is a filled cycle, solved from B1 c = 0 and of any gon.
+        'none': no faces. Asserting a face asserts something is enclosed, so it
+            is asked for rather than assumed.
+        'auto': every gon the cycle basis actually contains.
+        3, 5, [3, 6]: those gons only.
+        'promote': fill every independent cycle, so beta_1 becomes 0.
+        'hyper': close each branching relation against the relations bounding it.
+        'typed': same-type triangles only. A filter over faces, not their
+            definition, kept for a caller who wants exactly that.
     feature_names : list of str, optional
         Column names for feature matrices.
     vertex_labels : list of str, optional
@@ -397,7 +416,17 @@ def auto_rex(
     elif input_type == "science_file":
         from agent.adapters.formats import read, reader_for
         name = reader_for(data)
-        out = read(data, **{k: v for k, v in kwargs.items() if k in ("k",)})
+        # Pass through what the chosen reader actually declares. Filtering to ("k",)
+        # made every other documented switch unreachable from the public entry
+        # point, silently: load_pdb(backbone=False) had no effect through auto_rex.
+        import inspect
+        from agent.adapters.formats import reader_fn
+        try:
+            accepts = set(inspect.signature(reader_fn(name)).parameters)
+        except Exception:
+            accepts = {"k"}
+        reader_kwargs = {k: v for k, v in kwargs.items() if k in accepts}
+        out = read(data, **reader_kwargs)
         if name in ("h5ad", "loom"):
             # a matrix and its axis labels: exactly what the feature path already
             # takes, so it goes there rather than growing a second one.
@@ -439,11 +468,62 @@ def auto_rex(
         typing=typing,
     )
 
+#: The face rule every path in the agent layer builds under.
+#:
+#: A face is a filled cycle: whatever satisfies B1 c_f = 0 on the relations it
+#: spans, of any gon. `rexgraph.faces` solves that exactly over the rationals and
+#: reads the gon off the cycle basis, so nothing here hardcodes a triangle and
+#: nothing conditions a face on edge type. Type and weight are attributes of a
+#: relation; they weight the complex and say nothing about whether a cycle closes.
+#:
+#: One name, because a query complex is compared against document complexes and two
+#: complexes built under different rules are not comparable.
+FACE_RULE = "auto"
+
+FACE_WORDS = ("none", "auto", "all", "promote", "hyper", "typed")
+
+
+def attach_faces(rex, rule=FACE_RULE, *, type_labels=None):
+    """Attach faces to `rex` under `rule`, returning the complex.
+
+    `rule` is 'none', 'auto'/'all' (every gon the cycle basis contains), 'promote'
+    (fill the basis, beta_1 -> 0), 'hyper' (close branching relations), 'typed' (a
+    filter that keeps only same-type triangles, which is not what a face is and is
+    kept for a caller who wants exactly that), or a gon: 3, 5, [3, 6].
+
+    Every path that used to call `typed_face_selection` directly goes through here,
+    so a document, a query and a chunk are built the same way rather than each
+    deciding for itself.
+    """
+    if isinstance(rule, str) and rule not in FACE_WORDS:
+        raise ValueError(
+            f"face_selection={rule!r} is not a face rule. Use one of "
+            f"{', '.join(FACE_WORDS)}, or a gon: 3, 5, [3, 6].")
+    if rex is None or int(getattr(rex, "nE", 0)) == 0 or rule in ("none", None):
+        return rex
+    from rexgraph.faces import auto_hyperface, autoface
+    if rule == "promote":
+        return rex.promote()
+    if rule == "hyper":
+        auto_hyperface(rex)
+        return rex
+    if rule == "typed":
+        if type_labels is None:
+            raise ValueError("face_selection='typed' needs type_labels")
+        return rex.typed_face_selection(type_labels)
+    k = rule
+    if k in ("auto", "all"):
+        from rexgraph.faces import cycle_basis, face_support
+        k = sorted({face_support(c) for c in cycle_basis(rex)})
+    autoface(rex, k=k)
+    return rex
+
+
 
 def build_rex_from_edges(
     edges: EdgeConstruction,
     *,
-    face_selection: str = "typed",
+    face_selection: str = "none",
     input_type: str = "edge_construction",
     threshold: str | float = "auto",
     typing: str = "auto",
@@ -462,7 +542,7 @@ def build_rex_from_edges(
 
     # Construction guard. The core's face-finding / boundary kernels can segfault
     # or exhaust memory on large, dense graphs (a real core limitation). Fail fast
-    # and clearly HERE - before the C code runs.
+    # and clearly HERE, before the C code runs.
     _nV = int(max(int(edges.sources.max()), int(edges.targets.max())) + 1) if edges.nE else 0
     check_analysis_size(_nV, edges.nE)
 
@@ -491,12 +571,29 @@ def build_rex_from_edges(
         signs=signs_arg,
     )
 
-    # Face selection
-    if face_selection == "typed" and edges.n_types > 1:
-        rex = rex.typed_face_selection(edges.type_labels)
-    elif face_selection == "promote":
-        rex = rex.promote()
-    # 'none': leave as 1-rex
+    # Faces, on request.
+    #
+    # A face is a filled cycle: whatever satisfies B1 c_f = 0 on the relations it
+    # spans. It is not triangles, and it is not conditioned on edge type, which is
+    # an attribute that weights the complex. `rexgraph.faces` already solves this
+    # exactly over the rationals and arity-general, reading the gon off the cycle
+    # basis; this path used to ignore it for a triangle-only, type-gated rule, so no
+    # ring with a double bond could close and no 4-gon could close at all.
+    #
+    # Nothing is filled unless asked. Asserting a face is asserting that something
+    # is enclosed, and that is the caller's claim about their data, not a default.
+    rex = attach_faces(rex, face_selection, type_labels=edges.type_labels)
+
+    # Honour the declared vertex count, AFTER faces: attaching them can rebuild the
+    # complex from its boundary arrays, which re-derives nV from the edge supports
+    # and drops any vertex with no incident edge. Sizing from the supports alone
+    # loses only the TRAILING isolated ones, so the same records in a different
+    # order gave a different complex and a different beta_0. An interval that
+    # overlaps nothing, an atom that bonds to nothing and a gene nothing correlates
+    # with are all real 0-cells.
+    n_declared = len(edges.vertex_labels or ())
+    if n_declared > rex.nV:
+        rex._nV = n_declared
 
     # Attach metadata for downstream use
     rex._agent_meta = {
@@ -542,7 +639,7 @@ def _fallback_text_or_raise(data, input_type, err, **kwargs):
                                if k in ("window", "min_count", "max_vocab",
                                         "face_selection")}
                 return TextAdapter().build(text, **text_kwargs)
-    # Not a file we can salvage - surface the original error.
+    # Not a file we can salvage, so surface the original error.
     raise err
 
 

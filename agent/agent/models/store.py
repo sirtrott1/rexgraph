@@ -1,5 +1,5 @@
 """
-store - bridge the model framework to the rexgraph IO layer.
+store: bridge the model framework to the rexgraph IO layer.
 
 All flows go through `rexgraph.io` (plus RCDB where a complex is involved):
 

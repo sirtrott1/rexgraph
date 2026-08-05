@@ -200,7 +200,7 @@ async def ocr_status():
         "has_key": bool(api_key),
     }
 
-    # PyTorch (spec check only - no import)
+    # PyTorch (spec check only, no import)
     torch_info = {"installed": importlib.util.find_spec("torch") is not None}
 
     return {

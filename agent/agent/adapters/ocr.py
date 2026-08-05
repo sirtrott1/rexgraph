@@ -244,7 +244,7 @@ class OCRAdapter(DomainAdapter):
         window: int = 0,
         min_count: int = 1,
         max_vocab: int = 500,
-        face_selection: str = "typed",
+        face_selection: str = "auto",
         detect_tables: bool = True,
     ) -> EdgeConstruction:
         """Build a relational complex from *already-extracted* OCR text.
@@ -280,7 +280,7 @@ class OCRAdapter(DomainAdapter):
 
         # If the OCR output is really a table, recover its structure so
         # column headers become vertex labels (as a native CSV would),
-        # instead of dissolving into word co-occurrence (audit 2.2).
+        # instead of dissolving into word co-occurrence.
         if detect_tables:
             try:
                 from agent.adapters.table_detect import detect_tables as _dt
@@ -309,7 +309,7 @@ class OCRAdapter(DomainAdapter):
         window: int = 0,
         min_count: int = 1,
         max_vocab: int = 500,
-        face_selection: str = "typed",
+        face_selection: str = "auto",
         ocr_prompt: str | None = None,
         dpi: int = 300,
         **kwargs,
@@ -414,7 +414,7 @@ class OCRAdapter(DomainAdapter):
         window: int = 0,
         min_count: int = 1,
         max_vocab: int = 500,
-        face_selection: str = "typed",
+        face_selection: str = "auto",
     ) -> EdgeConstruction:
         """Delegate to TextAdapter for word co-occurrence construction."""
         adapter = self._get_text_adapter()
@@ -426,7 +426,7 @@ class OCRAdapter(DomainAdapter):
             face_selection=face_selection,
         )
 
-    def _build_from_table(self, frames, face_selection: str = "typed"):
+    def _build_from_table(self, frames, face_selection: str = "auto"):
         """Turn a recovered OCR table into an EdgeConstruction.
 
         Uses the largest detected frame and routes it through the same
@@ -447,7 +447,7 @@ class OCRAdapter(DomainAdapter):
     def _build_layout(
         self,
         text: str,
-        face_selection: str = "typed",
+        face_selection: str = "auto",
     ) -> EdgeConstruction:
         """Build a relational complex from document layout structure."""
         sections = _parse_sections(text)

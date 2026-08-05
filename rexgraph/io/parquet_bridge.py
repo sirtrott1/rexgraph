@@ -6,30 +6,30 @@ Exports the mathematically meaningful structures of a relational complex
 as columnar Parquet tables.  Each table type maps to a specific part of
 the algebraic/topological framework:
 
-Boundary table - the general boundary operator d_1
-(Definition 3.1).  One row per (edge, boundary_vertex) pair - handles
+Boundary table: the general boundary operator d_1
+(Definition 3.1).  One row per (edge, boundary_vertex) pair, which handles
 standard, self-loop, branching, and witness edges (Definition 3.2).
 
 Edge table - per-edge data: source/target (for standard edges),
 edge type (Definition 3.2), weight, and optional Hodge components
 (Theorem 3.8/4.5).
 
-Vertex table - per-vertex data: layout from overlap-correct
+Vertex table: per-vertex data, layout from overlap-correct
 spectral embedding (Definition 6.7), degree from L_0,
 Fiedler vector entries, etc.
 
-Face table - the B_2 boundary operator in CSC format
+Face table: the B_2 boundary operator in CSC format
 (Definition 4.1).  One row per nonzero in B_2, giving
 (face_idx, edge_idx, orientation).
 
-Persistence table - persistence pairs from column reduction over
+Persistence table: persistence pairs from column reduction over
 Z/2.  Columns: birth, death, dim, birth_cell,
 death_cell, lifetime.
 
 Filtration table - filtration values f: C_k -> R
 on the relational complex.
 
-Metrics table - generic per-cell numeric metrics.
+Metrics table: generic per-cell numeric metrics.
 
 All `pyarrow` imports are lazy.  No pandas dependency.
 
@@ -200,7 +200,7 @@ def _read_metadata(path: str | os.PathLike) -> dict:
     return {}
 
 
-# Boundary table (Definition 3.1 - the general boundary operator)
+# Boundary table (Definition 3.1, the general boundary operator)
 
 
 def write_boundary_table(
@@ -210,7 +210,7 @@ def write_boundary_table(
     """Write the general boundary operator d_1 to Parquet.
 
     One row per (edge, boundary_vertex) pair.  This is the fundamental
-    representation - it handles all edge types from Definition 3.2:
+    representation: it handles all edge types from Definition 3.2:
 
     - Standard edges: 2 rows per edge (source, target)
     - Self-loops: 2 rows, same vertex
@@ -285,7 +285,7 @@ def read_boundary_table(
     }
 
 
-# Edge table (Definition 3.2 - per-edge properties)
+# Edge table (Definition 3.2, per-edge properties)
 
 
 def write_edge_table(
@@ -449,7 +449,7 @@ def read_vertex_table(path: str | os.PathLike) -> dict[str, np.ndarray]:
     return read_parquet(path)
 
 
-# Face table (Definition 4.1 - B2 boundary operator)
+# Face table (Definition 4.1, the B2 boundary operator)
 
 
 def write_face_table(

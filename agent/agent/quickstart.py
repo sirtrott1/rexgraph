@@ -2,7 +2,7 @@
 agent.quickstart: look at the host, look at the data, and say what to do.
 
 The stack has good defaults but they were scattered across the pieces that hold
-them -- hardware detection knows the allocation, the store registry knows which
+them: hardware detection knows the allocation, the store registry knows which
 backends exist, auto_rex knows which files it can read, and nothing put those
 together and told you what your particular machine and your particular directory
 add up to. On a rented GPU node that answer is worth having before you start
@@ -31,7 +31,7 @@ from typing import Any
 #: file types worth counting separately when deciding what a directory IS.
 _TEXTUAL = {".txt", ".md", ".rst", ".json", ".csv", ".tsv", ".pdf"}
 
-#: optional packages, what they unlock, and whether anything here needs them.
+#: optional packages, what each one adds, and whether anything here needs them.
 OPTIONAL = {
     "duckdb": "columnar queries over signatures (group-by, aggregates)",
     "s3fs": "s3:// object storage",

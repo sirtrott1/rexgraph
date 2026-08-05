@@ -11,7 +11,7 @@ still work.
                          (they tie plain Adam on standard models) and live in `rexgraph.nn.optim`,
                          not on this top-level surface, so nothing reaches for them by name.
                          Also: build_optimizer, hodge_groups (architecture-aware), training backends
-  relational_attention - PropagatorAttention / CausalPropagatorAttention (attention on f(L_W))
+  relational_attention: PropagatorAttention / CausalPropagatorAttention (attention on f(L_W))
   rcf_torch            - differentiable RCF propagators (heat / wave / green_resolvent)
   factory              - component registry and builders (make_optimizer, build_attention,
                          build_model); native pieces are the defaults
