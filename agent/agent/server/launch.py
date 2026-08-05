@@ -2,10 +2,10 @@
 agent.server.launch: the one room behind both front doors.
 
 `run.py` (flags) and `rcf-server` / `app.main()` (env) are thin wrappers that map
-their inputs onto :func:`serve`. All the launch logic - TLS resolution via the
-built-in adapters, the banner, optional browser open, proxy-header handling, and
-the single ``uvicorn.run`` call - lives here, so the two paths cannot diverge and
-new options (workers, etc.) are added in exactly one place.
+their inputs onto :func:`serve`. All the launch logic (TLS resolution via the
+built-in adapters, the banner, optional browser open, proxy-header handling, and the
+single ``uvicorn.run`` call) lives here, so the two paths cannot diverge and new
+options (workers, etc.) are added in exactly one place.
 """
 
 from __future__ import annotations
@@ -20,19 +20,39 @@ logger = logging.getLogger(__name__)
 
 
 def _agent_version() -> str:
-    """Single source of truth for the agent version: package metadata, with a
-    literal fallback for an uninstalled/source checkout."""
+    """The agent version, read the same way as the core's so the two cannot drift.
+
+    `agent.__version__` first: installed metadata is fixed at install time, so an
+    editable checkout kept reporting the version it was installed at while the core,
+    read from its module, moved on. Metadata is the fallback for the case where the
+    package is installed but its source is not on the path.
+    """
     try:
-        from importlib.metadata import PackageNotFoundError, version
-        try:
-            return version("rexgraph-agent")
-        except PackageNotFoundError:
-            return "0.6.0"
+        import agent
+        v = getattr(agent, "__version__", None)
+        if v:
+            return v
     except Exception:
-        return "0.6.0"
+        pass
+    try:
+        from importlib.metadata import version
+        return version("rexgraph-agent")
+    except Exception:
+        return "unknown"
+
+
+def _core_version() -> str:
+    """The rexgraph core version. Reported alongside the agent version because the
+    two ship on their own cadences and a bug report needs both."""
+    try:
+        import rexgraph
+        return getattr(rexgraph, "__version__", "unknown")
+    except Exception:
+        return "unknown"
 
 
 VERSION = _agent_version()
+CORE_VERSION = _core_version()
 _APP = "agent.server.app:app"
 
 
@@ -153,7 +173,7 @@ def _open_browser(url: str) -> None:
         if sys.platform == "darwin":
             subprocess.Popen(["open", url], start_new_session=True, **kwargs)
         elif sys.platform == "win32":
-            os.startfile(url)  # noqa: S606 - only reliable option on Windows
+            os.startfile(url)  # noqa: S606, the only reliable option on Windows
         else:
             subprocess.Popen(["xdg-open", url], start_new_session=True, **kwargs)
     except Exception:

@@ -1,4 +1,4 @@
-"""The self-assembling forge-and-persist loop (Slice 1): ingest any weighted edge list as an
+"""The self-assembling forge-and-persist loop: ingest any weighted edge list as an
 edge-primal relational complex, dispatch a per-tier HGNN sweep through the Hive Coordinator (CPU
 proc + iGPU threads), keep the per-tier best, deploy it as a bee, infer per edge, and persist a
 model-agnostic record to the RCDB. Fully programmatic and idempotent."""

@@ -1,5 +1,5 @@
 """
-rcf_torch - differentiable, eigen-free RCF primitives in torch.
+rcf_torch: differentiable, eigen-free RCF primitives in torch.
 
 Shared by relational attention and the Hodge optimizer. Every primitive here is the sparse /
 integer / matrix-free form, not a dense eigensolve. The governing rule: dense matrices and full
@@ -10,11 +10,11 @@ What lives here (script -> primitive):
   * [13] propagator f(L)·X via Chebyshev sparse-matvec recurrence - heat e^{-tL}
     (gradient/diffusive), wave e^{-itL} split into real=gradient(cos) / imag=curl(sin).
     O(nnz·K·d), spectrum never formed. Differentiable (matvecs), incl. w.r.t. the time t.
-  * [14] energy character diag(L²) = row-norms ‖L[e,:]‖² - the short-time propagator
+  * [14] energy character diag(L²) = row-norms ‖L[e,:]‖², the short-time propagator
     moment; O(nnz), no inversion.
   * [15] scale moments (L^k)_vv (closed k-walks) - local<->global, sparse matvec.
   * [09,10] combinatorial harmonic basis (spanning-tree fundamental cycles, integer ±1,
-    B₁H=0) + exact low-rank projector H(HᵀH)⁻¹Hᵀ - no eigensolve.
+    B₁H=0) + exact low-rank projector H(HᵀH)⁻¹Hᵀ, no eigensolve.
   * [18,19] harmonic-log = Rényi-2 (collision) entropy via traces; varentropy gap
     (H₁-H₂) = curvature self-diagnostic. Eigen-free.
   * [20] weighted curvature = chain residual R = B₁(W-I)B₂; additive edge decomposition.
@@ -185,7 +185,7 @@ def wave_apply(L, X, t: float, K: int = 32, lam_max: float | None = None) -> tup
 # energy character & scale moments [14,15]
 
 def energy_character(L):
-    """diag(L²) as row-norms ‖L[e,:]‖² - O(nnz), no inversion. The short-time (t²) moment of
+    """diag(L²) as row-norms ‖L[e,:]‖²: O(nnz), no inversion. The short-time (t²) moment of
     the heat propagator: the local character [14]."""
     _require()
     return (L * L).sum(dim=-1)

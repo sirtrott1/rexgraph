@@ -4,7 +4,7 @@ agent.bench_stack: the numbers, measured the same way every time.
 Every performance claim in this stack was arrived at by measuring, and two of them
 were wrong the first time. A benchmark reusing one payload across backends charged
 the whole of structural_signature to whichever backend ran first, because RexGraph
-caches betti and coherence on the instance -- a 157x difference that read as a
+caches betti and coherence on the instance, a 157x difference that read as a
 backend result. A vocabulary lookup that had gone from 0.5 ms to 3.5 ms was a list
 scan hiding inside an index whose whole purpose was to remove scans.
 
@@ -122,7 +122,7 @@ def bench_backend(kind: str, n: int, root: str) -> dict[str, Any]:
     # MemoryStore has nothing to reopen: calling _open() again would hand back an
     # EMPTY store and every query below would time a scan over nothing. That is
     # exactly the hollow figure this harness exists to prevent, and it was in the
-    # harness -- it reported 0.004 ms where the real query takes 25 ms.
+    # harness, which reported 0.004 ms where the real query takes 25 ms.
     live = store if kind == "memory" else _open()
     out = {
         "records": n,

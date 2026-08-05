@@ -1,5 +1,5 @@
 """
-OCR integration - unified client for multiple OCR backends.
+OCR integration: unified client for multiple OCR backends.
 
 Supports three OCR providers through a single adapter interface:
 
@@ -186,7 +186,7 @@ def _pdf_to_images(pdf_path: str, dpi: int = 300) -> list[str]:
     taking down the server.
     """
     try:
-        import fitz  # noqa: F401 - check availability before spawning
+        import fitz  # noqa: F401, check availability before spawning
     except ImportError:
         raise ImportError(
             "PyMuPDF is required for PDF processing. "
@@ -1042,7 +1042,7 @@ class MistralOCRClient:
     """Client for Mistral's cloud-hosted OCR API.
 
     Uses the ``mistralai`` SDK to call ``mistral-ocr-latest``.
-    No GPU required - just an API key.  Native PDF support (no
+    No GPU required, just an API key.  Native PDF support (no
     page-to-image conversion needed).
 
     Parameters

@@ -5,7 +5,7 @@ One route group over :mod:`agent.connectors.service`: list what can be connected
 (with per-scheme driver status for the "not configured" UX), validate an
 integration, read a source read-only, and ingest its structure into the RCDB.
 SQL, warehouses, Mongo, ontologies, graphs, and streams all flow through the
-same path - the same one the ``rexgraph-connect`` CLI uses.
+same path, the one the ``rexgraph-connect`` CLI uses.
 
 A request identifies its source by a saved-connection ``name`` (resolved via the
 SecretStore, credentials never returned), an inline ``uri``, or a bare

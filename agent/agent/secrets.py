@@ -5,7 +5,7 @@ Connection URIs carry credentials. This module puts them behind one interface
 so the file-backed default can be swapped for a real secrets manager
 (Vault/KMS) without touching call sites. The env-reference backend models the
 production pattern: config stores a *reference* (an env var / secret path), and
-the real secret is fetched at resolve time - never persisted by us.
+the real secret is fetched at resolve time and never persisted by us.
 
 Select via ``REXGRAPH_SECRETS_URI``:
   * ``file://…``  (default) - FileSecretStore, a local JSON store.
@@ -109,7 +109,7 @@ class EnvSecretStore(SecretStore):
     """Reference-based store modeling a real secrets manager: config holds a
     *reference* (an env var name); the secret is fetched from the environment
     at resolve time and never persisted here. The same shape a Vault/KMS
-    backend takes - swap ``os.environ`` for the vault client.
+    backend takes: swap ``os.environ`` for the vault client.
     """
 
     def __init__(self, index_path: str = "~/.config/rexgraph/secret_refs.json"):

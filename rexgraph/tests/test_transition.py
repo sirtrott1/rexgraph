@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._transition -- transition operators on the rex chain complex.
+Tests for rexgraph.core._transition: transition operators on the rex chain complex.
 
 Verifies:
     - Markov discrete: column-stochastic W preserves L1 norm

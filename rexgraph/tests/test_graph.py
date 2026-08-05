@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.graph -- RexGraph and TemporalRex public API.
+Tests for rexgraph.graph: RexGraph and TemporalRex public API.
 
 Integration tests that exercise the orchestration layer. Underlying
 Cython modules are tested individually in core/test_*.py.

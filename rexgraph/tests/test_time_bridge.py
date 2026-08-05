@@ -2,7 +2,7 @@
 
 TemporalRex addressed history by step index; the RCDB addressed it by transaction
 and validity time. Nothing mapped between them, so "reconstruct the complex as it
-stood when that measurement was taken" had no answer -- you could get the step or
+stood when that measurement was taken" had no answer: you could get the step or
 the timestamp, never both. For an experiment whose timepoints are hours or passages
 rather than integers, that gap is the whole difficulty.
 

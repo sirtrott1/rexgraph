@@ -84,8 +84,7 @@ def test_trace_moments_share_one_power_walk_matches_per_order():
         assert abs(spg.renyi_from_moments(tm, a) - spg.renyi_entropy(A, a)) <= 1e-9 if a > 1 else True
 
 
-# -- eigen-free heat propagation of signals (Chebyshev matvec) vs dense e^{-tL} ----
-
+#### eigen-free heat propagation of signals (Chebyshev matvec) vs dense e^{-tL}
 def _dense_heat(L, f, t):
     w, V = np.linalg.eigh(np.asarray(L, dtype=float))
     return V @ (np.exp(-t * w) * (V.T @ f))
@@ -147,8 +146,7 @@ def test_heat_t0_is_identity():
     np.testing.assert_allclose(spg.heat_apply(L, f, 0.0), f, atol=1e-12)
 
 
-# -- eigen-free Betti (union-find + exact rational rank) == spectrum-derived Betti --
-
+#### eigen-free Betti (union-find + exact rational rank) == spectrum-derived Betti
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_betti_eigenfree_matches_spectral_bundle(edges):
     """rex.betti (beta_0 union-find, rank(B_k) exact rational column reduction - no
@@ -172,8 +170,7 @@ def test_betti_eigenfree_on_faced_and_graded():
     assert disk.betti == (1, 0, 0)
 
 
-# -- live perturbation engines routed off dense eigh onto matrix-free Chebyshev ----
-
+#### live perturbation engines routed off dense eigh onto matrix-free Chebyshev
 def _tetra_rex():
     return RexGraph.from_simplicial(
         np.array([0, 0, 0, 1, 1, 2]), np.array([1, 2, 3, 2, 3, 3]),
@@ -236,8 +233,7 @@ def test_analyze_perturbation_field_wave_is_eigenfree():
     assert "wave_total" in res
 
 
-# --- dynamics-evolver reroutes: methods now matrix-free, no eigh ------------------
-
+#### dynamics-evolver reroutes: methods now matrix-free, no eigh
 @pytest.mark.parametrize("edges", _COMPLEXES)
 @pytest.mark.parametrize("t", [0.15, 0.9])
 def test_evolve_markov_matches_dense_expm(edges, t):
@@ -472,7 +468,7 @@ def test_scale_free_never_fills_full_spectrum_keys_with_partial():
     dense path's.
 
     (measure_in_eigenbasis itself ends in np.random.choice, so its returned probability is a random
-    draw and cannot be compared across two decompositions -- and RL_1 here is degenerate, so two
+    draw and cannot be compared across two decompositions, and RL_1 here is degenerate, so two
     eigenbases need not agree mode-for-mode. The deterministic, degeneracy-robust invariant is that
     the OPERATOR and its full spectrum are the same either way.)"""
     import itertools

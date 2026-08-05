@@ -5,7 +5,7 @@ The pipeline is meant to dispatch heavy linear algebra (boundary maps,
 Hodge decomposition, spectral bundles, RCFE strain) into the compiled
 Cython extensions in ``rexgraph.core``.  If those extensions are not
 built, ``rexgraph.core`` silently falls back and the pipeline quietly
-runs pure-Python paths that are far slower (audit 3.2).
+runs pure-Python paths that are far slower.
 
 This module reports, at runtime, exactly which core modules loaded as
 compiled extensions versus which are missing, and whether the key
@@ -60,7 +60,7 @@ def method_dispatch_report() -> dict[str, bool]:
     """Run the key RexGraph methods on a tiny complex and record success.
 
     A ``True`` means the method executed (dispatching into whatever
-    backend is present); a ``False`` means it raised - typically because
+    backend is present); a ``False`` means it raised, typically because
     its Cython kernel is not compiled.
     """
     import numpy as np

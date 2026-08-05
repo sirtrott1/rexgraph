@@ -1,7 +1,7 @@
 """
 Base adapter defining the contract for domain-specific edge construction.
 
-Every adapter takes raw data and produces an EdgeConstruction - the typed
+Every adapter takes raw data and produces an EdgeConstruction: the typed
 edges, signs, and labels that feed into RexGraph.from_graph() and
 typed_face_selection().
 """

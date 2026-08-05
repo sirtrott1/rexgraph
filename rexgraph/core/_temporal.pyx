@@ -1287,7 +1287,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
             inter_size = len(curr_set & prev_set)
             # A shared boundary cell is an exact structural fact. The old test was
             # |A n B| / |A u B| >= 0.5, a similarity score with an untunable cutoff
-            # that also cannot see orientation at all -- and it re-derived, badly,
+            # that also cannot see orientation at all, and it re-derived, badly,
             # something B2 and the canonical cell keys already state exactly.
             if inter_size >= min_shared:
                 matched.append(fp)

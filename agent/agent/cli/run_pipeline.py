@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-rexgraph-run - headless pipeline for CLI and HPC batch processing.
+rexgraph-run: headless pipeline for CLI and HPC batch processing.
 
 Usage:
     python -m agent.cli.run_pipeline paper.pdf

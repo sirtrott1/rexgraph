@@ -7,7 +7,7 @@ nothing downstream is hardcoded to one laptop, one env manager, or one GPU:
                               venv / virtualenv / uv / poetry / pdm / system), the interpreter,
                               the prefix, and whether the toolchain compiler is CONSISTENT with the
                               system compiler (a prior LTO link failure came from a conda gcc-14
-                              linker meeting system gcc-16 objects - we detect and WARN on that).
+                              linker meeting system gcc-16 objects, which is detected and warned about).
     detect_compute_backends() the compute backends actually available on this host, with
                               capability info: CUDA, ROCm, Vulkan, Metal, CPU, and integrated/APU
                               GPUs (e.g. an AMD "Strix Halo" RDNA3.5 iGPU).
@@ -48,10 +48,9 @@ REXGRAPH_BACKEND_ENV = "REXGRAPH_BACKEND"
 BACKEND_PRIORITY = ["cuda", "rocm", "vulkan", "metal", "cpu"]
 
 
-# ----------------------------------------------------------------------------------------------
+#### -
 # small, safe helpers
-# ----------------------------------------------------------------------------------------------
-
+#### -
 def _run(cmd: list[str], timeout: float = 4.0) -> str | None:
     """Run a command, returning stdout (best-effort) or None. Never raises."""
     try:
@@ -70,7 +69,7 @@ def _have(tool: str) -> str | None:
 
 
 def _has_module(name: str) -> bool:
-    """True if an importable module `name` exists - WITHOUT importing it (no heavy side effects)."""
+    """True if an importable module `name` exists, WITHOUT importing it (no heavy side effects)."""
     try:
         return importlib.util.find_spec(name) is not None
     except Exception:
@@ -88,10 +87,9 @@ def _first_version_tuple(text: str | None) -> tuple | None:
     return tuple(int(g) for g in m.groups() if g is not None)
 
 
-# ----------------------------------------------------------------------------------------------
+#### -
 # Python environment / toolchain
-# ----------------------------------------------------------------------------------------------
-
+#### -
 def _detect_manager() -> str:
     """Best-effort name of the environment manager governing the active interpreter."""
     prefix = sys.prefix
@@ -221,10 +219,9 @@ def detect_python_env() -> dict[str, Any]:
     return env
 
 
-# ----------------------------------------------------------------------------------------------
+#### -
 # Compute backend detection
-# ----------------------------------------------------------------------------------------------
-
+#### -
 def _cpu_backend() -> dict[str, Any]:
     cores = os.cpu_count() or 1
     simd: list[str] = []
@@ -311,7 +308,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
     """
     backends: list[dict[str, Any]] = []
 
-    # --- CUDA (NVIDIA) ---
+    #### CUDA (NVIDIA)
     try:
         cuda_devs = 0
         via = None
@@ -332,7 +329,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
     except Exception:
         pass
 
-    # --- ROCm (AMD, discrete or APU) ---
+    #### ROCm (AMD, discrete or APU)
     try:
         rocm_devs = 0
         integrated = False
@@ -367,7 +364,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
     except Exception:
         pass
 
-    # --- Integrated/APU AMD GPUs not surfaced by rocminfo (no ROCm stack installed) ---
+    #### Integrated/APU AMD GPUs not surfaced by rocminfo (no ROCm stack installed)
     try:
         have_rocm = any(b["name"] == "rocm" for b in backends)
         if not have_rocm:
@@ -384,7 +381,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
     except Exception:
         pass
 
-    # --- Vulkan ---
+    #### Vulkan
     try:
         vk = None
         vinfo = _have("vulkaninfo")
@@ -406,7 +403,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
     except Exception:
         pass
 
-    # --- Metal (Apple) ---
+    #### Metal (Apple)
     try:
         if platform.system() == "Darwin":
             backends.append({"name": "metal", "kind": "gpu", "available": True,
@@ -415,7 +412,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
     except Exception:
         pass
 
-    # --- CPU (always) ---
+    #### CPU (always)
     try:
         backends.append(_cpu_backend())
     except Exception:
@@ -449,7 +446,7 @@ def recommend_backend(available: Any = None) -> str:
     """The best backend name for this host.
 
     Priority:
-      1. The REXGRAPH_BACKEND environment variable, if set and non-empty - it WINS (explicit
+      1. The REXGRAPH_BACKEND environment variable, if set and non-empty: it WINS (explicit
          user/operator override, returned verbatim, lower-cased).
       2. Otherwise the first backend in BACKEND_PRIORITY (cuda > rocm > vulkan > metal > cpu)
          that is actually available on this host.
@@ -468,10 +465,9 @@ def recommend_backend(available: Any = None) -> str:
     return "cpu"
 
 
-# ----------------------------------------------------------------------------------------------
+#### -
 # human-readable report
-# ----------------------------------------------------------------------------------------------
-
+#### -
 def summary() -> str:
     """A human-readable diagnostic of the Python env, toolchain, and compute backends."""
     lines: list[str] = []

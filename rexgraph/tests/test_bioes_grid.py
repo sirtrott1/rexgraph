@@ -2,7 +2,7 @@
 
 O is the 0 of the existence condition. B/I/E/S all presuppose existence=1 and say
 where in a contiguous life you are, so BIOES is the lifetime-position reading of the
-existence channel -- not a separate scheme bolted on. Tagging TIMESTEPS by phase
+existence channel, not a separate scheme bolted on. Tagging TIMESTEPS by phase
 could never use O, because phases partition the timeline and nothing is outside them.
 
 Indexing cells against moments gives the grid: a row is what the whole complex is

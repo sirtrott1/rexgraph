@@ -2,7 +2,7 @@
 
 The io layer grew nine independent numpy-JSON encoders with four different NaN
 policies, and none of them worked for float64. np.float64 subclasses Python float,
-so json.dumps serializes it directly and never consults default() -- the encoder
+so json.dumps serializes it directly and never consults default(). The encoder
 that documents "NaN/Inf become 0" silently emitted a bare NaN token instead, which
 is not JSON and no strict reader will parse.
 """
@@ -76,7 +76,7 @@ def test_numpy_dict_keys_survive():
 
 def test_a_bundle_manifest_is_always_strict_json(tmp_path):
     """A .rex bundle carrying a NaN metric wrote a MANIFEST.json that JSON.parse
-    rejects -- the GUI and every external consumer choke on it."""
+    rejects: the GUI and every external consumer choke on it."""
     from rexgraph.io.bundle import save_rex
 
     g = _rex()
@@ -98,7 +98,7 @@ def test_every_json_writer_shares_the_one_encoder():
     Checks the property, not the plumbing: no io module may DEFINE its own encoder,
     and each must route its writes through _compat.dumps. An earlier version of this
     test asserted a back-compat alias instead, and so failed when the (by then dead)
-    alias was cleaned up -- while the property it cared about still held.
+    alias was cleaned up, while the property it cared about still held.
     """
     import inspect
 

@@ -3,7 +3,7 @@ agent.cli.connect: the connector command line (``rexgraph-connect``).
 
 A thin CLI over :mod:`agent.connectors.service`; it adds no logic the HTTP route
 doesn't also get. Point it at any source and it lists, validates, reads, or
-ingests - the same four verbs the app exposes.
+ingests: the same four verbs the app exposes.
 
     rexgraph-connect list                          # what can I connect to?
     rexgraph-connect read  postgresql://h/db       # build + summarize (read-only)

@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._relational -- relational Laplacian and Green function.
+Tests for rexgraph.core._relational: relational Laplacian and Green function.
 
 Verifies:
     - Trace normalization: tr(L_hat) = 1, zero-trace inputs produce zero output

@@ -1,5 +1,5 @@
 """
-local_runtime - manage a local llama.cpp-family inference server as a first-class
+local_runtime: manage a local llama.cpp-family inference server as a first-class
 backend for rexgraph-agent.
 
 The agent talks to any OpenAI-compatible endpoint (``chat_model``). This module makes
@@ -29,7 +29,7 @@ _STATE: dict = {}
 _EMBED_PROC: subprocess.Popen | None = None    # dedicated embedding worker (the beehive embedder)
 _EMBED_STATE: dict = {}
 
-# Backend-agnostic launch defaults. RexGraph is a GENERAL platform - CUDA, ROCm,
+# Backend-agnostic launch defaults. RexGraph is a GENERAL platform: CUDA, ROCm,
 # Vulkan, Metal, and CPU are all first-class; the backend is a build-time choice of the
 # llama.cpp binary you point this at, and the launcher adapts (n_gpu_layers is derived
 # from detected VRAM unless you set it). None of this is tied to any one machine.
@@ -58,7 +58,7 @@ def _fa_value(fa) -> str:
 # params, so they punch above their memory footprint on any backend.
 # The BEEHIVE stack (2026): a queen (main driver, MoE-first for unified memory) + focused worker
 # bees + a tiny embedder that powers the swarm's alignment/hallucination signal. `recommend()`
-# filters to what fits the detected hardware. Names drift - pass explicit files to `pull`.
+# filters to what fits the detected hardware. Names drift, so pass explicit files to `pull`.
 CATALOG = [
     {"name": "nomic-embed-text", "kind": "embed", "active": "137M", "approx_gb": 1,
      "tier": "embed", "role": "embedder",
@@ -524,7 +524,7 @@ def _default_scan_dirs() -> list[str]:
 
 
 def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 400) -> list[dict]:
-    """AUTO-DETECT models already on disk - no curated registry, no manual paths. Walks the
+    """AUTO-DETECT models already on disk: no curated registry, no manual paths. Walks the
     common model locations (HF hub cache, ollama, LM Studio, ~/models, our pull() dir, plus
     REXGRAPH_MODEL_DIRS) and reports every GGUF file (llama.cpp-loadable, ready for start())
     and every HF transformers snapshot (vLLM/transformers-loadable). Each entry carries a
@@ -649,7 +649,7 @@ def _default_probe_targets() -> list[dict]:
 
 
 def probe_endpoints(timeout: float = 0.4) -> list[dict]:
-    """PROBE live inference servers already running on this host - not files on disk, actual
+    """PROBE live inference servers already running on this host, not files on disk, actual
     serving endpoints. Hits Ollama's /api/tags and the OpenAI-compatible /v1/models on the
     well-known ports (llama.cpp, vLLM, LM Studio, TGI) + REXGRAPH_PROBE_URLS. Returns only the
     reachable ones, each with the model ids it is serving, so the swarm can wire real backends."""

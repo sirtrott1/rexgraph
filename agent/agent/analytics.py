@@ -4,9 +4,9 @@ agent.analytics: columnar queries over what the store already knows.
 Every backend can answer "which records match this predicate" by walking its
 signatures, and all of them take about the same 10-24 ms over eight thousand
 records because all of them are doing the same row-at-a-time work. What none of
-them can answer at all is the shape of question you actually ask of a corpus --
+them can answer at all is the shape of question you actually ask of a corpus:
 how does kappa distribute across sources, which betti values are over-represented,
-what is the median edge count per tag -- because the signature is a document and
+what is the median edge count per tag. The signature is a document, and
 aggregating documents means writing the loop yourself.
 
 A signature is a fixed set of scalars per record. That is a table, and a columnar
@@ -129,7 +129,7 @@ class SignatureView:
         return [n for n, _ in COLUMNS]
 
     def ids(self, where: str, *, limit: int = 10 ** 9) -> list[str]:
-        """Record ids matching a SQL predicate -- the bridge back to the store."""
+        """Record ids matching a SQL predicate: the bridge back to the store."""
         rows = self.con.execute(
             f"SELECT id FROM {self.TABLE} WHERE {where} LIMIT {int(limit)}").fetchall()
         return [r[0] for r in rows]

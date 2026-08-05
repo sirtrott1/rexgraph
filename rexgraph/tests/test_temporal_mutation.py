@@ -18,8 +18,7 @@ B, I, O, E, S = 0, 1, 2, 3, 4
 PERSIST, BORN, DIED, SPLIT, MERGE, MUTATE = 0, 1, 2, 3, 4, 5
 
 
-# --- BIOES is blind to edge-level mutation ------------------------------------
-
+#### BIOES is blind to edge-level mutation
 def _pendant_moves():
     """Triangle 0-1-2 plus one pendant to vertex 3, which moves at t=2.
     beta0 and beta1 both hold, so only the churn reveals that anything happened."""
@@ -68,8 +67,7 @@ def test_a_quiet_history_is_still_one_phase():
     assert len(ps) == 1
 
 
-# --- face correspondence ------------------------------------------------------
-
+#### face correspondence
 _SRC = np.array([0, 1, 2, 0, 3, 4], np.int32)
 _TGT = np.array([1, 2, 0, 3, 4, 0], np.int32)
 
@@ -132,8 +130,7 @@ def test_an_unrelated_face_is_still_born_and_died():
     assert p2c[0] == -1 and c2p[0] == -1
 
 
-# --- persistence vs intermittency ---------------------------------------------
-
+#### persistence vs intermittency
 def test_an_edge_that_flickers_is_not_one_continuous_life():
     """edge_lifecycle reports first_seen and last_seen, so an edge present at t=0,
     absent at t=1 and back at t=2 is indistinguishable from one that never left."""
@@ -160,8 +157,7 @@ def test_intervals_agree_with_lifecycle_when_nothing_flickers():
     assert list(starts) == list(birth)
 
 
-# --- correspondence without a similarity score --------------------------------
-
+#### correspondence without a similarity score
 def test_a_mutating_face_still_counts_as_a_structural_event():
     """Regression in this file's own first pass: introducing FACE_MUTATE gave
     deforming faces an event code that no counter incremented, so they stopped
@@ -178,7 +174,7 @@ def test_a_mutating_face_still_counts_as_a_structural_event():
 
 
 def test_correspondence_uses_shared_boundary_not_a_similarity_score():
-    """Face identity is already exact -- B2 says which cells bound each face, and
+    """Face identity is already exact: B2 says which cells bound each face, and
     cell keys are canonical. Estimating it with a set-similarity score and a 0.5
     cutoff re-derives, badly, something the complex knows exactly."""
     ev_prev, ev_curr, p2c, c2p, shared = _track([[0, 1, 2]], [[0, 1, 3]])

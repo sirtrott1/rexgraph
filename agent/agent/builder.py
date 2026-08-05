@@ -185,7 +185,7 @@ def _step_corpus(files, state, params):
         )
 
     if not ecs:
-        # Direct from files - route each through auto_rex by detected type
+        # Direct from files: route each through auto_rex by detected type
         # (CSV -> edge/feature, JSON -> loader, text -> co-occurrence) rather
         # than force-reading every file as prose (audit B4).
         for filepath in files:
@@ -233,7 +233,8 @@ def _step_chunk(files, state, params):
                 continue
             rex = RexGraph(sources=ec.sources, targets=ec.targets)
             if ec.n_types > 1:
-                rex = rex.typed_face_selection(ec.type_labels)
+                from agent.auto import attach_faces
+                rex = attach_faces(rex, type_labels=ec.type_labels)
             chunks = hodge_chunk(rex, ec.edge_spans, ec.sentence_spans,
                                  source, min_chunk_chars=min_chars)
             all_chunks.append({"doc_id": doc.doc_id, "chunks": chunks})

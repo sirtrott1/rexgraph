@@ -7,6 +7,8 @@ import tempfile
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 
+from rexgraph.io._compat import json_sanitize
+
 from agent.server.auth import TokenEntry, WorkspaceState, require_auth, require_workspace
 
 router = APIRouter(prefix="/v1/corpus")
@@ -18,18 +20,40 @@ async def add_text_json(
     token: TokenEntry = Depends(require_auth),
     ws: WorkspaceState = Depends(require_workspace),
 ):
-    """Add a text document via JSON - API-friendly sibling of /add.
+    """Add text as a relational complex and keep it as a .rex document.
 
-    Body: {text, doc_id?, date?}. The multipart /add endpoint is for file
-    uploads; this one lets programmatic clients send JSON.
+    Body: {text, doc_id?, date?, persist?}. The text is built into a complex the
+    same way an uploaded .txt is (words as vertices, sentence co-occurrence as
+    relations) and written as a .rex bundle. The bundle carries the source text in
+    its own metadata, so the document is one file and the text is not a sidecar.
+
+    `persist: false` adds it to the corpus without writing the bundle.
     """
     text = body.get("text")
-    if not text:
+    if not text or not str(text).strip():
         raise HTTPException(400, "Provide 'text'")
     corpus = ws.get_corpus()
-    ws.record_activity(token.user_id, "add_document", body.get("doc_id") or "text")
-    did = corpus.add_text(text, doc_id=body.get("doc_id"), date=body.get("date"))
-    return {"doc_id": did, "n_documents": corpus.n_documents}
+    doc_id = body.get("doc_id")
+    ws.record_activity(token.user_id, "add_document", doc_id or "text")
+    did = corpus.add_text(str(text), doc_id=doc_id, date=body.get("date"))
+
+    out = {"doc_id": did, "n_documents": corpus.n_documents}
+    if body.get("persist") is False:
+        return out
+    # Build so the document HAS a complex: add_text records the text and defers
+    # construction, so persisting before this would write nothing.
+    try:
+        corpus.build(depth=body.get("depth", "quick"))
+    except Exception as e:
+        raise HTTPException(500, f"Could not build a complex from the text: {e}") from e
+    doc = next((d for d in corpus.documents if d.doc_id == did), None)
+    if doc is None or doc.rex is None:
+        raise HTTPException(500, "The text produced no complex")
+    from agent.server.persistence import save_document_rex
+    out["path"] = save_document_rex(ws.name, did, doc.rex)
+    out["nV"], out["nE"] = int(doc.rex.nV), int(doc.rex.nE)
+    out["vertex_labels"] = (doc.vertex_labels or [])[:12]
+    return out
 
 
 @router.post("/add")
@@ -125,7 +149,10 @@ async def temporal_tags(
     corpus = ws.get_corpus()
     if not corpus._built:
         raise HTTPException(400, "Build the corpus first")
-    return corpus.temporal_tags()
+    # temporal_tags returns numpy arrays and a tuple of arrays, which FastAPI's
+    # encoder cannot serialize, so the request died after the handler succeeded.
+    # Only reachable with two or more documents; one document short-circuits.
+    return json_sanitize(corpus.temporal_tags(), nan="null")
 
 
 @router.get("/bridge/{doc_a}/{doc_b}")
@@ -195,7 +222,7 @@ async def compare_datasets(
     """Cross-dataset structural comparison across all corpus documents.
 
     Computes a pairwise persistence-distance matrix plus per-document
-    invariants and shared-entity bridges (audit 1.5).
+    invariants and shared-entity bridges.
     """
     corpus = ws.get_corpus()
     if not corpus._built:
@@ -213,7 +240,7 @@ async def trustgraph_enrichment(
     depth: str = Form("standard"),
     token: TokenEntry = Depends(require_auth), ws: WorkspaceState = Depends(require_workspace),
 ):
-    """Run TrustGraph ontology enrichment across the corpus (audit 1.1)."""
+    """Run TrustGraph ontology enrichment across the corpus."""
     corpus = ws.get_corpus()
     if not corpus._built:
         raise HTTPException(400, "Build the corpus first")

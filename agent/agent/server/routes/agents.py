@@ -11,7 +11,7 @@ from starlette.responses import StreamingResponse
 
 from agent.server.auth import TokenEntry, WorkspaceState, is_admin, require_auth, require_workspace
 
-# Verbs that change the world irreversibly - only an admin may actually execute them (with confirm).
+# Verbs that change the world irreversibly. Only an admin may actually execute them (with confirm).
 # Everyone with a valid token may still run read/build verbs and may PROPOSE these (confirm=False).
 _CONSEQUENTIAL = {"kill"}
 
@@ -62,7 +62,7 @@ async def agent_reset():
 
 @router.get("/agents/activity")
 async def agents_activity(scope: str = None, entity: str = None, action: str = None, limit: int = 200):
-    """The activity log - every action by every entity, newest first. Filter by scope
+    """The activity log: every action by every entity, newest first. Filter by scope
     (network|hive|team|worker|model), entity id (exact or prefix, e.g. 'worker:coder'), or action."""
     from agent import activity
     return {"events": activity.get_log().events(scope=scope, entity=entity, action=action, limit=limit)}
@@ -70,7 +70,7 @@ async def agents_activity(scope: str = None, entity: str = None, action: str = N
 
 @router.get("/agents/events")
 async def agents_events(request: Request):
-    """Live event stream (SSE). Pushes each activity event the instant it happens - worker
+    """Live event stream (SSE). Pushes each activity event the instant it happens: worker
     deploy/remove, model use.open/use.close, hive create/remove - so the UI reflects CLI/API actions
     with no polling. One-way and read-only (the same auth middleware gates it); 15s heartbeat;
     concurrent streams are capped so a client cannot exhaust connections."""
@@ -115,7 +115,7 @@ async def agents_events(request: Request):
 
 @router.get("/agents/usage")
 async def agents_usage():
-    """Model-usage portal - per model: when it was instantiated, how long it has run, and its ACTIVE
+    """Model-usage portal. Per model: when it was instantiated, how long it has run, and its ACTIVE
     concurrent uses (what it is doing right now), plus total uses this session."""
     from agent import activity
     return {"usage": activity.get_log().usage()}

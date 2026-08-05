@@ -9,7 +9,7 @@ agent.cli.ocr: command-line entry point for OCR + the GPU server.
 
 This is the console-script target declared in pyproject as
 ``rexgraph-ocr = "agent.cli.ocr:ocr_main"``. It is a *CLI*, not a server
-route - the OCR HTTP endpoint lives in ``agent.server.routes.ocr``.
+route: the OCR HTTP endpoint lives in ``agent.server.routes.ocr``.
 """
 
 from __future__ import annotations

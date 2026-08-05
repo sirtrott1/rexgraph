@@ -2,8 +2,8 @@
 
 Reading a query's induced flow through the typed channels means scoring psi against
 itself, but `target_signal` had to be supplied by the caller and psi is computed
-inside the bundle. Callers therefore ran the bundle twice -- once with a throwaway
-zero target purely to obtain psi, then again with it -- paying two L0^+ solves for
+inside the bundle. Callers therefore ran the bundle twice (once with a throwaway
+zero target purely to obtain psi, then again with it) paying two L0^+ solves for
 one reading. That is the dominant per-candidate cost in store-backed retrieval.
 
 `target_signal=None` now means "score psi against itself", which the bundle can do
@@ -71,7 +71,7 @@ def test_an_explicit_target_is_unaffected():
 
 def test_the_scorer_no_longer_builds_a_whole_bundle_per_document():
     """The scorer used to call interfacing_vector per candidate, paying a whole
-    interfacing bundle -- and passing target=None, which scores psi against itself
+    interfacing bundle, and passing target=None, which scores psi against itself
     rather than interfacing with anything. It reads coherence_response now, which is
     demand-driven at the seed, so interfacing_vector is not on that path at all."""
     import inspect

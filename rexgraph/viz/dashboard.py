@@ -132,7 +132,7 @@ def _inject_data(jsx: str, data: dict) -> str:
     return jsx.replace(_SENTINEL, payload, 1)
 
 
-# Static dashboard generation (core API - no server dependency)
+# Static dashboard generation (core API, no server dependency)
 
 
 def generate_dashboard(
@@ -264,7 +264,7 @@ def to_json(
     return data
 
 
-# Flask live server (optional - only imported if Flask is installed)
+# Flask live server (optional, only imported if Flask is installed)
 
 
 def create_app(

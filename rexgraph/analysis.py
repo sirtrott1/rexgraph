@@ -7,8 +7,8 @@ keys match what the dashboard templates read.
 
 Functions:
     analyze        - Full structural analysis for the graph dashboard.
-    analyze_signal - Signal/perturbation/field data for the signal dashboard.
-    analyze_quotient - Quotient presets for the quotient dashboard.
+    analyze_signal: Signal/perturbation/field data for the signal dashboard.
+    analyze_quotient: Quotient presets for the quotient dashboard.
     analyze_all    - Combined analysis for all three dashboards in one call.
 
 Cached bundles:
@@ -16,7 +16,7 @@ Cached bundles:
     spectral_bundle   - Laplacians, eigenvalues, Betti numbers, coupling
                         constants, relational Laplacian RL with hat
                         operators, structural character chi.
-    _adjacency_bundle - Symmetric CSR for standard graph algorithms.
+    _adjacency_bundle: Symmetric CSR for standard graph algorithms.
     _overlap_bundle   - L_O for overlap analysis.
     _rcf_bundle       - RL, hats, nhats, hat_names (from spectral_bundle).
     _vertex_bundle    - phi, chi_star, kappa from _character.
@@ -36,12 +36,12 @@ Methods called:
     rex.partition_communities()        - Hierarchical graph partitioning.
     rex.structural_character           - Per-edge chi on the simplex.
     rex.vertex_character / coherence   - Per-vertex phi and kappa.
-    rex.phi_similarity / fiber_similarity - Fiber bundle similarity.
+    rex.phi_similarity / fiber_similarity: Fiber bundle similarity.
     rex.rcfe_curvature / rcfe_strain   - RCFE curvature and strain.
     rex.void_complex                   - Void spectral theory.
     rex.dirac_eigenvalues              - Dirac spectrum.
     rex.graded_state / born_graded     - Cross-dimensional Born probs.
-    rex.hypermanifold / harmonic_shadow - Manifold sequence.
+    rex.hypermanifold / harmonic_shadow: Manifold sequence.
     rex.attributed_curvature           - Attributed boundary curvature.
     rex.strain_equilibrium             - Dynamic strain equilibrium.
     _standard.build_standard_metrics() - PageRank, betweenness, etc.
@@ -309,7 +309,7 @@ def analyze(
     alpha_G, alpha_T = rex.coupling_constants
     fiedler_LO_val, fiedler_LO_vec = rex.fiedler_overlap
 
-    # Fiedler value of L1 (lazy accessor; not eagerly in the bundle - see edge_fiedler)
+    # Fiedler value of L1 (lazy accessor; not eagerly in the bundle, see edge_fiedler)
     fiedler_L1 = float(rex.fiedler_val_L1)
 
     chain_ok = rex.chain_valid
@@ -980,7 +980,7 @@ def analyze(
 
         # Structural character (hybrid-aware: chi/phi/kappa/nhats/hat_names all
         # resolve through the scale-free sparse path when nE > eigen_dense_limit,
-        # so the character block populates at any scale - not just the dense path).
+        # so the character block populates at any scale, not just the dense path).
         chi = rex.structural_character
         phi = rex.vertex_character
         kappa = rex.coherence

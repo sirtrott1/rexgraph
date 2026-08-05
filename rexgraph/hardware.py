@@ -2,7 +2,7 @@
 rexgraph.hardware: what this machine actually gives us.
 
 The tree could generate SLURM submission scripts but never read the allocation
-back, so thread counts fell through to os.cpu_count() -- on a cluster, the NODE's
+back, so thread counts fell through to os.cpu_count(): on a cluster, the NODE's
 core count rather than the job's. An eight-core allocation on a 128-core node
 would start 128 workers, which on a shared cluster gets the job killed rather
 than merely running slowly. Memory was not detected at all.
@@ -167,7 +167,7 @@ def memory_bytes(*, with_source: bool = False):
 
 def gpus() -> list[dict[str, Any]]:
     """Visible GPUs and their memory. Honours CUDA_VISIBLE_DEVICES, because torch
-    does -- so this reports the job's GPUs, not the node's."""
+    does, so this reports the job's GPUs, not the node's."""
     out: list[dict[str, Any]] = []
     try:
         import torch
@@ -205,7 +205,7 @@ def _torch_info() -> dict[str, Any]:
 
 
 
-# --- cloud ---------------------------------------------------------------------
+#### cloud
 #
 # Detection reads LOCAL signals only. The instance metadata service lives on a
 # link-local address that HANGS rather than refuses when you are not on that cloud,
@@ -269,7 +269,7 @@ def cloud() -> dict[str, Any]:
 
 def _in_container() -> bool:
     """Whether this is inside a container, which is how cloud GPU instances are
-    almost always run -- and therefore whether the cgroup limits are the real ones."""
+    almost always run, and therefore whether the cgroup limits are the real ones."""
     if os.path.exists("/.dockerenv"):
         return True
     if os.environ.get("KUBERNETES_SERVICE_HOST"):

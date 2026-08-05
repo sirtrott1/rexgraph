@@ -13,7 +13,7 @@ refines, follows up, narrows. This module gives that trajectory a lifecycle:
                    structurally similar past query can be recalled.
 
 The schema integration is the point: because a schema IS a relational complex
-(agent.schema_complex.schema_to_rex), a query complex can be laid over it - the
+(agent.schema_complex.schema_to_rex), a query complex can be laid over it: the
 tables it references are a sub-complex, and the FK graph says whether those
 tables are joinable or structurally disconnected (an invalid reference).
 """
@@ -29,8 +29,7 @@ from . import query_engine as qe
 from . import rcdb
 from . import schema_complex as sc
 
-# --- schema mapping helpers ---------------------------------------------------
-
+#### schema mapping helpers
 def _norm(w: str) -> str:
     return (w or "").strip().lower()
 
@@ -130,8 +129,7 @@ def _relate_to_schema(concepts: list[str], model: sc.SchemaModel | None) -> dict
     }
 
 
-# --- query lifecycle ----------------------------------------------------------
-
+#### query lifecycle
 @dataclass
 class QueryState:
     step: int
@@ -184,7 +182,7 @@ class QuerySession:
         return st
 
     def convergence(self) -> dict[str, Any]:
-        """The dynamics of the trajectory, read from structure - no magnitude thresholds.
+        """The dynamics of the trajectory, read from structure: no magnitude thresholds.
 
         - the persistent CORE is the exact intersection of every state's concepts: what the query
           has been about throughout. A non-empty core means a stable subject.
@@ -216,7 +214,7 @@ class QuerySession:
 
     def progressing(self) -> bool:
         """True when the query kept a stable subject (a non-empty persistent core) and is not
-        wandering off it - both read from structure, not a magnitude cutoff."""
+        wandering off it, both read from structure, not a magnitude cutoff."""
         return self.convergence()["progressing"]
 
     def resolve(self, answer: str) -> QuerySession:

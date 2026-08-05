@@ -48,8 +48,7 @@ def spd_A():
     return (A + sp.diags(np.abs(A).sum(1).A1 + 1.0)).tocsr()   # SPD, well-conditioned
 
 
-# --- GPU enumeration + gates (mostly device-count-agnostic) -------------------------------------
-
+#### GPU enumeration + gates (mostly device-count-agnostic)
 def test_gpu_devices_matches_count():
     """gpu_devices() enumerates [0 .. gpu_count()-1]; consistent on any host (0, 1, or many GPUs)."""
     assert compute.gpu_devices() == list(range(compute.gpu_count()))
@@ -95,8 +94,7 @@ def test_partition_columns_is_exact_contiguous_cover():
         assert len(parts) == max(1, min(nparts, ncols))
 
 
-# --- the column-tiling math is EXACT without 2 physical GPUs ------------------------------------
-
+#### the column-tiling math is EXACT without 2 physical GPUs
 def test_tile_columns_equivalence_cpu_reference(big_L):
     """THE device-count-agnostic equivalence test: drive _tile_columns_across_gpus with a forced
     tile count >=2 (devices=[0,1,2]) over a CPU-reference kernel and assert the tiled+concatenated
@@ -165,8 +163,7 @@ def test_greens_multi_over_same_device_matches_single(spd_A):
     np.testing.assert_allclose(multi, exact, atol=1e-9)
 
 
-# --- the public API is unchanged on this (1-GPU) host -------------------------------------------
-
+#### the public API is unchanged on this (1-GPU) host
 def test_public_matfunc_matches_cpu_oracle(big_L, monkeypatch):
     """matfunc_apply(backend='gpu') matches the CPU oracle on this host to ~1e-12 (GPU if present,
     else the CPU fallback). Gate forced low so the GPU/multi dispatch actually runs; on a 1-GPU

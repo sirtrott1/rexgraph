@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._void -- void spectral theory.
+Tests for rexgraph.core._void: void spectral theory.
 
 Verifies:
     - Triangle enumeration: correct count for K4, triangle, tree

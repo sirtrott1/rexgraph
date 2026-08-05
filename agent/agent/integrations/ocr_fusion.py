@@ -1,5 +1,5 @@
 """
-Multi-backend OCR fusion - structural comparison via rexgraph.
+Multi-backend OCR fusion: structural comparison via rexgraph.
 
 Runs the same document through multiple OCR backends, builds a
 relational complex from each output, and uses Hodge decomposition,
@@ -9,7 +9,7 @@ backends agree and disagree.
 This is novel: nobody else has the mathematics to structurally
 compare OCR outputs.  Traditional comparison is character-level
 diff.  This compares the *relational topology* of the extracted
-content - gradient vs curl vs harmonic structure, void patterns,
+content: gradient vs curl vs harmonic structure, void patterns,
 coherence distributions.
 
 Usage:
@@ -135,7 +135,7 @@ class FusionReport:
         """Compare void structure across backends.
 
         Higher void fraction means more expected relationships
-        are missing - could indicate OCR quality issues or
+        are missing, which can indicate OCR quality issues or
         genuine structural gaps in the document.
         """
         if not self.backends:
@@ -203,7 +203,7 @@ class FusionReport:
         return max(usable, key=key)
 
     def best_text(self, criterion: str = "coherence") -> str:
-        """Return the text from the highest-confidence backend (audit 2.3)."""
+        """Return the text from the highest-confidence backend."""
         br = self.best_result(criterion)
         return br.text if br is not None else ""
 
@@ -371,7 +371,8 @@ class OCRFusion:
             w_E=w_mag if not np.allclose(w_mag, 1.0) else None,
         )
         if ec.n_types > 1:
-            rex = rex.typed_face_selection(ec.type_labels)
+            from agent.auto import attach_faces
+            rex = attach_faces(rex, type_labels=ec.type_labels)
 
         # Run analysis pipeline
         pipe = AnalysisPipeline(rex)

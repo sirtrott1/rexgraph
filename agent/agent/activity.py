@@ -3,15 +3,15 @@
 Every action by every entity, across granularities (network / hive / team / worker / model), is
 recorded here as a timestamped event. And every time a model is used, a use is opened and closed, so
 the registry knows when a model was instantiated, what it is being used for, how long it has run, and
-- critically - how many things are using it CONCURRENTLY right now. This is the real data the logs,
+and, critically, how many things are using it CONCURRENTLY right now. This is the real data the logs,
 the runtime readouts, and the usage portal read from; nothing in the UI is faked on top of it.
 
 The log is process-local memory PLUS a write-through append-only journal on disk (JSONL). That file
 is the event bus: any local process (a CLI, a worker, another agent) that records an event appends a
-line - no server, no HTTP, no token needed to WRITE. A process that wants to OBSERVE the whole machine
+line: no server, no HTTP, no token needed to WRITE. A process that wants to OBSERVE the whole machine
 (the web server) warm-loads the journal tail on startup and then tails it, folding every other
 process's events into its own log and pushing them to the live (SSE) UI. So a `rexgraph-*` command in
-one terminal shows up live in the GUI running in another - they share the file, not a socket.
+one terminal shows up live in the GUI running in another: they share the file, not a socket.
 
     activity.record("worker:coder", "dispatch", detail={"query": "..."})
     h = activity.open_use("qwen-7b", "collaborate", by="hive:alpha"); ...; activity.close_use(h)
@@ -82,7 +82,7 @@ class ActivityLog:
 
     In-process concurrency (workers run on threads) is guarded by a lock; cross-process concurrency
     (many `rexgraph-*` processes writing the one journal) rides on POSIX O_APPEND, which makes each
-    single small write() atomic - lines never interleave.
+    single small write() atomic, so lines never interleave.
     """
 
     def __init__(self, cap: int = 8000):
@@ -105,8 +105,7 @@ class ActivityLog:
         except Exception:
             self._journal = None
 
-    # -- live push channel ----------------------------------------------------
-
+    #### live push channel
     def subscribe(self, fn) -> None:
         with self._lock:
             self._subscribers.append(fn)
@@ -125,8 +124,7 @@ class ActivityLog:
             with contextlib.suppress(Exception):
                 fn(pub)
 
-    # -- recording ------------------------------------------------------------
-
+    #### recording
     def record(self, entity: str, action: str, *, scope: str = "", detail: dict | None = None) -> Event:
         ev = Event(time.time(), entity, scope or _scope_of(entity), action, detail or {})
         pub = ev.public()
@@ -170,8 +168,7 @@ class ActivityLog:
             out.append(e.public())
         return out[-limit:][::-1]
 
-    # -- model usage (concurrency-safe) ---------------------------------------
-
+    #### model usage (concurrency-safe)
     def open_use(self, model: str, purpose: str, *, by: str = "") -> int:
         """Mark a model as in use for `purpose` (by an entity). Returns a handle to close later.
         Multiple open uses of the same model = concurrent use, tracked as such."""
@@ -222,8 +219,7 @@ class ActivityLog:
                       "total_uses": agg[m]["total"]}
         return out
 
-    # -- journal: enable / warm-load / tail -----------------------------------
-
+    #### journal: enable / warm-load / tail
     def enable_journal(self, path: str | None = None, *, warm: bool = True, tail: bool = False,
                        cap_lines: int = 40000) -> Path | None:
         """Point this log at the journal. `warm` folds the file's tail into memory (history across

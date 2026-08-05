@@ -647,7 +647,10 @@ class DecisionEngine:
                 # Map plan face selection to auto_rex format
                 fs = plan.face_selection
                 if fs == "all":
-                    fs = "typed"  # auto_rex doesn't have "all"
+                    # "all" is this planner's word for the fullest reading. It used
+                    # to map to "typed", which is a filter that keeps only same-type
+                    # triangles, so the fullest plan produced the narrowest complex.
+                    fs = "auto"
                 build_kwargs["face_selection"] = fs
 
             rex = auto_rex(data, **build_kwargs)

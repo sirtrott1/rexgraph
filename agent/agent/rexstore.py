@@ -4,8 +4,8 @@ agent.rexstore: an embedded store for relational complexes. Files, no server.
 FileStore reserialized its whole index on every put, so per-put cost grew with the
 store: 4 ms at a hundred records, 41 ms at sixteen hundred, which is O(n^2) ingest
 and about 33 hours for 100k records. It also wrote one file per record, and on a
-network filesystem -- EFS, Azure Files, a GCS mount, which is what a cloud VM
-actually has -- per-file overhead dominates everything else.
+network filesystem (EFS, Azure Files, a GCS mount, which is what a cloud VM
+actually has) per-file overhead dominates everything else.
 
 This is the same data laid out for how it is used:
 
@@ -14,8 +14,8 @@ This is the same data laid out for how it is used:
     <root>/blobs.pack       append-only, safetensors blobs end to end
 
 Three files, whatever the record count. A put is two appends and costs the same at
-record one and record one million. Opening scans the log once -- sequential, which
-is the access pattern every filesystem is fastest at -- and builds the indexes in
+record one and record one million. Opening scans the log once, sequentially, which
+is the access pattern every filesystem is fastest at, and builds the indexes in
 memory, so a vocabulary query is a dict lookup rather than a scan.
 
 Append-only earns two things beyond speed. A crash can only ever tear the tail,
@@ -45,7 +45,7 @@ from .rcdb import (
 )
 
 #: length prefix for a log entry. 4 bytes little-endian, so a record header is
-#: capped at 4 GiB -- signatures are KB-scale, so the cap is theoretical.
+#: capped at 4 GiB. Signatures are KB-scale, so the cap is theoretical.
 _LEN = struct.Struct("<I")
 
 MANIFEST = "MANIFEST.json"
@@ -63,21 +63,21 @@ FORMAT_VERSION = 1
 INDEX_TAIL_RATIO = float(os.environ.get("REXGRAPH_INDEX_TAIL_RATIO", "0.5"))
 
 #: below this many un-indexed records, replay is cheaper than the snapshot that
-#: would avoid it -- at 500 records replay is 5.7 ms against 12.9 ms to write.
+#: would avoid it: at 500 records replay is 5.7 ms against 12.9 ms to write.
 INDEX_MIN_TAIL = int(os.environ.get("REXGRAPH_INDEX_MIN_TAIL", "1000"))
 
 
 
 
-# --- the index, as tensors ------------------------------------------------------
+#### the index, as tensors
 #
 # Replaying the log builds two things: a label -> records mapping, and a
 # ComplexRecord per entry. Profiling an 8000-record open puts ~33% in the label
 # dictionary and ~26% in per-entry JSON, and both are avoidable, because both are
 # already shapes the library has a format for.
 #
-# The label mapping IS a bipartite complex -- labels on one side, records on the
-# other, incidence between them -- so it stores as a CSR pair of tensors and loads
+# The label mapping IS a bipartite complex (labels on one side, records on the
+# other, incidence between them) so it stores as a CSR pair of tensors and loads
 # at memory-map speed instead of being rebuilt: 96.8 ms of dictionary building
 # becomes ~0.5 ms of tensor read. The documents are concatenated once with an
 # offset tensor addressing them, so a record's signature and meta are parsed when
@@ -131,8 +131,7 @@ class RexIndex:
         self._id_pos: dict[str, int] = {}
         self._vocab_pos: dict[str, int] = {}
 
-    # -- write ------------------------------------------------------------------
-
+    #### write
     @staticmethod
     def write(path: str, recs: dict[str, list[ComplexRecord]],
               blob_at: dict[tuple, tuple], log_bytes: int) -> None:
@@ -192,8 +191,7 @@ class RexIndex:
         save_file(tensors, tmp, metadata=meta)
         os.replace(tmp, path)
 
-    # -- read -------------------------------------------------------------------
-
+    #### read
     def open(self) -> bool:
         """Memory-map the index. False if there is not a usable one."""
         if not os.path.exists(self.path):
@@ -209,7 +207,7 @@ class RexIndex:
             self.log_bytes = int(meta.get("log_bytes", "0"))
             self._id_pos = {rid: i for i, rid in enumerate(self.ids)}
             # vocabulary position by name. list.index() here is an O(V) scan on
-            # every lookup, which turned a 0.5 ms query into 3.5 ms -- the index
+            # every lookup, which turned a 0.5 ms query into 3.5 ms. The index
             # has to make reads cheaper on every axis, not trade one for another.
             self._vocab_pos = {v: i for i, v in enumerate(self.vocab)}
             # small, and every query needs them; the documents stay unread
@@ -292,8 +290,7 @@ class RexStore(RCStore):
         self._labels: dict[str, set] = {}            # label -> {id}
         self._load()
 
-    # --- log ------------------------------------------------------------------
-
+    #### log
     def _load(self) -> None:
         """Load the index if there is one, then replay whatever the log holds beyond
         it. A torn tail is where the process died, so scanning stops there rather
@@ -363,8 +360,7 @@ class RexStore(RCStore):
             fh.flush()
             os.fsync(fh.fileno())
 
-    # --- writes ---------------------------------------------------------------
-
+    #### writes
     def next_version(self, id):
         return (self._recs[id][-1].version + 1) if self._recs.get(id) else 1
 
@@ -403,8 +399,7 @@ class RexStore(RCStore):
         self._emit("rcdb.delete", id, 0, {})
         return True
 
-    # --- reads ----------------------------------------------------------------
-
+    #### reads
     def history(self, id):
         return list(self._recs.get(id, []))
 
@@ -499,7 +494,7 @@ class RexStore(RCStore):
         """Rewrite both logs keeping only live versions, then swap them in.
 
         Append-only means deleted records leave their bytes behind. Compaction is
-        the deliberate, occasional cost that buys the O(1) put -- not something the
+        the deliberate, occasional cost that buys the O(1) put, not something the
         write path pays on every call.
         """
         tmp_log = self._records_path + ".compact"

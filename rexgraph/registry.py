@@ -1,7 +1,7 @@
 """
 rexgraph.registry: one extension-point primitive.
 
-The tree grew five near-registries with five different surfaces -- io had
+The tree grew five near-registries with five different surfaces. io had
 register/unregister/available, compute had register plus available, rcdb and
 _serialization had register alone, connectors was a bare dict, and the temporal
 rerank policies were a hardcoded tuple. Same pattern, five shapes, so extending any
@@ -23,7 +23,7 @@ class Registry:
     """A named extension point: register / unregister / available / require.
 
     `what` is the singular noun for the thing being registered. It only appears in
-    error messages, which is precisely where it earns its place -- a bare KeyError
+    error messages, which is precisely where it earns its place: a bare KeyError
     sends the caller to read the source to find out what was expected.
     """
 

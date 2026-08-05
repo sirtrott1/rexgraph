@@ -1,9 +1,9 @@
 """
-LangChain tools for RexGraph - mathematically grounded agent operations.
+LangChain tools for RexGraph: mathematically grounded agent operations.
 
 The core value: your LLM agent hallucinates and doesn't know it.
 These tools give it exact structural confidence from the void complex
-and epsilon tower. Not a probability estimate - a theorem.
+and epsilon tower. Not a probability estimate, a theorem.
 
 Usage:
 

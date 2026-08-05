@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.analysis -- dashboard analysis pipeline.
+Tests for rexgraph.analysis: dashboard analysis pipeline.
 
 Verifies:
     - analyze: returns dict with expected top-level keys

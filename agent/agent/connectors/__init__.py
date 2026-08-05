@@ -110,7 +110,7 @@ class BaseConnector:
             "See agent.connectors.template for a worked skeleton."
         )
 
-    # -- meta assembly
+    #### meta assembly
     @staticmethod
     def result(
         rex: Any,

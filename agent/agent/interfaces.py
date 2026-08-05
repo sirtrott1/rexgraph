@@ -7,7 +7,7 @@ host wires it up. This module defines the seams a host plugs into and ships
 inert defaults so that, out of the box, the engine is silent and self-contained.
 
 Seams:
-  * Logger / Metrics - observability. Default: no-op (no telemetry, ever).
+  * Logger / Metrics: observability. Default: no-op (no telemetry, ever).
   * Identity        - who/what is acting. Default: a local single-tenant identity.
   * Connector       - read a relational complex from a source. Default: none
                       (the host registers the sources it wants).
@@ -36,7 +36,7 @@ class Metrics(Protocol):
 
 
 class NullLogger:
-    """Emits nothing. The default - the engine never logs unless the host asks."""
+    """Emits nothing. The default: the engine never logs unless the host asks."""
     def log(self, level: str, message: str, **fields: Any) -> None:
         return None
 
@@ -105,7 +105,7 @@ class Capabilities:
 
 @runtime_checkable
 class Connector(Protocol):
-    """Read a relational complex from a source - a live DB, a dump, a stream,
+    """Read a relational complex from a source: a live DB, a dump, a stream,
     an in-memory graph, an ontology. **This is THE seam a customer or the
     services team implements** to teach the engine a new system.
 
@@ -134,7 +134,7 @@ class Connector(Protocol):
                                         enables data-forced strain.
           ``modality``        no        ``list[dict]`` per edge (nullable /
                                         identifying / on_delete …) - lint.
-          ``faces``           no        a ``B₂`` selection - enables the
+          ``faces``           no        a ``B₂`` selection, which enables the
                                         face-bound curvatures.
           ==================  ========  ==================================
 
@@ -142,7 +142,7 @@ class Connector(Protocol):
     harness): **read-only** (issues no writes to the source), **structure-only**
     (returns topology + labels, never cell/row values), and **∂²=0** whenever
     ``faces`` are supplied. Customer/proprietary connectors live *outside* the
-    core, depending only on this seam - never editing the engine.
+    core, depending only on this seam, never editing the engine.
     """
     def read(self, source: Any) -> tuple[Any, dict[str, Any]]: ...
 
@@ -171,7 +171,7 @@ _CONFIG = _Config()
 def tokenize_labels(labels, salt: str = "") -> list:
     """Deterministically tokenize labels (table/column names). Same name -> same
     token, so cross-complex coherence (which aligns by shared labels) still
-    works, while the actual names are hidden - the one privacy leak surface a
+    works, while the actual names are hidden: the one privacy leak surface a
     structure-only engine has. Irreversible (SHA-256); the host keeps its own
     map if it needs one."""
     import hashlib

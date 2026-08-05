@@ -92,7 +92,8 @@ def detect_hallucinations(
         from rexgraph.graph import RexGraph
         resp_rex = RexGraph(sources=resp_ec.sources, targets=resp_ec.targets)
         if resp_ec.n_types > 1:
-            resp_rex = resp_rex.typed_face_selection(resp_ec.type_labels)
+            from agent.auto import attach_faces
+            resp_rex = attach_faces(resp_rex, type_labels=resp_ec.type_labels)
     except Exception as e:
         logger.warning("Failed to build response rex: %s", e)
         return report

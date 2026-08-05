@@ -1,15 +1,15 @@
 """agent.code_team: a team that generates and evaluates code concurrently, then unifies a build.
 
 Code agents take on tasks in parallel: each piece is generated and immediately evaluated (its tests
-run), so while one piece is being written another is being tested - evaluation overlaps generation
+run), so while one piece is being written another is being tested: evaluation overlaps generation
 across the team. A lead then unifies the passing pieces into a single module and runs the whole
 test set against it (the integration "commit"). The team rides the reactive layer (agent.
 reactive_hive): it grows review/test roles up front, and when a piece fails it deploys a debugger
-and retries with the failure as feedback - a self-healing build, every structural change versioned
+and retries with the failure as feedback: a self-healing build, every structural change versioned
 in the hive's self-schema.
 
 Generation is pluggable: a task may carry a `generate(task, feedback)` callable (deterministic), a
-static `code` string, or fall back to the hive's chat path. Evaluation is real - the code and its
+static `code` string, or fall back to the hive's chat path. Evaluation is real: the code and its
 tests run in a subprocess.
 """
 from __future__ import annotations
@@ -83,8 +83,7 @@ class CodeTeam:
         self.generate = generate
         self.max_workers = max_workers
 
-    # -- generation + evaluation ----------------------------------------------
-
+    #### generation + evaluation
     def _generate(self, task: dict, feedback: str | None = None) -> str:
         gen = task.get("generate") or self.generate
         if callable(gen):
@@ -109,8 +108,7 @@ class CodeTeam:
         return {"name": task["name"], "task": task, "code": code, "verdict": verdict,
                 "retried": feedback is not None}
 
-    # -- the build ------------------------------------------------------------
-
+    #### the build
     def build(self, tasks: list[dict]) -> dict[str, Any]:
         """Generate + evaluate all pieces concurrently, self-heal failures, then unify a build."""
         reactions: list[dict] = []

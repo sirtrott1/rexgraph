@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.sql_bridge -- SQL database bridge.
+Tests for rexgraph.io.sql_bridge: SQL database bridge.
 
 Requires sqlalchemy and pandas. Skipped if either is not installed.
 Uses in-memory SQLite for all tests (no file I/O).

@@ -6,7 +6,7 @@ between features based on correlation structure. Same-type triangles
 become faces, cross-type become voids, ∂²=0 guaranteed.
 
 Handles: cancer imaging, gene expression, financial features, sensor
-data, survey responses - anything where rows are observations and
+data, survey responses: anything where rows are observations and
 columns are measurements.
 """
 
@@ -94,7 +94,7 @@ def _spectral_cluster_features(R: NDArray, n_clusters: str | int = "auto") -> ND
     # Only the smallest ~9 eigenpairs are ever used (the eigengap heuristic over
     # evals[1:max_k+1], max_k ≤ 8, and the Fiedler/low eigenvectors evecs[:,1:k]).
     # So compute just the low end via a partial solver instead of the full O(n³)
-    # dense decomposition - the difference is a solver-capability boundary (ARPACK
+    # dense decomposition. The difference is a solver-capability boundary (ARPACK
     # needs k < n-1), NOT an accuracy trade: both return the exact smallest pairs.
     n_want = min(9, n - 1)
     if n_want >= n - 1:
@@ -266,7 +266,7 @@ class FeatureMatrixAdapter(DomainAdapter):
         mask = np.abs(r_upper) > threshold_val
 
         if not np.any(mask) and iu.size > 0:
-            # No edges above threshold - lower it to get ~n_features edges
+            # No edges above threshold, so lower it to get ~n_features edges
             # (one per vertex on average), same fallback as before.
             fallback = np.sort(np.abs(r_upper))[::-1]
             n_keep = min(n_features * 2, len(fallback))

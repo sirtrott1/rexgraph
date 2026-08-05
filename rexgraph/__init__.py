@@ -39,7 +39,7 @@ except ImportError:
 from . import compute
 from .mesh_health import harmonic_health, mesh_health
 
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 
 __all__ = [
     "core",

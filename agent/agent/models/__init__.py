@@ -1,5 +1,5 @@
 """
-models - model-builder framework over the rexgraph.nn substrate.
+models: model-builder framework over the rexgraph.nn substrate.
 
 Select an archetype, override its parameters, point it at data, and train it in one of three
 modes: single run, multistep (staged), or multi-model fusion. The archetypes (LM / CNN / MLP /

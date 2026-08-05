@@ -10,42 +10,42 @@ The core code returns raw structures for speed; callers can wrap
 them in these types for attribute access and readability.
 
 Enumerations:
-    EdgeType - edge classification codes (0-3)
-    HodgeComponent - Hodge decomposition component indices (0-2)
-    BioesTag - BIOES sequence labels (0-4)
-    FaceEvent - face tracking event codes (0-4)
-    TransitionKind - transition operator types (0-3)
-    EnergyRegime - E_kin/E_pot ratio classification (0-2)
-    OperatorChannel - relational Laplacian channel indices
-    PredicateOp - query predicate operations (0-6)
-    JoinType - relational complex join types (0-3)
+    EdgeType: edge classification codes (0-3)
+    HodgeComponent: Hodge decomposition component indices (0-2)
+    BioesTag: BIOES sequence labels (0-4)
+    FaceEvent: face tracking event codes (0-4)
+    TransitionKind: transition operator types (0-3)
+    EnergyRegime: E_kin/E_pot ratio classification (0-2)
+    OperatorChannel: relational Laplacian channel indices
+    PredicateOp: query predicate operations (0-6)
+    JoinType: relational complex join types (0-3)
 
 NamedTuples:
-    HodgeDecomposition, HodgeAnalysis - Hodge decomposition results
-    SpectralBundle - eigendecomposition across all dimensions + RL
-    RCFBundle - relational Laplacian RL = sum of trace-normalized hats
-    VertexBundle - vertex character phi, chi_star, kappa
-    VoidComplex - void spectral theory
-    RCFEResult - RCFE curvature and conservation
-    FieldOperatorResult - field operator M on (E, F)
-    FieldEigenResult - eigendecomposition of M
-    EnergyDecomposition - E_kin, E_pot, E_RL from transition
-    EnergyKinPot - E_kin, E_pot, ratio from state
-    WaveEnergy - kinetic, potential, total wave energy
-    ModeClassification - edge/face/resonant mode labels
-    CascadeResult - edge activation order from signal propagation
-    FaceEmergenceResult - face activation times
-    BioesEnergyResult - BIOES tags from energy ratio timeseries
-    QuotientMaps - reindexing arrays for R/I
-    QuotientResult - full quotient pipeline output
-    SubComplex - boolean masks defining a subcomplex I
-    HypersliceVertex, HypersliceEdge, HypersliceFace - hyperslice results
-    PerturbationResult - full analyze_perturbation output
-    FieldPerturbationResult - analyze_perturbation_field output
-    WaveState - position + velocity for second-order ODE
-    SchrodingerState - real + imaginary parts for unitary evolution
+    HodgeDecomposition, HodgeAnalysis: Hodge decomposition results
+    SpectralBundle: eigendecomposition across all dimensions + RL
+    RCFBundle: relational Laplacian RL = sum of trace-normalized hats
+    VertexBundle: vertex character phi, chi_star, kappa
+    VoidComplex: void spectral theory
+    RCFEResult: RCFE curvature and conservation
+    FieldOperatorResult: field operator M on (E, F)
+    FieldEigenResult: eigendecomposition of M
+    EnergyDecomposition: E_kin, E_pot, E_RL from transition
+    EnergyKinPot: E_kin, E_pot, ratio from state
+    WaveEnergy: kinetic, potential, total wave energy
+    ModeClassification: edge/face/resonant mode labels
+    CascadeResult: edge activation order from signal propagation
+    FaceEmergenceResult: face activation times
+    BioesEnergyResult: BIOES tags from energy ratio timeseries
+    QuotientMaps: reindexing arrays for R/I
+    QuotientResult: full quotient pipeline output
+    SubComplex: boolean masks defining a subcomplex I
+    HypersliceVertex, HypersliceEdge, HypersliceFace: hyperslice results
+    PerturbationResult: full analyze_perturbation output
+    FieldPerturbationResult: analyze_perturbation_field output
+    WaveState: position + velocity for second-order ODE
+    SchrodingerState: real + imaginary parts for unitary evolution
     PersistenceDiagram, Filtration, PersistenceEnrichment
-    BioesResult - unified BIOES pipeline output
+    BioesResult: unified BIOES pipeline output
     MeasurementResult, FaceData, CoupledEvolution, StandardMetrics
     JoinResult, ImputeResult, CellExplanation, PropagationResult
     RemovalStep, StructuralSummary

@@ -8,7 +8,7 @@ projector is applied **low-rank**:
 
     P_harm · x = H (HᵀH)⁻¹ Hᵀ x          (H is nE × dim_H, dim_H = β₁ - rank(B2))
 
-so it never forms the dense nE×nE projector and never calls an eigensolver - the
+so it never forms the dense nE×nE projector and never calls an eigensolver: the
 correct, scale-free replacement for `_harmonic.harmonic_projectors` (which builds
 `hb@hbᵀ`, `B1ᵀ pinv(B1B1ᵀ) B1`, and `eye(nE)` - three dense nE×nE matrices) whenever
 only the harmonic component of a flow is needed.
@@ -94,7 +94,7 @@ def _cycle_basis_from_edges(nV, nE, src, tgt):
 def _exact_nullspace(B1, nE):
     """Exact basis of ker(B1) (the cycle space) for an arbitrary boundary, including
     BRANCHING hyperedges where the spanning-tree fundamental-cycle basis is invalid.
-    Uses the SVD null space of B1 - not combinatorial, but this is the correctness
+    Uses the SVD null space of B1, not combinatorial, but this is the correctness
     fallback taken ONLY when the fast combinatorial basis fails its validation (branching
     inputs); simple graphs never reach it. Returns a sparse nE × (nE−rank B1) matrix."""
     import scipy.sparse as sp
@@ -222,7 +222,7 @@ def _b2_csr(rex):
 def harmonic_basis(rex):
     """Basis of the harmonic plane `ker(B1) ∩ ker(B2ᵀ)` as a sparse nE × dim_H
     matrix: the cycle basis C projected onto `ker(B2ᵀ)` (H = C · null(B2ᵀC)).
-    Spans exactly `ker(L1)` - same space the dense eigendecomposition returns - but
+    Spans exactly `ker(L1)` (the same space the dense eigendecomposition returns) but
     combinatorially and low-rank. dim_H = β₁ - rank(B2) is the oscillatory-mode count."""
     import scipy.sparse as sp
     C = cycle_basis(rex)
@@ -247,7 +247,7 @@ def harmonic_projection(H, flow):
     """Apply the harmonic projector to `flow` LOW-RANK: `P_harm·flow =
     H (HᵀH)⁻¹ Hᵀ flow`, never forming the dense nE×nE projector. HᵀH is kept SPARSE
     (cycles share few edges, so it is a sparse SPD dim_H×dim_H Gram) and solved with
-    a sparse factorization - so this scales even when dim_H is large. H =
+    a sparse factorization, so this scales even when dim_H is large. H =
     `harmonic_basis` (sparse nE × dim_H). Returns f64[nE]."""
     import scipy.sparse as sp
     import scipy.sparse.linalg as sla

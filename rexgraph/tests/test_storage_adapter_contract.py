@@ -3,7 +3,7 @@
 It used to be a bare class of NotImplementedError stubs with nothing enforcing them:
 a subclass that forgot get_json constructed fine and blew up later, deep inside a
 write, and no test ever ran the three adapters through the same paces. These tests
-are the contract -- one parametrized suite, every implementation.
+are the contract: one parametrized suite, every implementation.
 """
 
 import numpy as np
@@ -81,7 +81,7 @@ def test_missing_json_returns_the_default(adapter):
 
 def test_json_survives_a_nonfinite_value(adapter):
     """put_json fed json.dumps directly, so a NaN metric wrote a bare NaN token into
-    a zarr/hdf5 attr -- unreadable by anything but Python's lenient parser."""
+    a zarr/hdf5 attr, unreadable by anything but Python's lenient parser."""
     adapter.put_json("j", {"kappa": np.float64("nan"), "ok": 1.0})
     back = adapter.get_json("j")
     assert back["ok"] == 1.0

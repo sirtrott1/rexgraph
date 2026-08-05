@@ -1,6 +1,6 @@
 """
 The intrinsic model: both relational organs baked into one small transformer, trained
-end-to-end on associative recall (retrieve the value bound to a distant key — importance,
+end-to-end on associative recall (retrieve the value bound to a distant key: importance,
 not likelihood). A 2×2 ablation isolates each organ:
 
     attention ∈ {standard softmax, propagator (relational)}

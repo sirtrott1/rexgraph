@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._standard -- classical graph algorithms.
+Tests for rexgraph.core._standard: classical graph algorithms.
 
 Verifies:
     - PageRank: sums to 1, nonneg, symmetric graph -> uniform

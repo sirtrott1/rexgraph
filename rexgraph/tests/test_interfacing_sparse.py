@@ -27,8 +27,7 @@ from rexgraph.sparse_interfacing import (
     pinv_bilinear_form,
 )
 
-# --- fixtures ---------------------------------------------------------------
-
+#### fixtures
 @pytest.fixture
 def k4():
     return RexGraph.from_simplicial(
@@ -90,8 +89,7 @@ def _cases(rex):
     ]
 
 
-# --- exact-reuse parity (dense RL spectrum available) -----------------------
-
+#### exact-reuse parity (dense RL spectrum available)
 @pytest.mark.parametrize("fixture", ["k4", "cycle", "two_triangles"])
 def test_full_bundle_parity(fixture, request):
     rex = request.getfixturevalue(fixture)
@@ -172,8 +170,7 @@ def test_keys_and_shapes(k4):
     assert b['sphere_pos'].shape == (4,)
 
 
-# --- forced scale-free path (bounded-spectrum surrogate) --------------------
-
+#### forced scale-free path (bounded-spectrum surrogate)
 def test_forced_sparse_path_eigenfree_parity():
     """Force the scale-free route (no dense RL) by lowering eigen_dense_limit, and
     confirm the eigen-free fields still match the dense oracle tightly; the bounded

@@ -15,7 +15,7 @@ Resolution order (first hit wins):
     5. ``UNLIMITED_OCR_URL`` env var
 
 If none resolve, ``is_available()`` is False and ``generate()`` returns
-None - callers fall back to the structural (LLM-free) answer path.
+None, so callers fall back to the structural (LLM-free) answer path.
 """
 
 from __future__ import annotations
@@ -189,7 +189,7 @@ def generate_with_metrics(prompt: str, system: str | None = None,
                           max_tokens: int = 512, temperature: float = 0.3,
                           timeout: float = 120.0) -> dict | None:
     """Generate a completion AND its token-level LLM metrics (perplexity, mean
-    surprisal, varentropy) from the model's logprobs - the standard LLM metrics,
+    surprisal, varentropy) from the model's logprobs: the standard LLM metrics,
     computed with the same Rényi/varentropy calculus as the structural metrics
     (``agent.metrics``). Returns ``{'text': str, 'metrics': dict}`` or None; 'metrics'
     is empty if the server did not return logprobs (older/limited backends)."""

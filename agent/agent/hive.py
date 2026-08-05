@@ -38,7 +38,7 @@ def _tokens(text: str):
 
 # common function words carry no content; dropping them makes lexical agreement reflect subject
 # matter, so "shares nothing" becomes an exact structural signal rather than stopword-inflated. Not
-# a tuned threshold - noise removal. (The embedding path does not need this.)
+# a tuned threshold, noise removal. (The embedding path does not need this.)
 _STOPWORDS = frozenset(
     ["the", "and", "are", "for", "was", "were", "that", "this", "with", "from", "have", "has", "had", "not", "but", "all", "any", "can", "will", "would", "should", "could", "into", "onto", "off", "per", "via", "out", "over", "under", "near", "more", "most", "some", "such", "then", "than", "they", "them", "their", "there", "here", "what", "when", "where", "which", "who", "whom", "how", "why", "our", "your", "its", "his", "her", "about", "also", "been", "being", "does", "did", "done", "each", "other", "same", "only", "very", "just", "like"])
 
@@ -750,7 +750,7 @@ class Hive:
         generate-capable bees, else one bee sampled k times), builds the agreement complex from
         their answers (embedding cosine when an embedder bee is present, else lexical), and returns
         the coherent consensus answer plus a reliability score = how tightly the consensus cluster
-        agreed. The divergent worker - low agreement with the rest - is flagged as the likely
+        agreed. The divergent worker, the one with low agreement with the rest, is flagged as the likely
         hallucination and dropped from the answer. With embeddings this separates a genuine
         hallucination from a topically-distinct specialist, which a flat majority vote cannot."""
         import numpy as np
@@ -792,7 +792,7 @@ class Hive:
         avg = np.array([(S[i].sum() - S[i, i]) / (n - 1) if n > 1 else 1.0 for i in range(n)])
         # divergence without a magic cutoff: a data-adaptive Tukey lower fence on the agreement
         # distribution when there are enough workers (the same principled fence the schema linter
-        # uses), else the exact structural signal - a worker whose answer shares nothing with the
+        # uses), else the exact structural signal: a worker whose answer shares nothing with the
         # group (orthogonal, agreement ~ 0). _ZERO is a numerical zero, not a policy threshold.
         _ZERO = 1e-9
         if n >= 4:
@@ -950,7 +950,7 @@ class Hive:
 # so single-hive callers are unchanged while named hives become available.
 
 def get_network():
-    """The process-wide hive network - the registry of named hives."""
+    """The process-wide hive network: the registry of named hives."""
     from .hive_network import get_network as _gn
     return _gn()
 

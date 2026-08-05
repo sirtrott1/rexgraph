@@ -1,5 +1,5 @@
 """
-archetypes - the model types, each built on the rexgraph.nn substrate.
+archetypes: the model types, each built on the rexgraph.nn substrate.
 
 Every archetype exposes: a `use_case`, a `defaults` param dict, the `data_kind` it consumes, a
 `synth` generator, and `build(cfg, bundle)` returning an nn.Module. Select an archetype by name and
@@ -77,7 +77,7 @@ register_archetype(
         feat_dim=cfg["feat_dim"], n_classes=cfg["n_classes"], seed=seed))
 
 
-# CNN - images
+# CNN, for images
 
 class CNN(_nn.Module):
     def __init__(self, in_ch, n_classes, depth=2, width=32, norm=True):
@@ -111,7 +111,7 @@ register_archetype(
         c=cfg["in_channels"], n_classes=cfg["n_classes"], seed=seed))
 
 
-# LM - sequences (relational or standard attention)
+# LM, for sequences (relational or standard attention)
 
 class LM(_nn.Module):
     def __init__(self, vocab, d=64, n_head=4, n_layer=2, seq_len=64, attention="relational"):

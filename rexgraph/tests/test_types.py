@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.types -- typed containers and enumerations.
+Tests for rexgraph.types: typed containers and enumerations.
 
 No heavy dependencies. Tests verify enum values, NamedTuple construction,
 field access, and _fields metadata.

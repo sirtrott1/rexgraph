@@ -144,7 +144,7 @@ def test_trustgraph_and_agentic_roundtrip_still_work():
     assert list(r.betti) == list(g.betti)
 
 
-# --- final-review fixes (C1 name collision, I2 grade>=3, M3 scalar/array, M4 edge_types) ---
+#### final-review fixes (C1 name collision, I2 grade>=3, M3 scalar/array, M4 edge_types)
 def test_cell_metadata_key_with_double_underscore_roundtrips(tmp_path):
     from rexgraph.io.bundle import load_rex, save_rex
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex

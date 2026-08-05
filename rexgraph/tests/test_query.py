@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._query -- relational complex query engine.
+Tests for rexgraph.core._query: relational complex query engine.
 
 Verifies:
     - Predicate masking: correct count, ops work, BETWEEN range

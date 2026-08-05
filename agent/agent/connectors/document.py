@@ -2,7 +2,7 @@
 
 Wraps the engine's Mongo schema inference: collections are vertices, inferred
 ``*_id`` references are edges, junction collections become co-participation
-faces. Read-only sampling - it infers structure from a sample of documents,
+faces. Read-only sampling: it infers structure from a sample of documents,
 never returning document values.
 
     read(source) -> (rex, meta)

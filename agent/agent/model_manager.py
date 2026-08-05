@@ -269,7 +269,7 @@ class ModelManager:
         """Register a custom local path for a model.
 
         This lets users point to models stored anywhere on their
-        filesystem - not just the HF cache or rexgraph cache.
+        filesystem, not just the HF cache or rexgraph cache.
 
         Parameters
         ----------
@@ -443,7 +443,7 @@ class ModelManager:
 
         entry = self._registry.get(model_id)
         if entry is None:
-            # Unknown model - create a minimal entry
+            # Unknown model, so create a minimal entry
             entry = ModelEntry(model_id=model_id, purpose=purpose)
             self._registry[model_id] = entry
 

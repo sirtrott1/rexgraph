@@ -1,8 +1,8 @@
 """
-attn_introspect - Tier-2 attention bridge (Python side).
+attn_introspect: Tier-2 attention bridge (Python side).
 
 Runs the `rex_attn_capture` host (agent/agent/native/, built against the local llama.cpp via
-its stock cb_eval callback - no ggml patch) to pull a model's internal per-layer attention
+its stock cb_eval callback, no ggml patch) to pull a model's internal per-layer attention
 weights, then feeds each layer's map to the RCF analyzer so the relational-complex math reads
 the model's own attention: Hodge grad/curl/harmonic, the four channels, ∂²=0 compliance, per-
 layer structural character. This reaches what the OpenAI API never surfaces.

@@ -8,13 +8,13 @@ The mapping follows arity ≠ grade:
   * ``owl:equivalentClass`` / ``owl:sameAs`` (a mutual definition) -> a
     **bigon face** (bounded).
   * ``owl:inverseOf`` / ``owl:SymmetricProperty`` -> a **bigon face** (an
-    intentional 2-cycle, bounded - not an inconsistency).
+    intentional 2-cycle, bounded, not an inconsistency).
   * a definition over several relations (intersectionOf: C ≡ A ⊓ B) -> a
     **k-gon face** over the participants.
 
 Diagnosis is the same descriptive Hodge readout as schemas: subsumption is the
 gradient hierarchy, definitions are bounded (curl), and a subsumption cycle with
-no defining face is harmonic - an inconsistency, reported as present, not judged.
+no defining face is harmonic: an inconsistency, reported as present, not judged.
 """
 
 from __future__ import annotations

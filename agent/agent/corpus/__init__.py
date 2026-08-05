@@ -1,5 +1,5 @@
 """
-Cross-document corpus analysis - orchestration over rexgraph Cython kernels.
+Cross-document corpus analysis: orchestration over rexgraph Cython kernels.
 
 Takes multiple documents of any supported format, builds per-document
 relational complexes via ``auto_rex`` (CSV, JSON, DataFrames, Parquet,
@@ -48,8 +48,18 @@ import contextlib
 logger = logging.getLogger(__name__)
 
 
+#: The face rule a document complex is built under: the canonical one.
+#:
+#: A face is a filled cycle of any gon, solved from B1 c = 0. Named here as well
+#: because a document complex, the query complex it is scored against and the chunks
+#: taken from it must all be built the same way; two complexes under different rules
+#: are not comparable.
+from agent.auto import FACE_RULE as DOC_FACE_RULE
+
+
 # Data classes
 @dataclass
+
 class DocumentRecord:
     """A single document in the corpus."""
 
@@ -112,7 +122,7 @@ def _extract_entities(text: str, min_len: int = 3) -> list[str]:
 # One mechanism, in agent.scoring: the interfacing vector (Poisson lift -> typed
 # channel operators -> bilinear score). What used to be here was a label Jaccard
 # plus a cosine between MEAN structural characters plus a hand-rolled spectral term,
-# blended under fixed 0.3/0.35/0.35 weights -- three approximations of the thing the
+# blended under fixed 0.3/0.35/0.35 weights: three approximations of the thing the
 # library already computes exactly. Lexical overlap is now a candidate prefilter
 # only; it decides what to look at, not what is relevant.
 
@@ -260,7 +270,7 @@ class CorpusBuilder:
         # every registered reader too, so a format added to agent.adapters.formats
         # is ingestable without editing this set. It was a literal, so the
         # scientific containers were readable by auto_rex and silently skipped
-        # here -- a plan that promised them and a build that dropped them.
+        # here: a plan that promised them and a build that dropped them.
         try:
             from agent.adapters.formats import available_extensions
             supported = supported | set(available_extensions())
@@ -317,8 +327,7 @@ class CorpusBuilder:
         stage_callback : callable, optional
             ``callback(doc_id, stage_name, stage_data)`` invoked as each
             analysis stage completes, so a server can stream per-stage
-            progress instead of a single opaque "analysis" step
-            (audit 4.2).
+            progress instead of a single opaque "analysis" step.
 
         Steps:
             1. Per-document RexGraph via auto_rex (type auto-detected)
@@ -335,12 +344,18 @@ class CorpusBuilder:
 
         for doc in self.documents:
             # Content-addressed cache: skip rebuild + analysis when we've
-            # seen identical input at this depth before (audit 3.4).
+            # seen identical input at this depth before.
             cache_key = None
             if getattr(doc, "edge_construction", None) is None:
                 try:
                     content = doc.text or doc.source or doc.doc_id
-                    extra = repr(sorted(self.adapter_kwargs.items()))
+                    # The face rule is part of what the complex IS, so it belongs in
+                    # the key. It lives in the effective kwargs rather than in
+                    # adapter_kwargs, so keying on adapter_kwargs alone served a
+                    # complex built under a different rule as a hit.
+                    eff = dict(self.adapter_kwargs)
+                    eff.setdefault("face_selection", DOC_FACE_RULE)
+                    extra = repr(sorted(eff.items()))
                     cache_key = _cache.content_key(content, depth=depth, extra=extra)
                     c_rex, c_analysis, c_meta = _cache.get_rex_and_analysis(cache_key)
                     if c_rex is not None and c_analysis is not None:
@@ -364,21 +379,32 @@ class CorpusBuilder:
                     # (e.g. OCR-layout so document structure is preserved,
                     # or a single-cell / L-R construction). Use them
                     # directly so we don't re-route through the flat
-                    # TextAdapter (audit 2.1).
+                    # TextAdapter.
+                    # Faces are asked for, not assumed, and a document complex
+                    # wants them: with none, curl is identically 0 and every loop
+                    # a document contains reads as harmonic instead. "typed" is
+                    # what this path produced before faces became a request, kept
+                    # so the reading did not change silently. It is a type filter
+                    # over triangles, which is not what a face is; the rule this
+                    # should use is an open decision.
                     rex = build_rex_from_edges(
                         doc.edge_construction,
+                        face_selection=DOC_FACE_RULE,
                         input_type=getattr(
                             doc.edge_construction, "input_type",
                             "edge_construction",
                         ),
                     )
-                elif doc.text:
-                    rex = auto_rex(doc.text, **self.adapter_kwargs)
-                elif doc.source and doc.source != "<text>":
-                    rex = auto_rex(doc.source, **self.adapter_kwargs)
                 else:
-                    logger.warning("No source for %s, skipping", doc.doc_id)
-                    continue
+                    kw = dict(self.adapter_kwargs)
+                    kw.setdefault("face_selection", DOC_FACE_RULE)   # keyed above
+                    if doc.text:
+                        rex = auto_rex(doc.text, **kw)
+                    elif doc.source and doc.source != "<text>":
+                        rex = auto_rex(doc.source, **kw)
+                    else:
+                        logger.warning("No source for %s, skipping", doc.doc_id)
+                        continue
             except Exception as e:
                 logger.warning("Failed to build rex for %s: %s", doc.doc_id, e)
                 continue
@@ -613,7 +639,7 @@ class CorpusBuilder:
         }
 
     def metrics(self) -> dict:
-        """Per-DOCUMENT and per-CORPUS information metrics - each built document's
+        """Per-DOCUMENT and per-CORPUS information metrics: each built document's
         structural perplexity (effective modes), coherence, and varentropy reliability
         gap, plus their corpus-level distribution and diversity (the effective number
         of coherence-distinct documents). Same Rényi calculus as the token/response
@@ -669,7 +695,8 @@ class CorpusBuilder:
                 targets=qec.targets,
             )
             if qec.n_types > 1:
-                q_rex = q_rex.typed_face_selection(qec.type_labels)
+                from agent.auto import attach_faces
+                q_rex = attach_faces(q_rex, DOC_FACE_RULE, type_labels=qec.type_labels)
             with contextlib.suppress(Exception):
                 q_chi = q_rex.structural_character
 
@@ -784,7 +811,7 @@ class CorpusBuilder:
         CellPhoneDB-style ontology mappings via the TrustGraph adapter),
         then runs the standalone TrustGraph engine over them and returns
         a JSON-safe summary.  This is the pipeline hook the manual
-        workflow used to produce its enrichment triples (audit 1.1).
+        workflow used to produce its enrichment triples.
 
         Returns a dict with ``available`` False and a ``reason`` when the
         TrustGraph integration cannot run, so callers can treat it as an
@@ -860,7 +887,7 @@ class CorpusBuilder:
         ``_persistence.wasserstein_distance()``.
         """
         self._ensure_built()
-        # Persistence diagrams require filtrations - use edge weight filtration
+        # Persistence diagrams require filtrations, so use the edge weight filtration
         from rexgraph.core._persistence import (
             bottleneck_distance,
             persistence_diagram,
@@ -926,7 +953,7 @@ class CorpusBuilder:
         except Exception as e:
             return {"error": str(e)}
 
-    # Cross-dataset comparison (audit 1.5)
+    # Cross-dataset comparison
     def cross_dataset_comparison(self, metric: str = "bottleneck") -> dict:
         """Compare structural invariants across *all* documents at once.
 

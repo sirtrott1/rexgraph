@@ -1,5 +1,5 @@
 """
-model_introspect - run the RCF relational math on the model's own internals, pulled
+model_introspect: run the RCF relational math on the model's own internals, pulled
 live from the running llama.cpp server (Tier-1 bridge: embeddings + logits over the
 OpenAI-compatible API - no PyTorch, no C++ patch).
 
@@ -7,7 +7,7 @@ The model's embedding geometry becomes a relational complex analyzed by the same
 compiled Cython kernels + moment engine, reading the model at inference on the
 Vulkan/llama.cpp stack. (Raw per-layer attention is Tier-2: it needs
 a ggml patch to expose the tensors, then a zero-copy float* -> the Cython extern/pointer
-ABI - kept as a separate optional module, not vendored.)
+ABI, so it is kept as a separate optional module, not vendored.)
 """
 from __future__ import annotations
 

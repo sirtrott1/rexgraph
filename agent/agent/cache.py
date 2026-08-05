@@ -1,12 +1,10 @@
 """
 agent.cache: content-addressed cache for pipeline analysis.
 
-Each pipeline run otherwise rebuilds the complex, recomputes
-eigenvalues and re-runs Hodge from scratch, even for an identical file
-(audit 3.4).  This module caches the built RexGraph (via
-``RexGraph.to_dict()``) together with its analysis dict, keyed by a
-SHA-256 of the input content plus the analysis depth, under
-``~/.cache/rexgraph/``.
+Each pipeline run otherwise rebuilds the complex, recomputes eigenvalues and re-runs
+Hodge from scratch, even for an identical file. This module caches the built RexGraph
+(via ``RexGraph.to_dict()``) together with its analysis dict, keyed by a SHA-256 of the
+input content plus the analysis depth, under ``~/.cache/rexgraph/``.
 
 The cache is best-effort: any failure to read or write falls back to
 recomputation, so it can never break a run.

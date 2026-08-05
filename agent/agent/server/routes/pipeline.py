@@ -137,7 +137,7 @@ def _ingest_files(file_paths, ocr_client, event_queue, use_fusion=False):
 
     When ``use_fusion`` is set and more than one OCR backend is available,
     each document is run through every backend and the highest-confidence
-    result is kept (audit 2.3).
+    result is kept.
     """
     import re
     import sys
@@ -359,7 +359,7 @@ def _register_documents(result_data, workspace):
                 )
                 doc["session_id"] = session.session_id
                 doc["workspace"] = workspace
-                # Make the storage linkage bidirectional (audit 5.4):
+                # Make the storage linkage bidirectional:
                 # tag the session with its workspace and record the
                 # doc -> session mapping in the workspace index.
                 try:
@@ -403,7 +403,7 @@ async def stream_pipeline(
         loop = asyncio.get_event_loop()
         proc = None
         try:
-            # Phase 1: Ingest - OCR images/PDFs, identify direct files
+            # Phase 1, ingest: OCR images and PDFs, identify direct files
             import queue as thread_queue
             ingest_queue = thread_queue.Queue()
 
@@ -448,7 +448,7 @@ async def stream_pipeline(
                 yield 'event: done\ndata: {"documents":[]}\n\n'
                 return
 
-            # Phase 2: Analysis - ALWAYS in an isolated subprocess.
+            # Phase 2, analysis: always in an isolated subprocess.
             #
             # The compiled core runs with bounds-checks off, so a pathological or
             # oversized input can segfault or OOM. Running it in-process would take
@@ -459,9 +459,9 @@ async def stream_pipeline(
             # To avoid paying a fresh-interpreter re-import tax (~0.3-0.5s) on every
             # request, we use a `forkserver`: a clean, single-threaded helper that
             # imports numpy/scipy/the analysis stack ONCE, then each request forks
-            # from it - warm AND isolated. Forking from that helper (not the
+            # from it: warm AND isolated. Forking from that helper (not the
             # multithreaded server, and before any OCR/torch is loaded) also avoids
-            # fork-with-threads hazards and never inherits a CUDA context (audit 4.1).
+            # fork-with-threads hazards and never inherits a CUDA context.
             ctx = _analysis_ctx()
             analysis_queue = ctx.Queue()
             proc = ctx.Process(
@@ -529,7 +529,7 @@ async def stream_pipeline(
         finally:
             # Always let analysis finish before deleting temp files, even if the
             # client disconnected mid-run, so the worker never reads a file that
-            # cleanup already removed (audit 4.3) - for both the subprocess and the
+            # cleanup already removed, for both the subprocess and the
             # in-process paths.
             if proc is not None:
                 try:

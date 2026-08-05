@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-rexgraph-test - exercise every code path in the agent repo.
+rexgraph-test: exercise every code path in the agent repo.
 
 Usage:
     python -m agent.cli.test_all                   # run all tests

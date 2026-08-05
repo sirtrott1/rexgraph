@@ -214,7 +214,7 @@ def _record_labels(sig: dict[str, Any], meta: dict[str, Any] | None = None) -> s
     """The record's vocabulary, lowercased.
 
     Prefers meta["vertex_labels"], which is the FULL set. `labels_sample` is what its
-    name says -- twelve entries -- so a prefilter built on it silently misses any
+    name says (twelve entries), so a prefilter built on it silently misses any
     document whose matching term falls outside them. Falls back to it only when meta
     carries nothing, where a lossy filter still beats no filter.
     """
@@ -1139,7 +1139,8 @@ def trajectory(store: RCStore, id):
     versions = []
     rexes = []
     for r in hist:
-        rex = store.get(id, as_of=None) if r.version == hist[-1].version else _get_ver(store, id, r.version)
+        rex = current_rex(store.get(id, as_of=None) if r.version == hist[-1].version
+                          else _get_ver(store, id, r.version))
         rexes.append(rex)
         versions.append({"version": r.version, "tx_from": r.tx_from,
                          "signature": r.signature})
@@ -1165,8 +1166,8 @@ def trend_between(store: RCStore, id_a, id_b):
     n = min(len(ha), len(hb))
     series = []
     for i in range(n):
-        ra = _get_ver(store, id_a, ha[i].version)
-        rb = _get_ver(store, id_b, hb[i].version)
+        ra = current_rex(_get_ver(store, id_a, ha[i].version))
+        rb = current_rex(_get_ver(store, id_b, hb[i].version))
         series.append(_pair_match(ra, rb))
     steps = [{"step": i, "match": series[i],
               "direction": ("toward" if series[i] > series[i - 1] else
@@ -1174,6 +1175,22 @@ def trend_between(store: RCStore, id_a, id_b):
              for i in range(1, n)]
     return {"a": id_a, "b": id_b, "match_series": series, "steps": steps,
             "net": (series[-1] - series[0]) if series else 0.0}
+
+
+def current_rex(obj):
+    """The RexGraph an analysis should read from a stored object.
+
+    A lineage recorded over time is stored as a TemporalRex, so the object a
+    structural read gets back is the whole history rather than a complex. Every
+    analytic here works on one complex, and the one it means is the latest state.
+    Anything that is already a RexGraph passes through, so callers do not branch.
+    """
+    from rexgraph.graph import TemporalRex
+    if isinstance(obj, TemporalRex):
+        if obj.T <= 0:
+            return None
+        return obj.reconstruct_at(int(obj.T) - 1)
+    return obj
 
 
 def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
@@ -1198,7 +1215,7 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
             meta_labels = (rec.meta or {}).get("vertex_labels")
             if meta_labels is not None and qset and not (qset & set(meta_labels)):
                 continue
-            cand = store.get(rec.id)
+            cand = current_rex(store.get(rec.id))
             if cand is None:
                 continue
             cand_labels = _labels_of(rec, cand)
@@ -1241,7 +1258,7 @@ def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=Non
 
     Compares against ``store.get(lineage_id)`` (the current version) directly,
     over the native version chain (no scan over other lineages)."""
-    latest_rex = store.get(lineage_id)
+    latest_rex = current_rex(store.get(lineage_id))
     if latest_rex is not None:
         latest_rec = store.get_record(lineage_id)
         new_labels = set((meta or {}).get("vertex_labels", []))
@@ -1330,8 +1347,8 @@ def drift(store: RCStore, lineage_id: str):
     if hist:
         for v_a, v_b, rec_a, rec_b in zip(versions, versions[1:], hist, hist[1:], strict=False):
             try:
-                rex_a = _get_ver(store, lineage_id, rec_a.version)
-                rex_b = _get_ver(store, lineage_id, rec_b.version)
+                rex_a = current_rex(_get_ver(store, lineage_id, rec_a.version))
+                rex_b = current_rex(_get_ver(store, lineage_id, rec_b.version))
                 if rex_a is None or rex_b is None:
                     continue
                 la, lb = _labels_of(rec_a, rex_a), _labels_of(rec_b, rex_b)
@@ -1348,7 +1365,8 @@ def drift(store: RCStore, lineage_id: str):
         # version through its own display/real id (store.get resolves both).
         for v_a, v_b in zip(versions, versions[1:], strict=False):
             try:
-                rex_a, rex_b = store.get(v_a["id"]), store.get(v_b["id"])
+                rex_a = current_rex(store.get(v_a["id"]))
+                rex_b = current_rex(store.get(v_b["id"]))
                 if rex_a is None or rex_b is None:
                     continue
                 rec_a, rec_b = store.get_record(v_a["id"]), store.get_record(v_b["id"])
@@ -1382,7 +1400,7 @@ def cluster_complexes(store: RCStore, tags_any=None, threshold: float = 0.7):
     items = []
     for r in recs:
         try:
-            rex = store.get(r.id)
+            rex = current_rex(store.get(r.id))
             if rex is not None:
                 items.append((r, rex, _labels_of(r, rex)))
         except Exception:
@@ -1448,7 +1466,7 @@ def compare(store: RCStore, id_a: str, id_b: str):
     the other lacks: a drift readout in plain terms.
     """
     from rexgraph.graph import cross_complex_bridge
-    rex_a, rex_b = store.get(id_a), store.get(id_b)
+    rex_a, rex_b = current_rex(store.get(id_a)), current_rex(store.get(id_b))
     rec_a, rec_b = store.get_record(id_a), store.get_record(id_b)
     if rex_a is None or rex_b is None:
         return None
@@ -1469,7 +1487,7 @@ def migrate(src: RCStore, dst: RCStore, *, ids=None, limit: int = 10 ** 9) -> di
     """Copy records from one store into another, every version, oldest first.
 
     Written against the RCStore contract alone, so it works for any pair of backends
-    without either knowing the other exists -- which is what makes the choice of
+    without either knowing the other exists, which is what makes the choice of
     backend reversible rather than a commitment. Existing records in `dst` are left
     alone; a colliding id gains versions rather than losing its own.
     """
@@ -1511,7 +1529,7 @@ def recommend_backend(path: str = "", *, uri: str = "") -> dict:
 
     Order of deference: an explicit URI scheme, then whatever already lives at the
     path, then the embedded store. SQL is not chosen automatically even when a
-    driver is installed -- it needs a server or a file the caller names, and
+    driver is installed: it needs a server or a file the caller names, and
     guessing a database is not a decision a library should make for someone.
     """
     if uri:

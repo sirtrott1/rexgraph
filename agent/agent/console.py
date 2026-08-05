@@ -1,6 +1,6 @@
 """agent.console: a game-like command surface over the hive network (RimWorld/Factorio for agents).
 
-Chat with and command the hive at any scale - the whole network, one hive, a worker team, or a single
+Chat with and command the hive at any scale: the whole network, one hive, a worker team, or a single
 worker. Read-only verbs (status/monitor/dashboard) inspect; build verbs (require/forge/chat) act; and
 CONSEQUENTIAL verbs (kill) are PROPOSED unless you pass confirm=True. The human is always the
 governor: nothing destructive or outward-facing happens without an explicit confirm.
@@ -44,8 +44,7 @@ class CommandConsole:
             return scope.split(":", 1)[1]
         return None
 
-    # -- read-only -------------------------------------------------------------
-
+    #### read-only
     def _cmd_help(self, arg, *, scope, confirm):
         return {"ok": True, "commands": self._verbs(),
                 "scopes": ["network", "hive", "team:<name>", "worker:<name>"],
@@ -61,8 +60,7 @@ class CommandConsole:
         from .dashboard import hive_dashboard
         return {"ok": True, "dashboard": hive_dashboard(self.hive)}
 
-    # -- build verbs (grow / drive the hive) -----------------------------------
-
+    #### build verbs (grow / drive the hive)
     def _cmd_require(self, arg, *, scope, confirm):
         if self.reactive is None:
             return {"ok": False, "error": "no reactive layer attached (pass reactive=...)"}
@@ -94,8 +92,7 @@ class CommandConsole:
         bee.specialties = parts[1:]
         return {"ok": True, "worker": name, "specialties": bee.specialties}
 
-    # -- consequential (governed) ----------------------------------------------
-
+    #### consequential (governed)
     def _cmd_kill(self, arg, *, scope, confirm):
         name = arg or self._scope_target(scope)
         if not name:

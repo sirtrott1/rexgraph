@@ -52,7 +52,7 @@ def _db_path(workspace: str) -> str:
     return str(_ws_dir(workspace) / "state.db")
 
 
-# Document <-> Session linkage (audit 5.4)
+# Document <-> Session linkage
 #
 # Sessions (~/.rexgraph-agent/sessions) and workspaces
 # (~/.config/rexgraph/workspaces) were separate stores with no
@@ -61,6 +61,36 @@ def _db_path(workspace: str) -> str:
 
 def _links_path(workspace: str) -> Path:
     return _ws_dir(workspace) / "doc_sessions.json"
+
+
+def _settings_path(workspace: str) -> Path:
+    return _ws_dir(workspace) / "settings.json"
+
+
+def load_settings(workspace: str) -> dict:
+    """Workspace settings. Absent or unreadable reads as no settings, so a missing
+    file never turns a feature on."""
+    p = _settings_path(workspace)
+    if not p.exists():
+        return {}
+    try:
+        d = json.loads(p.read_text())
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_settings(workspace: str, settings: dict) -> dict:
+    """Replace a workspace's settings."""
+    _settings_path(workspace).write_text(json.dumps(settings, indent=2))
+    return settings
+
+
+def update_settings(workspace: str, changes: dict) -> dict:
+    """Merge changes into a workspace's settings and return the result."""
+    s = load_settings(workspace)
+    s.update(changes or {})
+    return save_settings(workspace, s)
 
 
 def link_doc_session(workspace: str, doc_id: str, session_id: str) -> None:
@@ -297,7 +327,7 @@ def save_conversation(workspace: str, session_id: str, exchanges: list):
 # Export
 
 def export_workspace(workspace: str, output_path: str, fmt: str = "rex"):
-    """Export an entire workspace - all documents, analysis, queries.
+    """Export an entire workspace: all documents, analysis, queries.
 
     Formats: rex (bundle dir), json (single file), sql (SQLite copy).
     """

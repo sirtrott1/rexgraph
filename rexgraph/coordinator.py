@@ -35,7 +35,7 @@ class CostModel:
         return min(LANES, key=lambda ln: self._t[task_type][ln])
 
 
-# --- Resource complex + contention sensor (edge-centric delegation complex) ---
+#### Resource complex + contention sensor (edge-centric delegation complex)
 import os
 
 import numpy as np
@@ -129,7 +129,7 @@ def contention(assignment: dict, units: list, cost: CostModel, cap: dict | None 
 
 def delegation_complex(assignment: dict, units: list):
     """The edge-centric delegation complex (owner's model: an operator running a task IS an EDGE
-    from the brain, via the operator lane, to the task - not a vertex label). Vertices: brain, proc,
+    from the brain, via the operator lane, to the task, not a vertex label). Vertices: brain, proc,
     thread, igpu, hub, tasks. Edges: brain->lane (operator channels), lane->task (each execution,
     the datum), and proc->hub / igpu->hub (shared bandwidth). Returned as a RexGraph for monitoring /
     character analysis (bottleneck lanes = centrality, delegation deadlocks = cycles). Built on
@@ -151,7 +151,7 @@ def delegation_complex(assignment: dict, units: list):
     return RexGraph(sources=np.array(src, dtype=np.int32), targets=np.array(tgt, dtype=np.int32))
 
 
-# --- Flow actuator (marginal-contention greedy) ---
+#### Flow actuator (marginal-contention greedy)
 def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
     """Greedy marginal-contention placement with O(1) delta-scored moves. Same greedy/tie-break as a
     full recompute. Each unit may carry a `weight` (default 1.0, centered so the neutral value
@@ -200,7 +200,7 @@ def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
     return a
 
 
-# --- Dispatch seam: execute an assignment across the compute lanes ---
+#### Dispatch seam: execute an assignment across the compute lanes
 import logging as _logging
 import pickle
 import time as _time
@@ -256,7 +256,7 @@ def execute(units: list, assignment: dict, cost: CostModel|None = None) -> dict:
     - PICKLABILITY: a proc-lane fn that cannot be pickled (a closure/lambda/bound-method over hive
       state) is transparently spilled to the thread lane instead of crashing the forkserver pool.
     - SIDE EFFECTS: the proc lane runs the fn in a child process, so in-process mutations do NOT
-      propagate back - only the return value does. The picklability spill covers the common stateful
+      propagate back, only the return value does. The picklability spill covers the common stateful
       case (closures run in-process on the thread lane, mutations preserved); a picklable fn that
       relies on mutating shared parent state must not be routed to proc. Cost timing is recorded
       against the lane the fn ACTUALLY ran on (post-spill), so the model never learns a wrong lane.
@@ -302,7 +302,7 @@ def _inner_threads(workers: int, cores_budget: int|None = None) -> int:
     """Inner native (BLAS/OpenMP) thread budget per proc worker: budget // workers, so
     workers * inner tracks the CORE BUDGET this pool is entitled to (the same arithmetic parallel_map
     uses). `cores_budget` is the machine cores for a single coordinator, but the hive's SHARE of the
-    cores when several coordinators run at once - otherwise N concurrent pools each assume all cores
+    cores when several coordinators run at once, since otherwise N concurrent pools each assume all cores
     and oversubscribe (N * workers * inner threads). Never below 1."""
     budget = cores_budget if cores_budget else (os.cpu_count() or 1)
     return max(1, int(budget) // max(1, int(workers)))
@@ -361,7 +361,7 @@ class LanePools:
         self._reaper = None
         self.reaper_alive = False
 
-    # --- lane pool management ---
+    #### lane pool management
     def _make(self, lane: str):
         if lane == "thread":
             return ThreadPoolExecutor(max_workers=32)
@@ -422,7 +422,7 @@ class LanePools:
             with self._lock:
                 self.reaper_alive = False
 
-    # --- execution ---
+    #### execution
     def run(self, units: list, assignment: dict, cost: CostModel|None = None) -> dict:
         by_id, proc_units, thread_units, eff_lane = _partition_spill(units, assignment)
         results = {}
@@ -479,7 +479,7 @@ class LanePools:
             self.reaper_alive = False
 
 
-# --- Coordinator: the per-wave plan -> execute -> learn loop (cadence = per-wave in v1) ---
+#### Coordinator: the per-wave plan -> execute -> learn loop (cadence = per-wave in v1)
 class Coordinator:
     """Per-wave plan -> execute -> learn loop. With a `pools` (LanePools) it dispatches through the
     managed warm lanes; without, it uses per-wave `execute`. `cap` is an optional hive-share-scaled

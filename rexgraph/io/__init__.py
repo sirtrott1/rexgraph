@@ -194,7 +194,7 @@ __all__ += [
 ]
 
 
-# --- format registry -----------------------------------------------------------
+#### format registry
 #
 # Adding a format means registering one, not editing this module. Mirrors
 # agent.rcdb.register_backend, which is the same pattern one layer up.
@@ -292,8 +292,7 @@ def _detect_format(path, override=None):
     return "zarr"
 
 
-# --- builtin formats -----------------------------------------------------------
-
+#### builtin formats
 def _save_json(path, obj, **kwargs):
     import json as _json
     with open(path, "w", encoding="utf-8") as f:

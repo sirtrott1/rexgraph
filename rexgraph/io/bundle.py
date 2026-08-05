@@ -5,7 +5,7 @@ RexGraph Bundle (.rex) - portable relational complex package.
 A bundle is a self-contained directory that stores a RexGraph or
 TemporalRex with all data needed for exact reconstruction, plus
 optional precomputed results.  It uses only NumPy `.npy` files
-and JSON - no Zarr, HDF5, or heavy dependencies required.
+and JSON: no Zarr, HDF5, or heavy dependencies required.
 
 On-disk layout:
 

@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._temporal -- temporal bundle, BIOES, lifecycle.
+Tests for rexgraph.core._temporal: temporal bundle, BIOES, lifecycle.
 
 Verifies:
     - Delta encoding: born/died edges correct between snapshots

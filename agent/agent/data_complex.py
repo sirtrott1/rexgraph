@@ -2,7 +2,7 @@
 
 A set of rows becomes a relational complex: each record is a vertex, and two records are joined by an
 edge when they share a value in a `link_on` column (a co-participation). The topology then reads the
-data itself - connected components are clusters of related records, per-record coherence is
+data itself: connected components are clusters of related records, per-record coherence is
 structural centrality (a hub record vs a peripheral one), and a record that shares no link value is
 an isolated outlier. This is the row-level companion to schema_complex (which is the schema as a
 complex): here the returned data is the complex.

@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.parquet_bridge -- Parquet table export/import.
+Tests for rexgraph.io.parquet_bridge: Parquet table export/import.
 
 All tests require pyarrow. Skipped if pyarrow is not installed.
 

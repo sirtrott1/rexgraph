@@ -3,7 +3,7 @@ agent.query_engine: structural, relational-complex-aware question answering.
 
 Every query becomes its own relational complex. That complex is aligned
 against the document (or corpus) complex to find which concepts and
-sections structurally resonate with the question - retrieval by shared
+sections structurally resonate with the question: retrieval by shared
 topology, not just string match. The retrieved sections ground an answer
 that is synthesized by a language model when one is configured
 (``agent.chat_model``), and by a structural summary otherwise. Results
@@ -38,8 +38,11 @@ def build_query_rex(query: str, max_vocab: int = 200):
     if ec.nE == 0:
         return None, ec
     try:
-        from agent.auto import build_rex_from_edges
-        rex = build_rex_from_edges(ec)
+        from agent.auto import FACE_RULE, build_rex_from_edges
+        # The query complex is compared against document complexes, so it has to be
+        # built under the same face rule they are; a faceless query scored against
+        # faced documents compares two different objects.
+        rex = build_rex_from_edges(ec, face_selection=FACE_RULE)
     except Exception:
         rex = None
     return rex, ec
@@ -289,7 +292,7 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
     #
     # as_of/valid_at go to the PREFILTER, not just to the per-candidate read. Matching
     # today's vocabulary and then opening yesterday's blob silently drops any document
-    # whose terms have since been replaced -- a time-travelling query that omits what
+    # whose terms have since been replaced: a time-travelling query that omits what
     # was relevant at the time.
     n_cand = max(1, int(candidates if candidates is not None else STORE_CANDIDATES))
     try:
@@ -307,7 +310,8 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
         try:
             q_rex = RexGraph(sources=qec.sources, targets=qec.targets)
             if qec.n_types > 1:
-                q_rex = q_rex.typed_face_selection(qec.type_labels)
+                from agent.auto import FACE_RULE, attach_faces
+                q_rex = attach_faces(q_rex, FACE_RULE, type_labels=qec.type_labels)
             q_chi = q_rex.structural_character
         except Exception:
             q_chi = None

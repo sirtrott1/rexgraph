@@ -6,24 +6,24 @@ Stores the same table types as :mod:`parquet_bridge` into SQL databases
 (SQLite, PostgreSQL, or any SQLAlchemy-compatible backend).  Each table
 maps to a specific part of the algebraic/topological framework:
 
-Boundary table - the general boundary operator d_1
+Boundary table: the general boundary operator d_1
 (Definition 3.1).  One row per (edge, boundary_vertex) pair.
 
 Edge table - per-edge data: source/target, boundary size, edge type
 (Definition 3.2), weight, optional Hodge components (Theorem 3.8/4.5).
 
-Vertex table - per-vertex data: degree from L_0, spectral
+Vertex table: per-vertex data, degree from L_0, spectral
 layout (Definition 6.7), Fiedler vector entries.
 
-Face table - the B_2 operator (Definition 4.1).  One row
+Face table: the B_2 operator (Definition 4.1).  One row
 per nonzero: (face_idx, edge_idx, orientation).
 
-Persistence table - persistence pairs from column reduction over
+Persistence table: persistence pairs from column reduction over
 Z/2.
 
 Filtration table - filtration values f: C_k -> R.
 
-Temporal table - per-timestep Betti numbers and cell counts from a
+Temporal table: per-timestep Betti numbers and cell counts from a
 TemporalRex.
 
 All `sqlalchemy` imports are lazy. No pandas: reads and writes go through
@@ -414,8 +414,8 @@ def write_edge_sql(
     tgt = np.full(nE, -1, dtype=np.int32)
     # `source`/`target` only capture the first two endpoints; a branching edge
     # (Definition 3.2) has k>2 boundary vertices.  Store the full, ordered
-    # signed endpoint list per edge -- the same general boundary CSR held in
-    # the boundary table -- so arity>2 topology round-trips instead of being
+    # signed endpoint list per edge, the same general boundary CSR held in
+    # the boundary table, so arity>2 topology round-trips instead of being
     # silently truncated.
     endpoints: list[str] = []
     for e in range(nE):
@@ -581,7 +581,7 @@ def read_vertex_sql(
     return _read_table(engine, table, order_by="vertex_idx")
 
 
-# Face table (Definition 4.1 - B2)
+# Face table (Definition 4.1, B2)
 
 
 def write_face_sql(

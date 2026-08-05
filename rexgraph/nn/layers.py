@@ -57,7 +57,7 @@ class PropagatorMix(_Module):
     """Mix features by a learnable-scale propagator f(L)*(X W), matrix-free via Chebyshev matvec.
 
     channel 'heat' is diffusive (e^{-tL}); 'wave' is oscillatory (the real part of e^{-itL}). The
-    n x n operator is never formed - this is the building block behind PropagatorAttention, usable
+    n x n operator is never formed. This is the building block behind PropagatorAttention, usable
     on any complex. L is a torch tensor."""
 
     def __init__(self, d_in, d_out, *, channel: str = "heat", cheb_order: int = 16, t_init: float = 1.0):

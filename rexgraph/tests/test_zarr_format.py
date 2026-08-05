@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.zarr_format -- Zarr-based storage.
+Tests for rexgraph.io.zarr_format: Zarr-based storage.
 
 Requires zarr. Skipped if zarr is not installed.
 

@@ -120,7 +120,8 @@ ec = adapter.build('$pdf', strategy='layout')
 if ec.nE > 0:
     rex = RexGraph(sources=ec.sources, targets=ec.targets)
     if ec.n_types > 1:
-        rex = rex.typed_face_selection(ec.type_labels)
+        from agent.auto import attach_faces
+        rex = attach_faces(rex, type_labels=ec.type_labels)
     save_document_rex('batch', '$name', rex)
     print(f'  $name: {{rex.nV}}V {{rex.nE}}E')
 else:
@@ -301,7 +302,7 @@ for fname in batch:
             continue
         rex = RexGraph(sources=ec.sources, targets=ec.targets)
         if ec.n_types > 1:
-            rex = rex.typed_face_selection(ec.type_labels)
+            rex = attach_faces(rex, type_labels=ec.type_labels)
         save_document_rex("array-batch", fname, rex)
         print("  %%s: %%dV %%dE kappa=%%.3f" %% (fname, rex.nV, rex.nE, rex.coherence.mean()))
     except Exception as e:

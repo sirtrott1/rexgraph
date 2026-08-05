@@ -2,7 +2,7 @@
 
 Assembles every signal we already compute into one structured dashboard: the roster, the
 coordination health (deadlocks, the Hodge split, per-worker load/coherence/curvature/alignment), the
-networks the LMs forged, and - crucially - how information MOVES. Information propagation is signal
+networks the LMs forged, and, crucially, how information MOVES. Information propagation is signal
 exchange on the tensor field of the hive: the directed message flow (who -> whom, how much) plus the
 Hodge reading of it (is work draining, or circulating in a stuck loop). `hive_dashboard()` returns
 the data; `render()` prints terminal panels; the server route serves it live.

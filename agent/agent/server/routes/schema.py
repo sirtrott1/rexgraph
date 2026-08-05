@@ -93,7 +93,7 @@ async def schema_faces_route(body: dict = Body(...)):
     Same tables & foreign keys, different definition of "what counts as a
     co-participation" -> different curl/harmonic reading. Returns, per mode
     ('coparticipation', 'autoface', 'promote', 'none'), the face count, Betti
-    numbers, and the Hodge split - a side-by-side of the schema's topological
+    numbers, and the Hodge split: a side-by-side of the schema's topological
     options (e.g. an FK triangle is persistent-harmonic under 'coparticipation'
     but bounded-curl under 'autoface').
     """

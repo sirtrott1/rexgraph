@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._quotient -- quotient complexes and relative homology.
+Tests for rexgraph.core._quotient: quotient complexes and relative homology.
 
 Verifies:
     - Subcomplex validation: valid subcomplexes pass, invalid fail

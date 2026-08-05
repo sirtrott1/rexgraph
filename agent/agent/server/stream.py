@@ -20,7 +20,7 @@ _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
 def _encode(payload) -> str:
-    """SSE frame body. Non-finite floats go out as null - a bare NaN token would make
+    """SSE frame body. Non-finite floats go out as null: a bare NaN token would make
     the browser's JSON.parse throw and kill the stream mid-analysis."""
     from rexgraph.io._compat import dumps
     return dumps(payload, nan="null")
@@ -68,7 +68,7 @@ async def stream_pipeline(pipeline: AnalysisPipeline, depth: str = "standard") -
         await future
     except Exception as e:
         # Log the detail server-side; return a generic, properly-escaped message
-        # (never interpolate str(e) into the SSE frame - it leaks internals and
+        # (never interpolate str(e) into the SSE frame: it leaks internals and
         # breaks the JSON when the message contains quotes/newlines).
         logging.getLogger(__name__).exception("Pipeline stream failed")
         payload = json.dumps({"error": "Analysis failed"})

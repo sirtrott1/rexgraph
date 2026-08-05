@@ -2,8 +2,8 @@
 """
 CSV edge list loader with automatic column role classification.
 
-Detects the semantic role of each metadata column - type, polarity,
-grouping, ordinal, evidence, description, reference - and maps them
+Detects the semantic role of each metadata column (type, polarity,
+grouping, ordinal, evidence, description, reference) and maps them
 to the appropriate rexgraph concepts (edge coloring, flow sign,
 tooltip text, confidence scaling, etc.).
 
@@ -58,7 +58,7 @@ class ColumnRole:
     UNKNOWN   = "unknown"    # Could not classify
 
 
-# Column name patterns (checked first - strong signal)
+# Column name patterns (checked first, a strong signal)
 
 
 _NAME_PATTERNS = [
@@ -282,7 +282,7 @@ def _detect_polarity(profile: ColumnProfile) -> None:
         elif any(stem in low for stem in _POSITIVE_STEMS):
             profile.positive_values.append(val)
         else:
-            # Neutral - treat as positive by default
+            # Neutral, so treat as positive by default
             profile.positive_values.append(val)
 
 

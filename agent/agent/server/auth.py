@@ -57,7 +57,7 @@ class TokenEntry:
     `roles` maps a workspace name to 'admin' or 'user'; the key '*' grants that role in EVERY
     workspace (used only by the auth-disabled local identity). `workspaces` (the access list) and the
     legacy scalar `role` are kept as derived, back-compatible views so older callers and older
-    persisted tokens keep working - a token loaded with only (role, workspaces) synthesizes `roles`.
+    persisted tokens keep working: a token loaded with only (role, workspaces) synthesizes `roles`.
     """
     token_hash: str
     user_id: str
@@ -332,8 +332,7 @@ class AuthManager:
         self._save_config()
         return raw
 
-    # -- member management (the shared-workspace roster, per workspace) --------
-
+    #### member management (the shared-workspace roster, per workspace)
     def _tokens_of(self, user_id: str) -> list[TokenEntry]:
         return [te for te in self._tokens.values() if te.user_id == user_id]
 
@@ -359,7 +358,7 @@ class AuthManager:
     def add_member(self, user_id: str, role: str = ROLE_USER,
                    workspace: str = "default") -> str | None:
         """Grant `user_id` the role in `workspace`. If they are new, mint their token (returned, shown
-        once); if they already have one, update its roles IN PLACE (no rotation - their existing token
+        once); if they already have one, update its roles IN PLACE (no rotation, so their existing token
         keeps working, so their access in other workspaces is untouched) and return None."""
         if not user_id or not user_id.strip():
             raise ValueError("user_id is required")
@@ -521,7 +520,7 @@ class AuthManager:
 
         The recovery key is the only way to regain access when all API
         tokens are lost.  It is bcrypt-hashed and stored in auth.json
-        alongside the token hashes - reading the config file does not
+        alongside the token hashes, so reading the config file does not
         reveal it.
         """
         import secrets
@@ -570,7 +569,7 @@ class AuthManager:
 
         Optional:
             OIDC_AUDIENCE       - token audience (defaults to client ID)
-            OIDC_WORKSPACE_CLAIM - JWT claim for workspace (default: "workspace")
+            OIDC_WORKSPACE_CLAIM: JWT claim for workspace (default: "workspace")
             OIDC_ROLE_CLAIM     - JWT claim for role (default: "role")
         """
         issuer = os.environ.get("OIDC_ISSUER", "")
@@ -607,7 +606,7 @@ class AuthManager:
             import requests
             from jose import jwt as jose_jwt
 
-            # Fetch JWKS (cached in production - this is the simple version)
+            # Fetch JWKS (cached in production; this is the simple version)
             jwks = requests.get(self._oidc_config["jwks_uri"], timeout=10).json()
 
             payload = jose_jwt.decode(

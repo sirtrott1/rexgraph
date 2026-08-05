@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.hdf5_format -- HDF5-based storage.
+Tests for rexgraph.io.hdf5_format: HDF5-based storage.
 
 Requires h5py. Skipped if h5py is not installed.
 
