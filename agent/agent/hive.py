@@ -65,6 +65,20 @@ def _is_embed(name: str) -> bool:
     return bool(re.search(r"embed|nomic|bge|gte|e5|minilm", name.lower()))
 
 
+def _profile_monitor_embed() -> bool:
+    """The active profile's `monitor_embed`, or False when no profile is selected.
+
+    Falling back to False rather than HiveProfile's own True keeps the historical default for
+    anyone who never picked a profile: opting in is what selecting a profile means. Imported
+    lazily because hive_config.apply() imports hive."""
+    try:
+        from agent.hive_config import get_store
+        prof = get_store().active()
+        return bool(prof.monitor_embed) if prof is not None else False
+    except Exception:
+        return False
+
+
 def _specialty_of(name: str):
     low = name.lower()
     for keys, base, spec in _SPECIALTY_HINTS:
@@ -725,6 +739,22 @@ class Hive:
 
     # consensus: aggregate several workers by the STRUCTURE of their agreement
 
+    def _embed_fn(self, embed: bool | None):
+        """The semantic embedder for this hive, or None to fall back to the lexical signal.
+
+        Resolves through the embedder BEE, so an attached endpoint (a server this process does not
+        own) works as well as a spawned one. Every caller that offers an `embed=` flag goes through
+        here, so the two paths cannot drift apart.
+
+        `embed=None` defers to the active profile's `monitor_embed`; an explicit True/False always
+        wins."""
+        if embed is None:
+            embed = _profile_monitor_embed()
+        if not embed:
+            return None
+        bee = self.embedder                                  # attached OR spawned; both are bees
+        return agent_complex.model_embed_fn(bee.url if bee is not None else None)
+
     def _answer_vectors(self, texts, embed_fn):
         """Vectorize answers for the agreement complex: semantic embeddings if an embedder is
         available, else lexical concept-count vectors. Returns an (n, d) array."""
@@ -784,8 +814,7 @@ class Hive:
                     "n_workers": 0, "note": "no worker responded"}
 
         labels = list(answers.keys())
-        embed_fn = agent_complex.model_embed_fn() if embed else None
-        V = self._answer_vectors([answers[l] for l in labels], embed_fn)
+        V = self._answer_vectors([answers[l] for l in labels], self._embed_fn(embed))
         Vn = V / np.maximum(np.linalg.norm(V, axis=1, keepdims=True), 1e-9)
         S = Vn @ Vn.T
         n = len(labels)
@@ -899,13 +928,14 @@ class Hive:
             pass
         return out
 
-    def monitor(self, embed: bool = False, track: bool = False) -> dict:
+    def monitor(self, embed: bool | None = None, track: bool = False) -> dict:
         """Run the relational-complex monitor over the swarm's traffic (the same live complex the
-        hive records into). `embed=True` uses the embedder bee for the semantic alignment signal.
+        hive records into). `embed=True` uses the embedder bee for the semantic alignment signal;
+        `embed=None` (the default) defers to the active profile's `monitor_embed`, which is what
+        that field means and what every builtin profile already declares.
         `track=True` snapshots the drift tracker so repeated calls over time expose which worker is
         starting to detract (a rising-curvature / falling-alignment trend)."""
-        fn = agent_complex.model_embed_fn() if embed else None
-        out = self._complex.monitor(embed_fn=fn)
+        out = self._complex.monitor(embed_fn=self._embed_fn(embed))
         if track:
             d = agent_complex.get_drift().snapshot(out)
             out["drift"] = {"drifting": d.drifting(), "strain_trend": d.strain_trend(),

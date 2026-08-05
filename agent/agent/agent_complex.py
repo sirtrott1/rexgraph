@@ -318,14 +318,21 @@ def reset_live():
     _LIVE = None
 
 
-def model_embed_fn():
-    """A semantic embedder for `monitor(embed_fn=...)`, backed by the running model's
-    /v1/embeddings (via model_introspect). Returns None if no model is serving embeddings, so the
-    monitor falls back to the lexical signal. The embedding signal is what turns divergence
-    detection into a hallucination-vs-specialist distinction."""
+def model_embed_fn(url: Optional[str] = None):
+    """A semantic embedder for `monitor(embed_fn=...)`, backed by an /v1/embeddings endpoint
+    (via model_introspect). Returns None if nothing is serving embeddings, so the monitor falls
+    back to the lexical signal. The embedding signal is what turns divergence detection into a
+    hallucination-vs-specialist distinction.
+
+    `url` names the endpoint explicitly - an ATTACHED embedder bee, whose process this
+    interpreter does not own. Without it only a locally-MANAGED server (local_runtime.start /
+    start_embedder) is discoverable, so an attached embedder would be invisible and the monitor
+    would silently stay lexical."""
     def _embed(texts):
         from agent import model_introspect
-        return model_introspect.embed(texts)
+        return model_introspect.embed(texts, url=url)
+    if url:
+        return _embed
     try:                                                     # offer it if any embedding endpoint is up
         from agent import local_runtime
         if local_runtime.embed_url():                        # dedicated embedder or chat model
