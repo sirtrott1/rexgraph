@@ -36,6 +36,74 @@ def _slug(name: str) -> str:
 
 
 @dataclass
+class SpecialtyRule:
+    """One model-name -> specialty mapping for auto-composition.
+
+    `match` and `exclude` are lowercase substrings tested against the model name; a rule fires
+    when any `match` hits and no `exclude` does. `exclude` is what makes a broad family match
+    safe: match `qwen`, veto `-vl` and `audio`. `base` names the bee (`coder`, `math`, ...) and
+    `specialties` are the routing keywords a fresh bee carries before it has any history."""
+    match: list[str] = field(default_factory=list)
+    base: str = ""
+    specialties: list[str] = field(default_factory=list)
+    exclude: list[str] = field(default_factory=list)
+
+    def matches(self, name: str) -> bool:
+        low = name.lower()
+        if any(x in low for x in self.exclude):
+            return False
+        return any(m in low for m in self.match)
+
+
+# Shipped defaults. User config layers OVER these, so teaching the hive a new model family is a
+# config edit, not a source edit. Order matters: the first rule that fires wins.
+BUILTIN_SPECIALTY_RULES: list[SpecialtyRule] = [
+    SpecialtyRule(["coder", "-code", "codestral", "starcoder", "codeqwen"], "coder",
+                  ["python", "code", "function", "refactor", "debug", "algorithm"]),
+    SpecialtyRule(["math", "mathstral", "numina"], "math",
+                  ["math", "calculus", "algebra", "proof", "equation", "numeric"]),
+    SpecialtyRule(["med", "bio", "clinical", "meditron", "biomistral", "pmc"], "bio",
+                  ["biology", "protein", "clinical", "medical", "diagnosis", "gene"]),
+    SpecialtyRule(["sql", "text2sql", "nsql"], "sql",
+                  ["sql", "query", "database", "schema", "join"]),
+    SpecialtyRule(["-vl", "llava", "vision", "pixtral"], "vision",
+                  ["image", "vision", "caption", "ocr"]),
+    SpecialtyRule(["law", "legal", "saul"], "legal",
+                  ["legal", "law", "contract", "statute", "clause"]),
+]
+
+# What a chat bee carries when no rule fires. A generalist is not a specialist in anything, but it
+# must still be reachable: an empty list scores 0 on every cold-hive routing query.
+GENERAL_SPECIALTIES = ["general", "assist", "explain"]
+
+_RULES_FILE = "specialty_rules.json"
+
+
+def specialty_rules_path() -> Path:
+    """Where user-defined rules live. Sits beside the profile directory, not inside it: rules are
+    machine-wide, not per-profile."""
+    return _config_dir().parent / _RULES_FILE
+
+
+def load_specialty_rules() -> list[SpecialtyRule]:
+    """User rules if a readable, well-formed file exists, else the builtins.
+
+    A broken rules file must not take the hive down - auto-composition still has to work - so a
+    parse failure logs nothing and quietly yields the builtins."""
+    path = specialty_rules_path()
+    try:
+        raw = json.loads(path.read_text())
+        rules = [SpecialtyRule(match=[str(m).lower() for m in r.get("match", [])],
+                               base=str(r.get("base", "")),
+                               specialties=[str(s) for s in r.get("specialties", [])],
+                               exclude=[str(x).lower() for x in r.get("exclude", [])])
+                 for r in raw]
+        return [r for r in rules if r.match and r.base] or list(BUILTIN_SPECIALTY_RULES)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return list(BUILTIN_SPECIALTY_RULES)
+
+
+@dataclass
 class BeeSpec:
     """One bee in a profile. `source` decides where it comes from: 'auto' (chosen by the planner),
     'path' (spawn this GGUF), or 'attach' (reference a running url)."""
