@@ -45,6 +45,9 @@ class BeeSpec:
     model: str = ""                  # gguf path (source=path)
     url: str = ""                    # endpoint (source=attach)
     specialties: list[str] = field(default_factory=list)
+    # secret REFERENCE (env var / secret-store name) for an authenticated endpoint. A profile is
+    # written to disk as JSON, so only the reference may live here - never the credential.
+    api_key_ref: str = ""
 
 
 @dataclass
@@ -258,7 +261,7 @@ class ProfileStore:
             try:
                 if b.source == "attach" and b.url:
                     hive_obj.attach(b.name, b.url, role=b.role, model=b.model,
-                                    specialties=b.specialties)
+                                    specialties=b.specialties, api_key_ref=b.api_key_ref)
                     result["attached"].append(b.name)
                 elif b.source == "path" and b.model:
                     hive_obj.spawn(b.name, b.model, role=b.role,
