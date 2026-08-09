@@ -95,3 +95,57 @@ def test_apply_switches_setups(store, monkeypatch):
     store.save(HiveProfile(id="empty", name="Empty", compose="manual"))
     res = store.apply("empty")
     assert res["status"]["n_bees"] == 0                   # prior swarm was cleared on switch
+
+
+# --- specialty rules: the model-name -> specialty table as CONFIG, not a hardcoded list -----
+
+def test_builtin_specialty_rules_cover_the_shipped_families():
+    rules = hive_config.load_specialty_rules()
+    bases = {r.base for r in rules}
+    assert {"coder", "math", "bio", "sql", "vision", "legal"} <= bases
+
+
+def test_user_rules_file_overrides_the_builtins(tmp_path, monkeypatch):
+    """A new model family must be teachable without editing hive.py."""
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "specialty_rules.json").write_text(
+        '[{"match": ["myco"], "base": "mycology", "specialties": ["fungi", "spore"]}]')
+    rules = hive_config.load_specialty_rules()
+    assert [r.base for r in rules] == ["mycology"]
+    assert hive._specialty_of("MycoLLM-7B", rules=rules) == ("mycology", ["fungi", "spore"])
+
+
+def test_a_rule_can_exclude_a_family_member(tmp_path, monkeypatch):
+    """`exclude` is what lets a broad `match` stay safe: match the family, veto the variants
+    that are not actually that specialty."""
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "specialty_rules.json").write_text(
+        '[{"match": ["qwen"], "base": "coder", "specialties": ["code"], "exclude": ["-vl", "audio"]}]')
+    rules = hive_config.load_specialty_rules()
+    assert hive._specialty_of("Qwen3-Coder-30B", rules=rules)[0] == "coder"
+    assert hive._specialty_of("Qwen2-VL-7B", rules=rules) == (None, [])      # vetoed
+    assert hive._specialty_of("Qwen2-Audio-7B", rules=rules) == (None, [])   # vetoed
+
+
+def test_malformed_rules_file_falls_back_to_builtins(tmp_path, monkeypatch):
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "specialty_rules.json").write_text("{ not json")
+    assert {r.base for r in hive_config.load_specialty_rules()} >= {"coder", "math"}
+
+
+def test_plan_hive_accepts_explicit_rules():
+    """plan_hive threads rules through rather than reaching for a global."""
+    rules = [hive_config.SpecialtyRule(match=["zzz"], base="zed", specialties=["zeta"])]
+    models = [{"name": "zzz-7b", "path": "/m/zzz.gguf", "format": "gguf", "size_gb": 4.0}]
+    plan = hive.plan_hive(models, budget_gb=32.0, rules=rules)["plan"]
+    assert plan[0]["specialties"] == ["zeta"]
+
+
+def test_an_unmatched_worker_still_gets_a_general_specialty():
+    """The queen already falls back to general specialties when nothing matches; a worker got
+    an EMPTY list, so it scored 0 on every cold-hive routing query."""
+    models = [{"name": "big-generalist-70b", "path": "/m/a.gguf", "format": "gguf", "size_gb": 20.0},
+              {"name": "small-generalist-3b", "path": "/m/b.gguf", "format": "gguf", "size_gb": 2.0}]
+    plan = hive.plan_hive(models, budget_gb=64.0)["plan"]
+    worker = next(p for p in plan if p["role"] == "worker")
+    assert worker["specialties"], "an unmatched worker must not be left with no specialties"

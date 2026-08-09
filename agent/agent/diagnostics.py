@@ -4,8 +4,10 @@ agent.diagnostics: verify the compiled-kernel surface.
 The pipeline is meant to dispatch heavy linear algebra (boundary maps,
 Hodge decomposition, spectral bundles, RCFE strain) into the compiled
 Cython extensions in ``rexgraph.core``.  If those extensions are not
-built, ``rexgraph.core`` silently falls back and the pipeline quietly
-runs pure-Python paths that are far slower.
+built, there is no pure-Python fallback: the module is simply absent, so
+construction (e.g. ``RexGraph(...)``) still succeeds while the paths that reach
+the missing kernel surface an AttributeError on a None module, or fail to import
+a dependent module. core/__init__.py says as much where it records the failure.
 
 This module reports, at runtime, exactly which core modules loaded as
 compiled extensions versus which are missing, and whether the key

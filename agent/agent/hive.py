@@ -66,38 +66,44 @@ _STOPWORDS = frozenset(
     ["the", "and", "are", "for", "was", "were", "that", "this", "with", "from", "have", "has", "had", "not", "but", "all", "any", "can", "will", "would", "should", "could", "into", "onto", "off", "per", "via", "out", "over", "under", "near", "more", "most", "some", "such", "then", "than", "they", "them", "their", "there", "here", "what", "when", "where", "which", "who", "whom", "how", "why", "our", "your", "its", "his", "her", "about", "also", "been", "being", "does", "did", "done", "each", "other", "same", "only", "very", "just", "like"])
 
 
-# name -> (bee-name base, specialty keywords) heuristics for auto-composition. A worker's declared
-# specialties drive routing before it has any interaction history.
-_SPECIALTY_HINTS = [
-    (("coder", "-code", "codestral", "starcoder"),
-     "coder", ["python", "code", "function", "refactor", "debug", "algorithm"]),
-    (("math", "mathstral", "numina"),
-     "math", ["math", "calculus", "algebra", "proof", "equation", "numeric"]),
-    (("med", "bio", "clinical", "meditron", "biomistral", "pmc"),
-     "bio", ["biology", "protein", "clinical", "medical", "diagnosis", "gene"]),
-    (("sql", "text2sql", "nsql"),
-     "sql", ["sql", "query", "database", "schema", "join"]),
-    (("-vl", "llava", "vision", "pixtral"),
-     "vision", ["image", "vision", "caption", "ocr"]),
-    (("law", "legal", "saul"),
-     "legal", ["legal", "law", "contract", "statute", "clause"]),
-]
-
-
 def _is_embed(name: str) -> bool:
     return bool(re.search(r"embed|nomic|bge|gte|e5|minilm", name.lower()))
 
 
-def _specialty_of(name: str):
-    low = name.lower()
-    for keys, base, spec in _SPECIALTY_HINTS:
-        if any(k in low for k in keys):
-            return base, spec
+def _profile_monitor_embed() -> bool:
+    """The active profile's `monitor_embed`, or False when no profile is selected.
+
+    Falling back to False rather than HiveProfile's own True keeps the historical default for
+    anyone who never picked a profile: opting in is what selecting a profile means. Imported
+    lazily because hive_config.apply() imports hive."""
+    try:
+        from agent.hive_config import get_store
+        prof = get_store().active()
+        return bool(prof.monitor_embed) if prof is not None else False
+    except Exception:
+        return False
+
+
+def _default_rules():
+    """Loaded lazily: hive_config imports hive in apply(), so a module-level import would cycle."""
+    from agent.hive_config import load_specialty_rules
+    return load_specialty_rules()
+
+
+def _specialty_of(name: str, rules=None):
+    """(bee-name base, specialty keywords) for a model name, from the specialty RULES.
+
+    Rules come from config (agent.hive_config.load_specialty_rules), so teaching the hive a new
+    model family is a config edit rather than a source edit. Passed explicitly rather than read
+    from a global so a caller holding a profile can supply its own, and so this stays pure."""
+    for rule in (_default_rules() if rules is None else rules):
+        if rule.matches(name):
+            return rule.base, list(rule.specialties)
     return None, []
 
 
-def _worker_name(model_name: str, taken) -> str:
-    base, _ = _specialty_of(model_name)
+def _worker_name(model_name: str, taken, rules=None) -> str:
+    base, _ = _specialty_of(model_name, rules=rules)
     if base is None:
         m = re.match(r"[a-z0-9]+", model_name.lower())
         base = m.group(0) if m else "worker"
@@ -108,7 +114,7 @@ def _worker_name(model_name: str, taken) -> str:
 
 
 def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
-              kv_factor: float = 1.15, max_workers: int = 4) -> dict:
+              kv_factor: float = 1.15, max_workers: int = 4, rules=None) -> dict:
     """Choose a queen, worker bees, and an embedder that fit together within a memory budget,
     given the models detected on disk (local_runtime.discover_local_models). Spawns nothing;
     returns the plan.
@@ -116,7 +122,14 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
     Only GGUF are spawnable via llama.cpp (transformers snapshots are skipped). The queen is the
     largest chat model that fits alone. Workers are the remaining chat models, smallest-first,
     added while the running footprint (file size * kv_factor, for KV-cache overhead) stays under
-    the usable budget (budget * (1-headroom)). The cheapest embedder is always included."""
+    the usable budget (budget * (1-headroom)). The cheapest embedder is always included, even if
+    that pushes the total past the usable budget (a hive with no embedder can't route to it at
+    all) - in that case the returned dict's `over_budget` flag is set so callers don't mistake
+    the plan for one that fits.
+
+    `rules` are the specialty rules used to label each bee; None loads them from config."""
+    from agent.hive_config import GENERAL_SPECIALTIES
+    rules = _default_rules() if rules is None else rules
     gguf = [m for m in models if m.get("format") == "gguf" and m.get("size_gb", 0) > 0.05]
     embeds = [m for m in gguf if _is_embed(m["name"])]
     chats = [m for m in gguf if not _is_embed(m["name"])]
@@ -126,7 +139,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
     queen = next((m for m in sorted(chats, key=lambda m: -m["size_gb"])
                   if m["size_gb"] * kv_factor <= usable), None)
     if queen is not None:
-        _, spec = _specialty_of(queen["name"])
+        _, spec = _specialty_of(queen["name"], rules=rules)
         plan.append({"name": "queen", "role": "queen", "path": queen["path"],
                      "model": queen["name"], "size_gb": queen["size_gb"],
                      "specialties": spec or ["general", "plan", "summarize"]})
@@ -140,10 +153,13 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
             break
         if used + m["size_gb"] * kv_factor > usable:
             continue
-        nm = _worker_name(m["name"], taken); taken.add(nm)
-        _, spec = _specialty_of(m["name"])
+        nm = _worker_name(m["name"], taken, rules=rules); taken.add(nm)
+        _, spec = _specialty_of(m["name"], rules=rules)
+        # a generalist worker is not a specialist in anything, but an EMPTY list makes it score 0
+        # on every cold-hive routing query - unreachable until it somehow accrues history. The
+        # queen already had this fallback; the worker branch did not.
         plan.append({"name": nm, "role": "worker", "path": m["path"], "model": m["name"],
-                     "size_gb": m["size_gb"], "specialties": spec})
+                     "size_gb": m["size_gb"], "specialties": spec or list(GENERAL_SPECIALTIES)})
         used += m["size_gb"] * kv_factor
 
     if embeds:
@@ -153,7 +169,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
         used += em["size_gb"]
 
     return {"plan": plan, "budget_gb": round(budget_gb, 1), "usable_gb": round(usable, 1),
-            "planned_gb": round(used, 1), "n": len(plan),
+            "planned_gb": round(used, 1), "n": len(plan), "over_budget": used > usable,
             "note": ("no chat GGUF fits the budget" if queen is None and not plan else "")}
 
 
@@ -172,40 +188,122 @@ class Bee:
     summary: dict | None = None   # model_io.model_summary (arch/params/dim/quant)
     capability: str = "generate"     # generate (chat) | predict | score | embed | analyze | transform
     worker_type: str = ""            # ':'-scoped kind for the worker-type ontology (e.g. model:mlp)
+    # A secret REFERENCE (env var name / secret-store name) for an authenticated remote provider,
+    # never the credential itself. Resolved per call by _chat_full via agent.secrets.resolve_ref,
+    # so nothing that serializes a Bee can ever carry a key. Empty => unauthenticated bee.
+    api_key_ref: str = ""
     _proc: object = None             # Popen for managed worker bees (not serialized)
     _handler: object = None          # local callable for non-chat workers (not serialized)
 
     def public(self) -> dict:
+        # `has_api_key` reports only the FACT that a credential is configured - never the key and
+        # never the reference. Mirrors chat_model.status(). See api_key_ref above.
         return {"name": self.name, "role": self.role, "url": self.url, "model": self.model,
                 "specialties": self.specialties, "managed": self.managed, "pid": self.pid,
                 "port": self.port, "summary": self.summary, "capability": self.capability,
-                "worker_type": self.worker_type, "local": self._handler is not None}
+                "worker_type": self.worker_type, "local": self._handler is not None,
+                "has_api_key": bool(self.api_key_ref)}
 
 
-def _chat(url: str, model: str, prompt: str, system: str | None = None,
-          max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0) -> str | None:
-    """Call one bee's OpenAI-compatible /v1/chat/completions. Returns the reply text, or None if
-    unreachable or empty. Targets an explicit url so the call goes to a specific bee, not the
-    globally-resolved chat backend."""
+@dataclass
+class ChatResult:
+    """One bee's structured reply. `content` is the text (None when the model answered with tool
+    calls instead of prose), `tool_calls` the OpenAI-style calls to execute, `finish_reason` why
+    generation stopped ('stop' | 'tool_calls' | 'length' | ...), and `reasoning_content` the
+    thinking trace backends like llama.cpp --jinja return alongside the answer.
+
+    The text path (`_chat`) keeps returning a bare string, so this is purely additive: a harness
+    that drives tools opts in via `_chat_full` / `Hive.ask_full`."""
+    content: str | None = None
+    tool_calls: list[dict] = field(default_factory=list)
+    finish_reason: str = ""
+    reasoning_content: str | None = None
+    raw: dict = field(default_factory=dict)
+
+    @property
+    def wants_tools(self) -> bool:
+        return bool(self.tool_calls)
+
+
+def _chat_full(url: str, model: str, prompt: str | None, system: str | None = None,
+               max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0,
+               *, messages: list[dict] | None = None, tools: list[dict] | None = None,
+               tool_choice=None, chat_template_kwargs: dict | None = None,
+               api_key_ref: str = "") -> ChatResult | None:
+    """Call one bee's OpenAI-compatible /v1/chat/completions and return the FULL structured reply.
+
+    `messages` sends a complete history verbatim (the assistant turn carrying tool_calls plus the
+    `role: tool` results) - a tool loop cannot be closed with a single prompt string, so this is
+    what makes the hive drivable by a tool-calling harness. `prompt`/`system` remain the
+    single-turn convenience.
+
+    `api_key_ref` is a secret *reference* resolved at call time (agent.secrets.resolve_ref); the
+    credential is never held on the Bee nor serialized. An unresolvable reference simply sends no
+    Authorization header rather than leaking the reference as a bearer token.
+
+    Returns None if unreachable. Targets an explicit url so the call goes to a specific bee, not
+    the globally-resolved chat backend."""
     try:
         import httpx
     except Exception:
         return None
-    msgs = ([{"role": "system", "content": system}] if system else []) + \
-           [{"role": "user", "content": prompt}]
-    payload: dict = {"messages": msgs, "max_tokens": max_tokens,
+    if messages is None:
+        messages = ([{"role": "system", "content": system}] if system else []) + \
+                   [{"role": "user", "content": prompt}]
+    payload: dict = {"messages": messages, "max_tokens": max_tokens,
                      "temperature": temperature, "stream": False}
     if model:
         payload["model"] = model
+    # only send what was asked for: a backend that does not understand these keys must not see
+    # them on an ordinary chat call.
+    if tools:
+        payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+    elif tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+    if chat_template_kwargs:
+        payload["chat_template_kwargs"] = chat_template_kwargs
+
+    headers = {}
+    key = ""
+    if api_key_ref:
+        from .secrets import resolve_ref
+        key = resolve_ref(api_key_ref)
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+
     try:
         with httpx.Client(timeout=timeout) as c:
-            r = c.post(url.rstrip("/") + "/v1/chat/completions", json=payload)
+            r = c.post(url.rstrip("/") + "/v1/chat/completions", json=payload, headers=headers)
             r.raise_for_status()
             data = r.json()
-        text = "".join(ch.get("message", {}).get("content", "") for ch in data.get("choices", []))
-        return text.strip() or None
     except Exception:
         return None
+
+    choices = data.get("choices") or []
+    text = "".join((ch.get("message", {}).get("content") or "") for ch in choices)
+    first = (choices[0].get("message", {}) if choices else {})
+    calls = []
+    for ch in choices:
+        calls.extend(ch.get("message", {}).get("tool_calls") or [])
+    return ChatResult(content=(text.strip() or None), tool_calls=calls,
+                      finish_reason=(choices[0].get("finish_reason") or "" if choices else ""),
+                      reasoning_content=first.get("reasoning_content"), raw=data)
+
+
+def _chat(url: str, model: str, prompt: str, system: str | None = None,
+          max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0,
+          **kw) -> str | None:
+    """Call one bee's OpenAI-compatible /v1/chat/completions. Returns the reply text, or None if
+    unreachable or empty. Targets an explicit url so the call goes to a specific bee, not the
+    globally-resolved chat backend.
+
+    The text path every existing caller uses (dispatch/collaborate/consensus/guarded_ask), kept
+    string-returning on purpose. Use `_chat_full` for tool calls and finish_reason."""
+    res = _chat_full(url, model, prompt, system=system, max_tokens=max_tokens,
+                     temperature=temperature, timeout=timeout, **kw)
+    return res.content if res is not None else None
 
 
 class Hive:
@@ -230,13 +328,18 @@ class Hive:
     # membership
 
     def attach(self, name: str, url: str, *, role: str = "worker",
-               model: str = "", specialties=None) -> Bee:
+               model: str = "", specialties=None, api_key_ref: str = "") -> Bee:
         """Register a bee for an already-running endpoint (Ollama/vLLM/llama.cpp/etc). The hive
-        references it but does not own its lifecycle. `role` must be queen|worker|embedder."""
+        references it but does not own its lifecycle. `role` must be queen|worker|embedder.
+
+        `api_key_ref` names an env var / secret-store entry holding the endpoint's credential, so
+        an authenticated remote provider (DeepSeek, OpenAI, ...) can be a bee. Pass the reference,
+        never the key: it is resolved per request and never stored or serialized."""
         if role not in VALID_ROLES:
             raise ValueError(f"role must be one of {VALID_ROLES}, got {role!r}")
         bee = Bee(name=name, role=role, url=url.rstrip("/"), model=model,
-                  specialties=list(specialties or []), managed=False)
+                  specialties=list(specialties or []), managed=False,
+                  api_key_ref=api_key_ref)
         self._bees[name] = bee
         from . import activity as _act
         _act.record("worker:" + name, "attach", detail={"role": role, "model": model})
@@ -562,12 +665,53 @@ class Hive:
         from . import activity as _act
         _use = _act.open_use(bee.model or name, "ask", by="worker:" + name)   # tracks concurrent use
         try:
-            reply = _chat(bee.url, bee.model, prompt, system=system, max_tokens=max_tokens)
+            reply = _chat(bee.url, bee.model, prompt, system=system, max_tokens=max_tokens,
+                          api_key_ref=bee.api_key_ref)
         finally:
             _act.close_use(_use)
         if record and reply:
             self.relay(name, sender, reply)
         return reply
+
+    def ask_full(self, name: str, prompt: str | None = None, *, messages=None,
+                 sender: str = "user", system: str | None = None, max_tokens: int = 512,
+                 temperature: float = 0.3, tools=None, tool_choice=None,
+                 chat_template_kwargs: dict | None = None,
+                 record: bool = True) -> ChatResult | None:
+        """Ask one bee and get its FULL reply (content + tool_calls + finish_reason +
+        reasoning_content) instead of just text - the path a tool-calling harness drives.
+
+        `tools`/`tool_choice` are forwarded to the backend; `messages` sends a complete history
+        verbatim so the assistant's tool_calls turn and the `role: tool` results can be fed back
+        to close a tool loop. ask() is unchanged and still returns a bare string, so every
+        existing caller (dispatch/collaborate/consensus/guarded_ask) is unaffected.
+
+        Only the text of a reply is relayed into the complex; a tool-call turn has no prose, so
+        the recorded message names the tools requested and the topology still sees the exchange."""
+        bee = self._bees.get(name)
+        if bee is None:
+            raise KeyError(f"no bee named {name!r}")
+        if bee._handler is not None:
+            raise ValueError(f"bee {name!r} is a {bee.capability!r} worker; use invoke(), not ask()")
+        if record:
+            self.relay(sender, name, prompt if prompt is not None else str(messages))
+        from . import activity as _act
+        _use = _act.open_use(bee.model or name, "ask", by="worker:" + name)
+        try:
+            res = _chat_full(bee.url, bee.model, prompt, system=system, max_tokens=max_tokens,
+                             temperature=temperature, messages=messages, tools=tools,
+                             tool_choice=tool_choice, chat_template_kwargs=chat_template_kwargs,
+                             api_key_ref=bee.api_key_ref)
+        finally:
+            _act.close_use(_use)
+        if record and res is not None:
+            note = res.content or (
+                "tool_calls: " + ", ".join(
+                    c.get("function", {}).get("name", "?") for c in res.tool_calls)
+                if res.tool_calls else "")
+            if note:
+                self.relay(name, sender, note)
+        return res
 
     # routing: query-reweighting blended with declared specialty
 
@@ -795,6 +939,22 @@ class Hive:
 
     # consensus: aggregate several workers by the STRUCTURE of their agreement
 
+    def _embed_fn(self, embed: bool | None):
+        """The semantic embedder for this hive, or None to fall back to the lexical signal.
+
+        Resolves through the embedder BEE, so an attached endpoint (a server this process does not
+        own) works as well as a spawned one. Every caller that offers an `embed=` flag goes through
+        here, so the two paths cannot drift apart.
+
+        `embed=None` defers to the active profile's `monitor_embed`; an explicit True/False always
+        wins."""
+        if embed is None:
+            embed = _profile_monitor_embed()
+        if not embed:
+            return None
+        bee = self.embedder                                  # attached OR spawned; both are bees
+        return agent_complex.model_embed_fn(bee.url if bee is not None else None)
+
     def _answer_vectors(self, texts, embed_fn):
         """Vectorize answers for the agreement complex: semantic embeddings if an embedder is
         available, else lexical concept-count vectors. Returns an (n, d) array."""
@@ -854,8 +1014,7 @@ class Hive:
                     "n_workers": 0, "note": "no worker responded"}
 
         labels = list(answers.keys())
-        embed_fn = agent_complex.model_embed_fn() if embed else None
-        V = self._answer_vectors([answers[l] for l in labels], embed_fn)
+        V = self._answer_vectors([answers[l] for l in labels], self._embed_fn(embed))
         Vn = V / np.maximum(np.linalg.norm(V, axis=1, keepdims=True), 1e-9)
         S = Vn @ Vn.T
         n = len(labels)
@@ -969,13 +1128,14 @@ class Hive:
             pass
         return out
 
-    def monitor(self, embed: bool = False, track: bool = False) -> dict:
+    def monitor(self, embed: bool | None = None, track: bool = False) -> dict:
         """Run the relational-complex monitor over the swarm's traffic (the same live complex the
-        hive records into). `embed=True` uses the embedder bee for the semantic alignment signal.
+        hive records into). `embed=True` uses the embedder bee for the semantic alignment signal;
+        `embed=None` (the default) defers to the active profile's `monitor_embed`, which is what
+        that field means and what every builtin profile already declares.
         `track=True` snapshots the drift tracker so repeated calls over time expose which worker is
         starting to detract (a rising-curvature / falling-alignment trend)."""
-        fn = agent_complex.model_embed_fn() if embed else None
-        out = self._complex.monitor(embed_fn=fn)
+        out = self._complex.monitor(embed_fn=self._embed_fn(embed))
         if track:
             d = agent_complex.get_drift().snapshot(out)
             out["drift"] = {"drifting": d.drifting(), "strain_trend": d.strain_trend(),

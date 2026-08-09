@@ -144,6 +144,22 @@ def test_plan_no_spawnable_models():
     assert plan["plan"] == []
 
 
+def test_plan_flags_when_embedder_pushes_past_budget():
+    # queen alone fits the usable budget, but the always-included embedder tips it over -
+    # the plan must say so honestly rather than silently over-committing memory.
+    models = _disk(("big-chat-23b", 23.0), ("nomic-embed-text", 1.0))
+    plan = hive.plan_hive(models, budget_gb=32.0)
+    assert plan["planned_gb"] > plan["usable_gb"]          # the embedder does overflow it
+    assert plan["over_budget"] is True                     # ...and the plan admits it
+
+
+def test_plan_not_over_budget_when_it_fits():
+    models = _disk(("qwen3-coder-7b", 6.0), ("phi-4-mini", 2.5),
+                   ("gpt-oss-120b", 65.0), ("nomic-embed-text", 0.3))
+    plan = hive.plan_hive(models, budget_gb=96.0)
+    assert plan["over_budget"] is False
+
+
 def test_auto_plan_uses_detected_and_budget(monkeypatch):
     monkeypatch.setattr("agent.local_runtime.discover_local_models",
                         lambda: _disk(("qwen-7b", 6.0), ("nomic-embed", 0.3)))
@@ -325,3 +341,32 @@ def test_consensus_all_agree_no_flags(monkeypatch):
     assert res["flagged"] == []
     assert res["n_workers"] == 3
     assert res["reliability"] > 0.3
+
+
+def test_consensus_uses_an_attached_embedder(monkeypatch):
+    """consensus(embed=True) separates a hallucination from a topically-distinct specialist only
+    on the semantic signal, so it must reach an ATTACHED embedder bee - not just a locally-managed
+    server. Same wiring gap as monitor(embed=True)."""
+    import numpy as np
+    from agent import model_introspect
+
+    seen = {}
+
+    def fake_embed(texts, url=None, model=None, timeout=60.0):
+        seen["url"] = url
+        return np.eye(len(list(texts)), 3, dtype=float)
+
+    monkeypatch.setattr(model_introspect, "embed", fake_embed)
+    monkeypatch.setattr("agent.local_runtime.embed_url", lambda: None)   # nothing managed
+    monkeypatch.setattr(hive, "_chat", _scripted({
+        "m-planner": "paris is the capital of france",
+        "m-coder": "the capital of france is paris",
+        "m-reviewer": "bananas are a tropical fruit",
+    }))
+    h = _team_hive()
+    h.attach("embedder", "http://127.0.0.1:8081", role="embedder", model="bge")
+
+    h.consensus("What is the capital of France?", embed=True,
+                workers=["planner", "coder", "reviewer"])
+    assert seen.get("url") == "http://127.0.0.1:8081", \
+        "consensus(embed=True) did not reach the attached embedder bee"

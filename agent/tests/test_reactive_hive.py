@@ -141,3 +141,88 @@ def test_divergent_worker_deploys_guard(monkeypatch):
     actions = rh.react()
     assert any(x["rule"] == "divergence" for x in actions)
     assert h.get("guard.rogue") is not None
+
+
+def _embedder_hive(monkeypatch):
+    """A hive whose embedder is ATTACHED (a live server this process does not own) - the
+    normal case when llama-server is started outside the agent."""
+    import numpy as np
+    from agent import model_introspect
+    h = _hive()
+    h.attach("embedder", "http://127.0.0.1:8081", role="embedder", model="bge")
+
+    def fake_embed(texts, url=None, model=None, timeout=60.0):
+        # distinct-but-close vectors: every agent is on-topic, nobody is divergent
+        return np.array([[1.0, 0.1 * i] for i, _ in enumerate(texts)], dtype=float)
+
+    monkeypatch.setattr(model_introspect, "embed", fake_embed)
+    monkeypatch.setattr("agent.local_runtime.embed_url", lambda: None)   # nothing managed
+    return h
+
+
+def test_monitor_uses_an_attached_embedder(monkeypatch):
+    """hive.monitor(embed=True) must use the embedder BEE, not only a locally-managed server."""
+    h = _embedder_hive(monkeypatch)
+    for a, b in [("planner", "coder"), ("coder", "reviewer"), ("reviewer", "planner")]:
+        h.relay(a, b, "waiting on you")
+    assert h.monitor(embed=True)["alignment_mode"] == "embedding"
+
+
+def test_observe_requests_the_semantic_signal(monkeypatch):
+    """react() only acts on divergence in embedding mode, so observe() must ask for it.
+    Otherwise the divergence rule is permanently dead whenever an embedder is available."""
+    h = _embedder_hive(monkeypatch)
+    for a, b in [("planner", "coder"), ("coder", "reviewer"), ("reviewer", "planner")]:
+        h.relay(a, b, "waiting on you")
+    assert ReactiveHive(h).observe()["alignment_mode"] == "embedding"
+
+
+# --- monitor_embed: the profile field that decides whether the monitor is semantic ----------
+
+def _profile_hive(monkeypatch, tmp_path, monitor_embed, *, active=True):
+    """A hive with an attached embedder and an active profile carrying `monitor_embed`."""
+    import numpy as np
+    from agent import hive_config, model_introspect
+
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    hive_config.reset_store()
+    monkeypatch.setattr(model_introspect, "embed",
+                        lambda texts, url=None, model=None, timeout=60.0:
+                        np.array([[1.0, 0.1 * i] for i, _ in enumerate(texts)], dtype=float))
+    monkeypatch.setattr("agent.local_runtime.embed_url", lambda: None)   # nothing managed
+
+    h = _hive()
+    h.attach("embedder", "http://127.0.0.1:8081", role="embedder", model="bge")
+    for a, b in [("planner", "coder"), ("coder", "reviewer"), ("reviewer", "planner")]:
+        h.relay(a, b, "waiting on you")
+
+    if active:
+        store = hive_config.get_store()
+        prof = store.create("test-profile", monitor_embed=monitor_embed)
+        store.set_active(prof.id)
+    return h
+
+
+def test_profile_monitor_embed_turns_the_semantic_signal_on(monkeypatch, tmp_path):
+    """A profile that asks for the semantic monitor must actually get it - the field was
+    declared, defaulted, set across every builtin, serialized by apply(), and read by nothing."""
+    h = _profile_hive(monkeypatch, tmp_path, monitor_embed=True)
+    assert h.monitor()["alignment_mode"] == "embedding"
+
+
+def test_profile_monitor_embed_off_stays_lexical(monkeypatch, tmp_path):
+    h = _profile_hive(monkeypatch, tmp_path, monitor_embed=False)
+    assert h.monitor()["alignment_mode"] == "lexical"
+
+
+def test_an_explicit_argument_overrides_the_profile(monkeypatch, tmp_path):
+    h = _profile_hive(monkeypatch, tmp_path, monitor_embed=True)
+    assert h.monitor(embed=False)["alignment_mode"] == "lexical"
+
+
+def test_no_active_profile_keeps_the_historical_default(monkeypatch, tmp_path):
+    """Without a selected profile the default stays off, so a user who never touched profiles
+    sees no behaviour change."""
+    h = _profile_hive(monkeypatch, tmp_path, monitor_embed=True, active=False)
+    assert h.monitor()["alignment_mode"] == "lexical"
+    assert h.monitor(embed=True)["alignment_mode"] == "embedding"

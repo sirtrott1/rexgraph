@@ -26,7 +26,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rexgraph-agent"
-version = "1.0.7"
+version = "1.0.8"
 description = "Orchestration, server, frontend, and integrations for the RexGraph ecosystem"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
@@ -91,6 +91,22 @@ warehouse = [
 connectors = [
     "pymongo>=4.6",
     "neo4j>=5.0",
+]
+
+
+# Object-storage backend for the RCDB (agent/agent/objectstore.py). fsspec IS the
+# backend - one wire protocol for every provider - and on its own it enables the
+# memory:// and file:// schemes, which is what the local paths and the test suite
+# exercise. Cloud providers add only their driver, the same shape as [warehouse].
+objectstore = [
+    "fsspec>=2024.2",
+]
+
+objectstore-cloud = [
+    "rexgraph-agent[objectstore]",
+    "s3fs>=2024.2",
+    "gcsfs>=2024.2",
+    "adlfs>=2024.2",
 ]
 
 
@@ -193,15 +209,16 @@ oidc = [
 ]
 
 # Development and testing. Pulls in [server] because the test suite imports
-# the FastAPI server/routes, so `pip install ./agent[dev]` is self-sufficient
-# for running `pytest`.
+# the FastAPI server/routes, and [objectstore] because tests/test_store_interop.py
+# exercises the object store over memory://, so `pip install ./agent[dev]` is
+# self-sufficient for running `pytest`.
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.3",
     "httpx>=0.27",
-    "rexgraph-agent[server]",
+    "rexgraph-agent[server,objectstore]",
 ]
 
 # Profiles: named bundles for common deployments. Compose the granular extras
@@ -230,7 +247,7 @@ integrations = [
 # the torch ML stack + cloud OCR + SSO. Large; prefer a narrower profile unless
 # you need all of it. Excludes GPU-only extras (vllm, ocr-got, cuda).
 all = [
-    "rexgraph-agent[standard,integrations,warehouse,ml,ocr-paddle,mistral,oidc]",
+    "rexgraph-agent[standard,integrations,warehouse,objectstore-cloud,ml,ocr-paddle,mistral,oidc]",
 ]
 
 [project.scripts]
