@@ -96,7 +96,7 @@ def client():
     from agent.server.app import app
     from agent.server.auth import get_auth_manager
     from fastapi.testclient import TestClient
-    get_auth_manager().disable_auth()
+    get_auth_manager().disable_auth(persist=False)
     with TestClient(app) as c:
         yield c
 

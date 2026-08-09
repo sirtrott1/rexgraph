@@ -36,6 +36,10 @@ def test_cpu_count_respects_scheduler_affinity(monkeypatch):
 
 
 def test_the_smallest_limit_wins(monkeypatch):
+    # the machine's own count is one of the candidates, so it has to be pinned too or
+    # the test measures the host instead of the rule. A three-core runner made the
+    # answer 3, correctly, against an expectation of 4.
+    monkeypatch.setattr("os.cpu_count", lambda: 64)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "64")
     monkeypatch.setattr(hardware, "_affinity", lambda: 4)
     assert hardware.cpu_count() == 4
@@ -62,6 +66,10 @@ def test_memory_respects_a_slurm_allocation(monkeypatch):
 
 
 def test_memory_per_cpu_scales_with_the_allocation(monkeypatch):
+    # per-CPU memory multiplies by cpu_count(), which takes the smallest candidate
+    # including the machine's own. Pin it, or a small host silently changes the product.
+    monkeypatch.setattr("os.cpu_count", lambda: 64)
+    monkeypatch.setattr(hardware, "_affinity", lambda: 64)
     monkeypatch.setenv("SLURM_MEM_PER_CPU", "1024")
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "4")
     assert hardware.memory_bytes() == 4 * 1024 * 1024 * 1024

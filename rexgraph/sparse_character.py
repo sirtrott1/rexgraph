@@ -24,7 +24,9 @@ The four channels (matching the dense builders exactly):
   * L1_down = B1^T B1                                    (_laplacians.build_L1_down)
   * L_O     = raw |B1|^T|B1|, or normalized I - D^-1/2 K D^-1/2   (g_channel)
   * L_SG    = diag(sum|K_off|) - K_off,  K_s = S diag(w) S^T      (_frustration)
-  * L_C     = D_L - A_L (unweighted line graph of K1's pattern)   (_relational)
+  * L_C     = D_L - A_L over the selected co-participation reading (`rex.c_channel`):
+              share (default, conserving) or count (structural). Independent readings,
+              not a rescaling; they coincide at arity 2.
 """
 from __future__ import annotations
 
@@ -49,7 +51,7 @@ def build_sparse_channels(rex):
 
     from rexgraph.core._laplacians import build_L1_down_sparse
 
-    nV, nE = int(rex.nV), int(rex.nE)
+    _nV, nE = int(rex.nV), int(rex.nE)
     src, tgt = rex._ensure_src_tgt()
     src = np.asarray(src, dtype=np.int64)
     tgt = np.asarray(tgt, dtype=np.int64)
@@ -106,7 +108,12 @@ def build_sparse_channels(rex):
     # relations meet, not a geometric one about how far apart they are. Weighting it too
     # shifts every channel (measured 0.286 flat against the canonical 0.351/0.351/
     # 0.172/0.126 on a triangle with one relation at weight 5).
-    Kc = rex.overlap_counts_sparse.tocsr()
+    # the reading the CHARACTER is set to. The two are independent in both directions,
+    # so this is a choice of question: share is how much of each relation meets and
+    # conserves; count is how many vertices they meet at and is structural. The flow layer
+    # pins the share whatever this says, because moving signal is a different job.
+    Kc = (rex.overlap_count_sparse if getattr(rex, "c_channel", "share") == "count"
+          else rex.overlap_share_sparse).tocsr()
     K_off = (Kc - sp.diags(Kc.diagonal())).tocsr()       # G_off = shared-vertex counts
     deg_L = np.asarray(K_off.sum(axis=1)).ravel()        # weighted line-graph degree = Sum shared counts
     L_C = (sp.diags(deg_L) - K_off).tocsr()              # D_L - G_off, weighted line-graph Laplacian

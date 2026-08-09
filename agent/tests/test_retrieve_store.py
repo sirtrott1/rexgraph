@@ -1,4 +1,4 @@
-"""Slice 2: retrieve_sections ranks over an RCStore.
+"""retrieve_sections ranks over an RCStore.
 
 The consumer half of the seam. retrieve_sections had two modes -- an in-memory
 CorpusBuilder, or a single document -- so a persisted corpus was unreachable from

@@ -64,9 +64,9 @@ async def export_session(
                 save_hdf5(tmp, rex)
         except ImportError as e:
             raise HTTPException(
-                400, f"'{format}' export needs an optional dependency: {e}")
+                400, f"'{format}' export needs an optional dependency: {e}") from e
         except Exception as e:
-            raise HTTPException(500, f"Export failed: {e}")
+            raise HTTPException(500, f"Export failed: {e}") from e
         return FileResponse(tmp, filename=f"{session_id}{suffix}",
                             media_type="application/octet-stream")
 

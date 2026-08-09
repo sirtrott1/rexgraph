@@ -131,7 +131,7 @@ def make_dataset(path, n_cells, composition, seed):
     with gzip.open(os.path.join(path, "barcodes.tsv.gz"), "wt") as f:
         for i in range(n_cells):
             f.write("BC%d-1\n" % i)
-    return dict(zip(*np.unique(cell_types, return_counts=True)))
+    return dict(zip(*np.unique(cell_types, return_counts=True), strict=False))
 
 
 def main():

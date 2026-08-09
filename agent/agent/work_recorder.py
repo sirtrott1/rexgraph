@@ -20,12 +20,21 @@ from __future__ import annotations
 
 import logging
 import time
+
+import numpy as np
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-#: What may be recorded. A caller naming anything else is a bug, not a new kind.
+#: Kinds `record` builds a complex FOR, from labels, through a lineage adapter.
 KINDS = ("pipeline-run", "conversation")
+
+#: Kinds `record_complex` accepts a complex for, because the caller already has one.
+#:
+#: An agent that has analysed something, a hive that has placed its tasks, an edit to a
+#: stored graph: each of those IS a complex before it is anything else, and flattening it
+#: to labels so an adapter can rebuild a different one loses what it knew.
+COMPLEX_KINDS = ("edit", "agent-state", "hive-state", "pipeline-run", "conversation")
 
 #: The workspace setting that turns recording on, and the per-kind switches under it.
 SETTING = "record_work"
@@ -128,6 +137,96 @@ def record(kind: str, labels: list[str], *, lineage_id: str,
     info["step"] = int(step)
     info["T"] = int(temporal.T)
     return info
+
+
+def record_complex(kind: str, rex, *, lineage_id: str, workspace: str = "default",
+                   meta: dict | None = None, tags: list[str] | None = None,
+                   when: float | None = None, force: bool = False) -> dict[str, Any] | None:
+    """Append a complex the caller already has as the next state of a lineage.
+
+    `record` builds a complex from labels through an adapter, which is right when the
+    caller has a list of things and no complex. This is for the other case, which is most
+    of them: an edit to a stored graph, an agent's state, a hive's placement. Each is a
+    complex before it is anything else, and there is nothing to reconstruct it from.
+
+    The lineage is one object with two coordinates, exactly as `record` leaves it:
+
+        version   the RCDB chain, bitemporal, read with get_version or as_of
+        step      the position inside the TemporalRex, read with at or step_at
+
+    so an edit history is a temporal complex rather than a log beside one, and any state
+    in it reconstructs as a RexGraph that can be analysed, queried or drawn like any
+    other. `TemporalRex.append_snapshot` keeps the checkpoint/delta index incrementally,
+    O(delta) per edit, so a long history costs a diff per step and not a rebuild.
+
+    Returns the version info, or None when recording is off. Unlike `record` this does
+    not de-duplicate: two edits that happen to produce the same complex are still two
+    edits, and a history that silently drops one is not a history.
+    """
+    if kind not in COMPLEX_KINDS:
+        raise ValueError(
+            f"unknown kind {kind!r}; expected one of {', '.join(COMPLEX_KINDS)}")
+    if not force and not enabled(workspace, kind):
+        return None
+    if rex is None:
+        return None
+
+    from rexgraph.graph import TemporalRex
+
+    store = _store()
+    at = float(when if when is not None else time.time())
+    try:
+        prev = store.get(lineage_id)
+    except Exception:
+        prev = None
+
+    if isinstance(prev, TemporalRex):
+        temporal = prev
+    else:
+        temporal = TemporalRex([])
+        if prev is not None:
+            try:
+                temporal.append_snapshot(prev, at=at)
+            except Exception:
+                logger.debug("could not carry the previous snapshot into %s", lineage_id)
+    step = temporal.append_snapshot(rex, at=at)
+
+    record_meta = {"kind": kind, "workspace": workspace, "step": int(step),
+                   "at": at, "nV": int(rex.nV), "nE": int(rex.nE),
+                   "nF": int(rex.nF_hodge)}
+    record_meta.update(meta or {})
+    from agent.rcdb import put_version
+    info = put_version(store, lineage_id, temporal,
+                       meta=record_meta, tags=list(tags or []) + [kind],
+                       valid_from=at)
+    return {**info, "step": int(step), "steps": int(temporal.T)}
+
+
+def history(lineage_id: str) -> list[dict]:
+    """Every recorded state of a lineage, as steps with their times.
+
+    The edit log, read off the temporal store rather than kept beside it.
+    """
+    from rexgraph.graph import TemporalRex
+
+    try:
+        temporal = _store().get(lineage_id)
+    except Exception:
+        return []
+    if not isinstance(temporal, TemporalRex):
+        return []
+    # `times` is an ndarray, so `or []` asks for its truth value and raises
+    times = np.asarray(getattr(temporal, "times", [])).ravel().tolist()
+    out = []
+    for step in range(int(temporal.T)):
+        # reconstruct_at, not at: `at` reads the raw snapshot list, which a store
+        # round-trip does not materialise, and the checkpoint/delta index is what
+        # survives. Same complex either way, one rebuild from the nearest checkpoint.
+        snapshot = temporal.reconstruct_at(step)
+        out.append({"step": step,
+                    "at": float(times[step]) if step < len(times) else None,
+                    "nV": int(snapshot.nV), "nE": int(snapshot.nE)})
+    return out
 
 
 def state_at(lineage_id: str, when: float):

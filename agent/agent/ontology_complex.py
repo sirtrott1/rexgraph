@@ -161,6 +161,44 @@ def ontology_to_rex(model: OntologyModel):
     return rex, meta
 
 
+def subsumption_cycles(model: OntologyModel) -> int:
+    """Independent cycles among the subsumption edges alone.
+
+    This is the number that decides whether an ontology is inconsistent, and it is
+    not the same as beta_1 of the whole complex. A real ontology reaches the same
+    term by more than one kind of relation constantly: in GO, `apoptotic process
+    is_a programmed cell death is_a cell death` alongside `apoptotic process part_of
+    cell death` closes a loop mixing two relations. That is a diamond, which is what
+    multiple inheritance looks like, not a class that subsumes itself.
+
+    Restricting to `kind == "gradient"` asks the question the verdict actually
+    depends on: is there a cycle in the hierarchy itself. Parallel edges between the
+    same pair are collapsed first, since two files asserting one subsumption is one
+    relation and would otherwise read as a 2-cycle.
+
+    A cycle that a definition closes is still not an inconsistency, so the definition
+    faces are carried into the sub-complex and beta_1 is taken there. `C subClassOf
+    A`, `C subClassOf B`, `A subClassOf B` with `C = A and B` is a triangle entirely
+    inside the hierarchy and entirely bounded: the face fills it and beta_1 is 0.
+    A definition needing a relation that is not subsumption cannot be built here, and
+    `ontology_to_rex` drops it, which is the right answer for the same reason.
+    """
+    pairs = {(a, b) for (a, b, _p, kind) in model.edges
+             if kind == "gradient" and a != b}
+    if not pairs:
+        return 0
+    sub = OntologyModel(
+        classes=sorted({x for pair in pairs for x in pair}),
+        edges=[(a, b, "subclassof", "gradient") for a, b in sorted(pairs)],
+        definitions=[list(d) for d in model.definitions],
+    )
+    try:
+        rex, _meta = ontology_to_rex(sub)
+        return 0 if rex is None else int(rex.betti[1])
+    except Exception:
+        return 0
+
+
 def diagnose_ontology(model: OntologyModel) -> dict[str, Any]:
     """Descriptive readout: subsumption hierarchy (gradient), bounded
     definitions (curl), inconsistencies (harmonic subsumption cycles)."""
@@ -193,17 +231,35 @@ def diagnose_ontology(model: OntologyModel) -> dict[str, Any]:
             curl_dim = int(rex.nF_hodge) - (int(_b[2]) if _b else 0)   # rank(B₂)
         except Exception:
             curl_dim = 0
-        report["hodge"]["inconsistency_dimension"] = harmonic_dim
+        subsumption_dim = subsumption_cycles(model)
+        report["hodge"]["inconsistency_dimension"] = subsumption_dim
         report["hodge"]["definition_dimension"] = curl_dim
-        if harmonic_dim > 0:
+        report["hodge"]["multi_relation_cycle_dimension"] = max(
+            0, harmonic_dim - subsumption_dim)
+        if subsumption_dim > 0:
             report["state"] = "inconsistent"
             report["summary"] = ("Subsumption cycle(s) with no defining relation - "
                                  "an inconsistency (a class transitively subsumes "
                                  "itself). Present, not necessarily fatal; review.")
             report["findings"].append({
                 "severity": "high",
-                "issue": "Unbounded subsumption cycle (harmonic) - a class subsumes "
-                         "itself with nothing defining the loop.", "type": "cycle"})
+                "issue": f"{subsumption_dim} unbounded subsumption cycle(s) - a class "
+                         "subsumes itself with nothing defining the loop.",
+                "type": "cycle"})
+        elif harmonic_dim > 0:
+            # cycles exist, but none of them lies inside the hierarchy: they close
+            # through a second kind of relation, which is what multiple inheritance
+            # looks like and is not an error.
+            report["state"] = "multiple_inheritance"
+            report["summary"] = (
+                f"{harmonic_dim} cycle(s), none within the subsumption hierarchy: "
+                "each closes through a second relation. Multiple inheritance, not "
+                "an inconsistency.")
+            report["findings"].append({
+                "severity": "info",
+                "issue": f"{harmonic_dim} cycle(s) mixing relation types (a term "
+                         "reached by two different kinds of relation).",
+                "type": "diamond"})
         elif curl_dim > 0:
             report["state"] = "bounded_definitions"
             report["summary"] = ("Definitions present (equivalent/symmetric/"

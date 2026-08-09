@@ -76,7 +76,7 @@ async def upload_data(
         rex = auto_rex(tmp_path, **opts)
     except Exception as e:
         os.unlink(tmp_path)
-        raise HTTPException(status_code=400, detail=f"Failed to build relational complex: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to build relational complex: {e}") from e
     finally:
         # Clean up temp file (rex data is now in memory)
         if os.path.exists(tmp_path):

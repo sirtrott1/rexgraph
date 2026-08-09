@@ -10,15 +10,18 @@ from __future__ import annotations
 
 import numpy as np
 
+# re-exported on purpose: this module is a wrapper, so `from rexgraph.harmonic import
+# harmonic_projectors` is part of what it is for. The names flagged below are unused
+# HERE and reachable THROUGH here, which is the distinction noqa is recording.
 try:
     from .core._harmonic import (
         harmonic_basis,
         harmonic_channel_character,
-        harmonic_decode,
-        harmonic_encode,
-        harmonic_leakage,
+        harmonic_decode,  # noqa: F401
+        harmonic_encode,  # noqa: F401
+        harmonic_leakage,  # noqa: F401
         harmonic_product_table,
-        harmonic_projectors,
+        harmonic_projectors,  # noqa: F401
         prime_coupling,
         prime_removal_analysis,
     )

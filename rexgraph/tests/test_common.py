@@ -95,7 +95,8 @@ class TestConfiguration:
 
     def test_configure_memory_explicit(self):
         """Setting explicit memory limits persists."""
-        old = get_configuration()
+        # nothing is captured before the change: the finally below resets to auto-detect
+        # rather than to a saved value, so reading the old configuration was never used.
         try:
             configure_memory(max_dense_allocation=500_000_000)
             cfg = get_configuration()

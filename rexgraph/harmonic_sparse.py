@@ -91,12 +91,40 @@ def _cycle_basis_from_edges(nV, nE, src, tgt):
     return sp.csc_matrix((vals, (rows, cols)), shape=(nE, beta1), dtype=_f64)
 
 
+def _rational_nullspace(rex, nE):
+    """ker(B1) over the rationals, via the complex's own exact cycle basis.
+
+    `faces.cycle_basis` already dispatches this correctly: a pure pairwise complex takes
+    the spanning-forest traversal, and ANY arity above two takes exact elimination on
+    ker(B1), because `rank(B1) = n0 - c` is a graph identity that a branching relation
+    breaks. Reaching for it here means the branching path is exact rather than a second
+    answer to the same question.
+
+    Returned as a sparse float matrix: the basis vectors have their denominators cleared
+    to integers, so the conversion is lossless.
+    """
+    import scipy.sparse as sp
+
+    from rexgraph.faces import cycle_basis as _exact_cycles
+    cols = _exact_cycles(rex)
+    if not cols:
+        return sp.csc_matrix((nE, 0), dtype=_f64)
+    M = np.zeros((nE, len(cols)), dtype=_f64)
+    for j, c in enumerate(cols):
+        for e, v in enumerate(c):
+            if v != 0:
+                M[e, j] = float(v)
+    return sp.csc_matrix(M)
+
+
 def _exact_nullspace(B1, nE):
-    """Exact basis of ker(B1) (the cycle space) for an arbitrary boundary, including
-    BRANCHING hyperedges where the spanning-tree fundamental-cycle basis is invalid.
-    Uses the SVD null space of B1, not combinatorial, but this is the correctness
-    fallback taken ONLY when the fast combinatorial basis fails its validation (branching
-    inputs); simple graphs never reach it. Returns a sparse nE × (nE−rank B1) matrix."""
+    """ker(B1) from the boundary matrix alone, by dense SVD.
+
+    The DENSE ORACLE, not the path. It exists for the callers that hold only a boundary
+    matrix (`_void`'s harmonic content, `_quotient`'s relative cycle basis) and have no
+    complex to ask, and for checking the exact path against something independent.
+    Anything holding a rex goes through `_rational_nullspace`, which is exact and never
+    densifies. Returns a sparse nE × (nE−rank B1) matrix."""
     import scipy.sparse as sp
     from scipy.linalg import null_space
     if nE == 0:
@@ -106,7 +134,7 @@ def _exact_nullspace(B1, nE):
     return sp.csc_matrix(np.ascontiguousarray(ns))
 
 
-def _validated_cycle_basis(B1, nE, src=None, tgt=None):
+def _validated_cycle_basis(B1, nE, src=None, tgt=None, rex=None):
     """The combinatorial cycle basis of `ker(B1)`, validated against the true boundary.
 
     Fast path: the spanning-tree fundamental-cycle basis (integer, combinatorial). For
@@ -138,7 +166,11 @@ def _validated_cycle_basis(B1, nE, src=None, tgt=None):
             (Cd.shape[1] == 0 or float(np.linalg.norm(B1 @ Cd)) < 1e-9)
     if valid:
         return C
-    return _exact_nullspace(B1, nE)                     # branching: exact ker(B1)
+    # branching: exact ker(B1). Through the complex's own rational elimination when
+    # there is a complex to ask; the dense SVD oracle only when there is not.
+    if rex is not None:
+        return _rational_nullspace(rex, nE)
+    return _exact_nullspace(B1, nE)
 
 
 def cycle_basis(rex):
@@ -150,7 +182,7 @@ def cycle_basis(rex):
     nE = int(rex.nE)
     src, tgt = rex._ensure_src_tgt()
     B1 = to_scipy_csr(rex._B1_dual).tocsr().astype(_f64)
-    return _validated_cycle_basis(B1, nE, src, tgt)
+    return _validated_cycle_basis(B1, nE, src, tgt, rex=rex)
 
 
 def _endpoints_from_b1(B1):

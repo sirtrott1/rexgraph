@@ -1,10 +1,14 @@
 """rexgraph.flow: a lazy field navigator over a changing relational complex.
 
 The flow subsystem watches a stream of rex snapshots and reacts to structural
-surprise rather than to raw size of change. Task 1 is the MalaughGate, a
-condensed scalar gate on the Malaugh harmonic log entropy H_T. Later tasks in
-this slice (the field navigator itself, the per-step flow update, and changed
-edge detection) attach to this package as they land.
+SURPRISE rather than to the raw size of a change. A large edit that leaves the
+topology alone is not news; a small one that opens a cycle is.
+
+    MalaughGate       a condensed scalar gate on the Malaugh harmonic log entropy
+                      H_T, which decides whether a step is worth reacting to
+    FlowComplex       the complex carried across steps, built by build_flow_complex
+    attention         co-participation attention over the relation neighbourhood
+    cochain           the torch-side classifier, exported only when torch is present
 """
 from __future__ import annotations
 
@@ -28,8 +32,9 @@ __all__ = [
 
 # the cochain classifier needs torch (optional dependency); export it when available
 from rexgraph.flow.cochain import coparticipation_adjacency  # noqa: E402
+from rexgraph.flow.hyperflow import flow_adjacency  # noqa: E402
 
-__all__ += ["coparticipation_adjacency"]
+__all__ += ["coparticipation_adjacency", "flow_adjacency"]
 try:
     from rexgraph.flow.cochain import CoParticipationCochain  # noqa: E402
 

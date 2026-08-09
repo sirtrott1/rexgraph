@@ -194,7 +194,7 @@ def build_interfacing_bundle_sparse(rex, target_indices, target_weights,
     dict with rho, psi, scores, schrodinger, iv, sphere_pos, signal_magnitude,
     coverage, efficiency, confidence.
     """
-    nV, nE = int(rex.nV), int(rex.nE)
+    nV, _nE = int(rex.nV), int(rex.nE)
 
     # target_signal=None means "score psi against itself": the self-interfacing
     # reading, resolved below once psi exists. Callers used to get it by running the

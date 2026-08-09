@@ -135,40 +135,6 @@ def _build_cooccurrence(
     return vocab, edges, types, dict(edge_sents), dict(forward_count)
 
 
-def _find_triangles(
-    edges: dict[tuple[int, int], float],
-    max_faces: int = 1000,
-) -> list[tuple[int, int, int]]:
-    """Find triangles in the co-occurrence graph.
-
-    A triangle (a, b, c) exists when edges (a,b), (a,c), and (b,c)
-    all exist. Only same-type triangles become faces (all three edges
-    must have the same type index).
-    """
-    adj = defaultdict(set)
-    for (a, b) in edges:
-        adj[a].add(b)
-        adj[b].add(a)
-
-    triangles = []
-    seen = set()
-    for a in adj:
-        for b in adj[a]:
-            if b <= a:
-                continue
-            common = adj[a] & adj[b]
-            for c in common:
-                if c <= b:
-                    continue
-                tri = (a, b, c)
-                if tri not in seen:
-                    seen.add(tri)
-                    triangles.append(tri)
-                    if len(triangles) >= max_faces:
-                        return triangles
-    return triangles
-
-
 class TextAdapter(DomainAdapter):
     """Convert raw text to a typed relational complex.
 
@@ -265,8 +231,6 @@ class TextAdapter(DomainAdapter):
                     char_end=sp.char_end,
                     sentence_idx=first_sent,
                 ))
-
-        triangles = _find_triangles(cooc_edges) if face_selection != "none" else []
 
         ec = EdgeConstruction(
             sources=sources,

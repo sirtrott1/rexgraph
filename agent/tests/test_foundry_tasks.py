@@ -3,6 +3,9 @@ import pickle
 import numpy as np
 from agent.coordinator_adapter import _to_type
 from agent.warehouse.foundry_tasks import train_one
+import pytest
+
+pytest.importorskip("torch")  # the ml extra: these build or train models
 
 
 def _spec():

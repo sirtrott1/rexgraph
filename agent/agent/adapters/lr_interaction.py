@@ -68,7 +68,6 @@ def _as_type_gene_frame(expression, gene_names=None, cell_types=None):
 
     if isinstance(expression, dict):
         types = list(expression.keys())
-        genes = cell_types  # unused
         gene_order: list[str] = []
         for row in expression.values():
             for g in row:

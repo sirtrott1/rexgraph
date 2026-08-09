@@ -152,6 +152,66 @@ def _best_sentences(text: str, query_tokens: set, k: int = 2) -> list[str]:
     return [s for _, s in scored[:k]]
 
 
+def retrieve_closure(rex, seeds, *, labels=None, max_depth: int = 8) -> dict:
+    """The smallest subcomplex after which more context stops changing the answer.
+
+    Ranking answers "which items are most like the query". This answers a different
+    question: "what is the whole of what this complex says about these entities, and how
+    do I know I have all of it". No top_k, because top_k is a number someone picked; the
+    boundary here is where the reading stops moving, which is a property of the entities
+    and the structure around them.
+
+    Each seed's closure is taken separately and the union returned, with the per-seed
+    depths kept. A seed that closes at depth 1 and one that needs depth 3 are different
+    facts about those entities and averaging them away would lose the more interesting
+    one: on real binding data a self-contained target closed at 1 while a target whose
+    ligands are shared closed at 2, having acquired six independent cycles on the way.
+
+    The audit trail is the point. `steps` carries the shape at every depth, so a caller
+    can see what arrived when, and `betti` says whether the evidence CLOSES: a tree is
+    facts hanging off the seed, a cycle is facts corroborating each other through a
+    second path. That is an explicit, inspectable context structure rather than a
+    similarity that cannot be interrogated.
+    """
+    from rexgraph.tower import semantic_closure
+
+    seeds = [int(s) for s in seeds]
+    if not seeds:
+        return {"seeds": [], "relations": [], "n_relations": 0, "closures": [],
+                "reason": "no seed entities were given"}
+
+    relations, closures = set(), []
+    for seed in seeds:
+        closure = semantic_closure(rex, seed, max_depth=int(max_depth))
+        relations.update(closure["relations"])
+        closures.append({
+            "seed": seed,
+            "label": (str(labels[seed]) if labels is not None and seed < len(labels)
+                      else None),
+            "depth": closure["depth"],
+            "converged": closure["converged"],
+            "steps": closure["steps"],
+            "n_relations": len(closure["relations"]),
+        })
+
+    supports = rex.relation_supports()
+    covered = sorted({v for e in relations for v in supports[e]})
+    unclosed = [c["label"] or c["seed"] for c in closures if not c["converged"]]
+    return {
+        "seeds": seeds,
+        "relations": sorted(relations),
+        "n_relations": len(relations),
+        "vertices": covered,
+        "n_vertices": len(covered),
+        "closures": closures,
+        "all_converged": not unclosed,
+        "unclosed": unclosed,
+        "reading": ("the boundary is where the reading stops changing, not a top_k. "
+                    "`steps` is the audit trail and `betti` says whether the evidence "
+                    "closes on itself or hangs off the seed"),
+    }
+
+
 def retrieve_sections(query: str, top_k: int, *, corpus=None,
                       doc_rex=None, doc_meta: dict | None = None,
                       query_ec=None,

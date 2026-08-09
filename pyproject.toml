@@ -25,10 +25,14 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.0.6"
+version = "1.0.7"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
-license = {text = "Apache License 2.0"}
+# SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
+# and the table form is deprecated. Metadata 2.4 carries this as
+# License-Expression with the file itself bundled alongside.
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     {name = "RexGraph"},
@@ -38,9 +42,9 @@ keywords = [
     "relational-complex", "network-analysis", "TDA",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "Topic :: Scientific/Engineering :: Bioinformatics",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Topic :: Scientific/Engineering :: Mathematics",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Programming Language :: Python :: 3",
@@ -69,17 +73,16 @@ dependencies = [
 
 # I/O: Zarr, HDF5, Arrow, Parquet, SQL
 io = [
+    # safetensors is an IO FORMAT and belongs here: rexgraph/io/safetensors_bridge.py
+    # plus six other core modules import it, and no extra declared it, so
+    # `pip install rexgraph[io]` gave you every format except that one. The same shape
+    # as the undeclared fsspec on the agent side.
+    "safetensors>=0.3",
     "zarr>=2.14",
     "h5py>=3.8",
     "pyarrow>=12.0",
     "sqlalchemy>=2.0",
     "pandas>=2.0",
-]
-
-# Visualization dashboard
-viz = [
-    "jinja2>=3.1",
-    "flask>=2.0",
 ]
 
 # rexgraph.nn - the differentiable ML substrate (GreensCochain, propagators, relational attention).
@@ -103,17 +106,16 @@ dev = [
     "meson-python>=0.16",
     "ruff>=0.3",
     "mypy>=1.0",
+    # so the classifier check runs instead of skipping: PyPI rejects an upload
+    # over one unknown string, which is a slow way to find a typo
+    "trove-classifiers>=2024.1.1",
 ]
 
-# The lightweight runtime extras (I/O + viz). nn (torch), cuda (GPU), and dev
-# are separate opt-ins so this stays small.
+# The lightweight runtime extras. nn (torch), cuda (GPU), and dev are separate
+# opt-ins so this stays small.
 all = [
-    "rexgraph[io,viz]",
+    "rexgraph[io]",
 ]
-
-# CLI entry points
-[project.scripts]
-rex-dashboard = "rexgraph.viz.dashboard:main"
 
 # URLs
 [project.urls]
@@ -163,3 +165,58 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+# Prebuilt wheels
+#
+# The package is not on PyPI, so today every install compiles 39 Cython kernels from
+# source and therefore needs a C compiler, meson and cython on the user's machine. That
+# is the real cross-setup barrier: not that the build is fragile, but that a build is
+# required at all. A wheel removes it, and `pip install rexgraph` becomes a download.
+[tool.cibuildwheel]
+build = ["cp310-*", "cp311-*", "cp312-*", "cp313-*"]
+
+# All three skips are decisions, not omissions. PyPy has no scipy wheel on every
+# platform here and the kernels are CPython C-API code that gains nothing from it.
+# musllinux is left off the first pass because it doubles Linux build time for the
+# Alpine case; the line to add it is this one, once the glibc wheels are known good.
+# win32 is 32-bit Windows, which numpy and scipy stopped shipping wheels for, so a
+# build there fails resolving its own dependencies before it reaches any of this code.
+skip = ["pp*", "*-musllinux_*", "*-win32"]
+
+# rexgraph.tests is deliberately not shipped in the wheel, so there is no suite inside
+# it to run and this stands in for one. cibuildwheel runs it from a temporary directory,
+# which also proves the wheel imports when the source tree is not in front of it.
+#
+# It reaches the CHARACTER on purpose, not just betti. The first version stopped at
+# betti and passed on four wheels whose _laplacians could not import at all: betti never
+# touches it, so the check was green and the wheel was broken. A smoke test has to cross
+# every compiled module the package needs, and importing them one by one is how it says
+# WHICH one is missing instead of only that something is.
+test-command = "python {project}/scripts/smoke_test.py"
+
+[tool.cibuildwheel.linux]
+# manylinux_2_28 rather than the older default: the kernels are built with -flto and
+# c11, and the 2_28 image ships a compiler new enough not to fight either.
+manylinux-x86_64-image = "manylinux_2_28"
+
+# WITHOUT this the wheels build, pass a naive import check, and then die on any real
+# call with "undefined symbol: cblas_dgemm". The kernels call cblas_* and LAPACK out
+# of _linalg.pxd, the build image has no BLAS, and nothing links one in. Measured: a
+# full set of four manylinux wheels came out that way, and betti() worked in them
+# because it never reaches _laplacians. auditwheel cannot save this, since there is
+# no NEEDED entry for it to vendor. meson now errors instead of warning when it finds
+# no BLAS, so this line failing is a failed build rather than a broken wheel.
+# the braces matter: `a || b && c` parses as `(a || b) && c`, so without them a
+# successful yum still ran apt-get and the build failed with code 127 on an image
+# that had already installed what it needed.
+before-all = "yum install -y openblas-devel || { apt-get update && apt-get install -y libopenblas-dev; }"
+
+[tool.cibuildwheel.macos]
+# 10.13 is what the C11 + LTO combination needs, and it is below anything still
+# receiving updates, so it costs no reach.
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.13", PKG_CONFIG_PATH = "/usr/local/opt/openblas/lib/pkgconfig:/opt/homebrew/opt/openblas/lib/pkgconfig" }
+
+# same reason as linux. Homebrew keeps openblas keg-only, so its pkgconfig directory
+# has to be named explicitly above; both prefixes are listed because Intel and Apple
+# silicon runners differ.
+before-all = "brew install openblas"

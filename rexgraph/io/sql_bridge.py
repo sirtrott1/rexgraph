@@ -91,7 +91,7 @@ _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
 def _sa():
     """Lazily import SQLAlchemy."""
     try:
-        from sqlalchemy import Column, MetaData, Table, create_engine, text
+        from sqlalchemy import create_engine, text
         from sqlalchemy import types as satypes
         from sqlalchemy.engine import Engine
         from sqlalchemy.pool import StaticPool

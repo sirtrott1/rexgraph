@@ -38,7 +38,7 @@ async def hive_attach(body: dict = Body(...)):
                                    model=body.get("model", ""),
                                    specialties=body.get("specialties") or [])
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return {"ok": True, "bee": b.public()}
 
 
@@ -76,7 +76,7 @@ async def hive_spawn(body: dict = Body(...)):
                                   specialties=body.get("specialties") or [],
                                   port=body.get("port"), ctx_size=body.get("ctx_size"))
     except (ValueError, RuntimeError) as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return {"ok": True, "bee": b.public(), "status": hive.get_hive().status()}
 
 
@@ -122,7 +122,7 @@ async def hive_ask(body: dict = Body(...)):
         reply = hive.get_hive().ask(name, prompt, sender=body.get("sender", "user"),
                                     system=body.get("system"))
     except KeyError as e:
-        raise HTTPException(404, str(e))
+        raise HTTPException(404, str(e)) from e
     return {"bee": name, "reply": reply}
 
 
@@ -180,7 +180,7 @@ async def hive_profile_apply(pid: str, body: dict = Body(default={})):
     try:
         return hive_config.get_store().apply(pid, reset=(body or {}).get("reset", True))
     except KeyError as e:
-        raise HTTPException(404, str(e))
+        raise HTTPException(404, str(e)) from e
 
 
 @router.post("/hive/profiles/active")

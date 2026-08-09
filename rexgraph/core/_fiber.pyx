@@ -168,12 +168,31 @@ def similarity_complex(np.ndarray[f64, ndim=2] similarity,
 @cython.wraparound(False)
 def signal_sphere_proj(np.ndarray[f64, ndim=2] chi,
                         Py_ssize_t nE, Py_ssize_t nhats):
-    """Project chi vectors from simplex to 3D Cartesian.
+    """Project chi vectors from the channel simplex to 3D Cartesian.
 
-    For nhats=3: standard barycentric coordinates.
-    (x, y, z) where x = chi_0, y = chi_1, z = chi_2 mapped to
-    equilateral triangle vertices in 3D.
+    Barycentric throughout: equal shares land at the simplex centre and a cell carrying
+    one channel lands on that channel's corner, so a coordinate reads back as "this cell
+    is mostly frustration" without a legend.
+
+    nhats is 4 (the channels are exactly L1_down, L_O, L_SG and L_C) or fewer, since a
+    channel carrying nothing is dropped as inactive: two disjoint relations have no
+    co-participation and no frustration and read nhats=2. So
+
+        4   the regular tetrahedron
+        3   the equilateral triangle, flat in z
+        <=3 the identity, which IS the barycentric embedding of the lower simplex: at
+            nhats=2 the image is the segment c_0 + c_1 = 1
+
+    Above 4 there is no simplex to embed into three dimensions without dropping a
+    channel, and dropping one silently would return the same point for cells that differ
+    only in what was dropped. There is no fifth channel, so this is an error rather than
+    a branch.
     """
+    if nhats > 4:
+        raise ValueError(
+            "signal_sphere_proj is barycentric over the four channels; nhats=%d has no "
+            "faithful 3D embedding and dropping a channel would collapse distinct cells "
+            "onto one point" % nhats)
     cdef np.ndarray[f64, ndim=2] pts = np.zeros((nE, 3), dtype=np.float64)
     cdef f64[:, ::1] pv = pts
     cdef f64[:, ::1] cv = chi
@@ -194,9 +213,9 @@ def signal_sphere_proj(np.ndarray[f64, ndim=2] chi,
             pv[e, 1] = cv[e, 0] * 0.0 + cv[e, 1] * 0.0 + cv[e, 2] * sq3_2 + cv[e, 3] * (sqrt(3.0) / 6.0)
             pv[e, 2] = cv[e, 3] * sqrt(2.0 / 3.0)
     else:
-        # Generic: use first 3 components
+        # nhats <= 2: the identity is the barycentric embedding of the lower simplex
         for e in range(nE):
-            for k in range(min(nhats, 3)):
+            for k in range(nhats):
                 pv[e, k] = cv[e, k]
 
     return pts

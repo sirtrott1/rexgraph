@@ -14,8 +14,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import JSONResponse as _StarletteJSONResponse
 
 from .launch import CORE_VERSION, VERSION
+from .budget import add_compute_budget
+from .scope import add_workspace_scope
 from .security import (
     add_auth_enforcement,
     add_error_sanitizer,
@@ -41,11 +44,29 @@ async def _lifespan(_app: FastAPI):
     yield
 
 
+class FiniteJSONResponse(_StarletteJSONResponse):
+    """JSON with non-finite floats rendered as null.
+
+    A measurement over nothing is NaN and a mixing time with no cycle to mix through
+    is infinity. Both are honest values and neither is JSON: the default encoder
+    raises `Out of range float values are not JSON compliant`, so one empty complex
+    takes the whole response down rather than reporting that a number is absent.
+
+    This is the same encoder the SSE path uses, applied as the app's default so every
+    route gets it instead of each one guarding separately.
+    """
+
+    def render(self, content) -> bytes:
+        from rexgraph.io._compat import dumps
+        return dumps(content, nan="null").encode("utf-8")
+
+
 app = FastAPI(
     title="RexGraph Agent",
     description="Mathematical agent engine built on the Relational Complex Framework",
     version=VERSION,
     lifespan=_lifespan,
+    default_response_class=FiniteJSONResponse,
 )
 
 import os
@@ -63,7 +84,11 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Workspace"],
 )
 
-# Enforce auth on every route when enabled (no-op when auth is disabled).
+# Starlette runs the LAST-registered middleware FIRST, so these three are registered
+# in reverse of the order they run: a request is authenticated, then scoped to its
+# workspace, then metered, and only then reaches a route.
+add_compute_budget(app)
+add_workspace_scope(app)
 add_auth_enforcement(app)
 
 # Conservative security headers on every response.
@@ -115,10 +140,14 @@ from .routes import (
     corpus,
     dbmanager,
     deploy,
+    enrichment,
     explore,
     export,
+    graph,
     hive,
     integrations,
+    knowledge,
+    mcp,
     ml,
     model,
     models,
@@ -127,6 +156,8 @@ from .routes import (
     ops,
     pipeline,
     rcdb,
+    releases,
+    rex,
     schema,
     session,
     upload,
@@ -157,9 +188,14 @@ app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(export.router, prefix="/api", tags=["export"])
 app.include_router(deploy.router, prefix="/api", tags=["deploy"])
 app.include_router(rcdb.router, prefix="/api", tags=["rcdb"])
+app.include_router(graph.router, prefix="/api", tags=["graph"])
 app.include_router(schema.router, prefix="/api", tags=["schema"])
 app.include_router(dbmanager.router, prefix="/api", tags=["dbmanager"])
 app.include_router(ontology.router, prefix="/api", tags=["ontology"])
+app.include_router(knowledge.router, prefix="/api", tags=["knowledge"])
+app.include_router(enrichment.router, prefix="/api", tags=["enrichment"])
+app.include_router(releases.router, prefix="/api", tags=["releases"])
+app.include_router(mcp.router, prefix="/api", tags=["mcp"])
 app.include_router(connectors.router, prefix="/api", tags=["connectors"])
 app.include_router(integrations.router, prefix="/api", tags=["integrations"])
 app.include_router(agents.router, prefix="/api", tags=["agents"])
@@ -167,6 +203,9 @@ app.include_router(hive.router, prefix="/api", tags=["hive"])
 app.include_router(ops.router, prefix="/api", tags=["ops"])
 app.include_router(ml.router, prefix="/api", tags=["ml"])
 app.include_router(builder.router, prefix="/api", tags=["builder"])
+# mounted at the root rather than under /api: the native surface is the contract other
+# rexgraph software speaks, not one more route group behind the UI's prefix
+app.include_router(rex.router, tags=["rex"])
 
 # Frontend
 

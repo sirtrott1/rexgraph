@@ -43,19 +43,32 @@ def coparticipation_adjacency(rex, restrict_vertices: NDArray | None = None):
     expects. ``restrict_vertices`` (a boolean mask over vertices, or an array of vertex ids to keep)
     keeps only those vertices as connectors (e.g. the target side alone) for ablations. A branching
     vertex of arity K contributes a K-clique here, so arity>2 hyperedges are represented natively.
+
+    This operator NEVER TOUCHES B2, so a learner using it is blind to every face in the
+    complex and attaching hyperfaces leaves it bit-identical. `hyperflow.flow_adjacency`
+    is the version that reads both grades; use that one where the curl tier matters.
     """
     if not _HAS_TORCH:  # pragma: no cover (env without torch)
         raise ImportError("coparticipation_adjacency requires PyTorch (an optional dependency).")
-    abs_b1 = abs(to_scipy_csr(rex._B1_dual)).tocsr()  # nV x nE, unsigned incidence
-    if restrict_vertices is not None:
+    if restrict_vertices is None:
+        # the SHARE, pinned, whatever the character's c_channel is set to. Propagation
+        # needs the conserving reading: a relation spread over k vertices must carry
+        # proportionally less at each, or signal through a branching vertex multiplies
+        # instead of dividing. Reading a selector here would drag the flow layer along
+        # with a choice made about description rather than about transport.
+        coparticip = rex.overlap_share_sparse.tocsr().copy()
+    else:
+        abs_b1 = abs(to_scipy_csr(rex._B1_dual)).tocsr()  # nV x nE, unsigned incidence
         rv = np.asarray(restrict_vertices)
         if rv.dtype != bool:
             keep = np.zeros(abs_b1.shape[0], dtype=bool)
             keep[rv.astype(np.int64)] = True
         else:
             keep = rv
+        # restricting the CONNECTORS is not a sub-operator of the full Gramian, so this
+        # branch genuinely has to form its own
         abs_b1 = abs_b1.multiply(keep.reshape(-1, 1)).tocsr()
-    coparticip = (abs_b1.T @ abs_b1).tocsr()  # nE x nE, shared-vertex-count adjacency
+        coparticip = (abs_b1.T @ abs_b1).tocsr()
     coparticip.setdiag(0)
     coparticip.eliminate_zeros()
     renorm = (coparticip + sp.eye(coparticip.shape[0])).tocoo()

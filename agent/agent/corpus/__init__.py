@@ -37,10 +37,9 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
 import numpy as np
 import contextlib

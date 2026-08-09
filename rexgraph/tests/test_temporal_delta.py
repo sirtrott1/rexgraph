@@ -84,7 +84,7 @@ def test_apply_edge_delta_replays_born_died_modified():
                     w_E=np.array([10.0, 20.0], np.float64))
     curr = RexGraph(sources=np.array([0, 2], np.int32), targets=np.array([1, 3], np.int32),
                     w_E=np.array([99.0, 30.0], np.float64))
-    d = _delta_between(prev, curr)          # helper from Task 1's tests
+    d = _delta_between(prev, curr)          # the same helper the delta-store tests use
     live = RexGraph(sources=np.array([0, 1], np.int32), targets=np.array([1, 2], np.int32),
                     w_E=np.array([10.0, 20.0], np.float64))
     apply_edge_delta(live, d)

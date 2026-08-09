@@ -1,0 +1,272 @@
+# Build the Cython kernels on a machine that is not the author's, and run the suites.
+#
+# The point is not to replace local testing. GitHub's runners have no CUDA, ROCm or
+# Metal, so the compute layer's GPU paths cannot run here at all and stay measured on
+# real hardware. What this covers is the axis a developer machine structurally cannot:
+# a build from an EMPTY tree, with dependencies resolved from declarations rather than
+# from whatever happens to be installed already.
+#
+# That axis is not hypothetical. Building this repo clean surfaced four things that a
+# warm editable install hides: fsspec used but never declared, safetensors the same, a
+# test importing torch with no skip guard (which took the whole suite's collection down
+# with it), and a zarr deprecation that only fires on a version newer than the one
+# pinned locally.
+
+name: build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# a new push to the same branch makes the running build irrelevant, so stop paying for it
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # one platform failing must not cancel the other, or a macOS-only break hides
+      # whether Linux is fine, which is the question you actually have at that moment
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      # this job's interpreter comes from the tool cache, outside the checkout, so it
+      # never exercises the layout where the virtualenv sits inside the project. That
+      # case had its own bug and now has its own job: see install-layouts below.
+      # The kernels call cblas_* and LAPACK out of _linalg.pxd, and meson refuses to
+      # build without them rather than emitting a wheel that imports and then dies on
+      # "undefined symbol: cblas_dgemm". The runners ship neither, so every job that
+      # compiles has to install one first. Homebrew keeps openblas keg-only, so its
+      # pkgconfig directory has to be named explicitly.
+      - name: BLAS
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install openblas
+            echo "PKG_CONFIG_PATH=$(brew --prefix openblas)/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          else
+            sudo apt-get update && sudo apt-get install -y libopenblas-dev
+          fi
+
+      - name: build dependencies
+        run: python -m pip install --upgrade pip "meson-python>=0.16" "meson>=1.3" "ninja>=1.8.2" "cython>=3.0" "numpy>=1.24"
+
+      - name: install rexgraph, editable
+        run: pip install --no-build-isolation -e ".[io]"
+
+      - name: install rexgraph-agent
+        run: pip install -e "agent/[server]"
+
+      # the optional dependencies the suites actually exercise. CPU torch only: the
+      # default wheel carries a CUDA runtime that is a large download and unusable on a
+      # runner with no GPU.
+      - name: optional dependencies the suites reach for
+        run: |
+          # torch on Linux only. On the macOS ARM runner it ABORTS the interpreter on
+          # import (SIGABRT at torch/__init__.py, not an exception, so nothing in
+          # rexgraph can guard it) and takes the whole suite with it, from the CPU
+          # index and from PyPI alike. torch is an optional dependency: the tests that
+          # need it use pytest.importorskip and rexgraph.flow imports without it,
+          # verified in a container with no torch present. So macOS covers everything
+          # except the torch paths, and Linux covers those.
+          if [ "$RUNNER_OS" != "macOS" ]; then
+            pip install --index-url https://download.pytorch.org/whl/cpu torch
+          fi
+          pip install safetensors fsspec pytest trove-classifiers
+
+      # from the repo root on purpose. The editable install serves the package through
+      # meson-python's import finder, and the root conftest.py points rexgraph.__path__
+      # at the source dir so rexgraph.tests (deliberately not shipped) resolves.
+      - name: core suite
+        run: python -m pytest -q -p no:cacheprovider rexgraph/tests
+
+      - name: agent suite
+        run: python -m pytest -q -p no:cacheprovider tests
+        working-directory: agent
+
+  package:
+    name: installs from a clean checkout
+    runs-on: ubuntu-latest
+
+    # This is the job that catches the class the test job cannot. The test job installs
+    # editable with every optional dependency present, so a package that only works
+    # because something undeclared is already there still passes it. Here the wheel goes
+    # into an empty environment and is imported from OUTSIDE the source tree, so nothing
+    # resolves by accident.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # The kernels call cblas_* and LAPACK out of _linalg.pxd, and meson refuses to
+      # build without them rather than emitting a wheel that imports and then dies on
+      # "undefined symbol: cblas_dgemm". The runners ship neither, so every job that
+      # compiles has to install one first. Homebrew keeps openblas keg-only, so its
+      # pkgconfig directory has to be named explicitly.
+      - name: BLAS
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install openblas
+            echo "PKG_CONFIG_PATH=$(brew --prefix openblas)/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          else
+            sudo apt-get update && sudo apt-get install -y libopenblas-dev
+          fi
+
+      - name: build the wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir dist .
+
+      - name: install the wheel into an empty environment
+        run: |
+          python -m venv "$RUNNER_TEMP/fresh"
+          "$RUNNER_TEMP/fresh/bin/pip" install --upgrade pip
+          "$RUNNER_TEMP/fresh/bin/pip" install dist/*.whl
+
+      # from $RUNNER_TEMP, not the checkout. Run from the repo root and `import rexgraph`
+      # finds the SOURCE directory before the installed wheel, and the source has no
+      # compiled extension, so the import dies on a NoneType kernel and tells you nothing
+      # about the wheel. Verified: that exact failure is what happens.
+      - name: the wheel works away from its source
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$RUNNER_TEMP/fresh/bin/python" - <<'PY'
+          import numpy as np, rexgraph
+          from rexgraph.core import _boundary, _query
+          from rexgraph.graph import RexGraph
+          assert "site-packages" in rexgraph.__file__, rexgraph.__file__
+          assert _boundary is not None and _query is not None, "compiled kernels missing"
+          r = RexGraph(sources=np.array([0, 1, 2], np.int32),
+                       targets=np.array([1, 2, 0], np.int32))
+          r._ensure_clean()
+          assert (int(r.nV), int(r.nE)) == (3, 3), (r.nV, r.nE)
+          assert tuple(r.betti) == (1, 1, 0), r.betti
+          print("wheel ok:", rexgraph.__file__)
+          PY
+
+      # every extra must RESOLVE. An extra that names a distribution nobody can install,
+      # or that omits one the code imports, is only visible from an empty environment.
+      - name: every declared extra installs
+        run: |
+          for extra in io nn dev; do
+            echo "::group::rexgraph[$extra]"
+            python -m venv "$RUNNER_TEMP/x-$extra"
+            "$RUNNER_TEMP/x-$extra/bin/pip" install -q --upgrade pip
+            "$RUNNER_TEMP/x-$extra/bin/pip" install -q "dist/"*.whl
+            "$RUNNER_TEMP/x-$extra/bin/pip" install -q --dry-run "rexgraph[$extra]" --find-links dist
+            echo "::endgroup::"
+          done
+
+  install-layouts:
+    name: installs the ways people actually install
+    runs-on: ubuntu-latest
+
+    # A build that only works in one layout is a build that works for its author. These
+    # are the four combinations of (virtualenv inside or outside the project directory)
+    # x (editable or wheel), and all four have to pass.
+    #
+    # The in-tree editable one is here because it FAILED, for everyone, until the numpy
+    # include in meson.build stopped going through include_directories(). That function
+    # rejects an absolute path inside the source tree, and numpy's include path is inside
+    # it whenever the virtualenv is `.venv/` in the project directory, which is the most
+    # ordinary layout there is. Nothing on a developer machine using conda or a venv
+    # elsewhere would ever show it, which is exactly why it needs a job.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # The kernels call cblas_* and LAPACK out of _linalg.pxd, and meson refuses to
+      # build without them rather than emitting a wheel that imports and then dies on
+      # "undefined symbol: cblas_dgemm". The runners ship neither, so every job that
+      # compiles has to install one first. Homebrew keeps openblas keg-only, so its
+      # pkgconfig directory has to be named explicitly.
+      - name: BLAS
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install openblas
+            echo "PKG_CONFIG_PATH=$(brew --prefix openblas)/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          else
+            sudo apt-get update && sudo apt-get install -y libopenblas-dev
+          fi
+
+      - name: virtualenv INSIDE the project, editable
+        run: |
+          python -m venv .venv
+          # meson-python shells out to `meson` and `ninja` by name, so the venv's bin
+          # has to be on PATH. Installing them into the venv is not enough on its own.
+          export PATH="$PWD/.venv/bin:$PATH"
+          pip install -q --upgrade pip "meson-python>=0.16" "meson>=1.3" "ninja>=1.8.2" "cython>=3.0" "numpy>=1.24"
+          pip install --no-build-isolation -e .
+          cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/.venv/bin/python" -c "
+          import numpy as np
+          from rexgraph.graph import RexGraph
+          r = RexGraph(sources=np.array([0,1,2],np.int32), targets=np.array([1,2,0],np.int32))
+          r._ensure_clean(); assert tuple(r.betti) == (1,1,0)
+          print('in-tree editable ok')"
+
+      - name: virtualenv INSIDE the project, wheel
+        run: |
+          rm -rf build
+          .venv/bin/pip install --force-reinstall .
+
+      - name: virtualenv OUTSIDE the project, editable
+        run: |
+          rm -rf build
+          python -m venv "$RUNNER_TEMP/out"
+          export PATH="$RUNNER_TEMP/out/bin:$PATH"
+          pip install -q --upgrade pip "meson-python>=0.16" "meson>=1.3" "ninja>=1.8.2" "cython>=3.0" "numpy>=1.24"
+          pip install --no-build-isolation -e .
+
+      - name: virtualenv OUTSIDE the project, wheel
+        run: |
+          rm -rf build
+          "$RUNNER_TEMP/out/bin/pip" install --force-reinstall .
+
+  lint:
+    name: ruff, correctness rules
+    runs-on: ubuntu-latest
+
+    # Deliberately NOT the project's full ruff config. That config currently reports 539
+    # findings, so a job running it would be red on arrival, and a red mark people learn
+    # to scroll past is worse than no mark: the next real failure looks the same as the
+    # standing one.
+    #
+    # These are the rules where a finding is a defect rather than a preference: a name
+    # that is not defined, a mutable default argument, a zip that truncates silently,
+    # an exception raised inside a handler without saying what caused it, an import or
+    # a binding that nothing reads. The tree is clean against all of them, so red here
+    # means something new and something real.
+    #
+    # The list grew once already, which is the intended direction: F401, F841 and B904
+    # were 177 findings until they were cleared, and adding them here is what stops
+    # them coming back one call site at a time, which is how they arrived. The
+    # remaining style backlog (printf formatting, import placement, ambiguous names) is
+    # separate work and joins this line when it is done, not before.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install ruff
+      - run: ruff check . --select F401,F821,F822,F823,F841,B002,B006,B018,B904,B905

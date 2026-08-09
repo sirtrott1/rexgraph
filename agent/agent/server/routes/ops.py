@@ -68,7 +68,7 @@ async def ops_run(body: dict = Body(...)):
                            background=bool(body.get("background", False)),
                            **(body.get("params") or {}))
     except KeyError as e:
-        raise HTTPException(404, str(e))
+        raise HTTPException(404, str(e)) from e
     return rl.to_dict()
 
 

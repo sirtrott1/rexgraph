@@ -115,6 +115,8 @@ Fingerprint corpus export for ML consumption:
 
 from __future__ import annotations
 
+from rexgraph.io.bundle import _CACHE_GROUPS as _BUNDLE_CACHE_GROUPS
+
 import contextlib
 import json
 import os
@@ -157,26 +159,23 @@ def _st():
         ) from exc
 
 
-# Cache group resolution (mirrors bundle._CACHE_GROUPS exactly)
-
+# Cache groups: bundle's, minus the one this format cannot write.
+#
+# The comment here used to say "mirrors bundle._CACHE_GROUPS exactly" while the two had
+# already diverged, so it now derives from bundle instead of restating it. That makes
+# the claim structural: they cannot drift apart again.
+#
+# `harmonic` is genuinely absent rather than forgotten. Its five entries are OUTPUTS
+# (harmonic_basis, harmonic_dim, frustration_per_edge, ...) that bundle computes in its
+# own writer, and this format's collector resolves names by getattr on the complex, so
+# it has nothing to read them from. Adding the group would advertise a capability that
+# would then silently write nothing, which is the failure this pass exists to remove.
+_UNSUPPORTED_GROUPS = frozenset({"harmonic"})
 
 _CACHE_GROUPS: dict[str, list[str]] = {
-    "algebra": [
-        "B1", "B2", "L0", "L1", "L2",
-        "overlap_adjacency", "L_overlap",
-    ],
-    "spectral": [
-        "eigenvalues_L0", "fiedler_vector_L0",
-        "fiedler_overlap_value", "fiedler_overlap_vector",
-        "layout", "layout_3d",
-    ],
-    "topology": [
-        "betti", "euler_characteristic", "chain_valid",
-        "edge_types", "harmonic_space",
-    ],
-    "hodge": [
-        "hodge_gradient", "hodge_curl", "hodge_harmonic",
-    ],
+    name: list(entries)
+    for name, entries in _BUNDLE_CACHE_GROUPS.items()
+    if name not in _UNSUPPORTED_GROUPS
 }
 
 _ALL_CACHEABLE: set[str] = set()
@@ -499,7 +498,7 @@ def _collect_cache(
 
     # algebra
     for key in ("B1", "B2", "L0", "L1", "L2",
-                "overlap_adjacency", "L_overlap"):
+                "L_overlap"):
         if names & {"algebra", key}:
             _try_array(key)
 

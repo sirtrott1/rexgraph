@@ -1,4 +1,4 @@
-"""Slice 3: time as a retrieval signal.
+"""Time as a retrieval signal.
 
 The RCDB was already bitemporal and retrieval already passed as_of/valid_at through,
 so a corpus could be read AS IT STOOD. What did not exist is time as a ranking

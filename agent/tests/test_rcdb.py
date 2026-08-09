@@ -169,7 +169,7 @@ def client(tmp_path_factory):
     R.reset_default_store()  # drop the memo so the store picks up our URI
     from agent.server.app import app
     from agent.server.auth import get_auth_manager
-    get_auth_manager().disable_auth()
+    get_auth_manager().disable_auth(persist=False)
     with TestClient(app) as c:
         yield c
     R.reset_default_store()

@@ -30,6 +30,7 @@ from .factory import (  # noqa: F401
 from .layers import GreenResolvent, PropagatorMix, RelationalBlock  # noqa: F401
 from .optim import (  # noqa: F401
     GreensCochain,
+    GreensFlow,
     build_optimizer,
     generate_khop_channel,
     hodge_flow_decompose,
@@ -48,7 +49,8 @@ from .relational_attention import CausalPropagatorAttention, PropagatorAttention
 
 __all__ = [
     "rcf_torch",
-    "GreensCochain", "generate_khop_channel", "build_optimizer", "hodge_groups",
+    "GreensCochain",
+    "GreensFlow", "generate_khop_channel", "build_optimizer", "hodge_groups",
     "training_backends", "pick_device", "save_hodge_trajectory",
     "hodge_matrix_decompose", "hodge_matrix_precondition",
     "hodge_flow_decompose", "hodge_flow_precondition",

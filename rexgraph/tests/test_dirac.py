@@ -229,7 +229,7 @@ class TestCanonicalCollapse:
     def test_face_component_zero(self, k4):
         """Face sector of canonical collapse is exactly zero."""
         psi = k4.canonical_collapse(vertex_idx=0)
-        nV, nE, nF = k4.nV, k4.nE, k4.nF_hodge
+        nV, nE, _nF = k4.nV, k4.nE, k4.nF_hodge
         face_part = psi[nV + nE:]
         assert np.allclose(face_part, 0, atol=1e-14)
 

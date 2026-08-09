@@ -359,7 +359,7 @@ class TestCouplingConstants:
 
     def test_alpha_T_range(self):
         B1 = _triangle_B1()
-        L1 = _laplacians.build_L1_down(B1)
+        _laplacians.build_L1_down(B1)
         evals = np.array([0.0, 1.0, 3.0], dtype=np.float64)
         _, aT = _laplacians.compute_coupling_constants(evals, evals, 1, 3)
         assert 0 <= aT <= 1
@@ -424,7 +424,7 @@ class TestBuildAllLaplacians:
         B2 = _k4_B2()
         L_O = self._get_L_O(B1)
         # Build L_SG manually: signed Gramian -> frustration Laplacian
-        nV = B1.shape[0]
+        B1.shape[0]
         deg = np.abs(B1).sum(axis=1)
         W = np.diag(1.0 / np.log(deg + np.e))
         Ks = B1.T @ W @ B1

@@ -1,6 +1,9 @@
 import numpy as np
 from agent.rcdb import FileStore
 from agent.warehouse.assemble import assemble
+import pytest
+
+pytest.importorskip("torch")  # the ml extra: these build or train models
 
 FIXTURE = ("src\tx1\tdst\tx2\tw\n" +
            "".join(f"A{t}\t.\tB{l}\t.\t{0.1 + 0.7*l + 3.0*t}\n"

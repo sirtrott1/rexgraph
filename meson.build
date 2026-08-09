@@ -7,7 +7,11 @@
 project(
     'rexgraph',
     'c', 'cython',
-    version: '1.0.1',
+    # pyproject.toml is authoritative: it declares the version statically, so meson-python
+    # takes the distribution's version from there and this one is only what meson itself
+    # reports (meson-dist filenames, `meson introspect`). It had drifted to 1.0.1 against
+    # a 1.0.6 package, which is harmless until someone reads it and believes it.
+    version: '1.0.7',
     license: 'Apache-2.0',
     meson_version: '>=1.3.0',
     default_options: [
@@ -51,9 +55,19 @@ endif
 # ~/.local numpy for another Python version), so Cython emits PyDataType_* / datetime
 # C-API calls the mismatched headers don't declare -> "implicit declaration" build
 # failures. Binding the include to `py`'s own numpy keeps pxd and headers in lockstep.
+#
+# Passed as a COMPILE ARGUMENT rather than through include_directories(). That function
+# refuses an absolute path that lands inside the source tree, and numpy's include path
+# lands there whenever the virtualenv is `.venv/` in the project directory, which is the
+# ordinary layout. The result was that `pip install -e .` failed outright for anyone
+# using it: "Tried to form an absolute path to a dir in the source tree." A -I argument
+# says exactly the same thing to the compiler and carries no opinion about where the
+# directory sits. MSVC takes /I; it also accepts -I, but not every wrapper around it
+# does, so the branch is explicit.
 numpy_inc = run_command(py, '-c', 'import numpy; print(numpy.get_include())',
                         check: true).stdout().strip()
-numpy_dep = declare_dependency(include_directories: include_directories(numpy_inc))
+numpy_dep = declare_dependency(
+    compile_args: [(cc.get_id() == 'msvc' ? '/I' : '-I') + numpy_inc])
 omp_dep = dependency('openmp', required: false)
 m_dep = cc.find_library('m', required: false)
 mvec_dep = cc.find_library('mvec', required: false)

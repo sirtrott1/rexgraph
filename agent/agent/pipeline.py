@@ -166,18 +166,24 @@ class AnalysisPipeline:
         results = pipe.run(depth='standard')
     """
 
-    STAGES_QUICK = ("construction", "topology", "spectral")
+    #: `drawing` is first, and in every depth, because a picture of what was constructed
+    #: is the cheapest thing the pipeline can say and the one a reader wants before any
+    #: number. It reads the same payload `rexgraph_render` does, so what the pipeline
+    #: draws and what a tool draws cannot differ.
+    STAGES_QUICK = ("construction", "drawing", "topology", "spectral")
     STAGES_STANDARD = STAGES_QUICK + ("relational", "hodge", "void", "epsilon")
     STAGES_FULL = STAGES_STANDARD + (
         "advanced", "rcfe", "sigma_sweep", "ricci_flow", "continuum_limit",
     )
 
-    def __init__(self, rex):
+    def __init__(self, rex, *, draw: bool = True, draw_limit: int = 400):
         self.rex = rex
         self.results: dict[str, Any] = {}
         self.callbacks: list[Callable] = []
         self.current_stage = ""
         self.completed_stages: list[str] = []
+        self.draw = bool(draw)
+        self.draw_limit = int(draw_limit)
 
     def on_stage(self, callback: Callable[[str, dict], None]):
         """Register a callback for progressive stage reporting."""
@@ -291,6 +297,50 @@ class AnalysisPipeline:
             result["vertex_labels"] = meta.get("vertex_labels", [])
         return result
 
+    def _stage_drawing(self) -> dict:
+        """A picture of the complex, and what it left out.
+
+        No threshold decides whether to draw. `draw_limit` bounds how many cells go into
+        the document and the result REPORTS what was drawn against what exists, so a
+        truncated picture says it is truncated instead of a rule deciding silently that
+        this complex is too big to look at. Set `draw=False` to skip it.
+
+        Failure is reported, not raised: a pipeline that cannot draw has still analysed
+        the complex, and losing the analysis because the picture failed would be the
+        wrong trade.
+        """
+        if not self.draw:
+            return {"drawn": False, "reason": "drawing is off for this run"}
+        try:
+            from agent.graph_view import render_payload
+            from agent.render_svg import render_svg
+
+            labels = (getattr(self.rex, "_agent_meta", {}) or {}).get("vertex_labels")
+            payload = render_payload(self.rex, labels=labels, limit=self.draw_limit)
+            drawn = {r["index"] for r in payload.get("relations", [])}
+            # a face whose relations were not all drawn is not drawn either, so count the
+            # ones that made it rather than the ones in the payload
+            faces = sum(1 for f in payload.get("faces", [])
+                        if set(f["relations"]) <= drawn)
+            return {
+                "drawn": True,
+                "svg": render_svg(payload),
+                "cells_drawn": len(drawn),
+                "cells_total": int(self.rex.nE),
+                "truncated": len(drawn) < int(self.rex.nE),
+                "faces_drawn": faces,
+                "faces_total": int(self.rex.nF_hodge),
+                "view": "structural",
+                "reading": ("positions are the adjacency layout, so cells sit near what "
+                            "they are connected to rather than near what they resemble; "
+                            "length is the quadrance, so it carries arity; colour is the "
+                            "character through K7's spectrum. `view='plane'` is the "
+                            "exact-rational layout, which is the reading rather than the "
+                            "drawing"),
+            }
+        except Exception as exc:
+            return {"drawn": False, "reason": f"{type(exc).__name__}: {exc}"}
+
     def _stage_topology(self) -> dict:
         rex = self.rex
         return {
@@ -316,11 +366,18 @@ class AnalysisPipeline:
                     result["eigenvalues_L0"] = evals.tolist()
                     result["eigenvalues_truncated"] = True
                     result["n_eigenvalues"] = int(len(evals))
-                    # Fiedler value = smallest strictly positive eigenvalue.
-                    pos = evals[evals > 1e-9]
-                    result["fiedler_value"] = (
-                        float(pos.min()) if len(pos) else 0.0
-                    )
+                    # Fiedler value = smallest strictly positive eigenvalue, so which
+                    # ones are zero has to be decided. dim ker(L0) is beta_0, an integer
+                    # the rank tower gives exactly, so skip that many rather than cut at
+                    # a magnitude: a graph with a genuinely tiny gap (a near-disconnected
+                    # component, which is exactly what the Fiedler value is for) is
+                    # indistinguishable from a numerical zero to a threshold.
+                    try:
+                        n_zero = int(rex.betti[0])
+                    except Exception:                # noqa: BLE001
+                        n_zero = int((evals <= 0.0).sum())
+                    pos = np.sort(evals)[n_zero:]
+                    result["fiedler_value"] = float(pos[0]) if len(pos) else 0.0
                     if len(pos) >= 2:
                         result["spectral_gap"] = float(pos[1] - pos[0])
                     sparse_ok = True

@@ -142,7 +142,7 @@ class TestCSVLoader:
         )
         from rexgraph.io.csv_loader import ColumnRole, load_edge_csv
         # Without override, "regulation" is name-matched to polarity
-        gd1 = load_edge_csv(csv_path)
+        load_edge_csv(csv_path)
         # With override, force it to type
         gd2 = load_edge_csv(csv_path, roles={"regulation": ColumnRole.TYPE})
         assert gd2.profiles["regulation"].role == ColumnRole.TYPE

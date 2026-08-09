@@ -38,7 +38,7 @@ async def deploy_bundle(body: dict = Body(...)):
         spec = spec_from_dict(body).normalized()
         data = bundle_to_zip(generate_bundle(spec))
     except Exception as e:
-        raise HTTPException(400, f"Could not build bundle: {e}")
+        raise HTTPException(400, f"Could not build bundle: {e}") from e
     return Response(
         content=data,
         media_type="application/zip",

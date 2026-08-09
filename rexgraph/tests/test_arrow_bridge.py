@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 try:
-    import pyarrow
+    import pyarrow  # noqa: F401
     HAS_PYARROW = True
 except ImportError:
     HAS_PYARROW = False

@@ -9,9 +9,7 @@ typed_face_selection().
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
-import numpy as np
 from numpy.typing import NDArray
 
 
@@ -52,10 +50,63 @@ class EdgeConstruction:
     n_types: int              # number of distinct edge types
     type_names: list[str]     # human-readable name per type index
 
+    #: relations of arity above two, as vertex lists, one per relation.
+    #:
+    #: `sources`/`targets` hold two vertices per relation and cannot express a wider
+    #: one. Where a source genuinely names a k-way relation - a delocalised ring, a
+    #: coordination centre, a reaction with several reagents, a group over its members -
+    #: splitting it into pairs invents edges and dissolves the relation's identity, which
+    #: is the same loss clique expansion makes. Adapters that have such a relation put it
+    #: here and it survives into the complex as ONE cell with a k-ary boundary column.
+    #:
+    #: Empty for every adapter that does not, so nothing changes for them.
+    branching: list[list[int]] = field(default_factory=list)
+
+    #: one position per vertex, when the source carries one.
+    #:
+    #: Geometry emerges from an EMBEDDING, not from the complex: the complex fixes which
+    #: cells exist and how they meet, and where they sit is a further fact a file can
+    #: carry. A coordinate file carries it exactly (an SDF writes four decimal places, so
+    #: every coordinate is a Fraction over 10^4), so the lengths and angles taken against
+    #: it stay on the exact tower rather than being reconstructed from a layout.
+    #:
+    #: Empty for a source that has no coordinates, where the character embedding is the
+    #: only position there is and structural equivalence is what the picture shows.
+    embedding: list = field(default_factory=list)
+
+    #: per-cell attributes, `{grade: {cell_index: {key: value}}}`.
+    #:
+    #: The same shape as `RexGraph._cell_metadata`, so `build_rex_from_edges` hands it
+    #: straight to `attach_metadata` and it serialises columnar through `rex_state`,
+    #: sparse and typed, indexed by cell index into the boundary tensors.
+    #:
+    #: Every reader parses more than it can say in a label. A PDB line carries a chain and
+    #: a residue sequence number; a GFF line carries a whole `key=value;key=value` column;
+    #: an SDF atom carries an element and a formal charge. Flattening those into a label
+    #: string means the only way back is to parse the name, and the name is not a schema.
+    #: An attribute put here can be queried, filtered and drawn.
+    attributes: dict = field(default_factory=dict)
+
     # Text-position mapping (populated by TextAdapter and OCRAdapter)
     edge_spans: list[EdgeSpan] = field(default_factory=list)
     sentence_spans: list[SentenceSpan] = field(default_factory=list)
     source_text: str = ""
+
+    #: vertex label -> the other identifiers that name the same thing.
+    #:
+    #: One entity is named differently by every file that mentions it. A GTF exon
+    #: row carries `gene_id`, `gene_name` and `transcript_id` at once; a GAF row
+    #: carries an accession, a symbol and a synonym list; an OBO term carries its id,
+    #: its name and its `alt_id`s. A reader that keeps only the identifier it chose
+    #: to label with throws away every key by which its file could be joined to
+    #: another, which is why the identifiers have to travel with the vertex.
+    #:
+    #: Generic on purpose: this is "an entity is known by several names", not
+    #: anything about biology.
+    vertex_aliases: dict[str, list[str]] = field(default_factory=dict)
+
+    #: where this construction came from, for provenance after a join
+    origin: str = ""
 
     @property
     def nV(self) -> int:

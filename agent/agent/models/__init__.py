@@ -16,11 +16,14 @@ HGNN) are example models built from rexgraph.nn; they are not part of the librar
     # multi-model fusion (ensemble / split / stack)
     run("mlp", mode="fusion", specs=[("mlp",{}), ("mlp",{"d_hid":64})], fusion="ensemble")
 """
+# `train` is deliberately NOT imported here. It is the training loop, so it imports
+# torch at module scope, and importing it eagerly made the whole package need the ml
+# extra just to name an archetype. `run` imports it on call, which is the only place
+# that needs it. `import agent.models` now works with numpy and scipy alone.
 from . import (  # noqa: F401
     archetypes,
     data,
     store,  # noqa: F401
-    train,
     trustgraph,  # noqa: F401
 )
 from .archetypes import ARCHETYPES, get, merged_cfg, register_archetype  # noqa: F401
@@ -73,6 +76,7 @@ def run(archetype, *, params=None, data=None, mode="single", optimizer="auto", s
     result (metric trajectory / stages / fused metric). `data` may be a path or a DataBundle.
     `device` defaults to 'cpu'; use 'cuda' for the non-conv archetypes (mlp/lm/hgnn). Conv fails on
     this box's ROCm build, so cnn stays on cpu."""
+    from . import train
     if mode == "fusion":
         bundle = data if hasattr(data, "kind") else _load(archetype, data, params, seed)
         return train.train_fusion(specs or [(archetype, {}), (archetype, {})], bundle,
@@ -95,6 +99,7 @@ def predict(checkpoint, data=None, *, split=None, device="cpu", save_to=None) ->
     source (parquet / .rex / sql / csv / jsonl / safetensors), or None for the archetype's
     synthetic data. Returns {archetype, n, predictions, metric, split}. When `save_to` is a
     .safetensors path, the predictions are written through rexgraph.io.save_vectors."""
+    from . import train
     import rexgraph.nn as R
     dev = R.pick_device(device)                   # 'auto' rides the compute stack; 'cpu' forces CPU
     model, conf = (checkpoint if isinstance(checkpoint, tuple)

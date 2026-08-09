@@ -710,7 +710,7 @@ class DecisionEngine:
         # Per-entity structural summary
         rel = analysis.get("relational", {})
         kappa = rel.get("kappa_per_vertex")
-        phi = rel.get("phi_per_vertex")
+        rel.get("phi_per_vertex")
         labels = meta.get("vertex_labels", [])
 
         if kappa and labels:

@@ -51,8 +51,8 @@ def _build_prompt_rex(tokens: list[str], window: int = 3):
     """
     try:
         from rexgraph.graph import RexGraph
-    except ImportError:
-        raise ImportError("rexgraph is required. Install with: pip install rexgraph")
+    except ImportError as exc:
+        raise ImportError("rexgraph is required. Install with: pip install rexgraph") from exc
 
     vocab = sorted(set(tokens))
     if len(vocab) < 3:
@@ -140,7 +140,7 @@ class RexRouter:
         # Normalise channel_map keys to int: a config loaded from JSON/YAML
         # turns integer keys into strings, which would silently miss the
         # `channel_map.get(dominant_idx, ...)` lookup and route everything
-        # to the default (audit P5).
+        # to the default.
         raw_map = channel_map or self.CHANNEL_MAP
         self.channel_map = {}
         for k, v in raw_map.items():

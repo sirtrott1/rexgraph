@@ -25,8 +25,12 @@ import gzip
 import logging
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:                       # scipy is imported where it is used, not at load
+    import scipy.sparse
 
 from . import DomainAdapter, EdgeConstruction
 

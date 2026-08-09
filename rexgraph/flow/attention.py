@@ -23,7 +23,6 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize
 
-from rexgraph.core._sparse import to_scipy_csr
 
 __all__ = ["coparticipation_neighbors", "coparticipation_attention", "CoParticipationAttention"]
 
@@ -39,8 +38,9 @@ def coparticipation_neighbors(rex) -> tuple[NDArray, NDArray]:
     Returns `(nbr_ptr, nbr_idx)`, both int32: `nbr_idx[nbr_ptr[e]:nbr_ptr[e+1]]`
     is edge e's co-participants, self excluded.
     """
-    abs_b1 = abs(to_scipy_csr(rex._B1_dual))  # nV x nE
-    adjacency = (abs_b1.T @ abs_b1).tocsr()  # nE x nE, structural (shared-vertex) adjacency
+    # the SHARE, pinned, whatever the character's c_channel is set to: attention moves
+    # signal, and moving it through a branching vertex has to divide rather than multiply.
+    adjacency = rex.overlap_share_sparse.tocsr().copy()
     adjacency.setdiag(0)
     adjacency.eliminate_zeros()
     nbr_ptr = adjacency.indptr.astype(np.int32)

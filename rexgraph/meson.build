@@ -6,11 +6,10 @@ py.install_sources(
      'field_propagator.py', 'graded_boundary.py', '_env.py', '_experimental.py',
      'harmonic.py', 'harmonic_sparse.py', 'compute.py', 'mesh_health.py',
      'registry.py', 'gpu_preflight.py', 'hardware.py',
-     'coordinator.py'],
+     'coordinator.py', 'rational_trig.py', 'protocol.py', 'joins.py', 'geometry.py', 'projection.py', 'tower.py', 'color.py'],
     subdir: 'rexgraph',
 )
 subdir('core')
 subdir('io')
-subdir('viz')
 subdir('nn')
 subdir('flow')

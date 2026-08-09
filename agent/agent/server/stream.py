@@ -66,7 +66,7 @@ async def stream_pipeline(pipeline: AnalysisPipeline, depth: str = "standard") -
     # Wait for the pipeline to finish fully
     try:
         await future
-    except Exception as e:
+    except Exception:
         # Log the detail server-side; return a generic, properly-escaped message
         # (never interpolate str(e) into the SSE frame: it leaks internals and
         # breaks the JSON when the message contains quotes/newlines).

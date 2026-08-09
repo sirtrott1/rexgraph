@@ -2,6 +2,7 @@
 py.install_sources(
     [
         '__init__.py',
+        '_cache_layout.py',
         '_compat.py',
         '_serialization.py',
         'arrow_bridge.py',

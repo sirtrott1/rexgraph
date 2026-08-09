@@ -27,8 +27,8 @@ def _resolve(body: dict) -> str:
         from agent.secrets import open_secret_store
         try:
             uri = open_secret_store().get(body["name"])
-        except KeyError:
-            raise HTTPException(404, f"No saved connection '{body['name']}'")
+        except KeyError as exc:
+            raise HTTPException(404, f"No saved connection '{body['name']}'") from exc
         check_db_uri(uri)
         return uri
     uri = body.get("uri") or body.get("scheme")
@@ -52,7 +52,7 @@ async def read_source(body: dict = Body(...)):
         return svc.read(uri, source=body.get("source"),
                         **svc.weight_kwargs(uri, bool(body.get("weights"))))
     except Exception as e:                       # noqa: BLE001
-        raise HTTPException(400, f"read failed: {e}")
+        raise HTTPException(400, f"read failed: {e}") from e
 
 
 @router.post("/validate")
@@ -63,7 +63,7 @@ async def validate_source(body: dict = Body(...)):
         report = svc.validate(uri, source=body.get("source"),
                               **svc.weight_kwargs(uri, bool(body.get("weights"))))
     except Exception as e:                       # noqa: BLE001
-        raise HTTPException(400, f"validate failed: {e}")
+        raise HTTPException(400, f"validate failed: {e}") from e
     return {
         "connector": report.connector,
         "ok": report.ok,
@@ -85,4 +85,4 @@ async def ingest_source(body: dict = Body(...)):
                           tags=body.get("tags") or [],
                           **svc.weight_kwargs(uri, bool(body.get("weights"))))
     except Exception as e:                       # noqa: BLE001
-        raise HTTPException(400, f"ingest failed: {e}")
+        raise HTTPException(400, f"ingest failed: {e}") from e

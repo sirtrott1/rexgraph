@@ -32,6 +32,7 @@ def test_add_edges_is_deferred_then_golden():
     ptr_before, idx_before = g._boundary_ptr, g._boundary_idx
     g.add_edges(np.array([3], np.int32), np.array([0], np.int32))   # close a cycle
     assert g._boundary_ptr is ptr_before     # no copy at call time
+    assert g._boundary_idx is idx_before     # nor of the other half of the CSR
     assert g._dirty is True
     assert g._nE == 4                         # logical count updated eagerly
     # golden: after materialization, identical to a full build of the final edge set

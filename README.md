@@ -81,7 +81,13 @@ pip install -e . --no-build-isolation      # rexgraph Cython core, from the repo
 pip install -e ./agent                     # agent + integrations
 ```
 
-Minimal (core only, no I/O or viz deps):
+The order matters, and will until the core is published. The agent requires
+`rexgraph>=0.5.0`, which pip resolves from PyPI unless it is already installed, and
+the core is not there yet. Installing the agent first fails with `No matching
+distribution found for rexgraph>=0.5.0`, which reads like a missing release rather
+than a missing step.
+
+Minimal (core only, no I/O deps):
 
 ```bash
 mamba env create -f environment-minimal.yml
@@ -97,7 +103,7 @@ sudo apt install libopenblas-dev pkg-config
 
 pip install .                                 # core only
 pip install ".[io]"                           # + zarr, h5py, pyarrow, sqlalchemy, pandas
-pip install ".[all]"                          # I/O + viz + dev (not torch or CUDA)
+pip install ".[all]"                          # currently the same as [io]
 pip install -e ".[dev]" --no-build-isolation  # editable dev install
 
 pip install ./agent                           # CLI + integrations, no server
@@ -116,8 +122,7 @@ Core extras, from the repo root (e.g. `pip install ".[io]"`):
 | Extra | Adds | Weight |
 |-------|------|--------|
 | `io` | zarr, h5py, arrow/parquet, SQL loaders | light |
-| `viz` | dashboard (jinja2, flask) | light |
-| `all` | `io` + `viz` | light |
+| `all` | `io`, and nothing more today | light |
 | `nn` | torch ML substrate (GreensCochain, propagators, relational attention) | heavy (torch) |
 | `cuda` | GPU kernels (cupy) | heavy (CUDA toolkit) |
 | `dev` | test, lint, type-check, build backend | contributors |
@@ -721,7 +726,6 @@ rexgraph/                     the relational complex library
     io/                       storage and serialization
         bundle (.rex), Zarr, HDF5, Arrow/IPC, Parquet, SQL, JSON, CSV, SafeTensors; format auto-detection
 
-    viz/                      dashboard generation
 
 agent/
     auto.py               Input auto-detection and dispatch

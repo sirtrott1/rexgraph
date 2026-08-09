@@ -150,7 +150,7 @@ class AgentComplex:
         curv_e = np.zeros(len(edges)); strain = None
         try:
             from rexgraph.graph import RexGraph as _RG
-            eset = {(s, t) for (s, t) in edges}
+            {(s, t) for (s, t) in edges}
             adj = defaultdict(set)
             for (s, t) in edges:
                 adj[s].add(t); adj[t].add(s)

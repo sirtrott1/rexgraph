@@ -1,4 +1,4 @@
-"""Slice 1: a corpus persists into the RCDB and comes back out.
+"""A corpus persists into the RCDB and comes back out.
 
 Retrieval could only see documents held in the current process: CorpusBuilder kept
 everything in memory and had no path into the store, while the RCDB right next door

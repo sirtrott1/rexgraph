@@ -118,10 +118,19 @@ def test_every_json_writer_shares_the_one_encoder():
 
 def test_no_module_reintroduces_a_raw_numpy_dumps():
     """The nine copies came back one call site at a time. `default=` cannot enforce a
-    NaN policy on a float subclass, so any new use of it is the same bug returning."""
+    NaN policy on a float subclass, so any new use of it is the same bug returning.
+
+    Reads the SOURCE TREE, so it only means anything in a checkout. Run against an
+    installed wheel its glob resolves inside site-packages, finds 57 files instead of
+    500-odd and no agent/ at all, and the assertion below fires on the layout rather
+    than on a regression. That is the self-check working, not a failure, so the guard
+    skips instead.
+    """
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[2]
+    if not (root / "pyproject.toml").exists():
+        pytest.skip("not a source checkout: this scans the tree, not the package")
     banned = ("default=json_default", "default=_json_default", "cls=NumpyJSONEncoder")
     offenders, scanned = [], 0
     for py in list(root.glob("rexgraph/**/*.py")) + list(root.glob("agent/agent/**/*.py")):

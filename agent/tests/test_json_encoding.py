@@ -51,13 +51,19 @@ def test_route_encoders_are_the_shared_one(module):
     assert json_sanitize(dict(PAYLOAD), nan="null") == out
 
 
-def test_dashboard_payload_survives_a_nonfinite_metric(tmp_path):
-    """allow_nan=False turned a float64 NaN into a ValueError that killed the whole
-    dashboard render rather than one metric."""
-    from rexgraph.viz.dashboard import _inject_data
+def test_a_payload_survives_a_nonfinite_metric():
+    """allow_nan=False turned a float64 NaN into a ValueError that killed a whole
+    render rather than one metric.
 
-    jsx = "const DATA = /*__REX_DATA__*/null;"
-    out = _inject_data(jsx, {"kappa": np.float64("nan"), "beta": [1, 2]})
-    payload = out[out.index("=") + 1:].rstrip(";").strip()
+    Aimed at the encoder rather than at a caller of it. This used to go through
+    `viz.dashboard._inject_data`, which is retired: the subject was always the shared
+    non-finite policy, and the dashboard was one way of reaching it.
+    """
+    from rexgraph.io._compat import dumps
+
+    payload = dumps({"kappa": np.float64("nan"), "gap": np.float64("inf"),
+                     "beta": [1, 2]}, nan="null")
     assert "NaN" not in payload and "Infinity" not in payload
-    assert _strict_loads(payload)["kappa"] == 0.0
+    back = _strict_loads(payload)
+    assert back["kappa"] is None and back["gap"] is None
+    assert back["beta"] == [1, 2]

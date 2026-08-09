@@ -41,8 +41,8 @@ def _resolve(body: dict) -> str:
     if body.get("name") and not body.get("uri"):
         try:
             uri = _secrets().get(body["name"])
-        except KeyError:
-            raise HTTPException(404, f"No saved connection '{body['name']}'")
+        except KeyError as exc:
+            raise HTTPException(404, f"No saved connection '{body['name']}'") from exc
         check_db_uri(uri)
         return uri
     if body.get("uri"):
@@ -103,7 +103,7 @@ async def list_tables(body: dict = Body(...)):
                                 "primary_key": t.primary_key} for t in m.tables]}
         return {"tables": sc.list_tables(uri, with_counts=bool(body.get("counts", True)))}
     except Exception as e:
-        raise HTTPException(400, f"Could not list tables: {e}")
+        raise HTTPException(400, f"Could not list tables: {e}") from e
 
 
 @router.post("/import")
@@ -127,7 +127,7 @@ async def import_schema(body: dict = Body(...)):
             report["stored_as"] = store_id
         return report
     except Exception as e:
-        raise HTTPException(400, f"Import failed: {e}")
+        raise HTTPException(400, f"Import failed: {e}") from e
 
 
 @router.post("/strain")
@@ -143,7 +143,7 @@ async def connection_strain(body: dict = Body(...)):
         result["row_counts"] = counts
         return result
     except Exception as e:
-        raise HTTPException(400, f"Strain analysis failed: {e}")
+        raise HTTPException(400, f"Strain analysis failed: {e}") from e
 
 
 @router.post("/ddl")

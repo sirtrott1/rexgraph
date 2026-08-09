@@ -25,7 +25,7 @@ auditable on its own and every paid integration a known, testable quantity.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ..interfaces import Capabilities, Connector
 from .build import faces_to_csc, to_rexgraph

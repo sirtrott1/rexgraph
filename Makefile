@@ -370,3 +370,17 @@ help:
 	@echo "    pip install -e './agent[standard]'        full local deployment"
 	@echo "    pip install -e './agent[all]'             everything on CPU"
 	@echo ""
+# Versioning
+#
+# Five files declare the version and each serves something that cannot read the others,
+# so they are set together or they drift. They already did: meson.build sat at 1.0.1
+# through two 1.0.6 releases. test_version_consistency.py fails if they disagree.
+.PHONY: version
+version:
+ifndef VERSION
+	@python scripts/set_version.py --show
+	@echo ""
+	@echo "to change it:  make version VERSION=1.0.7"
+else
+	@python scripts/set_version.py $(VERSION)
+endif

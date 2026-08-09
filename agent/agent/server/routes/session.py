@@ -10,10 +10,14 @@ router = APIRouter()
 
 
 @router.get("/sessions")
-async def list_sessions():
-    """List all saved sessions with metadata."""
+async def list_sessions(limit: int = 200):
+    """Saved sessions, NEWEST FIRST, bounded.
+
+    Unbounded and id-sorted before, which put a freshly recorded session at index 1177 of
+    5278 on a real install: in the list, and unfindable in a control.
+    """
     from agent.server.app import get_store
-    return get_store().list_all()
+    return get_store().list_all(limit=(None if limit <= 0 else int(limit)))
 
 
 @router.get("/sessions/{session_id}")
@@ -48,7 +52,7 @@ async def goto_step(session_id: str, step: int):
             "nF": rex.nF,
         }
     except (IndexError, ValueError) as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.delete("/sessions/{session_id}")

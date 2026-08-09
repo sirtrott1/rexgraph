@@ -244,7 +244,7 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
     import traceback
 
     try:
-        n_total = len(ocr_texts) + len(direct_paths)
+        len(ocr_texts) + len(direct_paths)
         print("[analysis] subprocess: %d OCR texts + %d direct files" % (
             len(ocr_texts), len(direct_paths)),
               file=sys.stderr, flush=True)
@@ -260,7 +260,7 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
 
         # run() now builds one corpus from whatever is present, so a
         # single call handles texts-only, files-only, and mixed batches
-        # without dropping either (audit P2).
+        # without dropping either.
         result = runner.run(
             files=direct_paths or None,
             texts=ocr_texts or None,
@@ -350,6 +350,33 @@ def _register_documents(result_data, workspace):
                             "kappa_mean": doc["kappa_mean"],
                             "chi_mean": doc.get("chi_mean"),
                         }
+                # the picture of what was built, beside the numbers about it. Same
+                # render_payload the Graph screen and the rexgraph_render tool take, so a
+                # pipeline run and a later look at the same session cannot disagree.
+                # Bounded and REPORTED rather than gated: a truncated picture says so.
+                try:
+                    from agent.graph_view import render_payload
+                    from agent.render_svg import render_svg
+
+                    labels = (getattr(rex, "_agent_meta", {}) or {}).get("vertex_labels")
+                    payload = render_payload(rex, labels=labels, limit=400)
+                    drawn = {r["index"] for r in payload.get("relations", [])}
+                    doc["drawing"] = {
+                        "drawn": True,
+                        "svg": render_svg(payload),
+                        "cells_drawn": len(drawn), "cells_total": int(rex.nE),
+                        "truncated": len(drawn) < int(rex.nE),
+                        "faces_drawn": sum(1 for f in payload.get("faces", [])
+                                           if set(f["relations"]) <= drawn),
+                        "faces_total": int(rex.nF_hodge),
+                        "reading": ("positions are exact rationals from each cell's own "
+                                    "star; length is the quadrance, so it carries arity; "
+                                    "colour is the character through K7's spectrum"),
+                    }
+                except Exception as exc:
+                    # a run that could not be drawn has still been analysed
+                    doc["drawing"] = {"drawn": False,
+                                      "reason": f"{type(exc).__name__}: {exc}"}
                 session.add_snapshot(
                     rex=rex, action="pipeline", params={},
                     results=analysis,
@@ -392,7 +419,15 @@ async def stream_pipeline(
     workspace: str = Form("default"),
     ontology: bool = Form(False),
     fusion: bool = Form(False),
+    face_selection: str = Form("none"),
+    reader_options: str = Form("{}"),
 ):
+    """`reader_options` is JSON forwarded to whichever reader the file selects, filtered
+    to what that reader actually declares. `{"aromatic": "pairwise"}` makes an SDF read
+    its rings as separate bonds instead of one delocalised relation; `{"backbone": false}`
+    makes a PDB take only its CONECT records. Asserting a face rule is a claim about the
+    data, so `face_selection` stays the caller's too and defaults to none.
+    """
     upload_data = []
     for f in files:
         content = await f.read()
@@ -409,7 +444,7 @@ async def stream_pipeline(
 
             # Only initialise an OCR backend if at least one uploaded file
             # actually needs OCR. A pure CSV/JSON/TSV/text batch must never
-            # load an OCR model or fail on OCR-init (audit P1/A1).
+            # load an OCR model or fail on OCR-init.
             ocr_needed = any(
                 os.path.splitext(p)[1].lower() in OCR_EXTENSIONS
                 for p in temp_paths

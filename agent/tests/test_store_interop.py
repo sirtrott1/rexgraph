@@ -63,7 +63,14 @@ def test_filestore_put_cost_no_longer_grows_with_the_store(tmp_path):
         elif k >= 500:
             late.append(dt)
     ratio = (sum(late) / len(late)) / (sum(early) / len(early))
-    assert ratio < 2.5, f"per-put cost grew {ratio:.1f}x over 600 records"
+
+    # The property is "not quadratic", and the bound is a proxy for it. The old
+    # behaviour reserialized the whole index per put, so this ratio tracked the record
+    # count: it was 8.6x over 1600 and would be ~5x over the 600 measured here. A
+    # shared CI runner adds noise on the same order as the effect at 2.5, so the bound
+    # is set where quadratic still fails and scheduler jitter does not. Measured 2.8x
+    # on a GitHub runner against 1.2x locally, with the fix in place both times.
+    assert ratio < 4.0, f"per-put cost grew {ratio:.1f}x over 600 records"
 
 
 def test_filestore_still_keeps_one_readable_blob_per_record(tmp_path):

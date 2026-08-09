@@ -226,10 +226,10 @@ def serve(host: str = "127.0.0.1", port: int = 8000, *, reload: bool = False,
     """Start the FastAPI app over uvicorn. The single launch path."""
     try:
         import uvicorn
-    except ImportError:
+    except ImportError as exc:
         raise RuntimeError(
             "uvicorn is not installed. Install the server extras:\n"
-            "    pip install 'rexgraph-agent[server]'")
+            "    pip install 'rexgraph-agent[server]'") from exc
 
     # A fresh install comes up authenticated with a one-time admin token.
     _secure_by_default()

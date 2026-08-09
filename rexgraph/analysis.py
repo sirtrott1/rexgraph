@@ -82,6 +82,84 @@ _f64 = np.float64
 _i32 = np.int32
 
 
+def _dirac_low_spectrum(rex, k: int):
+    """The k eigenvalues of D closest to zero, matrix-free.
+
+    D is indefinite and its interesting end is the middle, so this asks for smallest
+    magnitude rather than smallest algebraic. Built off the sparse graded boundaries,
+    never the dense (nV+nE+nF) square.
+    """
+    import scipy.sparse as sp
+    import scipy.sparse.linalg as sla
+
+    from rexgraph.dirac_propagator import dirac_from_rex
+
+    sd = dirac_from_rex(rex)
+    n = int(sd.N)
+    if n == 0:
+        return np.zeros(0, dtype=float)
+    k = int(min(k, n))
+
+    def _dense_closest_to_zero():
+        """The k eigenvalues nearest zero, which is what which='SM' returns.
+
+        Sorting the whole spectrum and taking a prefix would return the k most NEGATIVE,
+        since D is indefinite. The selection is by magnitude and the result is then
+        sorted, so the two routes are comparable.
+        """
+        ev = np.linalg.eigvalsh(np.asarray(rex.dirac_operator, dtype=float))
+        return np.sort(ev[np.argsort(np.abs(ev))[:k]])
+
+    if n <= 64 or k >= n - 1:
+        return _dense_closest_to_zero()
+    blocks = [b.tocsr().astype(float) for b in sd.B]
+    rows = []
+    for d in range(sd.n_grades):
+        row = []
+        for e in range(sd.n_grades):
+            if e == d + 1:
+                row.append(blocks[d])
+            elif d == e + 1:
+                row.append(blocks[e].T)
+            else:
+                row.append(sp.csr_matrix((sd.sizes[d], sd.sizes[e])))
+        rows.append(row)
+    D = sp.bmat(rows, format="csr")
+    try:
+        evals = sla.eigsh(D, k=k, which="SM", return_eigenvectors=False)
+    except Exception:                            # noqa: BLE001 - fall back to dense
+        return _dense_closest_to_zero()
+    return np.sort(np.asarray(evals, dtype=float))
+
+
+def _low_frequencies(M, k: int):
+    """The k lowest field frequencies, sqrt of the k smallest eigenvalues of M.
+
+    Bounded rather than total. Reporting eight frequencies never needed the whole
+    spectrum, and taking it dense is what made this the dominant cost of the analysis.
+    ARPACK on the sparse operator asks for the eight it will actually show.
+
+    Falls back to the dense route on a matrix too small for ARPACK to work on, which is
+    where dense is cheap anyway.
+    """
+    import scipy.sparse.linalg as sla
+
+    n = M.shape[0]
+    if n == 0:
+        return []
+    k = int(min(k, n))
+    if n <= 12 or k >= n - 1:
+        evals = np.linalg.eigvalsh(M.toarray() if hasattr(M, "toarray") else M)
+    else:
+        try:
+            evals = sla.eigsh(M.astype(np.float64), k=k, which="SA",
+                              return_eigenvectors=False)
+        except Exception:                        # noqa: BLE001 - fall back to dense
+            evals = np.linalg.eigvalsh(M.toarray() if hasattr(M, "toarray") else M)
+    evals = np.sort(np.asarray(evals, dtype=float))[:k]
+    return np.sqrt(np.maximum(evals, 0.0))
+
+
 def _round(v, n=4):
     """Round a scalar to *n* decimal places. Returns 0.0 for NaN or Inf."""
     fv = float(v)
@@ -226,6 +304,9 @@ def analyze(
     perturbation_t_max: float = 10.0,
     diffusion_steps: int = 30,
     diffusion_t_max: float = 5.0,
+    full_field: bool = False,
+    standard_metrics: bool = False,
+    spectral_extras: bool = False,
 ) -> dict:
     """Compute the full analysis data contract for the dashboard.
 
@@ -273,7 +354,7 @@ def analyze(
     sb = rex.spectral_bundle
 
     eL0 = sb['evals_L0']
-    evL0 = sb['evecs_L0']
+    sb['evecs_L0']
 
     # L1 eigenvalues (present when L_O is provided, else None)
     eL1_arr = sb.get('evals_L1')
@@ -293,7 +374,7 @@ def analyze(
     eL_O = eL_O_arr if eL_O_arr is not None else np.array([])
 
     eL1a_arr = sb.get('evals_RL_1')
-    eL1a = eL1a_arr if eL1a_arr is not None else np.array([])
+    eL1a_arr if eL1a_arr is not None else np.array([])
 
     # RL eigenvalues (full relational Laplacian)
     evals_RL_arr = sb.get('RL')
@@ -309,8 +390,11 @@ def analyze(
     alpha_G, alpha_T = rex.coupling_constants
     fiedler_LO_val, fiedler_LO_vec = rex.fiedler_overlap
 
-    # Fiedler value of L1 (lazy accessor; not eagerly in the bundle, see edge_fiedler)
-    fiedler_L1 = float(rex.fiedler_val_L1)
+    # A Fiedler value is an approximate slice: it reports where a linear cut fell
+    # rather than what the cells are, and finding it here cost 9.4s of a 38s call at
+    # nE=2400 through ARPACK's smallest-magnitude mode. Off by default. The structural
+    # coordinates that replace it are the channel character (see agent.graph_view).
+    fiedler_L1 = float(rex.fiedler_val_L1) if spectral_extras else 0.0
 
     chain_ok = rex.chain_valid
 
@@ -394,24 +478,41 @@ def analyze(
     mode_data = {}
     if has_field:
         try:
-            M, g_field, is_psd = rex.field_operator
-            f_evals, f_evecs, f_freqs = rex.field_eigen
-            field_evals = f_evals
-            mode_data = rex.classify_modes()
-            n_edge_modes = int(np.sum(mode_data.get('mode_type', []) == 0))
-            n_face_modes = int(np.sum(mode_data.get('mode_type', []) == 1))
-            n_coupled = int(np.sum(mode_data.get('mode_type', []) == 2))
+            # The field block used to be the whole cost of this function: assembling M
+            # densely, taking its full eigendecomposition, and classifying every mode.
+            # Measured at nE=2396 that was 5.5s + 5.5s + 11.1s of a 37.8s call, and it
+            # scales cubically. `field_propagator` assembles the SAME operator sparsely
+            # (identical to 1e-9, 346x faster), the coupling is O(nnz), and the eight
+            # frequencies actually reported need eight eigenvalues rather than all of
+            # them. `full_field` restores the dense oracle, which is what the mode
+            # census needs, since classifying a mode needs its eigenvector.
+            from rexgraph.field_propagator import (
+                assemble_field_operator,
+                field_coupling,
+            )
+            M = assemble_field_operator(rex)
+            g_field = field_coupling(rex)
             field_data = {
                 "coupling_g": _round(g_field),
-                "is_psd": bool(is_psd),
+                # symmetric PSD by construction (the graded Hodge-coupled operator), so
+                # this is a property of how M is built and not a spectral finding
+                "is_psd": True,
                 "dim_E": nE,
                 "dim_F": nF_hodge,
                 "dim_total": nE + nF_hodge,
-                "n_edge_modes": n_edge_modes,
-                "n_face_modes": n_face_modes,
-                "n_coupled_modes": n_coupled,
-                "top_freqs": [_round(f, 6) for f in f_freqs[:8]],
+                "top_freqs": [_round(f, 6) for f in _low_frequencies(M, 8)],
             }
+            if full_field:
+                f_evals, f_evecs, f_freqs = rex.field_eigen
+                field_evals = f_evals
+                mode_data = rex.classify_modes()
+                mt = mode_data.get('mode_type', [])
+                field_data.update({
+                    "n_edge_modes": int(np.sum(mt == 0)),
+                    "n_face_modes": int(np.sum(mt == 1)),
+                    "n_coupled_modes": int(np.sum(mt == 2)),
+                    "top_freqs": [_round(f, 6) for f in f_freqs[:8]],
+                })
         except Exception:
             has_field = False
 
@@ -488,7 +589,11 @@ def analyze(
             F0 = np.zeros(nE + nF_hodge, dtype=_f64)
             F0[:nE] = np.abs(flow) / max(float(np.linalg.norm(flow)), 1e-15)
             diff_times = np.linspace(0, diffusion_t_max, diffusion_steps, dtype=_f64)
-            diff_traj = rex.field_diffuse(F0, diff_times)
+            # Chebyshev matvec on the sparse operator, not a sum over eigenmodes: the
+            # trajectory never needed the spectrum, only e^{-tM} applied to one state.
+            from rexgraph.field_propagator import field_heat_trajectory
+            diff_traj = (rex.field_diffuse(F0, diff_times) if full_field
+                         else np.asarray(field_heat_trajectory(rex, F0, diff_times)))
 
             # Track norm decay per dimension
             norm_E = np.array([float(np.linalg.norm(diff_traj[t, :nE]))
@@ -552,20 +657,24 @@ def analyze(
         e_wt_raw = np.ones(nE, dtype=_f64)
     adj_wt = _standard.build_adj_weights(adj_edge, e_wt_raw)
 
-    std_metrics = _standard.build_standard_metrics(
-        adj_ptr, adj_idx, adj_edge, adj_wt,
-        nV, nE,
-    )
+    # PageRank, betweenness, clustering and Louvain are the comparison baselines rather
+    # than this library's readings, and betweenness alone is O(nV * nE). Off by default;
+    # ask for them when the point is the comparison.
+    std_metrics = (_standard.build_standard_metrics(
+        adj_ptr, adj_idx, adj_edge, adj_wt, nV, nE)
+        if standard_metrics else {})
 
-    v_pr = std_metrics['pagerank']
-    v_betw = std_metrics['betweenness_v']
-    e_betw = std_metrics['betweenness_e']
-    v_btw_norm = std_metrics['btw_norm_v']
-    e_btw_norm = std_metrics['btw_norm_e']
-    v_clust = std_metrics['clustering']
-    louvain = std_metrics['community_labels']
-    n_communities = std_metrics['n_communities']
-    Q_mod = std_metrics['modularity']
+    _zeros_v = np.zeros(nV, dtype=_f64)
+    _zeros_e = np.zeros(nE, dtype=_f64)
+    v_pr = std_metrics.get('pagerank', _zeros_v)
+    v_betw = std_metrics.get('betweenness_v', _zeros_v)
+    e_betw = std_metrics.get('betweenness_e', _zeros_e)
+    v_btw_norm = std_metrics.get('btw_norm_v', _zeros_v)
+    e_btw_norm = std_metrics.get('btw_norm_e', _zeros_e)
+    v_clust = std_metrics.get('clustering', _zeros_v)
+    louvain = std_metrics.get('community_labels', np.zeros(nV, dtype=_i32))
+    n_communities = std_metrics.get('n_communities', 0)
+    Q_mod = std_metrics.get('modularity', 0.0)
 
     # Face data
     face_result = rex.face_data(v_names, e_names, rho)
@@ -854,7 +963,6 @@ def analyze(
 
     # Export data contract
 
-    n_spec = 15
 
     export = {
         "meta": {
@@ -974,9 +1082,12 @@ def analyze(
         "_e_names": e_names,
     }
 
-    # RCF sections (only if RCF modules are available)
+    # RCF sections (only if RCF modules are available). The import IS the probe: some of
+    # these names are never called here, and naming them is what makes the try fail when
+    # the compiled module is absent. `find_spec` would answer a different question, since
+    # a module can be present and fail to load.
     try:
-        from rexgraph.core import _character, _rcfe, _void
+        from rexgraph.core import _character, _rcfe, _void  # noqa: F401
 
         # Structural character (hybrid-aware: chi/phi/kappa/nhats/hat_names all
         # resolve through the scale-free sparse path when nE > eigen_dense_limit,
@@ -1079,7 +1190,7 @@ def analyze(
 
         # Fiber bundle similarity
         try:
-            from rexgraph.core import _fiber
+            from rexgraph.core import _fiber  # noqa: F401
             phi_sim = rex.phi_similarity
             fb_sim = rex.fiber_similarity
 
@@ -1105,7 +1216,7 @@ def analyze(
 
         # Interfacing (if flow signal and _interfacing are available)
         try:
-            from rexgraph.core import _channels, _interfacing
+            from rexgraph.core import _channels, _interfacing  # noqa: F401
             if flow is not None and nE > 0:
                 # Primal signal character of the flow
                 psc = rex.primal_signal_character(flow)
@@ -1131,14 +1242,18 @@ def analyze(
 
         # Dirac spectrum and graded state
         try:
-            from rexgraph.core import _dirac
-            d_evals = rex.dirac_eigenvalues
             total_dim = nV + nE + nF
-
+            # The dense eigendecomposition of D was 26s of a 38s call at nE=2400, to
+            # report twenty eigenvalues and a kernel count. Twenty eigenvalues need
+            # twenty, taken matrix-free off the sparse Dirac. The kernel count is
+            # dim ker(D) = sum of the Betti numbers, an integer the rank tower already
+            # has, so counting |eval| < 1e-8 was deciding topology by magnitude.
+            d_evals = (rex.dirac_eigenvalues if spectral_extras
+                       else _dirac_low_spectrum(rex, 20))
             dirac_section = {
                 "spectrum": [_round(float(v), 6) for v in d_evals[:20]],
                 "total_dim": total_dim,
-                "n_zero": int(np.sum(np.abs(d_evals) < 1e-8)),
+                "n_zero": int(sum(int(b) for b in rex.betti)),
             }
 
             # Graded state from vertex 0
@@ -1157,7 +1272,7 @@ def analyze(
 
         # Hypermanifold sequence
         try:
-            from rexgraph.core import _hypermanifold
+            from rexgraph.core import _hypermanifold  # noqa: F401
             hm = rex.hypermanifold()
             manifolds = hm.get('manifolds', [])
 

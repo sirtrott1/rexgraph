@@ -3,16 +3,16 @@ local_runtime: manage a local llama.cpp-family inference server as a first-class
 backend for rexgraph-agent.
 
 The agent talks to any OpenAI-compatible endpoint (``chat_model``). This module makes
-a *local* one first-class: it launches ``llama-server`` (or a compatible server -
-TurboQuant+, Cortex.cpp) as a managed SUBPROCESS, health-checks it, and registers its
-URL so the whole stack - chat, the token perplexity/varentropy metrics, agentic_reading
-- runs on the local model. Guarantees logprobs (llama-server returns them), so the
-metrics light up.
+a *local* one first-class: it launches ``llama-server`` (or a compatible server such as
+TurboQuant+ or Cortex.cpp) as a managed SUBPROCESS, health-checks it, and registers its
+URL, so the whole stack (chat, the token perplexity/varentropy metrics,
+agentic_reading) runs on the local model. Guarantees logprobs, since llama-server
+returns them, so the metrics light up.
 
-DECOUPLED BY DESIGN: the engine runs as a subprocess behind the OpenAI-compatible seam,
-never vendored/compiled into the wheel - so you can swap llama.cpp <-> TurboQuant+ <->
-Cortex.cpp <-> vLLM by config, and the pure-Python-agent / compiled-Cython-core split
-(CLAUDE.md) stays intact.
+DECOUPLED BY DESIGN: the engine runs as a subprocess behind the OpenAI-compatible seam
+and is never vendored or compiled into the wheel. So llama.cpp, TurboQuant+, Cortex.cpp
+and vLLM are interchangeable by config, and the split that matters stays intact: the
+agent is pure Python, the core is compiled Cython, and neither reaches into the other.
 """
 from __future__ import annotations
 

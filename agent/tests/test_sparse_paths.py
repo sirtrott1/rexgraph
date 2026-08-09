@@ -8,7 +8,6 @@ silently gave up at.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from rexgraph.graph import RexGraph
 

@@ -74,7 +74,7 @@ def cheb_apply(L, X, coeffs, lam_max: float | None = None):
     _require()
     if lam_max is None:
         lam_max = spectral_bound(L)
-    n = L.shape[-1]
+    L.shape[-1]
     two_over = 2.0 / lam_max
 
     def Lt(Y):                                        # L̃ Y = (2/λ_max) L Y - Y

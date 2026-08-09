@@ -106,7 +106,7 @@ exact rather than float-accumulated.
 
 | Property | Returns |
 |---|---|
-| `g_channel` | Selected G (overlap) form: 'normalized' (default) or 'raw' |
+| `g_channel` | Selected G (overlap) form: 'raw' (default, exact) or 'normalized' (opt-in, takes a square root) |
 | `g_channel_operator` | The raw integer G operator the RL4 character consumes |
 | `frustration_exact` | Doc-exact integer frustration channel F = T - G (Def 3.3), sparse |
 | `L_frustration` | Frustration channel F = T - G, dense integer tower |
@@ -263,10 +263,12 @@ global eigenbasis.
 
 | Method | Description |
 |---|---|
-| `subgraph(vertex_mask)` | Induced subgraph |
+| `relation_supports()` | Each relation's boundary vertices, at any arity |
+| `subgraph(edge_mask)` | Subcomplex over the kept relations, arity preserved |
 | `partition_communities()` | Louvain community partition -> list of (sub_rex, v_map, e_map) |
-| `insert_edges(...)` | Add edges (rewrite) |
-| `delete_edges(mask)` | Remove edges (rewrite) |
+| `insert_relations(supports)` | Add relations of any arity |
+| `insert_edges(src, tgt)` | Add 2-ary relations (the pairwise case of the above) |
+| `delete_edges(mask)` | Remove relations (the complement of `subgraph`) |
 | `inner_join(other, shared)` / `outer_join(...)` / `left_join(...)` | Complex joins |
 
 ### Persistence

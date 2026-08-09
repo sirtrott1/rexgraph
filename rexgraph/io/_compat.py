@@ -283,17 +283,17 @@ def _numcodecs_blosc_to_v3_codec(comp: Any):
         return None
 
     try:
-        from zarr.codecs import BloscCodec, BloscShuffle
+        from zarr.codecs import BloscCodec
     except Exception:
         return None
 
+    # the STRING, not `BloscShuffle.<name>`. zarr 3.3 deprecated the enum members in
+    # favour of the strings they were always equal to, and this module is the shim that
+    # is supposed to absorb that. Checked on both sides: the string is accepted silently
+    # by 3.2.1 and 3.3.0, while the enum warns on 3.3.0, so there is no version where
+    # the enum is the better argument.
     shuffle_val = int(getattr(comp, "shuffle", 0) or 0)
-    if shuffle_val == 2:
-        shuffle = BloscShuffle.bitshuffle
-    elif shuffle_val == 1:
-        shuffle = BloscShuffle.shuffle
-    else:
-        shuffle = BloscShuffle.noshuffle
+    shuffle = {2: "bitshuffle", 1: "shuffle"}.get(shuffle_val, "noshuffle")
 
     return BloscCodec(
         cname=str(getattr(comp, "cname", "zstd")),

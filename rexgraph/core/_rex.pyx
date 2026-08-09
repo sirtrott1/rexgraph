@@ -277,6 +277,41 @@ def build_vertex_to_edge_csr_i32(Py_ssize_t nV, Py_ssize_t nE,
     return vptr, vidx
 
 
+def build_vertex_to_edge_csr_general(Py_ssize_t nV, Py_ssize_t nE,
+                                     np.ndarray[i32, ndim=1] boundary_ptr,
+                                     np.ndarray[i32, ndim=1] boundary_idx):
+    """CSR: vertex to incident edge indices, at any arity.
+
+    The transpose of the edge-to-vertex boundary CSR, which is where a relation's WHOLE
+    support lives. The (sources, targets) form above can only carry two vertices, so on a
+    branching relation it reports the first two and the rest read as isolated; this one
+    counts every vertex the boundary column actually touches. On a pairwise complex the
+    two agree exactly, edge order and all, because there the boundary CSR IS
+    (sources, targets).
+    """
+    cdef i32[::1] bp = boundary_ptr, bi = boundary_idx
+    cdef Py_ssize_t j, t, nnz = bp[nE]
+    cdef np.ndarray[i32, ndim=1] deg = np.zeros(nV, dtype=np.int32)
+    cdef i32[::1] d = deg
+    for t in range(nnz):
+        d[bi[t]] += 1
+    cdef np.ndarray[i32, ndim=1] vptr = np.empty(nV + 1, dtype=np.int32)
+    cdef i32[::1] vp = vptr
+    vp[0] = 0
+    for j in range(nV): vp[j + 1] = vp[j] + d[j]
+    cdef np.ndarray[i32, ndim=1] vidx = np.empty(nnz, dtype=np.int32)
+    cdef i32[::1] vi = vidx
+    cdef np.ndarray[i32, ndim=1] cur = vptr[:nV].copy()
+    cdef i32[::1] c = cur
+    cdef Py_ssize_t pos
+    for j in range(nE):
+        for t in range(bp[j], bp[j + 1]):
+            pos = c[bi[t]]
+            vi[pos] = <i32>j
+            c[bi[t]] = <i32>(pos + 1)
+    return vptr, vidx
+
+
 def build_vertex_to_edge_csr_i64(Py_ssize_t nV, Py_ssize_t nE,
                                   np.ndarray[i64, ndim=1] sources,
                                   np.ndarray[i64, ndim=1] targets):
@@ -524,6 +559,79 @@ def clique_expand_branching(nE, boundary_ptr, boundary_idx, edge_types):
 
 # Hyperslice queries
 
+def hyperslice_vertex_general(i32 v,
+                              np.ndarray[i32, ndim=1] v2e_ptr,
+                              np.ndarray[i32, ndim=1] v2e_idx,
+                              np.ndarray[i32, ndim=1] boundary_ptr,
+                              np.ndarray[i32, ndim=1] boundary_idx):
+    """Hyperslice(v) at any arity: above=incident relations, lateral=co-participants.
+
+    The pairwise form takes the ONE other endpoint of each incident edge. A k-ary
+    relation has k-1 others, so this walks the relation's whole boundary column instead.
+    """
+    cdef i32[::1] vp = v2e_ptr, vi = v2e_idx, bp = boundary_ptr, bi = boundary_idx
+    cdef Py_ssize_t start = vp[v], end = vp[v + 1], deg = end - start, k, t
+    cdef np.ndarray[i32, ndim=1] above = np.empty(deg, dtype=np.int32)
+    cdef i32[::1] ab = above
+    cdef Py_ssize_t max_nbrs = 0
+    cdef i32 e
+    for k in range(deg):
+        e = vi[start + k]
+        ab[k] = e
+        max_nbrs += bp[e + 1] - bp[e]
+    cdef np.ndarray[i32, ndim=1] nbrs = np.empty(max_nbrs, dtype=np.int32)
+    cdef i32[::1] nb = nbrs
+    cdef Py_ssize_t n_nbrs = 0
+    for k in range(deg):
+        e = vi[start + k]
+        for t in range(bp[e], bp[e + 1]):
+            if bi[t] != v:
+                nb[n_nbrs] = bi[t]
+                n_nbrs += 1
+    return above, np.unique(nbrs[:n_nbrs])
+
+
+def hyperslice_edge_general(i32 e,
+                            np.ndarray[i32, ndim=1] boundary_ptr,
+                            np.ndarray[i32, ndim=1] boundary_idx,
+                            np.ndarray[i32, ndim=1] e2f_ptr,
+                            np.ndarray[i32, ndim=1] e2f_idx,
+                            np.ndarray[i32, ndim=1] v2e_ptr,
+                            np.ndarray[i32, ndim=1] v2e_idx):
+    """Hyperslice(e) at any arity: below=the whole boundary column, above=faces,
+    lateral=relations sharing any of its vertices.
+
+    The pairwise form reports below as (source, target) and sweeps only those two stars,
+    so on a branching relation it drops every vertex past the second and the relations
+    reached through them.
+    """
+    cdef i32[::1] bp = boundary_ptr, bi = boundary_idx
+    cdef i32[::1] ep = e2f_ptr, ei = e2f_idx, vp = v2e_ptr, vi = v2e_idx
+    cdef Py_ssize_t k, t, b_start = bp[e], b_end = bp[e + 1]
+    cdef np.ndarray[i32, ndim=1] below = np.asarray(boundary_idx[b_start:b_end]).copy()
+    cdef Py_ssize_t f_start = ep[e], f_end = ep[e + 1], n_faces = f_end - f_start
+    cdef np.ndarray[i32, ndim=1] above = np.empty(n_faces, dtype=np.int32)
+    cdef i32[::1] ab = above
+    for k in range(n_faces): ab[k] = ei[f_start + k]
+    cdef Py_ssize_t max_lat = 0
+    cdef i32 v
+    for t in range(b_start, b_end):
+        v = bi[t]
+        max_lat += vp[v + 1] - vp[v]
+    cdef np.ndarray[i32, ndim=1] lb = np.empty(max_lat, dtype=np.int32)
+    cdef i32[::1] lbv = lb
+    cdef Py_ssize_t n_lat = 0
+    cdef i32 ej
+    for t in range(b_start, b_end):
+        v = bi[t]
+        for k in range(vp[v], vp[v + 1]):
+            ej = vi[k]
+            if ej != e:
+                lbv[n_lat] = ej
+                n_lat += 1
+    return below, above, np.unique(lb[:n_lat])
+
+
 def hyperslice_vertex_i32(i32 v,
                           np.ndarray[i32, ndim=1] v2e_ptr,
                           np.ndarray[i32, ndim=1] v2e_idx,
@@ -709,154 +817,6 @@ def hyperslice_face_i64(i64 f, Py_ssize_t nF,
 
 
 # Edge insertion and deletion
-
-def insert_edges_i32(Py_ssize_t nV, Py_ssize_t nE,
-                     np.ndarray[i32, ndim=1] sources,
-                     np.ndarray[i32, ndim=1] targets,
-                     np.ndarray[i32, ndim=1] new_sources,
-                     np.ndarray[i32, ndim=1] new_targets):
-    """Insert edges, extend vertex set. Returns (src, tgt, nV_new)."""
-    cdef Py_ssize_t n_new = new_sources.shape[0], nE_out = nE + n_new, j
-    cdef np.ndarray[i32, ndim=1] a_s = np.empty(nE_out, dtype=np.int32)
-    cdef np.ndarray[i32, ndim=1] a_t = np.empty(nE_out, dtype=np.int32)
-    cdef i32[::1] asv = a_s, atv = a_t
-    cdef i32[::1] os = sources, ot = targets, ns = new_sources, nt = new_targets
-    cdef i32 mx = <i32>(nV - 1)
-    for j in range(nE):
-        asv[j] = os[j]
-        atv[j] = ot[j]
-    for j in range(n_new):
-        asv[nE + j] = ns[j]
-        atv[nE + j] = nt[j]
-        if ns[j] > mx: mx = ns[j]
-        if nt[j] > mx: mx = nt[j]
-    return a_s, a_t, <Py_ssize_t>(mx + 1)
-
-
-def insert_edges_i64(Py_ssize_t nV, Py_ssize_t nE,
-                     np.ndarray[i64, ndim=1] sources,
-                     np.ndarray[i64, ndim=1] targets,
-                     np.ndarray[i64, ndim=1] new_sources,
-                     np.ndarray[i64, ndim=1] new_targets):
-    """Insert edges. int64 variant."""
-    cdef Py_ssize_t n_new = new_sources.shape[0], nE_out = nE + n_new, j
-    cdef np.ndarray[i64, ndim=1] a_s = np.empty(nE_out, dtype=np.int64)
-    cdef np.ndarray[i64, ndim=1] a_t = np.empty(nE_out, dtype=np.int64)
-    cdef i64[::1] asv = a_s, atv = a_t
-    cdef i64[::1] os = sources, ot = targets, ns = new_sources, nt = new_targets
-    cdef i64 mx = <i64>(nV - 1)
-    for j in range(nE):
-        asv[j] = os[j]
-        atv[j] = ot[j]
-    for j in range(n_new):
-        asv[nE + j] = ns[j]
-        atv[nE + j] = nt[j]
-        if ns[j] > mx: mx = ns[j]
-        if nt[j] > mx: mx = nt[j]
-    return a_s, a_t, <Py_ssize_t>(mx + 1)
-
-
-def insert_edges(nV, nE, sources, targets, new_sources, new_targets):
-    """Auto-dispatch by dtype."""
-    if sources.dtype == np.int64:
-        return insert_edges_i64(nV, nE, sources, targets, new_sources, new_targets)
-    return insert_edges_i32(nV, nE, sources, targets, new_sources, new_targets)
-
-
-def delete_edges_i32(Py_ssize_t nV, Py_ssize_t nE,
-                     np.ndarray[i32, ndim=1] sources,
-                     np.ndarray[i32, ndim=1] targets,
-                     np.ndarray[i32, ndim=1] delete_mask):
-    """
-    Delete edges (mask=1), enforce vertex lifecycle.
-    Returns (new_src, new_tgt, nV_new, v_map[nV], e_map[nE]).
-    """
-    cdef i32[::1] sv = sources, tv = targets, dm = delete_mask
-    cdef Py_ssize_t j, v, pos
-    cdef Py_ssize_t nE_keep = 0
-    for j in range(nE):
-        if dm[j] == 0: nE_keep += 1
-    cdef np.ndarray[i32, ndim=1] em = np.full(nE, -1, dtype=np.int32)
-    cdef np.ndarray[i32, ndim=1] ks = np.empty(nE_keep, dtype=np.int32)
-    cdef np.ndarray[i32, ndim=1] kt = np.empty(nE_keep, dtype=np.int32)
-    cdef i32[::1] emv = em, ksv = ks, ktv = kt
-    pos = 0
-    for j in range(nE):
-        if dm[j] == 0:
-            emv[j] = <i32>pos
-            ksv[pos] = sv[j]
-            ktv[pos] = tv[j]
-            pos += 1
-    cdef np.ndarray[i32, ndim=1] alive = np.zeros(nV, dtype=np.int32)
-    cdef i32[::1] al = alive
-    for j in range(nE_keep):
-        al[ksv[j]] = 1
-        al[ktv[j]] = 1
-    cdef np.ndarray[i32, ndim=1] vm = np.full(nV, -1, dtype=np.int32)
-    cdef i32[::1] vmv = vm
-    cdef Py_ssize_t nV_new = 0
-    for v in range(nV):
-        if al[v]:
-            vmv[v] = <i32>nV_new
-            nV_new += 1
-    cdef np.ndarray[i32, ndim=1] ns = np.empty(nE_keep, dtype=np.int32)
-    cdef np.ndarray[i32, ndim=1] nt = np.empty(nE_keep, dtype=np.int32)
-    cdef i32[::1] nsv = ns, ntv = nt
-    for j in range(nE_keep):
-        nsv[j] = vmv[ksv[j]]
-        ntv[j] = vmv[ktv[j]]
-    return ns, nt, nV_new, vm, em
-
-
-def delete_edges_i64(Py_ssize_t nV, Py_ssize_t nE,
-                     np.ndarray[i64, ndim=1] sources,
-                     np.ndarray[i64, ndim=1] targets,
-                     np.ndarray[i32, ndim=1] delete_mask):
-    """Delete edges. int64 variant."""
-    cdef i64[::1] sv = sources, tv = targets
-    cdef i32[::1] dm = delete_mask
-    cdef Py_ssize_t j, v, pos
-    cdef Py_ssize_t nE_keep = 0
-    for j in range(nE):
-        if dm[j] == 0: nE_keep += 1
-    cdef np.ndarray[i64, ndim=1] em = np.full(nE, -1, dtype=np.int64)
-    cdef np.ndarray[i64, ndim=1] ks = np.empty(nE_keep, dtype=np.int64)
-    cdef np.ndarray[i64, ndim=1] kt = np.empty(nE_keep, dtype=np.int64)
-    cdef i64[::1] emv = em, ksv = ks, ktv = kt
-    pos = 0
-    for j in range(nE):
-        if dm[j] == 0:
-            emv[j] = <i64>pos
-            ksv[pos] = sv[j]
-            ktv[pos] = tv[j]
-            pos += 1
-    cdef np.ndarray[i32, ndim=1] alive = np.zeros(nV, dtype=np.int32)
-    cdef i32[::1] al = alive
-    for j in range(nE_keep):
-        al[<Py_ssize_t>ksv[j]] = 1
-        al[<Py_ssize_t>ktv[j]] = 1
-    cdef np.ndarray[i64, ndim=1] vm = np.full(nV, -1, dtype=np.int64)
-    cdef i64[::1] vmv = vm
-    cdef Py_ssize_t nV_new = 0
-    for v in range(nV):
-        if al[v]:
-            vmv[v] = <i64>nV_new
-            nV_new += 1
-    cdef np.ndarray[i64, ndim=1] ns = np.empty(nE_keep, dtype=np.int64)
-    cdef np.ndarray[i64, ndim=1] nt = np.empty(nE_keep, dtype=np.int64)
-    cdef i64[::1] nsv = ns, ntv = nt
-    for j in range(nE_keep):
-        nsv[j] = vmv[<Py_ssize_t>ksv[j]]
-        ntv[j] = vmv[<Py_ssize_t>ktv[j]]
-    return ns, nt, nV_new, vm, em
-
-
-def delete_edges(nV, nE, sources, targets, delete_mask):
-    """Auto-dispatch by dtype."""
-    if sources.dtype == np.int64:
-        return delete_edges_i64(nV, nE, sources, targets, delete_mask)
-    return delete_edges_i32(nV, nE, sources, targets, delete_mask)
-
 
 def compact_boundary_i32(np.ndarray[i32, ndim=1] boundary_ptr,
                          np.ndarray[i32, ndim=1] boundary_idx,
@@ -1305,15 +1265,28 @@ def build_1rex(nV, nE, sources, targets):
 
 
 def hyperslice(cell_dim, cell_idx, **kw):
-    """Hyperslice at any dimension. Auto-dispatches by dtype."""
+    """Hyperslice at any dimension.
+
+    Dispatches to the arity-general kernels when the boundary CSR is supplied, which is
+    where a relation's whole support lives. The (sources, targets) path below it is the
+    pairwise one and reports two vertices per relation whatever its arity.
+    """
+    bp = kw.get("boundary_ptr")
     if cell_dim == 0:
         p = kw["v2e_ptr"]
+        if bp is not None:
+            return hyperslice_vertex_general(cell_idx, p, kw["v2e_idx"],
+                                             bp, kw["boundary_idx"])
         if p.dtype == np.int64:
             return hyperslice_vertex_i64(cell_idx, p, kw["v2e_idx"],
                                           kw["sources"], kw["targets"])
         return hyperslice_vertex_i32(cell_idx, p, kw["v2e_idx"],
                                       kw["sources"], kw["targets"])
     elif cell_dim == 1:
+        if bp is not None:
+            return hyperslice_edge_general(cell_idx, bp, kw["boundary_idx"],
+                                           kw["e2f_ptr"], kw["e2f_idx"],
+                                           kw["v2e_ptr"], kw["v2e_idx"])
         s = kw["sources"]
         if s.dtype == np.int64:
             return hyperslice_edge_i64(cell_idx, s, kw["targets"],

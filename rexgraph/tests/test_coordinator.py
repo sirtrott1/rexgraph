@@ -52,7 +52,7 @@ def test_contention_nonneg():
 
 
 def test_execution_is_an_edge_delegation_complex():
-    cm = CostModel()
+    CostModel()
     units = _units({"gpu_kernel": 3})
     a = {u["id"]: "igpu" for u in units}
     g = delegation_complex(a, units)
@@ -68,7 +68,11 @@ def test_assign_routes_to_best_lanes_when_light():
     assert all(a[u["id"]] == cm.best_lane(u["type"]) for u in units)
 
 
-def test_assign_balances_bottlenecked_igpu_via_hybrid():
+def test_assign_balances_bottlenecked_igpu_via_hybrid(monkeypatch):
+    # capacity() derives proc and thread from os.cpu_count()//2, so on a small host
+    # both are 1, spilling off the igpu buys nothing and everything lands in one lane.
+    # The test is about the balancing rule, not the runner it happens to be on.
+    monkeypatch.setattr("os.cpu_count", lambda: 16)
     cm = CostModel()
     units = _units({"gpu_kernel": 16})   # igpu parallelism is only 2 -> bottleneck; spill helps
     a = assign(units, cm)

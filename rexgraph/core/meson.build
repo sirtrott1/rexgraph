@@ -43,14 +43,30 @@ else
 endif
 
 if not blas_found
-    warning(
-        'No BLAS/LAPACK found at build time. The compiled extensions call ' +
-        'cblas_* and LAPACK (dsyev_, dgesvd_, ...) and will fail at import ' +
-        'with "undefined symbol: cblas_dgemm" unless those symbols are ' +
-        'available at runtime. Install OpenBLAS dev files first, e.g. ' +
-        '"apt install libopenblas-dev" (Debian/Ubuntu), ' +
-        '"conda install openblas" (conda), or "brew install openblas" (macOS).'
+    # This USED to be a warning, and a warning is not enough. The extensions compile
+    # without a BLAS and fail at import, so the build succeeds, the artifact looks
+    # right, and it breaks on the first machine that does not already have a BLAS
+    # loaded into the process. That is exactly what happened: manylinux wheels were
+    # produced whose _laplacians and _linalg raised
+    # "undefined symbol: cblas_dgemm" in a clean container, while passing every check
+    # on a machine whose conda environment supplied the symbols by accident.
+    message = (
+        'No BLAS/LAPACK found at build time. The compiled extensions call cblas_* ' +
+        'and LAPACK (dsyev_, dgesvd_, ...), so they will build and then fail at ' +
+        'IMPORT with "undefined symbol: cblas_dgemm" on any machine that does not ' +
+        'already have those symbols loaded. Install the dev files first:\n' +
+        '  Debian/Ubuntu   apt install libopenblas-dev\n' +
+        '  RHEL/Alma       yum install openblas-devel\n' +
+        '  conda           conda install openblas\n' +
+        '  macOS           brew install openblas\n' +
+        'To build anyway, knowing the symbols arrive some other way at runtime:\n' +
+        '  pip install . -Csetup-args=-Dblas=disabled'
     )
+    if get_option('blas').disabled()
+        warning(message)
+    else
+        error(message)
+    endif
 endif
 
 # Target the NumPy 2.0 C-API so the accessor functions Cython 3.2+ generates

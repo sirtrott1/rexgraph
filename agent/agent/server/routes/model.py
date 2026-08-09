@@ -291,10 +291,10 @@ async def model_generate(
                 "context_included": bool(system_parts),
                 "metrics": metrics,
             }
-    except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail="GPU server not reachable")
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=503, detail="GPU server not reachable") from exc
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/status")
@@ -322,14 +322,14 @@ async def system_status():
     backends = {}
     backends["tesseract"] = shutil.which("tesseract") is not None
     try:
-        import paddleocr
+        import paddleocr  # noqa: F401
         backends["paddleocr"] = True
     except ImportError:
         backends["paddleocr"] = False
     backends["mistral"] = bool(os.environ.get("MISTRAL_API_KEY", ""))
     try:
-        import torch
-        import transformers
+        import torch  # noqa: F401
+        import transformers  # noqa: F401
         backends["got_ocr"] = True
     except ImportError:
         backends["got_ocr"] = False
@@ -446,7 +446,7 @@ async def local_runtime_start(body: dict = Body(...)):
             mp, ctx_size=body.get("ctx_size"), n_gpu_layers=body.get("n_gpu_layers"),
             flash_attn=body.get("flash_attn"), port=body.get("port"))
     except RuntimeError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/model/local/stop")
@@ -468,7 +468,7 @@ async def embedder_start(body: dict = Body(...)):
     try:
         return local_runtime.start_embedder(mp, port=body.get("port"))
     except RuntimeError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/model/embedder/stop")
@@ -497,9 +497,9 @@ async def model_introspect_embeddings(body: dict = Body(...)):
     try:
         return model_introspect.embedding_complex(texts, top_p=float(body.get("top_p", 0.9)))
     except RuntimeError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     except Exception as e:
-        raise HTTPException(500, f"introspection failed: {e}")
+        raise HTTPException(500, f"introspection failed: {e}") from e
 
 
 @router.get("/model/introspect/attention/available")
@@ -523,6 +523,6 @@ async def model_introspect_attention(body: dict = Body(...)):
         return attn_introspect.attention_complex(
             prompt, model_path=body.get("model_path"), layers=body.get("layers"))
     except RuntimeError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     except Exception as e:
-        raise HTTPException(500, f"attention introspection failed: {e}")
+        raise HTTPException(500, f"attention introspection failed: {e}") from e

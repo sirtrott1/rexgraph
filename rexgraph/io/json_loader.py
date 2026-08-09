@@ -185,7 +185,6 @@ def _load_edge_list_json(data: Any, directed: bool = False) -> Any:
 
     first = edges[0]
     sources, targets = [], []
-    signs = []
 
     if isinstance(first, (list, tuple)):
         # ``[[source, target], ...]``: the pair form. Every entry has to be a pair,
@@ -302,7 +301,7 @@ def _load_cytoscape_json(data: dict, directed: bool = False) -> Any:
         w_list.append(abs(w))
         sign_list.append(-1.0 if w < 0 else 1.0)
 
-    nE = len(src_list)
+    len(src_list)
     src_arr = np.array(src_list, dtype=np.int32)
     tgt_arr = np.array(tgt_list, dtype=np.int32)
     w_arr = np.array(w_list, dtype=np.float64)
@@ -356,7 +355,7 @@ def _load_networkx_json(data: dict, directed: bool = False) -> Any:
         w_list.append(abs(w))
         sign_list.append(-1.0 if w < 0 else 1.0)
 
-    nE = len(src_list)
+    len(src_list)
     src_arr = np.array(src_list, dtype=np.int32)
     tgt_arr = np.array(tgt_list, dtype=np.int32)
     w_arr = np.array(w_list, dtype=np.float64)
@@ -394,13 +393,12 @@ def _load_adjacency_json(
 
     if isinstance(data, list):
         matrix = np.array(data, dtype=np.float64)
-        labels = None
     elif isinstance(data, dict):
         matrix = np.array(
             data.get("matrix", data.get("adjacency", [])),
             dtype=np.float64,
         )
-        labels = data.get("labels", data.get("node_names", None))
+        data.get("labels", data.get("node_names", None))
     else:
         raise ValueError("Adjacency JSON must be a matrix or dict with 'matrix' key.")
 
@@ -465,10 +463,9 @@ def load_matrix_csv(
     has_row_labels = not _is_numeric(rows[1][0]) if len(rows) > 1 and rows[1] else False
 
     if has_header:
-        col_labels = rows[0][1:] if has_row_labels else rows[0]
+        rows[0][1:] if has_row_labels else rows[0]
         data_rows = rows[1:]
     else:
-        col_labels = None
         data_rows = rows
 
     if has_row_labels:

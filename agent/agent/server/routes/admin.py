@@ -90,7 +90,7 @@ async def add_member(
     try:
         raw = mgr.add_member(user_id, role=role, workspace=ws.name)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     role_out = "admin" if role == "admin" else "user"
     from agent import activity as _activity
     _activity.record("user:" + caller.user_id, "member.add",
@@ -122,7 +122,7 @@ async def revoke_member(user_id: str, request: Request,
     try:
         n = mgr.revoke_member(user_id, workspace=target)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     if n == 0:
         raise HTTPException(404, f"No such member: {user_id}")
     from agent import activity as _activity
@@ -175,7 +175,7 @@ async def enable_auth(
         try:
             mgr.set_disable_passphrase(passphrase)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
     return {"auth_enabled": True, "disable_passphrase_set": mgr.has_disable_passphrase}
 
 
@@ -191,7 +191,7 @@ async def set_disable_passphrase(
     try:
         mgr.set_disable_passphrase(passphrase)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return {"disable_passphrase_set": True}
 
 
@@ -215,7 +215,7 @@ async def disable_auth(
                  "POST /api/v1/admin/auth/passphrase (or `rexgraph-auth passphrase`).")
     if not mgr.verify_disable_passphrase(passphrase):
         raise HTTPException(403, "Invalid disable passphrase")
-    mgr.disable_auth()
+    mgr.disable_auth(confirm=True)   # localhost + admin token + passphrase already checked above
     return {"auth_enabled": False}
 
 
@@ -243,8 +243,8 @@ async def recover_access(request: Request):
     """
     try:
         body = await request.json()
-    except Exception:
-        raise HTTPException(400, "JSON body required")
+    except Exception as exc:
+        raise HTTPException(400, "JSON body required") from exc
     recovery_key = body.get("recovery_key", "")
     if not recovery_key:
         raise HTTPException(400, "recovery_key field required")

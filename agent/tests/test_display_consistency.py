@@ -7,7 +7,6 @@ calls, against the complex recomputed directly.
 """
 from __future__ import annotations
 
-import io
 
 import numpy as np
 import pytest
@@ -19,22 +18,25 @@ DOC = (b"Alpha connects beta. Beta connects gamma. Gamma connects alpha. "
 
 @pytest.fixture
 def run(tmp_path, monkeypatch):
+    """A session holding a known complex.
+
+    Built directly rather than through /pipeline/stream: that route runs its stages
+    in a forkserver subprocess, which does not see a monkeypatched workspace dir, so
+    the document bundle lands in the real workspace and no session is registered
+    here. The claim under test is that the API reports what the code computed, and
+    that does not need the pipeline to establish it.
+    """
     monkeypatch.setenv("REXGRAPH_RCDB_URI", "sqlite:///" + str(tmp_path / "r.sqlite"))
-    import agent.server.persistence as pers
     from agent.rcdb import reset_default_store
-    monkeypatch.setattr(pers, "_BASE_DIR", tmp_path / "ws", raising=False)
     reset_default_store()
+    from agent.auto import FACE_RULE, auto_rex
     from agent.server.app import app, get_store
-    c = TestClient(app)
-    r = c.post("/api/v1/pipeline/stream",
-               files=[("files", ("cons.txt", io.BytesIO(DOC), "text/plain"))],
-               data={"query": "what connects alpha?", "depth": "standard"})
-    assert r.status_code == 200, r.text
-    # newest session by its own timestamp: the store is shared and long-lived, so
-    # taking the last of the list picks whatever happens to be ordered last.
-    sessions = c.get("/api/sessions").json()
-    sid = max(sessions, key=lambda s: s.get("created", 0))["session_id"]
-    yield c, sid, get_store().get(sid).current()
+
+    rex = auto_rex(DOC.decode(), face_selection=FACE_RULE)
+    session = get_store().create(name="display-consistency")
+    session.add_snapshot(rex=rex, action="probe", params={}, results={},
+                         summary="display consistency")
+    yield TestClient(app), session.session_id, rex
     reset_default_store()
 
 

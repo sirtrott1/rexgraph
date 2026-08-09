@@ -359,8 +359,11 @@ class TestLinearSolve:
         x = _relational.rl_cg_solve(RL, b)
         assert x.shape == (nE,)
         # RL @ x should approximate the projection of b onto col(RL)
+        # the comment here used to assert nothing: the residual was computed, the claim
+        # was written down, and the next line moved on to a different check. Measured
+        # ||RL @ residual|| = 6.4e-16, so the claim is true and is now tested.
         residual = RL @ x - b
-        # Residual should be in the null space of RL
+        assert np.allclose(RL @ residual, 0, atol=1e-8), np.linalg.norm(RL @ residual)
         evals, evecs = _relational.rl_eigen(RL)
         col_space = evecs[:, evals > 1e-10]
         proj_b = col_space @ col_space.T @ b

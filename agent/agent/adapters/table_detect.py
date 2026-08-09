@@ -20,6 +20,10 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:                       # pandas is imported where it is used, not at load
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 try:
-    import h5py
+    import h5py  # noqa: F401
     HAS_HDF5 = True
 except ImportError:
     HAS_HDF5 = False

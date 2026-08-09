@@ -41,21 +41,32 @@ import sys
 import time
 from pathlib import Path
 
-CRED_FILE = Path.home() / ".config" / "rexgraph" / "credentials.json"
+def _cred_file() -> Path:
+    """Where CLI credentials live, honouring REXGRAPH_CONFIG_DIR.
+
+    Resolved per call rather than at import. It was a module constant over `Path.home()`,
+    so it ignored the config directory everything else respects: a test that redirected
+    REXGRAPH_CONFIG_DIR still read the operator's real credentials, found the URL of their
+    live server, connected to it, and reported that `create` works without a server. It
+    also wrote tokens into their home while doing so.
+    """
+    return Path(os.environ.get(
+        "REXGRAPH_CONFIG_DIR", str(Path.home() / ".config" / "rexgraph"))
+    ) / "credentials.json"
 
 
 # Credential storage
 
 def _load_creds() -> dict:
-    if CRED_FILE.exists():
-        return json.loads(CRED_FILE.read_text())
+    if _cred_file().exists():
+        return json.loads(_cred_file().read_text())
     return {}
 
 
 def _save_creds(creds: dict):
-    CRED_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CRED_FILE.write_text(json.dumps(creds, indent=2))
-    os.chmod(str(CRED_FILE), 0o600)  # owner-only
+    _cred_file().parent.mkdir(parents=True, exist_ok=True)
+    _cred_file().write_text(json.dumps(creds, indent=2))
+    os.chmod(str(_cred_file()), 0o600)  # owner-only
 
 
 def get_stored_auth() -> tuple:
@@ -102,6 +113,26 @@ def _request(method, url, token=None, json_data=None, verify=True):
         return 0, {"error": str(e)}
 
 
+def _report_failure(status, data, url=None):
+    """Print why a request failed, and what to do about it.
+
+    `_request` returns status 0 when it never reached the server at all, which is a
+    different problem from a 401 and needs a different answer. Every command printed
+    `Failed (0): <urlopen error [Errno 111] Connection refused>` for it, which names
+    the errno and not one thing the caller can act on.
+    """
+    if status == 0:
+        where = url or "the server"
+        print(f"Cannot reach {where}: {data.get('error', 'connection failed')}",
+              file=sys.stderr)
+        print("This command talks to a running server. Start one with "
+              "`rexgraph-serve`, point at another with --url, or store credentials "
+              "with `rexgraph-auth login --url URL --admin-token TOKEN`.",
+              file=sys.stderr)
+        return
+    print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
+
+
 # Commands
 
 def cmd_create(args):
@@ -126,10 +157,9 @@ def cmd_create(args):
             creds["url"] = url
             creds["token"] = data["token"]
             _save_creds(creds)
-            print(f"Saved to {CRED_FILE}")
+            print(f"Saved to {_cred_file()}")
     else:
-        print("Failed (%d): %s" % (status, data.get("error", data)),
-              file=sys.stderr)
+        _report_failure(status, data, url)
         if status in (401, 403):
             print("Hint: while auth is disabled any local caller is admin; once "
                   "enabled, pass an admin token via --admin-token or "
@@ -155,8 +185,7 @@ def cmd_list(args):
             prefix = t.get("prefix", "?")
             print(f"  {prefix}...  name={name}  created={created}")
     else:
-        print("Failed (%d): %s" % (status, data.get("error", data)),
-              file=sys.stderr)
+        _report_failure(status, data, url)
 
 
 def cmd_test(args):
@@ -226,7 +255,7 @@ def cmd_enable(args):
             print("You have no stored admin token. Create one BEFORE you lose access:")
             print("  rexgraph-auth create --name admin --role admin --save")
     else:
-        print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
+        _report_failure(status, data, url)
         if status in (401, 403):
             print("Hint: run this on the server host, and pass an admin token via "
                   "--admin-token or 'rexgraph-auth login'.", file=sys.stderr)
@@ -243,7 +272,7 @@ def cmd_passphrase(args):
     if status == 200 and data.get("disable_passphrase_set"):
         print("Disable passphrase set.")
     else:
-        print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
+        _report_failure(status, data, url)
         sys.exit(1)
 
 
@@ -258,7 +287,7 @@ def cmd_disable(args):
         print("Authentication DISABLED - the API is now open. Do not expose the "
               "port (bind 127.0.0.1, or set RCF_ALLOW_INSECURE=1 knowingly).")
     else:
-        print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
+        _report_failure(status, data, url)
         if status == 403:
             print("Hint: disabling auth requires running on the server host and the "
                   "disable passphrase. Set one with 'rexgraph-auth passphrase'.",
@@ -268,11 +297,20 @@ def cmd_disable(args):
 
 def cmd_status(args):
     """Show whether auth is enabled on a server (no token required)."""
-    url = args.url or _load_creds().get("url", "http://localhost:8000")
+    creds = _load_creds()
+    url = args.url or creds.get("url", "http://localhost:8000")
     status, data = _request("GET", f"{url}/api/health")
     if status != 200:
-        print("Server unreachable at %s (%d)" % (url, status), file=sys.stderr)
-        sys.exit(1)
+        # a status query answers with what it knows. "No server there" IS the answer,
+        # so it prints the local half and exits 0; exiting 1 made `status` unusable as
+        # the first command someone runs, before anything is serving.
+        print(f"Server:     {url}")
+        print("Reachable:  no (%s)" % (data.get("error", status)
+                                       if status == 0 else f"HTTP {status}"))
+        print("Credentials: %s" % ("stored for " + creds["url"]
+                                   if creds.get("url") else "none stored"))
+        print("Start one with `rexgraph-serve`, or point at another with --url.")
+        return
     print(f"Server:     {url}")
     print("Auth:       %s" % ("ENABLED" if data.get("auth_enabled") else "disabled (open)"))
     print("Backend:    rexgraph {}".format(data.get("rexgraph", "?")))
@@ -287,7 +325,7 @@ def cmd_login(args):
         "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     _save_creds(creds)
-    print(f"Credentials saved to {CRED_FILE}")
+    print(f"Credentials saved to {_cred_file()}")
     print(f"  URL: {args.url}")
     print(f"  Token: {args.token[:8]}...{args.token[-4:]}"
           if len(args.token) > 12 else "  Token: (short)")
@@ -316,8 +354,8 @@ def cmd_whoami(args):
 
 def cmd_logout(args):
     """Remove stored credentials."""
-    if CRED_FILE.exists():
-        CRED_FILE.unlink()
+    if _cred_file().exists():
+        _cred_file().unlink()
         print("Credentials removed.")
     else:
         print("No credentials stored.")
@@ -396,7 +434,7 @@ def cmd_member(args):
             print("Member '{}' updated in '{}': role {} (their existing token is unchanged).".format(
                 args.name, ws, data.get("role", args.role)))
         else:
-            print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
+            _report_failure(status, data, url)
             sys.exit(1)
     elif args.action == "list":
         status, data = _request("GET", f"{url}/api/v1/admin/members?workspace={ws}", token=token)
@@ -410,7 +448,7 @@ def cmd_member(args):
             for m in members:
                 print("  %-20s %-8s" % (m.get("user_id", "?"), m.get("role", "?")))
         else:
-            print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
+            _report_failure(status, data, url)
             sys.exit(1)
     elif args.action == "revoke":
         if not args.name:
@@ -423,7 +461,7 @@ def cmd_member(args):
             where = "everywhere" if args.all else ("workspace '{}'".format(data.get("workspace", ws)))
             print(f"Revoked: {args.name} from {where}")
         else:
-            print("Failed (%d): %s" % (status, data.get("error", data)), file=sys.stderr)
+            _report_failure(status, data, url)
             sys.exit(1)
 
 
@@ -468,7 +506,7 @@ def cmd_network_init(args):
     print("")
     print(f"  Admin user:    {name}")
     print(f"  Admin token:   {admin_token}")
-    print(f"                 (saved to {CRED_FILE}; shown once)")
+    print(f"                 (saved to {_cred_file()}; shown once)")
     if recovery:
         print(f"  Recovery key:  {recovery}")
         print("                 (store offline - the only way back if all tokens are lost)")

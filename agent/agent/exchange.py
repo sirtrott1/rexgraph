@@ -80,7 +80,7 @@ def build_exchange_complex(
             out_to_unified[i] = len(unified_labels)
             unified_labels.append(label)
 
-    nV = len(unified_labels)
+    len(unified_labels)
 
     # Remap output edges to unified vertex indices
     out_sources_remapped = np.array(

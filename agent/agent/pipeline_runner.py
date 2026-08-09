@@ -187,7 +187,7 @@ class PipelineRunner:
         # Step 1: build one corpus from whatever inputs are present.
         # A mixed batch (OCR texts + direct CSV/JSON/text files) must
         # include BOTH: the texts branch used to win and direct files
-        # were silently dropped (audit P2).
+        # were silently dropped.
         have_texts = texts is not None and doc_ids is not None
         have_files = bool(files)
         if not have_texts and not have_files:
@@ -314,7 +314,7 @@ class PipelineRunner:
         OCR-extension files are OCR'd and routed through the OCRAdapter's
         structure-aware layout path. Everything else is added
         as a source path so auto_rex picks the right adapter (CSV/JSON/
-        feature/text) - never flattened to word co-occurrence (audit P3).
+        feature/text): never flattened to word co-occurrence.
         """
         p = Path(path)
         suffix = p.suffix.lower()

@@ -72,6 +72,42 @@ def _is_dataframe(obj) -> bool:
 
 
 # Input type detection
+#: extensions whose absence means a missing file rather than prose. Only the
+#: ambiguous ones: a .pdf or .png that is not there fails when its reader opens it,
+#: and classifying by name is what lets a caller ask what a name would be read as.
+_FILE_SUFFIXES = frozenset({".txt"})
+
+
+def _refuse_if_missing_file(data, p: Path, suffix: str) -> None:
+    """Raise when a string names a file that is not there.
+
+    `source` is documented as a path *or* raw text, and the ambiguity was resolved
+    in favour of text: a mistyped path was tokenised into a co-occurrence complex, so
+    `/data/nope.txt` produced a plausible nV, nE and kappa over the words of the path.
+    A wrong answer that looks right is worse than no answer.
+
+    Only the ambiguous suffixes are guarded, and a phrase that happens to end in one
+    (`notes on chapter.txt`) is left alone: a path is either rooted in a separator or
+    carries no whitespace at all.
+    """
+    if suffix not in _FILE_SUFFIXES:
+        return
+    s = str(data)
+    if "\n" in s or len(s) >= 256:
+        return
+    looks_like_a_path = ("/" in s or "\\" in s) or not any(c.isspace() for c in s)
+    if not looks_like_a_path:
+        return
+    try:
+        if p.exists():
+            return
+    except OSError:
+        return
+    raise FileNotFoundError(
+        f"{s!r} names a {suffix} file that does not exist. Pass an existing path, "
+        f"or pass the text itself if this was meant as content.")
+
+
 def detect_input_type(data: Any) -> str:
     """Inspect data and classify it for adapter dispatch.
 
@@ -127,6 +163,10 @@ def detect_input_type(data: Any) -> str:
                     return _classify_csv(p, default="text")
                 except Exception:
                     return "text"
+            # A path that is not there is a missing file, not the prose of its own
+            # name. Falling through to "text" tokenised the path into a complex, so
+            # a mistyped path returned a plausible reading of text nobody supplied.
+            _refuse_if_missing_file(data, p, suffix)
             return "text"
 
         # No recognized extension, but it could still be a file path if it exists
@@ -544,6 +584,8 @@ def build_rex_from_edges(
     # or exhaust memory on large, dense graphs (a real core limitation). Fail fast
     # and clearly HERE, before the C code runs.
     _nV = int(max(int(edges.sources.max()), int(edges.targets.max())) + 1) if edges.nE else 0
+    for _support in getattr(edges, "branching", []) or []:
+        _nV = max(_nV, int(max(_support)) + 1)
     check_analysis_size(_nV, edges.nE)
 
     if edges.nE == 0:
@@ -564,12 +606,34 @@ def build_rex_from_edges(
         else None
     )
 
-    rex = RexGraph(
-        sources=edges.sources,
-        targets=edges.targets,
-        w_E=w_E_arg,
-        signs=signs_arg,
-    )
+    branching = [list(map(int, r)) for r in getattr(edges, "branching", []) or []]
+    if branching:
+        # a wider relation cannot be said in (sources, targets), so the whole complex is
+        # built from a boundary CSR instead: the 2-ary relations first, in their original
+        # order so every aligned array still lines up, then the k-ary ones.
+        supports = [[int(a), int(b)]
+                    for a, b in zip(edges.sources, edges.targets, strict=True)]
+        supports.extend(branching)
+        ptr = np.zeros(len(supports) + 1, dtype=np.int32)
+        for i, support in enumerate(supports):
+            ptr[i + 1] = ptr[i] + len(support)
+        idx = np.fromiter((v for support in supports for v in support),
+                          dtype=np.int32, count=int(ptr[-1]))
+        if w_E_arg is not None:
+            w_E_arg = np.concatenate([np.asarray(w_E_arg, dtype=float),
+                                      np.ones(len(branching))])
+        if signs_arg is not None:
+            signs_arg = np.concatenate([np.asarray(signs_arg),
+                                        np.ones(len(branching), dtype=signs_arg.dtype)])
+        rex = RexGraph(boundary_ptr=ptr, boundary_idx=idx,
+                       w_E=w_E_arg, signs=signs_arg)
+    else:
+        rex = RexGraph(
+            sources=edges.sources,
+            targets=edges.targets,
+            w_E=w_E_arg,
+            signs=signs_arg,
+        )
 
     # Faces, on request.
     #
@@ -583,6 +647,21 @@ def build_rex_from_edges(
     # Nothing is filled unless asked. Asserting a face is asserting that something
     # is enclosed, and that is the caller's claim about their data, not a default.
     rex = attach_faces(rex, face_selection, type_labels=edges.type_labels)
+
+    # the embedding travels with the complex when the source carried one, because the
+    # lengths and angles taken against it are a different reading from the intrinsic ones
+    # and both are wanted: a ring's intrinsic quadrance is a function of arity whatever
+    # the conformation, and the embedded one moves when the ring puckers.
+    embedding = list(getattr(edges, "embedding", []) or [])
+    if embedding:
+        rex._embedding = embedding
+
+    # attributes the reader parsed, onto the cells they belong to. Same shape as the
+    # store, so this is a hand-off rather than a translation.
+    for grade, cells in (getattr(edges, "attributes", None) or {}).items():
+        for index, values in cells.items():
+            for key, value in values.items():
+                rex.attach_metadata(int(grade), int(index), str(key), value)
 
     # Honour the declared vertex count, AFTER faces: attaching them can rebuild the
     # complex from its boundary arrays, which re-derives nV from the edge supports
@@ -622,7 +701,7 @@ def _fallback_text_or_raise(data, input_type, err, **kwargs):
     ambiguous ``.csv``) by peeking at content, which can misfire on prose
     that merely contains commas. Rather than failing the whole document
     with an "Empty CSV" style error, re-read the file as text and build a
-    word co-occurrence complex (audit B4 regression fix).
+    word co-occurrence complex.
     """
     from pathlib import Path as _Path
 
@@ -632,7 +711,13 @@ def _fallback_text_or_raise(data, input_type, err, **kwargs):
             try:
                 text = p.read_text(encoding="utf-8", errors="replace")
             except Exception:
-                raise err
+                # `err` is the ORIGINAL csv failure this function was called to rescue,
+                # and the exception being handled here is the rescue itself failing. So
+                # `from exc` would assert the wrong direction: the csv error did not
+                # arise from the read error, it preceded it. Raising bare keeps Python's
+                # implicit __context__, which already says "while handling that, this",
+                # and that framing is the accurate one.
+                raise err  # noqa: B904
             if text and len(text.strip()) >= 10:
                 from agent.adapters.text import TextAdapter
                 text_kwargs = {k: v for k, v in kwargs.items()

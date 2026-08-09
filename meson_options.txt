@@ -12,3 +12,22 @@ option(
     value: false,
     description: 'Optimize for the build CPU (-march=native -ffast-math). Not portable; relaxes IEEE fp.',
 )
+
+# 'blas' controls what happens when no BLAS/LAPACK is found at configure time.
+#
+# The compiled extensions call cblas_* and LAPACK from _linalg.pxd. Without a BLAS
+# to link against they still COMPILE, and then fail at import with
+# "undefined symbol: cblas_dgemm". That is how a broken wheel gets published: the
+# build warns, the warning scrolls past in a few hundred lines of compiler output,
+# and the artifact looks fine until someone installs it somewhere that does not
+# already have a BLAS loaded.
+#
+# So the default is 'auto', which now ERRORS rather than warning. Use 'disabled'
+# only if you know the symbols will be present at runtime some other way:
+#   pip install . -Csetup-args=-Dblas=disabled
+option(
+    'blas',
+    type: 'feature',
+    value: 'auto',
+    description: 'Require a BLAS/LAPACK at build time. disabled = build anyway, symbols must come from elsewhere at runtime.',
+)

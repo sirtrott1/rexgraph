@@ -20,8 +20,8 @@ import numpy as np
 import pytest
 
 try:
-    import pandas
-    import sqlalchemy
+    import pandas  # noqa: F401
+    import sqlalchemy  # noqa: F401
     HAS_SQL_DEPS = True
 except ImportError:
     HAS_SQL_DEPS = False

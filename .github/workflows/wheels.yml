@@ -1,0 +1,126 @@
+# Build installable artifacts, so installing does not require building.
+#
+# `ci.yml` answers "does the source build here". This answers a different question:
+# "can someone install this without a toolchain at all". Today they cannot. rexgraph is
+# not on PyPI, so every install compiles 39 Cython kernels and therefore needs a C
+# compiler, meson and cython present and agreeing. That is the actual cross-setup
+# barrier, and a wheel is what removes it.
+#
+# Deliberately NOT triggered by ordinary pushes. Wheels take much longer than the test
+# suites and are only wanted when something is being released or checked. Run it from
+# the Actions tab, or let a published release run it.
+
+name: wheels
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to PyPI (leave off to only build and keep the artifacts)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wheels:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-13 is the last x86_64 image and macos-14 is Apple silicon, so both
+        # architectures come from native runners. Cross-compiling one from the other
+        # would mean shipping a wheel whose smoke test never ran on its own hardware.
+        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # what gets built, what is skipped, and the smoke test each wheel must pass all
+      # live in [tool.cibuildwheel] in pyproject.toml, so they are the same whether this
+      # runs here or someone runs cibuildwheel locally
+      - uses: pypa/cibuildwheel@v2.21.3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: source distribution
+    runs-on: ubuntu-latest
+    steps:
+      # meson-python builds the sdist through `meson dist`, which enumerates files from
+      # version control, so the checkout needs real history rather than a shallow one.
+      # With a shallow or exported tree it fails outright: "Dist currently only works
+      # with Git or Mercurial repos".
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: pipx run build --sdist
+
+      # an sdist that is missing a .pyx or a meson.build installs fine from a git
+      # checkout and fails for everyone who gets it from PyPI, so check the contents
+      # rather than only that the file was produced
+      - name: the sdist carries everything the build needs
+        run: |
+          python - <<'PY'
+          import glob, tarfile
+          path, = glob.glob("dist/*.tar.gz")
+          names = tarfile.open(path).getnames()
+          pyx = sum(n.endswith(".pyx") for n in names)
+          mes = sum(n.endswith("meson.build") for n in names)
+          print(f"{path}: {len(names)} entries, {pyx} .pyx, {mes} meson.build")
+          assert pyx >= 39, f"expected the Cython sources, found {pyx}"
+          assert mes >= 6, f"expected the meson definitions, found {mes}"
+          PY
+
+      - name: it installs from the sdist into an empty environment
+        run: |
+          python -m venv "$RUNNER_TEMP/sd"
+          "$RUNNER_TEMP/sd/bin/pip" install --upgrade pip
+          "$RUNNER_TEMP/sd/bin/pip" install dist/*.tar.gz
+          cd "$RUNNER_TEMP" && "$RUNNER_TEMP/sd/bin/python" -c "
+          import numpy as np
+          from rexgraph.graph import RexGraph
+          r = RexGraph(sources=np.array([0,1,2],np.int32), targets=np.array([1,2,0],np.int32))
+          r._ensure_clean(); assert tuple(r.betti) == (1,1,0)
+          print('sdist ok')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: publish to PyPI
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+
+    # Publishing is irreversible: a version number on PyPI cannot be reused, even after
+    # a delete. So it never happens as a side effect of a build. It runs on a published
+    # release, or when someone ticks the box on a manual run, and not otherwise.
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish)
+
+    environment: pypi           # gate approvals and the trusted-publisher link here
+    permissions:
+      id-token: write           # PyPI trusted publishing, so there is no token to leak
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

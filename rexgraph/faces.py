@@ -27,7 +27,8 @@ from fractions import Fraction
 
 import numpy as np
 
-__all__ = ["solve_face_column", "face_support", "cycle_basis", "find_cycles",
+__all__ = ["solve_face_column", "solve_face_basis", "face_reading",
+           "orientation_holonomy", "face_support", "cycle_basis", "find_cycles",
            "find_hyperface_groups", "autoface", "auto_hyperface"]
 
 
@@ -130,6 +131,280 @@ def solve_face_column(rex, edge_ids):
     for v in x:
         den = den * v.denominator // np.gcd(den, v.denominator)
     return [v * den for v in x]
+
+
+def solve_face_basis(rex, edge_ids) -> list:
+    """Every independent face the given relations bound, as exact columns.
+
+    `solve_face_column` returns the first basis vector, which is the whole answer when the
+    nullspace is one-dimensional and an arbitrary choice when it is not. A group carrying
+    two independent cycles bounds a two-dimensional space of faces, and picking one vector
+    out of it attaches a cell that depends on the elimination order rather than on the
+    complex: on a 4-ary relation with its induced 4-cycle the pick came back
+    `[3, -3, -2, -1, 0]`, a face that claims five relations and uses four.
+
+    Returns a list of columns, one per independent cycle, so a caller can attach all of
+    them and leave nothing half-filled. Empty when the relations bound nothing.
+    """
+    edge_ids = np.asarray(edge_ids, dtype=np.int64).ravel()
+    m = int(edge_ids.shape[0])
+    if m == 0:
+        return []
+    cols = _exact_b1_block(rex, edge_ids)
+    verts = sorted({v for col in cols for v in col})
+    if not verts:
+        return []
+    row_of = {v: i for i, v in enumerate(verts)}
+    A = [[Fraction(0)] * m for _ in verts]
+    for j, col in enumerate(cols):
+        for v, c in col.items():
+            A[row_of[v]][j] = c
+
+    pivot_col_of_row: list[int] = []
+    r = 0
+    for c in range(m):
+        piv = next((i for i in range(r, len(verts)) if A[i][c] != 0), None)
+        if piv is None:
+            continue
+        A[r], A[piv] = A[piv], A[r]
+        inv = Fraction(1) / A[r][c]
+        A[r] = [x * inv for x in A[r]]
+        for i in range(len(verts)):
+            if i != r and A[i][c] != 0:
+                f = A[i][c]
+                A[i] = [a - f * b for a, b in zip(A[i], A[r], strict=True)]
+        pivot_col_of_row.append(c)
+        r += 1
+        if r == len(verts):
+            break
+
+    pivots = set(pivot_col_of_row)
+    basis = []
+    for fc in (c for c in range(m) if c not in pivots):
+        x = [Fraction(0)] * m
+        x[fc] = Fraction(1)
+        for i, pc in enumerate(pivot_col_of_row):
+            x[pc] = -A[i][fc]
+        lead = next((v for v in x if v != 0), None)
+        if lead is None:
+            continue
+        x = [v / lead for v in x]
+        den = 1
+        for v in x:
+            den = den * v.denominator // np.gcd(den, v.denominator)
+        basis.append([v * den for v in x])
+    return basis
+
+
+def face_reading(rex, edge_ids, column=None) -> dict:
+    """Whether a set of relations bounds a face, what its signs are, and why not.
+
+    `solve_face_column` answers with a column or with None, and None covers two different
+    situations that a caller has to tell apart. This reports which::
+
+        bounds       nullity 1: exactly one cycle, so the column is determined up to an
+                     overall sign and the face is real
+        open         nullity 0: the boundary columns are independent, nothing is bounded,
+                     and attaching a face here would invent a cell
+        degenerate   nullity > 1: the set carries several independent cycles, so it is not
+                     one face and the caller passed too many relations
+
+    The SIGN CONTEXT is the rest of it. Solving gives the coefficient each relation is
+    traversed with, so `reversed_relations` is the ones running against their stored
+    orientation and `holonomy` is the product of the signs around the cycle. Two complexes
+    with the same support and different orientations are the same cell to homology and
+    different cells here, which is the whole content of the grade-2 boundary: existence
+    says there is a cycle, the sign says how it closes.
+
+    Pass `column` to check signs the caller already has instead of solving for them. A
+    wrong column is otherwise invisible: `_B2_hodge_dual` filters chain-invalid faces
+    silently, so nF_hodge stays 0, the cycle stays open, and nothing says why. Here it
+    comes back as `chain_valid: False` with the exact residual and the column that would
+    have worked.
+    """
+    edge_ids = [int(e) for e in np.asarray(edge_ids, dtype=np.int64).ravel()]
+    m = len(edge_ids)
+    out = {"relations": edge_ids, "gon": m}
+    if m == 0:
+        return {**out, "state": "open", "nullity": 0, "column": None,
+                "reason": "no relations were given"}
+
+    cols = _exact_b1_block(rex, edge_ids)
+    verts = sorted({v for col in cols for v in col})
+    nullity = m - _block_rank(cols, verts)
+    solved = solve_face_column(rex, edge_ids)
+    state = "bounds" if nullity == 1 else ("open" if nullity == 0 else "degenerate")
+    out.update({"state": state, "nullity": nullity})
+
+    if column is None:
+        chosen = solved
+    else:
+        chosen = [x if isinstance(x, Fraction) else Fraction(x).limit_denominator()
+                  for x in column]
+        if len(chosen) != m:
+            raise ValueError("column must have one coefficient per relation")
+
+    if chosen is None:
+        out["column"] = None
+        out["reason"] = ("these relations are independent, so they bound nothing"
+                         if state == "open" else
+                         "more than one independent cycle here: this is not one face")
+        return out
+
+    residual = _chain_residual(cols, verts, chosen)
+    out["column"] = [str(x) for x in chosen]
+    if state == "degenerate" and column is None:
+        out["reason"] = (f"these relations carry {nullity} independent cycles, so they "
+                         f"bound a space of faces and this is one basis vector of it, "
+                         f"fixed by the elimination order rather than by the complex. "
+                         f"Use solve_face_basis to attach all {nullity}.")
+    out["chain_valid"] = all(r == 0 for r in residual)
+    out["residual"] = [str(r) for r in residual if r != 0]
+    signs = [1 if x > 0 else (-1 if x < 0 else 0) for x in chosen]
+    out["reversed_relations"] = [edge_ids[i] for i, sg in enumerate(signs) if sg < 0]
+    out["holonomy"] = int(np.prod([sg for sg in signs if sg != 0])) if any(signs) else 0
+    out["support"] = face_support(chosen)
+    if column is not None and not out["chain_valid"]:
+        out["solved_column"] = [str(x) for x in solved] if solved else None
+        out["reason"] = ("the given signs do not satisfy B1 c = 0, so this face would be "
+                         "dropped by the chain filter with no other symptom")
+    return out
+
+
+def _block_rank(cols, verts) -> int:
+    """Rank of the (vertices x relations) boundary block, exactly."""
+    m = len(cols)
+    row_of = {v: i for i, v in enumerate(verts)}
+    A = [[Fraction(0)] * m for _ in verts]
+    for j, col in enumerate(cols):
+        for v, c in col.items():
+            A[row_of[v]][j] = c
+    rank = 0
+    for c in range(m):
+        piv = next((i for i in range(rank, len(verts)) if A[i][c] != 0), None)
+        if piv is None:
+            continue
+        A[rank], A[piv] = A[piv], A[rank]
+        inv = Fraction(1) / A[rank][c]
+        A[rank] = [x * inv for x in A[rank]]
+        for i in range(len(verts)):
+            if i != rank and A[i][c] != 0:
+                f = A[i][c]
+                A[i] = [a - f * b for a, b in zip(A[i], A[rank], strict=True)]
+        rank += 1
+    return rank
+
+
+def _chain_residual(cols, verts, column) -> list:
+    """`B1 c` per vertex, exactly. Zero throughout is the chain condition."""
+    total = dict.fromkeys(verts, Fraction(0))
+    for coeff, col in zip(column, cols, strict=True):
+        for v, c in col.items():
+            total[v] += coeff * c
+    return [total[v] for v in verts]
+
+
+def orientation_holonomy(rex, *, grade: int = 2) -> dict:
+    """Whether the cells at a grade can be coherently oriented, gauge-invariantly.
+
+    A solved face column is determined only up to an overall sign: a face and its reverse
+    are the same cell, and `solve_face_column` returns the leading-positive representative
+    because something has to be returned. So any per-cell sign reading measures the
+    REPRESENTATIVE, not the complex. Negating one column of a two-triangle complex moves a
+    raw sign product from +1 to -1 without changing a single cell.
+
+    The invariant is the holonomy, exactly as at grade 1, where frustration is the product
+    of signs around a cycle rather than a count of negative edges. One grade up the loop
+    runs through the cells: two faces meeting on a relation agree when they induce
+    OPPOSITE coefficients on it, which is what coherent orientation means, so the pairwise
+    agreement is `-sign(c_a[e] c_b[e])` and the holonomy is its product around a closed
+    loop of faces. Each face appears exactly twice in a closed loop, so its sign cancels
+    and the product is invariant. Measured: a tetrahedron boundary reads +1 on every loop
+    under any subset of flips, a five-triangle Moebius band reads -1 under any.
+
+    Balanced (+1 everywhere) is exactly coherent orientability, so this MEASURES what
+    orienting face-by-face attempts, and does not need the attempt to succeed in order to
+    report the obstruction.
+
+    Returns the per-loop holonomies, the frustrated fraction, and `orientable`.
+    """
+    grade = int(grade)
+    if grade < 2:
+        return {"grade": grade, "loops": [], "orientable": None,
+                "reason": ("orientation is a relation BETWEEN cells, and at grade 1 the "
+                           "column is canonical (-1, +share, ...) with no freedom to "
+                           "gauge; use frustration_exact for the grade-1 holonomy")}
+    B = _grade_boundary(rex, grade)
+    if B is None or B.shape[1] < 2:
+        return {"grade": grade, "loops": [], "n_loops": 0, "orientable": True,
+                "frustrated": 0, "reason": "fewer than two cells: no loop to close"}
+
+    B = B.tocsc()
+    n = B.shape[1]
+    support = [dict(zip(B.indices[B.indptr[c]:B.indptr[c + 1]],
+                        B.data[B.indptr[c]:B.indptr[c + 1]], strict=False)) for c in range(n)]
+
+    # the dual graph: cells adjacent when they share a bounding cell one grade down
+    adjacency, agreement = {c: [] for c in range(n)}, {}
+    for a in range(n):
+        for b in range(a + 1, n):
+            shared = [e for e in support[a] if e in support[b]
+                      and support[a][e] != 0 and support[b][e] != 0]
+            if not shared:
+                continue
+            e = min(shared)
+            adjacency[a].append(b)
+            adjacency[b].append(a)
+            agreement[(a, b)] = agreement[(b, a)] = (
+                -1 if support[a][e] * support[b][e] > 0 else 1)
+
+    # a spanning forest fixes a gauge; every non-tree edge closes one independent loop,
+    # and the cycle space is spanned by those, so no eigensolver and no enumeration
+    parent, orient, seen = {}, {}, set()
+    order = []
+    for root in range(n):
+        if root in seen:
+            continue
+        seen.add(root)
+        orient[root] = 1
+        parent[root] = None
+        stack = [root]
+        while stack:
+            a = stack.pop()
+            order.append(a)
+            for b in adjacency[a]:
+                if b not in seen:
+                    seen.add(b)
+                    parent[b] = a
+                    orient[b] = orient[a] * agreement[(a, b)]
+                    stack.append(b)
+
+    loops = []
+    tree = {(a, parent[a]) for a in parent if parent[a] is not None}
+    for a in range(n):
+        for b in adjacency[a]:
+            if a < b and (a, b) not in tree and (b, a) not in tree:
+                loops.append({"cells": [a, b],
+                              "holonomy": int(orient[a] * agreement[(a, b)] * orient[b])})
+    frustrated = sum(1 for loop in loops if loop["holonomy"] < 0)
+    return {
+        "grade": grade, "n_cells": n, "n_loops": len(loops), "loops": loops,
+        "frustrated": frustrated,
+        "rate": (Fraction(frustrated, len(loops)) if loops else Fraction(0)),
+        "orientable": frustrated == 0,
+        "reading": ("+1 on every independent loop is coherent orientability; a -1 is the "
+                    "obstruction, and it survives any per-cell sign flip"),
+    }
+
+
+def _grade_boundary(rex, grade: int):
+    """That grade's boundary operator as scipy sparse, or None when the grade is absent."""
+    from rexgraph.graded_boundary import graded_boundaries_from_rex
+    boundaries = graded_boundaries_from_rex(rex)
+    if grade < 1 or grade > len(boundaries):
+        return None
+    B = boundaries[grade - 1]
+    return None if B.shape[1] == 0 else B
 
 
 def face_support(column) -> int:

@@ -122,7 +122,7 @@ def _ensure_pip_packages(packages: list, interactive: bool = True) -> bool:
 def has_paddleocr() -> bool:
     """Check if PaddleOCR and its models are available."""
     try:
-        import paddleocr
+        import paddleocr  # noqa: F401
         return True
     except ImportError:
         return False

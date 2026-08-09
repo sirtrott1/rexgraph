@@ -76,7 +76,7 @@ def test_trace_moments_share_one_power_walk_matches_per_order():
     import scipy.sparse as sp
 
     from rexgraph import scale_propagator as spg
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     A = sp.random(60, 60, density=0.08, random_state=0); A = (A + A.T).tocsr()
     tm = spg.trace_moments(A, 5)
     for a in (1, 2, 3, 4, 5):

@@ -1,5 +1,8 @@
 import numpy as np
 from agent.warehouse import source as S
+import pytest
+
+pytest.importorskip("torch")  # the ml extra: these build or train models
 
 # a tiny inline generic weighted edge list TSV fixture (no pandas, no large file)
 FIXTURE = ("src\tx1\tdst\tx2\tw\n"

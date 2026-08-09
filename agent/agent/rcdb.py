@@ -1620,11 +1620,22 @@ def default_store() -> RCStore:
 
     Persistent by default: a caller that omits a store keeps its data instead of
     writing into a throwaway MemoryStore.
+
+    Inside a request served with auth on, this is the store as that WORKSPACE may see
+    it: records belonging to another one are absent rather than refused. The narrowing
+    happens here because the store is one namespace shared by every workspace, and a
+    rule applied at each of the routes that reach it is a rule the next route will not
+    have. Outside a request, and whenever auth is off, the store is returned whole,
+    which is what the CLI and anything running in-process want.
     """
     global _DEFAULT_STORE
     if _DEFAULT_STORE is None:
         _DEFAULT_STORE = open_store(default_store_uri())
-    return _DEFAULT_STORE
+    try:
+        from agent.server.scope import scoped
+        return scoped(_DEFAULT_STORE)
+    except ImportError:                          # core install, no server
+        return _DEFAULT_STORE
 
 
 def reset_default_store() -> None:

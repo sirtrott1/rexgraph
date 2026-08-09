@@ -76,7 +76,7 @@ def bench_put_breakdown(n: int = 120) -> dict[str, float]:
     sink = rcdb.MemoryStore()
     for k, (rex, labels) in enumerate(_payload(n, seed=1)):
         t0 = time.perf_counter()
-        s = rcdb.structural_signature(rex, {"vertex_labels": labels})
+        rcdb.structural_signature(rex, {"vertex_labels": labels})
         sig.append(time.perf_counter() - t0)
         t0 = time.perf_counter()
         blob = rcdb.serialize_complex(rex)

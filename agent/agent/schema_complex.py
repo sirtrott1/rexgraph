@@ -257,7 +257,7 @@ def reflect_schema(conn_str: str) -> SchemaModel:
             if schema in ("information_schema", "pg_catalog", "sys"):
                 continue
     except Exception as e:
-        raise RuntimeError(f"could not read schema: {e}")
+        raise RuntimeError(f"could not read schema: {e}") from e
     for name in names:
         col_info = insp.get_columns(name)
         cols = [c["name"] for c in col_info]

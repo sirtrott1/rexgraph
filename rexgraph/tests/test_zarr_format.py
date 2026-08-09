@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 try:
-    import zarr
+    import zarr  # noqa: F401
     HAS_ZARR = True
 except ImportError:
     HAS_ZARR = False

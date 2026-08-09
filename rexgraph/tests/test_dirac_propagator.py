@@ -142,6 +142,13 @@ def test_light_imaginary_part_crosses_grades():
     e_im = sd.grade_energy(im)
     # the imaginary (curl) part must put energy on grade 1 (edges) - crossed a grade
     assert e_im[1] > 1e-6, f"no grade-1 transport in curl part: {e_im}"
+    # and the real part must NOT, which is the other half of the same statement and was
+    # computed here without being checked. cos(tD) is EVEN in D, so it can only reach
+    # grades an even number of boundary steps away; sin(tD) is odd and always crosses.
+    # Measured on this complex: real [0.0725, 0.0], imaginary [0.0, 1.9275], so the
+    # split is not approximate, it is total.
+    assert e_re[0] > 1e-6, f"the even part lost its own grade: {e_re}"
+    assert e_re[1] < 1e-9, f"cos(tD) is even and must not cross a grade: {e_re}"
 
     # pure per-grade heat e^{-tD^2} keeps grade-0 input on grade 0 only
     h = sd.heat_squared(psi0, t=0.7, order=200)

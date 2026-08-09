@@ -32,6 +32,29 @@ logger = logging.getLogger(__name__)
 VALID_ROLES = ("queen", "worker", "embedder")
 
 
+@contextlib.contextmanager
+def _budget_slot(identity: str):
+    """The compute ceiling, when the server layer is importable.
+
+    The hive runs headless too (a CLI, a notebook), where there is no server and no
+    tenant to bound, so an absent budget module is a no-op rather than a hard
+    dependency from the swarm onto the web layer.
+    """
+    try:
+        from agent.server.budget import guard
+    except Exception:                            # noqa: BLE001 - headless: no ceiling
+        yield None
+        return
+    with guard(identity or "local") as deadline:
+        yield deadline
+
+
+def _mcp_call(name, *, context=None, **arguments):
+    """One indirection to the tool registry, so the hive holds no second dispatcher."""
+    from agent.mcp_tools import call
+    return call(name, context=context, **arguments)
+
+
 def _tokens(text: str):
     return [t for t in re.findall(r"[a-z0-9]{3,}", str(text).lower())]
 
@@ -251,6 +274,48 @@ class Hive:
         return self.add_worker(name, handler, capability=capability, specialties=specialties,
                                worker_type=worker_type or f"model:{arch}", model=arch)
 
+    def add_tools(self, *, context=None, names=None,
+                  capability: str = "analyze") -> list[str]:
+        """Register the stack's capabilities as hive workers, one bee per tool.
+
+        A bee that can only chat has to be told answers; a bee that holds a tool can
+        compute one. The registry in `agent.mcp_tools` is already the single place a
+        capability's schema and handler live, so registering from it means the hive
+        gains exactly what a model driving MCP would see, and a name that resolves for
+        one resolves for the other.
+
+        `context` is bound at registration and is what keeps this from being the way
+        around the boundaries: every call goes through `mcp_tools.call`, so an
+        admin-only tool is refused for a non-admin context, files resolve as handles
+        inside that workspace, and a stored record belonging elsewhere reads as absent.
+        A bee is a caller like any other, not a trusted one. `context=None` is the local
+        operator, unrestricted, the same rule the rest of the stack uses.
+
+        Tools are typed `tool:<name>`, so they join the worker-type taxonomy
+        `type_complex` builds and are routable and diagnosable like any other member.
+        """
+        from agent.mcp_tools import TOOLS
+
+        def _bind(tool):
+            def handler(data, **kw):
+                args = dict(data or {})
+                args.update(kw)
+                return _mcp_call(tool.name, context=context, **args)
+            return handler
+
+        added = []
+        wanted = set(names) if names else None
+        for name, tool in TOOLS.items():
+            if wanted is not None and name not in wanted:
+                continue
+            if context is not None and tool.requires == "admin" and not context.is_admin:
+                continue                      # not advertised to a bee that cannot run it
+            self.add_worker(name, _bind(tool), capability=capability,
+                            specialties=[name, *tool.description.split()[:6]],
+                            worker_type=f"tool:{name}")
+            added.append(name)
+        return added
+
     def providers(self, capability: str) -> list[str]:
         """Names of worker members that provide a capability (predict/score/embed/analyze/
         transform/generate)."""
@@ -312,7 +377,12 @@ class Hive:
         from . import activity as _act
         _use = _act.open_use(bee.model or name, "invoke:" + bee.capability, by="worker:" + name)
         try:
-            result = bee._handler(data, **kw)
+            # A bee runs the same work an HTTP caller would, so it answers to the same
+            # ceiling. Metered on the SENDER, not the worker: one requester driving ten
+            # bees is the case worth bounding, and a bee is not a way to buy concurrency
+            # the requester does not have.
+            with _budget_slot(sender):
+                result = bee._handler(data, **kw)
         finally:
             _act.close_use(_use)
         if record:

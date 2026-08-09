@@ -73,7 +73,7 @@ def client():
     from agent.server.app import app
     from agent.server.auth import get_auth_manager
     from fastapi.testclient import TestClient
-    get_auth_manager().disable_auth()  # default posture; a prior run may have enabled it
+    get_auth_manager().disable_auth(persist=False)  # default posture; a prior run may have enabled it
     with TestClient(app) as c:
         yield c
 

@@ -175,7 +175,7 @@ def _step_corpus(files, state, params):
             continue
         # Pass the already-built construction straight through instead of
         # re-deriving from ec.source_text, which is empty for CSV/feature
-        # adapters and would add blank documents (audit B2).
+        # adapters and would add blank documents.
         doc_id = item.get("file", "doc")
         corpus.add_document(
             source=doc_id,
@@ -187,7 +187,7 @@ def _step_corpus(files, state, params):
     if not ecs:
         # Direct from files: route each through auto_rex by detected type
         # (CSV -> edge/feature, JSON -> loader, text -> co-occurrence) rather
-        # than force-reading every file as prose (audit B4).
+        # than force-reading every file as prose.
         for filepath in files:
             corpus.add_document(source=filepath, doc_id=filepath)
 
@@ -392,7 +392,101 @@ def _step_training_export(files, state, params):
     output = params.get("output", "training_pairs.safetensors")
 
     te.export_training_pairs(output, target=target)
+    # the run reports its output through state, which is where AgentResult and the
+    # builder screen read it. `export` sets this too.
+    state["export_path"] = output
     return {"path": output, "n_examples": len(te.examples), "target": target}
+
+
+@register_step("knowledge")
+def _step_knowledge(files, state, params):
+    """Join the uploaded files into one complex on their declared cross-references.
+
+    Takes any mix of ontology, annotation, structure and schema files. What it puts in
+    state is the joined complex, so every later step reads one object instead of
+    re-parsing.
+    """
+    from agent.knowledge import join
+
+    if not files:
+        return {"skipped": "no files"}
+    k = join(*files)
+    state["knowledge"] = k
+    state["knowledge_rex"] = k.rex(
+        face_selection=params.get("face_selection") or None)
+    return {
+        "n_entities": k.nV, "n_relations": k.nE,
+        "n_joined": k.report["n_joined"],
+        "sources": [s["origin"] for s in k.report["sources"]],
+        "recommendations": [r["kind"] for r in k.report.get("recommendations", [])],
+    }
+
+
+@register_step("ontology_reason")
+def _step_ontology_reason(files, state, params):
+    """Consistency, classification and module extraction over the joined ontology."""
+    from agent import ontology_reasoning as R
+
+    k = state.get("knowledge")
+    if k is None:
+        return {"skipped": "no knowledge step ran before this one"}
+    triples = k.triples()
+    if not triples:
+        return {"skipped": "no relations to reason over"}
+    terms = params.get("terms") or None
+    out = R.reason(triples, terms=terms)
+    state["reasoning"] = out
+    return {
+        "consistent": out["consistency"]["consistent"],
+        "n_unsatisfiable": out["consistency"]["n_unsatisfiable"],
+        "unsatisfiable": [u["summary"]
+                          for u in out["consistency"]["unsatisfiable"][:10]],
+        "betti": out["betti"],
+    }
+
+
+@register_step("enrichment")
+def _step_enrichment(files, state, params):
+    """Which terms a study set is concentrated in, over the joined complex."""
+    from agent.enrichment import enrich
+
+    k = state.get("knowledge")
+    if k is None:
+        return {"skipped": "no knowledge step ran before this one"}
+    study = params.get("study") or []
+    if isinstance(study, str):
+        study = [x.strip() for x in study.replace(",", " ").split() if x.strip()]
+    if not study:
+        return {"skipped": "no study set given"}
+    out = enrich(k, study, universe=params.get("universe") or None,
+                 min_term_size=int(params.get("min_term_size", 1)))
+    state["enrichment"] = out
+    return {
+        "n_universe": out["n_universe"], "n_study": out["n_study"],
+        "terms": [{"term": t["term"], "p_value": t["p_value"],
+                   "q_value": t["q_value"], "fold": t["fold_enrichment"]}
+                  for t in out["terms"][:20]],
+    }
+
+
+@register_step("releases")
+def _step_releases(files, state, params):
+    """Read the uploaded files as a release series and report what changed."""
+    from agent.ontology_releases import load_releases, navigate, summary
+
+    if len(files or []) < 2:
+        return {"skipped": "a series needs at least two releases"}
+    releases = load_releases(files, labels=params.get("labels") or None)
+    out = summary(releases)
+    out["navigation"] = navigate(releases)
+    state["releases"] = out
+    return {
+        "n_releases": out["n_releases"],
+        "n_introduced": out["n_introduced"], "n_obsoleted": out["n_obsoleted"],
+        "merges": [(m["term"], m["merged_into"]) for m in out["merges"]],
+        "removals": [m["term"] for m in out["removals"]],
+        "surprising": [s["release"] for s in out["navigation"]["surprising"]],
+    }
 
 
 @register_step("langgraph_init")
@@ -596,8 +690,8 @@ class AgentBuilder:
         """Load agent config from YAML."""
         try:
             import yaml
-        except ImportError:
-            raise ImportError("pip install pyyaml")
+        except ImportError as exc:
+            raise ImportError("pip install pyyaml") from exc
         with open(path) as f:
             config = yaml.safe_load(f)
         return cls(config)
@@ -664,8 +758,8 @@ class AgentBuilder:
 
             result.steps.append(sr)
 
-        # Collect accumulated state (audit B1: these were previously
-        # never copied back, so the result always looked empty).
+        # Collect accumulated state: without this the result always reads empty
+        # however much the steps produced.
         result.chunks = state.get("chunks", []) or []
 
         qr = state.get("query_result")
@@ -771,6 +865,20 @@ class AgentBuilder:
                     {"type": "langgraph_record", "params": {"state": "verify"}},
                     {"type": "langgraph_analyze"},
                 ],
+            },
+            "ontology": {
+                "name": "ontology-qa",
+                "description": "Join the files, check the ontology, enrich a gene set",
+                "steps": [
+                    {"type": "knowledge"},
+                    {"type": "ontology_reason"},
+                    {"type": "enrichment", "params": {"study": []}},
+                ],
+            },
+            "releases": {
+                "name": "release-diff",
+                "description": "Read an ontology release series and report what moved",
+                "steps": [{"type": "releases"}],
             },
             "langchain": {
                 "name": "langchain-structural",

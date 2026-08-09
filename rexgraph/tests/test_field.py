@@ -77,7 +77,6 @@ class TestBuildFieldOperator:
         B2 = np.asarray(filled_triangle.B2_hodge, dtype=np.float64)
         M, g, _ = _field.build_field_operator(RL, L2, B2)
         nE = filled_triangle.nE
-        nF = filled_triangle.nF_hodge
         assert np.allclose(M[:nE, :nE], RL)
         assert np.allclose(M[nE:, nE:], L2)
 

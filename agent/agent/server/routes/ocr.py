@@ -65,7 +65,7 @@ async def ocr_file(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to create OCR client: {e}",
-        )
+        ) from e
 
     # Run OCR
     start = time.time()
@@ -96,7 +96,7 @@ async def ocr_file(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR failed: {e}")
+        raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
     finally:
         if cleanup_path and os.path.exists(cleanup_path):
             os.unlink(cleanup_path)

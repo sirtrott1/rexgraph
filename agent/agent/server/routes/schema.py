@@ -45,7 +45,7 @@ async def analyze_schema(body: dict = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(400, f"Could not read schema: {e}")
+        raise HTTPException(400, f"Could not read schema: {e}") from e
 
     report = sc.diagnose_schema(model)
 
@@ -82,7 +82,7 @@ async def lint_schema(body: dict = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(400, f"Could not read schema: {e}")
+        raise HTTPException(400, f"Could not read schema: {e}") from e
     return sc.relation_lint(model)
 
 
@@ -102,7 +102,7 @@ async def schema_faces_route(body: dict = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(400, f"Could not read schema: {e}")
+        raise HTTPException(400, f"Could not read schema: {e}") from e
     return {"face_options": sc.explore_schema_faces(model),
             "selections": list(sc.SCHEMA_FACE_SELECTIONS)}
 
@@ -122,7 +122,7 @@ async def schema_strain_route(body: dict = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(400, f"Could not read schema: {e}")
+        raise HTTPException(400, f"Could not read schema: {e}") from e
 
     weights = body.get("weights")
     row_counts = None
@@ -130,7 +130,7 @@ async def schema_strain_route(body: dict = Body(...)):
         try:
             weights, row_counts = sc.pull_cardinality_stats(body["connection"], model, approximate=bool(body.get("approximate", False)))
         except Exception as e:
-            raise HTTPException(400, f"Could not pull statistics: {e}")
+            raise HTTPException(400, f"Could not pull statistics: {e}") from e
 
     result = sc.schema_strain(model, weights=weights)
     if row_counts is not None:

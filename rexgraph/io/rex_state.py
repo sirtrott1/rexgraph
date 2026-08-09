@@ -12,6 +12,8 @@ tensor group.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -114,6 +116,15 @@ def _unpack_w_boundary(kt, offs, vt, st=None) -> dict:
 
 #### the canonical (de)serializer
 def to_state(rex) -> RexState:
+    # Faces and edges added since the last read are PENDING: `add_faces` queues them
+    # and `_ensure_clean` is what writes them into the boundary arrays. Reading
+    # `_B2_col_ptr` without flushing first serialises an empty B2 under a header that
+    # declares nF, so a complex saved straight after `add_faces` loses every face,
+    # in every container, silently.
+    ensure = getattr(rex, "_ensure_clean", None)
+    if callable(ensure):
+        ensure()
+
     t, h = {}, {"format_version": FORMAT_VERSION, "object_type": "RexGraph"}
     h["nV"], h["nE"], h["nF"] = int(rex._nV), int(rex._nE), int(rex._nF)
     h["directed"] = bool(rex._directed)
@@ -166,7 +177,58 @@ def to_state(rex) -> RexState:
     sig = getattr(rex, "_signals", None)
     if isinstance(sig, np.ndarray):
         t["signals"] = np.asarray(sig)
+    # names as well as value: a container may carry EXTRA tensors alongside the state
+    # (a trained cochain, a mask), and those arrive in the same flat dict on load, so
+    # the digest has to say which names it covered or it would be recomputed over a
+    # different set than it was written over.
+    h["digest_names"] = sorted(t)
+    h["digest"] = state_digest(t)
     return RexState(t, h)
+
+
+def state_digest(tensors: dict, names=None) -> str:
+    """A sha256 over the tensor payload, order-independent.
+
+    Here rather than in one container because every format delegates to `to_state`, so
+    a digest computed at this seam covers `.rex`, hdf5, zarr, safetensors and the wire
+    with one rule instead of five. What it answers is narrow and worth stating: whether
+    these are the bytes that were written. It is NOT the structural check, which is the
+    chain condition and lives on the complex; the two catch different failures and
+    neither substitutes for the other. Nor is it a signature: anyone who can rewrite the
+    payload can recompute it, so identity needs a key.
+
+    Names are folded in with their bytes, so moving a payload between tensors changes
+    the digest, and sorted so the dict's insertion order does not.
+    """
+    h = hashlib.sha256()
+    for name in (sorted(tensors) if names is None else list(names)):
+        arr = np.ascontiguousarray(tensors[name])
+        h.update(name.encode("utf-8"))
+        h.update(str(arr.dtype).encode("utf-8"))
+        h.update(str(arr.shape).encode("utf-8"))
+        h.update(arr.tobytes())
+    return h.hexdigest()
+
+
+def verify_state(state: RexState) -> bool:
+    """Whether a state's tensors still match the digest recorded with them.
+
+    True when no digest was recorded: a bundle written before this existed is old, not
+    corrupt, and refusing it would turn an upgrade into data loss.
+
+    A name the digest covered that is no longer present is a failure, not an absence:
+    dropping a tensor is exactly the truncation this is here to catch.
+    """
+    declared = state.header.get("digest")
+    if not declared:
+        return True
+    names = state.header.get("digest_names")
+    if names is None:
+        names = sorted(state.tensors)
+    if any(n not in state.tensors for n in names):
+        return False
+    return hmac.compare_digest(
+        str(declared), state_digest(state.tensors, names))
 
 
 def _pack_cell_metadata(cm, t, h):
@@ -230,9 +292,23 @@ def _unpack_cell_metadata(rex, t, h):
                 rex.attach_metadata(dim, int(col["idx"][entry["j"]]), key, sub)
 
 
-def from_state(state: RexState):
+def from_state(state: RexState, *, verify: bool = True):
+    """Rebuild the complex a state describes, checking its digest first.
+
+    Checked here rather than in each reader, so `.rex`, hdf5, zarr, safetensors and the
+    wire all refuse a payload whose tensors no longer match what was written, instead of
+    four of them refusing and one loading it. A state carrying no digest predates this
+    and loads unchanged.
+
+    `verify=False` is for a caller that assembled the tensors itself and never wrote a
+    digest to check against.
+    """
     from rexgraph.graph import RexGraph
     h, t = state.header, state.tensors
+    if verify and not verify_state(state):
+        raise ValueError(
+            "the stored tensors do not match the digest recorded with them: this "
+            "object was modified or truncated after it was written")
     ver = h.get("format_version")
     if ver != FORMAT_VERSION:
         # A bundle written before the canonical rex-state carried its version under

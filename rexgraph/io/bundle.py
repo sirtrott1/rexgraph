@@ -98,7 +98,7 @@ _MAGIC = "rex-bundle"
 _CACHE_GROUPS: dict[str, list[str]] = {
     "algebra": [
         "B1", "B2", "L0", "L1", "L2",
-        "overlap_adjacency", "L_overlap",
+        "L_overlap",
     ],
     "spectral": [
         "eigenvalues_L0", "fiedler_vector_L0",
@@ -624,8 +624,6 @@ def _write_cache(
         _try_array("L1")
     if names & {"algebra", "L2"}:
         _try_array("L2")
-    if names & {"algebra", "overlap_adjacency"}:
-        _try_array("overlap_adjacency")
     if names & {"algebra", "L_overlap"}:
         _try_array("L_overlap")
 

@@ -9,22 +9,25 @@ A RexGraph (graph.zarr/) is stored via the canonical rex state (see rex_state.py
 `to_state(rex).tensors` entry becomes a dataset named `fname_encode(name)`, with the header and
 tensor name list as JSON attrs (`rex_state_header`, `tensor_names`). Cache groups sit alongside:
 
-    algebra/                B1, B2, L0, L1, L2, overlap_adjacency, L_overlap
+    algebra/                B1, B2, L0, L1, L2, L_overlap
     spectral/               full spectral_bundle dict
     relational/             RL_1, coupling constants, L1_alpha, Lambda
     topology/               betti, euler, chain_valid, edge_types, cycle_basis
     hodge/                  gradient, curl, harmonic, rho, energy fractions
     faces/                  detected face data and metrics
     field/                  field operator M, eigenvalues, mode classification
-    wave/                   density matrices
     signal/                 perturbation trajectories, cascade, BIOES
-    quotient/               subcomplex masks, quotient B1/B2, relative betti
-    persistence/            diagrams, barcodes, enrichment
     temporal/               edge/face lifecycle, betti matrix, BIOES result
     standard_metrics/       PageRank, betweenness, clustering, Louvain
 """
 
 from __future__ import annotations
+
+from rexgraph.io._cache_layout import (
+    _ALL_CACHEABLE,
+    _CACHE_GROUPS,
+    CacheLayoutMixin,
+)
 
 import json
 import os
@@ -34,7 +37,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
-    from ..graph import RexGraph, TemporalRex
+    from ..graph import TemporalRex
 
 import contextlib
 
@@ -57,7 +60,6 @@ from ._compat import (
     normalize_zarr_compressor,
     open_root_group,
     rm_rf,
-    to_native,
 )
 
 if HAS_ZARR:
@@ -75,69 +77,7 @@ _FORMAT_VERSION = "2.0.0"
 
 # Cache group definitions
 
-_CACHE_GROUPS: dict[str, list[str]] = {
-    "algebra": [
-        "B1", "B2", "L0", "L1", "L2",
-        "L1_down", "L1_up",
-        "overlap_adjacency", "L_overlap",
-    ],
-    "spectral": [
-        "spectral_bundle",
-        "eigenvalues_L0", "fiedler_vector_L0",
-        "evals_L1", "evecs_L1",
-        "evals_L2",
-        "evals_L_O", "evecs_L_O",
-        "diag_L1_down", "diag_L1_up",
-        "fiedler_overlap",
-        "layout", "layout_3d",
-    ],
-    "relational": [
-        "relational_laplacian",
-        "evals_RL1", "evecs_RL1",
-        "alpha_G", "alpha_T",
-        "L1_alpha", "evals_L1a", "evecs_L1a",
-        "Lambda", "evals_Lambda", "evecs_Lambda",
-    ],
-    "topology": [
-        "betti", "euler_characteristic", "chain_valid",
-        "edge_types", "cycle_basis", "harmonic_space",
-        "nF_hodge", "self_loop_face_indices", "B2_hodge",
-    ],
-    "hodge": [
-        "hodge_decomposition",
-        "hodge_rho",
-    ],
-    "faces": [
-        "detected_faces", "face_metrics",
-    ],
-    "field": [
-        "field_operator", "field_eigen", "mode_classification",
-    ],
-    "wave": [
-        "density_matrix",
-    ],
-    "signal": [
-        "perturbation_result", "field_perturbation_result",
-    ],
-    "quotient": [
-        "subcomplex_masks", "quotient_result",
-    ],
-    "persistence": [
-        "persistence_diagram", "persistence_enrichment",
-    ],
-    "temporal": [
-        "edge_lifecycle", "edge_metrics",
-        "face_lifecycle", "bioes_result",
-        "betti_matrix",
-    ],
-    "standard_metrics": [
-        "standard_metrics",
-    ],
-}
 
-_ALL_CACHEABLE: set[str] = set()
-for _entries in _CACHE_GROUPS.values():
-    _ALL_CACHEABLE.update(_entries)
 _ALL_CACHEABLE.update(_CACHE_GROUPS.keys())
 
 
@@ -162,7 +102,7 @@ def load_zarr_array(path: str) -> np.ndarray:
 
 # RexZarrFormat
 
-class RexZarrFormat:
+class RexZarrFormat(CacheLayoutMixin):
     """Zarr-based on-disk format for the rex framework.
 
     Parameters
@@ -238,8 +178,6 @@ class RexZarrFormat:
         except Exception:
             return False
 
-    def _is_large(self, rex) -> bool:
-        return rex.nE >= self.large_threshold
 
     def _get_or_create(self, group, name: str):
         """Get existing subgroup or create a new one."""
@@ -266,9 +204,11 @@ class RexZarrFormat:
         obj : RexGraph, TemporalRex, or ndarray
         cache : None, "all", or list of str
             Precomputed results to include. "all" writes everything.
-            Group names: "algebra", "spectral", "relational",
-            "topology", "hodge", "faces", "field", "wave", "signal",
-            "quotient", "persistence", "temporal", "standard_metrics".
+            Group names: "algebra", "spectral", "relational", "topology",
+            "hodge", "faces", "field", "signal", "temporal",
+            "standard_metrics". Persistence and quotient results are written
+            by write_persistence_result and write_quotient_result, which are
+            explicit calls rather than cache groups.
         """
         from ..graph import RexGraph, TemporalRex
 
@@ -361,69 +301,10 @@ class RexZarrFormat:
 
     # RexGraph serialization
 
-    def _write_rex_graph(self, g, rex, *, cache=None) -> None:
-        """Serialize a RexGraph to a Zarr group via the canonical rex state.
 
-        Every tensor goes through the one rex-state encoder (`to_state`), so the on-disk
-        reconstruction contract cannot drift from `.rex`, hdf5, arrow, and safetensors. Dataset
-        names are `fname_encode`d because Zarr keys are path-like ('/' opens a subgroup), and
-        nested-rex tensor names legitimately contain '/'.
-        """
-        from .rex_state import fname_encode, to_state
-
-        large = self._is_large(rex)
-        st = to_state(rex)
-        for name, arr in st.tensors.items():
-            store_fn = self._store_chunked if large else self._store
-            store_fn(g, fname_encode(name), np.asarray(arr))
-        g.attrs["rex_state_header"] = dumps(st.header)
-        g.attrs["tensor_names"] = json.dumps(list(st.tensors.keys()))
-
-        if cache:
-            self._write_cache(g, rex, cache, large)
-
-    def _read_rex_graph(self, g) -> RexGraph:
-        """Reconstruct a RexGraph from a Zarr group via the canonical rex state."""
-        from .rex_state import RexState, fname_encode, from_state
-
-        hdr = json.loads(as_str(g.attrs["rex_state_header"]))
-        names = json.loads(as_str(g.attrs["tensor_names"]))
-        tensors = {name: self._load(g, fname_encode(name)) for name in names}
-        return from_state(RexState(tensors, hdr))
 
     # TemporalRex serialization
 
-    def _write_temporal_rex(self, g, trex, *, cache=None) -> None:
-        """Serialize a TemporalRex with all snapshots and optional cache."""
-        T = trex.T
-        g.attrs["T"] = T
-        g.attrs["directed"] = bool(trex._directed)
-        g.attrs["general"] = bool(trex._general)
-
-        sg = g.create_group("snapshots")
-        for t in range(T):
-            tg = sg.create_group(str(t))
-            snap = trex._snapshots[t]
-            if trex._general:
-                self._store(tg, "boundary_ptr", snap[0])
-                self._store(tg, "boundary_idx", snap[1])
-            else:
-                self._store(tg, "sources", snap[0])
-                self._store(tg, "targets", snap[1])
-
-        if trex._face_snapshots:
-            fg = g.create_group("face_snapshots")
-            for t, fsnap in enumerate(trex._face_snapshots):
-                ftg = fg.create_group(str(t))
-                self._store(ftg, "B2_col_ptr", fsnap[0])
-                self._store(ftg, "B2_row_idx", fsnap[1])
-
-        if cache:
-            # Cache on final snapshot
-            rex_final = trex.at(T - 1)
-            self._write_cache(g, rex_final, cache, self._is_large(rex_final))
-            # Temporal-specific cache
-            self._write_temporal_cache(g, trex, cache)
 
     def _write_temporal_cache(self, g, trex, cache) -> None:
         """Write TemporalRex-specific cached data."""
@@ -533,67 +414,10 @@ class RexZarrFormat:
 
     # Cache resolution
 
-    def _resolve_cache_names(self, cache) -> set[str]:
-        """Expand cache spec into individual property names."""
-        if cache is None:
-            return set()
-        if isinstance(cache, str):
-            if cache == "all":
-                return set(_ALL_CACHEABLE)
-            if cache in _CACHE_GROUPS:
-                return set(_CACHE_GROUPS[cache])
-            return {cache}
-
-        out: set[str] = set()
-        for c in cache:
-            if c == "all":
-                return set(_ALL_CACHEABLE)
-            if c in _CACHE_GROUPS:
-                out.update(_CACHE_GROUPS[c])
-            else:
-                out.add(c)
-        return out
 
     # Cache writing
 
-    def _write_cache(self, g, rex, cache, large: bool) -> None:
-        """Write precomputed properties into subgroups.
 
-        Errors during computation are silently skipped.
-        """
-        names = self._resolve_cache_names(cache)
-        if not names:
-            return
-
-        store_fn = self._store_chunked if large else self._store
-
-        self._write_algebra_cache(g, rex, names, store_fn)
-        self._write_spectral_cache(g, rex, names, store_fn)
-        self._write_relational_cache(g, rex, names, store_fn)
-        self._write_topology_cache(g, rex, names, store_fn)
-        self._write_hodge_cache(g, rex, names)
-        self._write_faces_cache(g, rex, names)
-        self._write_field_cache(g, rex, names, store_fn)
-        self._write_signal_cache(g, rex, names)
-        self._write_quotient_cache(g, rex, names)
-        self._write_persistence_cache(g, rex, names)
-        self._write_standard_metrics_cache(g, rex, names)
-
-    def _write_algebra_cache(self, g, rex, names, store_fn) -> None:
-        algebra_props = {"B1", "B2", "L0", "L1", "L2",
-                         "L1_down", "L1_up",
-                         "overlap_adjacency", "L_overlap"}
-        if not (names & (algebra_props | {"algebra"})):
-            return
-        ag = self._get_or_create(g, "algebra")
-        for prop in algebra_props:
-            if prop in names or "algebra" in names:
-                try:
-                    arr = getattr(rex, prop)
-                    if arr is not None:
-                        store_fn(ag, prop, arr)
-                except Exception:
-                    pass
 
     def _write_spectral_cache(self, g, rex, names, store_fn) -> None:
         spectral_props = {"eigenvalues_L0", "fiedler_vector_L0",
@@ -644,155 +468,8 @@ class RexZarrFormat:
             except Exception:
                 pass
 
-    def _write_relational_cache(self, g, rex, names, store_fn) -> None:
-        rel_props = {"relational_laplacian",
-                     "evals_RL1", "evecs_RL1",
-                     "alpha_G", "alpha_T",
-                     "L1_alpha", "evals_L1a", "evecs_L1a",
-                     "Lambda", "evals_Lambda", "evecs_Lambda"}
-        if not (names & (rel_props | {"relational"})):
-            return
-        rg = self._get_or_create(g, "relational")
 
-        # RL_1 matrix
-        if "relational_laplacian" in names or "relational" in names:
-            try:
-                rl = rex.rex_laplacian
-                if rl is not None:
-                    store_fn(rg, "RL_1", rl)
-            except Exception:
-                pass
 
-        # Spectral bundle fields for relational block
-        sb_keys = {
-            "evals_RL1": "evals_RL_1",
-            "evecs_RL1": "evecs_RL_1",
-            "L1_alpha": "L1_alpha",
-            "evals_L1a": "evals_L1a",
-            "evecs_L1a": "evecs_L1a",
-            "Lambda": "Lambda",
-            "evals_Lambda": "evals_Lambda",
-            "evecs_Lambda": "evecs_Lambda",
-        }
-        for cache_name, sb_key in sb_keys.items():
-            if cache_name in names or "relational" in names:
-                try:
-                    val = rex.spectral_bundle.get(sb_key)
-                    if val is not None:
-                        store_fn(rg, cache_name, val)
-                except Exception:
-                    pass
-
-        # Coupling constants
-        if "alpha_G" in names or "relational" in names:
-            try:
-                sb = rex.spectral_bundle
-                rg.attrs["alpha_G"] = to_native(sb.get("alpha_G", float("nan")))
-                rg.attrs["alpha_T"] = to_native(sb.get("alpha_T", 0.0))
-                rg.attrs["alpha_used"] = to_native(sb.get("alpha_used", float("nan")))
-            except Exception:
-                pass
-
-    def _write_topology_cache(self, g, rex, names, store_fn) -> None:
-        topo_props = {"betti", "euler_characteristic", "chain_valid",
-                      "edge_types", "cycle_basis", "harmonic_space",
-                      "nF_hodge", "self_loop_face_indices", "B2_hodge"}
-        if not (names & (topo_props | {"topology"})):
-            return
-        tg = self._get_or_create(g, "topology")
-
-        if "betti" in names or "topology" in names:
-            try:
-                b0, b1, b2 = rex.betti
-                tg.attrs["betti"] = json.dumps([b0, b1, b2])
-            except Exception:
-                pass
-
-        if "euler_characteristic" in names or "topology" in names:
-            with contextlib.suppress(Exception):
-                tg.attrs["euler_characteristic"] = int(rex.euler_characteristic)
-
-        if "chain_valid" in names or "topology" in names:
-            with contextlib.suppress(Exception):
-                tg.attrs["chain_valid"] = bool(rex.chain_valid)
-
-        if "edge_types" in names or "topology" in names:
-            with contextlib.suppress(Exception):
-                self._store(tg, "edge_types", rex.edge_types)
-
-        if "cycle_basis" in names or "topology" in names:
-            try:
-                cycles = rex.cycle_basis
-                cbg = self._get_or_create(tg, "cycle_basis")
-                cbg.attrs["n_cycles"] = len(cycles)
-                for i, cyc in enumerate(cycles):
-                    self._store(cbg, f"c{i}", np.asarray(cyc, dtype=np.int32))
-            except Exception:
-                pass
-
-        if "harmonic_space" in names or "topology" in names:
-            with contextlib.suppress(Exception):
-                store_fn(tg, "harmonic_space", rex.harmonic_space)
-
-        if "nF_hodge" in names or "topology" in names:
-            with contextlib.suppress(Exception):
-                tg.attrs["nF_hodge"] = int(rex.nF_hodge)
-
-        if "self_loop_face_indices" in names or "topology" in names:
-            try:
-                indices = rex.self_loop_face_indices
-                tg.attrs["self_loop_face_indices"] = json.dumps(
-                    [int(i) for i in indices]
-                )
-            except Exception:
-                pass
-
-        if "B2_hodge" in names or "topology" in names:
-            with contextlib.suppress(Exception):
-                store_fn(tg, "B2_hodge", rex.B2_hodge)
-
-    def _write_hodge_cache(self, g, rex, names) -> None:
-        hodge_props = {"hodge_decomposition", "hodge_rho"}
-        if not (names & (hodge_props | {"hodge"})):
-            return
-
-        if "hodge_decomposition" in names or "hodge" in names:
-            try:
-                w = rex.w_E if rex.w_E is not None else np.ones(rex.nE)
-                grad, curl, harm = rex.hodge(w)
-                hg = self._get_or_create(g, "hodge")
-                self._store(hg, "gradient", grad)
-                self._store(hg, "curl", curl)
-                self._store(hg, "harmonic", harm)
-                total = np.dot(w, w)
-                if total > 0:
-                    hg.attrs["pct_gradient"] = float(np.dot(grad, grad) / total)
-                    hg.attrs["pct_curl"] = float(np.dot(curl, curl) / total)
-                    hg.attrs["pct_harmonic"] = float(np.dot(harm, harm) / total)
-
-                # Full Hodge analysis with rho
-                try:
-                    analysis = rex.hodge_full(w)
-                    if isinstance(analysis, dict) and "rho" in analysis:
-                        self._store(hg, "rho", analysis["rho"])
-                    elif hasattr(analysis, "rho"):
-                        self._store(hg, "rho", analysis.rho)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-        if "hodge_rho" in names and not self._has(g, "hodge"):
-            try:
-                w = rex.w_E if rex.w_E is not None else np.ones(rex.nE)
-                analysis = rex.hodge_full(w)
-                hg = self._get_or_create(g, "hodge")
-                if isinstance(analysis, dict) and "rho" in analysis:
-                    self._store(hg, "rho", analysis["rho"])
-                elif hasattr(analysis, "rho"):
-                    self._store(hg, "rho", analysis.rho)
-            except Exception:
-                pass
 
     def _write_faces_cache(self, g, rex, names) -> None:
         if not (names & {"detected_faces", "face_metrics", "faces"}):
@@ -845,31 +522,8 @@ class RexZarrFormat:
             except Exception:
                 pass
 
-    def _write_signal_cache(self, g, rex, names) -> None:
-        """Write signal/perturbation results via _serialization."""
-        signal_props = {"perturbation_result", "field_perturbation_result"}
-        if not (names & (signal_props | {"signal"})):
-            return
-        # Signal results are written by the caller via write_typed or
-        # write_namedtuple since they require runtime arguments
-        # (edge_idx, times, etc.). The cache group is created here
-        # as a placeholder; actual data is written by analysis code.
-        self._get_or_create(g, "signal")
 
-    def _write_quotient_cache(self, g, rex, names) -> None:
-        quotient_props = {"subcomplex_masks", "quotient_result"}
-        if not (names & (quotient_props | {"quotient"})):
-            return
-        # Quotient results require a subcomplex specification.
-        # Create the group; actual data is written by analysis code.
-        self._get_or_create(g, "quotient")
 
-    def _write_persistence_cache(self, g, rex, names) -> None:
-        persist_props = {"persistence_diagram", "persistence_enrichment"}
-        if not (names & (persist_props | {"persistence"})):
-            return
-        # Persistence requires a filtration. Create group placeholder.
-        self._get_or_create(g, "persistence")
 
     def _write_standard_metrics_cache(self, g, rex, names) -> None:
         if not (names & {"standard_metrics"}):
@@ -885,10 +539,25 @@ class RexZarrFormat:
                 # Compute standard metrics on demand
                 try:
                     from ..core import _standard
-                    src, tgt = rex._ensure_src_tgt()
-                    metrics = _standard.build_standard_metrics(
-                        rex.nV, rex.nE, src, tgt
-                    )
+
+                    # the adjacency bundle, matching graph.py's own call. The previous
+                    # form passed (nV, nE, src, tgt), which the kernel rejects: it takes
+                    # at least six arguments and the first four are the CSR. So it
+                    # raised TypeError on every call, the except below swallowed it, and
+                    # cache="standard_metrics" wrote nothing while reporting success.
+                    adj_ptr, adj_idx, adj_edge = rex._adjacency_bundle
+                    e_wt = (np.asarray(rex.w_E, dtype=np.float64)
+                            if rex.w_E is not None
+                            else np.ones(rex.nE, dtype=np.float64))
+                    adj_wt = _standard.build_adj_weights(adj_edge, e_wt)
+                    # the kernel hands back a DICT and write_namedtuple wants a
+                    # namedtuple, so writing the raw return produced a group holding
+                    # nothing but a type marker. StandardMetrics' fields are exactly the
+                    # dict's keys, so the wrap is total rather than a selection.
+                    from ..rextypes import StandardMetrics
+                    metrics = StandardMetrics(**_standard.build_standard_metrics(
+                        adj_ptr, adj_idx, adj_edge, adj_wt, rex.nV, rex.nE
+                    ))
                 except Exception:
                     pass
             if metrics is not None:
@@ -917,7 +586,7 @@ class RexZarrFormat:
             ag = g["algebra"]
             for name in ("B1", "B2", "L0", "L1", "L2",
                          "L1_down", "L1_up",
-                         "overlap_adjacency", "L_overlap"):
+                         "L_overlap"):
                 if self._has(ag, name):
                     result[name] = self._load(ag, name)
 

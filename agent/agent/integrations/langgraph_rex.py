@@ -114,7 +114,7 @@ class RexStateGraph:
             raise ValueError("No transitions registered. Add transitions first.")
 
         name_to_idx = {name: i for i, name in enumerate(self._state_order)}
-        n_states = len(self._state_order)
+        len(self._state_order)
 
         sources = np.array([name_to_idx[t["src"]] for t in self._transitions], dtype=np.int32)
         targets = np.array([name_to_idx[t["tgt"]] for t in self._transitions], dtype=np.int32)

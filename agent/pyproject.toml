@@ -26,10 +26,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rexgraph-agent"
-version = "1.0.6"
+version = "1.0.7"
 description = "Orchestration, server, frontend, and integrations for the RexGraph ecosystem"
 readme = "README.md"
-license = {text = "Apache License 2.0"}
+# SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
+# and the table form is deprecated. Metadata 2.4 carries this as
+# License-Expression with the file itself bundled alongside.
+license = "Apache-2.0"
+# its own copy, not ../LICENSE: a path outside the project root is silently
+# DROPPED rather than rejected, and the wheel then claims Apache-2.0 while
+# carrying no license at all, which section 4(a) requires it to carry
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     {name = "RexGraph"},
@@ -40,7 +47,7 @@ keywords = [
     "relational-complex", "topological-data-analysis",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Programming Language :: Python :: 3",

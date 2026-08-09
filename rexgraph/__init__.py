@@ -8,7 +8,6 @@ Classes:
 Subpackages:
     core  - Cython extensions (boundary maps, Laplacians, spectral, RCF operators).
     io    - Serialization (Zarr, HDF5, Arrow, Parquet, SQL).
-    viz   - Visualization dashboard.
 """
 
 import sys as _sys
@@ -31,20 +30,14 @@ try:
 except ImportError:
     io = None
 
-try:
-    from . import viz
-except ImportError:
-    viz = None
-
 from . import compute
 from .mesh_health import harmonic_health, mesh_health
 
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 
 __all__ = [
     "core",
     "io",
-    "viz",
     "compute",
     "mesh_health",
     "harmonic_health",

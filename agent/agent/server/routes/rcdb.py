@@ -13,7 +13,8 @@ from __future__ import annotations
 import time
 
 from fastapi import APIRouter, Body, HTTPException
-from fastapi.responses import Response
+
+from agent.server.artifacts import complex_file, plain
 
 router = APIRouter(prefix="/v1/db")
 
@@ -59,7 +60,7 @@ async def db_info():
                 "by_tag": dict(sorted(tag_counts.items(), key=lambda x: -x[1])),
                 "by_source": dict(sorted(sources.items(), key=lambda x: -x[1]))}
     except Exception as e:
-        raise HTTPException(500, f"DB error: {e}")
+        raise HTTPException(500, f"DB error: {e}") from e
 
 
 @router.post("/put")
@@ -76,7 +77,7 @@ async def db_put(body: dict = Body(...)):
     try:
         rec = _store().put(rec_id, rex, meta=meta, tags=body.get("tags") or [])
     except Exception as e:
-        raise HTTPException(500, f"Store failed: {e}")
+        raise HTTPException(500, f"Store failed: {e}") from e
     return {"stored": True, "source": source, **rec.to_dict()}
 
 
@@ -114,16 +115,16 @@ async def db_get(rec_id: str):
 
 
 @router.get("/export/{rec_id}")
-async def db_export(rec_id: str):
-    """Download the stored complex as a .safetensors file."""
-    from agent.rcdb import serialize_complex
+async def db_export(rec_id: str, format: str = "safetensors"):
+    """Download the stored complex in any container the library writes.
+
+    safetensors (the storage form), .rex, hdf5 or zarr. The complex itself, not a
+    summary of it.
+    """
     rex = _store().get(rec_id)
     if rex is None:
         raise HTTPException(404, "Record not found")
-    data = serialize_complex(rex)
-    return Response(content=data, media_type="application/octet-stream",
-                    headers={"Content-Disposition":
-                             f'attachment; filename="{rec_id}.safetensors"'})
+    return complex_file(rex, rec_id, format)
 
 
 @router.post("/similar")
@@ -231,6 +232,91 @@ async def db_compare(body: dict = Body(...)):
     if result is None:
         raise HTTPException(404, "One or both records not found")
     return result
+
+
+@router.post("/cells/{rec_id}")
+async def query_cells(rec_id: str, body: dict = Body(...)):
+    """Select cells inside a stored complex by structural invariant.
+
+    `/query` filters WHICH records match; this filters WHICH CELLS inside one. The
+    predicates run on quantities the complex computes (kappa, a chi or phi channel,
+    RCFE curvature) rather than on stored attributes, so a selection like "vertices
+    whose coherence is below 0.6" needs nothing to have been recorded in advance.
+
+    Body: {"where": [{"quantity", "op", "threshold", "threshold_high"?, "channel"?},
+    ...], "combine": "and" | "or", "limit"?}. Several clauses compose with `combine`.
+    """
+    from rexgraph.graph import RexGraph
+
+    store = _store()
+    rex = store.get(rec_id)
+    if rex is None:
+        raise HTTPException(404, f"no record {rec_id!r}")
+    clauses = body.get("where") or []
+    if not clauses:
+        raise HTTPException(400, "Provide 'where' as a list of predicate clauses")
+
+    combine = str(body.get("combine", "and")).lower()
+    if combine not in ("and", "or"):
+        raise HTTPException(400, "combine must be 'and' or 'or'")
+
+    mask = None
+    grades = set()
+    for c in clauses:
+        try:
+            m = rex.select(c["quantity"], c["op"], float(c["threshold"]),
+                           float(c.get("threshold_high", 0.0)),
+                           channel=int(c.get("channel", 0)))
+        except KeyError as e:
+            raise HTTPException(400, f"clause is missing {e}") from e
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        grades.add(len(m))
+        if len(grades) > 1:
+            raise HTTPException(
+                400, "these predicates select on different grades (vertices and "
+                     "edges), so they cannot be combined into one mask")
+        mask = m if mask is None else (RexGraph.select_and(mask, m)
+                                       if combine == "and"
+                                       else RexGraph.select_or(mask, m))
+
+    import numpy as _np
+    n_selected = int(_np.asarray(mask).sum())
+    meta = store.get_record(rec_id).meta or {}
+    return {
+        "record": rec_id,
+        "n_selected": n_selected,
+        "n_cells": int(len(mask)),
+        "grade": "vertex" if len(mask) == int(rex.nV) else "edge",
+        "cells": plain(rex.selected(mask, labels=meta.get("vertex_labels"),
+                                     limit=int(body.get("limit", 200)))),
+        "combine": combine,
+    }
+
+
+@router.get("/explain/{rec_id}")
+async def explain_cell(rec_id: str, dim: int = 0, idx: int = 0):
+    """Everything the complex knows about one cell.
+
+    EXPLAIN, in the query sense: not a plan, but the cell's position in the field.
+    A vertex reports its coherence, star character, dominant and discrepant channel
+    and its neighbours; an edge reports what lies below, above and lateral to it, its
+    character and its effective resistance.
+    """
+    store = _store()
+    rex = store.get(rec_id)
+    if rex is None:
+        raise HTTPException(404, f"no record {rec_id!r}")
+    limit = int(rex.nV) if int(dim) == 0 else int(rex.nE)
+    if not 0 <= int(idx) < limit:
+        raise HTTPException(
+            400, f"index {idx} is out of range for grade {dim} ({limit} cells)")
+    out = plain(rex.explain(int(dim), int(idx)))
+    meta = store.get_record(rec_id).meta or {}
+    labels = meta.get("vertex_labels") or []
+    if int(dim) == 0 and int(idx) < len(labels):
+        out["label"] = labels[int(idx)]
+    return out
 
 
 @router.delete("/{rec_id}")

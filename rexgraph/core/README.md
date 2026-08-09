@@ -587,6 +587,13 @@ operators. They are used for hyperslice queries, neighbor traversal, and
 coboundary computation throughout the library.
 
 - `build_vertex_to_edge_csr(nV, nE, sources, targets)` -> (v2e_ptr, v2e_idx)
+- `build_vertex_to_edge_csr_general(nV, nE, boundary_ptr, boundary_idx)`
+  -> (v2e_ptr, v2e_idx)
+
+  The transpose of the edge-to-vertex boundary CSR, so it carries a relation's whole
+  support at any arity. The (sources, targets) form holds two vertices per relation, so
+  on a branching relation it maps the first two and every vertex past them reads as
+  isolated. The two agree exactly on a pairwise complex, edge order included.
 
   For each vertex v, v2e_idx[v2e_ptr[v]:v2e_ptr[v+1]] gives the indices of all
   edges incident to v.
@@ -626,8 +633,8 @@ it (overlap neighbors at the same dimension).
 
 - `hyperslice(1, e, ...)` -> (below_vertices, above_faces, lateral_edges)
 
-  For an edge e: below = its two boundary vertices, above = faces containing it,
-  lateral = edges sharing at least one vertex with e.
+  For a relation e: below = its whole boundary column, above = faces containing it,
+  lateral = relations sharing at least one vertex with e.
 
 - `hyperslice(2, f, ...)` -> (below_edges, lateral_faces)
 
@@ -636,31 +643,25 @@ it (overlap neighbors at the same dimension).
 
 Individual typed functions are also available directly:
 
+- `hyperslice_vertex_general(v, v2e_ptr, v2e_idx, boundary_ptr, boundary_idx)`
+- `hyperslice_edge_general(e, boundary_ptr, boundary_idx, e2f_ptr, e2f_idx,
+  v2e_ptr, v2e_idx)`
 - `hyperslice_vertex_i32(v, v2e_ptr, v2e_idx, sources, targets)`
 - `hyperslice_edge_i32(e, sources, targets, e2f_ptr, e2f_idx, v2e_ptr, v2e_idx)`
 - `hyperslice_face_i32(f, nF, B2_col_ptr, B2_row_idx, e2f_ptr, e2f_idx)`
 
----
+The dispatcher takes the `_general` kernels for dims 0 and 1 when the boundary CSR is
+supplied, which is what `RexGraph.hyperslice` does. The `_i32`/`_i64` pair is the
+pairwise path: it reports two vertices per relation whatever the arity, and gives a
+vertex the ONE other endpoint of each incident relation rather than all k-1
+co-participants. The face kernel was already general, since it reads B2 columns.
 
-### Edge Insertion and Deletion
-
-Mutation operations that produce new edge arrays without modifying the originals:
-
-- `insert_edges(nV, nE, sources, targets, new_sources, new_targets)`
-  -> (all_sources, all_targets, nV_new)
-
-  Concatenates new edges onto existing arrays and extends the vertex set if any
-  new vertex indices exceed the current nV.
-
-- `delete_edges(nV, nE, sources, targets, delete_mask)`
-  -> (new_sources, new_targets, nV_new, vertex_map, edge_map)
-
-  Removes edges where delete_mask == 1. Vertices that become isolated (no
-  remaining incident edges) are removed and the vertex indices are compacted.
-  vertex_map[old_v] gives the new index (-1 if removed). edge_map[old_e] gives
-  the new index (-1 if deleted).
+The counts of the three sets are what `rexgraph.tower.apd` reports: arity is |below|,
+degree is |above|, and |lateral| is the co-participation channel (the line-graph
+degree). hyperslice names the cells, apd measures them.
 
 ---
+
 
 ### Dimensional Projection
 
@@ -826,7 +827,11 @@ The relational complex V -> E -> F defines three Hodge Laplacians:
 
 - `compute_coupling_constants(evals_L1, evals_L_O, beta1, nE)` -> (alpha_G, alpha_T)
 
-  alpha_G = fiedler(L1) / fiedler(L_O) measures the geometric coupling between
+  alpha_G is the geometry<->topology coupling. It is NO LONGER the Fiedler ratio
+  fiedler(L1)/fiedler(L_O): that needed two eigensolves and read an approximate slice.
+  It is the exact trace ratio c^2 = tr((B2 B2^T)^2) / tr((B1^T B1)^2), which is
+  eigen-free and rational (see test_eigenfree.test_alpha_G_is_exact_c2_on_complete_graphs).
+  The historical reading was that it measures the geometric coupling between
   Hodge and overlap structure. alpha_T = beta_1 / nE measures the topological
   coupling (fraction of edges in harmonic cycles).
 
@@ -852,7 +857,8 @@ per graph and caches the result dict. It:
 
 1. Builds L0, L1_down, L1_up, L1_full, L2 via BLAS
 2. Eigendecomposes each via LAPACK dsyev_
-3. Computes Betti numbers from eigenvalue nullities
+3. Computes Betti numbers from eigenvalue nullities (the historical path; prefer the
+   rank-based routine below, which needs no eigendecomposition)
 4. Eigenanalyzes the overlap Laplacian L_O
 5. Computes coupling constants alpha_G and alpha_T
 6. Builds K1 = |B1|^T @ |B1| (the overlap Gramian)
@@ -1989,28 +1995,36 @@ with zero Python overhead.
 
 **File:** `_frustration.pyx` (278 lines)
 
-Builds the frustration Laplacian L_SG from edge signs and inverse-log-degree
-vertex weights. L_SG captures signed coupling between edges: two edges sharing
-a vertex contribute positively or negatively to the Gramian depending on
-their signs. This is the third typed Laplacian in the standard RL3
-construction.
+L_SG is the signed/unsigned MISMATCH channel, the third typed Laplacian in the
+standard RL3 construction.
 
-The construction is:
+The construction the character actually uses (`sparse_character.build_sparse_channels`)
+is F = T - G:
 
-    w(v) = 1 / log(deg(v) + e)           inverse-log-degree vertex weight
-    K_s = B1^T diag(w) B1                signed weighted Gramian
-    K_off = K_s with diagonal zeroed
-    L_SG = D_{|K_off|} - K_off           frustration Laplacian
+    T     = W B1^T B1 W                  signed Gram, per-relation metric
+    G     = |B1|^T W |B1|                its unsigned twin, same metric
+    F_off = (T - G) with diagonal zeroed
+    L_SG  = D_{|F_off|} + F_off          diagonal from the absolute row sum
 
-K_s[i,j] accumulates sign(i) * sign(j) * w(v) over all vertices v shared by
-edges i and j. The diagonal K_s[i,i] = sum of w(v) over boundary vertices of
-edge i (signs cancel on the diagonal). The frustration Laplacian L_SG is then
-the standard graph Laplacian of the absolute off-diagonal coupling matrix.
+diag(T) = diag(G) identically, because the diagonal squares each incidence entry
+and squaring kills the sign. So ALL of B1's sign content lives off-diagonal, at
+relations sharing a vertex, and F is the device that lifts that residue onto a
+diagonal the character can read. Off-diagonal F is 0 where two relations agree on
+a shared vertex and -2 where they oppose.
 
-L_SG is symmetric and PSD. When all edge signs are +1 (no frustration), L_SG
-reduces to a degree-weighted graph Laplacian on the edge adjacency graph. When
-some edges carry -1 signs (inhibition, repression), L_SG captures how sign
-conflicts distribute across the graph.
+The inverse-log-degree form documented here previously
+
+    w(v) = 1 / log(deg(v) + e)
+    K_s  = B1^T diag(w) B1
+
+is the LEGACY signed Gramian. It survives as `RexGraph.L_frustration_weighted`
+and is not what the character reads: it carries a float vertex weight, so it
+leaves the exact tower, where F = T - G is rational at every arity.
+
+L_SG is symmetric and PSD. Where every relation agrees on its shared vertices the
+off-diagonal vanishes and so does the channel; where they oppose, L_SG carries how
+the disagreement distributes. On a canonical complex the orientation content it
+reads is which vertex each relation distinguishes, not a separate sign array.
 
 ---
 

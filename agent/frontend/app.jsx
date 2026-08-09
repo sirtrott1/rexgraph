@@ -130,6 +130,7 @@ function Pipeline(){
         h(Table,{cols:[{l:"ID",k:"doc_id"},{l:"V",k:"nV"},{l:"E",k:"nE"},{l:"F",k:"nF"},{l:"Betti",r:function(x){return x.betti?x.betti.join(", "):""}},
           {l:"κ",r:function(x){return x.kappa_mean!=null?h("span",{className:"kappa-val "+kc(x.kappa_mean)},fmt(x.kappa_mean,3)):"-"}},
           {l:"Hodge",r:function(x){return x.hodge?pct(x.hodge.gradient)+" / "+pct(x.hodge.curl)+" / "+pct(x.hodge.harmonic):""}}],rows:results})),
+      results.map(function(doc){return doc.drawing&&h(PipelineDrawing,{key:"dr-"+doc.doc_id,drawing:doc.drawing})}),
       results.map(function(doc){return doc.chunks&&doc.chunks.length>0&&h(Card,{key:"ch-"+doc.doc_id,title:"Chunks: "+doc.doc_id+" ("+doc.chunks.length+")",actions:h(XBar,{data:doc.chunks,name:"chunks-"+doc.doc_id})},
         h(Table,{cols:[{l:"#",r:function(x){return x.idx}},{l:"Edges",k:"n_edges"},{l:"κ",r:function(x){return x.kappa!=null?h("span",{className:"kappa-val "+kc(x.kappa)},fmt(x.kappa,3)):"-"}},
           {l:"Channel",r:function(x){return x.dominant_channel?h(Badge,{type:x.dominant_channel},x.dominant_channel):"-"}},
@@ -1735,18 +1736,266 @@ function SchemaBuilder(){
 
 function Ontology(){
   var e=useState(""),err=e[0],setE=e[1];
-  var tx=useState("Dog subClassOf Mammal\nCat subClassOf Mammal\nMammal subClassOf Animal\nHuman equivalentClass Person\nHuman subClassOf Mammal"),txt=tx[0],setTx=tx[1];
-  var rs=useState(null),res=rs[0],setRs=rs[1],si=useState(""),sid=si[0],setSi=si[1];
-  function analyze(){setE("");var triples=txt.split("\n").map(function(l){return l.trim().split(/\s+/)}).filter(function(t){return t.length>=3}).map(function(t){return [t[0],t[1],t.slice(2).join(" ")]});if(!triples.length){setE("Enter triples as: Subject predicate Object (one per line)");return}var body={triples:triples};if(sid.trim())body.store_id=sid.trim();jpost("/v1/ontology/analyze",body).then(setRs).catch(function(x){setE(x.message)})}
-  return h(TplForm,{title:h("span",null,"Ontology",h(Help,null,"subClassOf gives the hierarchy. equivalent, symmetric and intersection define classes. A subsumption cycle is an inconsistency."))},h(Err,{msg:err}),
-    h("p",{className:"muted",style:{marginBottom:10,fontSize:12.5}},"One triple per line: subject predicate object."),
-    h("textarea",{className:"input",style:{width:"100%",minHeight:130,fontFamily:"monospace",fontSize:12},value:txt,onChange:function(ev){setTx(ev.target.value)}}),
-    h("div",{className:"input-row",style:{marginTop:8}},h("button",{className:"primary",onClick:analyze},"Analyze Ontology"),h("input",{className:"input",style:{width:180},value:sid,onChange:function(ev){setSi(ev.target.value)},placeholder:"store in RCDB as… (optional)"})),
+  var b=useState(false),busy=b[0],setB=b[1];
+  var fm=useState(null),fmts=fm[0],setFmts=fm[1];
+  var pk=useState("auto"),pick=pk[0],setPick=pk[1];
+  var fl=useState([]),files=fl[0],setFiles=fl[1];
+  var tx=useState(""),txt=tx[0],setTx=tx[1];
+  var rs=useState(null),res=rs[0],setRs=rs[1];
+  var si=useState(""),sid=si[0],setSi=si[1];
+  var nm=useState(true),named=nm[0],setNamed=nm[1];
+  var ref=useRef();
+  var kf=useState(null),kfmts=kf[0],setKfmts=kf[1];
+  var jn=useState(null),jrep=jn[0],setJrep=jn[1];
+  var rz=useState(null),rsn=rz[0],setRsn=rz[1];
+  var en=useState(null),enr=en[0],setEnr=en[1];
+  var st=useState(""),study=st[0],setStudy=st[1];
+  useEffect(function(){api("/v1/ontology/formats").then(setFmts).catch(function(){});
+                       api("/v1/knowledge/formats").then(setKfmts).catch(function(){})},[]);
+  var accept=kfmts?kfmts.extensions.concat([".json",".txt",".gz"]).join(","):".obo,.owl,.ttl,.nt,.gaf,.json";
+  // an upload that is not purely ontology goes through the join, which is the only
+  // path that can relate a genome annotation to the terms annotating it
+  function needsJoin(list){
+    if(!kfmts)return false;
+    var onto=kfmts.ontology_extensions;
+    return list.some(function(f){
+      var n=f.name.toLowerCase(), dot=n.lastIndexOf("."), ext=dot<0?"":n.slice(dot);
+      if(ext===".gz"){var m=n.slice(0,dot);var d2=m.lastIndexOf(".");ext=d2<0?"":m.slice(d2)}
+      return onto.indexOf(ext)<0});
+  }
+  function choose(list){var a=[];for(var i=0;i<list.length;i++)a.push(list[i]);setFiles(a);setE("")}
+  function post(url,extra){
+    var fd=new FormData();
+    files.forEach(function(f){fd.append("files",f)});
+    if(!files.length&&txt.trim())fd.append("text",txt);
+    if(pick!=="auto")fd.append("format",pick);
+    Object.keys(extra||{}).forEach(function(k){fd.append(k,extra[k])});
+    return fpost(url,fd);
+  }
+  function reason(){
+    if(!files.length&&!txt.trim()){setE("Add an ontology first.");return}
+    setE("");setB(true);setRsn(null);
+    post("/v1/ontology/reason",{}).then(setRsn).catch(function(x){setE(x.message)}).finally(function(){setB(false)});
+  }
+  function enrichRun(){
+    if(!files.length){setE("Enrichment needs the ontology and its annotation file.");return}
+    if(!study.trim()){setE("Enter the entities to test, comma or space separated.");return}
+    setE("");setB(true);setEnr(null);
+    post("/v1/enrichment/run",{study:study}).then(setEnr).catch(function(x){setE(x.message)}).finally(function(){setB(false)});
+  }
+  function run(){
+    setE("");setB(true);setRs(null);setJrep(null);setRsn(null);setEnr(null);
+    var done=function(d){setRs(d)},fail=function(x){setE(x.message)},stop=function(){setB(false)};
+    if(files.length&&needsJoin(files)){
+      var jd=new FormData();
+      files.forEach(function(f){jd.append("files",f)});
+      if(sid.trim())jd.append("store_id",sid.trim());
+      fpost("/v1/knowledge/join",jd).then(setJrep).catch(fail).finally(stop);
+    }else if(files.length){
+      var fd=new FormData();
+      files.forEach(function(f){fd.append("files",f)});
+      if(pick!=="auto")fd.append("format",pick);
+      if(sid.trim())fd.append("store_id",sid.trim());
+      fd.append("use_names",named?"true":"false");
+      fpost("/v1/ontology/upload",fd).then(done).catch(fail).finally(stop);
+    }else if(txt.trim()){
+      var body={text:txt,use_names:named};
+      if(pick!=="auto")body.format=pick;
+      if(sid.trim())body.store_id=sid.trim();
+      jpost("/v1/ontology/analyze",body).then(done).catch(fail).finally(stop);
+    }else{setE("Add an ontology file, or paste one below.");setB(false)}
+  }
+  var src=res&&res.source||{};
+  var meta=[];
+  if(src.n_terms!=null)meta.push(["Terms in file",src.n_terms]);
+  if(src.n_typedefs)meta.push(["Relation types defined",src.n_typedefs]);
+  if(src.n_obsolete)meta.push(["Obsolete",src.n_obsolete]);
+  if(src.n_annotations!=null)meta.push(["Annotations",src.n_annotations]);
+  if(src.n_negative)meta.push(["Negative (NOT), not asserted",src.n_negative]);
+  if(src.version)meta.push(["Declared version",src.version]);
+  if(src.unparsed)meta.push(["Statements not read",src.unparsed]);
+  if(src.n_inputs)meta.push(["Files combined",src.n_inputs]);
+  var kv=function(o){return Object.keys(o||{}).map(function(k){return k+" "+o[k]}).join(", ")};
+  return h(TplForm,{title:h("span",null,"Ontology",h(Help,null,"subClassOf gives the hierarchy. equivalent, symmetric and intersection define classes. A cycle among the subsumption edges alone is an inconsistency; a cycle that closes through a second kind of relation is multiple inheritance."))},h(Err,{msg:err}),
+    h("p",{className:"muted",style:{marginBottom:8,fontSize:12.5}},"Load an ontology (",h("code",null,".obo"),", ",h("code",null,".owl"),", ",h("code",null,".ttl"),", ",h("code",null,".nt"),", OBO Graphs JSON) on its own for the hierarchy diagnosis. Add an annotation set (",h("code",null,".gaf"),", ",h("code",null,".gpad"),") or a structure file (",h("code",null,".gtf"),", ",h("code",null,".vcf"),", ",h("code",null,".pdb"),", ",h("code",null,".sdf"),", …) and they are joined into one complex on the cross-references the files themselves declare."),
+    h("div",{className:"upload",onClick:function(){ref.current.click()},onDragOver:function(ev){ev.preventDefault()},onDrop:function(ev){ev.preventDefault();choose(ev.dataTransfer.files)}},
+      h("input",{ref:ref,type:"file",multiple:true,accept:accept,style:{display:"none"},onChange:function(ev){choose(ev.target.files)}}),
+      files.length?(files.length+" file"+(files.length>1?"s":"")+": "+files.map(function(f){return f.name}).join(", ")):"Drop ontology files or click to choose"),
+    files.length?h("div",{style:{marginTop:6}},h("button",{onClick:function(){setFiles([]);if(ref.current)ref.current.value=""}},"Clear files")):null,
+    h("div",{className:"input-row",style:{marginTop:8,flexWrap:"wrap"}},
+      h("select",{className:"input",style:{width:190},value:pick,onChange:function(ev){setPick(ev.target.value)},title:"Leave on auto to detect from the extension, then the content"},
+        h("option",{value:"auto"},"Format: auto-detect"),
+        fmts?Object.keys(fmts.formats).map(function(k){return h("option",{key:k,value:k},k+"  ("+fmts.formats[k].join(" ")+")")}):null),
+      h("input",{className:"input",style:{width:190},value:sid,onChange:function(ev){setSi(ev.target.value)},placeholder:"store in RCDB as… (optional)"}),
+      h("label",{className:"chk",style:{display:"flex",alignItems:"center",gap:4,fontSize:12},title:"Show term names where the file gives them, instead of raw ids"},
+        h("input",{type:"checkbox",checked:named,onChange:function(ev){setNamed(ev.target.checked)}}),"Use term names"),
+      h("button",{className:"primary",onClick:run,disabled:busy},busy?"Analyzing…":"Analyze"),
+      h("button",{onClick:reason,disabled:busy,title:"Unsatisfiable classes, equivalence classes, relative homology"},"Reason")),
+    h("div",{className:"input-row",style:{marginTop:6,flexWrap:"wrap"}},
+      h("input",{className:"input",style:{flex:1,minWidth:240},value:study,onChange:function(ev){setStudy(ev.target.value)},placeholder:"entities to test for enrichment, e.g. BRCA1 BRCA2 ATM"}),
+      h("button",{onClick:enrichRun,disabled:busy,title:"Needs the annotation file alongside the ontology"},"Enrich")),
+    h("details",{style:{marginTop:10}},h("summary",{className:"muted",style:{fontSize:12.5,cursor:"pointer"}},"or paste an ontology"),
+      h("textarea",{className:"input",style:{width:"100%",minHeight:120,fontFamily:"monospace",fontSize:12,marginTop:6},value:txt,onChange:function(ev){setTx(ev.target.value)},placeholder:"Paste OBO, OWL/RDF, Turtle, N-Triples, OBO Graphs JSON, or one 'Subject predicate Object' per line."})),
+    rsn&&h("div",{style:{marginTop:12}},
+      h("div",{style:{marginBottom:8}},h(Badge,{type:rsn.consistency.consistent?"good":"fail"},rsn.consistency.consistent?"consistent":"inconsistent")," ",
+        rsn.consistency.consistent?("No class is below two classes asserted disjoint. "+rsn.consistency.n_disjointness_axioms+" disjointness axiom(s) checked."):
+          (rsn.consistency.n_unsatisfiable+" class(es) cannot have an instance.")),
+      rsn.consistency.unsatisfiable&&rsn.consistency.unsatisfiable.length?h(Card,{title:"Unsatisfiable classes"},
+        rsn.consistency.unsatisfiable.map(function(u,i){return h("div",{key:i,style:{marginBottom:8}},
+          h("div",{style:{fontSize:13}},u.summary),
+          h("div",{className:"muted",style:{fontSize:12,fontFamily:"monospace",marginTop:2}},u.path_to_first.join(" \u2192 ")+"   |   "+u.path_to_second.join(" \u2192 ")))})):null,
+      h("div",{className:"grid-3"},h(Stat,{value:rsn.n_terms,label:"Terms"}),h(Stat,{value:rsn.n_axioms,label:"Axioms"}),h(Stat,{value:rsn.equivalence.n_classes||0,label:"Equivalence classes"})),
+      h("div",{className:"adv"},h(Card,{title:"Relative homology and holonomy"},h(Table,{cols:[{l:"quantity",k:"q"},{l:"value",k:"v"}],rows:[
+        {q:"betti",v:JSON.stringify(rsn.betti)},
+        {q:"betti relative to the hierarchy",v:JSON.stringify((rsn.classification||{}).betti_relative||null)},
+        {q:"congruence classes",v:(rsn.classification||{}).n_congruence_classes},
+        {q:"frustrated cycles (holonomy, not consistency)",v:rsn.consistency.holonomy.n_frustrated+" / "+rsn.consistency.holonomy.n_independent_cycles}]}))),
+      rsn.module?h(Card,{title:"Module for the requested terms"},h("p",{style:{fontSize:13}},rsn.module.n_axioms+" axiom(s); betti relative "+JSON.stringify(rsn.module.betti_relative))):null),
+    enr&&h("div",{style:{marginTop:12}},
+      enr.warning?h("p",{className:"muted",style:{fontSize:12.5}},enr.warning):null,
+      h("div",{className:"grid-3"},h(Stat,{value:enr.n_study,label:"Study set matched"}),h(Stat,{value:enr.n_universe,label:"Background"}),h(Stat,{value:enr.n_terms_tested,label:"Terms tested"})),
+      enr.n_study_unmapped?h("p",{className:"muted",style:{fontSize:12}},enr.n_study_unmapped+" entity(s) in the study set are not annotated in this complex."):null,
+      h(Card,{title:"Enriched terms"},h(Table,{cols:[{l:"term",k:"term"},{l:"study/term",k:"x",r:function(r){return r.n_study+" / "+r.n_term}},
+        {l:"fold",k:"fold_enrichment",r:function(r){return r.fold_enrichment.toFixed(2)}},
+        {l:"p",k:"p_value",r:function(r){return r.p_value.toExponential(2)}},
+        {l:"q (BH)",k:"q_value",r:function(r){return r.q_value.toExponential(2)}}],rows:enr.terms})),
+      enr.structure&&enr.structure.available?h("div",{className:"adv"},h(Card,{title:"Structural reading"},
+        h("p",{className:"muted",style:{fontSize:12}},enr.structure.reading),
+        h(Table,{cols:[{l:"quantity",k:"q"},{l:"value",k:"v"}],rows:[
+          {q:"features",v:enr.structure.n_features},{q:"essential",v:enr.structure.n_essential},
+          {q:"persistence entropy",v:enr.structure.persistence_entropy.toFixed(4)},
+          {q:"longest lifetime",v:enr.structure.longest_lifetime.toFixed(3)}]}))):null),
+    jrep&&h("div",{style:{marginTop:12}},
+      h("div",{style:{marginBottom:8}},h(Badge,{type:jrep.report.n_joined>0?"good":"gold"},jrep.report.n_joined>0?"joined":"no shared entities")," ",
+        jrep.report.n_joined>0?(jrep.report.n_joined+" entities are named by more than one file."):"No entity was named by more than one file, so these sit in separate components."),
+      h("div",{className:"grid-3"},h(Stat,{value:jrep.n_entities,label:"Entities"}),h(Stat,{value:jrep.n_relations,label:"Relations"}),h(Stat,{value:jrep.report.n_joined,label:"Joined across files"})),
+      h(Card,{title:"Sources"},h(Table,{cols:[{l:"file",k:"origin"},{l:"read as",k:"kind"},{l:"relations",k:"n_relations"},{l:"entities",k:"n_entities"}],rows:jrep.report.sources})),
+      jrep.report.recommendations&&jrep.report.recommendations.length?h(Card,{title:"What would add to this"},
+        h("p",{className:"muted",style:{fontSize:12}},"Nothing is downloaded. Each of these names a file and where it is published."),
+        jrep.report.recommendations.map(function(r,i){return h("div",{key:i,style:{marginBottom:10}},
+          h("div",{style:{fontSize:13}},r.detail),
+          h("div",{style:{fontSize:13,marginTop:2}},h("strong",null,r.action)),
+          r.published?h("div",{className:"muted",style:{fontSize:12,marginTop:2}},r.published):null,
+          r.examples&&r.examples.length?h("div",{className:"muted",style:{fontSize:12,marginTop:2,fontFamily:"monospace"}},r.examples.join("  ")):null)})):null,
+      jrep.report.joined&&jrep.report.joined.length?h(Card,{title:"Entities reached by more than one file"},
+        h(Table,{cols:[{l:"entity",k:"entity"},{l:"named by",k:"sources",r:function(r){return r.sources.join(", ")}}],rows:jrep.report.joined})):null,
+      jrep.report.collisions&&jrep.report.collisions.length?h(Card,{title:"Identifier collisions"},
+        h("p",{className:"muted",style:{fontSize:12}},"One file named more than one entity with the same identifier. These were NOT merged."),
+        h(Table,{cols:[{l:"file",k:"origin"},{l:"identifier",k:"identifier"},{l:"entities",k:"entities",r:function(r){return r.entities.join(", ")}}],rows:jrep.report.collisions})):null,
+      h("div",{className:"adv"},h(Card,{title:"Complex"},h(Table,{cols:[{l:"quantity",k:"q"},{l:"value",k:"v"}],rows:[
+        {q:"nV / nE / nF",v:jrep.nV+" / "+jrep.nE+" / "+jrep.nF},
+        {q:"betti",v:JSON.stringify(jrep.betti)},
+        {q:"declared but unreferenced",v:jrep.report.n_declared_unreferenced}]}))),
+      jrep.failed_files&&jrep.failed_files.length?h(Card,{title:"Files that could not be read"},jrep.failed_files.map(function(f,i){return h("div",{key:i,className:"status-row"},h(Badge,{type:"fail"},"skipped"),h("span",{style:{marginLeft:8,fontSize:13}},f.file+": "+f.error))})):null,
+      jrep.stored_as?h("p",{className:"muted",style:{fontSize:12}},"Stored in RCDB as "+jrep.stored_as):null,
+      jrep.relations&&jrep.relations.length?h(Card,{title:"Relations"+(jrep.truncated?" (first "+jrep.relations.length+" of "+jrep.n_relations+")":"")},
+        h(Table,{cols:[{l:"subject",k:"0",r:function(r){return r[0]}},{l:"relation",k:"1",r:function(r){return r[1]}},{l:"object",k:"2",r:function(r){return r[2]}},{l:"from",k:"3",r:function(r){return r[3]}}],rows:jrep.relations})):null),
     res&&h("div",{style:{marginTop:12}},
-      h("div",{style:{marginBottom:8}},h(Badge,{type:res.state==="acyclic_hierarchy"?"good":res.state==="inconsistent"?"fail":"gold"},res.state)," ",res.summary),
-      res.hodge&&h("div",{className:"grid-3"},h(Stat,{value:pct(res.hodge.subsumption_hierarchy),label:"Hierarchy (subsumption)"}),h(Stat,{value:pct(res.hodge.bounded_definitions),label:"Definitions (bounded)"}),h(Stat,{value:pct(res.hodge.inconsistencies),label:"Inconsistencies"})),
-      res.definitions&&res.definitions.length&&h("p",{style:{marginTop:8,fontSize:13}},"Definition faces: "+res.definitions.map(function(d){return d.join(" ≡ ")}).join(", ")),
-      res.findings&&res.findings.length&&h(Card,{title:"Findings",style:{marginTop:8}},res.findings.map(function(f,i){return h("div",{key:i,className:"status-row"},h(Badge,{type:f.severity==="high"?"fail":f.severity==="info"?"neutral":"gold"},f.severity),h("span",{style:{marginLeft:8,fontSize:13}},f.issue))}))))}
+      h("div",{style:{marginBottom:8}},h(Badge,{type:res.state==="inconsistent"?"fail":(res.state==="acyclic_hierarchy"||res.state==="bounded_definitions")?"good":"gold"},res.state)," ",res.summary),
+      res.files&&h("p",{className:"muted",style:{fontSize:12}},"Read: "+res.files.join(", ")+(res.source&&res.source.format?"  ("+res.source.format+")":"")),
+      res.failed_files&&res.failed_files.length?h(Card,{title:"Files that could not be read"},res.failed_files.map(function(f,i){return h("div",{key:i,className:"status-row"},h(Badge,{type:"fail"},"skipped"),h("span",{style:{marginLeft:8,fontSize:13}},f.file+": "+f.error))})):null,
+      h("div",{className:"grid-3"},h(Stat,{value:res.n_classes,label:"Terms"}),h(Stat,{value:res.n_relations,label:"Relations"}),h(Stat,{value:res.n_labels||0,label:"Named"})),
+      res.hodge&&h("div",{className:"grid-3",style:{marginTop:8}},
+        h(Stat,{value:pct(res.hodge.subsumption_hierarchy),label:"Hierarchy (subsumption)"}),
+        h(Stat,{value:pct(res.hodge.bounded_definitions),label:"Definitions (bounded)"}),
+        h(Stat,{value:pct(res.hodge.inconsistencies),label:"Unbounded cycles"})),
+      res.hodge&&h(Card,{className:"adv",title:"Exact dimensions"},h(Table,{cols:[{l:"quantity",k:"q"},{l:"value",k:"v"}],rows:[
+        {q:"subsumption cycles (is_a only)",v:res.hodge.inconsistency_dimension},
+        {q:"cycles closing through another relation",v:res.hodge.multi_relation_cycle_dimension},
+        {q:"definition faces, rank B2",v:res.hodge.definition_dimension},
+        {q:"betti",v:res.betti?JSON.stringify(res.betti):"-"}]})),
+      meta.length?h(Card,{title:"What the file says"},h(Table,{cols:[{l:"",k:"0",r:function(r){return r[0]}},{l:"",k:"1",r:function(r){return String(r[1])}}],rows:meta})):null,
+      src.namespaces&&Object.keys(src.namespaces).length?h("p",{style:{fontSize:12.5}},"Namespaces: ",kv(src.namespaces)):null,
+      src.evidence_codes&&Object.keys(src.evidence_codes).length?h("p",{style:{fontSize:12.5}},"Evidence codes: ",kv(src.evidence_codes)):null,
+      src.taxa&&Object.keys(src.taxa).length?h("p",{style:{fontSize:12.5}},"Taxa: ",kv(src.taxa)):null,
+      res.declarations&&Object.keys(res.declarations).length?h("p",{style:{fontSize:12.5}},"Declared as: ",kv(res.declarations)):null,
+      res.predicates&&Object.keys(res.predicates).length?h(Card,{title:"Relations by type"},h(Table,{cols:[{l:"relation",k:"p"},{l:"count",k:"n"}],rows:Object.keys(res.predicates).map(function(k){return {p:k,n:res.predicates[k]}})})):null,
+      res.definitions&&res.definitions.length?h("p",{style:{marginTop:8,fontSize:13}},"Definition faces: "+res.definitions.map(function(d){return d.join(" \u2261 ")}).join(", ")):null,
+      res.findings&&res.findings.length?h(Card,{title:"Findings"},res.findings.map(function(f,i){return h("div",{key:i,className:"status-row"},h(Badge,{type:f.severity==="high"?"fail":f.severity==="info"?"neutral":"gold"},f.severity),h("span",{style:{marginLeft:8,fontSize:13}},f.issue))})):null,
+      res.stored_as?h("p",{className:"muted",style:{fontSize:12}},"Stored in RCDB as "+res.stored_as):null,
+      res.store_error?h("p",{className:"muted",style:{fontSize:12}},"Not stored: "+res.store_error):null,
+      res.triples&&res.triples.length?h(Card,{title:"Relations"+(res.truncated?" (first "+res.triples.length+" of "+res.n_triples+")":"")},
+        h(Table,{cols:[{l:"subject",k:"0",r:function(r){return r[0]}},{l:"relation",k:"1",r:function(r){return r[1]}},{l:"object",k:"2",r:function(r){return r[2]}}],rows:res.triples})):null))}
+
+function CellQuery(){
+  var e=useState(""),err=e[0],setE=e[1];
+  var b=useState(false),busy=b[0],setB=b[1];
+  var id=useState(""),rec=id[0],setRec=id[1];
+  var q=useState("kappa"),qty=q[0],setQty=q[1];
+  var o=useState("<"),op=o[0],setOp=o[1];
+  var th=useState("0.9"),thr=th[0],setThr=th[1];
+  var ch=useState("0"),chan=ch[0],setChan=ch[1];
+  var rs=useState(null),res=rs[0],setRs=rs[1];
+  var ex=useState(null),exp=ex[0],setExp=ex[1];
+  var ls=useState([]),recs=ls[0],setRecs=ls[1];
+  useEffect(function(){api("/v1/db/list").then(function(d){setRecs(d.records||d||[])}).catch(function(){})},[]);
+  function run(){
+    if(!rec.trim()){setE("Pick a stored complex.");return}
+    setE("");setB(true);setRs(null);setExp(null);
+    jpost("/v1/db/cells/"+encodeURIComponent(rec.trim()),{where:[{quantity:qty,op:op,threshold:parseFloat(thr),channel:parseInt(chan||"0",10)}]})
+      .then(setRs).catch(function(x){setE(x.message)}).finally(function(){setB(false)});
+  }
+  function explain(dim,idx){
+    api("/v1/db/explain/"+encodeURIComponent(rec.trim())+"?dim="+dim+"&idx="+idx).then(setExp).catch(function(x){setE(x.message)});
+  }
+  return h(TplForm,{title:h("span",null,"Cell Query",h(Help,null,"Select cells inside a stored complex by a structural invariant the complex computes, rather than by an attribute someone recorded in advance."))},h(Err,{msg:err}),
+    h("div",{className:"input-row",style:{flexWrap:"wrap"}},
+      h("input",{className:"input",style:{width:200},value:rec,onChange:function(ev){setRec(ev.target.value)},placeholder:"stored record id",list:"rexrecs"}),
+      h("datalist",{id:"rexrecs"},(recs||[]).map(function(r,i){return h("option",{key:i,value:r.id||r})})),
+      h("select",{className:"input",style:{width:150},value:qty,onChange:function(ev){setQty(ev.target.value)}},
+        ["kappa","chi","phi","curvature","coherence_local"].map(function(x){return h("option",{key:x,value:x},x)})),
+      h("select",{className:"input",style:{width:70},value:op,onChange:function(ev){setOp(ev.target.value)}},
+        [">",">=","<","<=","==","!="].map(function(x){return h("option",{key:x,value:x},x)})),
+      h("input",{className:"input",style:{width:90},value:thr,onChange:function(ev){setThr(ev.target.value)},placeholder:"threshold"}),
+      (qty==="chi"||qty==="phi")?h("input",{className:"input",style:{width:80},value:chan,onChange:function(ev){setChan(ev.target.value)},placeholder:"channel"}):null,
+      h("button",{className:"primary",onClick:run,disabled:busy},busy?"Selecting\u2026":"Select")),
+    res&&h("div",{style:{marginTop:12}},
+      h("div",{className:"grid-3"},h(Stat,{value:res.n_selected,label:"Selected"}),h(Stat,{value:res.n_cells,label:"Cells"}),h(Stat,{value:res.grade,label:"Grade"})),
+      h(Card,{title:"Cells"},h(Table,{cols:[{l:"#",k:"i",r:function(r,i){return i}},{l:"cell",k:"c",r:function(r){return r}},
+        {l:"",k:"x",r:function(r,i){return h("button",{onClick:function(){explain(res.grade==="vertex"?0:1,i)}},"explain")}}],rows:res.cells}))),
+    exp&&h(Card,{title:"Explain"+(exp.label?": "+exp.label:""),style:{marginTop:8}},
+      h(Table,{cols:[{l:"quantity",k:"k"},{l:"value",k:"v"}],
+        rows:Object.keys(exp).filter(function(k){return typeof exp[k]!=="object"}).map(function(k){return {k:k,v:String(exp[k])}})})))}
+
+function Releases(){
+  var e=useState(""),err=e[0],setE=e[1];
+  var b=useState(false),busy=b[0],setB=b[1];
+  var fl=useState([]),files=fl[0],setFiles=fl[1];
+  var rs=useState(null),res=rs[0],setRs=rs[1];
+  var ref=useRef();
+  function choose(list){var a=[];for(var i=0;i<list.length;i++)a.push(list[i]);setFiles(a);setE("")}
+  function run(){
+    if(files.length<2){setE("A series needs at least two releases, in order.");return}
+    setE("");setB(true);setRs(null);
+    var fd=new FormData();
+    files.forEach(function(f){fd.append("files",f)});
+    fd.append("labels",files.map(function(f){return f.name}).join(","));
+    fpost("/v1/releases/analyze",fd).then(setRs).catch(function(x){setE(x.message)}).finally(function(){setB(false)});
+  }
+  return h(TplForm,{title:h("span",null,"Release Series",h(Help,null,"An ontology is a series, not a file. A term that stops appearing because it was MERGED and one that was DELETED look identical in a text diff and mean different things to anything holding the old id."))},h(Err,{msg:err}),
+    h("p",{className:"muted",style:{marginBottom:8,fontSize:12.5}},"Upload the releases in the order they were published. Order is yours: a filename is not a date."),
+    h("div",{className:"upload",onClick:function(){ref.current.click()},onDragOver:function(ev){ev.preventDefault()},onDrop:function(ev){ev.preventDefault();choose(ev.dataTransfer.files)}},
+      h("input",{ref:ref,type:"file",multiple:true,accept:".obo,.owl,.ttl,.nt,.obojson,.json,.gz",style:{display:"none"},onChange:function(ev){choose(ev.target.files)}}),
+      files.length?(files.length+" release(s): "+files.map(function(f){return f.name}).join(" \u2192 ")):"Drop the releases or click to choose"),
+    h("div",{className:"input-row",style:{marginTop:8}},
+      h("button",{className:"primary",onClick:run,disabled:busy},busy?"Reading\u2026":"Analyze series"),
+      files.length?h("button",{onClick:function(){setFiles([]);if(ref.current)ref.current.value=""}},"Clear"):null),
+    res&&h("div",{style:{marginTop:12}},
+      h("div",{className:"grid-3"},h(Stat,{value:res.n_releases,label:"Releases"}),h(Stat,{value:res.n_introduced,label:"Introduced"}),h(Stat,{value:res.n_obsoleted,label:"No longer present"})),
+      res.merges&&res.merges.length?h(Card,{title:"Merged"},
+        h("p",{className:"muted",style:{fontSize:12}},"The surviving term records the absorbed one as an alt_id, so this is read from the file rather than inferred."),
+        h(Table,{cols:[{l:"term",k:"term"},{l:"merged into",k:"merged_into"},{l:"at",k:"release"}],rows:res.merges})):null,
+      res.removals&&res.removals.length?h(Card,{title:"Removed with no successor"},
+        h("p",{className:"muted",style:{fontSize:12}},"Nothing claims these, so an id held elsewhere cannot be remapped."),
+        h(Table,{cols:[{l:"term",k:"term"},{l:"at",k:"release"}],rows:res.removals})):null,
+      h(Card,{title:"Releases"},h(Table,{cols:[{l:"release",k:"label"},{l:"terms",k:"n_terms"},{l:"relations",k:"n_relations"}],rows:res.releases})),
+      res.diffs&&res.diffs.length?h(Card,{title:"What moved"},h(Table,{cols:[
+        {l:"from",k:"from"},{l:"to",k:"to"},
+        {l:"terms",k:"t",r:function(r){return "+"+r.n_added_terms+" / -"+r.n_removed_terms}},
+        {l:"relations",k:"rl",r:function(r){return "+"+r.n_added_relations+" / -"+r.n_removed_relations}}],rows:res.diffs})):null,
+      res.navigation?h("div",{className:"adv"},h(Card,{title:"Structural surprise"},
+        h("p",{className:"muted",style:{fontSize:12}},res.navigation.reading),
+        h(Table,{cols:[{l:"release",k:"release"},{l:"surprise",k:"surprise",r:function(r){return r.surprise?"yes":""}},{l:"region",k:"n_region"}],rows:res.navigation.steps}))):null))}
 
 function Connectors(){
   var e=useState(""),err=e[0],setE=e[1];
@@ -2283,14 +2532,202 @@ function ModelStudio(){
         (ires.entities&&ires.entities.length)?h("p",{className:"muted",style:{fontSize:11}},"entities: "+ires.entities.join(", ")):null)));
 }
 
+
+// Graph: draw the complex a session holds, at any step, in any view.
+//
+// Every number here came from the library. Positions are exact rationals from each
+// cell's own star, length is the quadrance so it carries arity, angles are spreads,
+// colour is the character through K7's spectrum, faces are solved. This screen picks a
+// complex and shows what came back.
+// The pipeline draws what it analysed: `drawing` is a stage at every depth, so a run
+// reports a picture beside its numbers instead of leaving the reader to imagine one.
+function PipelineDrawing(p){
+  var d=p.drawing;
+  if(!d)return null;
+  if(!d.drawn)return h(Card,{title:"Drawing"},h("p",{className:"muted",style:{fontSize:12}},d.reason||"not drawn"));
+  return h(Card,{title:"Drawing",actions:h("span",{className:"muted",style:{fontSize:11}},
+      d.cells_drawn+"/"+d.cells_total+" relations · "+d.faces_drawn+"/"+(d.faces_total||0)+" faces"+(d.truncated?" · truncated":""))},
+    h("div",{style:{overflow:"auto",maxHeight:520},dangerouslySetInnerHTML:{__html:d.svg}}),
+    d.reading?h("p",{className:"muted",style:{fontSize:11}},d.reading):null);
+}
+
+function GraphView(){
+  var _s=React.useState([]),sess=_s[0],setSess=_s[1];
+  var _i=React.useState(""),sid=_i[0],setSid=_i[1];
+  var _st=React.useState(null),steps=_st[0],setSteps=_st[1];
+  var _sp=React.useState(null),step=_sp[0],setStep=_sp[1];
+  var _v=React.useState("structural"),view=_v[0],setView=_v[1];
+  var _vs=React.useState(null),views=_vs[0],setViews=_vs[1];
+  var _r=React.useState(null),res=_r[0],setRes=_r[1];
+  var _b=React.useState(false),busy=_b[0],setBusy=_b[1];
+  var _e=React.useState(""),err=_e[0],setErr=_e[1];
+  var _k=React.useState(null),keys=_k[0],setKeys=_k[1];
+  var _fk=React.useState(""),fkey=_fk[0],setFkey=_fk[1];
+  var _fv=React.useState(""),fval=_fv[0],setFval=_fv[1];
+  var _fg=React.useState(1),fgrade=_fg[0],setFgrade=_fg[1];
+  var _c=React.useState(null),cell=_c[0],setCell=_c[1];
+  var _lim=React.useState(0),lim=_lim[0],setLim=_lim[1];
+  var _cb=React.useState("character"),cby=_cb[0],setCby=_cb[1];
+  var _lg=React.useState([]),lins=_lg[0],setLins=_lg[1];
+  var _li=React.useState(""),lid=_li[0],setLid=_li[1];
+  var _lh=React.useState(null),lhist=_lh[0],setLhist=_lh[1];
+
+  React.useEffect(function(){
+    api("/api/sessions").then(function(r){setSess(r||[]);if((r||[]).length&&!sid)setSid(r[0].session_id||r[0].id)}).catch(function(){});
+    api("/api/v1/graph/views").then(setViews).catch(function(){});
+    api("/api/v1/graph/lineages").then(function(r){setLins((r&&r.lineages)||[])}).catch(function(){});
+  },[]);
+  React.useEffect(function(){
+    if(!sid)return;
+    api("/api/v1/graph/"+sid+"/history").then(function(r){setSteps(r)}).catch(function(){setSteps(null)});
+    api("/api/v1/graph/"+sid+"/attributes").then(setKeys).catch(function(){setKeys(null)});
+  },[sid]);
+
+  function body(){
+    var b={view:view,colour_by:cby};
+    if(step!==null&&step!=="")b.step=Number(step);
+    if(lim>0)b.limit=Number(lim);
+    if(fkey&&fval!==""){var c={};c[fkey]=isNaN(Number(fval))?fval:Number(fval);b.select=c;b.select_dim=Number(fgrade)}
+    return b;
+  }
+  function draw(){
+    if(!sid)return; setBusy(true);setErr("");setCell(null);
+    jpost("/api/v1/graph/"+sid+"/render",body()).then(setRes)
+      .catch(function(x){setErr(x.message);setRes(null)}).finally(function(){setBusy(false)});
+  }
+  function download(){
+    if(!sid)return;
+    fetch("/api/v1/graph/"+sid+"/image",{method:"POST",headers:Object.assign({"Content-Type":"application/json"},authHeaders()),body:JSON.stringify(body())})
+      .then(function(r){return r.blob()}).then(function(bl){
+        var u=URL.createObjectURL(bl),a=document.createElement("a");
+        a.href=u;a.download=sid+"-"+view+".svg";a.click();URL.revokeObjectURL(u);
+      }).catch(function(x){setErr(String(x))});
+  }
+  function inspect(grade,index){
+    var b=body();b.grade=grade;b.index=index;delete b.select;delete b.select_dim;
+    jpost("/api/v1/graph/"+sid+"/cell",b).then(setCell).catch(function(x){setErr(x.message)});
+  }
+  // a click anywhere on the drawing: the nearest <title> says which cell it was, which
+  // is the same string the renderer wrote, so the picture and the readings agree
+  function onSvgClick(ev){
+    var el=ev.target,t=null;
+    while(el&&el!==ev.currentTarget){ if(el.getElementsByTagName){var ts=el.getElementsByTagName("title"); if(ts&&ts.length){t=ts[0].textContent;break}} el=el.parentNode }
+    if(!t)return;
+    var m=/^relation (\d+)/.exec(t); if(m){inspect(1,Number(m[1]));return}
+    m=/^vertex (\d+)/.exec(t); if(m){inspect(0,Number(m[1]));return}
+    m=/^face (\d+)/.exec(t); if(m){inspect(2,Number(m[1]))}
+  }
+
+  // an edit is the COMPLEX, not a description of it, so recording stores what was
+  // analysed and drawn and a past step reconstructs into the same thing
+  function recordEdit(){
+    if(!sid)return;
+    var id=lid||("edits-"+sid);
+    jpost("/api/v1/graph/lineage/"+id+"/record",{session_id:sid,step:(step===null||step==="")?undefined:Number(step)})
+      .then(function(){setLid(id);return api("/api/v1/graph/lineage/"+id)})
+      .then(setLhist).catch(function(x){setErr(x.message)});
+  }
+  function loadLineage(id){
+    setLid(id); if(!id){setLhist(null);return}
+    api("/api/v1/graph/lineage/"+id).then(setLhist).catch(function(x){setErr(x.message);setLhist(null)});
+  }
+  function drawLineageAt(at){
+    var b=body(); b.at=at;
+    jpost("/api/v1/graph/lineage/"+lid+"/render",b)
+      .then(function(r){setRes(Object.assign({},r,{cells_total:r.cells_total,faces_total:r.faces_total||0,faces_drawn:0}))})
+      .catch(function(x){setErr(x.message)});
+  }
+
+  var gradeKeys=(keys&&keys.keys&&keys.keys[String(fgrade)])||[];
+  return h(TplReport,{title:"Graph"},h(Err,{msg:err}),
+    h(Card,{title:"Source"},
+      h("div",{className:"row",style:{gap:8,flexWrap:"wrap",alignItems:"center"}},
+        h("select",{value:sid,onChange:function(e){setSid(e.target.value);setRes(null)}},
+          h("option",{value:""},"select a session…"),
+          (sess||[]).map(function(x,i){var id=x.session_id||x.id;return h("option",{key:i,value:id},(x.name||id)+" · "+(x.n_steps||x.steps||"?")+" steps")})),
+        h("select",{value:view,onChange:function(e){setView(e.target.value)},title:views?JSON.stringify(views.views):""},
+          Object.keys((views&&views.views)||{structural:1,plane:1,character:1,embedded:1}).map(function(v){return h("option",{key:v,value:v},v)})),
+        steps&&steps.n_steps?h("select",{value:step===null?"":step,onChange:function(e){setStep(e.target.value===""?null:e.target.value)}},
+          h("option",{value:""},"current"),
+          (steps.steps||[]).map(function(x,i){return h("option",{key:i,value:x.step},"step "+x.step+" · "+(x.action||""))})):null,
+        h("label",{style:{fontSize:12,display:"flex",gap:4,alignItems:"center"},title:"0 draws every cell. A bounded picture reports what it left out."},
+          "limit",h("input",{type:"number",min:0,style:{width:70},value:lim,onChange:function(e){setLim(e.target.value)}})),
+        h("select",{value:cby,onChange:function(e){setCby(e.target.value)},title:"character is derived; an attribute colours categorically; a quantity ramps, which is a heat map"},
+          h("option",{value:"character"},"colour: character"),
+          ((res&&res.quantities)||["curvature","arity","quadrance"]).map(function(q){return h("option",{key:q,value:q},"heat: "+q)}),
+          (((keys&&keys.keys)||{})["1"]||[]).map(function(k){return h("option",{key:"a"+k,value:k},"by: "+k)})),
+        h("button",{className:"primary",onClick:draw,disabled:!sid||busy},busy?"Drawing…":"Draw"),
+        h("button",{onClick:download,disabled:!sid},"Download SVG")),
+      views?h("p",{className:"muted",style:{fontSize:11,marginTop:6}},(views.views||{})[view]||""):null),
+
+    keys&&Object.keys(keys.keys||{}).length?h(Card,{title:"Filter"},
+      h("div",{className:"row",style:{gap:8,flexWrap:"wrap",alignItems:"center"}},
+        h("select",{value:fgrade,onChange:function(e){setFgrade(e.target.value);setFkey("")}},
+          h("option",{value:0},"vertices"),h("option",{value:1},"relations"),h("option",{value:2},"faces")),
+        h("select",{value:fkey,onChange:function(e){setFkey(e.target.value)}},
+          h("option",{value:""},"attribute…"),
+          gradeKeys.map(function(k){return h("option",{key:k,value:k},k)})),
+        h("input",{placeholder:"value",value:fval,onChange:function(e){setFval(e.target.value)}}),
+        h("button",{onClick:draw,disabled:!fkey},"Apply"),
+        fkey?h("button",{onClick:function(){setFkey("");setFval("");}},"Clear"):null),
+      h("p",{className:"muted",style:{fontSize:11,marginTop:6}},
+        "Matching cells are drawn forward and the rest back. Nothing is removed: deleting the others would change the character of the ones that stayed.")):null,
+
+    h(Card,{title:"Edit lineage",actions:h("button",{onClick:recordEdit,disabled:!sid},"Record this state")},
+      h("div",{className:"row",style:{gap:8,flexWrap:"wrap",alignItems:"center"}},
+        h("select",{value:lid,onChange:function(e){loadLineage(e.target.value)}},
+          h("option",{value:""},"lineage…"),
+          (lins||[]).map(function(x,i){var id=x.id||x.lineage_id||x;return h("option",{key:i,value:id},id)})),
+        lhist?h("span",{className:"muted",style:{fontSize:11}},lhist.n_steps+" recorded states"):null),
+      lhist?h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}},
+        (lhist.steps||[]).map(function(x,i){return h("button",{key:i,onClick:function(){drawLineageAt(x.at)},
+          title:"nV "+x.nV+" · nE "+x.nE},"step "+x.step)})):null,
+      h("p",{className:"muted",style:{fontSize:11,marginTop:6}},
+        "An edit is the complex, not a description of it. Each state reconstructs and draws through the same path a live one does.")),
+
+    res?h(Card,{title:"Drawing",actions:h("span",{className:"muted",style:{fontSize:11}},
+        res.cells_drawn+"/"+res.cells_total+" relations · "+res.faces_drawn+"/"+res.faces_total+" faces"+(res.truncated?" · truncated":""))},
+      h("div",{onClick:onSvgClick,style:{cursor:"pointer",overflow:"auto",maxHeight:640},
+               dangerouslySetInnerHTML:{__html:res.svg}}),
+      h("p",{className:"muted",style:{fontSize:11}},"Click a cell for its readings.")):null,
+
+    res?h(Card,{title:"Reading"},
+      h("div",{className:"status-row"},h("span",{className:"name"},"manifold state"),
+        h(Badge,{type:"neutral"},(res.state&&res.state.state)||"—")),
+      res.orientation?h("div",{className:"status-row"},h("span",{className:"name"},"orientable"),
+        h(Badge,{type:res.orientation.orientable?"ok":"gold"},res.orientation.orientable?"yes":"no")):null,
+      res.selection?h("div",{className:"status-row"},h("span",{className:"name"},"selected"),
+        h(Badge,{type:"ok"},res.selection.n_selected+" of "+res.cells_total)):null,
+      res.colour?h("div",{className:"status-row"},h("span",{className:"name"},"colour"),
+        h("span",{className:"muted",style:{fontSize:11}},
+          res.colour.kind==="character"?"the character, derived":
+          res.colour.kind==="quantity"?(res.colour.quantity+" ramped over ["+
+            (res.colour.domain||[]).map(function(x){return Number(x).toFixed(3)}).join(", ")+"]"):
+          (res.colour.attribute+": "+Object.keys(res.colour.legend||{}).join(", ")))):null,
+      res.field&&res.field.channels?h("p",{className:"muted",style:{fontSize:11}},
+        "channels: "+res.field.channels.join(", ")+(res.field.exact?" · exact":"")):null):null,
+
+    cell?h(Card,{title:"Cell "+cell.index+" at grade "+cell.grade,
+                 actions:h("button",{onClick:function(){setCell(null)}},"Close")},
+      cell.quadrance?h("div",{className:"status-row"},h("span",{className:"name"},"quadrance"),h("code",null,cell.quadrance)):null,
+      cell.boundary?h("div",{className:"status-row"},h("span",{className:"name"},"boundary"),
+        h("code",null,(cell.boundary_labels||cell.boundary).join(", "))):null,
+      cell.reading?h("div",{className:"status-row"},h("span",{className:"name"},"bounds"),
+        h(Badge,{type:cell.reading.state==="bounds"?"ok":"gold"},cell.reading.state)):null,
+      cell.attributes&&Object.keys(cell.attributes).length?h("pre",{className:"mono",style:{fontSize:11}},JSON.stringify(cell.attributes,null,1)):null,
+      cell.angles_at&&cell.angles_at.length?h("p",{className:"muted",style:{fontSize:11}},
+        "angles here: "+cell.angles_at.slice(0,6).map(function(a){return "cos²="+a.cos_squared}).join(", ")):null,
+      cell.shape?h("pre",{className:"mono",style:{fontSize:11}},JSON.stringify(cell.shape,null,1)):null):null);
+}
+
 var SECTIONS=[
-  {label:"ANALYZE",tabs:[{id:"pipeline",label:"Pipeline",icon:"pipeline"},{id:"documents",label:"Documents",icon:"documents"},{id:"corpus",label:"Corpus",icon:"corpus"}]},
-  {label:"DATABASE",tabs:[{id:"database",label:"RCDB Overview",icon:"rcdb"},{id:"dbmanager",label:"DB Manager",icon:"dbmanager"},{id:"connectors",label:"Connectors",icon:"connectors"},{id:"schema",label:"Schema Diagnosis",icon:"schema"},{id:"schemabuilder",label:"Schema Builder",icon:"builder"},{id:"ontology",label:"Ontology",icon:"ontology"}]},
+  {label:"ANALYZE",tabs:[{id:"pipeline",label:"Pipeline",icon:"pipeline"},{id:"graph",label:"Graph",icon:"pipeline"},{id:"documents",label:"Documents",icon:"documents"},{id:"corpus",label:"Corpus",icon:"corpus"}]},
+  {label:"DATABASE",tabs:[{id:"database",label:"RCDB Overview",icon:"rcdb"},{id:"dbmanager",label:"DB Manager",icon:"dbmanager"},{id:"connectors",label:"Connectors",icon:"connectors"},{id:"schema",label:"Schema Diagnosis",icon:"schema"},{id:"schemabuilder",label:"Schema Builder",icon:"builder"},{id:"ontology",label:"Ontology",icon:"ontology"},{id:"releases",label:"Release Series",icon:"ontology"},{id:"cellquery",label:"Cell Query",icon:"rcdb"}]},
   {label:"CONNECT",tabs:[{id:"trustgraph",label:"TrustGraph",icon:"trustgraph"},{id:"models",label:"Models",icon:"models"}]},
   {label:"BUILD",tabs:[{id:"builder",label:"Agent Builder",icon:"agent"},{id:"training",label:"Training",icon:"training"},{id:"chat",label:"Chat",icon:"chat"},{id:"setups",label:"Setups",icon:"setups"},{id:"mlstudio",label:"Model Studio",icon:"studio"},{id:"operations",label:"Operations",icon:"operations"},{id:"swarm",label:"Hive",icon:"hive"}]},
   {label:"ADMIN",tabs:[{id:"system",label:"System",icon:"system"}]}];
 var ALL_TABS=[];SECTIONS.forEach(function(s){s.tabs.forEach(function(t){ALL_TABS.push(t)})});
-var TAB_MAP={pipeline:Pipeline,documents:Documents,corpus:Corpus,database:Database,dbmanager:DBManager,connectors:Connectors,schema:Schema,schemabuilder:SchemaBuilder,ontology:Ontology,trustgraph:TrustGraph,models:Models,builder:Builder,training:Training,chat:Chat,setups:Setups,mlstudio:ModelStudio,operations:Operations,swarm:Swarm,system:System};
+var TAB_MAP={pipeline:Pipeline,graph:GraphView,documents:Documents,corpus:Corpus,database:Database,dbmanager:DBManager,connectors:Connectors,schema:Schema,schemabuilder:SchemaBuilder,ontology:Ontology,releases:Releases,cellquery:CellQuery,trustgraph:TrustGraph,models:Models,builder:Builder,training:Training,chat:Chat,setups:Setups,mlstudio:ModelStudio,operations:Operations,swarm:Swarm,system:System};
 
 
 

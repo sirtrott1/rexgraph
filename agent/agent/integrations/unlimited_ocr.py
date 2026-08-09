@@ -187,11 +187,11 @@ def _pdf_to_images(pdf_path: str, dpi: int = 300) -> list[str]:
     """
     try:
         import fitz  # noqa: F401, check availability before spawning
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
             "PyMuPDF is required for PDF processing. "
             "Install with: pip install pymupdf"
-        )
+        ) from exc
 
     tmp_dir = tempfile.mkdtemp(prefix="unlimited_ocr_")
 
@@ -203,7 +203,7 @@ def _pdf_to_images(pdf_path: str, dpi: int = 300) -> list[str]:
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as pool:
             future = pool.submit(_pdf_to_images_worker, pdf_path, tmp_dir, dpi)
-            n_pages = future.result(timeout=300)
+            future.result(timeout=300)
     except (FuturesTimeout, Exception) as e:
         # Subprocess died (segfault, timeout, etc.) - check if it
         # managed to write any pages before dying
@@ -215,8 +215,8 @@ def _pdf_to_images(pdf_path: str, dpi: int = 300) -> list[str]:
             _cleanup_pdf_temp(tmp_dir)
             raise RuntimeError(
                 f"PDF conversion failed (subprocess): {e}"
-            )
-        n_pages = len(existing)
+            ) from e
+        len(existing)
 
     paths = sorted(
         os.path.join(tmp_dir, f)
@@ -907,16 +907,16 @@ class GOTOCRClient:
         if self._model is not None:
             return
         try:
-            import torch
+            import torch  # noqa: F401
             from transformers import (
                 AutoProcessor,
                 GotOcr2ForConditionalGeneration,
             )
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "GOT-OCR2.0 requires transformers and torch. "
                 "Install with: make install-got-ocr"
-            )
+            ) from exc
 
         cached = self._model_cached()
         if not cached:
@@ -1071,11 +1071,11 @@ class MistralOCRClient:
         if self._client is None:
             try:
                 from mistralai import Mistral
-            except ImportError:
+            except ImportError as exc:
                 raise ImportError(
                     "The mistralai package is required for Mistral OCR. "
                     "Install with: pip install mistralai"
-                )
+                ) from exc
             self._client = Mistral(api_key=self.api_key)
         return self._client
 

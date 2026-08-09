@@ -17,7 +17,7 @@ try:
         gemm_nt,
         gemm_tn,
         lstsq,
-        matrix_rank,
+        matrix_rank,  # noqa: F401
         pinv_matvec,
         pinv_spectral,
         rl_pipeline,

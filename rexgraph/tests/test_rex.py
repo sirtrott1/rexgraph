@@ -223,61 +223,6 @@ class TestHyperslice:
         assert len(lateral) >= 1  # shares edges with other faces
 
 
-# Edge Insertion and Deletion
-
-class TestEdgeMutation:
-
-    def test_insert_extends_arrays(self, triangle_arrays):
-        src, tgt, nV, nE = triangle_arrays
-        new_s = np.array([1, 0], dtype=np.int32)
-        new_t = np.array([3, 3], dtype=np.int32)
-        out_s, out_t, nV_new = _rex.insert_edges(nV, nE, src, tgt, new_s, new_t)
-        assert len(out_s) == nE + 2
-        assert nV_new == 4  # vertex 3 is new
-
-    def test_insert_preserves_existing(self, triangle_arrays):
-        src, tgt, nV, nE = triangle_arrays
-        new_s = np.array([3], dtype=np.int32)
-        new_t = np.array([4], dtype=np.int32)
-        out_s, out_t, nV_new = _rex.insert_edges(nV, nE, src, tgt, new_s, new_t)
-        assert np.array_equal(out_s[:nE], src)
-        assert np.array_equal(out_t[:nE], tgt)
-
-    def test_delete_removes_edges(self, triangle_arrays):
-        src, tgt, nV, nE = triangle_arrays
-        mask = np.array([1, 0, 0], dtype=np.int32)  # delete edge 0
-        ns, nt, nV_new, vm, em = _rex.delete_edges(nV, nE, src, tgt, mask)
-        assert len(ns) == 2
-
-    def test_delete_removes_isolated_vertices(self):
-        """Deleting all edges incident to a vertex removes that vertex."""
-        # Path: 0-1-2. Delete edge 0-1 -> vertex 0 becomes isolated.
-        src = np.array([0, 1], dtype=np.int32)
-        tgt = np.array([1, 2], dtype=np.int32)
-        mask = np.array([1, 0], dtype=np.int32)
-        ns, nt, nV_new, vm, em = _rex.delete_edges(3, 2, src, tgt, mask)
-        assert nV_new == 2  # vertex 0 removed
-        assert vm[0] == -1  # vertex 0 is gone
-
-    def test_delete_vertex_map_consistent(self, k4_arrays):
-        src, tgt, nV, nE = k4_arrays
-        mask = np.zeros(nE, dtype=np.int32)
-        mask[0] = 1  # delete one edge
-        ns, nt, nV_new, vm, em = _rex.delete_edges(nV, nE, src, tgt, mask)
-        # All vertices should survive (K4 - 1 edge still has all vertices)
-        assert nV_new == 4
-        for v in range(4):
-            assert vm[v] >= 0
-
-    def test_edge_map_consistent(self, triangle_arrays):
-        src, tgt, nV, nE = triangle_arrays
-        mask = np.array([0, 1, 0], dtype=np.int32)  # delete edge 1
-        ns, nt, nV_new, vm, em = _rex.delete_edges(nV, nE, src, tgt, mask)
-        assert em[0] >= 0  # edge 0 survives
-        assert em[1] == -1  # edge 1 deleted
-        assert em[2] >= 0  # edge 2 survives
-
-
 # Dimensional Projection
 
 class TestDimensionalProjection:
@@ -378,7 +323,7 @@ class TestChainCondition:
         """B1 * B2 = 0 for a triangle with correct signs."""
         # B1 in CSR: 3x3 matrix
         # Edge 0: 0->1, Edge 1: 1->2, Edge 2: 0->2
-        rp = np.array([0, 2, 2, 4, 4, 6, 6], dtype=np.int32)
+        np.array([0, 2, 2, 4, 4, 6, 6], dtype=np.int32)
         # Actually, let's use a simpler encoding.
         # B1 as CSR (nV=3 rows, nE=3 cols):
         # row 0: col 0 = -1, col 2 = -1

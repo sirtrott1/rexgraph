@@ -294,8 +294,8 @@ class TrainingExporter:
         """Convert to a HuggingFace Dataset (if datasets is installed)."""
         try:
             from datasets import Dataset
-        except ImportError:
-            raise ImportError("pip install datasets")
+        except ImportError as exc:
+            raise ImportError("pip install datasets") from exc
 
         records = []
         matrix = self.feature_matrix()

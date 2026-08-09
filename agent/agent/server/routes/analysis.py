@@ -78,3 +78,31 @@ async def stream_analysis(session_id: str, depth: str = "standard"):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/analysis/{session_id}/table")
+async def analysis_table(session_id: str, kind: str = "character"):
+    """A per-cell analysis table, through the canonical writer for its kind.
+
+    `character` is the per-edge structural character; `persistence` is the diagram of
+    the dimension filtration. Both come back as parquet, which is what the SQL bridge
+    and the warehouse already read, rather than as a JSON list nothing else consumes.
+    """
+    from agent.server.app import get_store
+    from agent.server.artifacts import character_file, persistence_file
+
+    session = get_store().get(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    rex = session.current()
+    if rex is None:
+        raise HTTPException(400, "No data in session")
+
+    kind = str(kind).strip().lower()
+    if kind == "character":
+        return character_file(rex, session_id)
+    if kind == "persistence":
+        filt_v, filt_e, filt_f = rex.filtration("dimension")
+        return persistence_file(rex.persistence(filt_v, filt_e, filt_f), session_id)
+    raise HTTPException(400, f"unknown table {kind!r}. Available: character, "
+                             "persistence")

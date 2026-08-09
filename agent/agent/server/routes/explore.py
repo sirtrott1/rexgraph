@@ -57,7 +57,7 @@ async def get_property(session_id: str, name: str):
         result = _sanitize({"property": name, "value": value})
         return result
     except Exception as e:
-        raise HTTPException(500, f"Error computing {name}: {e}")
+        raise HTTPException(500, f"Error computing {name}: {e}") from e
 
 
 @router.get("/explore/{session_id}/explain/{dim}/{idx}")
@@ -80,7 +80,7 @@ async def explain_cell(session_id: str, dim: int, idx: int):
         result = rex.explain(dim, idx)
         return _sanitize(result)
     except Exception as e:
-        raise HTTPException(500, f"Error explaining cell ({dim}, {idx}): {e}")
+        raise HTTPException(500, f"Error explaining cell ({dim}, {idx}): {e}") from e
 
 
 def _edge_endpoints(rex, e: int):
@@ -173,7 +173,7 @@ async def local_context(session_id: str, body: dict = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Error building context: {e}")
+        raise HTTPException(500, f"Error building context: {e}") from e
 
 
 @router.post("/explore/{session_id}/hodge")
@@ -199,7 +199,7 @@ async def hodge_decompose(session_id: str, body: dict = Body(...)):
         result = rex.hodge_full(signal)
         return _sanitize(result)
     except Exception as e:
-        raise HTTPException(500, f"Error in Hodge decomposition: {e}")
+        raise HTTPException(500, f"Error in Hodge decomposition: {e}") from e
 
 
 @router.post("/explore/{session_id}/interfacing")
@@ -231,7 +231,7 @@ async def interfacing_vector(session_id: str, body: dict = Body(...)):
         )
         return _sanitize(result)
     except Exception as e:
-        raise HTTPException(500, f"Error computing interfacing vector: {e}")
+        raise HTTPException(500, f"Error computing interfacing vector: {e}") from e
 
 
 @router.post("/explore/{session_id}/reconfig")

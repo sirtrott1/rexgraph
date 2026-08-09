@@ -210,7 +210,7 @@ def test_get_ver_falls_back_for_backend_without_get_version():
 
 
 # ---------------------------------------------------------------------------
-# Task 10: comprehensive suite, parametrized over all three backends, plus a
+# parametrized over all three backends, plus a
 # versioned-store dogfood test. Everything below exercises behavior already
 # implemented in Tasks 1 to 9; the point is coverage and cross-backend proof,
 # not new production code.
@@ -387,7 +387,7 @@ def test_display_id_resolves_via_get_all_backends(backend, tmp_path):
     st = _open(backend, tmp_path)
     st.put("M", _rex(3))                          # version 1
     st.put("M", _rex(5))                          # version 2
-    lin = lineage(st, "M")
+    lineage(st, "M")
     assert st.get("M@1").nE == 3
     assert st.get("M@2").nE == 5
     assert st.get_record("M@2").version == 2

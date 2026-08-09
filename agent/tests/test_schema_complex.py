@@ -307,7 +307,7 @@ class TestStrain:
         lc = r["lagrangian_curvature"]
         assert lc is not None and lc["L_T"] > 0
         # balanced small schema has low Lagrangian curvature; heavy span is high
-        bal = sc.schema_strain(sc.parse_schema_json({"tables": [
+        sc.schema_strain(sc.parse_schema_json({"tables": [
             {"name": "A", "primary_key": ["id"]},
             {"name": "B", "foreign_keys": [{"columns": ["a"], "references": "A"}]},
             {"name": "C", "foreign_keys": [{"columns": ["a"], "references": "A"},
@@ -333,7 +333,7 @@ def client(tmp_path_factory):
     R._STORE = None
     from agent.server.app import app
     from agent.server.auth import get_auth_manager
-    get_auth_manager().disable_auth()
+    get_auth_manager().disable_auth(persist=False)
     with TestClient(app) as c:
         yield c
     R._STORE = None

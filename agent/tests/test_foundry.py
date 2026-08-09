@@ -55,6 +55,7 @@ def test_hierarchy_shows_lms_over_the_networks(tmp_path):
 
 
 def test_choose_archetype_structural():
+    pytest.importorskip("torch")  # choose_archetype constructs a model
     assert choose_archetype("classify these images of cats") == "cnn"
     assert choose_archetype("node classification on a graph") == "hgnn"
     assert choose_archetype("model this text token sequence") == "lm"

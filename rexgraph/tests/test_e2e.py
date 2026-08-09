@@ -296,7 +296,7 @@ class TestImputation:
         L1, L_O, L_SG, _ = build_laplacians(g)
         rcf = full_rcf(g, L1, L_O, L_SG)
         RL = rcf['RL']
-        nE = g['nE']
+        g['nE']
 
         observed = np.array([1.0, 0.5, -0.3, 0, 0])
         mask = np.array([1, 1, 1, 0, 0], dtype=bool)
@@ -319,7 +319,7 @@ class TestJoins:
     def test_inner_join(self):
         g1 = build_graph([(0, 1), (1, 2), (0, 2), (0, 3)])
         g2 = build_graph([(0, 1), (1, 2), (0, 2)])
-        shared = np.array([0, 1, 2, -1], dtype=np.int32)
+        np.array([0, 1, 2, -1], dtype=np.int32)
         # Intersection should have the triangle vertices
         r_pairs = {(min(e[0], e[1]), max(e[0], e[1])) for e in g1['edges']}
         s_pairs = {(min(e[0], e[1]), max(e[0], e[1])) for e in g2['edges']}
@@ -329,7 +329,7 @@ class TestJoins:
         g1 = build_graph([(0, 1), (1, 2)])
         g2 = build_graph([(0, 3), (3, 4)], nV=5)
         # shared: only vertex 0
-        shared = np.array([0, -1, -1], dtype=np.int32)
+        np.array([0, -1, -1], dtype=np.int32)
         # g1 has 3V, g2 has 5V, 1 shared => 3 + 5 - 1 = 7
         total_v = g1['nV'] + g2['nV'] - 1
         assert total_v == 7

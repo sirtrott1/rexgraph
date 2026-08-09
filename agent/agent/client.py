@@ -34,10 +34,16 @@ class RexClient:
         url: str = "http://localhost:8000",
         api_key: str | None = None,
         workspace: str = "default",
+        frame_key: bytes | str | None = None,
     ):
         self.url = url.rstrip("/")
         self.api_key = api_key
         self.workspace = workspace
+        if frame_key is None:
+            import os
+            frame_key = os.environ.get("REXGRAPH_FRAME_KEY") or None
+        self.frame_key = (frame_key.encode("utf-8")
+                          if isinstance(frame_key, str) else frame_key)
         self._session = None
 
     def _headers(self) -> dict:
@@ -45,6 +51,104 @@ class RexClient:
         if self.api_key:
             h["Authorization"] = f"Bearer {self.api_key}"
         return h
+
+    #### the native surface: binary frames, signed when the deployment signs
+    #
+    # A server configured with REXGRAPH_FRAME_KEY refuses an unsigned frame, so a
+    # client that cannot sign cannot talk to it at all. Signing is the caller's side of
+    # that contract and belongs with the caller; picking the key up from the same
+    # environment variable the server reads means a local operator gets it for free.
+
+    def _rex_headers(self, body: bytes | None = None) -> dict:
+        from rexgraph.protocol import CONTENT_TYPE, sign
+        h = self._headers()
+        if body is not None:
+            h["Content-Type"] = CONTENT_TYPE
+            if self.frame_key is not None:
+                h["X-Rex-Signature"] = sign(body, self.frame_key)
+        return h
+
+    def _check_reply(self, response) -> bytes:
+        """The body of a binary reply, refused unless it is signed as expected.
+
+        Both directions or neither: a client that authenticates what it sends and
+        accepts anything back is still talking to whoever is in the path.
+        """
+        from rexgraph.protocol import verify_signature
+        body = response.content
+        if self.frame_key is not None and not verify_signature(
+                body, response.headers.get("X-Rex-Signature", ""), self.frame_key):
+            raise ValueError(
+                "the server's reply is unsigned or its signature does not match; "
+                "the response was altered in transit or the keys differ")
+        return body
+
+    def rex_hello(self) -> dict:
+        """What the server speaks and what it will not exceed. Read this first."""
+        return self._get("/rex/v1/hello")
+
+    def rex_verify(self, rex) -> dict:
+        """Ask the server whether a complex is well-formed, without storing it."""
+        import httpx
+
+        from rexgraph.protocol import encode
+        body = encode(rex)
+        r = httpx.post(self.url + "/rex/v1/verify", content=body,
+                       headers=self._rex_headers(body), timeout=120)
+        r.raise_for_status()
+        return r.json()
+
+    def rex_store(self, rex, **meta) -> dict:
+        """Keep a complex in this client's workspace. Returns its record id."""
+        import httpx
+
+        from rexgraph.protocol import encode
+        body = encode(rex, meta=meta or None)
+        r = httpx.post(self.url + "/rex/v1/store", content=body,
+                       headers=self._rex_headers(body), timeout=300)
+        r.raise_for_status()
+        return r.json()
+
+    def rex_fetch(self, record_id: str):
+        """A stored complex back, rebuilt and verified on arrival."""
+        import httpx
+
+        from rexgraph.protocol import decode, to_complex
+        r = httpx.get(f"{self.url}/rex/v1/fetch/{record_id}",
+                      headers=self._headers(), timeout=300)
+        r.raise_for_status()
+        return to_complex(decode(self._check_reply(r)))
+
+    def rex_upload(self, filepath: str) -> dict:
+        """Put a file in this workspace and get the handle that names it."""
+        import os
+
+        import httpx
+        with open(filepath, "rb") as fh:
+            body = fh.read()
+        h = self._headers()
+        h["X-Filename"] = os.path.basename(filepath)
+        r = httpx.post(self.url + "/rex/v1/upload", content=body, headers=h,
+                       timeout=300)
+        r.raise_for_status()
+        return r.json()
+
+    def rex_files(self) -> dict:
+        """The handles this workspace holds."""
+        return self._get("/rex/v1/files")
+
+    def rex_tools(self) -> dict:
+        """Every capability this caller may run, with its schema."""
+        return self._get("/rex/v1/tools")
+
+    def rex_call(self, name: str, **arguments) -> dict:
+        """Run one capability. File arguments are handles from `rex_upload`."""
+        return self._post("/rex/v1/call",
+                          json={"name": name, "arguments": arguments})
+
+    def rex_audit(self, limit: int = 200) -> dict:
+        """This workspace's trail, and whether the chain still verifies."""
+        return self._get("/rex/v1/audit", limit=limit)
 
     def _get(self, path: str, **params) -> dict:
         import httpx

@@ -204,7 +204,13 @@ def test_put_cost_does_not_grow_with_the_store(tmp_path):
         elif k >= 500:
             late.append(dt)
     ratio = (sum(late) / len(late)) / (sum(early) / len(early))
-    assert ratio < 2.0, f"per-put cost grew {ratio:.1f}x over 600 records"
+
+    # Same bound and same reasoning as test_store_interop's copy of this measurement.
+    # The property is "not quadratic": the old behaviour reserialized the index per put
+    # and grew 8.6x over 1600 records. A shared CI runner's jitter is the same size as
+    # the effect at 2.0, and it measured 2.5x there against well under 2 locally, with
+    # the fix in place both times. 4.0 is where quadratic still fails and noise does not.
+    assert ratio < 4.0, f"per-put cost grew {ratio:.1f}x over 600 records"
 
 
 def test_the_store_is_a_fixed_number_of_files(tmp_path):

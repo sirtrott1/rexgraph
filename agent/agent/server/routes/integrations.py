@@ -59,11 +59,11 @@ def _rex_from_body(body: dict):
 def _get_tg_adapter(url=None):
     try:
         from agent.integrations.trustgraph_adapter import TrustGraphAdapter
-    except ImportError:
+    except ImportError as exc:
         raise HTTPException(
             500, "TrustGraph adapter not available. "
             "Install with: pip install trustgraph-base"
-        )
+        ) from exc
     import os
     tg_url = url or os.environ.get("TRUSTGRAPH_URL", "")
     return TrustGraphAdapter(url=tg_url or None)
@@ -95,7 +95,7 @@ async def trustgraph_health(body: dict = Body(...)):
             rex, meta = adapter.from_triples(tlist)
             result = adapter.health_snapshot(rex=rex, meta=meta)
     except Exception as e:
-        raise HTTPException(500, f"TrustGraph health check failed: {e}")
+        raise HTTPException(500, f"TrustGraph health check failed: {e}") from e
 
     # Remove non-serializable rex object if present
     result.pop("rex", None)
@@ -113,7 +113,7 @@ async def trustgraph_compare(body: dict = Body(...)):
     try:
         result = adapter.compare_flows(flows, depth=body.get("depth", "standard"))
     except Exception as e:
-        raise HTTPException(500, f"Flow comparison failed: {e}")
+        raise HTTPException(500, f"Flow comparison failed: {e}") from e
 
     # Strip rex objects from per_flow results
     for _k, v in result.get("per_flow", {}).items():
@@ -168,7 +168,7 @@ async def trustgraph_assess(body: dict = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Query assessment failed: {e}")
+        raise HTTPException(500, f"Query assessment failed: {e}") from e
 
     return JSONResponse(_sanitize(result))
 
@@ -194,11 +194,11 @@ async def huggingface_analyze(body: dict = Body(...)):
     if model_name:
         try:
             from agent.integrations.huggingface_analyzer import analyze_transformer
-        except ImportError:
+        except ImportError as exc:
             raise HTTPException(
                 500, "Transformer analysis needs torch + transformers. "
                 "Install with: pip install torch transformers "
-                "(or omit 'model' for text-level axiom analysis).")
+                "(or omit 'model' for text-level axiom analysis).") from exc
         try:
             result = analyze_transformer(model_name=model_name, text=text,
                                          device=body.get("device", "cuda"))
@@ -207,7 +207,7 @@ async def huggingface_analyze(body: dict = Body(...)):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(500, f"Transformer analysis failed: {e}")
+            raise HTTPException(500, f"Transformer analysis failed: {e}") from e
 
     # Standalone: axiom compliance of the text's co-occurrence complex.
     rex, source = _rex_from_body(body)
@@ -235,7 +235,7 @@ async def huggingface_analyze(body: dict = Body(...)):
                           "transformer's attention against these axioms.")
         return JSONResponse(_sanitize(result))
     except Exception as e:
-        raise HTTPException(500, f"Text axiom analysis failed: {e}")
+        raise HTTPException(500, f"Text axiom analysis failed: {e}") from e
 
 
 # LangChain
@@ -297,7 +297,7 @@ async def langgraph_state(body: dict = Body({})):
     try:
         from agent.integrations.langgraph_rex import RexStateGraph
     except Exception as e:
-        raise HTTPException(500, f"State-graph analysis unavailable: {e}")
+        raise HTTPException(500, f"State-graph analysis unavailable: {e}") from e
 
     try:
         rsg = RexStateGraph()
@@ -341,7 +341,7 @@ async def langgraph_state(body: dict = Body({})):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"LangGraph analysis failed: {e}")
+        raise HTTPException(500, f"LangGraph analysis failed: {e}") from e
 
 
 # Training
@@ -403,7 +403,7 @@ async def generate_training_data(body: dict = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Training data generation failed: {e}")
+        raise HTTPException(500, f"Training data generation failed: {e}") from e
 
 
 # vLLM structural router
@@ -424,7 +424,7 @@ async def vllm_route(body: dict = Body(...)):
     try:
         from agent.integrations.vllm_router import RexRouter
     except Exception as e:
-        raise HTTPException(500, f"Router unavailable: {e}")
+        raise HTTPException(500, f"Router unavailable: {e}") from e
 
     caps = ["reasoning", "creative", "analytical", "multi-hop"]
     models = body.get("models") or {c: c for c in caps}
@@ -447,7 +447,7 @@ async def vllm_route(body: dict = Body(...)):
             "nE": diag.get("nE"), "nF": diag.get("nF"),
         }))
     except Exception as e:
-        raise HTTPException(500, f"Routing failed: {e}")
+        raise HTTPException(500, f"Routing failed: {e}") from e
 
 
 # LangChain confidence / analyze (runnable, no langchain dep)
@@ -507,7 +507,7 @@ async def langchain_confidence(body: dict = Body(...)):
         report["source"] = source
         return JSONResponse(_sanitize(report))
     except Exception as e:
-        raise HTTPException(500, f"Confidence check failed: {e}")
+        raise HTTPException(500, f"Confidence check failed: {e}") from e
 
 
 @router.post("/langchain/analyze")
@@ -532,7 +532,7 @@ async def langchain_analyze(body: dict = Body(...)):
             a["kappa_mean"] = round(float(rex.coherence.mean()), 4)
         return JSONResponse(_sanitize(a))
     except Exception as e:
-        raise HTTPException(500, f"Analysis failed: {e}")
+        raise HTTPException(500, f"Analysis failed: {e}") from e
 
 
 @router.get("/trustgraph/cores")
@@ -585,7 +585,7 @@ async def trustgraph_analyze(body: dict = Body(...)):
         tlist = [SimpleTriple(t[0], t[1], t[2]) for t in triples]
         rex, meta = adapter.from_triples(tlist)
     except Exception as e:
-        raise HTTPException(500, f"Failed to build complex from triples: {e}")
+        raise HTTPException(500, f"Failed to build complex from triples: {e}") from e
 
     try:
         import numpy as _np
@@ -618,7 +618,7 @@ async def trustgraph_analyze(body: dict = Body(...)):
             "are absent - candidate missing edges.")
         return JSONResponse(_sanitize(out))
     except Exception as e:
-        raise HTTPException(500, f"Analysis failed: {e}")
+        raise HTTPException(500, f"Analysis failed: {e}") from e
 
 
 @router.get("/model/training/download")
@@ -656,4 +656,4 @@ async def download_training_data(fmt: str = "safetensors", target: str = "summar
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, f"Training export failed: {e}")
+        raise HTTPException(500, f"Training export failed: {e}") from e

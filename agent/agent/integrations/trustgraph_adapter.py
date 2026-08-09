@@ -145,6 +145,20 @@ def _triple_to_strings(t) -> tuple[str, str, str]:
 # Context matrix construction
 
 
+def _resolve_entity(name: str, entity_to_idx: dict[str, int]):
+    """Look an entity up under whichever form the index was keyed with.
+
+    `from_triples` returns `vertex_labels` normalized (`alpha`), while the triples
+    still carry `http://ex.org/alpha`. Matching on one form only meant that feeding
+    the adapter's own labels back into a context builder produced an all-zero matrix
+    and no error, so context selection silently selected nothing.
+    """
+    if name in entity_to_idx:
+        return entity_to_idx[name]
+    local = _normalize_uri(name)
+    return entity_to_idx.get(local)
+
+
 def build_context_matrix_from_documents(
     triples: list,
     entity_to_idx: dict[str, int],
@@ -186,10 +200,10 @@ def build_context_matrix_from_documents(
 
         if ctx_id not in context_groups:
             context_groups[ctx_id] = set()
-        if s in entity_to_idx:
-            context_groups[ctx_id].add(entity_to_idx[s])
-        if o in entity_to_idx:
-            context_groups[ctx_id].add(entity_to_idx[o])
+        for term in (s, o):
+            vi = _resolve_entity(term, entity_to_idx)
+            if vi is not None:
+                context_groups[ctx_id].add(vi)
 
     context_labels = sorted(context_groups.keys())
     n_contexts = len(context_labels)
@@ -247,8 +261,9 @@ def build_context_matrix_explicit(
     C = np.zeros((n_contexts, n_entities), dtype=np.uint8)
     for ci, label in enumerate(context_labels):
         for entity in contexts[label]:
-            if entity in entity_to_idx:
-                C[ci, entity_to_idx[entity]] = 1
+            vi = _resolve_entity(entity, entity_to_idx)
+            if vi is not None:
+                C[ci, vi] = 1
 
     return C, context_labels
 
@@ -306,11 +321,11 @@ class TrustGraphAdapter(DomainAdapter):
                 )
             try:
                 from trustgraph.api.api import Api
-            except ImportError:
+            except ImportError as exc:
                 raise ImportError(
                     "TrustGraph integration requires the trustgraph package.\n"
                     "Install with: pip install trustgraph-base"
-                )
+                ) from exc
             self._api = Api(
                 url=self.url,
                 timeout=self.timeout,
@@ -330,11 +345,11 @@ class TrustGraphAdapter(DomainAdapter):
                 )
             try:
                 from trustgraph.api.bulk_client import BulkClient
-            except ImportError:
+            except ImportError as exc:
                 raise ImportError(
                     "Bulk operations require trustgraph-base >= 2.4.\n"
                     "Install with: pip install trustgraph-base"
-                )
+                ) from exc
             self._bulk = BulkClient(
                 url=self.url,
                 timeout=self.timeout,
@@ -403,7 +418,7 @@ class TrustGraphAdapter(DomainAdapter):
         ctx_mat = context_matrix
         ctx_labels = None
         if ctx_mat is None and contexts is not None:
-            entity_to_idx = {
+            {
                 e: i for i, e in enumerate(
                     sorted(set(
                         s for t in triples
@@ -619,10 +634,10 @@ class TrustGraphAdapter(DomainAdapter):
         """Build RexGraph from edge construction."""
         try:
             from rexgraph.graph import RexGraph
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "rexgraph is required. Install with: pip install rexgraph"
-            )
+            ) from exc
 
         w_E = edges.weights if not np.allclose(edges.weights, 1.0) else None
         signs_arg = edges.signs if np.any(edges.signs < 0) else None
@@ -718,10 +733,10 @@ class TrustGraphAdapter(DomainAdapter):
         """
         try:
             from rexgraph.graph import RexGraph
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "rexgraph is required. Install with: pip install rexgraph"
-            )
+            ) from exc
 
         w_E = edges.weights if not np.allclose(edges.weights, 1.0) else None
         signs_arg = edges.signs if np.any(edges.signs < 0) else None
@@ -1153,7 +1168,6 @@ class TrustGraphAdapter(DomainAdapter):
         # Per-vertex enrichments
         try:
             kappa = rex.coherence
-            chi = rex.structural_character
             phi = rex.vertex_character
             channels = ["T", "G", "F", "C"]
 
@@ -1331,11 +1345,11 @@ class TrustGraphAdapter(DomainAdapter):
         """
         try:
             from trustgraph.api import Triple as TGTriple
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "Writing enrichments requires the trustgraph package.\n"
                 "Install with: pip install trustgraph-base"
-            )
+            ) from exc
 
         enrichments = self.to_enrichment_triples(rex, analysis, namespace)
 
@@ -1387,11 +1401,11 @@ class TrustGraphAdapter(DomainAdapter):
         """
         try:
             from trustgraph.api.explainability import ExplainabilityClient
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "Explainability requires trustgraph-base >= 2.4.\n"
                 "Install with: pip install trustgraph-base"
-            )
+            ) from exc
 
         client = ExplainabilityClient()
 
@@ -1986,10 +2000,10 @@ class TrustGraphAdapter(DomainAdapter):
         labels = meta.get("vertex_labels", [])
         if isinstance(labels, dict):
             name_to_idx = labels
-            idx_to_name = {v: k for k, v in labels.items()}
+            {v: k for k, v in labels.items()}
         else:
             name_to_idx = {name: i for i, name in enumerate(labels)}
-            idx_to_name = {i: name for i, name in enumerate(labels)}
+            {i: name for i, name in enumerate(labels)}
 
         found = []
         missing = []
@@ -2207,7 +2221,7 @@ class TrustGraphAdapter(DomainAdapter):
                 },
             },
             {
-                "name": "rexgraph_predict_cost",
+                "name": "rexgraph_predict_query_cost",
                 "description": (
                     "Predict the LLM token cost of a query based on "
                     "the harmonic complexity of the relevant knowledge "
@@ -2282,12 +2296,12 @@ class TrustGraphAdapter(DomainAdapter):
         """
         try:
             from agent.ui.engine import VizEngine
-        except ImportError:
+        except ImportError as exc:
             raise RuntimeError(
                 "VizEngine is not available. The old ui/ module has been replaced "
                 "by the frontend/ web UI. Use the web interface at /api/v1/export "
                 "or the Python client for analysis results."
-            )
+            ) from exc
 
         engine = VizEngine(theme=theme)
 

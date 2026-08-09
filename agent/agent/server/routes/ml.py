@@ -44,7 +44,7 @@ async def ml_run(body: dict = Body(...)):
                             fusion=body.get("fusion", "ensemble"), device=body.get("device", "cpu"),
                             save_to=body.get("save_to"))
     except (KeyError, ValueError) as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     # structural training diagnosis: the trajectory is an eval METRIC (higher is better); negate it
     # into a loss-proxy so the monitor reads a descent and names any issue + cause.
     traj = result.get("trajectory") or []
@@ -68,7 +68,7 @@ async def ml_ingest(body: dict = Body(...)):
         bundle = models.bundle_from_core(triples, url=body.get("url"), flow=body.get("flow"),
                                          labels=body.get("labels"))
     except Exception as e:
-        raise HTTPException(400, f"{type(e).__name__}: {e}")
+        raise HTTPException(400, f"{type(e).__name__}: {e}") from e
     out = {"n_nodes": bundle.meta["n_nodes"], "n_classes": bundle.meta["n_classes"],
            "entities": bundle.meta.get("entity_names", [])[:20]}
     if body.get("train"):

@@ -286,6 +286,39 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
     return rank
 
 
+def _pairwise_rank(M: sp.spmatrix):
+    """``rank = n_rows - components`` when every column is a signed pairwise edge.
+
+    An arity-two column is ``(-c, +c)`` on two rows, which is the incidence matrix of
+    a graph, and there the rank identity is combinatorial: each component contributes
+    one dimension to the kernel of ``B_1^T`` and nothing else does. Union-find answers
+    it in near-linear time, where the general column reduction is quadratic in the
+    fill it creates and carries Fraction arithmetic per entry, so on a large complex
+    the shortcut is the difference between seconds and minutes for the same integer.
+
+    The identity is NOT general, which is why this is a guarded pre-check rather than
+    the path. An arity-k relation touches k vertices while contributing rank one, so
+    a lone arity-4 relation is one component with rank 1, not 3. Any column with more
+    than two entries, or two entries that are not negatives of each other, returns
+    None and the exact reduction runs.
+
+    Returns None when the shortcut does not apply.
+    """
+    A = M.tocsc()
+    A.sum_duplicates()                      # a self-loop stores -1 and +1 on one row
+    counts = np.diff(A.indptr)
+    if counts.size and counts.max() > 2:
+        return None                         # a branching relation: rank is not n - c
+    data, indptr = A.data, A.indptr
+    for j in np.nonzero(counts == 2)[0]:
+        a, b = data[indptr[j]], data[indptr[j] + 1]
+        if a + b != 0:
+            return None                     # not a boundary column: unsigned, or scaled
+    if counts.size and (counts == 1).any():
+        return None                         # a column reaching one vertex is not zero-sum
+    return int(M.shape[0]) - _beta0_components(A)
+
+
 def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9) -> int:
     """Rank of a sparse matrix. Betti comes from RANKS (the canon), not spectra.
 
@@ -293,9 +326,15 @@ def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9) -> int:
     EIGEN-FREE by rational column reduction (:func:`_exact_rank_reduction`), the
     canon's Z/Q-elimination path - no SVD, no dense operator. Only genuinely
     non-integer (float-weighted) matrices fall back to the dense/truncated SVD.
+
+    A pairwise boundary map takes the combinatorial identity first
+    (:func:`_pairwise_rank`), which is the same exact integer by a cheaper route.
     """
     if M.nnz == 0 or min(M.shape) == 0:
         return 0
+    quick = _pairwise_rank(M)
+    if quick is not None:
+        return quick
     exact = _exact_rank_reduction(M)
     if exact is not None:
         return exact

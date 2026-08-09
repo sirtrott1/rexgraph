@@ -234,18 +234,43 @@ def create_session(storage_dir: str = "~/.rexgraph-agent/sessions") -> Session:
     return Session(session_id, storage)
 
 
-def list_sessions(storage_dir: str = "~/.rexgraph-agent/sessions") -> list[dict]:
-    """List all saved sessions."""
+def list_sessions(storage_dir: str = "~/.rexgraph-agent/sessions", *,
+                  limit: int | None = None) -> list[dict]:
+    """Saved sessions, NEWEST FIRST.
+
+    This sorted by directory name, which is a random hex id, so the order carried no
+    meaning and the session you just made landed wherever its id happened to sort. On a
+    real install that is not a cosmetic problem: with 5278 sessions on disk a freshly
+    recorded chat sat at index 1177, present in the list and unfindable in a dropdown.
+
+    Recency is the order a list of sessions wants, and `limit` is here because a caller
+    populating a control does not want five thousand of anything. Reading the index for
+    the timestamp is cheap next to loading each session, so the sort is done on the index
+    and only the surviving `limit` are loaded.
+    """
     storage = Path(storage_dir).expanduser()
     if not storage.exists():
         return []
 
+    dated = []
+    for d in storage.iterdir():
+        index = d / "session_index.json"
+        if not (d.is_dir() and index.exists()):
+            continue
+        try:
+            meta = json.loads(index.read_text()).get("metadata", {})
+            created = float(meta.get("created") or 0.0)
+        except Exception:
+            created = 0.0
+        dated.append((created, d.name))
+    dated.sort(reverse=True)
+    if limit is not None:
+        dated = dated[:int(limit)]
+
     sessions = []
-    for d in sorted(storage.iterdir()):
-        if d.is_dir() and (d / "session_index.json").exists():
-            try:
-                s = Session.load(d.name, str(storage))
-                sessions.append(s.info())
-            except Exception:
-                pass
+    for _created, name in dated:
+        try:
+            sessions.append(Session.load(name, str(storage)).info())
+        except Exception:
+            pass
     return sessions

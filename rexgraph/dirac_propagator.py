@@ -178,7 +178,7 @@ class SparseDirac:
 
     def to_scipy(self):
         """Assemble ``D`` as an explicit sparse CSR (for verification / tiny inputs)."""
-        G, off = self.n_grades, self.offsets
+        G, _off = self.n_grades, self.offsets
         blocks = [[None] * G for _ in range(G)]
         for d in range(G - 1):
             blocks[d][d + 1] = self.B[d]

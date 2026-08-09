@@ -218,6 +218,64 @@ if _HAS_TORCH:
                     p.add_(mh / (vh.sqrt() + eps), alpha=-lr)
             return loss
 
+    class GreensFlow(GreensCochain):
+        """GreensCochain over the operator that reads BOTH grades.
+
+        Same preconditioning, different complex operator. `coparticipation_adjacency` is
+        built from |B1| alone and never touches B2, so a model trained through it is blind
+        to every face: attaching hyperfaces leaves its operator bit-identical, and an
+        ablation over open against closed complexes reports the same number for a reason
+        that has nothing to do with the data. The curl tier exists and the optimizer
+        cannot see it.
+
+        `flow_adjacency` is L1_down + alpha * L1_up, so the gradient tier and the curl
+        tier both carry signal. `alpha` is the exchange rate between them and defaults to
+        `rex.c0_squared`, the exact rational geometry<->topology coupling, rather than to
+        a number chosen for the run.
+
+        This is ADDITIVE. GreensCochain is unchanged and stays the right choice for a
+        cochain over a face-free complex, where there is no curl tier to miss. Use this
+        one where the complex is closed and the faces are supposed to matter.
+        """
+
+        def __init__(self, params, *, rex=None, alpha=None, lr=1e-3, betas=(0.9, 0.999),
+                     eps=1e-8, weight_decay=0.0, green_lam=1.0, green_iters=12,
+                     green_channel="low"):
+            super().__init__(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                             green_lam=green_lam, green_iters=green_iters,
+                             green_channel=green_channel)
+            self._rex = rex
+            self._alpha = alpha
+            if rex is not None:
+                adj = self.build_adjacency(rex, alpha=alpha)
+                for group in self.param_groups:
+                    if group.get("green_adj") is not None:
+                        continue
+                    # the operator is assembled in float64 because it comes off exact
+                    # rational structure; the parameters need not be, and a mismatch is a
+                    # dtype error at the first CG matvec rather than anything meaningful
+                    dtypes = {p.dtype for p in group["params"] if p.is_floating_point()}
+                    group["green_adj"] = (adj if len(dtypes) != 1
+                                          else adj.to(dtypes.pop()).coalesce())
+
+        @staticmethod
+        def build_adjacency(rex, *, alpha=None):
+            """The two-grade operator, with c0_squared as the default exchange rate."""
+            from rexgraph.flow.hyperflow import flow_adjacency
+
+            if alpha is None:
+                alpha = float(rex.c0_squared)
+            return flow_adjacency(rex, alpha=float(alpha))
+
+        @property
+        def reads_faces(self) -> bool:
+            """Whether the operator in use actually carries a curl tier.
+
+            False on a face-free complex, where this degrades to GreensCochain exactly
+            rather than pretending to a tier that is not there.
+            """
+            return self._rex is not None and int(self._rex.nF_hodge) > 0
+
     def generate_khop_channel(score_fn, channels=("low", "twohop", "threehop")):
         """Context-aware k-hop GENERATOR: pick the propagation channel that fits the task, cheaply.
 
@@ -242,6 +300,12 @@ else:
         def __init__(self, *a, **k):
             raise ImportError(
                 "GreensCochain requires PyTorch (an optional dependency). Install a torch build "
+                "for your backend (CUDA/ROCm/CPU/MPS), or use the framework-agnostic core.")
+
+    class GreensFlow:                                # pragma: no cover (env without torch)
+        def __init__(self, *a, **k):
+            raise ImportError(
+                "GreensFlow requires PyTorch (an optional dependency). Install a torch build "
                 "for your backend (CUDA/ROCm/CPU/MPS), or use the framework-agnostic core.")
 
     def generate_khop_channel(*a, **k):             # pragma: no cover (env without torch)

@@ -131,7 +131,7 @@ def test_every_identifier_resolves(src):
 
     spans = sorted((a, b) for a, b, _ in funcs.values())
     outside = "".join(clean[e:s] for (s, _), (_, e) in
-                      zip(spans + [(len(clean), 0)], [(0, 0)] + spans))
+                      zip(spans + [(len(clean), 0)], [(0, 0)] + spans, strict=False))
     module = _declared(outside) | set(funcs)
 
     owner = collections.defaultdict(set)

@@ -1,10 +1,13 @@
 import numpy as np
+import pytest
 import scipy.sparse as sp
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
-from rexgraph.nn.optim import GreensCochain
+pytest.importorskip("torch")
+import torch  # noqa: E402
+import torch.nn as nn  # noqa: E402
+import torch.nn.functional as F  # noqa: E402
+
+from rexgraph.nn.optim import GreensCochain  # noqa: E402
 
 
 def _ring_task(n=60, C=3):

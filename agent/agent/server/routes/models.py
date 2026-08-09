@@ -19,9 +19,17 @@ from __future__ import annotations
 
 import shutil
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+
+from ..auth import require_admin
 
 router = APIRouter(prefix="/v1/models")
+
+# Reading which models exist is ordinary use. Everything that MOVES one is not: the
+# runtime is process-wide, so a pull spends disk and bandwidth, and a stop or an unload
+# takes a model out from under whoever else is using it. Those are instance operations
+# rather than workspace ones, and they are gated on instance admin.
+_admin = [Depends(require_admin)]
 
 
 def _mgr():
@@ -41,17 +49,17 @@ async def model_status():
     return _mgr().status()
 
 
-@router.post("/pull")
+@router.post("/pull", dependencies=_admin)
 async def pull_model(model_id: str = Body(..., embed=True)):
     """Download a model from HuggingFace."""
     try:
         path = _mgr().download(model_id)
         return {"status": "downloaded", "model_id": model_id, "path": path}
     except Exception as e:
-        raise HTTPException(500, f"Download failed: {e}")
+        raise HTTPException(500, f"Download failed: {e}") from e
 
 
-@router.post("/load")
+@router.post("/load", dependencies=_admin)
 async def load_model(
     model_id: str = Body(..., embed=True),
     device: str = Body("auto", embed=True),
@@ -68,10 +76,10 @@ async def load_model(
             "type": lm.model_type.value,
         }
     except Exception as e:
-        raise HTTPException(500, f"Load failed: {e}")
+        raise HTTPException(500, f"Load failed: {e}") from e
 
 
-@router.post("/unload")
+@router.post("/unload", dependencies=_admin)
 async def unload_model(model_id: str = Body(..., embed=True)):
     """Unload a model and free VRAM."""
     ok = _mgr().unload(model_id)
@@ -80,7 +88,7 @@ async def unload_model(model_id: str = Body(..., embed=True)):
     return {"status": "unloaded", "model_id": model_id}
 
 
-@router.post("/deploy")
+@router.post("/deploy", dependencies=_admin)
 async def deploy_model(
     model_id: str = Body(..., embed=True),
     port: int = Body(10000, embed=True),
@@ -96,10 +104,10 @@ async def deploy_model(
             "url": lm.server_url,
         }
     except Exception as e:
-        raise HTTPException(500, f"Deploy failed: {e}")
+        raise HTTPException(500, f"Deploy failed: {e}") from e
 
 
-@router.post("/stop")
+@router.post("/stop", dependencies=_admin)
 async def stop_server(model_id: str = Body(None, embed=True)):
     """Stop a model server."""
     if model_id:
@@ -115,7 +123,7 @@ async def stop_server(model_id: str = Body(None, embed=True)):
     return {"status": "stopped" if ok else "no server running"}
 
 
-@router.post("/set-path")
+@router.post("/set-path", dependencies=_admin)
 async def set_model_path(
     model_id: str = Body(..., embed=True),
     path: str = Body(..., embed=True),
@@ -132,10 +140,10 @@ async def set_model_path(
             "type": entry.model_type.value,
         }
     except FileNotFoundError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
-@router.delete("/path/{model_id}")
+@router.delete("/path/{model_id}", dependencies=_admin)
 async def remove_model_path(model_id: str):
     """Remove a custom model path registration."""
     ok = _mgr().remove_model_path(model_id)
@@ -144,7 +152,7 @@ async def remove_model_path(model_id: str):
     return {"status": "removed", "model_id": model_id}
 
 
-@router.post("/set-pipeline")
+@router.post("/set-pipeline", dependencies=_admin)
 async def set_pipeline_model(
     purpose: str = Body(..., embed=True),
     model_id: str = Body(..., embed=True),
@@ -179,7 +187,7 @@ async def list_cache():
     return {"entries": entries, "total_mb": round(total / (1024 * 1024))}
 
 
-@router.delete("/cache/{model_name}")
+@router.delete("/cache/{model_name}", dependencies=_admin)
 async def delete_cached_model(model_name: str):
     """Delete a cached model."""
     from agent.cli.config import MODELS_DIR

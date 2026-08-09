@@ -1,5 +1,5 @@
 """
-Comprehensive integration tests for rexgraph v2.
+Integration tests for rexgraph v2.
 
 Every test calls the actual compiled Cython modules, either directly
 or through the RexGraph API layer. No pure-NumPy reimplementations.
@@ -674,7 +674,7 @@ class TestExtractDiagFix:
         assert np.isfinite(r['score'])
 
 
-# Phase 2: Dirac operator and hypermanifold
+# Dirac operator and hypermanifold
 
 class TestDirac:
     """Verify Dirac operator D = d + d* on graded cell space."""
@@ -722,7 +722,7 @@ class TestDirac:
     def test_canonical_collapse_face_zero(self, k4):
         """Face component of canonical collapse must be exactly zero."""
         psi = k4.canonical_collapse(0)
-        nV, nE, nF = k4.nV, k4.nE, k4.nF
+        nV, nE, _nF = k4.nV, k4.nE, k4.nF
         face_part = psi[nV + nE:]
         assert np.allclose(face_part, 0, atol=1e-15)
 
@@ -810,7 +810,7 @@ class TestHypermanifold:
             assert hs['shadow_dim'] == rank_B2
 
 
-# Phase 3: Dynamic RCFE strain
+# Dynamic RCFE strain
 
 class TestDynamicRCFE:
     """Verify attributed curvature, face deficit, strain, Bianchi conservation."""

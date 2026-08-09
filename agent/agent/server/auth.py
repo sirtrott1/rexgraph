@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import hashlib
 import logging
 import os
 import time
@@ -248,6 +249,9 @@ class AuthManager:
 
     def __init__(self):
         self._tokens: dict[str, TokenEntry] = {}
+        #: presented-token sha256 -> the entry it verified as, or False for a known-bad
+        #: one. Holds no secret and is cleared whenever the token set changes.
+        self._verify_cache: dict[str, object] = {}
         self._workspaces: dict[str, WorkspaceState] = {}
         self._auth_enabled = False
         self._recovery_hash: str = ""
@@ -303,6 +307,11 @@ class AuthManager:
         with contextlib.suppress(OSError):
             os.chmod(str(config_path), 0o600)
 
+    def _invalidate_verify_cache(self) -> None:
+        """Forget every remembered verification. Called wherever the token set moves, so
+        a revoked token stops working on the next request rather than at restart."""
+        self._verify_cache = {}
+
     @staticmethod
     def _hash(token: str) -> str:
         import bcrypt
@@ -329,6 +338,7 @@ class AuthManager:
         self._tokens[h] = TokenEntry(token_hash=h, user_id=user_id,
                                      roles={w: _norm_role(r) for w, r in roles.items() if w},
                                      created=time.time())
+        self._invalidate_verify_cache()
         self._save_config()
         return raw
 
@@ -353,6 +363,7 @@ class AuthManager:
         dead = [h for h, te in self._tokens.items() if te.user_id == user_id]
         for h in dead:
             del self._tokens[h]
+            self._invalidate_verify_cache()
         return len(dead)
 
     def add_member(self, user_id: str, role: str = ROLE_USER,
@@ -372,6 +383,7 @@ class AuthManager:
             merged.update(t.roles)
             if t is not keep:
                 del self._tokens[t.token_hash]
+                self._invalidate_verify_cache()
         merged[workspace] = role
         keep.roles = {w: _norm_role(r) for w, r in merged.items()}
         keep._resync()
@@ -403,12 +415,14 @@ class AuthManager:
         for t in toks:
             if t is not keep:
                 del self._tokens[t.token_hash]
+                self._invalidate_verify_cache()
         del merged[workspace]
         if merged:
             keep.roles = {w: _norm_role(r) for w, r in merged.items()}
             keep._resync()
         else:
             del self._tokens[keep.token_hash]
+            self._invalidate_verify_cache()
         self._save_config()
         return 1
 
@@ -447,27 +461,71 @@ class AuthManager:
             if result:
                 return result
 
-        # Fall back to bearer token (bcrypt check)
+        # Fall back to bearer token.
+        #
+        # bcrypt is deliberately slow, and this scanned EVERY stored hash on EVERY
+        # request: at cost 12 with five tokens, and the matching one last, a request that
+        # returns 0.1 KB took 0.86s and the app took about 3s a page. The work was the
+        # authentication, not the data, and it grew with the number of tokens on file.
+        #
+        # So verify once and remember the answer for the process. The key is a SHA-256 of
+        # the presented token rather than the token itself, so the cache never holds the
+        # secret; and a MISS is cached too, or an unauthenticated caller could still make
+        # the server do five bcrypts per request by repeating one bad token. Cleared
+        # whenever the token set changes, so a revoked token stops working immediately.
+        key = hashlib.sha256(token.encode()).hexdigest()
+        cached = self._verify_cache.get(key)
+        if cached is not None:
+            return cached or None
         for stored_hash, entry in self._tokens.items():
             if self._verify_hash(token, stored_hash):
+                self._verify_cache[key] = entry
                 return entry
+        if len(self._verify_cache) < 4096:      # a bound, so a flood cannot grow it
+            self._verify_cache[key] = False
         return None
 
-    def enable_auth(self):
+    def enable_auth(self, *, persist: bool = True):
+        """Turn auth on. Persisted unless `persist=False`.
+
+        Enabling is the safe direction, so it needs no confirmation: the worst an
+        accidental enable does is ask for a token that the caller already has on file.
+        """
         self._auth_enabled = True
-        self._save_config()
+        if persist:
+            self._save_config()
 
-    def disable_auth(self):
-        """Flip auth off and persist. Low-level and in-process only.
+    def disable_auth(self, *, persist: bool = True, confirm: bool = False):
+        """Turn auth off.
 
-        This is not the network path. The remote route
-        (POST /api/v1/admin/auth/disable) additionally requires the request
-        to originate from the server host and to carry the disable
-        passphrase; see agent.server.routes.admin. Calling this directly is
-        equivalent to editing auth.json on the host, which already implies
-        host-level access.
+        Disabling is the UNSAFE direction and this used to persist unconditionally, so
+        any in-process caller wrote `enabled: false` into the host's own auth.json. Six
+        test fixtures did exactly that, which is how a test suite turned auth off on a
+        live install and left it off. Two guards now, and they are separate on purpose:
+
+            persist=False   flip the flag for this process only and never touch disk.
+                            What a test wants: it needs the server object open, not the
+                            host reconfigured.
+            confirm=True    required before a disable is written to a config that HAS
+                            TOKENS, because that is someone's live install. Missing it
+                            raises rather than writing, so an accidental call is loud
+                            instead of silent.
+
+        The network path is stricter still and unchanged: POST
+        /api/v1/admin/auth/disable additionally requires the request to originate from
+        the server host, an admin token, and the disable passphrase.
         """
         self._auth_enabled = False
+        if not persist:
+            return
+        if self._tokens and not confirm:
+            self._auth_enabled = True
+            raise PermissionError(
+                "refusing to write auth off for a config that has "
+                f"{len(self._tokens)} token(s). Pass confirm=True if that is meant, or "
+                "persist=False to disable it for this process only.")
+        logger.warning("authentication disabled and written to %s",
+                       _CONFIG_DIR / "auth.json")
         self._save_config()
 
     # Step-up secret for turning auth OFF. A leaked or cached API token is
@@ -511,6 +569,7 @@ class AuthManager:
                 token_hash=h, user_id="admin",
                 workspaces=["default"], role="admin", created=time.time(),
             )
+            self._invalidate_verify_cache()
             self._save_config()
             return initial_token
         return self.create_token("admin", ["default"], role="admin")
@@ -682,6 +741,36 @@ def reset_auth_manager() -> None:
     """Drop the cached manager so the next call reloads from disk. For tests."""
     global _manager
     _manager = None
+
+
+def identity_and_workspace(request) -> tuple[str, str]:
+    """Who this request is and which workspace it names, off the raw request.
+
+    The middlewares need this before any route dependency has resolved, and three of
+    them needed it, so it lives here once rather than as three token parsers that can
+    disagree about what counts as a bearer header.
+
+    Returns `("local", "default")` when auth is off, which is the single-operator case
+    and is not being distinguished from itself. An unverifiable token yields an empty
+    identity: the auth middleware is what rejects it, and answering "anonymous" here
+    would let it share one bucket with every other anonymous caller.
+    """
+    ws = (request.headers.get("X-Workspace")
+          or request.query_params.get("workspace") or "")
+    try:
+        mgr = get_auth_manager()
+        if not mgr.auth_enabled:
+            return "local", (ws or "default")
+        header = request.headers.get("Authorization", "")
+        raw = header[7:].strip() if header[:7].lower() == "bearer " else ""
+        entry = mgr.verify(raw) if raw else None
+        if entry is None:
+            return "", (ws or "default")
+        if not ws:
+            ws = entry.workspaces[0] if entry.workspaces else "default"
+        return entry.user_id, ws
+    except Exception:                            # noqa: BLE001 - never break a request
+        return "", (ws or "default")
 
 
 async def require_auth(
