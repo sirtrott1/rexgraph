@@ -56,7 +56,42 @@ def _mcp_call(name, *, context=None, **arguments):
 
 
 def _tokens(text: str):
-    return [t for t in re.findall(r"[a-z0-9]{3,}", str(text).lower())]
+    return [t for t in re.findall(r"[a-z0-9]{2,}", str(text).lower())]
+
+
+# Inflection, not meaning: "genes" and "gene" are the same subject and a router that
+# compares raw tokens says they share nothing. Strip the endings that carry no subject
+# matter, longest first, and keep whatever is left if it is still a word. A declared
+# specialty and a query are then compared on the same footing.
+def _stem(token: str) -> set:
+    """`token` together with its plural variants, as a set.
+
+    Number, not meaning: a router comparing raw tokens says "genes" and "gene" share
+    nothing. No single stem is right for every word (classes wants two characters
+    removed, bases wants one), so the token carries BOTH candidates and the overlap
+    matches on either. Derivational pairs (annotate / annotation) are NOT unified: a
+    specialty meant to catch both declares both. Two- and three-letter tokens pass
+    through, since the old three-character floor is why a query about GO terms
+    matched no ontology bee at all."""
+    out = {token}
+    if len(token) <= 3:
+        return out
+    if token.endswith("ies"):
+        out.add(token[:-3] + "y")
+    if token.endswith("es") and len(token) > 4:
+        out.add(token[:-2])
+    if token.endswith("s") and not token.endswith(("ss", "us", "is")):
+        out.add(token[:-1])
+    return out
+
+
+def _stems(text: str) -> set:
+    """Every token of `text` and its plural variants, minus stopwords."""
+    out = set()
+    for t in _tokens(text):
+        if t not in _STOPWORDS:
+            out |= _stem(t)
+    return out
 
 
 # common function words carry no content; dropping them makes lexical agreement reflect subject
@@ -720,13 +755,13 @@ class Hive:
         which bee has been carrying this kind of work) with each bee's declared specialty overlap,
         so a cold hive routes by specialty and a warm one routes by demonstrated load. The queen
         is the fallback so a query always has a home."""
-        qt = set(_tokens(query))
-        # specialty score per bee
+        qt = _stems(query)
+        # specialty score per bee, compared on stems so an inflected query still lands
         spec = {}
         for b in self._bees.values():
             if b.role == "embedder":
                 continue
-            st = set(t for s in b.specialties for t in _tokens(s))
+            st = set(t for s in b.specialties for t in _stems(s))
             spec[b.name] = (len(qt & st) / (len(st) ** 0.5)) if st else 0.0
         # history score from the live complex (names that match bee names)
         hist = {r["agent"]: r["relevance"] for r in agent_complex.get_live().route(query, top_k=50)}

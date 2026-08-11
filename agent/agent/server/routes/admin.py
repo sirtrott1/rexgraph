@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
+from agent.metrics import coherence_kappa
 from agent.server.auth import (
     ROLE_USER,
     TokenEntry,
@@ -422,7 +423,7 @@ async def workspace_doc_detail(
     }
 
     try:
-        kappa = rex.coherence
+        kappa = coherence_kappa(rex)
         if kappa is not None and len(kappa) > 0:
             result["kappa_mean"] = round(float(kappa.mean()), 4)
     except Exception:

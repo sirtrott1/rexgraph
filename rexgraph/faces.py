@@ -28,7 +28,9 @@ from fractions import Fraction
 import numpy as np
 
 __all__ = ["solve_face_column", "solve_face_basis", "face_reading",
-           "orientation_holonomy", "face_support", "cycle_basis", "find_cycles",
+           "orientation_holonomy", "face_support", "cycle_basis", "cycle_supports",
+           "cycle_gons",
+           "find_cycles",
            "find_hyperface_groups", "autoface", "auto_hyperface"]
 
 
@@ -429,6 +431,203 @@ def _edge_supports(rex):
             for e in range(int(rex.nE))]
 
 
+def _cycle_supports_traversal(rex, sup, *, traversal="bfs"):
+    """Supports of the fundamental cycles of the same spanning forest as
+    `_cycle_basis_traversal`, without expanding each to a dense coefficient vector.
+
+    Deliberately the SAME walk, not a different one. A traversal picks WHICH
+    fundamental cycles come back, and two valid bases of the same cycle space fill
+    different faces, so swapping the walk here would silently change which 2-cells a
+    complex gets. The only thing removed is the length-nE expansion.
+    """
+    from collections import deque
+
+    nV, nE = int(rex.nV), int(rex.nE)
+    adj: dict[int, list] = {}
+    for e, sset in enumerate(sup):
+        if len(sset) != 2:
+            continue
+        a, b = tuple(sset)
+        adj.setdefault(a, []).append((b, e))
+        adj.setdefault(b, []).append((a, e))
+
+    parent_edge = [-1] * nV
+    parent_of = [-1] * nV
+    seen = [False] * nV
+    tree = [False] * nE
+    for root in range(nV):
+        if seen[root] or root not in adj:
+            continue
+        seen[root] = True
+        frontier = deque([root])
+        pop = frontier.popleft if traversal == "bfs" else frontier.pop
+        while frontier:
+            v = pop()
+            for w, e in adj.get(v, ()):
+                if not seen[w]:
+                    seen[w] = True
+                    parent_of[w] = v
+                    parent_edge[w] = e
+                    tree[e] = True
+                    frontier.append(w)
+
+    def to_root(v):
+        chain = []
+        while parent_edge[v] != -1:
+            chain.append(parent_edge[v])
+            v = parent_of[v]
+        return v, chain
+
+    out = []
+    for e in range(nE):
+        if tree[e] or len(sup[e]) != 2:
+            continue
+        a, b = tuple(sup[e])
+        ra, pa = to_root(a)
+        rb, pb = to_root(b)
+        if ra != rb:
+            continue
+        candidate = sorted({e, *pa, *pb})
+        # The traversal finds a CANDIDATE set; the solve decides the support. Where the
+        # two tree paths share a prefix those relations cancel and come back with
+        # coefficient zero, so the cycle is narrower than the walk that found it. Taking
+        # the candidate set as the support reports a 4-gon where the complex has a
+        # triangle, and then fills the wrong cell.
+        col = solve_face_column(rex, np.asarray(candidate, dtype=np.int64))
+        if col is None:
+            continue
+        out.append(np.asarray([ed for ed, v in zip(candidate, col, strict=True) if v != 0],
+                              dtype=np.int64))
+    return out
+
+
+def _cycle_supports_kernel(rex):
+    """Supports of the exact kernel basis, for any arity above two."""
+    return [[e for e, v in enumerate(c) if v != 0] for c in _cycle_basis_kernel(rex)]
+
+
+def _spanning_forest(rex, sup):
+    """One BFS forest over the pairwise relations: parent, parent-edge, depth, tree mask.
+
+    Shared by `cycle_gons` and `_cycle_supports_traversal` so both read the same forest.
+    Two walks would be two bases, and a basis choice decides WHICH cycles come back.
+    """
+    from collections import deque
+
+    nV, nE = int(rex.nV), int(rex.nE)
+    adj: dict[int, list] = {}
+    for e, sset in enumerate(sup):
+        if len(sset) != 2:
+            continue
+        a, b = tuple(sset)
+        adj.setdefault(a, []).append((b, e))
+        adj.setdefault(b, []).append((a, e))
+
+    parent_of = [-1] * nV
+    parent_edge = [-1] * nV
+    depth = [0] * nV
+    root_of = [-1] * nV
+    seen = [False] * nV
+    tree = [False] * nE
+    for root in range(nV):
+        if seen[root] or root not in adj:
+            continue
+        seen[root] = True
+        root_of[root] = root
+        frontier = deque([root])
+        while frontier:
+            v = frontier.popleft()
+            for w, e in adj.get(v, ()):
+                if not seen[w]:
+                    seen[w] = True
+                    parent_of[w] = v
+                    parent_edge[w] = e
+                    depth[w] = depth[v] + 1
+                    root_of[w] = root_of[v]
+                    tree[e] = True
+                    frontier.append(w)
+    return parent_of, parent_edge, depth, root_of, tree
+
+
+def cycle_gons(rex):
+    """The gon of every cycle-space basis vector, WITHOUT solving any of them.
+
+    A fundamental cycle is one non-tree relation closed by the tree path between its
+    endpoints, so its gon is `1 + tree_distance(a, b)`, and the tree distance is
+    `depth(a) + depth(b) - 2*depth(lca(a,b))`. The shared prefix from the LCA up to the
+    root appears in both paths and cancels, which is the same cancellation that makes a
+    solved support narrower than the walk that found it: here it is subtracted rather
+    than discovered.
+
+    So "which gons does this complex contain" costs a forest walk and an LCA per
+    non-tree relation. It does not cost a cycle basis, and it does not cost the exact
+    solve per cycle that reading |supp(c)| off the basis was paying for.
+
+    Returns a sorted list, one entry per basis vector, so `sorted(set(cycle_gons(rex)))`
+    is the gon menu and `collections.Counter` is the distribution.
+
+    Pairwise only. Above arity two a relation touches k vertices while contributing rank
+    one, so a tree distance is not the gon and this defers to the kernel.
+    """
+    rex._ensure_clean()
+    sup = _edge_supports(rex)
+    if any(len(x) != 2 for x in sup):
+        return sorted(len(c) for c in cycle_supports(rex))
+    nE = int(rex.nE)
+    parent_of, _pe, depth, root_of, tree = _spanning_forest(rex, sup)
+
+    def lca(x, y):
+        while depth[x] > depth[y]:
+            x = parent_of[x]
+        while depth[y] > depth[x]:
+            y = parent_of[y]
+        while x != y:
+            x, y = parent_of[x], parent_of[y]
+        return x
+
+    out = []
+    for e in range(nE):
+        if tree[e] or len(sup[e]) != 2:
+            continue
+        a, b = tuple(sup[e])
+        if root_of[a] != root_of[b] or root_of[a] == -1:
+            continue                                   # different components: no cycle
+        m = lca(a, b)
+        out.append(1 + (depth[a] - depth[m]) + (depth[b] - depth[m]))
+    return sorted(out)
+
+
+def cycle_supports(rex):
+    """The SUPPORT of each cycle-space basis vector: a list of edge-index arrays.
+
+    This is what face detection needs and all it needs. `find_cycles` reads the gon off
+    the support and `add_faces` re-solves the coefficients, so expanding a basis to
+    dense coefficient vectors on that path computes something exact and then throws it
+    away.
+
+    It goes through `harmonic_sparse._validated_cycle_basis`, which is the ONE place the
+    cycle space is decided: combinatorial where the endpoint reduction is sound, exact
+    nullspace where branching arity makes it unsound, and validated against ‖B1·C‖ = 0
+    either way. `cycle_basis` below goes through the same call, so the two cannot
+    disagree about which cycles exist.
+
+    Sparse throughout, because a fundamental cycle touches a path's worth of relations
+    and nothing else. On the Gene Ontology joined with its human annotations that is
+    603819 nonzeros over a 34039-dimensional cycle space; the same basis as dense
+    coefficient vectors is 2.46 billion entries, which is why this exists.
+    """
+    rex._ensure_clean()
+    nE = int(rex.nE)
+    if nE == 0:
+        return []
+    sup = _edge_supports(rex)
+    if any(len(x) != 2 for x in sup):
+        # branching: the kernel, and it is already sparse per column
+        return [np.asarray(sorted(c), dtype=np.int64)
+                for c in _cycle_supports_kernel(rex)]
+    return _cycle_supports_traversal(rex, sup)
+
+
 def cycle_basis(rex, *, traversal="bfs"):
     """A basis of ker(B1), the cycle space, exact over the rationals. Arity-general.
 
@@ -585,16 +784,20 @@ def _clear_denominators(x):
     return [v * den for v in x]
 
 
-def find_cycles(rex, k):
+def find_cycles(rex, k, *, supports=None):
     """Candidate k-gons: cycle-space basis vectors whose SUPPORT has size k.
 
     The gon is |supp(c)|, and that is the only place it lives, so this reads it off the
     basis rather than walking vertices. Arity-general as a result: a branching relation
     participates in a cycle exactly when the kernel says it does, and a relation that IS
     the mean of two others forms one.
+
+    `supports` accepts an already-computed `cycle_supports(rex)`. Pass it when asking
+    for more than one gon: the basis does not depend on k, this only filters it, and
+    recomputing per k was costing a full cycle-space solve per distinct gon size.
     """
-    return [np.asarray([e for e, v in enumerate(c) if v != 0], dtype=np.int32)
-            for c in cycle_basis(rex) if face_support(c) == k]
+    sup = cycle_supports(rex) if supports is None else supports
+    return [np.asarray(c, dtype=np.int32) for c in sup if len(c) == k]
 
 
 def find_hyperface_groups(rex):
@@ -619,7 +822,7 @@ def find_hyperface_groups(rex):
     return groups
 
 
-def autoface(rex, k=3):
+def autoface(rex, k=3, *, supports=None):
     """Attach every k-gon the connectivity allows, coefficients solved. Returns the count.
 
     `k` may be an int or an iterable of ints. Geometry FROM topology: the choice condition
@@ -628,9 +831,12 @@ def autoface(rex, k=3):
     """
     ks = [k] if isinstance(k, int) else list(k)
     cand = []
+    if supports is None:
+        supports = cycle_supports(rex) if any(kk >= 3 for kk in ks) else []
+    sup = supports
     for kk in ks:
         if kk >= 3:
-            cand.extend(find_cycles(rex, kk))
+            cand.extend(find_cycles(rex, kk, supports=sup))
     if not cand:
         return 0
     before = int(rex.nF_hodge)

@@ -1,6 +1,6 @@
 """rexgraph.harmonic_sparse: the harmonic plane, combinatorial and low-rank.
 
-Per the math reference Part V (scripts 09, 10): the harmonic space
+Per the math reference Part V: the harmonic space
 `ker(L1) = ker(B1) ∩ ker(B2ᵀ)` is a **combinatorial** object - a basis of the cycle
 space `ker(B1)` is the set of spanning-tree fundamental cycles (integer ±1 vectors),
 projected onto `ker(B2ᵀ)` to remove the face (curl) directions. The harmonic
@@ -161,9 +161,21 @@ def _validated_cycle_basis(B1, nE, src=None, tgt=None, rex=None):
         expected = nE - int(_sparse_rank(B1))           # exact dim ker(B1)
     except Exception:
         expected = None
-    Cd = C.toarray() if sp.issparse(C) else np.asarray(C)
-    valid = (expected is None or Cd.shape[1] == expected) and \
-            (Cd.shape[1] == 0 or float(np.linalg.norm(B1 @ Cd)) < 1e-9)
+    # The check stays SPARSE. `C.toarray()` here undid the whole point of building a
+    # sparse basis: on the Gene Ontology joined with its annotations C is 151331 x
+    # 110681, which is 134 GB dense, and the validation is the only thing that wanted
+    # it. Neither half of the test needs a dense array: the dimension is a shape, and
+    # B1 @ C is a sparse product whose norm scipy takes directly.
+    n_cols = C.shape[1]
+    if expected is not None and n_cols != expected:
+        valid = False
+    elif n_cols == 0:
+        valid = True
+    else:
+        img = B1 @ C
+        residual = (sp.linalg.norm(img) if sp.issparse(img)
+                    else float(np.linalg.norm(img)))
+        valid = float(residual) < 1e-9
     if valid:
         return C
     # branching: exact ker(B1). Through the complex's own rational elimination when

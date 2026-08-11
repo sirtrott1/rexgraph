@@ -15,6 +15,8 @@ import contextlib
 
 import numpy as np
 
+from agent.metrics import coherence_mean
+
 
 def _resolve_url():
     from agent import chat_model
@@ -80,7 +82,7 @@ def _complex_from_vectors(V: np.ndarray, labels, top_p: float = 0.9) -> dict:
     return {
         "n_items": int(V.shape[0]),
         "structural": _M.structural_metrics(rex),
-        "coherence_mean": round(float(np.asarray(rex.coherence).mean()), 4),
+        "coherence_mean": round(coherence_mean(rex), 4),
         "betti": [int(b) for b in rex.betti],
         "bridges": bridges,   # load-bearing concept links in the embedding space
     }

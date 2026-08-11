@@ -20,7 +20,7 @@ Two flavors:
       For self-tensor (B = A), the diagonal is identically zero and the
       off-diagonals encode within-grade channel-mixing structure.
 
-Reference values (from rcf_post_paper test14.py, verified to 3 decimals):
+Reference values, verified to 3 decimals:
     K_4    : TG=0.471  TC=0.760  GC=0.810
     K_5    : TG=0.740  TC=0.884  GC=0.820
     K_6    : TG=0.806  TC=1.036  GC=0.892
@@ -197,7 +197,7 @@ def l_gb_channel_tensor(list hats_A, list hats_B=None):
     The F channel is always Frobenius-orthogonal to T, G, C in unit-norm
     projection space.
 
-    Reference values (rcf_post_paper test14.py):
+    Reference values:
         K_4 self-tensor:  TG=0.471  TC=0.760  GC=0.810
         K_5 self-tensor:  TG=0.740  TC=0.884  GC=0.820
         K_6 self-tensor:  TG=0.806  TC=1.036  GC=0.892

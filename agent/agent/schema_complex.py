@@ -888,7 +888,7 @@ def _autoface_b2(names, edges, B1):
 def _lagrangian_curvature(B1, B2, w):
     """Global Lagrangian curvature: the deviance of the tower exchange
     c² = L_T/L_S from balance, via the NORMALIZED inverse-participation-ratio
-    Lagrangians (source Def 5.1-5.3 / CANONICAL_SPARSE_MATH_REFERENCE Part IV).
+    Lagrangians.
 
     L_T = tr(T²)/tr(T)² is the weighted *topological* (down) Lagrangian, T =
     B₁^wᵀB₁^w - it exists on spans, from B₁ alone. L_S = tr(L₁²)/tr(L₁)² is the

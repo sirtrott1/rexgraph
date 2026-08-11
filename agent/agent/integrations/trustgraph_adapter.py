@@ -46,6 +46,7 @@ from typing import Any
 import numpy as np
 
 from agent.adapters import DomainAdapter, EdgeConstruction
+from agent.metrics import coherence_kappa
 
 # Triple handling (works without a running TrustGraph)
 
@@ -1032,7 +1033,7 @@ class TrustGraphAdapter(DomainAdapter):
 
         # Coherence at target vertices
         try:
-            kappa = rex.coherence
+            kappa = coherence_kappa(rex)
             target_kappa = [
                 float(kappa[vi])
                 for vi in entity_indices
@@ -1167,7 +1168,7 @@ class TrustGraphAdapter(DomainAdapter):
 
         # Per-vertex enrichments
         try:
-            kappa = rex.coherence
+            kappa = coherence_kappa(rex)
             phi = rex.vertex_character
             channels = ["T", "G", "F", "C"]
 

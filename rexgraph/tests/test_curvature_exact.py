@@ -22,7 +22,7 @@ def _complete(k):
 
 @pytest.mark.parametrize("k", [4, 5, 6])
 def test_lagrangian_L_T_integer_identity(k):
-    """L_T = tr((B1^T B1)^2) = sum(deg^2) + 2*nE, exact from the degree sequence (script 08)."""
+    """L_T = tr((B1^T B1)^2) = sum(deg^2) + 2*nE, exact from the degree sequence."""
     rex = _complete(k)
     deg = np.abs(np.asarray(rex.B1, dtype=float)).sum(axis=1)
     want = int((deg ** 2).sum() + 2 * rex.nE)
@@ -33,7 +33,7 @@ def test_lagrangian_L_T_integer_identity(k):
 
 
 def test_weighted_curvature_signature_unweighted_is_flat():
-    """Unweighted (W = I) has zero curvature residual and n_eff = nE (script 20)."""
+    """Unweighted (W = I) has zero curvature residual and n_eff = nE."""
     rex = _rex([(0, 1), (1, 2), (2, 3), (0, 3), (1, 4), (4, 5), (2, 5)])
     sig = rex.weighted_curvature_signature()
     assert sig["total_curvature"] == pytest.approx(0.0, abs=1e-9)
@@ -42,7 +42,7 @@ def test_weighted_curvature_signature_unweighted_is_flat():
 
 def test_weighted_curvature_signature_weighting_concentrates_n_eff():
     """Non-uniform weights lower n_eff = (sum w)^2 / sum w^2, and with faces present
-    raise the curvature residual R = B1 (W - I) B2 above zero (script 20)."""
+    raise the curvature residual R = B1 (W - I) B2 above zero."""
     rex = RexGraph.from_simplicial(                                  # tetrahedron: 4 faces
         np.array([0, 0, 0, 1, 1, 2], dtype=np.int32),
         np.array([1, 2, 3, 2, 3, 3], dtype=np.int32),

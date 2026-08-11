@@ -126,7 +126,7 @@ def _self_tensor_for_K_n(n):
     (6, {"TG": 1.036, "TC": 1.155, "GC": 0.471}),
 ])
 def test_K_n_signature_matches_post_paper(n, expected):
-    """Reference values from rcf_post_paper test14.py (3 decimals)."""
+    """Reference values, to 3 decimals."""
     T = _self_tensor_for_K_n(n)
     # T row/col order: T=0, G=1, F=2, C=3
     actual = {"TG": T[0, 1], "TC": T[0, 3], "GC": T[1, 3]}

@@ -1,5 +1,5 @@
 """Hive Coordinator (v1): place tasks onto compute lanes by minimizing a relational-complex
-contention objective. See rexgraph-internal spec 2026-07-25-hive-coordinator-design.md."""
+contention objective."""
 from __future__ import annotations
 
 LANES = ("proc", "thread", "igpu")

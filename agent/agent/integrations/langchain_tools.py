@@ -27,6 +27,8 @@ from typing import Any
 
 import numpy as np
 
+from agent.metrics import coherence_kappa
+
 try:
     from langchain_core.tools import BaseTool
     from pydantic import BaseModel, Field
@@ -174,7 +176,7 @@ class RexConfidenceTool(BaseTool):
 
         # Coherence
         try:
-            kappa = rex.coherence
+            kappa = coherence_kappa(rex)
             result["kappa_mean"] = round(float(kappa.mean()), 4)
             result["kappa_min"] = round(float(kappa.min()), 4)
         except Exception:
@@ -262,7 +264,7 @@ class RexAnalyzeTool(BaseTool):
             except Exception:
                 pass
             try:
-                kappa = rex.coherence
+                kappa = coherence_kappa(rex)
                 lines.append(f"Coherence κ: {kappa.mean():.4f} (range {kappa.min():.3f}-{kappa.max():.3f})")
             except Exception:
                 pass

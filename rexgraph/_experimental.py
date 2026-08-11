@@ -49,7 +49,7 @@ from rexgraph.sparse_character import _b1_csr, _block_cg, _f64
 
 def _hutchinson_phi(apply_rl, apply_hat, active_names, Bs, dinv, nhats,
                     uniform, n_probe=400, seed=0):
-    """Vertex character via Hutchinson diagonal estimation (reference Part VII):
+    """Vertex character via Hutchinson diagonal estimation:
     diag(B1 RL^-1 ĥ_k RL^-1 B1^T) and diag(B1 RL^-1 B1^T) from O(n_probe)
     matrix-free solves for ALL vertices at once, independent of nV. Stochastic
     (~1/sqrt(n_probe) relative error), UNIFORM at every scale (not a size-gated
@@ -110,7 +110,7 @@ _DEPRECATION_MSG = (
 def chebyshev_diag(matvec, n, func, lam_max, lam_min=0.0, order=48,
                    mode='exact', n_probe=256, seed=0):
     """DEPRECATED. diag(func(L)) for a GENERAL analytic f via a Chebyshev polynomial of
-    L applied by sparse mat-vecs: no eigendecomposition (Part A.3, script 13).
+    L applied by sparse mat-vecs: no eigendecomposition.
 
     Superseded by Dirac state propagation (see the module docstring and
     :data:`_DEPRECATION_MSG`). Still returns correct numbers so existing imports keep

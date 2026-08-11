@@ -460,6 +460,7 @@ def auto_rex(
         # made every other documented switch unreachable from the public entry
         # point, silently: load_pdb(backbone=False) had no effect through auto_rex.
         import inspect
+
         from agent.adapters.formats import reader_fn
         try:
             accepts = set(inspect.signature(reader_fn(name)).parameters)
@@ -553,8 +554,17 @@ def attach_faces(rex, rule=FACE_RULE, *, type_labels=None):
         return rex.typed_face_selection(type_labels)
     k = rule
     if k in ("auto", "all"):
-        from rexgraph.faces import cycle_basis, face_support
-        k = sorted({face_support(c) for c in cycle_basis(rex)})
+        # the supports, not the coefficient vectors: "which gons are present" is a
+        # question about |supp(c)|, and autoface re-solves the coefficients anyway.
+        # Reading the basis here and again inside autoface cost one cycle-space solve
+        # per distinct gon, so the basis is computed once and handed down.
+        # which gons are present is a question about tree distances, not cycle vectors:
+        # cycle_gons reads it off the spanning forest with an LCA per non-tree relation
+        # and solves nothing. autoface then solves only the gons actually present.
+        from rexgraph.faces import cycle_gons
+        k = sorted(set(cycle_gons(rex)))
+        autoface(rex, k=k)
+        return rex
     autoface(rex, k=k)
     return rex
 

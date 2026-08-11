@@ -190,6 +190,102 @@ _TIER_GLOBAL = frozenset({
 })
 
 
+def _check_resistance_closes(rex, edges, values) -> None:
+    """Assert the identity the resistance has to satisfy: sum over ALL relations of
+    R_eff is rank(B1), an integer the complex reports independently.
+
+    Free when it applies, and it is the check that would have caught both defects this
+    machinery has had: CG diverging into a kernel it was blind to, and a kernel basis
+    whose vectors were not in the kernel. Both returned numbers; neither closed.
+
+    Only meaningful over the whole relation set, since a subset has no such total, so
+    it runs exactly there. Set REXGRAPH_SKIP_INVARIANTS=1 to turn it off.
+    """
+    import os
+    if os.environ.get("REXGRAPH_SKIP_INVARIANTS"):
+        return
+    nE = int(rex.nE)
+    if edges.size != nE or nE == 0:
+        return                                  # a subset carries no total to check
+    if not np.all(np.isfinite(values)):
+        raise ValueError(
+            f"effective_resistance produced {int((~np.isfinite(values)).sum())} "
+            f"non-finite values of {nE}")
+    try:
+        rank = int(rex.nV) - int(rex.betti[0])   # rank(B1), at any arity
+    except Exception:
+        return
+    total = float(np.asarray(values).sum())
+    if abs(total - rank) > 1e-6 * max(1.0, abs(rank)):
+        raise ValueError(
+            f"effective_resistance does not close: sum R_eff = {total!r} but "
+            f"rank(B1) = {rank}. The solve did not converge, or the deflated kernel "
+            f"is not ker(L0).")
+
+
+class _LazyL0Spectrum(dict):
+    """The sparse spectral bundle, with L0's Fiedler pair resolved on first read.
+
+    Every other slot is present immediately. The four L0 spectral keys are filled by
+    one solve the first time any of them is asked for, so a caller that only wants
+    betti or alpha_G never pays it and a caller that wants the Fiedler still just
+    reads `bundle['fiedler_val_L0']`.
+    """
+
+    _LAZY = ('fiedler_val_L0', 'fiedler_vec_L0', 'evals_L0', 'evecs_L0')
+
+    def __init__(self, base, B1_dual, nV, nE):
+        super().__init__(base)
+        self._B1_dual = B1_dual
+        self._nV = int(nV)
+        self._nE = int(nE)
+        self._filled = False
+
+    def _fill(self) -> None:
+        if self._filled:
+            return
+        self._filled = True
+        fv, fvec, evals, evecs = _laplacians._sparse_fiedler_L0(
+            self._B1_dual, self._nV, self._nE)
+        dict.__setitem__(self, 'fiedler_val_L0', fv)
+        dict.__setitem__(self, 'fiedler_vec_L0', fvec)
+        dict.__setitem__(self, 'evals_L0', evals)
+        dict.__setitem__(self, 'evecs_L0', evecs)
+
+    def __getitem__(self, key):
+        if key in self._LAZY and not self._filled:
+            self._fill()
+        return dict.__getitem__(self, key)
+
+    def get(self, key, default=None):
+        if key in self._LAZY and not self._filled:
+            self._fill()
+        return dict.get(self, key, default)
+
+    def values(self):
+        self._fill()
+        return dict.values(self)
+
+    def items(self):
+        self._fill()
+        return dict.items(self)
+
+    def __iter__(self):
+        # Defining this also takes `dict(bundle)` and `{**bundle}` off CPython's
+        # dict-to-dict fast path, which would copy the unresolved slots straight out
+        # of the underlying dict and hand back None for a value that exists.
+        self._fill()
+        return dict.__iter__(self)
+
+    def keys(self):
+        self._fill()
+        return dict.keys(self)
+
+    def copy(self):
+        self._fill()
+        return dict(self)
+
+
 class RexGraph:
     """A relational complex (rex) with lazily computed derived properties.
 
@@ -1642,9 +1738,14 @@ class RexGraph:
             self._B1_dual,
             self._B2_hodge_dual,
             self._nV, self._nE, self._nF,
+            False,                              # L0 Fiedler filled on first read
         )
         self._fill_cheap_edge_spectra(bundle)   # alpha_G + L1 Fiedler eigenpair
-        return bundle
+        # The L0 Fiedler pair is a preconditioned eigensolve (14 s of the 23 s this
+        # bundle took on a 40652-vertex complex), and the character / coherence / void
+        # / betti paths that rebuild this bundle never read it. Same policy as
+        # edge_fiedler, and transparent: the keys resolve on first access.
+        return _LazyL0Spectrum(bundle, self._B1_dual, self._nV, self._nE)
 
     @cached_property
     def _dense_rcf_bundle(self) -> dict:
@@ -1694,16 +1795,21 @@ class RexGraph:
 
             from rexgraph.core._sparse import to_scipy_csr
             B1 = to_scipy_csr(self._B1_dual).astype(np.float64)          # nV x nE
-            L1_down = sp.csr_matrix(B1.T @ B1)                           # gradient tier
+            # alpha_G = c^2 = G/T = tr((B2 B2^T)^2)/tr((B1^T B1)^2), the DOWN/UP
+            # exchange rate (= (k-2)/2 on K_k). Both traces are cyclic, so each is
+            # taken on the SMALL side of its own Gram pair:
+            #     tr((B1^T B1)^2) = tr((B1 B1^T)^2) = ||L0||_F^2      (nV x nV)
+            #     tr((B2 B2^T)^2) = tr((B2^T B2)^2)                   (nF x nF)
+            # Forming the edge-side Gram instead costs Sum_v deg(v)^2 nonzeros, which a
+            # hub detonates: on the GO complex B1^T B1 came out 802162755 nnz in 14.5 s
+            # where B1 B1^T is 239524 nnz in 0.01 s, for the identical number.
+            L0 = sp.csr_matrix(B1 @ B1.T)                                # nV x nV
+            calT = float(L0.multiply(L0).sum())                          # tr((B1^T B1)^2)
+            calG = 0.0
             if self._nF > 0:
                 B2 = to_scipy_csr(self._B2_hodge_dual).astype(np.float64)  # nE x nF
-                L1_up = sp.csr_matrix(B2 @ B2.T)                         # curl tier
-            else:
-                L1_up = sp.csr_matrix((nE, nE))
-            # alpha_G = c^2 = G/T = ||L1_up||_F^2 / ||L1_down||_F^2 (the DOWN/UP exchange rate,
-            # = (k-2)/2 on K_k). Same value as the dense path, integer traces, no eigensolve.
-            calT = float(L1_down.multiply(L1_down).sum())               # tr((B1^T B1)^2)
-            calG = float(L1_up.multiply(L1_up).sum())                   # tr((B2 B2^T)^2)
+                G2 = sp.csr_matrix(B2.T @ B2)                            # nF x nF
+                calG = float(G2.multiply(G2).sum())                      # tr((B2 B2^T)^2)
             bundle['alpha_G'] = (calG / calT) if calT > 0.0 else 0.0
         except Exception:
             pass   # cheap path unavailable -> leave the builder's None/NaN slots
@@ -2567,7 +2673,7 @@ class RexGraph:
         average. Uses only the per-edge character χ and χ* (diagonals, no solves),
         so it is available at every scale. This is the LOCAL-tower coherence; the
         per-vertex Green's `coherence` (κ vs the global φ) is the exact but O(nV·solve)
-        companion (see Part B: local energy and global Green's are two moments of one
+        companion (local energy and global Green's are two moments of one
         propagator). Shape (nV,)."""
         nhats = int(self.nhats)
         if nhats == 0 or self._nV == 0:
@@ -2578,19 +2684,27 @@ class RexGraph:
         v2e_ptr = np.asarray(v2e_ptr); v2e_idx = np.asarray(v2e_idx)
         chi_inc = chi[v2e_idx] if v2e_idx.size else chi[:0]
         kloc = np.ones(self._nV, dtype=_f64)
-        for v in range(self._nV):
-            lo, hi = int(v2e_ptr[v]), int(v2e_ptr[v + 1])
-            if hi > lo:
-                dev = np.abs(chi_inc[lo:hi] - chi_star[v]).sum(axis=1)  # per incident edge
-                kloc[v] = 1.0 - 0.5 * float(dev.mean())
+        if chi_inc.shape[0] == 0:
+            return kloc
+        # One pass over the incidences, not one Python iteration per vertex: the star
+        # average is a segmented sum, so repeat chi* along its own star and reduce by
+        # segment. Same arithmetic as the per-vertex loop, without paying nV numpy
+        # dispatches (which is what made an O(nnz) quantity cost minutes at 40k
+        # vertices).
+        counts = np.diff(v2e_ptr).astype(np.int64)
+        seg = np.repeat(np.arange(self._nV, dtype=np.int64), counts)
+        dev = np.abs(chi_inc - chi_star[seg]).sum(axis=1)         # per incidence
+        tot = np.bincount(seg, weights=dev, minlength=self._nV)
+        nz = counts > 0
+        kloc[nz] = 1.0 - 0.5 * (tot[nz] / counts[nz])
         return kloc
 
     @cached_property
     def vertex_energy_character(self) -> NDArray:
         """Per-vertex LOCAL energy character - the per-edge energy diag(RL4²)
         (row-norms, O(nnz)) aggregated over each vertex's star through the boundary
-        B₁. This is the vertex propagator's local end via the boundary (Part B /
-        script 14/15), NOT a Green's solve. Shape (nV,)."""
+        B₁. This is the vertex propagator's local end via the boundary, NOT a
+        Green's solve. Shape (nV,)."""
         ec = np.asarray(self.energy_character, dtype=_f64)              # per-edge O(nnz)
         v2e_ptr, v2e_idx = self._v2e
         v2e_ptr = np.asarray(v2e_ptr); v2e_idx = np.asarray(v2e_idx)
@@ -2605,7 +2719,7 @@ class RexGraph:
 
     @cached_property
     def vertex_scale_profile(self) -> NDArray:
-        """Local scale character (Part B / script 15): the closed-k-walk moments
+        """Local scale character: the closed-k-walk moments
         (L0^k)_vv per vertex for k = 0,1,2,3: the heat kernel's LOCAL end, i.e. the
         star neighborhood's structure at each scale, via sparse matvecs / row-norms
         (no eigendecomposition). k≤2 are exact O(nnz) (1, deg, ‖L0[v,:]‖²); k=3 =
@@ -2626,7 +2740,7 @@ class RexGraph:
 
     @cached_property
     def scale_bridge(self) -> dict:
-        """Local<->global structure across the scale profile (Part B / script 15). The
+        """Local<->global structure across the scale profile. The
         low-order closed-walk moments (L0^k)_vv are the LOCAL character; two vertices
         of equal degree agree at k≤1 and DIVERGE at k≥2 by their clustering - the
         thing the star neighborhood exposes. The clean per-vertex clustering signal is
@@ -2656,7 +2770,7 @@ class RexGraph:
 
     @cached_property
     def character_varentropy(self) -> dict:
-        """The varentropy self-diagnostic (Part D.4 / script 19): the H₂-H₃ gap of
+        """The varentropy self-diagnostic: the H₂-H₃ gap of
         RL4's normalized spectrum. H₂ = -log(tr RL4²/tr RL4)² is the default coherence
         (Rényi-2, O(nnz)); H₃ costs one extra sparse matmul (tr RL4³). Their gap is a
         CHEAP certificate of when H₂ is trustworthy: ~0 on flat/unweighted spectra
@@ -2665,13 +2779,16 @@ class RexGraph:
         order so gap ≥ 0. Returns {'H2','H3','gap'}."""
         from rexgraph import scale_propagator as _spg
         X = self._rl4_sparse
-        H2 = float(_spg.renyi_entropy(X, 2))
-        H3 = float(_spg.renyi_entropy(X, 3))
+        # both orders off ONE power walk: H3 needs X², and H2 = ‖X‖_F² is already in
+        # the same moment list, so asking twice would rebuild X² for nothing.
+        tr = _spg.trace_moments(X, 3)
+        H2 = float(_spg.renyi_from_moments(tr, 2))
+        H3 = float(_spg.renyi_from_moments(tr, 3))
         return {'H2': round(H2, 6), 'H3': round(H3, 6),
                 'gap': round(max(0.0, H2 - H3), 6)}
 
     def weighted_curvature_signature(self, w_e: NDArray = None) -> dict:
-        """The weighted geometric signature (Part F / script 20): curvature is the
+        """The weighted geometric signature (Part F /): curvature is the
         weighted-chain residual R = B₁(W-I)B₂ = B₁WB₂ (using B₁B₂=0) - the deviation
         of the weighted state from the unweighted ∂²=0 ideal, zero iff W=cI. Sparse
         (no dense B1/B2/R), decomposed by group, all O(nnz):
@@ -2713,7 +2830,7 @@ class RexGraph:
 
     # The character as moments of f(RL4) (scale-propagator calculus)
     # Eigen-free, O(nnz) or matrix-free polynomial: no per-vertex solve, no
-    # eigendecomposition (see rexgraph.scale_propagator; scripts 13-20).
+    # eigendecomposition (see rexgraph.scale_propagator).
 
     @cached_property
     def _rl4_sparse(self):
@@ -2731,14 +2848,14 @@ class RexGraph:
     @cached_property
     def energy_character(self) -> NDArray:
         """Local per-edge energy character diag(RL4²)_e = ‖RL4[e,:]‖² (row-norms,
-        O(nnz)) - the short-time moment of the heat propagator (Part C.3). Shape (nE,)."""
+        O(nnz)) - the short-time moment of the heat propagator. Shape (nE,)."""
         from rexgraph import scale_propagator as _spg
         return _spg.energy_character(self._rl4_sparse)
 
     @cached_property
     def harmonic_entropy(self) -> float:
         """Harmonic log H₂(RL4) = -log(tr(RL4²)/tr(RL4)²) = eigen-free Rényi-2
-        (collision) entropy of RL4's normalized spectrum (Part D.1)."""
+        (collision) entropy of RL4's normalized spectrum."""
         from rexgraph import scale_propagator as _spg
         return _spg.harmonic_entropy(self._rl4_sparse)
 
@@ -2746,7 +2863,7 @@ class RexGraph:
     def character_reliability(self) -> dict:
         """Varentropy reliability flag {H2, H3, shannon_est, gap} - the cheap
         self-diagnostic certifying when the trace-norm (Rényi-2) character suffices;
-        ~0 on flat/unweighted spectra, grows when weighted (Part D.4)."""
+        ~0 on flat/unweighted spectra, grows when weighted."""
         from rexgraph import scale_propagator as _spg
         return _spg.reliability_gap(self._rl4_sparse)
 
@@ -2778,7 +2895,7 @@ class RexGraph:
     def greens_diagonal_eigenfree(self) -> NDArray:
         """diag(RL4⁻¹) EXACT via block-CG solves of RL4·X = I to a fixed tolerance -
         one algorithm at every scale, no eigendecomposition, no size-gated
-        approximation (Part A / script 11). Shape (nE,).
+        approximation. Shape (nE,).
 
         RL4 is full-rank SPD so this is a plain inverse diagonal; for a SINGULAR edge
         operator (the edge Laplacian L1, individual channel hats) use
@@ -2791,7 +2908,7 @@ class RexGraph:
     def greens_character_edge(self) -> NDArray:
         """diag(L1⁺) - the Green's character of the SINGULAR edge Laplacian L1 =
         B1ᵀB1 + B2B2ᵀ, eigen-free via harmonic-projector deflation L1⁺=(L1+P_H)⁻¹−P_H
-        (oracle 09). P_H projects onto the harmonic space ker(L1) via the combinatorial
+. P_H projects onto the harmonic space ker(L1) via the combinatorial
         harmonic basis (rexgraph.harmonic_sparse.harmonic_basis, fundamental cycles
         flux-projected onto ker(B2ᵀ), no eigendecomposition). This is the per-edge
         self-response through the harmonic-regularized edge propagator. Shape (nE,)."""
@@ -2938,9 +3055,20 @@ class RexGraph:
         # it is called exactly this way at scale today). Never materialize the dense
         # _rcf_bundle here, which would OOM on large complexes.
         rcf = {} if self._use_sparse_character else self._rcf_bundle
-        sb = self.spectral_bundle
+        # Same gate as rcf above: the dense eigenbasis is only preferred when BOTH
+        # evals and evecs are present, and the sparse-character path supplies neither.
+        # This does not avoid building the bundle (_use_sparse_character reads it to
+        # decide), it just stops passing slots that are always empty.
+        sb = {} if self._use_sparse_character else self.spectral_bundle
+        # SPARSE boundaries. Nothing on this path wants a dense B1/B2: the void
+        # boundary needs each relation's two endpoint rows, the triangle match needs
+        # each face's three relations, and the harmonic content already took sparse.
+        # Asking for self.B1 materialised nV x nE (45.8 GB on a 40k-vertex complex).
+        B1s = _sparse.to_scipy_csr(self._B1_dual)
+        B2s = (_sparse.to_scipy_csr(self._B2_hodge_dual)
+               if self._B2_hodge_dual is not None else None)
         return _void.build_void_complex(
-            self.B1, self.B2_hodge,
+            B1s, B2s,
             adj_ptr, adj_idx, adj_edge,
             self._nV, self._nE,
             rcf.get('RL'), rcf.get('hats'), rcf.get('nhats', 0),
@@ -3011,7 +3139,7 @@ class RexGraph:
 
     def attributed_curvature(self, w_e: NDArray = None,
                               a_v: NDArray = None) -> dict:
-        """Attributed boundary curvature (Def 3.1-3.2): the residual R = B1^w @ B2^w and per-face
+        """Attributed boundary curvature: the residual R = B1^w @ B2^w and per-face
         kappa_f = ||R[:,f]||, where B1^w[v,e] = a_v * B1[v,e] * sqrt(w_e) and B2^w = sqrt(w_e) * B2.
 
         Each face boundary has only a few edges, so we contract B2 in its sparse (CSC) form -
@@ -3387,16 +3515,66 @@ class RexGraph:
         edges = np.asarray(edge_indices, dtype=int).ravel()
         if edges.size == 0 or self._nE == 0:
             return np.zeros(edges.size, dtype=_f64)
-        from rexgraph import scale_propagator as _spg
         from rexgraph.core._sparse import to_scipy_csr
+        from rexgraph.fiedler import kernel_basis
+        from rexgraph.sparse_character import _block_cg
         B1 = to_scipy_csr(self._B1_dual).tocsc()            # nV × nE
         Bc = np.ascontiguousarray(np.asarray(B1[:, edges].todense()))   # nV × |edges|
         L0 = self.L0_sparse.tocsr()
-        d = L0.diagonal()
-        dinv = np.where(d > 1e-30, 1.0 / d, 1.0)
-        # block-CG L0⁺ b_e, CPU or GPU-resident (auto, size-gated) via block_cg_solve
-        X = _spg.block_cg_solve(L0, Bc, dinv, tol=1e-10)
-        return np.einsum('ve,ve->e', Bc, X)
+        # L0 is singular, so the solve goes through L0⁺ = (L0 + P_H)⁻¹ − P_H. A boundary
+        # column sums to zero inside its own component, so P_H b_e = 0 and
+        # R_eff = b_eᵀ (L0 + P_H)⁻¹ b_e on an SPD operator with no singular direction.
+        # A bridge has R_eff exactly 1 and is settled by one walk of the 1-skeleton, so
+        # only relations on a cycle get a column. Block CG runs until its worst column
+        # converges, so a narrower block also lowers the iteration count.
+        from rexgraph.bridges import bridge_mask
+        out = np.zeros(edges.size, dtype=_f64)
+        try:
+            span = bridge_mask(self)[edges]
+        except Exception:                                   # any doubt: solve them all
+            span = np.zeros(edges.size, dtype=bool)
+        out[span] = 1.0
+        rest = np.flatnonzero(~span)
+        if rest.size == 0:
+            return out
+        Bc = np.ascontiguousarray(Bc[:, rest])
+        # Two exact readings, chosen by what fits. The leverage form below is a
+        # decomposition, dense in nV x nE, and its cost is set by size. The deflated CG
+        # is matrix-free and its cost is set by conditioning, which is worse. Note the
+        # component indicators span ker(L0) only for PAIRWISE relations: a k-ary
+        # relation touches k vertices and contributes rank one, so dim ker(L0) is
+        # beta_0, and deflating an incomplete basis leaves L0 + P_H singular.
+        from rexgraph.core._common import check_dense_allocation
+        try:
+            check_dense_allocation("effective_resistance leverage",
+                                   int(self._nV), int(edges.size))
+            fits = True
+        except Exception:
+            fits = False                                    # over the configured ceiling
+        U, ncols = kernel_basis(L0)
+        if not fits and ncols == int(self.betti[0]):        # complete: deflate and CG
+            d = np.asarray(L0.diagonal(), dtype=_f64) + (U * U).sum(axis=1)
+            dinv = np.where(d > 1e-30, 1.0 / d, 1.0)
+            X = _block_cg(lambda P: L0 @ P + U @ (U.T @ P), Bc, dinv,
+                          tol=1e-12, maxit=500)
+            out[rest] = np.einsum('ve,ve->e', Bc, X)
+        else:
+            # The leverage reading. Writing
+            # b_e = B1 z_e turns the quadratic form into
+            #     R_eff(e) = z_e^T B1^T (B1 B1^T)^+ B1 z_e
+            # which is the e-th diagonal entry of the ORTHOGONAL PROJECTOR onto the
+            # row space of B1. So it is a leverage score, and the row space comes off
+            # one decomposition with no kernel named and no solve per relation. An
+            # iterative solve cannot do this here: at arity the kernel is most of the
+            # space (2047 of 2379 on 400 protein complexes) and CG or LSMR walks in it.
+            Bfull = to_scipy_csr(self._B1_dual).tocsc()[:, edges]
+            M = np.asarray(Bfull.todense(), dtype=_f64)
+            _u, sv, vt = np.linalg.svd(M, full_matrices=False)
+            keep = sv > (max(M.shape) * np.finfo(_f64).eps * (sv[0] if sv.size else 0.0))
+            V = vt[keep]                                    # rows span row(B1)
+            out = np.einsum('ie,ie->e', V, V)               # diag of V^T V
+        _check_resistance_closes(self, edges, out)
+        return out
 
     def effective_resistance(self, edge_idx: int) -> float:
         """Classic effective resistance R_eff(e) = b_eᵀ L0⁺ b_e for one edge (relation)

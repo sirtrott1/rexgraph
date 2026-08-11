@@ -25,7 +25,7 @@ _COMPLEXES = [
 
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_greens_diagonal_eigenfree_matches_dense_pinv(edges):
-    """diag(RL4^-1) via block-CG equals diag(pinv(RL4)) to machine precision (script 11)."""
+    """diag(RL4^-1) via block-CG equals diag(pinv(RL4)) to machine precision."""
     rex = _rex(edges)
     got = rex.greens_diagonal_eigenfree
     want = np.diag(np.linalg.pinv(np.asarray(rex.RL, dtype=float)))
@@ -35,7 +35,7 @@ def test_greens_diagonal_eigenfree_matches_dense_pinv(edges):
 
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_energy_character_is_rl4_row_energy(edges):
-    """Per-edge energy character equals diag(RL4^2) = row energies of RL4 (script 14)."""
+    """Per-edge energy character equals diag(RL4^2) = row energies of RL4."""
     rex = _rex(edges)
     RL = np.asarray(rex.RL, dtype=float)
     np.testing.assert_allclose(rex.energy_character, (RL @ RL).diagonal(), atol=1e-9)
@@ -53,7 +53,7 @@ def _Kk(k):
 def test_attributed_curvature_matches_from_scratch_weighted_boundary(weights):
     """The sparse attributed curvature equals the definition computed from scratch:
     R = B1^w @ B2^w with B1^w[v,e]=a_v B1[v,e]sqrt(w_e), B2^w[e,f]=sqrt(w_e)B2[e,f], and
-    kappa_f=||R[:,f]|| - across unit, random, and extreme weights (script 14/Def 3.1-3.2)."""
+    kappa_f=||R[:,f]|| - across unit, random, and extreme weights."""
     rng = np.random.default_rng(1)
     rex = _Kk(5)
     nV, nE = rex._nV, rex._nE
@@ -72,7 +72,7 @@ def test_attributed_curvature_matches_from_scratch_weighted_boundary(weights):
 
 def test_trace_moments_share_one_power_walk_matches_per_order():
     """The moment engine [tr(X),..,tr(X^a)] from one incremental power walk equals per-order
-    trace_power, and the Renyi curve reads off it identically (scripts 16/18/19)."""
+    trace_power, and the Renyi curve reads off it identically."""
     import scipy.sparse as sp
 
     from rexgraph import scale_propagator as spg
@@ -503,7 +503,7 @@ def test_scale_free_never_fills_full_spectrum_keys_with_partial():
 
 class TestSingularGreensDeflated:
     """diag(L+) for a SINGULAR edge operator via harmonic-projector deflation
-    L+ = (L + P_H)^-1 - P_H (oracle 09). The plain greens_diagonal (SPD RL4) blows up
+    L+ = (L + P_H)^-1 - P_H. The plain greens_diagonal (SPD RL4) blows up
     on a kernel; the deflated form must match the dense pseudoinverse to ~1e-9 using
     only the combinatorial harmonic/cycle basis (no eigendecomposition)."""
 
@@ -558,7 +558,7 @@ class TestSingularGreensDeflated:
 
 
 class TestMalaughActionMoment:
-    """The Malaugh action<->moment calculus (oracle 16): per-complex edge moments
+    """The Malaugh action<->moment calculus: per-complex edge moments
     X(k) (all O(nnz) traces, no eigendecomposition), and the discrete calculus
     moment DX(k)=X(k+1)-X(k) / action S(k)=sum_{j<=k}X(j) conjugate by the scale-FTC."""
 

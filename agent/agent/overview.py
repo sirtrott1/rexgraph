@@ -33,6 +33,8 @@ from collections import Counter
 
 import numpy as np
 
+from agent.metrics import coherence_kappa
+
 __all__ = ["overview", "shape_of", "consistency_of"]
 
 
@@ -113,7 +115,7 @@ def _character_summary(rex) -> dict:
         out[key] = {"mean": keyed,
                     "dominant": max(keyed, key=keyed.get) if keyed else None}
     try:
-        kappa = np.asarray(rex.coherence, dtype=float)
+        kappa = coherence_kappa(rex)
         out["coherence_mean"] = round(float(kappa.mean()), 6) if kappa.size else None
     except Exception:                            # noqa: BLE001
         pass

@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from agent.metrics import coherence_greens, coherence_kappa, greens_budget
+
 
 def _sparse_L0(rex):
     """Graph Laplacian L0 = B1 @ B1^T as a SPARSE scipy matrix, built directly
@@ -99,7 +101,7 @@ def _smallest_eigenvalues_L0(rex, k: int = 20) -> np.ndarray | None:
 
 
 def _strain_equilibrium_sparse(rex, kappa_f, born_face):
-    """strain_equilibrium (Def 5.2-5.3) via SPARSE B1/B2 matvecs - no dense boundary
+    """strain_equilibrium via SPARSE B1/B2 matvecs - no dense boundary
     operators, O(nnz), scale-free. Mirrors `_rcfe.strain_equilibrium`:
       alpha = <B2 κ, B2 pF> / ||B2 pF||²,  δ = face_deficit(κ, alpha, pF),
       σ = B2 δ  (relational strain),  Bianchi: B1 σ = 0."""
@@ -408,12 +410,11 @@ class AnalysisPipeline:
     def _stage_relational(self) -> dict:
         rex = self.rex
         result = {}
-        import os
 
         # THE CHARACTER: O(nnz), the reference's default. Everything here is a
         #    diagonal, row-norm, star aggregation, sparse matvec, or trace: no
         #    per-vertex inverse solve, no eigendecomposition (SCALE_PROPAGATOR_CALCULUS
-        #    Parts A-D; scripts 13-20). The per-vertex Green's φ (the GLOBAL moment) is
+        #    The per-vertex Green's φ (the GLOBAL moment) is
         # an optional refinement at the end.
 
         # (1) Per-EDGE character χ = ĥ_k[e,e]/RL[e,e] - the base character (diagonals).
@@ -427,7 +428,7 @@ class AnalysisPipeline:
             pass
 
         # (2) Local ENERGY character diag(RL4²) = ‖RL4[e,:]‖² (row-norms, the short-time
-        #     heat moment; Part C.3 / script 14), and its per-vertex value via the
+        #     heat moment), and its per-vertex value via the
         #     BOUNDARY/star aggregation: the vertex propagator's local end, no solve.
         try:
             ec = np.asarray(rex.energy_character, dtype=float)
@@ -458,7 +459,7 @@ class AnalysisPipeline:
         except Exception:
             pass
 
-        # (4) SCALE BRIDGE (local<->global; Part B / script 15): the closed-k-walk
+        # (4) SCALE BRIDGE (local<->global): the closed-k-walk
         #     moments (L0^k)_vv per vertex - the star neighborhood's structure at each
         #     scale, plus the clustering signal that separates locally-clustered from
         #     unclustered members at equal degree. All sparse matvecs, O(nnz).
@@ -472,13 +473,13 @@ class AnalysisPipeline:
         except Exception:
             pass
 
-        # (5) COHERENCE. Default (Part D.4: "default to H₂"): the global harmonic-log
+        # (5) COHERENCE. Default is H₂: the global harmonic-log
         #     H₂ = -log(tr RL4²/tr RL4)² (Rényi-2, O(nnz) trace) as the graph-level
         #     coherence, and the per-vertex LOCAL coherence κ_loc (star-consistency of
         #     χ, O(nnz)). No solves, available at every scale.
         try:
             result["harmonic_entropy_H2"] = round(float(rex.harmonic_entropy), 6)
-            # Varentropy self-diagnostic (script 19): the H₂-H₃ gap certifies when the
+            # Varentropy self-diagnostic: the H₂-H₃ gap certifies when the
             # cheap H₂ coherence is trustworthy - ~0 on flat/unweighted spectra, grows
             # with weight-induced non-uniformity. One extra sparse matmul.
             ve = rex.character_varentropy
@@ -487,7 +488,7 @@ class AnalysisPipeline:
         except Exception:
             pass
         try:
-            kloc = np.asarray(rex.local_coherence, dtype=float)
+            kloc = coherence_kappa(rex)
             if kloc.size and not np.all(np.isnan(kloc)):
                 kc = np.where(np.isnan(kloc), 0.0, kloc)
                 result["kappa_mean"] = round(float(kc.mean()), 4)
@@ -505,20 +506,16 @@ class AnalysisPipeline:
         #    two-inverse form resists selected inversion), so it is a bounded add-on,
         #    NOT the default character. Budget: REXGRAPH_VERTEX_CHARACTER_MAX_NODES
         # (default 1500; 0 = always). The character above is complete without it.
-        try:
-            budget = int(os.environ.get("REXGRAPH_VERTEX_CHARACTER_MAX_NODES", "1500"))
-        except ValueError:
-            budget = 1500
+        budget = greens_budget()
         if (budget <= 0) or (int(rex.nV) <= budget):
             try:
                 phi = rex.vertex_character
                 if phi is not None and phi.ndim == 2:
                     result["phi_mean"] = phi.mean(axis=0).tolist()
                     result["phi_per_vertex"] = phi.tolist()
-                kg = np.asarray(rex.coherence, dtype=float)          # Green's κ
-                if kg.size and not np.all(np.isnan(kg)):
-                    kgc = np.where(np.isnan(kg), 0.0, kg)
-                    result["kappa_greens_mean"] = round(float(kgc.mean()), 4)
+                kg = coherence_greens(rex, budget)                   # Green's κ
+                if kg is not None and kg.size:
+                    result["kappa_greens_mean"] = round(float(kg.mean()), 4)
                     result["kappa_greens_per_vertex"] = [round(float(k), 4) for k in kg]
             except Exception:
                 pass
@@ -1050,7 +1047,7 @@ class AnalysisPipeline:
             result["curvature_error"] = str(e)
             return result
 
-        # The weighted geometric signature (script 20): curvature R = B₁(W-I)B₂ =
+        # The weighted geometric signature: curvature R = B₁(W-I)B₂ =
         # deviation from the unweighted ∂²=0 ideal, decomposed by group + weight
         # concentration. Per-face ‖R[:,f]‖ is kappa_f above; this adds the per-VERTEX
         # curvature (which junction bends most), the per-edge rank-1 contributions,

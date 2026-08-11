@@ -8,13 +8,12 @@ weights = content affinity) and mixes values by a propagator f(L_W)·V computed 
 Chebyshev sparse-matvec recurrence; the n×n mixing operator f(L_W) is never formed
 (O(nnz·K·d)). Two routing channels come from the light propagator's exact split:
 
-  * heat  e^{-tL}·V  - diffusive / gradient routing (multi-hop reachability, script 13/15)
+  * heat  e^{-tL}·V  - diffusive / gradient routing (multi-hop reachability)
   * curl  Im(e^{-itL})·V = -sin(tL)·V - rotational / directional routing, which softmax
     cannot express in one hop ("complex rotation is curl")
 
-The token graph is content-weighted, so the weighting's curvature (script 20: weighted
-degree / participation ratio) and the per-head varentropy self-diagnostic (script 19,
-collision-vs-diffusion gap) are computed readouts. `t` (propagation scale) is learnable; the
+The token graph is content-weighted, so the weighting's curvature (: weighted
+degree / participation ratio) and the per-head varentropy self-diagnostic (collision-vs-diffusion gap) are computed readouts. `t` (propagation scale) is learnable; the
 topology is multi-hop, gradient⊕curl.
 
 v1 stores the T×T content-affinity like standard attention does, but the mixing operator is
@@ -116,9 +115,9 @@ class PropagatorAttention(_Base):
         if not return_diag:
             return out, None
         with _t.no_grad():
-            # script 19: per-head varentropy gap (collision vs diffusion) - routing structure
+            #: per-head varentropy gap (collision vs diffusion) - routing structure
             vg = R.varentropy_gap(L)
-            # script 20: weight concentration = participation ratio N_eff = (Σw)²/Σw² per head
+            #: weight concentration = participation ratio N_eff = (Σw)²/Σw² per head
             wsum = W.sum(dim=(-2, -1)); w2sum = (W * W).sum(dim=(-2, -1))
             n_eff = (wsum * wsum) / w2sum.clamp_min(1e-12)
             diag = {

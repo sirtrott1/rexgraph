@@ -26,7 +26,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rexgraph-agent"
-version = "1.0.8"
+version = "1.0.9"
 description = "Orchestration, server, frontend, and integrations for the RexGraph ecosystem"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,

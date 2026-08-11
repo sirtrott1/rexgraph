@@ -18,6 +18,8 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
+from agent.metrics import coherence_kappa
+
 
 def _tokens(text: str):
     return [t for t in re.findall(r"[a-z0-9]{3,}", str(text).lower())]
@@ -126,7 +128,7 @@ class AgentComplex:
             out["note"] = "no inter-agent interactions yet"; out["agents"] = []
             return out
         betti = [int(b) for b in rex.betti]
-        kappa = np.asarray(rex.coherence, dtype=np.float64).ravel()
+        kappa = coherence_kappa(rex)
         flow = (we / we.sum()).astype(np.float64)
         try:
             H = rex.hodge_full(flow)

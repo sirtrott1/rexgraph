@@ -354,7 +354,6 @@ def analyze(
     sb = rex.spectral_bundle
 
     eL0 = sb['evals_L0']
-    sb['evecs_L0']
 
     # L1 eigenvalues (present when L_O is provided, else None)
     eL1_arr = sb.get('evals_L1')
@@ -625,14 +624,20 @@ def analyze(
     e_part_LO = _partition_from_fiedler(fiedler_LO_vec)
 
     # Vertex partition induced by L_O edge partition
-    v_part_LO = []
-    for i in range(nV):
-        inc = [j for j in range(nE) if src[j] == i or tgt[j] == i]
-        if not inc:
-            v_part_LO.append("A")
-            continue
-        a_count = sum(1 for j in inc if e_part_LO[j] == "A")
-        v_part_LO.append("A" if a_count >= len(inc) - a_count else "B")
+    # Majority vote of each vertex's incident relations, read off the stored
+    # incidence. Scanning all nE relations per vertex to find them is O(nV*nE), which
+    # on a 40652-vertex ontology with 151331 relations is 6.2 billion comparisons for
+    # a quantity the complex already carries.
+    v2e_ptr, v2e_idx = rex._v2e
+    v2e_ptr = np.asarray(v2e_ptr)
+    v2e_idx = np.asarray(v2e_idx)
+    is_a = np.array([p == "A" for p in e_part_LO], dtype=bool) if nE else np.zeros(0, bool)
+    counts = np.diff(v2e_ptr).astype(np.int64)
+    a_per_v = np.add.reduceat(is_a[v2e_idx].astype(np.int64),
+                              v2e_ptr[:-1]) if v2e_idx.size else np.zeros(nV, np.int64)
+    a_per_v = np.where(counts > 0, a_per_v, 0)
+    v_part_LO = ["A" if (c == 0 or a >= c - a) else "B"
+                 for a, c in zip(a_per_v, counts, strict=True)]
 
     # Edge partition from RL_1 Fiedler vector
     evecs_RL1_part = sb.get('evecs_RL_1')
@@ -1053,7 +1058,11 @@ def analyze(
             "RL1": [_round(v, 6) for v in evals_RL1],
             "RL": [_round(v, 6) for v in evals_RL_full],
             "field_M": [_round(v, 6) for v in field_evals],
-            "fiedler_L0": _round(eL0[np.argsort(eL0)[1]]) if nV > 1 else 0,
+            # NOT eL0[argsort(eL0)[1]]: that is the second smallest eigenvalue, which
+            # is the Fiedler value only when the kernel is one-dimensional. On a
+            # two-component complex it is the second ZERO. The bundle's value has the
+            # known kernel deflated out, so it is the Fiedler at any beta0.
+            "fiedler_L0": _round(sb['fiedler_val_L0']) if nV > 1 else 0,
             "fiedler_LO": _round(fiedler_LO_val),
             "fiedler_RL1": _round(fiedler_RL1),
         },

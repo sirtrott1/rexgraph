@@ -4,16 +4,14 @@
 rexgraph.core._curvature: Lagrangian curvature and the five curvature
 localizations, on the sparse/integer path.
 
-Reference: CANONICAL_SPARSE_MATH_REFERENCE Parts IV (Lagrangians) & VIII (five
-curvatures); oracle scripts 03, 04, 08. This is the math that previously lived in
+The Lagrangians and the five curvatures. This is the math that previously lived in
 the agent layer (`schema_complex._lagrangian_curvature` / `_star_curvature`) as
 dense `np.trace(L @ L)` - an O(nE^3)/O(nE^2) crash source. Here every quantity is
 a SPARSE reduction or a pure-integer degree sum; no dense nE x nE product and no
 eigendecomposition.
 
 GLOBAL Lagrangian curvature - NORMALIZED inverse-participation-ratio Lagrangians
-(CORRECTED against source Def 5.1-5.3 / CANONICAL_SPARSE_MATH_REFERENCE Part IV;
-oracle script 12). The Lagrangians are normalized concentrations, NOT bare traces:
+The Lagrangians are normalized concentrations, NOT bare traces:
     L_T = tr(T^2) / tr(T)^2      T  = B1^w^T B1^w   (topological / down)
     L_S = tr(L1^2) / tr(L1)^2    L1 = B2^w B2^w^T   (geometric / up)
     c2  = L_T / L_S ;  curvature = |log c2| = |H_S - H_T|   (direction-free)
@@ -75,7 +73,7 @@ cdef object _wdiag(w, Py_ssize_t nE):
 def lagrangian_curvature(B1_in, B2_in, w=None, bint normalized=True):
     """Global Lagrangian curvature {L_T, L_S, c2, curvature, L_T_trace, L_S_trace}.
 
-    NORMALIZED inverse-participation-ratio Lagrangians (script 12; Part IV):
+    NORMALIZED inverse-participation-ratio Lagrangians:
         L_T = tr(T^2)/tr(T)^2, L_S = tr(L1^2)/tr(L1)^2, c2 = L_T/L_S,
         curvature = |log c2| = |H_S - H_T|  (direction-free; None when L_T == 0).
     On K_k, c2 = (k-2)/2. The exact integer numerators tr(T^2), tr(L1^2) (and their
@@ -138,7 +136,7 @@ def lagrangian_curvature(B1_in, B2_in, w=None, bint normalized=True):
 
 def lagrangian_L_T_integer(sources, targets, Py_ssize_t nV):
     """Exact integer L_T = Sum_v deg(v)^2 + 2*nE from the degree sequence
-    (unweighted). Pure integer, no matrix formed (reference Part IV, script 08)."""
+    (unweighted). Pure integer, no matrix formed."""
     cdef i64[::1] s = np.ascontiguousarray(sources, dtype=np.int64)
     cdef i64[::1] t = np.ascontiguousarray(targets, dtype=np.int64)
     cdef Py_ssize_t nE = s.shape[0]
@@ -175,7 +173,7 @@ def weighted_degree(sources, targets, w, Py_ssize_t nV):
 def star_curvature(sources, targets, w, Py_ssize_t nV):
     """Per-vertex star curvature: Sum_{e in star(v)} |w_e - mean_star(v)|, the
     grade-0 localization that fires on spans. 0 for vertices of degree <= 1
-    (matches the agent semantics: needs > 1 incident edge). f64[nV] (script 03)."""
+    (matches the agent semantics: needs > 1 incident edge). f64[nV]."""
     cdef i64[::1] s = np.ascontiguousarray(sources, dtype=np.int64)
     cdef i64[::1] t = np.ascontiguousarray(targets, dtype=np.int64)
     cdef Py_ssize_t nE = s.shape[0]
@@ -214,7 +212,7 @@ def curvature_operator(B1_in, B2_in, w=None):
     """The face-bound curvatures from R = B1 diag(w) B2 (grades 1-2, sparse):
     {'scalar': ||R||_F, 'per_face': ||R[:,f]|| (f64[nF]),
      'per_edge': |w_e|*||B1[:,e]||*||B2[e,:]|| (f64[nE])}.
-    These read 0 on a span (no face) by construction (script 03)."""
+    These read 0 on a span (no face) by construction."""
     B1s = _as_scipy(B1_in)
     B2s = _as_scipy(B2_in)
     cdef Py_ssize_t nE = B1s.shape[1]

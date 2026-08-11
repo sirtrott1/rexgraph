@@ -50,7 +50,7 @@ def spectral_bound(L) -> float:
 
 def cheb_coeffs(func: Callable, K: int, lam_max: float, *, device=None, dtype=None):
     """Chebyshev coefficients of a scalar spectral function ``func`` on [0, lam_max], via
-    sampling at Chebyshev nodes + DCT (script 13's construction). ``func`` maps a torch
+    sampling at Chebyshev nodes + DCT. ``func`` maps a torch
     tensor of eigen-samples -> values; it may depend on a learnable parameter (e.g. heat
     time t) - the coefficients stay differentiable through it."""
     _require()

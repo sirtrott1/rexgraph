@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from agent.metrics import coherence_kappa
+
 
 def _row_id(row, i, id_col):
     return str(row.get(id_col, i)) if id_col else str(i)
@@ -95,7 +97,7 @@ def analyze_rows(rows: list[dict], *, link_on, id_col: str | None = None,
     if edges:
         rex, meta = rows_to_complex(rows, link_on=link_on, id_col=id_col)
         try:
-            kap = np.asarray(rex.coherence, dtype=np.float64)
+            kap = coherence_kappa(rex)
             labels = meta["vertex_labels"]
             central = sorted(({"row": labels[i], "kappa": round(float(kap[i]), 4)}
                              for i in range(min(len(kap), len(labels)))),

@@ -181,7 +181,7 @@ def build_L2(B2_in):
     return L2
 
 
-# Sparse Laplacian builders (integer/exact tower - CANONICAL_SPARSE_MATH_REFERENCE
+# Sparse Laplacian builders (integer/exact tower -
 # Part II/X). L0 = B1 B1^T = D - A (nnz ~ 2*nE), L1_down = B1^T B1, L1_up = B2 B2^T,
 # L2 = B2^T B2 - assembled as SPARSE matmuls, never densifying B1/B2 (the nV x nE
 # / nE x nE dense allocation was the crash). Return scipy CSR. The dense builders
@@ -764,148 +764,38 @@ def _sparse_betti(B1_in, B2_in, int nV, int nE, int nF):
     return beta0, beta1, beta2, rank_B1, rank_B2
 
 
-def _sparse_fiedler_L0(B1_in, int nV, int nE):
-    """Fiedler value and vector of L0 without materializing L0.
-
-    Uses scipy eigsh with a LinearOperator that applies L0 = B1 B1^T
-    via two Cython matvec calls through the DualCSR. No nV x nV matrix
-    is ever allocated.
-
-    For nV <= 2000, uses dense eigh (faster due to LAPACK constants).
-    For nV > 2000, uses matrix-free ARPACK with which='SM'.
-    """
-    from scipy.sparse.linalg import LinearOperator, eigsh
-
-    if nV <= 1:
-        return 0.0, np.zeros(nV, dtype=np.float64), \
-               np.empty(0, dtype=np.float64), np.empty((0, 0), dtype=np.float64)
-
-    # Check if we have a DualCSR (use fast Cython matvec)
-    cdef bint have_dual = hasattr(B1_in, 'row_ptr') and hasattr(B1_in, 'col_ptr')
-
+def _to_scipy_L0(B1_in, bint have_dual, int nV):
+    """L0 = B1 B1^T as scipy sparse, from either a DualCSR or a scipy/dense B1.
+    nV x nV and sparse: the vertex side of the Gram pair, never the edge side."""
+    from scipy.sparse import csr_matrix, issparse
     if have_dual:
-        from rexgraph.core._sparse import matvec as _matvec, rmatvec as _rmatvec
-
-        B1_dual = B1_in
-
-        def _L0_matvec(x):
-            # L0 @ x = B1 @ (B1^T @ x)
-            # rmatvec: B1^T @ x via CSC path (nogil Cython)
-            # matvec: B1 @ tmp via CSR path (nogil Cython)
-            tmp = _rmatvec(B1_dual, x.astype(np.float64))
-            return _matvec(B1_dual, tmp)
-
-        L0_op = LinearOperator((nV, nV), matvec=_L0_matvec, dtype=np.float64)
+        from rexgraph.core._sparse import to_scipy_csr
+        B = to_scipy_csr(B1_in).astype(np.float64)
     else:
-        # Fallback: scipy sparse
-        from scipy.sparse import issparse, csr_matrix
-        B1_sp = B1_in if issparse(B1_in) else csr_matrix(B1_in)
-        B1_sp = B1_sp.astype(np.float64)
-
-        def _L0_matvec_sp(x):
-            return B1_sp @ (B1_sp.T @ x)
-
-        L0_op = LinearOperator((nV, nV), matvec=_L0_matvec_sp, dtype=np.float64)
-
-    # Dense path for small matrices
-    if nV <= 2000:
-        if have_dual:
-            from rexgraph.core._sparse import spmm_AAt_dense_f64
-            L0_dense = spmm_AAt_dense_f64(B1_in)
-        else:
-            L0_dense = np.asarray((B1_sp @ B1_sp.T).toarray(), dtype=np.float64)
-
-        evals_all, evecs_all = np.linalg.eigh(L0_dense)
-        evals_all[np.abs(evals_all) < 1e-10] = 0.0
-        evals_all[evals_all < 0] = 0.0
-
-        fiedler_val = 0.0
-        fiedler_vec = np.zeros(nV, dtype=np.float64)
-        for i in range(len(evals_all)):
-            if evals_all[i] > 1e-10:
-                fiedler_val = float(evals_all[i])
-                fiedler_vec = evecs_all[:, i].copy()
-                break
-
-        return fiedler_val, fiedler_vec, evals_all, evecs_all
-
-    # Large matrix: matrix-free ARPACK
-    k = min(nV - 1, 6)
-    try:
-        evals, evecs = eigsh(L0_op, k=k, which='SM', tol=1e-6, maxiter=500)
-        order = np.argsort(evals)
-        evals = evals[order]
-        evecs = evecs[:, order]
-        evals[np.abs(evals) < 1e-10] = 0.0
-        evals[evals < 0] = 0.0
-    except Exception:
-        # SM can fail on singular operators; try with small shift
-        try:
-            from scipy.sparse import eye as speye
-            L0_shifted = L0_op + 1e-8 * speye(nV, format='csr')
-            evals, evecs = eigsh(L0_shifted, k=k, which='SM', tol=1e-6, maxiter=500)
-            order = np.argsort(evals)
-            evals = evals[order]
-            evecs = evecs[:, order]
-            evals = evals - 1e-8
-            evals[np.abs(evals) < 1e-10] = 0.0
-            evals[evals < 0] = 0.0
-        except Exception:
-            evals = np.zeros(1, dtype=np.float64)
-            evecs = np.ones((nV, 1), dtype=np.float64) / np.sqrt(nV)
-
-    fiedler_val = 0.0
-    fiedler_vec = np.zeros(nV, dtype=np.float64)
-    for i in range(len(evals)):
-        if evals[i] > 1e-10:
-            fiedler_val = float(evals[i])
-            fiedler_vec = evecs[:, i].copy()
-            break
-
-    return fiedler_val, fiedler_vec, evals, evecs
+        B = (B1_in if issparse(B1_in) else csr_matrix(B1_in)).astype(np.float64)
+    return (B @ B.T).tocsr()
 
 
-def build_all_laplacians_sparse(B1_in, B2_in, int nV, int nE, int nF):
-    """Sparse spectral bundle for large graphs where nE x nE is too big.
+def _sparse_fiedler_L0(B1_in, int nV, int nE):
+    """Fiedler value and vector of L0 = B1 B1^T, without materializing an nE x nE.
 
-    Computes Betti numbers via union-find + Euler (no L1 eigendecomposition).
-    Computes L0 Fiedler via matrix-free ARPACK (no L0 materialized).
-    Edge-space operators (L1, L_O, RL, hats, chi) are set to None.
-    Use subgraph() or quotient() to analyze edge-level structure.
-
-    Parameters
-    ----------
-    B1_in : DualCSR or scipy sparse or dense, shape (nV, nE)
-    B2_in : DualCSR or scipy sparse or dense or None, shape (nE, nF)
-    nV, nE, nF : int
-
-    Returns
-    -------
-    dict with the same key set as build_all_laplacians. Keys that
-    require dense nE x nE computation are set to None or empty.
+    Delegates to rexgraph.fiedler, which deflates the KNOWN kernel (one indicator per
+    connected component) instead of thresholding for it, and picks its preconditioner
+    from the solver's own residual. Kept there rather than here because it is scipy
+    orchestration with no typed loops to gain from Cython.
     """
-    result = {}
-    result['_sparse_mode'] = True
+    from rexgraph.fiedler import fiedler_L0
+    return fiedler_L0(_to_scipy_L0(B1_in, hasattr(B1_in, 'row_ptr')
+                                   and hasattr(B1_in, 'col_ptr'), nV),
+                      k=min(nV - 1, 6) if nV > 1 else 1)
 
-    # Betti via union-find (passes B1_in directly, handles DualCSR internally)
-    beta0, beta1, beta2, rank_B1, rank_B2 = _sparse_betti(
-        B1_in, B2_in, nV, nE, nF)
-    result['beta0'] = beta0
-    result['beta1'] = beta1
-    result['beta2'] = beta2
 
-    # L0 Fiedler via matrix-free eigsh (passes B1_in directly)
-    fv, fvec, evals_L0, evecs_L0 = _sparse_fiedler_L0(B1_in, nV, nE)
-    result['fiedler_val_L0'] = fv
-    result['fiedler_vec_L0'] = fvec
-    result['evals_L0'] = evals_L0
-    result['evecs_L0'] = evecs_L0
+def _finish_sparse_bundle(result, int nV, int nE, int nF, int beta1):
+    """The slots the sparse bundle does not compute at this scale, in one place so the
+    with_fiedler branches cannot drift apart."""
+    result['L0'] = None                      # matrix-free operator instead
 
-    # L0 stored as None (use matrix-free operator instead)
-    result['L0'] = None
-
-    # Edge-space operators: not computed at this scale
-    result['L1_down'] = None
+    result['L1_down'] = None                 # edge-space operators: not at this scale
     result['L1_up'] = None
     result['L1_full'] = None
     result['evals_L1'] = np.empty(0, dtype=np.float64)
@@ -935,5 +825,52 @@ def build_all_laplacians_sparse(B1_in, B2_in, int nV, int nE, int nF):
     result['trace_values'] = np.empty(0, dtype=np.float64)
     result['hat_names'] = []
     result['chi'] = None
-
     return result
+
+
+def build_all_laplacians_sparse(B1_in, B2_in, int nV, int nE, int nF,
+                                bint with_fiedler=True):
+    """Sparse spectral bundle for large graphs where nE x nE is too big.
+
+    Computes Betti numbers via union-find + Euler (no L1 eigendecomposition).
+    Computes L0 Fiedler via matrix-free ARPACK (no L0 materialized).
+    Edge-space operators (L1, L_O, RL, hats, chi) are set to None.
+    Use subgraph() or quotient() to analyze edge-level structure.
+
+    Parameters
+    ----------
+    B1_in : DualCSR or scipy sparse or dense, shape (nV, nE)
+    B2_in : DualCSR or scipy sparse or dense or None, shape (nE, nF)
+    nV, nE, nF : int
+
+    Returns
+    -------
+    dict with the same key set as build_all_laplacians. Keys that
+    require dense nE x nE computation are set to None or empty.
+    """
+    result = {}
+    result['_sparse_mode'] = True
+
+    # Betti via union-find (passes B1_in directly, handles DualCSR internally)
+    beta0, beta1, beta2, rank_B1, rank_B2 = _sparse_betti(
+        B1_in, B2_in, nV, nE, nF)
+    result['beta0'] = beta0
+    result['beta1'] = beta1
+    result['beta2'] = beta2
+
+    # L0 Fiedler. `with_fiedler=False` leaves the slots absent so a caller that never
+    # reads them does not pay the solve; RexGraph.spectral_bundle fills them on first
+    # access, the same policy edge_fiedler already applies to L1.
+    if not with_fiedler:
+        result['fiedler_val_L0'] = None
+        result['fiedler_vec_L0'] = None
+        result['evals_L0'] = None
+        result['evecs_L0'] = None
+        return _finish_sparse_bundle(result, nV, nE, nF, beta1)
+    fv, fvec, evals_L0, evecs_L0 = _sparse_fiedler_L0(B1_in, nV, nE)
+    result['fiedler_val_L0'] = fv
+    result['fiedler_vec_L0'] = fvec
+    result['evals_L0'] = evals_L0
+    result['evecs_L0'] = evecs_L0
+
+    return _finish_sparse_bundle(result, nV, nE, nF, beta1)

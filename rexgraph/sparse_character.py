@@ -155,16 +155,36 @@ def _block_cg(apply_A, B, dinv, tol=1e-10, maxit=1000):
     P = Z.copy()
     rz = (R * Z).sum(0)
     bnorm = np.maximum(np.linalg.norm(B, axis=0), 1e-300)
+    # Each column is an independent CG: alpha and beta are per-column scalars and the
+    # only thing shared is the operator. So a converged column can LEAVE the block,
+    # and it must, because the loop below stops on the worst column and every column
+    # still in the block pays that column's iteration count. Measured on two ontology
+    # slices, 596 columns took 117 iterations and 1000 took 286: the width was driving
+    # the depth.
+    active = np.arange(B.shape[1])
     for _ in range(maxit):
         AP = apply_A(P)
-        alpha = rz / np.maximum((P * AP).sum(0), 1e-300)
-        X += alpha * P
+        # A is PSD, so curv = P^T A P is >= 0 exactly, and curv == 0 means this
+        # direction has no curvature: the column is converged or P has landed in
+        # ker(A). Clamping the denominator up to 1e-300 instead turns that into
+        # rz/1e-300 = +-inf, and X += alpha*P then makes the whole column NaN. On a
+        # 66-component ontology slice that was 348 of 385 relations.
+        curv = (P * AP).sum(0)
+        alpha = np.zeros_like(rz)
+        np.divide(rz, curv, out=alpha, where=curv > 0.0)
+        X[:, active] += alpha * P
         R -= alpha * AP
-        if np.max(np.linalg.norm(R, axis=0) / bnorm) < tol:
+        keep = (np.linalg.norm(R, axis=0) / bnorm[active]) >= tol
+        if not keep.any():
             break
+        if not keep.all():                      # retire the converged columns
+            active = active[keep]
+            R, P, rz, AP = R[:, keep], P[:, keep], rz[keep], AP[:, keep]
         Z = dinv[:, None] * R
         rz_new = (R * Z).sum(0)
-        P = Z + (rz_new / np.maximum(rz, 1e-300)) * P
+        beta = np.zeros_like(rz)
+        np.divide(rz_new, rz, out=beta, where=rz > 0.0)
+        P = Z + beta * P
         rz = rz_new
     return X
 
@@ -175,6 +195,162 @@ def _block_cg(apply_A, B, dinv, tol=1e-10, maxit=1000):
 # default path below uses the assembled matvec. See _experimental.py for details.
 
 
+class _CheapCharacter(dict):
+    """The cheap character bundle, with the channel OPERATORS built on first read.
+
+    chi, chi_star and rl_diag are diagonals and cost O(nnz). RL and hats are the
+    edge x edge operators, wanted only by the opt-in per-vertex Green's path, and they
+    are the expensive part (sum_v deg(v)^2 nonzeros). Resolving them on access keeps
+    the always-affordable layer actually affordable.
+    """
+
+    _LAZY = ('RL', 'hats')
+
+    def __init__(self, base, rex, names, traces):
+        super().__init__(base)
+        self._rex = rex
+        self._names = list(names)
+        self._traces = list(traces)
+        self._filled = False
+
+    def _fill(self) -> None:
+        if self._filled:
+            return
+        self._filled = True
+        import scipy.sparse as sp
+        nE = int(self._rex.nE)
+        chan = dict(build_sparse_channels(self._rex))
+        hats = []
+        RL = sp.csr_matrix((nE, nE), dtype=_f64)
+        for name, tr in zip(self._names, self._traces, strict=True):
+            L = chan.get(name)
+            if L is None:
+                continue
+            hat = (L * (1.0 / tr)).tocsr()
+            hats.append(hat)
+            RL = (RL + hat).tocsr()
+        dict.__setitem__(self, 'RL', RL)
+        dict.__setitem__(self, 'hats', hats)
+
+    def __getitem__(self, key):
+        if key in self._LAZY and not self._filled:
+            self._fill()
+        return dict.__getitem__(self, key)
+
+    def get(self, key, default=None):
+        if key in self._LAZY and not self._filled:
+            self._fill()
+        return dict.get(self, key, default)
+
+    def __iter__(self):
+        # also takes dict(...) / {**...} off CPython's dict-to-dict fast path
+        self._fill()
+        return dict.__iter__(self)
+
+    def keys(self):
+        self._fill()
+        return dict.keys(self)
+
+    def values(self):
+        self._fill()
+        return dict.values(self)
+
+    def items(self):
+        self._fill()
+        return dict.items(self)
+
+    def copy(self):
+        self._fill()
+        return dict(self)
+
+
+def closed_form_applies(rex) -> bool:
+    """True when `channel_diagonals` is exact for this complex: every relation binary,
+    every entry +-1, and no edge weighting. Structural, O(nnz), no threshold."""
+    import numpy as _np
+    try:
+        from rexgraph.core._sparse import to_scipy_csr
+        B1 = to_scipy_csr(rex._B1_dual)
+    except Exception:
+        return False
+    if int(rex.nE) == 0:
+        return False
+    Bc = B1.tocsc()
+    if _np.any(_np.diff(Bc.indptr) != 2):            # every relation binary
+        return False
+    if not _np.all(_np.abs(_np.asarray(Bc.data)) == 1.0):
+        return False
+    w = getattr(rex, 'w_E', None)                    # no edge weighting
+    if w is not None and not _np.allclose(_np.asarray(w, dtype=float), 1.0):
+        return False
+    for attr in ('w_V', 'vertex_weights'):
+        wv = getattr(rex, attr, None)
+        if wv is not None and not _np.allclose(_np.asarray(wv, dtype=float), 1.0):
+            return False
+    return True
+
+
+def channel_diagonals(rex):
+    """The four channel diagonals in closed form, O(nnz), forming no edge x edge matrix.
+
+    Every quantity the cheap character needs is a diagonal, and each one is a direct
+    reading of B1 rather than something to extract from an assembled operator:
+
+        T[e,e] = ||B1[:,e]||^2                  boundary concentration, 1 + 1/(k-1)
+        G[e,e] = T[e,e]                         squaring kills the sign, so they agree
+        C[e,e] = sum over supp(e) of deg(v)-1   the relation's line-graph degree
+        F[e,e] = sum_j |T[e,j] - G[e,j]|        the signed/unsigned mismatch, which off
+                                                the diagonal is |s_e s_j - 1|: 0 when
+                                                two relations agree at a shared vertex
+                                                and 2 when they disagree. So it is
+                                                twice the disagreement count, and at a
+                                                vertex carrying p positive and m
+                                                negative entries every positive
+                                                relation disagrees with all m and every
+                                                negative one with all p.
+
+    Assembling the operators to read these costs sum_v deg(v)^2 nonzeros, which one hub
+    detonates: on a GO-shaped complex (max degree 24256) that is 760 million entries
+    and 112 s for four arrays of length nE.
+
+    The derivation above is exact for a SIGNED PAIRWISE UNWEIGHTED complex and only
+    there, so `closed_form_applies` gates it and the caller assembles otherwise:
+      - under weighting diag(G) = sum_v w_v B1[v,e]^2 no longer equals diag(T);
+      - a branching column carries -1 and 1/(k-1), so an off-diagonal T-G entry is not
+        |s_e s_j - 1| and the disagreement count is not the F diagonal.
+    Returns None when it does not apply.
+
+    Returns {name: diagonal} for the active channels, in the canonical channel order.
+    """
+    from rexgraph.core._sparse import to_scipy_csr
+    if not closed_form_applies(rex):
+        return None
+
+    nV, nE = int(rex.nV), int(rex.nE)
+    B1 = to_scipy_csr(rex._B1_dual).astype(_f64)
+    if nE == 0:
+        z = np.zeros(0, dtype=_f64)
+        return {'L1_down': z, 'L_O': z.copy(), 'L_SG': z.copy(), 'L_C': z.copy()}
+    Bc = B1.tocsc()
+    dT = np.asarray(Bc.multiply(Bc).sum(axis=0)).ravel()          # T, and G with it
+
+    absB = abs(Bc)
+    deg = np.asarray(absB.sum(axis=1)).ravel()                    # weighted vertex degree
+    rows, cols = absB.nonzero()
+    dC = np.bincount(cols, weights=(deg[rows] - 1.0), minlength=nE)
+
+    Br = B1.tocsr()                                               # by vertex
+    vrows = np.repeat(np.arange(nV, dtype=np.int64), np.diff(Br.indptr))
+    vals = np.asarray(Br.data, dtype=_f64)
+    pos, neg = vals > 0, vals < 0
+    npos = np.bincount(vrows[pos], minlength=nV)
+    nneg = np.bincount(vrows[neg], minlength=nV)
+    opposite = np.where(pos, nneg[vrows], np.where(neg, npos[vrows], 0))
+    dF = 2.0 * np.bincount(Br.indices, weights=opposite.astype(_f64), minlength=nE)
+
+    return {'L1_down': dT, 'L_O': dT.copy(), 'L_SG': dF, 'L_C': dC}
+
+
 def build_sparse_character_cheap(rex):
     """The O(nnz) character: assemble the doc-exact channels (T,G,F=T-G,C) and the
     trace-normalized RL once, then the per-edge character chi and star-average chi*
@@ -183,30 +359,33 @@ def build_sparse_character_cheap(rex):
     separate, opt-in refinement in ``compute_sparse_phi``.
 
     Returns {chi, chi_star, nhats, hat_names, trace_values, RL, hats, rl_diag}."""
-    import scipy.sparse as sp
 
     nV, nE = int(rex.nV), int(rex.nE)
-    chan = dict(build_sparse_channels(rex))
-    # trace-normalized active channels (matches build_sparse_rl / dense build_RL)
-    hats, names, traces = [], [], []
-    RL = sp.csr_matrix((nE, nE), dtype=_f64)
+    # Diagonals in closed form: assembling the channel operators to read them costs
+    # sum_v deg(v)^2 nonzeros (see channel_diagonals). The operators themselves are
+    # only wanted by the opt-in Green's path, so they are built on demand below.
+    diags = channel_diagonals(rex)
+    if diags is None:                       # arity or weighting: assemble and read
+        diags = {n: L.diagonal()
+                 for n, L in dict(build_sparse_channels(rex)).items()}
+    names, traces, hat_diags_list = [], [], []
     for name in ('L1_down', 'L_O', 'L_SG', 'L_C'):
-        if name not in chan:
+        d = diags.get(name)
+        if d is None:
             continue
-        L = chan[name]
-        tr = float(L.diagonal().sum())
+        tr = float(d.sum())
         if tr > 1e-15:
-            hat = (L * (1.0 / tr)).tocsr()
-            hats.append(hat); names.append(name); traces.append(tr)
-            RL = (RL + hat).tocsr()
-    nhats = len(hats)
+            names.append(name); traces.append(tr)
+            hat_diags_list.append(d / tr)          # hat_k = L_k / tr(L_k)
+    nhats = len(names)
     uniform = 1.0 / nhats if nhats > 0 else 0.0
 
-    # chi(e,k) = hat_k[e,e] / RL[e,e] (diagonals only, O(nnz))
+    # chi(e,k) = hat_k[e,e] / RL[e,e], and RL[e,e] = sum_k hat_k[e,e]
     chi = np.full((nE, nhats), uniform, dtype=_f64)
-    rl_diag = RL.diagonal() if nhats else np.zeros(nE)
+    rl_diag = np.zeros(nE, dtype=_f64)
     if nhats > 0 and nE > 0:
-        hat_diags = np.stack([h.diagonal() for h in hats], axis=1)
+        hat_diags = np.stack(hat_diags_list, axis=1)
+        rl_diag = hat_diags.sum(axis=1)
         good = rl_diag > 1e-15
         chi[good] = hat_diags[good] / rl_diag[good, None]
 
@@ -217,16 +396,19 @@ def build_sparse_character_cheap(rex):
         v2e_ptr = np.asarray(v2e_ptr)
         v2e_idx = np.asarray(v2e_idx)
         chi_inc = chi[v2e_idx] if v2e_idx.size else chi[:0]
-        for v in range(nV):
-            lo, hi = int(v2e_ptr[v]), int(v2e_ptr[v + 1])
-            if hi > lo:
-                chi_star[v] = chi_inc[lo:hi].mean(axis=0)
+        if chi_inc.shape[0]:
+            # segmented mean, not one numpy dispatch per vertex
+            counts = np.diff(v2e_ptr).astype(np.int64)
+            seg = np.repeat(np.arange(nV, dtype=np.int64), counts)
+            tot = np.zeros((nV, nhats), dtype=_f64)
+            np.add.at(tot, seg, chi_inc)
+            nz = counts > 0
+            chi_star[nz] = tot[nz] / counts[nz, None]
 
-    return {
-        'chi': chi, 'chi_star': chi_star, 'nhats': nhats, 'hat_names': names,
-        'trace_values': np.asarray(traces), 'RL': RL, 'hats': hats,
-        'rl_diag': rl_diag,
-    }
+    return _CheapCharacter(
+        {'chi': chi, 'chi_star': chi_star, 'nhats': nhats, 'hat_names': names,
+         'trace_values': np.asarray(traces), 'rl_diag': rl_diag},
+        rex, names, traces)
 
 
 def _compute_sparse_phi_gpu(rex, cheap, chunk, device=None):

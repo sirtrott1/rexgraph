@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from agent.metrics import coherence_kappa, coherence_mean
+
 logger = logging.getLogger(__name__)
 
 
@@ -182,12 +184,7 @@ def build_exchange_complex(
 
     try:
         result.betti = rex.betti
-        kappa = rex.coherence
-        if kappa is not None and len(kappa) > 0:
-            km = float(kappa.mean())
-            result.kappa_mean = 0.0 if np.isnan(km) else km
-        else:
-            result.kappa_mean = 0.0
+        result.kappa_mean = coherence_mean(rex)
 
         flow = np.ones(rex.nE, dtype=np.float64)
         h = rex.hodge_full(flow)
@@ -203,7 +200,7 @@ def build_exchange_complex(
             result.input_type = chan[int(np.argmax(result.chi_mean[:n]))]
 
         # Kappa restricted to exchange edges
-        kappa = rex.coherence
+        kappa = coherence_kappa(rex)
         n_in = in_ec.nE
         n_out = out_ec.nE
         exchange_indices = list(range(n_in + n_out, nE))

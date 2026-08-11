@@ -1,5 +1,5 @@
 """
-Regression tests for the second audit-fix pass (AUDIT_REPORT_2).
+Regression tests for the second audit-fix pass.
 
 Pure-Python-safe: these exercise routing / wiring that does not require
 the compiled Cython core. Kernel-dependent behaviour is verified

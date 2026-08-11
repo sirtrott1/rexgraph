@@ -611,9 +611,15 @@ def join(*sources, origins: list[str] | None = None) -> Knowledge:
 
     referenced = {c for e in edges for c in (e[0], e[2])}
     n_ambiguous_skipped = len(ambiguous)
-    joined = {c: sorted(groups[uf.find(entities[c][0])]["origins"])
+    # invert canon_of_root rather than re-deriving the root from an identifier.
+    # `groups` is keyed by uf.find(_root_key(...)), which SKIPS ambiguous keys, so an
+    # entity whose alphabetically-first id happens to be an ambiguous one finds its own
+    # singleton root instead, and that root is not in `groups`. Real data hits this:
+    # joining go-basic.obo with goa_human.gaf raised KeyError: 'aqp9'.
+    root_of_canon = {canon: root for root, canon in canon_of_root.items()}
+    joined = {c: sorted(groups[root_of_canon[c]]["origins"])
               for c in entities
-              if len(groups[uf.find(entities[c][0])]["origins"]) > 1}
+              if len(groups[root_of_canon[c]]["origins"]) > 1}
     declared_only = sorted(c for c in entities if c not in referenced)
     report = {
         "n_sources": len(parts),

@@ -272,6 +272,7 @@ def generate_slurm_array(
         python << 'PYSCRIPT'
 import os, sys
 from agent.adapters.text import TextAdapter
+from agent.metrics import coherence_mean
 from agent.server.persistence import save_document_rex
 from rexgraph.graph import RexGraph
 import numpy as np
@@ -304,7 +305,7 @@ for fname in batch:
         if ec.n_types > 1:
             rex = attach_faces(rex, type_labels=ec.type_labels)
         save_document_rex("array-batch", fname, rex)
-        print("  %%s: %%dV %%dE kappa=%%.3f" %% (fname, rex.nV, rex.nE, rex.coherence.mean()))
+        print("  %%s: %%dV %%dE kappa=%%.3f" %% (fname, rex.nV, rex.nE, coherence_mean(rex)))
     except Exception as e:
         print("  %%s: ERROR %%s" %% (fname, e))
 PYSCRIPT

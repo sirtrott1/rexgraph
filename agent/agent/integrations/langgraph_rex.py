@@ -46,6 +46,8 @@ from typing import Any
 
 import numpy as np
 
+from agent.metrics import coherence_kappa
+
 try:
     from rexgraph.graph import RexGraph
     _HAS_REXGRAPH = True
@@ -198,7 +200,7 @@ class RexStateGraph:
 
         # Coherence at source vertex
         try:
-            kappa = rex.coherence
+            kappa = coherence_kappa(rex)
             result["src_coherence"] = round(float(kappa[src_idx]), 4)
             result["tgt_coherence"] = round(float(kappa[tgt_idx]), 4)
         except Exception:

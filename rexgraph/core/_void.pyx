@@ -125,6 +125,45 @@ def find_potential_triangles(adj_ptr, adj_idx, adj_edge,
 
 # Classify triangles as realized or void
 
+def _realized_face_keys(B2, Py_ssize_t nE):
+    """Sorted int64 keys of the faces that are triangles (exactly three relations).
+
+    Same predicate as before (|entry| > 0.5, exactly three of them per column), read
+    from B2's columns instead of scanning every row of a densified nE x nF. Accepts
+    sparse or dense, and returns the sorted key array `classify_triangles` searches.
+    """
+    import scipy.sparse as sp
+    if B2 is None:
+        return np.zeros(0, dtype=np.int64)
+    if sp.issparse(B2):
+        Bc = B2.tocsc()
+        rows, vals, indptr = Bc.indices, np.asarray(Bc.data, dtype=np.float64), Bc.indptr
+        nF = Bc.shape[1]
+        keep = np.abs(vals) > 0.5
+        cols = np.repeat(np.arange(nF, dtype=np.int64), np.diff(indptr))
+        rows, cols = rows[keep].astype(np.int64), cols[keep]
+    else:
+        d = np.asarray(B2, dtype=np.float64)
+        if d.ndim != 2:
+            return np.zeros(0, dtype=np.int64)
+        nF = d.shape[1]
+        rows, cols = np.nonzero(np.abs(d.T) > 0.5)
+        rows, cols = cols.astype(np.int64), rows.astype(np.int64)
+    if cols.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    counts = np.bincount(cols, minlength=nF)
+    tri = np.flatnonzero(counts == 3)
+    if tri.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    order = np.lexsort((rows, cols))          # group by face, rows ascending within
+    rows_s, cols_s = rows[order], cols[order]
+    take = np.isin(cols_s, tri)
+    r = rows_s[take].reshape(-1, 3)           # three ascending relations per face
+    nE64 = np.int64(nE)
+    keys = r[:, 0] * nE64 * nE64 + r[:, 1] * nE64 + r[:, 2]
+    return np.sort(keys.astype(np.int64))
+
+
 def classify_triangles(B2, tri_edges, Py_ssize_t nT, Py_ssize_t nE):
     """For each potential triangle, check if it matches a column of B2.
 
@@ -137,41 +176,17 @@ def classify_triangles(B2, tri_edges, Py_ssize_t nT, Py_ssize_t nE):
     if nT == 0:
         return np.zeros(0, dtype=np.int32), np.zeros(0, dtype=np.int32), 0
 
-    cdef np.ndarray[f64, ndim=2] B2_d = np.ascontiguousarray(
-        np.asarray(B2, dtype=np.float64)) if (B2 is not None and
-        np.asarray(B2).ndim == 2) else np.zeros((nE, 0), dtype=np.float64)
-    cdef Py_ssize_t nF = B2_d.shape[1]
-    cdef f64[:, ::1] b2 = B2_d
     cdef i64 nE64 = <i64>nE
 
     cdef np.ndarray[i32, ndim=2] te = np.ascontiguousarray(
         np.asarray(tri_edges, dtype=np.int32))
     cdef i32[:, ::1] tem = te
 
-    # Encode realized faces (columns of B2 with exactly 3 nonzero edges).
-    cdef np.ndarray[i64, ndim=1] rk = np.empty(nF, dtype=np.int64)
-    cdef i64[::1] rkv = rk
-    cdef Py_ssize_t f, e, cnt, nR = 0
-    cdef i32 a0, a1, a2, lo, hi, mid
-    for f in range(nF):
-        cnt = 0
-        a0 = a1 = a2 = -1
-        for e in range(nE):
-            if b2[e, f] > 0.5 or b2[e, f] < -0.5:
-                if cnt == 0:
-                    a0 = <i32>e
-                elif cnt == 1:
-                    a1 = <i32>e
-                elif cnt == 2:
-                    a2 = <i32>e
-                cnt += 1
-                if cnt > 3:
-                    break
-        if cnt == 3:
-            rkv[nR] = _sorted_key(a0, a1, a2, nE64)
-            nR += 1
-
-    cdef np.ndarray[i64, ndim=1] realized_keys = np.sort(rk[:nR])
+    # Encode realized faces (columns of B2 with exactly 3 nonzero edges). Read off
+    # B2's columns rather than scanning all nE rows of each: the dense form cost
+    # nE x nF to hold and nF*nE to walk, for information that is 3 entries per face.
+    cdef np.ndarray[i64, ndim=1] realized_keys = _realized_face_keys(B2, nE)
+    cdef Py_ssize_t nR = realized_keys.shape[0]
     cdef i64[::1] rks = realized_keys
 
     cdef np.ndarray[i32, ndim=1] realized = np.zeros(nT, dtype=np.int32)
@@ -219,6 +234,38 @@ cdef inline bint _i64_contains(i64* arr, Py_ssize_t n, i64 key) noexcept nogil:
 
 # Void boundary operator
 
+def _endpoint_rows(B1, Py_ssize_t nV, Py_ssize_t nE):
+    """(row of the + entry, row of the - entry) per relation, shape (nE,) each.
+
+    A boundary column is (-1, s, ..., s) with s = 1/(k-1) > 0, so it carries exactly
+    one negative (its minimum) and k-1 equal positives (its maximum). That makes the
+    dense argmax/argmin a pure sparse read: the smallest row among the positives and
+    the row of the single negative. Accepts a sparse B1 so the caller never has to
+    materialise nV x nE, and still takes a dense array unchanged.
+    """
+    import scipy.sparse as sp
+    if not sp.issparse(B1):
+        d = np.ascontiguousarray(np.asarray(B1, dtype=np.float64))
+        return (np.ascontiguousarray(np.argmax(d, axis=0).astype(np.int32)),
+                np.ascontiguousarray(np.argmin(d, axis=0).astype(np.int32)))
+    Bc = B1.tocsc()
+    counts = np.diff(Bc.indptr)
+    cols = np.repeat(np.arange(Bc.shape[1], dtype=np.int64), counts)
+    rows = Bc.indices.astype(np.int64)
+    vals = np.asarray(Bc.data, dtype=np.float64)
+    pe = np.zeros(nE, dtype=np.int32)
+    me = np.zeros(nE, dtype=np.int32)
+    # reversed scatter: the FIRST occurrence in each column lands last and wins, which
+    # is numpy's smallest-index tie-break for equal shares.
+    pos = vals > 0
+    if pos.any():
+        pe[cols[pos][::-1]] = rows[pos][::-1].astype(np.int32)
+    neg = vals < 0
+    if neg.any():
+        me[cols[neg][::-1]] = rows[neg][::-1].astype(np.int32)
+    return np.ascontiguousarray(pe), np.ascontiguousarray(me)
+
+
 def build_void_boundary(B1, B2, tri_edges, Py_ssize_t nT,
                          Py_ssize_t nV, Py_ssize_t nE):
     """Build Bvoid: nE x n_voids CSC of void boundary cycles.
@@ -235,12 +282,9 @@ def build_void_boundary(B1, B2, tri_edges, Py_ssize_t nT,
         return None, void_indices, 0
 
     # +1 / -1 endpoint row of each edge, extracted once (vectorized).
-    cdef np.ndarray[f64, ndim=2] B1_d = np.ascontiguousarray(
-        np.asarray(B1, dtype=np.float64))
-    cdef np.ndarray[i32, ndim=1] pe = np.ascontiguousarray(
-        np.argmax(B1_d, axis=0).astype(np.int32))
-    cdef np.ndarray[i32, ndim=1] me = np.ascontiguousarray(
-        np.argmin(B1_d, axis=0).astype(np.int32))
+    cdef np.ndarray[i32, ndim=1] pe
+    cdef np.ndarray[i32, ndim=1] me
+    pe, me = _endpoint_rows(B1, nV, nE)
     cdef i32[::1] pv = pe, mv = me
 
     cdef np.ndarray[i32, ndim=2] te = np.ascontiguousarray(
@@ -379,11 +423,37 @@ def harmonic_content_all_sparse(B1, B2, Bvoid, Py_ssize_t n_voids, Py_ssize_t nE
     B2s = None
     if B2 is not None:
         B2s = B2.tocsr() if sp.issparse(B2) else sp.csr_matrix(np.asarray(B2, dtype=np.float64))
-    H = harmonic_basis_from_boundaries(B1s, B2s)
 
     Bv = Bvoid.tocsc() if sp.issparse(Bvoid) else sp.csc_matrix(np.asarray(Bvoid, dtype=np.float64))
     bv_norm_sq = np.asarray(Bv.multiply(Bv).sum(axis=0)).ravel()
     eta = np.zeros(n_voids, dtype=np.float64)
+
+    # A void column is a cycle by construction (build_void_boundary orients it from the
+    # edge endpoints, so B1 @ Bvoid = 0). Inside ker(B1) the Hodge split is H (+) im(B2),
+    # so the harmonic part is bv minus its im(B2) component:
+    #     eta_k = 1 - (y_k . g_k)/||bv_k||^2,   g = B2^T bv,  (B2^T B2) y = g
+    # using ||B2 y||^2 = y^T g. An nF x nF solve, and with no faces eta is 1 outright.
+    # The harmonic basis answers the same question at the cost of the whole cycle space.
+    resid = float(abs(B1s @ Bv).max()) if Bv.shape[1] else 0.0
+    if resid < 1e-9:
+        nz = bv_norm_sq > 1e-15
+        if B2s is None or B2s.shape[1] == 0:
+            eta[nz] = 1.0                       # no faces: every cycle is harmonic
+            return eta
+        B2c = B2s.tocsc()
+        G2 = np.asarray((B2c.T @ Bv).todense())            # nF x n_voids
+        BtB = (B2c.T @ B2c).tocsc()                        # nF x nF, PSD
+        try:
+            Y2 = sla.splu(BtB).solve(G2)
+        except Exception:
+            Y2 = np.linalg.lstsq(np.asarray(BtB.todense()), G2, rcond=None)[0]
+        im_norm_sq = np.einsum('ij,ij->j', G2, np.asarray(Y2).reshape(B2c.shape[1], n_voids))
+        eta[nz] = np.clip(1.0 - im_norm_sq[nz] / bv_norm_sq[nz], 0.0, 1.0)
+        return eta
+
+    # A caller handed us columns that are not cycles: fall back to the explicit
+    # harmonic basis, which does not assume where bv sits.
+    H = harmonic_basis_from_boundaries(B1s, B2s)
     cdef Py_ssize_t k = H.shape[1]
     if k == 0:
         return eta

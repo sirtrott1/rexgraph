@@ -35,6 +35,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from collections.abc import Sequence
@@ -42,7 +43,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
 import numpy as np
-import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 #: taken from it must all be built the same way; two complexes under different rules
 #: are not comparable.
 from agent.auto import FACE_RULE as DOC_FACE_RULE
+from agent.metrics import coherence_mean
 
 
 # Data classes
@@ -650,7 +651,7 @@ class CorpusBuilder:
             try:
                 sm = structural_metrics(d.rex)
                 sm["doc_id"] = d.doc_id
-                sm["coherence"] = round(float(np.asarray(d.rex.coherence).mean()), 4)
+                sm["coherence"] = round(coherence_mean(d.rex), 4)
                 per_document.append(sm)
             except Exception:
                 continue

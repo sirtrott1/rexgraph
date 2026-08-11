@@ -22,6 +22,8 @@ from typing import Any
 
 import numpy as np
 
+from agent.metrics import coherence_kappa, coherence_mean
+
 # query complex
 
 def build_query_rex(query: str, max_vocab: int = 200):
@@ -60,7 +62,7 @@ def query_signature(rex, ec) -> dict[str, Any]:
         with contextlib.suppress(Exception):
             sig["betti"] = [int(b) for b in rex.betti]
         with contextlib.suppress(Exception):
-            sig["kappa_mean"] = round(float(np.asarray(rex.coherence).mean()), 4)
+            sig["kappa_mean"] = round(coherence_mean(rex), 4)
     return sig
 
 
@@ -98,7 +100,7 @@ def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> dict[str, Any]:
         kvals = np.asarray(doc_rex.coherence_response(doc_idx), dtype=float)
     except Exception:
         try:                                    # fallback: full enumeration
-            full = np.asarray(doc_rex.coherence, dtype=float)
+            full = coherence_kappa(doc_rex)
             kvals = np.array([full[i] if i < len(full) else 0.0 for i in doc_idx])
         except Exception:
             kvals = None

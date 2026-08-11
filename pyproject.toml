@@ -25,7 +25,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.0.8"
+version = "1.0.9"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,

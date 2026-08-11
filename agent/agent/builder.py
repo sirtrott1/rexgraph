@@ -85,7 +85,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
+from agent.metrics import coherence_mean
 
 logger = logging.getLogger(__name__)
 
@@ -202,8 +202,7 @@ def _step_corpus(files, state, params):
             d["nV"] = doc.rex.nV
             d["nE"] = doc.rex.nE
             d["betti"] = doc.rex.betti
-            kappa = doc.rex.coherence
-            d["kappa"] = round(float(kappa.mean()), 4) if kappa is not None and len(kappa) > 0 and not np.isnan(kappa.mean()) else 0.0
+            d["kappa"] = round(coherence_mean(doc.rex), 4)
         docs.append(d)
 
     return {"n_documents": corpus.n_documents, "documents": docs}
@@ -555,9 +554,7 @@ def _step_langgraph_analyze(files, state, params):
         # Partial analysis fallback
         try:
             rex = rsg.rex
-            import numpy as np
-            kappa = rex.coherence
-            km = round(float(kappa.mean()), 4) if kappa is not None and len(kappa) > 0 and not np.isnan(kappa.mean()) else 0.0
+            km = round(coherence_mean(rex), 4)
             result["analysis"] = {
                 "nV": rex.nV, "nE": rex.nE,
                 "betti": rex.betti,

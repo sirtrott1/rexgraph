@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from agent.metrics import coherence_kappa
+
 
 def _tokenize_simple(text: str) -> list[str]:
     """Simple whitespace tokenizer. Production would use a real tokenizer."""
@@ -211,7 +213,7 @@ class RexRouter:
 
         # Coherence
         try:
-            kappa = rex.coherence
+            kappa = coherence_kappa(rex)
             diagnostics["kappa_mean"] = round(float(kappa.mean()), 4)
         except Exception:
             pass

@@ -40,6 +40,8 @@ from urllib.parse import urlparse
 
 import numpy as np
 
+from agent.metrics import coherence_greens_mean, coherence_mean
+
 
 def _now():
     return time.time()
@@ -131,8 +133,16 @@ def structural_signature(rex, meta: dict | None = None,
     sig["betti1"] = int(b[1]) if len(b) > 1 else 0
     with contextlib.suppress(Exception):
         sig["chain_valid"] = bool(rex.chain_valid)
+    # kappa_mean is a queried column (analytics.SCHEMA, temporal.QUANTITIES) and is
+    # averaged across records, so it must mean ONE thing at every scale: the local
+    # read. The global Green's read goes under its own key, and is absent rather than
+    # substituted when the complex is over budget.
     try:
-        sig["kappa_mean"] = round(float(np.asarray(rex.coherence).mean()), 6)
+        sig["kappa_mean"] = round(coherence_mean(rex), 6)
+        sig["coherence_method"] = "local"
+        kg = coherence_greens_mean(rex)
+        if kg is not None:
+            sig["kappa_greens_mean"] = round(kg, 6)
     except Exception:
         sig["kappa_mean"] = None
     try:

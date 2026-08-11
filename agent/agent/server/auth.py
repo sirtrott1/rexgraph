@@ -14,8 +14,8 @@ what kind of work the team is doing.
 from __future__ import annotations
 
 import contextlib
-import json
 import hashlib
+import json
 import logging
 import os
 import time
@@ -24,6 +24,8 @@ from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from agent.metrics import coherence_mean
 
 logger = logging.getLogger(__name__)
 
@@ -189,8 +191,7 @@ class WorkspaceState:
             tgt = np.array([k[1] for k in edge_set], dtype=np.int32)
 
             rex = RexGraph(sources=src, targets=tgt)
-            kappa = rex.coherence
-            km = float(kappa.mean()) if kappa is not None and len(kappa) > 0 else 0.0
+            km = coherence_mean(rex)
             return {
                 "rex": rex,
                 "labels": labels,

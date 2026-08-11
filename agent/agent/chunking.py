@@ -18,6 +18,22 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from agent.adapters import EdgeSpan, SentenceSpan
+from agent.metrics import coherence_kappa
+
+
+def _chunk_vertices(rex, edge_indices, nV: int) -> list[int]:
+    """The vertices a chunk's relations touch, read off each relation's boundary
+    column so a k-ary relation contributes all k, not its first two."""
+    out: set[int] = set()
+    try:
+        B1 = rex.B1.tocsc()
+        for e in edge_indices:
+            e = int(e)
+            if 0 <= e < B1.shape[1]:
+                out.update(int(v) for v in B1.indices[B1.indptr[e]:B1.indptr[e + 1]])
+    except Exception:
+        return []
+    return sorted(v for v in out if 0 <= v < nV)
 
 
 @dataclass
@@ -252,11 +268,14 @@ def _compute_chunk_properties(chunks, rex):
 
         # Local kappa from the edges in this chunk
         try:
-            kappa = rex.coherence
+            # kappa is per VERTEX; a chunk carries EDGE indices, so read the
+            # coherence of the vertices those edges touch, not kappa[edge].
+            kappa = coherence_kappa(rex)
             if kappa is not None:
+                verts = _chunk_vertices(rex, chunk.edge_indices, len(kappa))
                 local_kappa = np.mean([
-                    kappa[e] for e in chunk.edge_indices
-                    if e < len(kappa)
+                    kappa[v] for v in verts
+                    if v < len(kappa)
                 ])
                 chunk.kappa = float(local_kappa)
         except Exception:

@@ -6,13 +6,13 @@ identities here are guarded in rexgraph/tests/test_eigenfree.py and
 test_scale_bridge.py.
 
   * Local energy character  = O(nnz) row-norms  diag(RL4²)_e = ‖RL4[e,:]‖²
-    (the short-time t² moment of the heat propagator; Part C.3 / script 14).
+    (the short-time t² moment of the heat propagator).
   * Resolvent diagonal      = diag(RL4⁻¹) EXACT via block-CG solves of RL4·X = I
-    to a fixed tolerance (Part A.3 / script 11) - one algorithm at every scale,
+    to a fixed tolerance - one algorithm at every scale,
     no eigendecomposition, no size-gated approximation.
   * Harmonic log            = eigen-free **Rényi-2** (collision) entropy
     H₂(X) = -log(tr(X²)/tr(X)²), with the H₂-H₃/Shannon gap as a free
-    **varentropy reliability flag** (Part D / scripts 18, 19).
+    **varentropy reliability flag**.
 
 All quantities here are O(nnz) trace/row reductions or exact fixed-tolerance
 solves; none forms a dense nE×nE operator, calls an eigensolver, or branches to a
@@ -44,40 +44,43 @@ def _csr(X):
 def energy_character(RL4):
     """Local per-edge energy character diag(RL4²)_e = ‖RL4[e,:]‖² (row-norms),
     O(nnz). The short-time (t²) moment of the heat propagator e^{-tRL4} - the
-    local end of the scale profile (Part C.3, script 14). Returns f64[nE]."""
+    local end of the scale profile. Returns f64[nE]."""
     R = _csr(RL4)
     return np.asarray(R.multiply(R).sum(axis=1)).ravel()
 
 
 def trace_power(X, a):
-    """tr(X^a) for symmetric sparse X, eigen-free. a=2 uses the Frobenius identity
-    tr(X²)=‖X‖_F² (no matmul); a>=3 uses a-1 sparse matmuls. Returns float."""
-    X = _csr(X)
+    """tr(X^a) for symmetric sparse X, eigen-free. One entry point: the moment engine,
+    which builds only the powers it needs (see trace_moments). Returns float."""
     if a == 1:
-        return float(X.diagonal().sum())
-    if a == 2:
-        return float(X.multiply(X).sum())
-    Xa = X
-    for _ in range(a - 2):
-        Xa = (Xa @ X).tocsr()
-    return float((Xa @ X).diagonal().sum())
+        return float(_csr(X).diagonal().sum())
+    return trace_moments(X, a)[a - 1]
 
 
 def trace_moments(X, a_max):
     """[tr(X), tr(X²), ..., tr(X^a_max)] for symmetric sparse X, eigen-free, from ONE incremental
     power walk (X^k = X^{k-1} @ X, a_max-1 matmuls total, X^k shared across every order) instead of
     recomputing each power from scratch. tr(X²) uses the Frobenius identity ‖X‖_F². This is the
-    integer-order moment engine (scripts 16/18/19): the whole Rényi curve H_a = 1/(1-a)·log(
+    integer-order moment engine: the whole Rényi curve H_a = 1/(1-a)·log(
     tr(X^a)/tr(X)^a) reads straight off these moments, so the order sweep costs a-1 matmuls, not
     Σ(a-1). Returns a list of a_max floats."""
     X = _csr(X)
     tr = [float(X.diagonal().sum())]                    # tr(X¹)
-    if a_max >= 2:
-        tr.append(float(X.multiply(X).sum()))           # tr(X²) = ‖X‖_F², no matmul
-    Xk = X                                              # running X^{k-1}
-    for _k in range(3, a_max + 1):
-        Xk = (Xk @ X).tocsr()                           # advance to X^{k-1}
-        tr.append(float((Xk @ X).diagonal().sum()))     # tr(X^k)
+    if a_max < 2:
+        return tr
+    # tr(AB) = Σ_ik A_ik B_ki = sum(A ⊙ Bᵀ), and every power of a symmetric X is
+    # symmetric, so tr(X^k) = sum(X^p ⊙ X^q) for ANY split p+q=k. Splitting in half
+    # means the walk only ever climbs to X^⌈a_max/2⌉, and the trace itself is an
+    # elementwise product rather than a matmul-then-diagonal (which forms a whole
+    # product to read n entries off it). Cost: ⌈a_max/2⌉-1 matmuls, and tr(X²) =
+    # ‖X‖_F² still falls out with none.
+    top = (a_max + 1) // 2
+    powers = {1: X}
+    for k in range(2, top + 1):
+        powers[k] = (powers[k - 1] @ X).tocsr()
+    for k in range(2, a_max + 1):
+        p, q = (k + 1) // 2, k // 2
+        tr.append(float(powers[p].multiply(powers[q]).sum()))
     return tr
 
 
@@ -93,30 +96,24 @@ def renyi_entropy(X, a=2):
     """Integer-order Rényi entropy of the normalized spectrum of symmetric PSD X,
     eigen-free (trace moments): H_a = 1/(1-a) · log(tr(X^a)/tr(X)^a). a=2 is the
     collision entropy / harmonic log (the cheap default). O(nnz) for a=2."""
-    trX = trace_power(X, 1)
-    if trX <= 0:
-        return 0.0
-    trXa = trace_power(X, a)
-    if trXa <= 0:
-        return 0.0
-    return float((1.0 / (1 - a)) * np.log(trXa / trX ** a))
+    return renyi_from_moments(trace_moments(_csr(X), a), a)
 
 
 def harmonic_entropy(X):
     """Harmonic log H₂(X) = -log(tr(X²)/tr(X)²) = Rényi-2 collision entropy
-    (Part D.1). e^{H₂} = 1/Σpᵢ² is the effective mode count. O(nnz)."""
+. e^{H₂} = 1/Σpᵢ² is the effective mode count. O(nnz)."""
     return renyi_entropy(X, 2)
 
 
 def reliability_gap(X):
-    """Varentropy reliability flag (Part D.4 / script 19): the gap between the
+    """Varentropy reliability flag: the gap between the
     trace-norm entropy H₂ and Shannon H₁, where H₁ is extrapolated eigen-free from
     the integer-order Rényi curve {H₂,H₃,H₄,H₅}. ~0 on flat/unweighted spectra
     (the cheap H₂ is exact); grows with weight-induced non-uniformity (H₂ is a
     looser summary). Returns {'H2', 'H3', 'shannon_est', 'gap'}; 'gap' certifies
     when the cheap value suffices."""
     orders = np.array([2, 3, 4, 5])
-    # one shared power walk gives every order's moment (script 16/18/19); the Rényi curve reads off
+    # one shared power walk gives every order's moment; the Rényi curve reads off
     # it: no per-order recomputation, no need to parallelize redundant work.
     tr = trace_moments(X, int(orders.max()))
     Ha = np.array([renyi_from_moments(tr, int(a)) for a in orders])
@@ -231,14 +228,22 @@ def _block_cg_gpu(Rt, B, dinv, tol=1e-10, maxit=1000):
     bnorm = torch.clamp(torch.linalg.norm(B, dim=0), min=1e-300)
     for _ in range(maxit):
         AP = torch.sparse.mm(Rt, P)
-        alpha = rz / torch.clamp((P * AP).sum(0), min=1e-300)
+        # see the CPU _block_cg: clamping a zero curvature up to 1e-300 produces
+        # +-inf, not a small step. Zero curvature means the column is done.
+        curv = (P * AP).sum(0)
+        alpha = torch.where(curv > 0, rz / torch.where(curv > 0, curv,
+                                                       torch.ones_like(curv)),
+                            torch.zeros_like(rz))
         X = X + alpha * P
         R = R - alpha * AP
         if float(torch.max(torch.linalg.norm(R, dim=0) / bnorm)) < tol:
             break
         Z = dinv[:, None] * R
         rz_new = (R * Z).sum(0)
-        P = Z + (rz_new / torch.clamp(rz, min=1e-300)) * P
+        beta = torch.where(rz > 0, rz_new / torch.where(rz > 0, rz,
+                                                        torch.ones_like(rz)),
+                           torch.zeros_like(rz))
+        P = Z + beta * P
         rz = rz_new
     return X
 
@@ -377,7 +382,7 @@ def greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
 def greens_diagonal_deflated(L, H, tol=1e-10, chunk=512):
     """diag(L⁺) for a SINGULAR symmetric PSD L whose kernel is spanned by the columns
     of H (the combinatorial harmonic / cycle basis, nE × k), via the canonical
-    harmonic-projector regularization (oracle 09; CANONICAL_SPARSE_MATH_REFERENCE
+    harmonic-projector regularization
     Part VI):
 
         L⁺ = (L + P_H)⁻¹ − P_H,   P_H = H (HᵀH)⁻¹ Hᵀ   (projector onto ker L)
@@ -449,9 +454,9 @@ def _greens_diagonal_lsqr(L, tol=1e-10):
     return diag
 
 
-#### Malaugh action <-> moment calculus across a scale tower (oracle 16)
+#### Malaugh action <-> moment calculus across a scale tower
 def action_moment(X):
-    """The Malaugh calculus: action <-> moment across a scale tower (oracle 16;
+    """The Malaugh calculus: action <-> moment across a scale tower
     rcfe_final-5 sec 21.3-21.6). Given a tower of scale-indexed moments
     X = [X(0), X(1), ...] (scalar per step, or a vector/array per step along axis 0):
 
@@ -470,7 +475,7 @@ def action_moment(X):
 
 
 def malaugh_quantities(rex):
-    """The per-complex edge-space tower moments X(k) for one rex (oracle 16), all O(nnz)
+    """The per-complex edge-space tower moments X(k) for one rex, all O(nnz)
     trace / harmonic-log moments of the boundary operators - no eigendecomposition:
 
         L_T = tr(T^2)/tr(T)^2,   L_S = tr(L1_up^2)/tr(L1_up)^2   (collision / IPR)

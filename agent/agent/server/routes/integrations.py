@@ -21,6 +21,7 @@ router = APIRouter(prefix="/v1")
 #: a bare NaN token is not JSON and every browser JSON.parse rejects it.
 import contextlib
 
+from agent.metrics import coherence_kappa, coherence_mean
 from rexgraph.io._compat import json_sanitize
 
 
@@ -227,7 +228,7 @@ async def huggingface_analyze(body: dict = Body(...)):
             },
         }
         try:
-            kappa = rex.coherence
+            kappa = coherence_kappa(rex)
             result["kappa_mean"] = round(float(kappa.mean()), 4)
         except Exception:
             pass
@@ -465,7 +466,7 @@ def _confidence_report(rex) -> dict:
     except Exception:
         out["void_affinity"] = None
     try:
-        kappa = rex.coherence
+        kappa = coherence_kappa(rex)
         out["kappa_mean"] = round(float(kappa.mean()), 4)
         out["kappa_min"] = round(float(kappa.min()), 4)
     except Exception:
@@ -529,7 +530,7 @@ async def langchain_analyze(body: dict = Body(...)):
         except Exception:
             pass
         with contextlib.suppress(Exception):
-            a["kappa_mean"] = round(float(rex.coherence.mean()), 4)
+            a["kappa_mean"] = round(coherence_mean(rex), 4)
         return JSONResponse(_sanitize(a))
     except Exception as e:
         raise HTTPException(500, f"Analysis failed: {e}") from e
@@ -611,7 +612,7 @@ async def trustgraph_analyze(body: dict = Body(...)):
         except Exception:
             pass
         with contextlib.suppress(Exception):
-            out["kappa_mean"] = round(float(rex.coherence.mean()), 4)
+            out["kappa_mean"] = round(coherence_mean(rex), 4)
         out["interpretation"] = (
             "Harmonic mass flags knowledge that loops without grounding; "
             "voids are relationships the graph's structure implies but that "

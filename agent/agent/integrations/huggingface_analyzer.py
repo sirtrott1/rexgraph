@@ -28,6 +28,8 @@ import contextlib
 
 import numpy as np
 
+from agent.metrics import coherence_kappa, coherence_mean
+
 try:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -233,7 +235,7 @@ def analyze_transformer(
 
             # Coherence
             try:
-                kappa = rex.coherence
+                kappa = coherence_kappa(rex)
                 layer_data["kappa_mean"] = round(float(kappa.mean()), 4)
             except Exception:
                 pass
@@ -333,7 +335,7 @@ def quick_attention_analysis(
             pass
 
         with contextlib.suppress(Exception):
-            result["kappa_mean"] = round(float(rex.coherence.mean()), 4)
+            result["kappa_mean"] = round(coherence_mean(rex), 4)
 
         try:
             flow = np.ones(rex.nE, dtype=np.float64)

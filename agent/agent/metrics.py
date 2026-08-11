@@ -3,8 +3,8 @@ Information metrics (perplexity, entropy, varentropy) as ONE calculus over two
 carriers: the relational spectrum (structural) and an LLM token distribution (the
 standard LLM metrics).
 
-Perplexity = exp(entropy); entropy has an eigen-free Rényi form (RCF Part D /
-scripts 18-19); varentropy = the spread of surprisal - a known LLM uncertainty
+Perplexity = exp(entropy); entropy has an eigen-free Rényi form
+); varentropy = the spread of surprisal - a known LLM uncertainty
 signal AND the RCF H₂-H₃ reliability gap. Same math, two carriers: a nonnegative
 spectrum (RL4 channels) or a token-probability vector. That is why "these LLM
 metrics work here" - they are the relational entropy calculus applied to tokens.
@@ -14,6 +14,72 @@ from __future__ import annotations
 import contextlib
 
 import numpy as np
+
+# ---------------------------------------------------------------------------
+# Coherence: one entry point, so a caller cannot reach the O(nV*solve) read by
+# accident. See rexgraph.graph.local_coherence / coherence / coherence_response.
+# ---------------------------------------------------------------------------
+
+_GREENS_BUDGET_ENV = "REXGRAPH_VERTEX_CHARACTER_MAX_NODES"
+_GREENS_BUDGET_DEFAULT = 1500
+
+
+def greens_budget() -> int:
+    """Vertex budget for the global Green's coherence, from the environment
+    (0 = no budget, run it at any size). One reader so every caller gates alike."""
+    import os
+    try:
+        return int(os.environ.get(_GREENS_BUDGET_ENV, str(_GREENS_BUDGET_DEFAULT)))
+    except ValueError:
+        return _GREENS_BUDGET_DEFAULT
+
+
+def coherence_kappa(rex) -> np.ndarray:
+    """Per-vertex coherence kappa, shape (nV,), at any scale. THE default read.
+
+    This is `local_coherence`: kappa against the star-average character, O(nnz), so
+    it answers on a complex of any size. Its companion `rex.coherence` is a
+    different moment of the same propagator (kappa against the global Green's phi),
+    not a more accurate version of this one: on real complexes the two correlate
+    anywhere from -0.30 to +0.99, and the global read costs one block-CG solve per
+    vertex because its sandwiched two-inverse numerator resists selected inversion.
+    Reach for that one through `coherence_greens`, which gates it, and report it
+    under its own key rather than mixing the two in one field."""
+    with contextlib.suppress(Exception):
+        k = np.asarray(rex.local_coherence, dtype=float).ravel()
+        if k.size:
+            return np.where(np.isfinite(k), k, 0.0)
+    return np.zeros(int(getattr(rex, "nV", 0) or 0), dtype=float)
+
+
+def coherence_mean(rex, default: float = 0.0) -> float:
+    """Mean of `coherence_kappa`. The value stored as a signature's `kappa_mean`:
+    one quantity at every scale, so records stay comparable under `avg(kappa_mean)`."""
+    k = coherence_kappa(rex)
+    return float(k.mean()) if k.size else float(default)
+
+
+def coherence_greens(rex, budget: int | None = None) -> np.ndarray | None:
+    """Per-vertex GLOBAL Green's coherence, or None when the complex is over budget.
+
+    The exact global moment, at one solve per vertex. None means "not computed at
+    this size", never "zero": store it under its own key so an absent value stays
+    distinguishable from a low one."""
+    b = greens_budget() if budget is None else int(budget)
+    nV = int(getattr(rex, "nV", 0) or 0)
+    if b > 0 and nV > b:
+        return None
+    with contextlib.suppress(Exception):
+        k = np.asarray(rex.coherence, dtype=float).ravel()
+        if k.size:
+            return np.where(np.isfinite(k), k, 0.0)
+    return None
+
+
+def coherence_greens_mean(rex, budget: int | None = None) -> float | None:
+    """Mean of `coherence_greens`, or None when over budget."""
+    k = coherence_greens(rex, budget)
+    return float(k.mean()) if k is not None and k.size else None
 
 
 def _norm(p) -> np.ndarray:
@@ -45,7 +111,7 @@ def perplexity(p, order: float = 1.0) -> float:
 def varentropy(p) -> float:
     """Var(-log p) under p: the spread of surprisal ("uncertainty of the
     uncertainty"). ~0 on a flat distribution, grows with heavy tails; equals ½·the
-    Shannon-collision gap to leading order (RCF Part D.4 / script 19)."""
+    Shannon-collision gap to leading order."""
     p = _norm(p)
     if p.size == 0:
         return 0.0
@@ -79,7 +145,7 @@ def token_metrics(logprobs) -> dict:
 # Structural metrics (RCF-native, from a rex; no LLM needed)
 def structural_metrics(rex) -> dict:
     """The relational complex's OWN information metrics from the RL4 spectrum, all
-    eigen-free (Part D): `structural_entropy_H2` = the harmonic-log (Rényi-2);
+    eigen-free: `structural_entropy_H2` = the harmonic-log (Rényi-2);
     `structural_perplexity` = exp(H₂) = the effective mode count (how many degrees of
     freedom the relation graph carries); `varentropy_gap` = the H₂-H₃ reliability
     certificate (small -> the H₂ summary is trustworthy). The structural analog of an
@@ -147,7 +213,7 @@ def corpus_metrics(rexes) -> dict:
             continue
         try:
             sm = structural_metrics(rex)
-            k = float(np.asarray(rex.coherence).mean())
+            k = coherence_mean(rex)
             sm["coherence"] = round(k, 4)
             cohs.append(k)
             per.append(sm)
@@ -190,7 +256,7 @@ def reply_metrics(text: str, logprobs=None, token: dict = None,
                 from agent.auto import auto_rex
                 rex = auto_rex(text)
                 out["structural"] = structural_metrics(rex)
-                kappa = float(np.asarray(rex.coherence).mean())
+                kappa = coherence_mean(rex)
                 out["response_coherence"] = round(kappa, 4)
                 tok = out.get("token") or {}
                 if tok.get("perplexity") and tok["perplexity"] < 10.0 and kappa < 0.5:
