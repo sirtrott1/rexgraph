@@ -237,3 +237,29 @@ class TestBuildFaceData:
         assert tree.nF_hodge == 0
         # B2_hodge on a faceless graph is an (nE, 0) matrix
         assert tree.B2_hodge.shape == (tree.nE, 0)
+
+
+def test_the_face_column_denominator_does_not_overflow():
+    """`np.gcd` returns int64, which silently overflows an exact rational accumulation.
+
+    `den` is a Python int and unbounded, but `den * d // np.gcd(den, d)` promotes the
+    whole expression to int64, so once the LCM of the denominators passes 2**63 the
+    clearing factor wraps, goes negative, and the "exact" face column comes back a wrong
+    multiple. Exactness is the entire claim of this solver, so the accumulation has to
+    stay in Python integers.
+    """
+    import math
+
+    import numpy as np
+    dens = [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53]
+    exact = 1
+    for d in dens:
+        exact = exact * d // math.gcd(exact, d)
+    assert exact > np.iinfo(np.int64).max, "the fixture must actually exceed int64"
+
+    # the accumulation as the module now performs it
+    import rexgraph.faces as F
+    den = 1
+    for d in dens:
+        den = den * d // F._math.gcd(den, d)
+    assert den == exact and den > 0

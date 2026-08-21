@@ -39,7 +39,7 @@ def _put(store, doc_id, text):
 def store():
     st = rcdb.MemoryStore()
     # "settled": written twice with the same content, so version_if_changed keeps it
-    # at one version -- nothing about it is in dispute.
+    # at one version: nothing about it is in dispute.
     _put(st, "settled", SETTLED)
     _put(st, "settled", SETTLED)
     # "churning": three genuinely different structures under one id.

@@ -90,7 +90,7 @@ def test_retrieval_delegates_the_prefilter_to_the_store(store):
     """The point of the whole exercise. Retrieval used to pull every record with
     store.list(limit=10**6) and filter in Python; it must now hand the store a
     vocabulary predicate and a bounded limit, and let the store answer it. Whether a
-    given backend has an index for that is the backend's business -- Memory and File
+    given backend has an index for that is the backend's business: Memory and File
     scan by nature, SQLStore pushes it into the database (tested separately)."""
     asked = []
     real_query = store.query

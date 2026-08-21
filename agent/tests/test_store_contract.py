@@ -3,10 +3,13 @@
 Each backend had its own tests, so what a store OWES a caller was implicit and the
 backends drifted: only SQLStore indexed labels, only some honoured as_of on the
 collection accessors, and FileStore's ingest was quadratic without anything saying
-it should not be. This is the contract itself -- a new backend is finished when it
+it should not be. This is the contract itself: a new backend is finished when it
 passes.
 """
 
+import json
+import os
+import shutil
 import time
 
 import numpy as np
@@ -214,8 +217,8 @@ def test_put_cost_does_not_grow_with_the_store(tmp_path):
 
 
 def test_the_store_is_a_fixed_number_of_files(tmp_path):
-    """One file per record is what makes a network filesystem -- which is what a
-    cloud VM has -- the bottleneck."""
+    """One file per record is what makes a network filesystem (which is what a
+    cloud VM has) the bottleneck."""
     import os
 
     store = _rexstore(tmp_path)
@@ -379,3 +382,121 @@ def test_a_deleted_record_does_not_come_back_from_the_index(tmp_path):
     again = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
     assert [r.id for r in again.list(limit=9)] == ["b"]
     assert again.get("a") is None
+
+
+def test_a_corrupt_snapshot_with_a_log_still_reads(tmp_path):
+    """While the log holds the same changes the snapshot is derived, so losing it
+    costs speed and not data."""
+    store = rcdb.FileStore(str(tmp_path / "fs"))
+    _put(store, "a", labels=["kept"])
+    store._write_index(store._read_index())          # snapshot, and the log is folded in
+    store.put("b", _rex(), meta={"vertex_labels": ["later"]})   # a log after it
+    assert os.path.exists(store._log_path)
+
+    with open(store._index_path, "r+b") as fh:
+        fh.seek(os.path.getsize(store._index_path) // 2)
+        b = fh.read(1)
+        fh.seek(os.path.getsize(store._index_path) // 2)
+        fh.write(bytes([b[0] ^ 0xFF]))
+
+    again = rcdb.FileStore(str(tmp_path / "fs"))
+    assert [r.id for r in again.list(limit=9)] == ["b"], "the log's own records survive"
+
+
+def test_a_corrupt_snapshot_without_a_log_raises(tmp_path):
+    """`_write_index` removes the log once it has folded it in, so past a compaction
+    the snapshot IS the index. It used to be caught and dropped, and the store then
+    reported ZERO records over five intact blobs with no error raised."""
+    store = rcdb.FileStore(str(tmp_path / "fs"))
+    for k in range(5):
+        _put(store, f"r{k}")
+    store.compact()
+    assert not os.path.exists(store._log_path)
+    assert len(rcdb.FileStore(str(tmp_path / "fs")).list(limit=9)) == 5
+
+    with open(store._index_path, "rb") as fh:
+        header = int.from_bytes(fh.read(8), "little")
+    size = os.path.getsize(store._index_path)
+    off = 8 + header + (size - 8 - header) // 2       # inside the payload, so the DIGEST fires
+    with open(store._index_path, "r+b") as fh:
+        fh.seek(off)
+        b = fh.read(1)
+        fh.seek(off)
+        fh.write(bytes([b[0] ^ 0xFF]))
+
+    with pytest.raises(ValueError, match="digest mismatch"):
+        rcdb.FileStore(str(tmp_path / "fs")).list(limit=9)
+
+
+def _legacy_log_line(rec):
+    """One line of the json log a 1.0.x FileStore appended, op/id/record per line."""
+    return json.dumps({"op": "put", "id": rec.id, "record": rec.to_dict()})
+
+
+def test_a_1_0_x_store_reads_from_its_json_log(tmp_path):
+    """1.0.x wrote index.log as json lines and index.json as the snapshot. Verified
+    against stores built by v1.0.9 itself, both shapes, including a two-version id."""
+    store = rcdb.FileStore(str(tmp_path / "fs"))
+    _put(store, "a", labels=["first"])
+    _put(store, "a", labels=["second"])
+    _put(store, "b", labels=["other"])
+    idx = store._read_index()
+    lines = [_legacy_log_line(r) for versions in idx.values() for r in versions]
+
+    legacy = tmp_path / "legacy"
+    (legacy / "blobs").mkdir(parents=True)
+    for f in os.listdir(os.path.join(str(tmp_path / "fs"), "blobs")):
+        shutil.copy(os.path.join(str(tmp_path / "fs"), "blobs", f), legacy / "blobs" / f)
+    (legacy / "index.log").write_text("\n".join(lines) + "\n")
+
+    again = rcdb.FileStore(str(legacy))
+    assert sorted(r.id for r in again.list(limit=9)) == ["a", "b"]
+    assert len(again.history("a")) == 2, "both versions survive the legacy log"
+    assert (again.get_record("a").meta or {})["vertex_labels"][0] == "second"
+
+
+def test_migrating_a_1_0_x_store_renames_its_json_rather_than_dropping_it(tmp_path):
+    """Compaction writes index.rexidx and renames the json aside. Losing the snapshot
+    with a stale index.json still in place would reopen on the stale one."""
+    store = rcdb.FileStore(str(tmp_path / "fs"))
+    _put(store, "a", labels=["kept"])
+    _put(store, "b", labels=["also"])
+    idx = store._read_index()
+    lines = [_legacy_log_line(r) for versions in idx.values() for r in versions]
+
+    legacy = tmp_path / "legacy"
+    (legacy / "blobs").mkdir(parents=True)
+    for f in os.listdir(os.path.join(str(tmp_path / "fs"), "blobs")):
+        shutil.copy(os.path.join(str(tmp_path / "fs"), "blobs", f), legacy / "blobs" / f)
+    (legacy / "index.log").write_text("\n".join(lines) + "\n")
+
+    rcdb.FileStore(str(legacy)).compact()
+    assert (legacy / "index.rexidx").exists()
+    assert (legacy / "index.log.migrated").exists(), "renamed, not deleted"
+    assert not (legacy / "index.log").exists()
+    assert sorted(r.id for r in rcdb.FileStore(str(legacy)).list(limit=9)) == ["a", "b"]
+
+
+def test_replaying_a_legacy_log_over_a_snapshot_does_not_duplicate_versions(tmp_path):
+    """If migration is interrupted after the snapshot is written and before the json is
+    renamed, the legacy log is read again on top of a snapshot that already holds it.
+    `_LazyIndex._build` drops a snapshot record whose version a log record repeats, so
+    the replay is idempotent rather than additive."""
+    store = rcdb.FileStore(str(tmp_path / "fs"))
+    _put(store, "a", labels=["one"])
+    _put(store, "a", labels=["two"])
+    idx = store._read_index()
+    lines = [_legacy_log_line(r) for versions in idx.values() for r in versions]
+
+    legacy = tmp_path / "legacy"
+    (legacy / "blobs").mkdir(parents=True)
+    for f in os.listdir(os.path.join(str(tmp_path / "fs"), "blobs")):
+        shutil.copy(os.path.join(str(tmp_path / "fs"), "blobs", f), legacy / "blobs" / f)
+    (legacy / "index.log").write_text("\n".join(lines) + "\n")
+
+    rcdb.FileStore(str(legacy)).compact()
+    shutil.move(str(legacy / "index.log.migrated"), str(legacy / "index.log"))
+
+    again = rcdb.FileStore(str(legacy))
+    assert len(again.history("a")) == 2, "the replay must not append a second copy"
+    assert (again.get_record("a").meta or {})["vertex_labels"][0] == "two"

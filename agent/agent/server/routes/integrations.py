@@ -249,7 +249,9 @@ async def langchain_tools(body: dict = Body({})):
             "name": "RexConfidenceTool",
             "description": "Check structural confidence before answering. "
             "Returns void affinity, dipole ratio, chain condition, and coherence. "
-            "If void_affinity > 0.5 or kappa < 0.3, qualify the response.",
+            "The verdict is already computed from exact invariants: the chain "
+            "condition, and the SIGN of void affinity, which lives in [-1, 1]. "
+            "Coherence is reported, not thresholded.",
         },
         {
             "name": "RexAnalyzeTool",
@@ -469,6 +471,9 @@ def _confidence_report(rex) -> dict:
         kappa = coherence_kappa(rex)
         out["kappa_mean"] = round(float(kappa.mean()), 4)
         out["kappa_min"] = round(float(kappa.min()), 4)
+        # EXACT: a vertex at kappa 0 has no coherence at all. A count is an invariant
+        # where a mean is a summary, so this is the part a verdict may rest on.
+        out["n_zero_kappa"] = int((_np.asarray(kappa) == 0.0).sum())
     except Exception:
         pass
     with contextlib.suppress(Exception):
@@ -479,13 +484,34 @@ def _confidence_report(rex) -> dict:
         out["n_potential"] = vc.get("n_potential", 0)
     except Exception:
         pass
-    # verdict an agent can act on
+    # THE VERDICT RESTS ON EXACT INVARIANTS, not on constants over summaries.
+    #
+    #   chain_valid   B_(d-1) B_d = 0. Either the complex satisfies the chain condition
+    #                 or it does not; there is nothing continuous about it, and a
+    #                 complex that fails it cannot support any reading taken from it.
+    #   void_affinity lives in [-1, 1], so the crossing is the SIGN: affinity toward
+    #                 unrealised structure rather than away from it.
+    #
+    # Coherence is REPORTED, never thresholded. kappa is continuous with no structural
+    # crossing, so `kappa_mean < 0.3` was a number someone picked; the magnitudes are
+    # returned (mean, min, and the count of vertices at exactly zero, which IS exact)
+    # and the policy over them belongs to the caller.
     va = out.get("void_affinity") or 0
-    km = out.get("kappa_mean")
-    if km is not None and (va > 0.5 or km < 0.3):
+    broken = out.get("chain_valid") is False
+    toward_voids = va > 0.0
+    if broken or toward_voids:
         out["verdict"] = "low_confidence"
-        out["guidance"] = ("High void affinity or low coherence - the structure "
-                           "supporting an answer is weak. Qualify or refuse.")
+        why = []
+        if broken:
+            why.append("the chain condition B_(d-1)B_d = 0 fails, so the complex is "
+                       "malformed and no reading off it is trustworthy")
+        if toward_voids:
+            why.append(f"void affinity is positive ({va:+.4f}): the signal leans toward "
+                       "structure that is not realised")
+        out["guidance"] = ("; ".join(why) +
+                           ". Qualify or refuse. Coherence is reported, not judged: "
+                           f"mean {out.get('kappa_mean')}, min {out.get('kappa_min')}, "
+                           f"{out.get('n_zero_kappa')} vertices at exactly zero.")
     else:
         out["verdict"] = "supported"
         out["guidance"] = "Structural support is adequate for a direct answer."

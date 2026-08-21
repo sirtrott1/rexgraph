@@ -126,6 +126,7 @@ _cython_modules = [
     '_harmonic',
     '_temporal_entity',
     '_curvature',
+    '_recordlog',
 ]
 
 foreach mod : _cython_modules

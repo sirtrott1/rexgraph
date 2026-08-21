@@ -14,11 +14,25 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 from dataclasses import dataclass, field
 
 import numpy as np
 
-FORMAT_VERSION = 1
+#: The codec spec rides as a tensor so the container digest covers it; see `to_state`.
+CODEC_TENSOR = "codec_spec"
+
+#: 2 added the tensor codec: derivatives and aranges in place of the arrays they generate.
+#: A reader that does not know the key would hand a differenced pointer array to the
+#: constructor and build a different complex in silence, so the version has to move; both
+#: are accepted on READ, and a v1 bundle simply carries no codec.
+FORMAT_VERSION = 2
+READABLE_VERSIONS = (1, 2)
+
+
+#: digest framing version. 1 was unframed and collided; 2 length-prefixes every field.
+#: Written into the header so a bundle carries the rule it was sealed under.
+DIGEST_ALGO = 2
 
 
 @dataclass
@@ -114,6 +128,109 @@ def _unpack_w_boundary(kt, offs, vt, st=None) -> dict:
     return out
 
 
+
+#### the tensor codec
+#
+# Every array below is exact integers, and two of them are not the object of interest.
+#
+# A CSR pointer is the INTEGRAL of the arity vector: `boundary_ptr[i+1] - boundary_ptr[i]`
+# is how many vertices relation `i` reaches. A string-offset array is the integral of the
+# label lengths. Storing an integral of small numbers stores large numbers, and the large
+# numbers are what a compressor then has to work on: measured on one document,
+# `boundary_ptr` took 19.2 KiB compressed and its first difference took 4.1.
+#
+# An identity partition's `indptr`/`indices` are `arange`. That is the map saying "one
+# section per cell", which is real structure and carries nothing beyond its own length;
+# it compressed to 91% of itself because an ascending uint16 run has no redundancy a
+# general compressor can name.
+#
+# So: store the DERIVATIVE and integrate on load, store an `arange` as its endpoints.
+# Both are exactly invertible over the integers, which is the only licence a storage
+# transform needs: no estimate, no tolerance, nothing to tune. What is NOT done here is
+# reordering: the arguments of a boundary column share `1/(k-1)` and look interchangeable,
+# but `_leaf_digests` hashes them in order, so sorting them would move the Merkle root.
+#
+# Applied last on write and first on read, so every digest: the container's and each
+# sectioning's: is computed over the same arrays it is checked against.
+
+def _is_arange(a) -> bool:
+    """`a` is exactly `arange(a[0], a[0] + len(a))`, over the integers."""
+    if a.ndim != 1 or a.size < 2 or not np.issubdtype(a.dtype, np.integer):
+        return False
+    x = a.astype(np.int64, copy=False)
+    return bool(np.array_equal(x, np.arange(int(x[0]), int(x[0]) + x.size)))
+
+
+def _monotone_columns(a) -> list:
+    """Indices of the columns that never decrease, which are the ones worth differencing."""
+    x = a.astype(np.int64, copy=False)
+    x = x.reshape(-1, 1) if x.ndim == 1 else x
+    return [j for j in range(x.shape[1]) if bool((np.diff(x[:, j]) >= 0).all())]
+
+
+def _narrow(a):
+    """The same integers in the smallest dtype that holds them. Exact, and the original
+    dtype is recorded so the load restores it rather than guessing."""
+    if a.size == 0:
+        return a
+    lo, hi = int(a.min()), int(a.max())
+    for dt in ((np.uint8, np.uint16, np.uint32) if lo >= 0
+               else (np.int8, np.int16, np.int32)):
+        info = np.iinfo(dt)
+        if lo >= info.min and hi <= info.max:
+            return a.astype(dt, copy=False)
+    return a
+
+
+def encode_tensors(t: dict) -> dict:
+    """Transform tensors in place; return the spec that inverts it.
+
+    Only integer arrays of rank 1 or 2 are touched, and only where the array itself says
+    the transform applies. Floats, strings-as-bytes and anything higher rank pass
+    through untouched.
+    """
+    spec = {}
+    for name in sorted(t):
+        a = np.asarray(t[name])
+        if not np.issubdtype(a.dtype, np.integer) or a.ndim not in (1, 2) or a.size < 2:
+            continue
+        if _is_arange(a):
+            spec[name] = {"c": "arange", "start": int(a[0]), "n": int(a.size),
+                          "dtype": a.dtype.str}
+            del t[name]                          # the array IS its two endpoints
+            continue
+        cols = _monotone_columns(a)
+        if not cols:
+            continue
+        x = a.astype(np.int64, copy=True)
+        flat = x.ndim == 1
+        x = x.reshape(-1, 1) if flat else x
+        for j in cols:
+            x[1:, j] = np.diff(x[:, j])          # x[0] keeps the true first value
+        x = x.reshape(-1) if flat else x
+        spec[name] = {"c": "delta", "cols": [int(j) for j in cols], "dtype": a.dtype.str}
+        t[name] = np.ascontiguousarray(_narrow(x))
+    return spec
+
+
+def decode_tensors(t: dict, spec: dict) -> None:
+    """Invert :func:`encode_tensors` in place."""
+    for name, sp in (spec or {}).items():
+        if sp["c"] == "arange":
+            t[name] = np.arange(int(sp["start"]), int(sp["start"]) + int(sp["n"]),
+                                dtype=np.dtype(sp["dtype"]))
+            continue
+        if name not in t:
+            continue
+        x = np.asarray(t[name]).astype(np.int64, copy=True)
+        flat = x.ndim == 1
+        x = x.reshape(-1, 1) if flat else x
+        for j in sp["cols"]:
+            x[:, j] = np.cumsum(x[:, j])         # the integral, back again
+        x = x.reshape(-1) if flat else x
+        t[name] = np.ascontiguousarray(x.astype(np.dtype(sp["dtype"]), copy=False))
+
+
 #### the canonical (de)serializer
 def to_state(rex) -> RexState:
     # Faces and edges added since the last read are PENDING: `add_faces` queues them
@@ -173,6 +290,20 @@ def to_state(rex) -> RexState:
     nested = _pack_cell_metadata(getattr(rex, "_cell_metadata", None), t, h)
     h["nested"] = nested
 
+    # sectionings: partitions of THIS field, each with its own digest, so a chapter or
+    # paragraph layer can be checked and read without opening the complex it sections
+    from rexgraph.sectioning import pack_sectionings
+    sect = pack_sectionings(rex, t, h)
+    if sect:
+        h["sectionings"] = sect
+        # the layer hierarchy hashed as its own Merkle tree: the interior nodes ARE the
+        # paragraph and chapter digests, so this replaces per-layer hashing rather than
+        # adding to it, and it carries inclusion proofs the flat digest cannot.
+        from rexgraph.merkle import pack_merkle
+        mk = pack_merkle(rex, t, h)
+        if mk:
+            h["merkle"] = mk
+
     # tier 3: user signals (deterministic fields recompute on load; user _signals are stored)
     sig = getattr(rex, "_signals", None)
     if isinstance(sig, np.ndarray):
@@ -181,12 +312,26 @@ def to_state(rex) -> RexState:
     # (a trained cochain, a mask), and those arrive in the same flat dict on load, so
     # the digest has to say which names it covered or it would be recomputed over a
     # different set than it was written over.
+    # LAST, so every digest above (each sectioning's, over its own arrays) was taken
+    # over the untransformed tensors, and the container digest below is taken over what
+    # is actually written. The load mirrors it: verify, decode, then everything else.
+    #
+    # The spec is a TENSOR, not a header key, because `state_digest` covers the tensors
+    # and nothing else. In the header it would be the one input to reconstruction that
+    # the container seal does not reach: rewriting an `arange` codec's `start` would
+    # hand the loader a different array with the digest still checking out. As a tensor
+    # it is sealed with everything else.
+    codec = encode_tensors(t)
+    if codec:
+        t[CODEC_TENSOR] = np.frombuffer(
+            json.dumps(codec, sort_keys=True).encode("utf-8"), dtype=np.uint8).copy()
     h["digest_names"] = sorted(t)
+    h["digest_algo"] = DIGEST_ALGO
     h["digest"] = state_digest(t)
     return RexState(t, h)
 
 
-def state_digest(tensors: dict, names=None) -> str:
+def state_digest(tensors: dict, names=None, *, algo: int = DIGEST_ALGO) -> str:
     """A sha256 over the tensor payload, order-independent.
 
     Here rather than in one container because every format delegates to `to_state`, so
@@ -199,14 +344,26 @@ def state_digest(tensors: dict, names=None) -> str:
 
     Names are folded in with their bytes, so moving a payload between tensors changes
     the digest, and sorted so the dict's insertion order does not.
+
+    Each field is LENGTH-PREFIXED, and it has to be. Concatenating name, dtype, shape and
+    payload unframed leaves the field boundaries ambiguous, and that is not theoretical:
+    `{"a": zeros(0), "b": zeros(0)}` and `{"auint8(0,)b": zeros(0)}` produce byte-identical
+    streams and therefore the same sha256. Two different objects with one digest is the
+    single thing a digest exists to prevent.
+
+    `algo=1` reproduces the unframed stream, and exists only so a bundle written before
+    the fix still verifies as what it is rather than reading as corrupt. Nothing writes
+    it.
     """
     h = hashlib.sha256()
+    legacy = int(algo) == 1
     for name in (sorted(tensors) if names is None else list(names)):
         arr = np.ascontiguousarray(tensors[name])
-        h.update(name.encode("utf-8"))
-        h.update(str(arr.dtype).encode("utf-8"))
-        h.update(str(arr.shape).encode("utf-8"))
-        h.update(arr.tobytes())
+        for part in (name.encode("utf-8"), str(arr.dtype).encode("utf-8"),
+                     str(arr.shape).encode("utf-8"), arr.tobytes()):
+            if not legacy:
+                h.update(len(part).to_bytes(8, "little"))
+            h.update(part)
     return h.hexdigest()
 
 
@@ -227,8 +384,11 @@ def verify_state(state: RexState) -> bool:
         names = sorted(state.tensors)
     if any(n not in state.tensors for n in names):
         return False
+    # a bundle sealed before the framing fix carries no stamp and must be checked under
+    # the rule it was written with, or an upgrade would report every stored object corrupt
+    algo = int(state.header.get("digest_algo", 1))
     return hmac.compare_digest(
-        str(declared), state_digest(state.tensors, names))
+        str(declared), state_digest(state.tensors, names, algo=algo))
 
 
 def _pack_cell_metadata(cm, t, h):
@@ -310,7 +470,7 @@ def from_state(state: RexState, *, verify: bool = True):
             "the stored tensors do not match the digest recorded with them: this "
             "object was modified or truncated after it was written")
     ver = h.get("format_version")
-    if ver != FORMAT_VERSION:
+    if ver not in READABLE_VERSIONS:
         # A bundle written before the canonical rex-state carried its version under
         # "version" and named its arrays differently. Say that, rather than report
         # a version of None, so the reader knows the file is old and not corrupt.
@@ -320,7 +480,12 @@ def from_state(state: RexState, *, verify: bool = True):
                 f"(manifest version {h['version']!r}, no format_version) and cannot "
                 f"be read by the current reader, which expects format_version "
                 f"{FORMAT_VERSION}. Rebuild it from its source.")
-        raise ValueError(f"unsupported rex state format_version {ver!r} (expected {FORMAT_VERSION})")
+        raise ValueError(f"unsupported rex state format_version {ver!r} "
+                         f"(this reader accepts {READABLE_VERSIONS})")
+    if CODEC_TENSOR in t:
+        t = dict(t)                              # never mutate the caller's state
+        spec = json.loads(bytes(np.asarray(t.pop(CODEC_TENSOR)).tobytes()).decode("utf-8"))
+        decode_tensors(t, spec)
     kw = {"boundary_ptr": t["boundary_ptr"], "boundary_idx": t["boundary_idx"],
           "directed": h.get("directed", False), "g_channel": h.get("g_channel", "raw")}
     for name in ("B2_col_ptr", "B2_row_idx", "B2_vals"):
@@ -361,4 +526,10 @@ def from_state(state: RexState, *, verify: bool = True):
     if "signals" in t:
         rex._signals = np.asarray(t["signals"])
     _unpack_cell_metadata(rex, t, h)
+    if h.get("sectionings"):
+        from rexgraph.sectioning import unpack_sectionings
+        unpack_sectionings(rex, t, h)
+    if h.get("merkle"):
+        from rexgraph.merkle import unpack_merkle
+        unpack_merkle(rex, t, h)
     return rex

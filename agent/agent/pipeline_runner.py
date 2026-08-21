@@ -458,8 +458,23 @@ class PipelineRunner:
             doc_id = ranked.get("doc_id", "")
             for did, chunks in all_chunks:
                 if did == doc_id:
+                    # WAS `kappa > 0.5 or kappa > 0.2`, which is just `> 0.2`: two
+                    # magic numbers where the second silently subsumed the first.
+                    # Coherence is continuous, so the cutoff comes from the chunks'
+                    # OWN distribution: a data-adaptive Tukey lower fence, the same
+                    # convention engine.py and hive.py already use for outliers. With
+                    # too few chunks to form quartiles, keep them all rather than
+                    # inventing a number.
+                    ks = np.asarray([c.kappa for c in chunks], dtype=float)
+                    if ks.size >= 4:
+                        q1, q3 = np.percentile(ks, [25.0, 75.0])
+                        fence = float(q1 - 1.5 * (q3 - q1))
+                    else:
+                        fence = float("-inf")
+                    # `>=`, not `>`: with uniform coherence the fence EQUALS every
+                    # value and a strict test drops them all. Caught by the test.
                     for chunk in chunks:
-                        if chunk.kappa > 0.5 or chunk.kappa > 0.2:
+                        if chunk.kappa >= fence:
                             context_parts.append(chunk.text)
                     break
 

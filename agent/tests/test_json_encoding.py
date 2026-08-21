@@ -4,7 +4,7 @@ stream/explore/chat each carried their own copy that did `float(o)` for np.float
 and none of them ran for np.float64 at all (float subclass), so a NaN metric went out
 as a bare `NaN` token. Browsers reject that: JSON.parse throws, the SSE handler dies
 mid-analysis, and the route 500s. integrations already returned null for non-finite
-values -- that is the policy the wire surfaces now share.
+values: that is the policy the wire surfaces now share.
 """
 
 import json

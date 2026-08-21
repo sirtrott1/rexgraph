@@ -25,7 +25,7 @@ _ENV_DISABLE = "REXGRAPH_NO_CACHE"
 
 #: Bumped whenever what gets written changes shape. It is mixed into the key, so a
 #: change MISSES stale entries rather than deserializing them into new code.
-CACHE_VERSION = "2"
+CACHE_VERSION = "3"
 
 #: entries kept before the oldest are dropped. A cache nothing ever evicts is a disk
 #: leak, which at ingest scale is an operational problem rather than an untidiness.
@@ -73,7 +73,11 @@ def _version_salt() -> str:
 
 
 def _blob_path(key: str) -> Path:
-    return cache_dir() / f"{key}.safetensors"
+    # `.rexblob`, not `.safetensors`: `serialize_complex` frames and compresses, so a
+    # file named for the container format would not open as one. The extension has to
+    # say what is actually in the file: CACHE_VERSION 3 is the bump that retires the
+    # entries written under the old name.
+    return cache_dir() / f"{key}.rexblob"
 
 
 def _side_path(key: str) -> Path:
@@ -110,7 +114,7 @@ def prune(max_entries: int | None = None) -> int:
         sides = sorted(cache_dir().glob("*.json"), key=lambda p: p.stat().st_mtime)
         for side in sides[:max(0, len(sides) - cap)]:
             stem = side.name.split(".")[0]
-            for victim in (side, cache_dir() / f"{stem}.safetensors"):
+            for victim in (side, cache_dir() / f"{stem}.rexblob"):
                 try:
                     victim.unlink()
                     removed += 1
@@ -205,7 +209,7 @@ def get_rex_and_analysis(key: str):
 def store_rex_and_analysis(key: str, rex, analysis: dict, meta: dict) -> bool:
     """Cache a built complex plus its analysis and meta.
 
-    The complex goes through the same safetensors serializer the RCDB uses; the
+    The complex goes through the same serializer the RCDB uses; the
     analysis and meta are JSON. Neither is pickle. Every other serializer in the
     tree avoids it deliberately, and this is the one whose filenames are a
     predictable hash of content anybody can supply.

@@ -167,28 +167,39 @@ def build(triples) -> ReasoningComplex:
 #### consistency
 
 
-def _descendants(rc: ReasoningComplex, root: int) -> dict[int, list[int]]:
-    """Every class at or below `root`, with the chain that reaches it.
+def subsumption_closure(rc: ReasoningComplex, root: int, *,
+                        up: bool = False) -> dict[int, list[int]]:
+    """Every class reachable from `root` along subsumption, with the chain reaching it.
 
     An edge's source is the child and its target the parent, which is the direction
-    `is_a` and `subClassOf` are written in. Returned as class -> the chain up to
-    `root`, so a finding reads as the axioms that produced it rather than as a set.
+    `is_a` and `subClassOf` are written in. `up=False` walks to the descendants,
+    `up=True` to the ancestors; it is the same traversal over the same directed
+    boundary, read in the two directions the hierarchy has.
+
+    Returned as class -> the chain back to `root`, so a finding reads as the axioms
+    that produced it rather than as a set.
     """
-    children: dict[int, list[int]] = {}
+    adj: dict[int, list[int]] = {}
     S = np.asarray(rc.rex.sources)
     T = np.asarray(rc.rex.targets)
+    frm, to = (S, T) if up else (T, S)
     for e, role in enumerate(rc.roles):
         if role == "subsumption":
-            children.setdefault(int(T[e]), []).append(int(S[e]))
+            adj.setdefault(int(frm[e]), []).append(int(to[e]))
     seen = {root: [root]}
     stack = [root]
     while stack:
         v = stack.pop()
-        for c in children.get(v, ()):
+        for c in adj.get(v, ()):
             if c not in seen:
                 seen[c] = [c, *seen[v]]
                 stack.append(c)
     return seen
+
+
+def _descendants(rc: ReasoningComplex, root: int) -> dict[int, list[int]]:
+    """The downward closure. Kept as the name `consistency` reads by."""
+    return subsumption_closure(rc, root, up=False)
 
 
 def consistency(rc: ReasoningComplex, *, limit: int = 50) -> dict:

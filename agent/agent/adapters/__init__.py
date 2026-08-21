@@ -114,7 +114,13 @@ class EdgeConstruction:
 
     @property
     def nE(self) -> int:
-        return len(self.sources)
+        """Relations, at ANY arity: the 2-ary ones plus the branching ones.
+
+        `len(self.sources)` alone counts only what (sources, targets) can hold, so a
+        construction carrying its relations in `branching` reported zero and every
+        caller reading nE as "is there anything here" concluded the text was empty.
+        """
+        return len(self.sources) + len(self.branching or ())
 
     @property
     def w_E(self) -> NDArray:

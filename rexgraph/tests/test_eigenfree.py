@@ -663,3 +663,40 @@ class TestRelaxationMomentTower:
         r = g.relaxation
         assert np.isfinite(r['harmonic_log']) and np.isfinite(r['effective_modes'])
         assert np.all(np.isfinite(r['energy_character'])) and np.all(np.isfinite(r['greens_edge']))
+
+
+def test_c2_H_is_the_direction_that_closes_the_geometric_mean_identity():
+    """C.2: sqrt(c2_E * c2_H) = c0^2 = (k-2)/2 on K_k.
+
+    Both directions of the entropy coupling are wanted and both are returned, but only
+    ONE satisfies the identity, so the pair has to be named rather than left to a bare
+    `c2`. K4 cannot discriminate ((k-2)/2 = 1 there and 1 is its own reciprocal) which
+    is why this runs at k >= 5.
+    """
+    import itertools
+
+    import numpy as np
+
+    from rexgraph.graph import RexGraph
+    from rexgraph.scale_propagator import malaugh_quantities
+
+    for k in (4, 5, 6):
+        V = list(range(k))
+        edges = list(itertools.combinations(V, 2))
+        idx = {e: i for i, e in enumerate(edges)}
+        r = RexGraph(sources=[a for a, _b in edges], targets=[b for _a, b in edges])
+        r.add_faces(
+            [[idx[(a, b)], idx[(b, c)], idx[(a, c)]]
+             for a, b, c in itertools.combinations(V, 3)],
+            [[1.0, 1.0, -1.0]] * len(list(itertools.combinations(V, 3))))
+        q = malaugh_quantities(r)
+        c0 = float(r.c0_squared)
+        assert c0 == pytest.approx((k - 2) / 2)
+        assert np.sqrt(q['c2_E'] * q['c2_H']) == pytest.approx(c0, rel=1e-9), (
+            f"K{k}: c2_H must close sqrt(c2_E * c2_H) = c0^2")
+        assert q['c2_H_inv'] == pytest.approx(1.0 / q['c2_H'], rel=1e-9)
+        assert q['c2'] == pytest.approx(q['c2_H_inv'], rel=1e-12), (
+            "the legacy key keeps its meaning")
+        if k > 4:
+            # the degenerate reading the old bare key produced, pinned so it stays visible
+            assert np.sqrt(q['c2_E'] * q['c2_H_inv']) == pytest.approx(1.0, rel=1e-9)

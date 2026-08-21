@@ -1869,8 +1869,12 @@ class TrustGraphAdapter(DomainAdapter):
             reading = rex.agentic_reading(vertices=list(entity_indices))
             subgraph_edges = len(reading["neighborhood"]["edges"])
             context_size = int(reading["context_size"])
+            # exact, not a cutoff: R_eff(e) = 1 precisely when removing e disconnects
+            # its endpoints, and bridge_mask decides that by one walk of the 1-skeleton.
+            from rexgraph.bridges import bridge_mask
+            _mask = bridge_mask(rex)
             n_bridges = sum(1 for lb in reading["load_bearing"]
-                            if lb["effective_resistance"] > 0.9)
+                            if _mask[int(lb["edge"])])
         except Exception:
             subgraph_edges = len(entity_indices)   # conservative fallback
 

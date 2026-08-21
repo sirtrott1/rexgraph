@@ -1,21 +1,4 @@
-"""Grade-2 orientation, measured so that a per-cell sign flip cannot move it.
-
-A solved face column is determined only up to an overall sign: a face and its reverse are
-the same cell, and `solve_face_column` returns the leading-positive representative because
-something has to be returned. So a raw sign product at grade 2 describes the
-REPRESENTATIVE. Negate one column of a two-triangle complex and it moves from +1 to -1
-without a single cell changing.
-
-The invariant is the holonomy, exactly as at grade 1 where frustration is the product of
-signs around a cycle rather than a count of negative edges. One grade up the loop runs
-through the cells: two faces meeting on a relation agree when they induce OPPOSITE
-coefficients on it, which is what coherent orientation means, so the pairwise agreement is
--sign(c_a[e] c_b[e]) and the holonomy is its product around a closed loop. Each face
-appears exactly twice in a closed loop, so its sign cancels.
-
-Balanced everywhere is exactly coherent orientability, so this measures what orienting
-face-by-face attempts and does not need the attempt to succeed to report the obstruction.
-"""
+"""Orientation and holonomy."""
 from __future__ import annotations
 
 import itertools
@@ -81,7 +64,6 @@ def test_the_moebius_band_reads_frustrated_under_any_flip(flip):
 
 
 def test_every_subset_of_flips_gives_the_same_rate():
-    """The property in full: 2^4 gauges, one answer."""
     rates = {orientation_holonomy(_build(TETRA, flip))["rate"]
              for r in range(5) for flip in itertools.combinations(range(4), r)}
     assert rates == {0}
@@ -91,7 +73,6 @@ def test_every_subset_of_flips_gives_the_same_rate():
 
 
 def test_the_raw_per_cell_sign_product_is_not_invariant():
-    """The measure this replaces. Same complex, one column negated, parity moves."""
     plain = apd(_build(TETRA), 2)["cells"]
     flipped = apd(_build(TETRA, (0,)), 2)["cells"]
     assert plain[0]["parity"] != flipped[0]["parity"]
@@ -105,7 +86,6 @@ def test_apd_says_so_rather_than_presenting_it_as_a_reading():
 
 
 def test_the_global_view_carries_the_invariant_instead():
-    """balanced/n_frustrated come from the holonomy, so they do not move."""
     assert apd(_build(TETRA), 2, view="global")["balanced"] is True
     assert apd(_build(TETRA, (1,)), 2, view="global")["balanced"] is True
     assert apd(_build(MOEBIUS), 2, view="global")["balanced"] is False
@@ -116,16 +96,12 @@ def test_the_global_view_carries_the_invariant_instead():
 
 
 def test_grade_one_is_refused_with_a_reason():
-    """Orientation is a relation BETWEEN cells, and a B1 column is canonical: there is no
-    freedom to gauge away, so the grade-1 holonomy is a different object."""
     out = orientation_holonomy(_build(TETRA), grade=1)
     assert out["orientable"] is None
     assert "canonical" in out["reason"]
 
 
 def test_two_faces_sharing_a_relation_close_no_loop():
-    """The case that started this: a face-adjacency graph with no cycle has no holonomy to
-    read, so both representatives must agree, and they do."""
     rex = RexGraph(sources=np.array([0, 1, 2, 1, 3], dtype=np.int32),
                    targets=np.array([1, 2, 0, 3, 2], dtype=np.int32))
     rex.add_faces([np.array([0, 1, 2], dtype=np.int32),

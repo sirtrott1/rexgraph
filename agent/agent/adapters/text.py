@@ -138,11 +138,30 @@ def _build_cooccurrence(
 class TextAdapter(DomainAdapter):
     """Convert raw text to a typed relational complex.
 
-    The relational complex encodes word co-occurrence structure.
-    The Hodge decomposition of the resulting complex measures:
-        - Gradient: hierarchical vocabulary structure.
-        - Curl: closed thematic loops.
-        - Harmonic: unresolved thematic connections.
+    Two constructions, and they are different objects rather than two settings of one:
+
+        relation_mode="pairwise"    windowed co-occurrence. Every sentence becomes
+                                    C(k,2) or windowed word PAIRS, which is what
+                                    `sources`/`targets` can hold. This is what the
+                                    adapter has always produced and it stays the
+                                    default, because `exchange`, `training` and the
+                                    corpus builder read those arrays directly.
+        relation_mode="branching"   a sentence is ONE k-ary relation over its words,
+                                    carried in `branching` and built as a single
+                                    boundary column. No pairs are enumerated, because
+                                    they are not in the text: measured on one book,
+                                    1,469 sentences give 1,469 relations against 12,890
+                                    under spanning pairs, and the extra 11,421 columns
+                                    manufacture 1,129 dimensions of rank and 10,292 of
+                                    the 10,324 cycles.
+
+    "branching" is what `rexgraph.document.build_document` produces, so it is the mode a
+    QUERY must use: `interfacing_score` compares a query complex against a document one,
+    and scoring a pairwise object against a branching object compares two different
+    things however good the score function is.
+
+    Both modes share one tokenizer (`rexgraph.construct.from_text`) so the vocabulary
+    a query and a document align on is produced by the same code.
     """
 
     name = "text"
@@ -154,10 +173,20 @@ class TextAdapter(DomainAdapter):
         min_count: int = 1,
         max_vocab: int = 500,
         face_selection: str = "auto",
+        relation_mode: str = "pairwise",
+        min_terms: int = 1,
         **kwargs,
     ) -> EdgeConstruction:
         """Build a relational complex from raw text with span tracking."""
         from . import EdgeSpan, SentenceSpan
+
+        if relation_mode not in ("pairwise", "branching"):
+            raise ValueError(
+                f"relation_mode must be 'pairwise' or 'branching', "
+                f"not {relation_mode!r}")
+        if relation_mode == "branching":
+            return self._build_branching(text, min_terms=min_terms,
+                                         max_vocab=max_vocab)
 
         sentences = _tokenize(text)
         vocab, cooc_edges, cooc_types, edge_sents, fwd_count = _build_cooccurrence(
@@ -247,3 +276,72 @@ class TextAdapter(DomainAdapter):
         )
 
         return ec
+
+    def _build_branching(self, text, *, min_terms=1, max_vocab=500):
+        """Sentences as k-ary relations, through the canonical constructor.
+
+        The tokenisation, the vocabulary and the sentence segmentation all come from
+        `rexgraph`, not from a second implementation here: `segment_sentences` decides the
+        boundaries by channel agreement and `from_text(pair_mode="none")` builds the
+        field. That is the whole point: a query tokenised differently from the documents
+        aligns on a vocabulary neither of them has.
+
+        `sources`/`targets` come back EMPTY, which is honest rather than lossy: there are
+        no 2-ary relations in this construction, and `build_rex_from_edges` reads the
+        supports out of `branching`.
+        """
+        from rexgraph.construct import from_text
+        from rexgraph.segment import segment_sentences
+
+        from . import EdgeSpan, SentenceSpan
+
+        spans, _method = segment_sentences(text)
+        if not spans:
+            spans = [(0, len(text))] if text.strip() else []
+        sents = [text[a:a + n] for a, n in spans]
+        sent_spans = [SentenceSpan(idx=i, char_start=a, char_end=a + n,
+                                   text=text[a:a + n])
+                      for i, (a, n) in enumerate(spans)]
+
+        empty = dict(sources=np.array([], dtype=np.int32),
+                     targets=np.array([], dtype=np.int32),
+                     weights=np.array([], dtype=np.float64),
+                     signs=np.array([], dtype=np.float64),
+                     type_labels=np.array([], dtype=np.int32),
+                     n_types=0, type_names=[], source_text=text,
+                     sentence_spans=sent_spans)
+        if not sents:
+            return EdgeConstruction(vertex_labels=[], **empty)
+        try:
+            _rex, info = from_text(None, sentences=sents, pair_mode="none",
+                                   min_terms=int(min_terms), max_terms=None,
+                                   document_vertex=False, verify=False)
+        except ValueError:
+            # no sentence cleared the filter. A vocabulary still exists and callers
+            # align on labels, so return it rather than raising: a one-word query is a
+            # true reading of the input, not an error.
+            from rexgraph.construct import _TOKEN
+            toks = [w for w in re.findall(_TOKEN, text.lower()) if w]
+            return EdgeConstruction(vertex_labels=list(dict.fromkeys(toks)), **empty)
+
+        vertex_of = info["vertex_of"]
+        labels = list(info.get("vocab") or info.get("members") or [])
+        kept = list(info["kept"])
+        branching, edge_spans = [], []
+        for j, seq in enumerate(info["sequences"]):
+            support = sorted({vertex_of[w] for w in dict.fromkeys(seq)})
+            branching.append(support)
+            si = kept[j]
+            if si < len(sent_spans) and len(support) >= 2:
+                sp = sent_spans[si]
+                # source/target name the relation's first two participants. A k-ary
+                # relation has no two distinguished endpoints, so these are a
+                # compatibility shim for readers written against pairs; `branching`
+                # carries the whole support.
+                edge_spans.append(EdgeSpan(
+                    edge_idx=j, source_label=labels[support[0]],
+                    target_label=labels[support[1]],
+                    char_start=sp.char_start, char_end=sp.char_end,
+                    sentence_idx=si))
+        return EdgeConstruction(vertex_labels=labels, branching=branching,
+                                edge_spans=edge_spans, **empty)

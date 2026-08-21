@@ -3,7 +3,7 @@
 Two earlier designs are buried under this file. The first mixed a label Jaccard, a
 cosine of MEAN structural characters and a hand-rolled spectral term under fixed
 0.3/0.35/0.35 weights. The second replaced that with ||iv|| from interfacing_vector
-called with target=None -- which scores psi against itself rather than interfacing
+called with target=None, which scores psi against itself rather than interfacing
 with anything, and paid a whole-complex bundle for an answer wanted at a few
 vertices.
 
@@ -95,7 +95,7 @@ def test_score_is_the_query_footprint_under_the_document_coherence(corpus):
 
 def test_the_demand_driven_read_equals_the_full_field_at_the_seed(corpus):
     """coherence_response is documented as identical to coherence[seed], computed
-    only where asked -- not an approximation of it. If that stops holding, the
+    only where asked, not an approximation of it. If that stops holding, the
     cheap read has quietly become a different quantity."""
     import numpy as np
     from agent.scoring import shared_indices

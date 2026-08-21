@@ -129,11 +129,20 @@ def _extract_entities(text: str, min_len: int = 3) -> list[str]:
 
 def score_document(doc, query_ec, query_chi=None, mode="hybrid") -> float:
     """Score a document against a query. `query_chi`/`mode` are accepted and ignored:
-    they selected between the old blends, and there is one mechanism now."""
+    they selected between the old blends, and there is one mechanism now.
+
+    `reading=False` is what `interfacing_score` documents for "callers ranking a large
+    candidate set who want the diagnostics only on what survives", and ranking is exactly
+    this. Taking the default ran `agentic_reading` on every candidate: measured on one
+    1,469-relation document, 81.26 s a call against 0.52 s, so a ten-candidate retrieval
+    spent thirteen minutes producing diagnostics for nine documents it was about to
+    discard. `score_document_full` keeps the reading, for the ones that survive.
+    """
     from agent.scoring import interfacing_score
     return interfacing_score(getattr(doc, "rex", None),
                              getattr(doc, "vertex_labels", []) or [],
-                             getattr(query_ec, "vertex_labels", []) or [])["score"]
+                             getattr(query_ec, "vertex_labels", []) or [],
+                             reading=False)["score"]
 
 
 def score_document_full(doc, query_ec) -> dict:
@@ -231,6 +240,62 @@ class CorpusBuilder:
         return self.add_document(
             source="<text>", doc_id=doc_id, date=date, text=text,
         )
+
+    # The document route
+    def add_layered_document(
+        self,
+        source: str,
+        doc_id: str | None = None,
+        date: str | None = None,
+        text: str | None = None,
+        **build_kw,
+    ) -> str:
+        """Add a document built as ONE field carrying its own layers.
+
+        The difference from `add_document` is the construction, and it is not cosmetic.
+        `add_document` routes through the flat co-occurrence adapter, which expands each
+        sentence into pairs; this builds the canonical document complex (branching
+        sentence relations, a sentence PARTITION carrying byte spans, and paragraph and
+        chapter layers as parent maps over it) so the record is queryable by layer and
+        every section is provable and addressable.
+
+        The complex is built here rather than in `build()`, so `doc.rex` is already
+        canonical when cross-document analysis runs and nothing re-routes it through the
+        adapter. `build()` skips a document that already has a `rex`.
+
+        `build_kw` reaches `rexgraph.document.build_document` (`min_agreement`,
+        `pair_mode`, `min_terms`, `encoding`, `layers`).
+        """
+        import os
+
+        from rexgraph.document import build_document
+
+        raw = text
+        if raw is None:
+            with open(source, encoding="utf-8", errors="replace") as fh:
+                raw = fh.read()
+        if doc_id is None:
+            base = os.path.splitext(os.path.basename(str(source)))[0]
+            doc_id = base or f"doc_{len(self.documents):04d}"
+
+        rex, info = build_document(raw, **build_kw)
+        rec = DocumentRecord(
+            doc_id=doc_id, source=str(source), date=date, text=raw,
+            rex=rex, vertex_labels=list(info["vocab"]),
+            meta={
+                "input_type": "document", "layers": list(info["layers"]),
+                "methods": dict(info["methods"]),
+                "n_sentences": int(info["n_sentences"]),
+                "pair_mode": info["pair_mode"],
+                # the heap pointer, so prose can be resolved by seek rather than kept
+                "heap": os.path.abspath(str(source)) if os.path.exists(str(source))
+                        else "",
+                "vertex_labels": list(info["vocab"]),
+            },
+        )
+        self.documents.append(rec)
+        self._built = False
+        return doc_id
 
     def add_directory(
         self,
@@ -346,7 +411,14 @@ class CorpusBuilder:
             # Content-addressed cache: skip rebuild + analysis when we've
             # seen identical input at this depth before.
             cache_key = None
-            if getattr(doc, "edge_construction", None) is None:
+            # A document built by `add_layered_document` already carries the canonical
+            # complex. The content-addressed cache is keyed on text + depth + adapter
+            # kwargs, none of which distinguish the two constructions, so a hit here
+            # would REPLACE the layered complex with an adapter-built one that happens
+            # to share a key. Skip the lookup rather than widen the key: the work is
+            # already done for this document.
+            if getattr(doc, "rex", None) is None \
+                    and getattr(doc, "edge_construction", None) is None:
                 try:
                     content = doc.text or doc.source or doc.doc_id
                     # The face rule is part of what the complex IS, so it belongs in
@@ -374,7 +446,12 @@ class CorpusBuilder:
                     cache_key = None
 
             try:
-                if getattr(doc, "edge_construction", None) is not None:
+                if getattr(doc, "rex", None) is not None:
+                    # built canonically by `add_layered_document`: one field carrying its
+                    # own layers. Re-routing it through the adapter would replace a
+                    # branching construction with a pairwise one.
+                    rex = doc.rex
+                elif getattr(doc, "edge_construction", None) is not None:
                     # An adapter already built the edges outside auto_rex
                     # (e.g. OCR-layout so document structure is preserved,
                     # or a single-cell / L-R construction). Use them
@@ -415,8 +492,13 @@ class CorpusBuilder:
 
             doc.rex = rex
             meta = getattr(rex, "_agent_meta", {})
-            doc.vertex_labels = list(meta.get("vertex_labels", []))
-            doc.meta = meta
+            # MERGE, do not replace. A layered document carries its layers and methods in
+            # `doc.meta` and its labels on the record; `rex._agent_meta` is empty for that
+            # construction, so overwriting dropped exactly the information that made the
+            # record queryable by layer.
+            doc.meta = {**meta, **(doc.meta or {})}
+            doc.vertex_labels = (list(meta.get("vertex_labels", []))
+                                 or list(doc.vertex_labels or []))
             # Store source text on doc if not already set (needed for chunking)
             if not doc.text and doc.source and doc.source != "<text>":
                 try:

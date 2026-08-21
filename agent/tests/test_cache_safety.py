@@ -1,8 +1,8 @@
 """The analysis cache: no pickle, versioned, bounded, concurrency-safe.
 
 The cache read `pickle.load` from files under ~/.cache/rexgraph. Everything else in
-the tree serializes through safetensors specifically to avoid that -- rcdb's own
-docstring says "cross-ecosystem, no pickle" -- so the cache was the single place
+the tree serializes through safetensors specifically to avoid that (rcdb's own
+docstring says "cross-ecosystem, no pickle") so the cache was the single place
 still doing it, and it is the one place whose files are named by a hash anybody can
 predict. It also had no format version, so a schema change would deserialize stale
 entries into new code rather than miss them, and nothing ever evicted anything.
@@ -39,10 +39,21 @@ def test_nothing_on_disk_is_a_pickle(cache, tmp_path):
     written = list(tmp_path.rglob("*"))
     assert written, "nothing was written"
     for p in written:
-        if p.is_file():
-            assert p.suffix != ".pkl", f"{p.name} is a pickle"
-            head = p.read_bytes()[:2]
-            assert head not in (b"\x80\x04", b"\x80\x05"), f"{p.name} has a pickle header"
+        if not p.is_file():
+            continue
+        assert p.suffix != ".pkl", f"{p.name} is a pickle"
+        if p.suffix == ".rexblob":
+            # A rex blob is framed and compressed, so it cannot be sniffed by prefix any
+            # more than a bare safetensors file could: that format opens with an 8-byte
+            # little-endian header length, and a header of exactly 1152 or 1408 bytes
+            # reads as b"\x80\x04" / b"\x80\x05", which a two-byte sniff calls a pickle
+            # (measured: a real 1152-byte header did exactly that, and it parsed fine).
+            # Ask the format instead of guessing.
+            from agent.rcdb import deserialize_complex
+            assert deserialize_complex(p.read_bytes()) is not None
+            continue
+        head = p.read_bytes()[:2]
+        assert head not in (b"\x80\x04", b"\x80\x05"), f"{p.name} has a pickle header"
 
 
 def test_the_rex_round_trips_with_its_metadata(cache):

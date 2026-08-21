@@ -196,3 +196,117 @@ def test_edge_types_not_stored_but_recomputes():
     assert "edge_types" not in st.tensors               # deterministic: not stored (dead weight)
     r = from_state(st)
     assert np.array_equal(np.asarray(r.edge_types), np.asarray(g.edge_types))   # recomputed on load
+
+
+#### the tensor codec ###########################################################
+
+def test_an_arange_is_stored_as_its_endpoints():
+    from rexgraph.io.rex_state import decode_tensors, encode_tensors
+    t = {"idx": np.arange(5, 4005, dtype=np.uint16)}
+    spec = encode_tensors(t)
+    assert "idx" not in t, "the array IS its endpoints"
+    assert spec["idx"] == {"c": "arange", "start": 5, "n": 4000, "dtype": "<u2"}
+    decode_tensors(t, spec)
+    assert np.array_equal(t["idx"], np.arange(5, 4005))
+    assert t["idx"].dtype == np.uint16
+
+
+def test_a_monotone_array_is_stored_as_its_first_difference():
+    """A CSR pointer is the integral of the arity vector; the arities are what is small."""
+    from rexgraph.io.rex_state import decode_tensors, encode_tensors
+    ptr = np.cumsum(np.concatenate([[0], np.full(2000, 7)])).astype(np.int64)
+    t = {"boundary_ptr": ptr.copy()}
+    spec = encode_tensors(t)
+    assert spec["boundary_ptr"]["c"] == "delta"
+    assert set(np.asarray(t["boundary_ptr"])[1:].tolist()) == {7}, "the arity, repeated"
+    decode_tensors(t, spec)
+    assert np.array_equal(t["boundary_ptr"], ptr)
+    assert t["boundary_ptr"].dtype == ptr.dtype
+
+
+def test_only_the_monotone_columns_of_a_two_column_array_are_differenced():
+    """Spans are (start, length): the starts ascend, the lengths do not."""
+    from rexgraph.io.rex_state import decode_tensors, encode_tensors
+    spans = np.array([[0, 10], [10, 4], [14, 25], [39, 3]], dtype=np.uint32)
+    t = {"spans": spans.copy()}
+    spec = encode_tensors(t)
+    assert spec["spans"]["cols"] == [0], "only the start column ascends"
+    decode_tensors(t, spec)
+    assert np.array_equal(t["spans"], spans) and t["spans"].dtype == np.uint32
+
+
+def test_floats_and_byte_buffers_pass_through_untouched():
+    from rexgraph.io.rex_state import encode_tensors
+    t = {"w_E": np.array([0.5, 0.25, 0.125]),
+         "labels": np.frombuffer(b"s0s1s2", dtype=np.uint8).copy()}
+    before = {k: v.copy() for k, v in t.items()}
+    spec = encode_tensors(t)
+    assert "w_E" not in spec
+    for k, v in before.items():
+        assert np.array_equal(t[k], v)
+
+
+def test_the_codec_never_reorders_a_boundary_column():
+    """The arguments of a column share `1/(k-1)` and look interchangeable, but
+    `_leaf_digests` hashes them in order, so sorting them would move the Merkle root.
+    Sorting is not among the transforms; `boundary_idx` is not monotone and is left
+    exactly as it was."""
+    from rexgraph.io.rex_state import decode_tensors, encode_tensors
+    idx = np.array([3, 1, 2, 9, 4, 0, 7], dtype=np.int32)
+    t = {"boundary_idx": idx.copy()}
+    spec = encode_tensors(t)
+    decode_tensors(t, spec)
+    assert np.array_equal(t["boundary_idx"], idx)
+
+
+def test_a_complex_round_trips_through_the_codec_byte_for_byte():
+    from rexgraph.graph import RexGraph
+    from rexgraph.io.rex_state import from_state, to_state
+    from rexgraph.sectioning import add_coarsening, add_sectioning, sectionings_of
+
+    r = RexGraph(sources=list(range(64)), targets=[(i + 1) % 64 for i in range(64)])
+    add_sectioning(r, "sentence", {f"s{i}": [2 * i, 2 * i + 1] for i in range(32)},
+                   spans={f"s{i}": (10 * i, 10) for i in range(32)})
+    add_coarsening(r, "paragraph", "sentence", [i // 2 for i in range(32)],
+                   [f"p{i}" for i in range(16)])
+    st = to_state(r)
+    back = from_state(st, verify=True)
+    assert int(back.nV) == int(r.nV) and int(back.nE) == int(r.nE)
+    assert np.array_equal(np.asarray(back._boundary_ptr), np.asarray(r._boundary_ptr))
+    assert np.array_equal(np.asarray(back._boundary_idx), np.asarray(r._boundary_idx))
+    a, b = sectionings_of(r), sectionings_of(back)
+    for k in a:
+        assert np.array_equal(np.asarray(a[k].indices), np.asarray(b[k].indices))
+        assert np.array_equal(np.asarray(a[k].spans), np.asarray(b[k].spans)) \
+            if a[k].spans is not None else b[k].spans is None
+
+
+def test_a_version_1_bundle_still_loads():
+    """v1 carries no codec, so the reader must accept it and not decode anything."""
+    from rexgraph.graph import RexGraph
+    from rexgraph.io.rex_state import (CODEC_TENSOR, RexState, from_state,
+                                       state_digest, to_state)
+    r = RexGraph(sources=[0, 1, 2], targets=[1, 2, 0])
+    st = to_state(r)
+    t = dict(st.tensors)
+    spec = None
+    if CODEC_TENSOR in t:
+        import json
+        spec = json.loads(bytes(np.asarray(t.pop(CODEC_TENSOR)).tobytes()).decode())
+        from rexgraph.io.rex_state import decode_tensors
+        decode_tensors(t, spec)
+    h = dict(st.header)
+    h["format_version"] = 1
+    h["digest_names"] = sorted(t)
+    h["digest"] = state_digest(t)
+    back = from_state(RexState(t, h), verify=True)
+    assert int(back.nE) == int(r.nE)
+
+
+def test_an_unknown_format_version_is_refused_by_name():
+    from rexgraph.graph import RexGraph
+    from rexgraph.io.rex_state import RexState, from_state, to_state
+    st = to_state(RexGraph(sources=[0, 1], targets=[1, 0]))
+    h = dict(st.header); h["format_version"] = 99
+    with pytest.raises(ValueError, match="unsupported rex state format_version"):
+        from_state(RexState(st.tensors, h), verify=False)

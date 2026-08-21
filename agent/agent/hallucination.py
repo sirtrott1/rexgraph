@@ -46,16 +46,25 @@ class HallucinationReport:
     hodge_divergence: tuple = (0.0, 0.0, 0.0)
     new_voids: int = 0
     flagged_claims: list[FlaggedClaim] = field(default_factory=list)
-    overall_score: float = 0.0    # 0 = trustworthy, 1 = hallucinated
+    overall_score: float = 0.0    # 0 = trustworthy, 1 = hallucinated; the WORST axis
+    #: the deficiency PROFILE the score is the maximum of: sparsity / incoherence /
+    #: unshared. Kept because the axes measure different things and a caller reading
+    #: only the scalar cannot tell which one fired.
+    deficiency: dict = field(default_factory=dict)
 
     @property
     def n_flags(self):
         return len(self.flagged_claims)
 
     def summary(self):
-        if self.overall_score < 0.2:
+        # The verdict comes from an EXACT invariant: how many claims were flagged,
+        # not from bands over a continuous score. A claim is flagged or it is not, and
+        # "no claim diverged" is a different statement from "the average divergence is
+        # under 0.2". The score is still reported, so a caller with its own policy has
+        # the magnitude.
+        if self.n_flags == 0:
             verdict = "structurally consistent"
-        elif self.overall_score < 0.5:
+        elif self.n_flags < self.n_shared_entities:
             verdict = "minor divergences"
         else:
             verdict = "significant structural divergence"
@@ -105,13 +114,23 @@ def detect_hallucinations_exchange(
         max_possible = ex_result.n_shared * (ex_result.n_shared - 1) // 2
         edge_density = ex_result.n_exchange_edges / max(max_possible, 1)
 
-        scores = []
-        scores.append(1.0 - min(1.0, edge_density * 2))  # low density = high score
-        if not np.isnan(ex_result.exchange_kappa):
-            scores.append(max(0, 1.0 - ex_result.exchange_kappa))
-        # Low shared entity ratio = suspicious
+        # THREE DIFFERENT DEFICIENCIES, kept apart. They measure unrelated things:
+        # how densely the exchange is connected, how coherent it is, how much of the
+        # output is shared, so averaging them is the same category error as averaging
+        # a synonym group's connotation with a document's. Each is reported by name.
+        #
+        # The old form also carried a magic `edge_density * 2`, declaring half density
+        # to be full, and averaged a list whose LENGTH varied: when exchange_kappa was
+        # NaN the same structure scored differently because the divisor changed.
         entity_ratio = ex_result.n_shared / max(ex_result.n_output_vertices, 1)
-        scores.append(max(0, 1.0 - entity_ratio))
+        deficiency = {
+            "sparsity": float(max(0.0, 1.0 - edge_density)),
+            "incoherence": (None if np.isnan(ex_result.exchange_kappa)
+                            else float(max(0.0, 1.0 - ex_result.exchange_kappa))),
+            "unshared": float(max(0.0, 1.0 - entity_ratio)),
+        }
+        report.deficiency = deficiency
+        scores = [v for v in deficiency.values() if v is not None]
 
         # Typed void analysis - characterize WHAT kind of structure is missing
         if rex is not None:
@@ -144,7 +163,11 @@ def detect_hallucinations_exchange(
             except Exception:
                 pass
 
-        report.overall_score = float(np.mean(scores))
+        # The WORST deficiency, not the average. `max` is an exact extremum rather than
+        # a statistic, it does not move when a term is absent, and reading a profile
+        # conservatively is what a trust score is for. The profile is on
+        # `report.deficiency` for a caller that wants the axes.
+        report.overall_score = float(max(scores)) if scores else 0.0
     else:
         report.overall_score = 0.8  # no shared entities = very suspicious
 

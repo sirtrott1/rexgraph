@@ -42,8 +42,9 @@ def test_kernel_basis_is_the_component_indicators():
     U, ncomp = kernel_basis(L)
     assert ncomp == 2
     assert U.shape == (9, 2)
-    assert np.allclose(U.T @ U, np.eye(2))          # orthonormal
-    assert np.allclose(L @ U, 0.0, atol=1e-12)      # and genuinely the kernel
+    # U is sparse now: a component-indicator matrix with one nonzero per row
+    assert np.allclose(np.asarray((U.T @ U).todense()), np.eye(2))  # orthonormal
+    assert np.allclose(np.asarray((L @ U).todense()), 0.0, atol=1e-12)  # the kernel
 
 
 def test_path_matches_the_closed_form():

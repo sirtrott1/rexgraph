@@ -164,3 +164,56 @@ def test_the_exact_path_declines_a_genuine_float():
     M = sp.csc_matrix(np.array([[np.pi, 0.0], [0.0, np.sqrt(2)]]))
     assert _exact_rank_reduction(M) is None
     assert _sparse_rank(M) == 2                          # the float path still answers
+
+
+def test_rank_tower_uses_the_integer_representative_at_arity():
+    """A branching complex must not fall past the exact rank path.
+
+    The stored column carries the share 1/(k-1), which is not an integer, so a rank
+    routine handed the stored B1 falls through to the float path and, above the densify
+    bound, to a truncated SVD that can only confirm a rank below its own k. Measured on a
+    BindingDB slice, 60 wide relations sent rank(B1) from 4673 to a capped 400 while
+    numpy read 4673 throughout. Rank is invariant under column scaling, so the tower is
+    handed `_integer_B1` for the same reason `betti` is.
+    """
+    import numpy as np
+    import scipy.sparse as sp
+
+    from rexgraph.graph import RexGraph
+
+    rng = np.random.default_rng(0)
+    nV = 260
+    groups = [sorted(rng.choice(nV, rng.integers(30, 90), replace=False).tolist())
+              for _ in range(12)]
+    groups += [[int(a), int(b)] for a, b in
+               rng.choice(nV, (900, 2), replace=True) if a != b]
+    ptr, idx = [0], []
+    for g in groups:
+        idx += list(g)
+        ptr.append(len(idx))
+    rex = RexGraph.from_hypergraph(np.asarray(ptr, np.int64), np.asarray(idx, np.int64))
+
+    got = rex.rank_tower()["ranks"][0]
+    truth = int(np.linalg.matrix_rank(np.asarray(sp.csc_matrix(rex.B1).todense())))
+    assert got == truth, f"rank_tower {got} against the dense reference {truth}"
+
+    # and the identity the tower certifies itself with
+    reff = np.asarray(rex._effective_resistance_batch(np.arange(int(rex.nE))))
+    assert abs(float(reff.sum()) - truth) < 1e-6
+
+
+def test_a_rank_that_cannot_be_determined_raises_rather_than_capping():
+    """The truncated branch reported its own k as the answer. It now refuses."""
+    import numpy as np
+    import pytest
+    import scipy.sparse as sp
+
+    from rexgraph.graded_boundary import _sparse_rank
+
+    rng = np.random.default_rng(1)
+    n = 2000
+    # float entries, so neither exact path applies, and full rank well above k=400
+    M = sp.random(n, n + 200, density=0.002, random_state=rng, format="csc")
+    M.data = M.data + 0.5
+    with pytest.raises(ValueError, match="not determined by a truncated SVD"):
+        _sparse_rank(M)

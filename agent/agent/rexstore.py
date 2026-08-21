@@ -114,155 +114,158 @@ class _LazyVersions:
 
 
 class RexIndex:
-    """A compacted snapshot of the log: scalars and label incidence as tensors,
-    documents addressed by offset."""
+    """A compacted snapshot of the log, as tensors.
+
+    The record side of this is `rcdb_index`: the same cochains, the same accession
+    relation, the same string tables and the same digest. It used to be a second index
+    beside that one, holding the id list and the vocabulary as json in the safetensors
+    metadata and every record as a json document inside a tensor. The header then grew
+    with the store (21% of the file at 2,000 records) and `open` grew with it, 0.31 ms
+    at 100 records against 7.82 ms at 4,000, which is the parse this index exists to
+    avoid.
+
+    What is genuinely this backend's own is the blob address per row, and that rides in
+    `extra` so the one digest still covers it.
+    """
 
     def __init__(self, path: str):
         self.path = path
-        self._f = None
+        self._ix = None
         self.ids: list[str] = []
         self.vocab: list[str] = []
         self.log_bytes = 0
-        self._doc_ptr = None
-        self._doc_blob = None
-        self._rec_ptr = None
+        self._rows: dict[str, range] = {}
+        self._vocab_pos: dict[str, int] = {}
         self._label_ptr = None
         self._label_rec = None
-        self._id_pos: dict[str, int] = {}
-        self._vocab_pos: dict[str, int] = {}
 
     #### write
     @staticmethod
     def write(path: str, recs: dict[str, list[ComplexRecord]],
               blob_at: dict[tuple, tuple], log_bytes: int) -> None:
         import numpy as np
-        from safetensors.numpy import save_file
+
+        from agent import rcdb_index as _ix
 
         ids = sorted(recs)
-        docs: list[bytes] = []
-        doc_ptr = [0]
-        rec_ptr = [0]
-        vocab: dict[str, int] = {}
-        rows: list[int] = []
-        cols: list[int] = []
-        for pos, rid in enumerate(ids):
-            versions = list(recs[rid])
-            for rec in versions:
-                payload = dumps({
-                    "signature": rec.signature, "meta": rec.meta,
-                    "created": rec.created, "version": rec.version,
-                    "tx_from": rec.tx_from, "tx_to": rec.tx_to,
-                    "valid_from": rec.valid_from, "valid_to": rec.valid_to,
-                    "blob": list(blob_at.get((rid, rec.version), (0, 0))),
-                }).encode("utf-8")
-                docs.append(payload)
-                doc_ptr.append(doc_ptr[-1] + len(payload))
-            rec_ptr.append(rec_ptr[-1] + len(versions))
-            # the CURRENT version's vocabulary is what a prefilter searches
-            current = versions[-1] if versions else None
-            if current is not None:
-                for label in _record_labels(current.signature, current.meta):
-                    cid = vocab.setdefault(label, len(vocab))
-                    rows.append(pos)
-                    cols.append(cid)
-
-        order = np.argsort(np.asarray(cols, dtype=np.int64), kind="stable") \
-            if cols else np.zeros(0, np.int64)
-        col_sorted = np.asarray(cols, np.int64)[order] if cols else np.zeros(0, np.int64)
-        rec_sorted = np.asarray(rows, np.int32)[order] if rows else np.zeros(0, np.int32)
-        label_ptr = np.zeros(len(vocab) + 1, np.int64)
-        if len(col_sorted):
-            np.add.at(label_ptr, col_sorted + 1, 1)
-        label_ptr = np.cumsum(label_ptr)
-
-        tensors = {
-            "doc_ptr": np.asarray(doc_ptr, np.int64),
-            "doc_blob": np.frombuffer(b"".join(docs), dtype=np.uint8).copy(),
-            "rec_ptr": np.asarray(rec_ptr, np.int64),
-            "label_ptr": label_ptr,
-            "label_rec": rec_sorted,
-        }
-        inverse = [""] * len(vocab)
-        for label, i in vocab.items():
-            inverse[i] = label
-        meta = {"ids": json.dumps(ids), "vocab": json.dumps(inverse),
-                "log_bytes": str(int(log_bytes)), "format": "rexindex", "version": "1"}
+        rows = [(rid, rec) for rid in ids for rec in recs[rid]]
+        index = _ix.build(rows)
+        off = np.zeros(len(rows), np.int64)
+        ln = np.zeros(len(rows), np.int64)
+        for i, (rid, rec) in enumerate(rows):
+            o, n = blob_at.get((rid, rec.version), (0, 0))
+            off[i], ln[i] = int(o), int(n)
         tmp = path + ".tmp"
-        save_file(tensors, tmp, metadata=meta)
+        _ix.write(tmp, index, extra={
+            "blob_off": off, "blob_len": ln,
+            "log_bytes": np.asarray([int(log_bytes)], np.int64)})
         os.replace(tmp, path)
 
     #### read
     def open(self) -> bool:
-        """Memory-map the index. False if there is not a usable one."""
+        """Read the index. False if there is not a usable one."""
         if not os.path.exists(self.path):
             return False
+        from agent import rcdb_index as _ix
         try:
-            from safetensors import safe_open
-            self._f = safe_open(self.path, framework="np")
-            meta = self._f.metadata() or {}
-            if meta.get("format") != "rexindex":
-                return False
-            self.ids = json.loads(meta.get("ids", "[]"))
-            self.vocab = json.loads(meta.get("vocab", "[]"))
-            self.log_bytes = int(meta.get("log_bytes", "0"))
-            self._id_pos = {rid: i for i, rid in enumerate(self.ids)}
-            # vocabulary position by name. list.index() here is an O(V) scan on
-            # every lookup, which turned a 0.5 ms query into 3.5 ms. The index
-            # has to make reads cheaper on every axis, not trade one for another.
-            self._vocab_pos = {v: i for i, v in enumerate(self.vocab)}
-            # small, and every query needs them; the documents stay unread
-            self._doc_ptr = self._f.get_tensor("doc_ptr")
-            self._rec_ptr = self._f.get_tensor("rec_ptr")
-            self._label_ptr = self._f.get_tensor("label_ptr")
-            self._label_rec = self._f.get_tensor("label_rec")
-            return True
+            self._ix = _ix.read(self.path)
         except Exception:
-            self._f = None
+            self._ix = None
             return False
+        rowids = list(self._ix["ids"])
+        # `build` keeps the order it was given and every version of one id was written
+        # together, so an id owns a contiguous run and the map is its bounds.
+        self._rows, first = {}, {}
+        for i, rid in enumerate(rowids):
+            if rid not in first:
+                first[rid] = i
+            self._rows[rid] = range(first[rid], i + 1)
+        self.ids = sorted(first, key=lambda r: first[r])
+        self.vocab = self._ix["vocab"]
+        # the reverse map decodes the whole vocabulary, so it waits for a lookup that
+        # needs it. A store opened to read records by id never builds one.
+        self._vocab_pos = None
+        extra = self._ix.get("extra") or {}
+        lb = extra.get("log_bytes")
+        self.log_bytes = int(lb[0]) if lb is not None and len(lb) else 0
+        # the transpose is built on the first label lookup, not here: a caller that
+        # only reads records by id never pays for it
+        self._label_ptr = self._label_rec = None
+        return True
 
-    def _blob(self):
-        if self._doc_blob is None:
-            self._doc_blob = self._f.get_tensor("doc_blob")
-        return self._doc_blob
+    def _term_csr(self):
+        """Term to the rows that name it, as CSR. Built once, on first use.
+
+        The accession relation is row to term. A prefilter asks the transpose, so it is
+        built once here rather than scanned per lookup.
+        """
+        import numpy as np
+
+        ix = self._ix
+        n = int(ix["n"])
+        ptr = np.asarray(ix["rel_ptr"], np.int64)
+        idx = np.asarray(ix["rel_idx"], np.int64)
+        if idx.size == 0:
+            return np.zeros(len(self.vocab) + 1, np.int64), np.zeros(0, np.int64)
+        owner = np.asarray(_rel_owner(ix), np.int64)
+        # position 0 of every column is the record vertex, so the terms are everything
+        # else. Both masks come off `ptr` without visiting a column.
+        keep = np.ones(idx.size, bool)
+        keep[ptr[:-1]] = False
+        terms = idx[keep] - n
+        rowsof = np.repeat(owner, np.diff(ptr))[keep]
+        order = np.argsort(terms, kind="stable")
+        counts = np.zeros(len(self.vocab) + 1, np.int64)
+        np.add.at(counts, terms + 1, 1)
+        return np.cumsum(counts), rowsof[order]
 
     def records_for(self, rid: str) -> list[ComplexRecord]:
-        """Parse one id's documents. The reason the index is worth having: this is
-        paid per record asked for, not per record stored."""
-        pos = self._id_pos.get(rid)
-        if pos is None:
+        """One id's records, rebuilt from the cochains. Paid per record asked for."""
+        rows = self._rows.get(rid)
+        if rows is None:
             return []
-        blob = self._blob()
-        out = []
-        for k in range(int(self._rec_ptr[pos]), int(self._rec_ptr[pos + 1])):
-            lo, hi = int(self._doc_ptr[k]), int(self._doc_ptr[k + 1])
-            d = json.loads(bytes(blob[lo:hi]).decode("utf-8"))
-            out.append(ComplexRecord(
-                id=rid, signature=d.get("signature", {}), created=d.get("created", 0.0),
-                meta=d.get("meta", {}), version=int(d.get("version", 1)),
-                tx_from=d.get("tx_from", 0.0), tx_to=d.get("tx_to"),
-                valid_from=d.get("valid_from"), valid_to=d.get("valid_to")))
-        return out
+        from agent import rcdb_index as _ix
+        return [_ix.record_at(self._ix, r) for r in rows]
 
     def blob_at(self, rid: str, version: int):
-        pos = self._id_pos.get(rid)
-        if pos is None:
+        """The blob address for one version. A cochain lookup, not a scan of the rest."""
+        rows = self._rows.get(rid)
+        if rows is None:
             return None
-        blob = self._blob()
-        for k in range(int(self._rec_ptr[pos]), int(self._rec_ptr[pos + 1])):
-            lo, hi = int(self._doc_ptr[k]), int(self._doc_ptr[k + 1])
-            d = json.loads(bytes(blob[lo:hi]).decode("utf-8"))
-            if int(d.get("version", 1)) == int(version):
-                off, ln = d.get("blob", [0, 0])
-                return int(off), int(ln)
+        ver = self._ix["measures"]["version"]
+        extra = self._ix.get("extra") or {}
+        off, ln = extra.get("blob_off"), extra.get("blob_len")
+        if off is None or ln is None:
+            return None
+        for r in rows:
+            if int(ver[r]) == int(version):
+                return int(off[r]), int(ln[r])
         return None
 
     def ids_for_label(self, label: str) -> list[str]:
         """A vocabulary lookup is a CSR row slice."""
+        if self._vocab_pos is None:
+            self._vocab_pos = {v: i for i, v in enumerate(self.vocab)}
         cid = self._vocab_pos.get(label)
         if cid is None:
             return []
+        if self._label_ptr is None:
+            self._label_ptr, self._label_rec = self._term_csr()
         lo, hi = int(self._label_ptr[cid]), int(self._label_ptr[cid + 1])
-        return [self.ids[int(i)] for i in self._label_rec[lo:hi]]
+        rowids = self._ix["ids"]
+        seen, out = set(), []
+        for r in self._label_rec[lo:hi]:
+            rid = rowids[int(r)]
+            if rid not in seen:
+                seen.add(rid)
+                out.append(rid)
+        return out
+
+
+def _rel_owner(index):
+    """The row each relation belongs to. `rel_owner` is the library's own accessor."""
+    from agent import rcdb_index as _ix
+    return _ix.rel_owner(index)
 
 
 class RexStore(RCStore):
@@ -307,6 +310,24 @@ class RexStore(RCStore):
                 self._recs[rid] = _LazyVersions(idx, rid)
         if not os.path.exists(self._records_path):
             return
+        from agent import rcdb_index as _ix
+        with open(self._records_path, "rb") as fh:
+            head = fh.read(len(_ix.LOG_MAGIC))
+        if head == _ix.LOG_MAGIC:
+            for op, rid, rec, extra in _ix.log_read(self._records_path, start_at):
+                if op == "delete" or rec is None:
+                    self._forget(rid)
+                else:
+                    ok = extra is not None and len(extra) >= 2
+                    self._admit(rid, rec, int(extra[0]) if ok else 0,
+                                int(extra[1]) if ok else 0)
+                self._tail_count += 1
+            return
+        self._load_json_log(start_at)
+
+    def _load_json_log(self, start_at: int) -> None:
+        """The `[u32 length][json record]` log this store wrote before frames. Read
+        only, so a store written by an older version still opens."""
         with open(self._records_path, "rb") as fh:
             fh.seek(start_at)
             data = fh.read()
@@ -325,18 +346,31 @@ class RexStore(RCStore):
             pos = start + n
 
     def _apply(self, entry: dict[str, Any]) -> None:
+        """Apply one change given as a dict. The json log path and `put` use this."""
         rid = entry["id"]
         if entry.get("op") == "delete":
-            for rec in self._recs.pop(rid, []):
-                self._blob_at.pop((rid, rec.version), None)
-            for ids in self._labels.values():
-                ids.discard(rid)
+            self._forget(rid)
             return
         rec = ComplexRecord(
             id=rid, signature=entry.get("signature", {}), created=entry.get("created", 0.0),
             meta=entry.get("meta", {}), version=int(entry.get("version", 1)),
             tx_from=entry.get("tx_from", 0.0), tx_to=None,
             valid_from=entry.get("valid_from"), valid_to=entry.get("valid_to"))
+        self._admit(rid, rec, int(entry["blob_off"]), int(entry["blob_len"]))
+
+    def _forget(self, rid: str) -> None:
+        for rec in self._recs.pop(rid, []):
+            self._blob_at.pop((rid, rec.version), None)
+        for ids in self._labels.values():
+            ids.discard(rid)
+
+    def _admit(self, rid: str, rec: ComplexRecord, off: int, ln: int) -> None:
+        """Apply one change given as the record itself.
+
+        The frame reader already built one, so the replay path calls this rather than
+        flattening it to a dict for `_apply` to rebuild. That round trip was two thirds
+        of the record construction in a replay.
+        """
         versions = self._recs.setdefault(rid, [])
         if isinstance(versions, _LazyVersions):
             versions = versions._materialize()
@@ -348,17 +382,30 @@ class RexStore(RCStore):
                 # reconstructed identically on every replay.
                 prior.tx_to = rec.tx_from
         versions.append(rec)
-        self._blob_at[(rid, rec.version)] = (int(entry["blob_off"]), int(entry["blob_len"]))
+        self._blob_at[(rid, rec.version)] = (off, ln)
         for label in _record_labels(rec.signature, rec.meta):
             self._labels.setdefault(label, set()).add(rid)
 
     def _append(self, entry: dict[str, Any]) -> None:
-        payload = dumps(entry).encode("utf-8")
-        with open(self._records_path, "ab") as fh:
-            fh.write(_LEN.pack(len(payload)))
-            fh.write(payload)
-            fh.flush()
-            os.fsync(fh.fileno())
+        """One frame per change, through the same writer the other store logs with.
+
+        This wrote `[u32 length][json record]`, so every field name and every number
+        was text and the log was the largest json artifact left in the store path. The
+        blob address is this backend's own, and rides the frame's `extra` row.
+        """
+        from agent import rcdb_index as _ix
+
+        rid = entry["id"]
+        if entry.get("op") == "delete":
+            _ix.log_append(self._records_path, "delete", rid, None)
+            return
+        rec = ComplexRecord(
+            id=rid, signature=entry.get("signature", {}), meta=entry.get("meta", {}),
+            created=entry.get("created", 0.0), version=int(entry.get("version", 1)),
+            tx_from=entry.get("tx_from", 0.0), tx_to=None,
+            valid_from=entry.get("valid_from"), valid_to=entry.get("valid_to"))
+        _ix.log_append(self._records_path, "put", rid, rec,
+                       extra=[int(entry["blob_off"]), int(entry["blob_len"])])
 
     #### writes
     def next_version(self, id):

@@ -88,8 +88,10 @@ class RexConfidenceTool(BaseTool):
     - eps1: chain condition violation (should be ~0)
     - kappa_mean: cross-dimensional coherence
 
-    If void_affinity > 0.5 or kappa_mean < 0.3, the structure is
-    unreliable in this region. The agent should say so.
+    The verdict is computed from EXACT invariants and returned; do not re-derive it
+    from cutoffs. `chain_valid` false means the complex is malformed. `void_affinity`
+    lives in [-1, 1], so a POSITIVE value means the signal leans toward structure that
+    is not realised. Coherence is reported as a magnitude, not judged.
 
     This is not a probability estimate. It's a count of structural gaps
     and measured axiom violations. The math either has structure here
@@ -128,8 +130,11 @@ class RexConfidenceTool(BaseTool):
                 meta = getattr(rex, "_agent_meta", {}) or {}
                 labels = list(meta.get("vertex_labels", []) or [])
                 km = round(float(kr.mean()), 4)
+                # exact: R_eff = 1 precisely on a bridge, decided combinatorially
+                from rexgraph.bridges import bridge_mask
+                _bm = bridge_mask(rex)
                 n_bridge = sum(1 for lb in ar["load_bearing"]
-                               if lb["effective_resistance"] > 0.9)
+                               if _bm[int(lb["edge"])])
                 scoped = {
                     "scope": "topic",
                     "query_entities": [labels[i] if i < len(labels) else str(i)

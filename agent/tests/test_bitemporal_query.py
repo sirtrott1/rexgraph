@@ -2,7 +2,7 @@
 
 get/get_record/get_version took as_of/valid_at from the start, so one record could
 always be read as it stood. list and query could not, so "the corpus as it stood at
-T" was unanswerable -- and once retrieval gained a label prefilter, that became a
+T" was unanswerable, and once retrieval gained a label prefilter, that became a
 silent false negative: the prefilter matched CURRENT labels, so a document whose
 vocabulary had since been replaced was dropped before anything read its as_of blob.
 

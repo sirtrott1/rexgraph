@@ -1255,9 +1255,33 @@ class RexGraph:
 
     @cached_property
     def _vertex_info(self) -> tuple[int, NDArray, NDArray, NDArray]:
-        """(nV_derived, degree, in_degree, out_degree) from _rex.derive_vertex_set."""
-        src, tgt = self._ensure_src_tgt()
-        return _rex.derive_vertex_set(self._nE, src, tgt)
+        """(nV, degree, in_degree, out_degree) from the BOUNDARY, at any arity.
+
+        Not from (sources, targets). Those arrays hold two vertices per relation, so
+        `_ensure_src_tgt` truncates a k-ary relation to its first two and every vertex
+        past them disappears: on a single arity-5 relation `degree` came back with two
+        entries for a five-vertex complex, so vertices 2, 3 and 4 were not reported
+        isolated, they were absent. `_v2e` already made exactly this correction for the
+        stars, the quotients and the local character; the degree readings were left
+        behind on the old path and disagreed with both `_v2e` and the B1 row counts.
+
+        Orientation generalises without a special case: the head of a relation is the
+        participant carrying the NEGATIVE entry at any arity, so `out_degree` counts the
+        columns a vertex heads and `in_degree` the ones it is carried by. At k=2 that is
+        the source/target split unchanged.
+        """
+        self._ensure_clean()
+        from rexgraph.core._sparse import to_scipy_csr
+
+        nV = int(self._nV)
+        ptr, _idx = self._v2e
+        degree = np.diff(np.asarray(ptr)).astype(_i32)
+        B = to_scipy_csr(self._B1_dual).tocsr()          # nV x nE
+        data = np.asarray(B.data)
+        rows = np.repeat(np.arange(B.shape[0], dtype=np.int64), np.diff(B.indptr))
+        out_deg = np.bincount(rows[data < 0], minlength=nV)[:nV].astype(_i32)
+        in_deg = np.bincount(rows[data > 0], minlength=nV)[:nV].astype(_i32)
+        return nV, degree, in_deg, out_deg
 
     @cached_property
     def degree(self) -> NDArray:
@@ -1327,8 +1351,51 @@ class RexGraph:
         self._ensure_clean()
         if self._is_standard_only:
             return _boundary.build_B1(self._nV, self._nE, self.sources, self.targets)
-        # General boundary: dense to DualCSR
-        return _sparse.from_dense_f64(self._build_B1_general())
+        # General boundary, scattered straight into the DualCSR. It used to materialise a
+        # dense nV x nE and rescan it for the few nonzeros, which is what `_B2_dual` below
+        # already avoids and says so. A branching complex has sum(arity) entries and
+        # nothing else, so the dense form is nV/arity times larger than the data: at
+        # nV 345539 and nE 1399989 it asked for 3.87 TB and capped every branching
+        # complex, which is every complex `from_hypergraph` builds.
+        rows, cols, vals = self._b1_general_coo()
+        return _sparse.dual_from_coo(rows, cols, vals, int(self._nV), int(self._nE))
+
+    def _b1_general_coo(self):
+        """(rows, cols, vals) for the general boundary: one entry per incidence.
+
+        Vectorised over the CSR the construction already stores, so no Python loop runs
+        per relation. The arity-1 and self-loop cases are handled as masks rather than
+        branches, which is what lets the whole thing be three array expressions.
+        """
+        bp = np.asarray(self._boundary_ptr, dtype=np.int64)
+        bi = np.asarray(self._boundary_idx, dtype=np.int64)
+        nE = int(self._nE)
+        if nE == 0 or bi.size == 0:
+            return (np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0, _f64))
+        k = np.diff(bp)                                     # arity per relation
+        owner = np.repeat(np.arange(nE, dtype=np.int64), k)  # which relation each entry is
+        starts = bp[:-1]
+        is_head = np.zeros(bi.size, dtype=bool)
+        is_head[starts[k > 0]] = True
+
+        # a self-loop is k == 2 over one repeated vertex: the pair cancels, so it is
+        # dropped entirely rather than written and then subtracted
+        selfloop = np.zeros(nE, dtype=bool)
+        two = np.flatnonzero(k == 2)
+        if two.size:
+            selfloop[two] = bi[bp[two]] == bi[bp[two] + 1]
+
+        share = np.zeros(nE, dtype=_f64)
+        wide = k >= 2
+        share[wide] = 1.0 / (k[wide] - 1)                   # 1 at k == 2: the plain edge
+
+        vals = np.where(is_head, -1.0, share[owner])
+        # arity 1 is a witness relation: a single +1, no head sign
+        one = k == 1
+        if one.any():
+            vals[np.repeat(one, k)] = 1.0
+        keep = ~np.repeat(selfloop, k)
+        return bi[keep], owner[keep], vals[keep]
 
     def _build_B1_general(self) -> NDArray:
         """Build dense B1 from general boundary data."""
@@ -2749,10 +2816,10 @@ class RexGraph:
         for bounded degree (one A² pass). Returns O(nnz) summaries + the per-vertex
         clustering coefficient (0 = star/path, 1 = fully clustered)."""
         import scipy.sparse as _sp
+        L0 = self.L0_sparse.tocsr()
         prof = self.vertex_scale_profile
         deg = prof[:, 1]
         m2, m3 = prof[:, 2], prof[:, 3]
-        L0 = self.L0_sparse.tocsr()
         n = L0.shape[0]
         clustering = np.zeros(n, dtype=_f64)
         if n > 0:
@@ -3516,11 +3583,10 @@ class RexGraph:
         if edges.size == 0 or self._nE == 0:
             return np.zeros(edges.size, dtype=_f64)
         from rexgraph.core._sparse import to_scipy_csr
-        from rexgraph.fiedler import kernel_basis
-        from rexgraph.sparse_character import _block_cg
         B1 = to_scipy_csr(self._B1_dual).tocsc()            # nV × nE
-        Bc = np.ascontiguousarray(np.asarray(B1[:, edges].todense()))   # nV × |edges|
-        L0 = self.L0_sparse.tocsr()
+        # B1 stays SPARSE here. Densifying B1[:, edges] up front cost nV x |edges|
+        # whichever branch ran below, which is 35 GB on one ordinary book; each branch
+        # now materialises only the columns it is about to consume.
         # L0 is singular, so the solve goes through L0⁺ = (L0 + P_H)⁻¹ − P_H. A boundary
         # column sums to zero inside its own component, so P_H b_e = 0 and
         # R_eff = b_eᵀ (L0 + P_H)⁻¹ b_e on an SPD operator with no singular direction.
@@ -3537,7 +3603,6 @@ class RexGraph:
         rest = np.flatnonzero(~span)
         if rest.size == 0:
             return out
-        Bc = np.ascontiguousarray(Bc[:, rest])
         # Two exact readings, chosen by what fits. The leverage form below is a
         # decomposition, dense in nV x nE, and its cost is set by size. The deflated CG
         # is matrix-free and its cost is set by conditioning, which is worse. Note the
@@ -3551,13 +3616,31 @@ class RexGraph:
             fits = True
         except Exception:
             fits = False                                    # over the configured ceiling
-        U, ncols = kernel_basis(L0)
-        if not fits and ncols == int(self.betti[0]):        # complete: deflate and CG
-            d = np.asarray(L0.diagonal(), dtype=_f64) + (U * U).sum(axis=1)
-            dinv = np.where(d > 1e-30, 1.0 / d, 1.0)
-            X = _block_cg(lambda P: L0 @ P + U @ (U.T @ P), Bc, dinv,
-                          tol=1e-12, maxit=500)
-            out[rest] = np.einsum('ve,ve->e', Bc, X)
+        # The operator, the Jacobi diagonal and the kernel all come from B1 without
+        # forming L0 = B1 B1^T. That product is 22x B1's nnz on a real complex and, since
+        # a matvec costs what it reads, applying it is 6.8x SLOWER than B1 (B1^T x). The
+        # CG here always took a callable, so the matrix was only ever built to be handed
+        # over.
+        from rexgraph.fiedler import deflated_operator, leverage_diagonal
+        _apply, _dinv, U, ncols = deflated_operator(B1)   # only the kernel is wanted here
+        # WHICH READING is decided by size, which is a PERFORMANCE call and measured:
+        # where the decomposition fits it wins, because these operators are ill
+        # conditioned (a text complex is close to an expander) and the matrix-free solve
+        # walks. On one 331 KB book the dense form took 395 s and the blocked CG did not
+        # finish in 600 s, so preferring CG on a complete kernel was strictly worse.
+        #
+        # What WAS a defect is the fallthrough: the old condition sent the
+        # incomplete-kernel case to the dense branch *even when it had just been told the
+        # dense form does not fit*, so the one branch that knew it could not allocate was
+        # the branch that allocated, and it asked for 1.59 TiB. Size now decides alone,
+        # and an incomplete deflation is caught by the Foster check at the bottom rather
+        # than by refusing to run.
+        if not fits:
+            # BLOCKED. The columns cannot all go at once: apply_A forms an nE-tall
+            # transient of the block's width, so one book's 466,489 non-bridge columns
+            # asked for 1.59 TiB here. leverage_diagonal sizes the block against nV+nE.
+            out[rest], _r = leverage_diagonal(B1, columns=edges[rest],
+                                              kernel=(U, ncols))
         else:
             # The leverage reading. Writing
             # b_e = B1 z_e turns the quadratic form into
@@ -4874,6 +4957,13 @@ class RexGraph:
         from rexgraph.graded_boundary import _sparse_rank, graded_boundaries_from_rex
 
         boundaries = graded_boundaries_from_rex(self)
+        # B1 in its INTEGER representative, for the same reason `betti` uses it: rank is
+        # invariant under column scaling, and the stored share 1/(k-1) is not an integer,
+        # so a branching complex would otherwise fall past the exact path into the float
+        # one. Measured on BindingDB, 60 wide relations sent rank(B1) from 4673 to a
+        # capped 400 through that route.
+        if boundaries:
+            boundaries = [self._integer_B1()] + boundaries[1:]
         sizes = [int(self._nV), int(self._nE), int(self.nF_hodge)]
         ranks = [0]                                    # rank(B_0) is 0 by convention
         for k in range(len(sizes)):

@@ -179,7 +179,18 @@ class AgentComplex:
                      for i, a in enumerate(ags2)}
         # drift is relative to the swarm: an agent whose alignment is far below the median is
         # off-topic or possibly hallucinating, regardless of the absolute scale.
-        med = float(np.median(list(avg_align.values()))) if avg_align else 0.0
+        # "far below the swarm" is an OUTLIER question, and this codebase already has
+        # one convention for it: the data-adaptive Tukey lower fence (q1 - 1.5*IQR) used
+        # in engine.py and hive.py and described there as "not a fixed magic". The old
+        # `avga < 0.5 * med` invented a factor on top of a median; the fence is derived
+        # from the alignment distribution itself. With fewer than four agents there are
+        # no quartiles, so nothing is flagged rather than a number being invented.
+        _al = np.asarray(list(avg_align.values()), dtype=float) if avg_align else np.zeros(0)
+        if _al.size >= 4:
+            _q1, _q3 = np.percentile(_al, [25.0, 75.0])
+            align_fence = float(_q1 - 1.5 * (_q3 - _q1))
+        else:
+            align_fence = float("-inf")
         report = []
         for i, a in enumerate(ags):
             avga = avg_align.get(a, 0.0)
@@ -193,7 +204,7 @@ class AgentComplex:
                 # low alignment means output diverges from the swarm: off-topic/hallucinating or a
                 # topically distinct specialist. The concept-cosine cannot tell them apart;
                 # embedding plus task-relevance (model_introspect) is the refinement that does.
-                "flag": "divergent" if (med > 0 and avga < 0.5 * med) else "ok",
+                "flag": "divergent" if avga < align_fence else "ok",
             })
         report.sort(key=lambda x: -x["load_bearing"])
         # directed message-flow edges for the graph view (who talks to whom, how much)

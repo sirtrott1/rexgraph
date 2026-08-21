@@ -151,13 +151,41 @@ def structural_metrics(rex) -> dict:
     certificate (small -> the H₂ summary is trustworthy). The structural analog of an
     LLM's perplexity/varentropy - computed with the same calculus as token_metrics."""
     H2 = float(rex.harmonic_entropy)
-    ve = rex.character_varentropy
+    # The H3 half needs tr(RL4^3), which forms RL4^2, and that product's FILL is
+    # data-dependent: on a complex with wide branching groups the co-participation
+    # matrix squares into something enormous. Measured on a lexical complex, 31.4s and
+    # 22.3 GB at nE 553,021, and still climbing through 94 GB at nE 1,626,490 before it
+    # was killed. The bound nnz(X^2) <= sum_i sum_{j in row i} nnz(row j) is one matvec,
+    # so the cost is knowable BEFORE paying it rather than after.
+    ve = {"H2": round(H2, 6), "H3": None, "gap": None, "declined": None}
+    try:
+        X = rex._rl4_sparse
+        rownnz = np.diff(X.indptr).astype(np.float64)
+        # sum over nonzeros (i,j) of nnz(row j): the exact upper bound on nnz(X^2)
+        fill = (float(np.dot(np.bincount(X.indices, minlength=X.shape[0])
+                             .astype(np.float64), rownnz)) if X.nnz else 0.0)
+        from rexgraph.core._common import check_dense_allocation
+        check_dense_allocation("character_varentropy RL4^2 fill",
+                               int(max(fill, 1)), 1)
+        ve = rex.character_varentropy
+    except Exception as exc:
+        ve = {"H2": round(H2, 6), "H3": None, "gap": None,
+              "declined": f"{type(exc).__name__}"}
     return {
         "structural_entropy_H2": round(H2, 6),
         "structural_perplexity": round(float(np.exp(H2)), 4),
         "effective_modes": round(float(np.exp(H2)), 4),
-        "varentropy_gap": ve["gap"],
-        "reliable": bool(ve["gap"] < 0.05),
+        "varentropy_gap": ve.get("gap"),
+        # gap is None when the H3 moment was declined; that is "not certified", which is
+        # a different statement from "certified unreliable"
+        # `reliability_gap` certifies that the CHEAP H2 is exact, and its own docstring
+        # says when: "~0 on flat/unweighted spectra (the cheap H2 is exact); grows with
+        # weight-induced non-uniformity". So this is an exactness test, not a policy
+        # band, and measured the values are 13 orders apart with nothing in between:
+        # 5.6e-16 and 1.1e-15 where H2 is exact, 4.3e-02 where it is not. The old 0.05
+        # sat ABOVE the inexact case and certified it.
+        "reliable": (None if ve.get("gap") is None
+                     else bool(abs(ve["gap"]) <= 1e-9 * max(abs(ve.get("H2") or 1.0), 1.0))),
     }
 
 

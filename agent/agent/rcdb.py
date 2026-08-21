@@ -33,6 +33,7 @@ import json
 import os
 import tempfile
 import time
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -49,11 +50,97 @@ def _now():
 
 # serialization (complex <-> bytes)
 
+class _Prepared:
+    """A complex that was built and serialized somewhere else, carrying its bytes.
+
+    A corpus ingest builds each complex in a worker PROCESS, because the build and the
+    exact rank reduction are pure Python and a thread pool cannot run them in parallel.
+    What comes back over the pipe is bytes, not an object, and re-deserialising it in the
+    parent just to have `_put_impl` serialize it again would pay the whole cost twice.
+
+    Every store's `_put_impl` touches its `rex` argument through `serialize_complex` and
+    nowhere else, so passing one of these through is enough to make all three accept a
+    finished artifact. That is why this is a sentinel rather than a fourth store method.
+    """
+
+    __slots__ = ("blob",)
+
+    def __init__(self, blob: bytes):
+        self.blob = bytes(blob)
+
+
+#: Frame for a compressed blob: magic, then one byte naming the codec.
+#: A raw safetensors file opens with a little-endian u64 header length, so its first
+#: four bytes would have to read 0x315A5852 (an 823 MB header) to collide with this
+#: magic. The format caps a header at 100 MB, so the two are distinguishable exactly and
+#: not by a heuristic: a blob either starts with this or it is a legacy raw one.
+_BLOB_MAGIC = b"RXZ1"
+_CODEC_ZLIB = b"z"
+_CODEC_ZSTD = b"s"
+
+
+def _codec():
+    """The compressor to write with: zstd where it is installed, else zlib.
+
+    zstd at level 3 measured 500 MiB/s against zlib-6's 28 MiB/s for the same ratio on a
+    document blob, which over a corpus is the difference between minutes and an hour. It
+    is an optional dependency, so a host without it still writes a readable store, but
+    a store written WITH it needs it to read, which is why the codec is named in the
+    frame rather than assumed.
+    """
+    try:
+        import zstandard                                    # noqa: F401
+        return _CODEC_ZSTD
+    except ImportError:
+        return _CODEC_ZLIB
+
+
+def compress_blob(raw: bytes, level: int | None = None) -> bytes:
+    """Frame and compress a serialized complex.
+
+    The tensors are exact integers and offsets, mostly small values in sorted runs, so a
+    general compressor takes about 45% of them. What it cannot touch is anything already
+    at full entropy: see `merkle.pack_merkle`, which is why the digests are DERIVED
+    rather than stored.
+    """
+    c = _codec()
+    if c == _CODEC_ZSTD:
+        import zstandard
+        body = zstandard.ZstdCompressor(level=3 if level is None else level).compress(raw)
+    else:
+        body = zlib.compress(raw, 6 if level is None else level)
+    return _BLOB_MAGIC + c + body
+
+
+def decompress_blob(blob: bytes) -> bytes:
+    """The inverse, passing a legacy uncompressed blob through untouched."""
+    if not blob[:4] == _BLOB_MAGIC:
+        return blob                                         # written before compression
+    c, body = blob[4:5], blob[5:]
+    if c == _CODEC_ZSTD:
+        try:
+            import zstandard
+        except ImportError as exc:
+            raise RuntimeError(
+                "this blob was written with zstd; install `zstandard` to read it "
+                "(pip install zstandard)") from exc
+        return zstandard.ZstdDecompressor().decompress(body, max_output_size=0)
+    if c == _CODEC_ZLIB:
+        return zlib.decompress(body)
+    raise ValueError(f"unknown blob codec {c!r}")
+
+
 def serialize_complex(obj) -> bytes:
-    """Serialize a RexGraph or TemporalRex to safetensors bytes (cross-ecosystem,
-    no pickle). A TemporalRex is written as its delta-compressed index via
-    `temporal_rex_to_safetensors`; a plain RexGraph goes through the existing
-    `rex_to_safetensors` path, unchanged."""
+    """Serialize a RexGraph or TemporalRex to compressed safetensors bytes
+    (cross-ecosystem, no pickle). A TemporalRex is written as its delta-compressed index
+    via `temporal_rex_to_safetensors`; a plain RexGraph goes through the existing
+    `rex_to_safetensors` path, unchanged. A `_Prepared` is already those bytes.
+
+    The result is framed and compressed, so every store gets it from the one place they
+    all serialize through rather than three stores each deciding separately.
+    """
+    if isinstance(obj, _Prepared):
+        return obj.blob
     from rexgraph.graph import TemporalRex
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, temporal_rex_to_safetensors
     fd, tmp = tempfile.mkstemp(suffix=".safetensors")
@@ -64,14 +151,25 @@ def serialize_complex(obj) -> bytes:
         else:
             rex_to_safetensors(obj, tmp)
         with open(tmp, "rb") as f:
-            return f.read()
+            return compress_blob(f.read())
     finally:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
 
 
-def deserialize_complex(blob: bytes):
+def deserialize_complex(blob: bytes, *, verify: bool = True):
     """Reconstruct a RexGraph or TemporalRex from safetensors bytes.
+
+    `verify=False` skips the load-time integrity check, which is a REAL check and not a
+    formality: since the Merkle digests are derived rather than stored, `from_state`
+    rebuilds the layer tree from the complex and compares it to the recorded root, so it
+    catches a re-signed boundary column. It also costs one `_leaf_digests` pass: 37.6 s
+    on the largest record in the Gutenberg corpus.
+
+    So it is worth paying where the answer is COMMITTED and not on every speculative
+    read. A retrieval opens many candidates and keeps a few; verifying the discarded ones
+    buys nothing. This is the same split `score_document(reading=False)` makes, for the
+    same reason. Callers that skip it here must verify what survives.
 
     Routes on the file's own `object_type` metadata (written by `serialize_complex`)
     via `load_safetensors`, the object-type dispatch shared with `save_safetensors`
@@ -82,16 +180,39 @@ def deserialize_complex(blob: bytes):
     os.close(fd)
     try:
         with open(tmp, "wb") as f:
-            f.write(blob)
-        return load_safetensors(tmp)["object"]
+            f.write(decompress_blob(blob))
+        return load_safetensors(tmp, verify=verify)["object"]
     finally:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
 
 
+class _SkipAnalytics(Exception):
+    """Not an error: the marker that lets the analytics blocks share their own `except`.
+
+    Both readings already swallow their failures, so a plain guard would have duplicated
+    each `try` around a second condition. Raising into the handler that is there keeps one
+    exit per block.
+    """
+
+
 def structural_signature(rex, meta: dict | None = None,
-                         tags: list[str] | None = None) -> dict[str, Any]:
+                         tags: list[str] | None = None, *,
+                         voids: bool = False, analytics: bool = True) -> dict[str, Any]:
     """A small, queryable structural summary of a complex.
+
+    `voids` adds `n_voids`, and is OFF by default because it is the one reading here that
+    is not cheap at every size: see the note at its call site.
+
+    `analytics` covers `kappa_mean` and the information metrics: the readings that cost
+    more than building the document does. `betti` is NOT among them: it is
+    structure, it is queried, and its cost was a fixable one in the rank path. They are
+    ANALYTICS
+    columns (`analytics.SCHEMA`, queried as `avg(kappa_mean) GROUP BY source`), not
+    retrieval inputs: the query prefilter reads `labels_sample`. They also cost 2.17 s
+    a document against 0.39 s to build the document itself, so at corpus scale they are
+    85% of the ingest and 37 of its 44 hours. On by default, because a caller reading one
+    document wants them; a corpus ingest turns them off and backfills what it needs.
 
     A TemporalRex gets its own branch: the temporal fields (T, checkpoint_times)
     plus the structural signature of its latest snapshot (`reconstruct_at(T - 1)`),
@@ -106,7 +227,8 @@ def structural_signature(rex, meta: dict | None = None,
         # base = latest snapshot's own signature (its object_type is "RexGraph");
         # spread it FIRST so the temporal overrides applied after it (object_type,
         # T, checkpoint_times) are the ones that survive in the merged dict.
-        base = structural_signature(rex.reconstruct_at(rex.T - 1), meta, tags)
+        base = structural_signature(rex.reconstruct_at(rex.T - 1), meta, tags,
+                                    voids=voids, analytics=analytics)
         times = [float(x) for x in getattr(rex, "_times", [])]
         return {
             **base,
@@ -125,12 +247,35 @@ def structural_signature(rex, meta: dict | None = None,
         "tags": list(tags or []),
         "source": meta.get("input_type") or meta.get("source") or "",
     }
+    # BETTI is structure, not analytics: `min_betti1`/`max_betti1` query on it and a
+    # record without it cannot answer whether the evidence closes. It was briefly moved
+    # behind the flag on cost (4.31s of a 4.49s signature) but that cost was the rank
+    # path, not Betti. A span-gated document's pairs do not span its wider columns, so
+    # the union-find identity correctly refuses and exact elimination runs; the
+    # elimination was carrying Fractions with denominator 1 and reducing its widest
+    # columns first. Both are fixed at the source in `_exact_rank_reduction`.
     try:
         sig["betti"] = [int(b) for b in rex.betti]
     except Exception:
         sig["betti"] = None
     b = sig.get("betti") or []
     sig["betti1"] = int(b[1]) if len(b) > 1 else 0
+    # The layers, summarised. A document's chapter and paragraph sectionings are
+    # partitions of THIS field, and without them here the index knows a book only as one
+    # undifferentiated complex: asking which documents carry a paragraph layer, or how
+    # many sections one has, would mean deserialising every blob to find out.
+    with contextlib.suppress(Exception):
+        from rexgraph.sectioning import sectioning_summary
+        sect = sectioning_summary(rex)
+        if sect:
+            sig["sectionings"] = sect
+            sig["sectioning_names"] = [s["name"] for s in sect]
+            # the layer tree's root, so a store can be asked whether two documents share
+            # a chapter or whether one changed, without opening either blob
+            from rexgraph.merkle import build_merkle
+            m = build_merkle(rex)
+            sig["merkle_root"] = m.root.hex()
+            sig["merkle_chain"] = list(m.chain)
     with contextlib.suppress(Exception):
         sig["chain_valid"] = bool(rex.chain_valid)
     # kappa_mean is a queried column (analytics.SCHEMA, temporal.QUANTITIES) and is
@@ -138,6 +283,8 @@ def structural_signature(rex, meta: dict | None = None,
     # read. The global Green's read goes under its own key, and is absent rather than
     # substituted when the complex is over budget.
     try:
+        if not analytics:
+            raise _SkipAnalytics
         sig["kappa_mean"] = round(coherence_mean(rex), 6)
         sig["coherence_method"] = "local"
         kg = coherence_greens_mean(rex)
@@ -145,15 +292,34 @@ def structural_signature(rex, meta: dict | None = None,
             sig["kappa_greens_mean"] = round(kg, 6)
     except Exception:
         sig["kappa_mean"] = None
-    try:
-        vc = rex.void_complex
-        sig["n_voids"] = int(vc.get("n_voids", 0))
-    except Exception:
-        pass
+    if voids:
+        try:
+            # The void reading routes an nE x nE object through LAPACK, which overflows
+            # its int32 indexing past ~46k relations: measured, it grinds 42s on a
+            # 52,246-relation complex and then raises. Ask the library's own guard first
+            # and decline fast, which reaches the same `except` in a millisecond.
+            #
+            # That guard bounds MEMORY, and the cost here is TIME. `build_void_complex`
+            # densifies nE x nE internally whatever the caller does, so a complex whose
+            # dense form merely FITS still pays O(nE^2): measured, one 12,890-relation
+            # book took 1,332 s (97% of it in csr_matmat) while a LARGER 27,192-relation
+            # book returned in 3.0 s because 5.9 GB tripped the ceiling and 1.3 GB did
+            # not. Being under a memory ceiling is not the same as being affordable, so
+            # the reading is off by default rather than gated by a number that answers
+            # the wrong question. A caller analysing ONE document asks for it; a corpus
+            # ingest, which is what this signature is on the path of, does not.
+            from rexgraph.core._common import check_dense_allocation
+            check_dense_allocation("void_complex nE x nE", int(rex.nE), int(rex.nE))
+            vc = rex.void_complex
+            sig["n_voids"] = int(vc.get("n_voids", 0))
+        except Exception:
+            pass
     # Per-document information metrics (structural perplexity = effective modes, the
     # varentropy reliability gap), persisted so the corpus is queryable by them and
     # per-corpus aggregation is a cheap read of the stored signatures.
     try:
+        if not analytics:
+            raise _SkipAnalytics
         from agent.metrics import structural_metrics
         sm = structural_metrics(rex)
         sig["structural_perplexity"] = sm["structural_perplexity"]
@@ -245,10 +411,31 @@ def _matches(sig: dict[str, Any], q: dict[str, Any],
     match every record, which returns a wrong answer that looks like a right one:
     `query(nE=4)` reads as a filter but the bound is spelled `max_nE`.
     """
+    checks = _query_checks(sig, meta)
+    unknown = sorted(set(q) - _QUERY_KEYS)
+    if unknown:
+        raise TypeError(
+            f"unsupported query key(s): {', '.join(unknown)}. Supported: "
+            f"{', '.join(sorted(_QUERY_KEYS))}")
+    for key, pred in checks:
+        if key in q and q[key] is not None:
+            try:
+                if not pred(q[key]):
+                    return False
+            except Exception:
+                # A predicate that cannot be evaluated against this record's value
+                # has not matched it. Raising here would make one malformed record
+                # fail a query over the whole store.
+                return False
+    return True
+
+
+def _query_checks(sig: dict[str, Any], meta: dict[str, Any] | None):
+    """(key, predicate) for every supported query key, bound to one record."""
     def betti(i):
         b = sig.get("betti")
         return b[i] if (b and len(b) > i) else 0
-    checks = [
+    return [
         ("labels_any", lambda v: bool(_record_labels(sig, meta)
                                       & {str(x).lower() for x in v})),
         ("labels_all", lambda v: {str(x).lower() for x in v}
@@ -268,42 +455,89 @@ def _matches(sig: dict[str, Any], q: dict[str, Any],
         ("tags_any", lambda v: bool(set(sig.get("tags", [])) & set(v))),
         ("tags_all", lambda v: set(v).issubset(set(sig.get("tags", [])))),
     ]
-    unknown = sorted(set(q) - {key for key, _ in checks})
-    if unknown:
-        raise TypeError(
-            f"unsupported query key(s): {', '.join(unknown)}. Supported: "
-            f"{', '.join(sorted(key for key, _ in checks))}")
-    for key, pred in checks:
-        if key in q and q[key] is not None:
-            try:
-                if not pred(q[key]):
-                    return False
-            except Exception:
-                return False
-    return True
+
+
+_QUERY_KEYS = frozenset(key for key, _pred in _query_checks({}, None))
 
 
 # store interface
+
+def _recompress_one(path: str, verify: bool = True, force: bool = False) -> tuple:
+    """Rewrite one blob in place. Module level so a worker process can import it.
+
+    Returns `(path, before, after, error, rewrote)`. `rewrote` is reported rather than
+    inferred from the sizes: a blob can re-encode to exactly the same length, and
+    reading that as "skipped" undercounts the work. Only file CONTENTS change (no
+    record, no index and no log entry is touched) which is why this is safe to run in
+    parallel while the store object stays untouched in the parent.
+    """
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        return (path, 0, 0, f"{type(exc).__name__}: {exc}", False)
+    if raw[:4] == _BLOB_MAGIC and not force:
+        return (path, len(raw), len(raw), None, False)      # already framed
+    try:
+        rex = deserialize_complex(raw)
+        fresh = serialize_complex(rex)
+        if verify:
+            back = deserialize_complex(fresh)
+            if (int(back.nV), int(back.nE)) != (int(rex.nV), int(rex.nE)):
+                raise ValueError("shape changed through the rewrite")
+        tmp = f"{path}.tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(fresh)
+        os.replace(tmp, path)                               # atomic
+        return (path, len(raw), len(fresh), None, True)
+    except Exception as exc:
+        with contextlib.suppress(OSError):
+            os.unlink(f"{path}.tmp")
+        return (path, len(raw), len(raw), f"{type(exc).__name__}: {exc}", False)
+
 
 class RCStore:
     """Abstract Relational Complex Store."""
 
     backend = "abstract"
 
-    def put(self, id, rex, meta=None, tags=None, *, valid_from=None, valid_to=None):
+    def put(self, id, rex, meta=None, tags=None, *, valid_from=None, valid_to=None,
+            analytics=True, voids=False):
         """Append a new version of `id`. Template method: build the signature, delegate
         storage to _put_impl, then emit a best-effort change-feed event."""
         meta = _priv(meta)
-        sig = structural_signature(rex, meta, tags)
+        # `analytics=False` writes the structural facts (nV/nE/betti/chain_valid/
+        # sectionings/merkle_root/labels_sample) and leaves the analytics columns unset.
+        # It exists for corpus ingest, where those columns are 85% of the cost and
+        # nothing on the retrieval path reads them. `backfill_analytics` fills them in
+        # afterwards for whatever subset is worth it.
+        sig = structural_signature(rex, meta, tags, analytics=analytics, voids=voids)
         rec = self._put_impl(id, rex, sig, meta, tags, valid_from, valid_to)
+        self._emit("rcdb.put", id, rec.version, sig)
+        return rec
+
+    def put_prepared(self, id, blob, sig, meta=None, tags=None, *,
+                     valid_from=None, valid_to=None):
+        """`put` for a complex already built, serialized and signed elsewhere.
+
+        Same record, same versioning, same change-feed event: it skips only the two
+        steps the caller has already paid for. The caller owns the signature, so it also
+        owns whether `analytics` were computed into it.
+        """
+        meta = _priv(meta)
+        rec = self._put_impl(id, _Prepared(blob), sig, meta, tags, valid_from, valid_to)
         self._emit("rcdb.put", id, rec.version, sig)
         return rec
 
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to):
         raise NotImplementedError
 
-    def get(self, id, *, as_of=None, valid_at=None):
-        """Return the reconstructed RexGraph, or None."""
+    def get(self, id, *, as_of=None, valid_at=None, verify: bool = True):
+        """Return the reconstructed RexGraph, or None.
+
+        `verify=False` skips the load-time integrity rebuild; see
+        `deserialize_complex` for what that check is and when skipping it is right.
+        """
         raise NotImplementedError
 
     def get_record(self, id, *, as_of=None, valid_at=None):
@@ -439,7 +673,7 @@ class MemoryStore(RCStore):
                 rec = next((r for r in self.history(base) if r.version == v), None)
         return rec
 
-    def get(self, id, *, as_of=None, valid_at=None):
+    def get(self, id, *, as_of=None, valid_at=None, verify: bool = True):
         rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
         if rec is None:
             return None
@@ -448,7 +682,7 @@ class MemoryStore(RCStore):
         # through history(base)) it is `base`, never the raw "base@v" string
         # the blob is never keyed by. Keying on rec.id is correct either way.
         blob = self._blobs.get((rec.id, rec.version))
-        return deserialize_complex(blob) if blob is not None else None
+        return deserialize_complex(blob, verify=verify) if blob is not None else None
 
     def get_version(self, id, version):
         blob = self._blobs.get((id, version))
@@ -482,86 +716,399 @@ class MemoryStore(RCStore):
 
 # file backend (default, no deps beyond io)
 
+def _version_selector(as_of, valid_at):
+    """The rows `_select_version` would admit, as a mask over the cochains.
+
+    Mirrors that method's rules rather than approximating them, but the caller still
+    runs `_select_version` on what comes back, so this only has to be a superset for
+    the answer to stay right.
+    """
+    def select(c):
+        tx_to = c["tx_to"]
+        if as_of is None and valid_at is None:
+            return np.isnan(tx_to)                       # the live row
+        keep = np.ones(tx_to.shape, bool)
+        if as_of is not None:
+            keep &= (c["tx_from"] <= as_of) & (np.isnan(tx_to) | (as_of < tx_to))
+        if valid_at is not None:
+            lo = np.where(np.isnan(c["valid_from"]), c["tx_from"], c["valid_from"])
+            hi = c["valid_to"]
+            keep &= (lo <= valid_at) & (np.isnan(hi) | (valid_at < hi))
+        return keep
+    return select
+
+
+class _LazyIndex(dict):
+    """`{id -> [ComplexRecord]}` that builds an id's records the first time it is asked
+    for, from the snapshot cochains and the log frames that land on it.
+
+    A get costs one id, a scan costs the ids it scans, and opening a store costs
+    neither. Built lists are cached and mutated in place, which `put` relies on to close
+    the prior version's transaction bound.
+
+    Every lookup and every view is overridden: CPython reaches into the underlying
+    storage directly for `in`, `len`, iteration and `values`, so inheriting them would
+    report only the ids that happen to have been built already.
+
+    The live id set is MAINTAINED rather than recomputed. The snapshot row map is kept
+    intact for the same reason: `list` orders on the cochains, which needs to know which
+    rows belong to which id without building anything.
+    """
+
+    __slots__ = ("_snap", "_rows", "_pending", "_gone", "_ids", "_order")
+
+    def __init__(self, snap, rows_by_id, pending, eager):
+        super().__init__(eager)
+        self._snap, self._rows, self._pending = snap, rows_by_id, pending
+        self._gone: set = set()
+        self._ids: set = set(rows_by_id) | set(pending) | set(eager)
+        self._order = None
+
+    def _build(self, key):
+        """The records for `key`, or None if the store does not hold it."""
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        if key in self._gone:
+            return None
+        rows = self._rows.get(key)
+        pend = self._pending.get(key)
+        if rows is None and pend is None:
+            return None
+        recs = []
+        if rows:
+            from agent import rcdb_index as _ix
+            recs = sorted((_ix.record_at(self._snap, r) for r in rows),
+                          key=lambda r: r.version)
+        for rec in pend or ():
+            recs = [r for r in recs if r.version != rec.version]
+            for prior in recs:
+                if prior.tx_to is None:
+                    prior.tx_to = rec.tx_from
+            recs.append(rec)
+            recs.sort(key=lambda r: r.version)
+        dict.__setitem__(self, key, recs)
+        return recs
+
+    def _build_all(self):
+        for key in self._ids:
+            self._build(key)
+
+    def __missing__(self, key):
+        recs = self._build(key)
+        if recs is None:
+            raise KeyError(key)
+        return recs
+
+    def get(self, key, default=None):
+        recs = self._build(key)
+        return default if recs is None else recs
+
+    def setdefault(self, key, default=None):
+        recs = self._build(key)
+        if recs is None:
+            dict.__setitem__(self, key, default)
+            self._ids.add(key)
+            self._gone.discard(key)
+            self._order = None
+            return default
+        return recs
+
+    def __setitem__(self, key, value):
+        dict.__setitem__(self, key, value)
+        self._ids.add(key)
+        self._gone.discard(key)
+        self._order = None
+
+    def pop(self, key, *default):
+        recs = self._build(key)
+        if recs is None:
+            if default:
+                return default[0]
+            raise KeyError(key)
+        self._gone.add(key)
+        self._ids.discard(key)
+        self._order = None
+        return dict.pop(self, key)
+
+    def __contains__(self, key):
+        return key in self._ids
+
+    def __len__(self):
+        return len(self._ids)
+
+    def __iter__(self):
+        self._build_all()
+        return iter(list(self._ids))
+
+    def keys(self):
+        self._build_all()
+        return dict.keys(self)
+
+    def values(self):
+        self._build_all()
+        return dict.values(self)
+
+    def items(self):
+        self._build_all()
+        return dict.items(self)
+
+    def copy(self):
+        self._build_all()
+        return dict(self)
+
+    def narrow(self, predicate, as_of=None):
+        """The ids that could match, or None if there is nothing to narrow against.
+
+        A superset. Ids the log knows and ids put since are always included, since the
+        cochains only describe the snapshot, and the caller still evaluates the full
+        predicate on what comes back.
+        """
+        if self._snap is None:
+            return None
+        from agent import rcdb_index as _ix
+        rows = _ix.rows_for(self._snap, as_of=as_of, **predicate)
+        out = set(_ix.ids_of(self._snap, rows)) | set(self._pending)
+        out |= {k for k in dict.keys(self) if k not in self._rows}
+        # the snapshot still holds the rows of a since deleted id, so the live set
+        # decides. Maintained, so this is the size of the hit, not of the store.
+        return out & self._ids
+
+    #### ordering without materialising
+    #
+    # `list` wants the newest N records. Sorting requires every tx_from, but tx_from is
+    # a cochain, so the ordering is a read over an array and only the page has to become
+    # a record. Ids the log has touched are already built and merge in directly.
+
+    def _order_arrays(self):
+        """(owner_code per snapshot row, the ids those codes index). Cached."""
+        if self._order is None:
+            import numpy as np
+            n = self._snap["n"] if self._snap else 0
+            owner = np.full(n, -1, np.int64)
+            ids = []
+            for code, (rid, rows) in enumerate(self._rows.items()):
+                ids.append(rid)
+                owner[np.asarray(rows, np.int64)] = code
+            self._order = (owner, ids)
+        return self._order
+
+    def ordered_ids(self, select):
+        """Ids newest first, where `select(measures)` marks the rows a selector admits.
+
+        Returns None when there is no snapshot to order on, so the caller keeps its
+        own path.
+        """
+        if self._snap is None:
+            return None
+        import numpy as np
+        owner, ids = self._order_arrays()
+        c = self._snap["measures"]
+        ok = select(c) & (owner >= 0)
+        rows = np.flatnonzero(ok)
+        out = []
+        if rows.size:
+            # newest version per id, then that version's tx_from
+            order = np.lexsort((c["version"][rows], owner[rows]))
+            rows = rows[order]
+            o = owner[rows]
+            last = np.flatnonzero(np.r_[o[1:] != o[:-1], True])
+            pick = rows[last]
+            tx = c["tx_from"][pick]
+            out = [(float(t), ids[int(owner[r])])
+                   for t, r in zip(tx, pick, strict=True)]
+        # anything the log touched or a put created is already a record: merge it in
+        # and let it supersede the snapshot's reading of the same id
+        touched = set(self._pending) | {k for k in dict.keys(self)}
+        out = [(t, i) for t, i in out if i not in touched]
+        for rid in touched:
+            if rid not in self._ids:
+                continue
+            recs = self._build(rid) or []
+            if recs:
+                out.append((max(r.tx_from for r in recs), rid))
+        out.sort(key=lambda p: -p[0])
+        return [i for _t, i in out]
+
+
 class FileStore(RCStore):
     backend = "file"
 
     def __init__(self, root: str):
         self.root = root
         os.makedirs(os.path.join(root, "blobs"), exist_ok=True)
-        self._index_path = os.path.join(root, "index.json")
-        self._log_path = os.path.join(root, "index.log")
+        # The binary pair is authoritative. The json pair is read when it is all that
+        # exists, so a store written by an earlier version opens unchanged and is
+        # converted on the next compaction.
+        self._index_path = os.path.join(root, "index.rexidx")
+        self._log_path = os.path.join(root, "index.rexlog")
+        self._legacy_index = os.path.join(root, "index.json")
+        self._legacy_log = os.path.join(root, "index.log")
         # Loaded once. Re-reading the index on every call, and rewriting it on every
         # put, is what made ingest quadratic; the log means the cache stays authoritative
         # and each change costs one line.
         self._idx = self._read_index()
 
     def _read_index(self) -> dict[str, builtins.list[ComplexRecord]]:
-        """Load index.json into `{id -> [ComplexRecord, ...]}`. A legacy
-        `{id -> record_dict}` index (one dict per id, no version list) is
-        wrapped as a single-element list; `from_dict` backfills the missing
-        bitemporal fields so it reads as version 1."""
-        idx: dict[str, list[ComplexRecord]] = {}
+        """`{id -> [ComplexRecord, ...]}`, the snapshot with the log layered on top.
+
+        Lazy over the snapshot: opening a store reads the columns, and a record is
+        built when its id is asked for, so open no longer costs one object per stored
+        record. A legacy json index is materialised eagerly, since a document has to be
+        parsed in full before any of it can be read.
+        """
+        eager: dict[str, list[ComplexRecord]] = {}
+        snap, rows_by_id = None, {}
         # A snapshot, if one exists: written by an older version of this store, or
         # left by compaction. Read first so the log layers on top of it.
         if os.path.exists(self._index_path):
             try:
-                with open(self._index_path) as f:
+                from agent import rcdb_index as _ix
+                snap = _ix.read(self._index_path)
+                for row, rid in enumerate(snap["ids"]):
+                    rows_by_id.setdefault(str(rid), []).append(row)
+            except Exception:
+                # An unreadable snapshot costs only speed while the log still holds the
+                # same changes. `_write_index` removes the log once it has folded it in,
+                # so past a compaction this file IS the index: continuing without it
+                # reports an EMPTY store over intact blobs, which is the silent-wrong
+                # answer the digest exists to prevent. Measured before this guard: one
+                # flipped byte took a five-record store to zero records and no error.
+                snap, rows_by_id = None, {}
+                if not os.path.exists(self._log_path):
+                    raise
+        elif os.path.exists(self._legacy_index):
+            try:
+                with open(self._legacy_index) as f:
                     raw = json.load(f)
                 for id, v in raw.items():
                     if isinstance(v, dict):
-                        idx[id] = [ComplexRecord.from_dict(v)]
+                        eager[id] = [ComplexRecord.from_dict(v)]
                     else:
-                        idx[id] = [ComplexRecord.from_dict(x) for x in v]
+                        eager[id] = [ComplexRecord.from_dict(x) for x in v]
             except Exception:
-                idx = {}
+                eager = {}
         # then the append-only log. Rewriting the whole index on every put made the
         # cost of a put grow with the store: 4 ms at a hundred records, 35 ms at
-        # sixteen hundred, which is quadratic ingest. One line per change instead.
+        # sixteen hundred, which is quadratic ingest. One frame per change instead.
+        entries = []
         if os.path.exists(self._log_path):
+            from agent import rcdb_index as _ix
+            entries = [{"op": op, "id": rid, "record": rec}
+                       for op, rid, rec, _x in _ix.log_read(self._log_path)]
+        elif os.path.exists(self._legacy_log):
             try:
-                with open(self._log_path) as f:
+                with open(self._legacy_log) as f:
                     for line in f:
                         line = line.strip()
                         if not line:
                             continue
                         try:
-                            entry = json.loads(line)
+                            entries.append(json.loads(line))
                         except json.JSONDecodeError:
                             break            # torn tail: the rest is unwritable
-                        rid = entry.get("id")
-                        if entry.get("op") == "delete":
-                            idx.pop(rid, None)
-                            continue
-                        rec = ComplexRecord.from_dict(entry["record"])
-                        versions = idx.setdefault(rid, [])
-                        versions = [r for r in versions if r.version != rec.version]
-                        for prior in versions:
-                            if prior.tx_to is None:
-                                prior.tx_to = rec.tx_from
-                        versions.append(rec)
-                        versions.sort(key=lambda r: r.version)
-                        idx[rid] = versions
             except OSError:
-                pass
-        return idx
+                entries = []
+        pending: dict[str, list[ComplexRecord]] = {}
+        for entry in entries:
+            rid = entry.get("id")
+            if entry.get("op") == "delete":
+                rows_by_id.pop(rid, None)
+                pending.pop(rid, None)
+                eager.pop(rid, None)
+                continue
+            raw = entry["record"]
+            # the frame log decodes to a record; the line log it replaces gave a dict
+            rec = raw if isinstance(raw, ComplexRecord) else ComplexRecord.from_dict(raw)
+            pending.setdefault(rid, []).append(rec)
+        if not rows_by_id and not pending:
+            return eager
+        return _LazyIndex(snap, rows_by_id, pending, eager)
 
     def _append_log(self, entry: dict) -> None:
-        with open(self._log_path, "a", encoding="utf-8") as f:
-            from rexgraph.io._compat import dumps
-            f.write(dumps(entry) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        """One frame per change: a length, an op, and the payload once. The line log
+        rewrote every field name and every number as text on each put."""
+        from agent import rcdb_index as _ix
+        rec = entry.get("record")
+        if rec is not None and not isinstance(rec, ComplexRecord):
+            rec = ComplexRecord.from_dict(rec)
+        _ix.log_append(self._log_path, entry.get("op", "put"), entry["id"], rec)
 
     def _write_index(self, idx: dict[str, builtins.list[ComplexRecord]]):
         """Write a full snapshot and drop the log. This is compaction, not the write
         path: callers that used it to persist one change now append instead."""
-        raw = {id: [r.to_dict() for r in versions] for id, versions in idx.items()}
+        from agent import rcdb_index as _ix
+        rows = [(rid, r) for rid, versions in idx.items() for r in versions]
         tmp = self._index_path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(raw, f)
+        _ix.write(tmp, _ix.build(rows))
         os.replace(tmp, self._index_path)
         with contextlib.suppress(OSError):
-            os.remove(self._log_path)
+            os.remove(self._log_path)           # written here, and folded in above
+        # The json files this store was read from are now redundant, and leaving them
+        # in place is a hazard: lose the snapshot and the store silently reopens on a
+        # stale index instead of an empty one. Renamed rather than removed, so a
+        # rollback to a version that reads them still has them.
+        for legacy in (self._legacy_log, self._legacy_index):
+            if os.path.exists(legacy):
+                with contextlib.suppress(OSError):
+                    os.replace(legacy, legacy + ".migrated")
+
+    def recompress(self, *, verify: bool = True, force: bool = False,
+                   workers: int | None = None, progress=None) -> dict:
+        """Rewrite blobs written before compression, in place.
+
+        Reading is already correct without this (`decompress_blob` passes a legacy blob
+        through) so this is purely about the bytes on disk. A store written before
+        `serialize_complex` framed its output keeps whatever it has until asked.
+
+        VERIFY THEN REPLACE, never the other way round: the new bytes are deserialized
+        and checked against the old complex's shape and Merkle root before anything is
+        written, and the write is a temp file plus an atomic rename. A blob that fails
+        any of that is left exactly as it was and counted in `failed`. Nothing is
+        deleted: an entry either gets smaller or stays the same.
+        """
+        out = {"total": 0, "rewritten": 0, "skipped": 0, "failed": 0,
+               "before": 0, "after": 0, "failures": []}
+        seen, paths = set(), []
+        for id_ in list(self._idx):
+            for rec in self.history(id_):
+                key = (rec.id, rec.version)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out["total"] += 1
+                path = next((q for q in self._blob_read_paths(rec.id, rec.version)
+                             if os.path.exists(q)), None)
+                if path is None:
+                    out["skipped"] += 1
+                    continue
+                paths.append(path)
+
+        def record(res):
+            _p, before, after, err, rewrote = res
+            out["before"] += before
+            out["after"] += after
+            if err:
+                out["failed"] += 1
+                out["failures"].append({"path": _p, "error": err})
+            elif rewrote:
+                out["rewritten"] += 1
+            else:
+                out["skipped"] += 1
+            if progress is not None:
+                progress(out)
+
+        if not workers or workers <= 1 or len(paths) < 2:
+            for path in paths:
+                record(_recompress_one(path, verify, force))
+            return out
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+        ctx = multiprocessing.get_context("forkserver")
+        with ProcessPoolExecutor(max_workers=int(workers), mp_context=ctx) as ex:
+            for res in ex.map(_recompress_one, paths, [verify] * len(paths),
+                              [force] * len(paths), chunksize=32):
+                record(res)
+        return out
 
     def compact(self) -> dict:
         """Fold the log into a snapshot. Optional: reading is correct either way."""
@@ -648,14 +1195,14 @@ class FileStore(RCStore):
         with open(p, "rb") as f:
             return f.read()
 
-    def get(self, id, *, as_of=None, valid_at=None):
+    def get(self, id, *, as_of=None, valid_at=None, verify: bool = True):
         rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
         if rec is None:
             return None
         # rec.id is the record's OWN stored id (see MemoryStore.get for why
         # this, not the local `id`, is the correct blob key on a fallback hit).
         blob = self._read_blob(rec.id, rec.version)
-        return deserialize_complex(blob) if blob is not None else None
+        return deserialize_complex(blob, verify=verify) if blob is not None else None
 
     def get_version(self, id, version):
         blob = self._read_blob(id, version)
@@ -666,7 +1213,30 @@ class FileStore(RCStore):
 
     def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
              include_history=False):
+        """The store's records, newest first.
+
+        Ordering runs on the tx_from cochain and only the requested window becomes a
+        record, so asking for a page costs the page rather than the store. The full
+        walk stays for `include_history`, which wants every version by definition.
+        """
         idx = self._idx
+        # only when the window is narrower than the store. Asked for everything,
+        # building in bulk beats resolving ids one at a time, and "the window is
+        # everything" is a fact about the call rather than a tuned size. Tested before
+        # the ordering runs, or the full listing pays for both paths.
+        if (not include_history and isinstance(idx, _LazyIndex)
+                and offset + limit < len(idx)):
+            order = idx.ordered_ids(_version_selector(as_of, valid_at))
+            if order is not None:
+                out = []
+                for rid in order:
+                    rec = self._select_version(idx.get(rid, []), as_of, valid_at)
+                    if rec is None:
+                        continue                  # the cochain read is a superset
+                    out.append(rec)
+                    if len(out) >= offset + limit:
+                        break
+                return out[offset:offset + limit]
         recs = ([r for versions in idx.values() for r in versions] if include_history
                 else [self._select_version(versions, as_of, valid_at)
                       for versions in idx.values()])
@@ -675,8 +1245,26 @@ class FileStore(RCStore):
         return recs[offset:offset + limit]
 
     def query(self, limit=100, *, as_of=None, valid_at=None, **predicate):
-        out = [r for r in self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
-               if _matches(r.signature, predicate, r.meta)]
+        """Narrow on the columns, then evaluate the full predicate on the survivors.
+
+        The narrowing pass is a superset, so `_matches` still decides every record and
+        the answer does not depend on which keys happen to have a column.
+        """
+        unknown = sorted(set(predicate) - _QUERY_KEYS)
+        if unknown:
+            raise TypeError(
+                f"unsupported query key(s): {', '.join(unknown)}. Supported: "
+                f"{', '.join(sorted(_QUERY_KEYS))}")
+        ids = (self._idx.narrow(predicate, as_of=as_of)
+               if isinstance(self._idx, _LazyIndex) else None)
+        if ids is None:
+            recs = self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
+        else:
+            recs = [self._select_version(self._idx.get(i, []), as_of, valid_at)
+                    for i in ids]
+            recs = [r for r in recs if r is not None]
+            recs.sort(key=lambda r: -r.tx_from)
+        out = [r for r in recs if _matches(r.signature, predicate, r.meta)]
         return out[:limit]
 
     def delete(self, id):
@@ -933,7 +1521,7 @@ class SQLStore(RCStore):
                 rec = next((r for r in self._records_for(base) if r.version == v), None)
         return rec
 
-    def get(self, id, *, as_of=None, valid_at=None):
+    def get(self, id, *, as_of=None, valid_at=None, verify: bool = True):
         rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
         if rec is None:
             return None
@@ -943,7 +1531,7 @@ class SQLStore(RCStore):
         with self.engine.connect() as conn:
             row = conn.execute(select(self.table.c.blob).where(
                 self.table.c.id == rec.id, self.table.c.version == rec.version)).first()
-        return deserialize_complex(row.blob) if row else None
+        return deserialize_complex(row.blob, verify=verify) if row else None
 
     def get_version(self, id, version):
         from sqlalchemy import select
@@ -1528,8 +2116,8 @@ def _existing_backend(path: str):
         return None
     if os.path.exists(os.path.join(path, "records.log")):
         return "rex"
-    if os.path.exists(os.path.join(path, "index.json")) or \
-            os.path.exists(os.path.join(path, "index.log")):
+    if any(os.path.exists(os.path.join(path, n)) for n in
+           ("index.rexidx", "index.rexlog", "index.json", "index.log")):
         return "file"
     return None
 

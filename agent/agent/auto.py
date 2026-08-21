@@ -593,7 +593,11 @@ def build_rex_from_edges(
     # Construction guard. The core's face-finding / boundary kernels can segfault
     # or exhaust memory on large, dense graphs (a real core limitation). Fail fast
     # and clearly HERE, before the C code runs.
-    _nV = int(max(int(edges.sources.max()), int(edges.targets.max())) + 1) if edges.nE else 0
+    # guard on the PAIRWISE arrays, which is what this line reads. `edges.nE` counts
+    # relations at any arity, so a branching-only construction makes it truthy while
+    # `sources` is empty and `.max()` has nothing to reduce.
+    _nV = (int(max(int(edges.sources.max()), int(edges.targets.max())) + 1)
+           if len(edges.sources) else 0)
     for _support in getattr(edges, "branching", []) or []:
         _nV = max(_nV, int(max(_support)) + 1)
     check_analysis_size(_nV, edges.nE)

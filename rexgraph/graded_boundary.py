@@ -197,7 +197,7 @@ def _is_integer_matrix(M: sp.spmatrix) -> bool:
 
 
 def _rational_data(M: sp.spmatrix):
-    """The stored entries as exact Fractions, or None if any is not exactly an integer.
+    """The stored entries as exact Python ints, or None if any is not exactly an integer.
 
     Deliberately NOT a float-to-rational reconstruction. A boundary column carries the
     share 1/(k-1), so it looks rational, but it has an exact INTEGER representative:
@@ -206,12 +206,15 @@ def _rational_data(M: sp.spmatrix):
     integer form and never see a fraction. Recovering 1/3 from its nearest double by
     continued fraction would be answering a question that should not have been asked.
     See `RexGraph._integer_B1`.
+
+    These were Fractions, which was carrying a denominator that is provably always 1:
+    the integrality check on the line above is what makes every entry an integer, and
+    the reduction below keeps them integral by cross-multiplying rather than dividing.
     """
-    from fractions import Fraction as Fr
     d = M.data
     if d.size and not bool(np.all(d == np.round(d))):
         return None
-    return [Fr(int(round(float(x)))) for x in d]
+    return [int(round(float(x))) for x in d]
 
 
 from collections import OrderedDict as _OrderedDict
@@ -229,15 +232,30 @@ _RANK_MEMO_MAX = 64
 
 
 def _exact_rank_reduction(M: sp.spmatrix) -> int:
-    """EXACT rank of an INTEGER sparse matrix via column reduction over Q (Fraction) -
-    eigen-free, NO SVD, no eigendecomposition, no dense operator. Each column is
-    reduced against the registered pivots (lowest-nonzero-row 'low' convention, as in
-    persistence reduction); rank = number of columns that keep a pivot. This is the
-    canon's `rank(B_k) via Z/Q elimination` (Part III) and is exact for integer /
-    rational entries. Columns are sparse dicts, so cost tracks fill, not n^3.
+    """EXACT rank of an INTEGER sparse matrix by column reduction over Z: eigen-free,
+    NO SVD, no eigendecomposition, no dense operator. Each column is reduced against the
+    registered pivots (lowest-nonzero-row 'low' convention, as in persistence
+    reduction); rank = number of columns that keep a pivot. This is the canon's
+    `rank(B_k) via Z/Q elimination` (Part III). Columns are sparse dicts, so cost tracks
+    FILL, not n^3, which is what the two choices below are both about.
+
+    **The arithmetic stays in Z.** `col <- piv[low]*col - col[low]*piv` clears the
+    pivot entry the same way `col -= (col[low]/piv[low])*piv` does, without ever
+    forming a quotient, and dividing the result through by its gcd keeps the integers
+    from growing. A column op scaled by a nonzero integer is still a column op, so the
+    rank is untouched. The Fraction form was calling `math.gcd` twice per elementary
+    operation to normalise denominators that the integrality check guarantees are 1.
+
+    **Columns are reduced sparsest-first.** Rank does not depend on the order columns
+    are presented in, but fill very much does: a wide column reduced early becomes a
+    dense pivot that every later column must then reduce against. Persistence needs the
+    input order because it is pairing births with deaths; this routine returns one
+    integer and is free to choose. Measured over three Gutenberg documents (nE 7,899 to
+    12,500), against the Fraction path: 14.5x, 30.1x and 45.3x for the same rank, the
+    ratio growing with size because the fill it avoids is superlinear.
 
     Memoized on exact matrix content (see :data:`_RANK_MEMO`)."""
-    from fractions import Fraction as Fr
+    from math import gcd
     A = M.tocsc()
     A.sum_duplicates()                      # MUST precede the read: a self-loop stores -1
                                             # and +1 at the same (row, col), and the column
@@ -256,9 +274,11 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
         _RANK_MEMO.move_to_end(key)
         return hit
 
-    pivots: dict = {}                       # pivot_row -> reduced column {row: Fraction}
+    pivots: dict = {}                       # pivot_row -> reduced column {row: int}
     rank = 0
-    for j in range(A.shape[1]):
+    widths = np.diff(indptr)
+    for j in np.argsort(widths, kind="stable"):
+        j = int(j)
         col = {}
         for k in range(indptr[j], indptr[j + 1]):
             v = exact[k]
@@ -271,13 +291,18 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
                 pivots[low] = col
                 rank += 1
                 break
-            factor = col[low] / piv[low]
+            a, b = piv[low], col[low]       # col <- a*col - b*piv, exact and integral
+            new = {r: a * val for r, val in col.items()}
             for r, val in piv.items():
-                nv = col.get(r, Fr(0)) - factor * val
-                if nv == 0:
-                    col.pop(r, None)
+                nv = new.get(r, 0) - b * val
+                if nv:
+                    new[r] = nv
                 else:
-                    col[r] = nv
+                    new.pop(r, None)
+            g = 0
+            for val in new.values():        # scale out the common factor: same column
+                g = gcd(g, val)             # direction, integers that stay small
+            col = {r: v // g for r, v in new.items()} if g > 1 else new
 
     _RANK_MEMO[key] = rank
     _RANK_MEMO.move_to_end(key)
@@ -319,6 +344,92 @@ def _pairwise_rank(M: sp.spmatrix):
     return int(M.shape[0]) - _beta0_components(A)
 
 
+
+def _spanned_branching_rank(M: sp.spmatrix):
+    """`nV - components(pairwise part)` when the pairs SPAN every branching column.
+
+    `_pairwise_rank` refuses any column with more than two entries, correctly: a lone
+    arity-4 relation has rank 1 while its support is one component, so `n - c` is wrong
+    there. But a MIXED complex, one carrying each group together with pairwise contacts
+    that connect it, is a different case. A connected set's zero-sum space has dimension
+    `k - 1`, so a branching column whose support lies inside ONE component of the pairwise
+    subgraph is already spanned by it and adds no rank. What is left is a pairwise
+    boundary map, where the combinatorial identity does hold.
+
+    The condition is read off `M` alone and needs nothing about how it was built: take
+    the arity-2 columns, union-find them, and check every wider column lands in one
+    component. Refuses otherwise, so the exact reduction still runs wherever this does
+    not apply.
+
+    This is the difference between 14.3s and half an hour on a real lexical complex of
+    1,626,490 relations, for the same integer.
+    """
+    A = M.tocsc()
+    A.sum_duplicates()
+    counts = np.diff(A.indptr)
+    if counts.size == 0:
+        return None
+    two = np.flatnonzero(counts == 2)
+    wide = np.flatnonzero(counts > 2)
+    if two.size == 0 or wide.size == 0:
+        return None                         # no mix: the existing paths already cover it
+    if (counts == 1).any():
+        return None                         # a witness column is not zero-sum
+    data, indptr, indices = A.data, A.indptr, A.indices
+    for j in two:                           # every 2-column must be a boundary column
+        a, b = data[indptr[j]], data[indptr[j] + 1]
+        if a + b != 0:
+            return None
+    nV = int(A.shape[0])
+    parent = np.arange(nV, dtype=np.int64)
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+
+    for j in two:
+        r0, r1 = int(indices[indptr[j]]), int(indices[indptr[j] + 1])
+        a, b = find(r0), find(r1)
+        if a != b:
+            parent[b] = a
+    for j in wide:
+        rows = indices[indptr[j]:indptr[j + 1]]
+        root = find(int(rows[0]))
+        for r in rows[1:]:
+            if find(int(r)) != root:
+                return None                 # this group is fragmented: it DOES add rank
+    return nV - _beta0_components(A[:, two])
+
+
+def _column_integer_form(M: sp.spmatrix, atol: float = 1e-9):
+    """`M` with each column scaled to integer entries, or None if that is not possible.
+
+    Rank is invariant under nonzero column scaling, so this changes nothing the rank
+    path cares about. The scale tried is the reciprocal of the column's smallest
+    magnitude, which is exactly what clears the share: a column (-1, s, ..., s) with
+    s = 1/(k-1) becomes (-(k-1), 1, ..., 1).
+    """
+    A = M.tocsc(copy=True)
+    A.sum_duplicates()
+    data = A.data.astype(float, copy=True)
+    for j in range(A.shape[1]):
+        lo, hi = A.indptr[j], A.indptr[j + 1]
+        if hi <= lo:
+            continue
+        seg = data[lo:hi]
+        nz = np.abs(seg[np.abs(seg) > atol])
+        if nz.size == 0:
+            continue
+        scaled = seg / nz.min()
+        if not np.all(np.abs(scaled - np.round(scaled)) <= 1e-6 * np.maximum(1.0, np.abs(scaled))):
+            return None
+        data[lo:hi] = np.round(scaled)
+    out = sp.csc_matrix((data, A.indices.copy(), A.indptr.copy()), shape=A.shape)
+    out.eliminate_zeros()
+    return out
+
+
 def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9) -> int:
     """Rank of a sparse matrix. Betti comes from RANKS (the canon), not spectra.
 
@@ -328,16 +439,30 @@ def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9) -> int:
     non-integer (float-weighted) matrices fall back to the dense/truncated SVD.
 
     A pairwise boundary map takes the combinatorial identity first
-    (:func:`_pairwise_rank`), which is the same exact integer by a cheaper route.
+    (:func:`_pairwise_rank`), and a MIXED map whose pairs span its branching columns
+    takes the same identity through :func:`_spanned_branching_rank`. Both are the same
+    exact integer by a cheaper route, and both refuse rather than guess.
     """
     if M.nnz == 0 or min(M.shape) == 0:
         return 0
     quick = _pairwise_rank(M)
     if quick is not None:
         return quick
+    quick = _spanned_branching_rank(M)      # the mixed construction, same identity
+    if quick is not None:
+        return quick
     exact = _exact_rank_reduction(M)
     if exact is not None:
         return exact
+    # A boundary column carries the share 1/(k-1), so it reads as a float matrix while
+    # having an exact integer representative: scaling the column by (k-1) gives
+    # (-(k-1), +1, ..., +1). Rank is invariant under column scaling, so clear the
+    # denominators and retry the exact path rather than falling to a float estimate.
+    scaled = _column_integer_form(M)
+    if scaled is not None:
+        exact = _exact_rank_reduction(scaled)
+        if exact is not None:
+            return exact
     m, n = M.shape
     # Densify only when the matrix is small enough to be harmless; boundary maps of
     # the complexes this module builds are far below this bound.
@@ -347,12 +472,22 @@ def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9) -> int:
             return 0
         thresh = tol * s[0] * max(m, n)
         return int(np.sum(s > max(thresh, tol)))
-    # Large: estimate via truncated SVD (rank cannot exceed k here; the complexes
-    # exercised in this library never reach this branch).
+    # Large, and neither exact path applied. A truncated SVD can only CONFIRM a rank
+    # below its own k; if every computed singular value clears the threshold the rank is
+    # at least k and this routine does not know it. Returning k there reports a cap as a
+    # measurement, which is how a branching BindingDB complex read rank 400 against a
+    # true 4673. So it answers when it can and raises when it cannot.
     k = min(min(m, n) - 1, 400)
     s = sp.linalg.svds(M.asfptype(), k=k, return_singular_vectors=False)
     thresh = tol * s.max() * max(m, n)
-    return int(np.sum(s > max(thresh, tol)))
+    kept = int(np.sum(s > max(thresh, tol)))
+    if kept >= k:
+        raise ValueError(
+            f"rank of a {m}x{n} operator is at least {k} and is not determined by a "
+            f"truncated SVD at k={k}. Hand this path an exact integer representative "
+            f"(see RexGraph._integer_B1) or densify deliberately; it will not return a "
+            f"cap as if it were the rank.")
+    return kept
 
 
 def _beta0_components(B1: sp.spmatrix) -> int:

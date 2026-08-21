@@ -208,7 +208,7 @@ def test_an_unfilled_complex_is_latent():
 def test_a_fully_filled_complex_can_still_be_open():
     """The separating case, and the reason homology cannot answer this. Three faces
     span the tetrahedron's three cycles, so nothing is harmonic and there is no hole
-    anywhere -- yet every edge does not lie in two faces."""
+    anywhere, yet every edge does not lie in two faces."""
     from rexgraph.tower import manifold_state
     st = manifold_state(_tetra(3))
     assert st["harmonic"] == 0, "no holes remain"
@@ -217,7 +217,7 @@ def test_a_fully_filled_complex_can_still_be_open():
 
 
 def test_the_closed_case_is_reached_by_the_redundant_face():
-    """The fourth face adds no rank -- homologically redundant, geometrically
+    """The fourth face adds no rank: homologically redundant, geometrically
     necessary."""
     from rexgraph.tower import manifold_state
     three, four = manifold_state(_tetra(3)), manifold_state(_tetra(4))

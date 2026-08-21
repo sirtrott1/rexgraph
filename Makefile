@@ -224,7 +224,10 @@ gpu-serve:
 
 .PHONY: test-agent
 test-agent:
-	$(PYTEST) agent/tests/ -q
+# agent/pyproject.toml sets testpaths = ["tests"], and five modules import fixtures
+# from a sibling as `tests.test_x`, so the suite resolves from agent/ and not from
+# the repo root. Same reason test-agent-cli below changes directory.
+	cd agent && $(PYTEST) tests/ -q
 
 .PHONY: test-agent-cli
 test-agent-cli:

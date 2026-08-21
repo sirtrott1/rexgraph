@@ -70,11 +70,14 @@ class TestQueryComplex:
         assert sig["n_concepts"] >= 3
         assert "betti" in sig
 
-    def test_single_word_query_no_edges(self):
+    def test_single_word_query_is_a_witness(self):
         rex, ec = qe.build_query_rex("receptors")
-        # single token -> no relations, but vocabulary still available
-        assert rex is None
+        # a single token is a WITNESS (column `(+1)`, sum one, `L0 u = u`) which is a
+        # cell class, not an absence. It used to come back as None on the belief that one
+        # token is "no relation"; it is a relation that exists and bounds nothing.
         assert ec is not None and "receptors" in ec.vertex_labels
+        assert rex is not None and int(rex.nE) == 1
+        assert int(rex.edge_types[0]) == 3, "EdgeType.WITNESS"
 
     def test_relate_query_to_doc(self):
         rex = _doc_rex()
@@ -216,8 +219,8 @@ def test_scores_are_a_coherent_mass_not_a_mixture_of_incommensurable_terms():
     corpus, so the bounded terms contributed 0.14% and hybrid ranking was the spectral
     term alone.
 
-    The score is now ONE field summed over one seed -- kappa over the vertices the
-    query matched -- so nothing is mixed and there is no unit range to enforce: each
+    The score is now ONE field summed over one seed (kappa over the vertices the
+    query matched) so nothing is mixed and there is no unit range to enforce: each
     kappa is in [0,1], so the score lies in [0, n_shared] and grows with how much of
     the query the document actually carries."""
     c = _mini_corpus()

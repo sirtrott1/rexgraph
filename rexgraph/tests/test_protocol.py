@@ -31,10 +31,18 @@ def test_a_complex_saved_straight_after_add_faces_keeps_them():
     Reading `_B2_col_ptr` without flushing serialises an empty B2 under a header that
     declares nF, so every face is lost, in every container, silently. Nothing here
     touches the complex before saving it, which is what makes the test bite."""
-    from rexgraph.io.rex_state import to_state
+    import json
+
+    from rexgraph.io.rex_state import CODEC_TENSOR, decode_tensors, to_state
     state = to_state(_filled())
     assert state.header["nF"] == 2
-    assert np.asarray(state.tensors["B2_col_ptr"]).tolist() == [0, 3, 6], \
+    # a CSR pointer is stored as its first difference, so read it back through the codec
+    # rather than around it: the array the format REPRESENTS is what this is about
+    t = dict(state.tensors)
+    if CODEC_TENSOR in t:
+        decode_tensors(t, json.loads(
+            bytes(np.asarray(t.pop(CODEC_TENSOR)).tobytes()).decode("utf-8")))
+    assert np.asarray(t["B2_col_ptr"]).tolist() == [0, 3, 6], \
         "B2 was serialised empty while the header declared two faces"
 
 

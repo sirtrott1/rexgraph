@@ -202,3 +202,102 @@ class TestSignalConstruction:
         x = np.zeros(5, dtype=np.float64)
         normed = normalize_signal(x)
         assert np.allclose(normed, 0)
+
+
+#### edge primacy is what reaches all three Hodge spaces ########################
+
+def _three_part_complex():
+    """Two triangles bridged, one of them filled. The filled cycle carries curl, the
+    open one carries harmonic, so all three parts are genuinely present."""
+    import numpy as np
+
+    from rexgraph.graph import RexGraph
+    r = RexGraph(sources=np.array([0, 1, 2, 3, 4, 5, 0], np.int32),
+                 targets=np.array([1, 2, 0, 4, 5, 3, 3], np.int32))
+    r.add_faces([[0, 1, 2]], signs=[[1.0, 1.0, 1.0]])
+    r._ensure_clean()
+    return r
+
+
+def _branching_with_a_cycle():
+    """Every 3-subset of 4 vertices: four arity-3 columns over four vertices, so the
+    rank cannot exceed 3 and beta_1 is 1. Branching, and genuinely cyclic."""
+    import numpy as np
+
+    from rexgraph.graph import RexGraph
+    return RexGraph.from_hypergraph(np.array([0, 3, 6, 9, 12], np.int64),
+                                    np.array([0, 1, 2, 1, 2, 3, 0, 1, 3, 0, 2, 3],
+                                             np.int64))
+
+
+def _shares(rex, z):
+    import numpy as np
+
+    from rexgraph.core._hodge import hodge_decomposition
+    g, c, h = hodge_decomposition(rex._B1_dual,
+                                  getattr(rex, "_B2_hodge_dual", None),
+                                  np.ascontiguousarray(z, dtype=np.float64))
+    t = float(z @ z)
+    return np.array([float(g @ g), float(c @ c), float(h @ h)]) / t
+
+
+def test_a_vertex_field_reaches_only_the_gradient_space():
+    """A per-VERTEX parameter can only appear on the edges as `B1^T x`, and `im(B1^T)` IS
+    the gradient space. So its curl and harmonic parts are zero for every x, at any
+    width, and no optimiser or amount of data changes that. This is the limit that rules
+    out embedding tables, factorisations and per-token vectors as the learned object."""
+    import numpy as np
+
+    from rexgraph.core._sparse import to_scipy_csr
+    rng = np.random.default_rng(0)
+    for rex in (_three_part_complex(), _branching_with_a_cycle()):
+        assert int(rex.betti[1]) > 0, "the fixture must have a cycle to reach"
+        B = to_scipy_csr(rex._B1_dual).tocsr()
+        worst = np.zeros(3)
+        for _ in range(200):
+            worst = np.maximum(worst, _shares(rex, B.T @ rng.normal(size=int(rex.nV))))
+        assert worst[0] > 0.999, "it is entirely gradient"
+        assert worst[1] < 1e-12, f"curl must be unreachable, got {worst[1]:.3e}"
+        assert worst[2] < 1e-12, f"harmonic must be unreachable, got {worst[2]:.3e}"
+
+
+def test_an_edge_field_reaches_the_parts_the_complex_actually_has():
+    """A cochain defined on the EDGES is a general 1-cochain, not in the image of
+    anything, so it carries whatever the complex has. On the faced fixture that is all
+    three; on the face-free one curl is empty and it reaches the other two."""
+    import numpy as np
+
+    rng = np.random.default_rng(1)
+    faced = _three_part_complex()
+    got = np.zeros(3)
+    for _ in range(200):
+        got = np.maximum(got, _shares(faced, rng.normal(size=int(faced.nE))))
+    assert got[1] > 0.1, f"curl must be reachable, got {got[1]:.3f}"
+    assert got[2] > 0.1, f"harmonic must be reachable, got {got[2]:.3f}"
+
+    free = _branching_with_a_cycle()
+    assert int(free.nF) == 0
+    got = np.zeros(3)
+    for _ in range(200):
+        got = np.maximum(got, _shares(free, rng.normal(size=int(free.nE))))
+    assert got[2] > 0.5, "harmonic is reachable at arity too"
+
+
+def test_what_a_vertex_field_cannot_fit_IS_the_non_gradient_part():
+    """Per SAMPLE, not on average. The best least-squares fit over ALL x (the ceiling,
+    not one optimiser's result) leaves exactly the curl plus harmonic energy of the
+    target. Verified to machine precision on a pairwise-with-face complex and on a
+    branching one."""
+    import numpy as np
+
+    from rexgraph.core._sparse import to_scipy_csr
+    rng = np.random.default_rng(7)
+    for rex in (_three_part_complex(), _branching_with_a_cycle()):
+        A = to_scipy_csr(rex._B1_dual).tocsr().T.toarray()
+        for _ in range(50):
+            z = rng.normal(size=int(rex.nE))
+            sh = _shares(rex, z)
+            x_hat, *_ = np.linalg.lstsq(A, z, rcond=None)
+            r = z - A @ x_hat
+            unreachable = float(r @ r) / float(z @ z)
+            assert abs(unreachable - (sh[1] + sh[2])) < 1e-12

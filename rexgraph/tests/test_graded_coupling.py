@@ -62,7 +62,9 @@ def _reff_of(Bk):
     L = (Bk @ Bk.T).tocsr()
     U, _ = kernel_basis(L)
     Bc = np.ascontiguousarray(np.asarray(Bk.todense()))
-    d = np.asarray(L.diagonal(), float) + (U * U).sum(axis=1)
+    # kernel_basis returns a SPARSE indicator matrix (one nonzero per row)
+    d = np.asarray(L.diagonal(), float) + \
+        np.asarray(U.multiply(U).sum(axis=1)).ravel()
     dinv = np.where(d > 1e-30, 1.0 / d, 1.0)
     X = _block_cg(lambda P: L @ P + U @ (U.T @ P), Bc, dinv, tol=1e-12, maxit=500)
     return np.einsum("ve,ve->e", Bc, X)

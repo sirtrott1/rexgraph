@@ -11,6 +11,7 @@ Covers:
 """
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 import rexgraph.graded_boundary as gb
 from rexgraph.graph import RexGraph
@@ -247,3 +248,88 @@ def test_graph_is_1rex():
     assert len(B) == 1
     assert B[0].shape == (3, 3)
     assert gb.betti_numbers(B) == [1, 1]                # a 3-cycle: beta_1 = 1
+
+
+#### -
+# The two invariants the exact rank path is allowed to exploit
+#### -
+def _mixed_b1():
+    """Witness, pairwise and branching together, with the wide columns overlapping in
+    more than one vertex so they genuinely carry cycles (section 6i, Theorem 19)."""
+    cells = [[0], [3], (0, 1), (1, 2), (2, 0), (5, 6),
+             (0, 1, 2, 3), (1, 2, 3, 4), (2, 3, 4, 5), (0, 2, 4, 6)]
+    cols, rows, data = [0], [], []
+    for c in cells:
+        c = list(c)
+        k = len(c)
+        if k == 1:
+            rows += c; data += [1.0]
+        else:
+            share = 1.0 / (k - 1)
+            rows += c; data += [-1.0] + [share] * (k - 1)
+        cols.append(len(rows))
+    return sp.csc_matrix((data, rows, cols), shape=(7, len(cells)))
+
+
+def test_the_rank_does_not_depend_on_the_order_columns_are_reduced_in():
+    """Which is what licenses reducing the sparsest column first. Persistence needs the
+    given order because it pairs births with deaths; a rank does not, and the widest
+    column reduced early is the one that fills every pivot after it."""
+    B = _mixed_b1()
+    want = gb._sparse_rank(B)
+    rng = np.random.default_rng(0)
+    for _ in range(8):
+        perm = rng.permutation(B.shape[1])
+        gb._RANK_MEMO.clear()
+        assert gb._sparse_rank(B[:, perm].tocsc()) == want
+
+
+def test_the_rank_does_not_depend_on_how_each_column_is_scaled():
+    """Which is what licenses cross-multiplying and dividing out the gcd instead of
+    forming a quotient. A column op scaled by a nonzero integer is still a column op."""
+    B = _mixed_b1()
+    want = gb._sparse_rank(B)
+    rng = np.random.default_rng(1)
+    for _ in range(8):
+        s = rng.integers(1, 7, size=B.shape[1]).astype(float) * rng.choice([-1.0, 1.0],
+                                                                          B.shape[1])
+        gb._RANK_MEMO.clear()
+        assert gb._sparse_rank((B @ sp.diags(s)).tocsc()) == want
+
+
+def test_the_exact_path_stays_in_the_integers():
+    """The integrality check is what makes every entry an integer, so a Fraction here
+    is carrying a denominator that is provably 1."""
+    B = _mixed_b1()
+    scaled = gb._column_integer_form(B)
+    assert scaled is not None
+    vals = gb._rational_data(scaled)
+    assert vals and all(type(v) is int for v in vals)
+
+
+def test_a_document_sized_mixed_complex_agrees_with_the_slow_path():
+    """The reduction is the only thing that changed, so it must return what the
+    unordered Fraction form returned. Checked against a from-scratch reduction rather
+    than a recorded number."""
+    from fractions import Fraction as Fr
+    B = _mixed_b1()
+    A = gb._column_integer_form(B).tocsc()
+    A.sum_duplicates(); A.sort_indices()
+    pivots, rank = {}, 0
+    for j in range(A.shape[1]):                        # given order, Fraction arithmetic
+        col = {int(A.indices[k]): Fr(int(round(float(A.data[k]))))
+               for k in range(A.indptr[j], A.indptr[j + 1])
+               if round(float(A.data[k])) != 0}
+        while col:
+            low = max(col)
+            piv = pivots.get(low)
+            if piv is None:
+                pivots[low] = col; rank += 1; break
+            f = col[low] / piv[low]
+            for r, val in piv.items():
+                nv = col.get(r, Fr(0)) - f * val
+                col[r] = nv
+                if nv == 0:
+                    col.pop(r)
+    gb._RANK_MEMO.clear()
+    assert gb._sparse_rank(B) == rank

@@ -3,7 +3,7 @@
 Retrieval could only see documents held in the current process: CorpusBuilder kept
 everything in memory and had no path into the store, while the RCDB right next door
 already had versioning, bitemporal reads and a queryable structural signature. This
-is the producer half of the seam -- one record per document, so the store becomes
+is the producer half of the seam: one record per document, so the store becomes
 the corpus rather than a place a corpus gets copied to.
 """
 

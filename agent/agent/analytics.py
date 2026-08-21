@@ -23,7 +23,7 @@ one place a complex lives.
     from agent import analytics
     view = analytics.signature_view(store)
     view.sql("SELECT source, avg(kappa_mean) FROM signatures GROUP BY source")
-    view.ids("betti1 > 2 AND kappa_mean > 0.8")
+    view.ids("betti1 > 2 AND chain_valid = 1")
 """
 
 from __future__ import annotations

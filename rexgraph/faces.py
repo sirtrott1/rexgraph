@@ -23,6 +23,7 @@ face there would assert a topology the complex does not have.
 
 from __future__ import annotations
 
+import math as _math
 from fractions import Fraction
 
 import numpy as np
@@ -131,7 +132,7 @@ def solve_face_column(rex, edge_ids):
     # clear denominators so a cycle face comes back as +/-1 rather than a scaled copy
     den = 1
     for v in x:
-        den = den * v.denominator // np.gcd(den, v.denominator)
+        den = den * v.denominator // _math.gcd(den, v.denominator)
     return [v * den for v in x]
 
 
@@ -193,7 +194,7 @@ def solve_face_basis(rex, edge_ids) -> list:
         x = [v / lead for v in x]
         den = 1
         for v in x:
-            den = den * v.denominator // np.gcd(den, v.denominator)
+            den = den * v.denominator // _math.gcd(den, v.denominator)
         basis.append([v * den for v in x])
     return basis
 
@@ -780,7 +781,7 @@ def _clear_denominators(x):
     x = [v / lead for v in x]
     den = 1
     for v in x:
-        den = den * v.denominator // np.gcd(den, v.denominator)
+        den = den * v.denominator // _math.gcd(den, v.denominator)
     return [v * den for v in x]
 
 

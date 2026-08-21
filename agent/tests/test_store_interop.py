@@ -5,8 +5,8 @@ meant knowing which was fast for your shape of data and which drivers you happen
 to have installed. That is a decision the library can make and a migration it can
 perform, since every backend already answers the same contract.
 
-FileStore's quadratic ingest is fixed here too. It keeps one file per blob -- which
-is its point, since external tools can read those directly -- but its index is a
+FileStore's quadratic ingest is fixed here too. It keeps one file per blob (which
+is its point, since external tools can read those directly) but its index is a
 log rather than a document rewritten on every put.
 """
 

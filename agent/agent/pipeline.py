@@ -867,13 +867,17 @@ class AnalysisPipeline:
             Bvoid = vc.get("Bvoid")
             if Bvoid is not None:
                 result["Bvoid_shape"] = list(Bvoid.shape)
-                Bd = np.asarray(Bvoid.toarray() if hasattr(Bvoid, "toarray")
-                                else Bvoid, dtype=np.float64)
-                if Bd.size > 0 and Bd.shape[1] > 0:
-                    # numpy's default is the canonical SVD rank tolerance (machine-eps
-                    # scaled), not an arbitrary constant; Bvoid is an integer ±1 matrix.
-                    result["void_kernel_dim"] = int(Bd.shape[0]
-                                                     - np.linalg.matrix_rank(Bd))
+                # Bvoid is an integer +-1 matrix, so its rank is an integer fact and
+                # _sparse_rank settles it by exact elimination. np.linalg.matrix_rank
+                # densified it and thresholded singular values, which is a tolerance
+                # deciding the answer directly under a comment promising it was exact.
+                import scipy.sparse as _sp
+
+                from rexgraph.graded_boundary import _sparse_rank as _rank
+                Bs = Bvoid if _sp.issparse(Bvoid) else _sp.csc_matrix(
+                    np.asarray(Bvoid, dtype=np.float64))
+                if Bs.shape[0] > 0 and Bs.shape[1] > 0:
+                    result["void_kernel_dim"] = int(Bs.shape[0] - int(_rank(Bs.tocsc())))
                 else:
                     result["void_kernel_dim"] = int(rex.nE)
 

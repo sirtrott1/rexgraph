@@ -356,7 +356,7 @@ def load_extra(path: str | os.PathLike) -> dict[str, Any]:
     return json.loads(raw["extra_meta"]) if "extra_meta" in raw else {}
 
 
-def safetensors_to_rex(path: str | os.PathLike):
+def safetensors_to_rex(path: str | os.PathLike, *, verify: bool = True):
     """Reconstruct a RexGraph from a `.safetensors` file.
 
     Only the core reconstruction arrays plus weights are consumed by the
@@ -393,13 +393,14 @@ def safetensors_to_rex(path: str | os.PathLike):
             "not RexGraph."
         )
     raw = load_file(str(p))
-    return from_state(RexState(dict(raw), hdr))
+    return from_state(RexState(dict(raw), hdr), verify=verify)
 
 
 # Full load (returns both the rex and any cached arrays/scalars)
 
 
-def load_safetensors(path: str | os.PathLike) -> dict[str, Any]:
+def load_safetensors(path: str | os.PathLike, *,
+                     verify: bool = True) -> dict[str, Any]:
     """Load the full contents of a safetensors file as a dict.
 
     Returns a dict with keys:
@@ -418,7 +419,7 @@ def load_safetensors(path: str | os.PathLike) -> dict[str, Any]:
     meta = _load_meta(str(p))
     obj_type = meta.get("object_type")
     if obj_type == "RexGraph":
-        obj = _rex_from_loaded(tensors, meta)
+        obj = _rex_from_loaded(tensors, meta, verify=verify)
     elif obj_type == "TemporalRex":
         obj = _temporal_from_loaded(tensors, meta)
     else:
@@ -677,12 +678,13 @@ def safetensors_to_temporal_rex(path: str | os.PathLike):
 # Internal reconstructors used by load_safetensors
 
 
-def _rex_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any]):
+def _rex_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any],
+                     *, verify: bool = True):
     # `meta` (the `rex_meta` alias) is the rex-state header for files written by the current
     # `rex_to_safetensors`, so this goes through the same canonical decoder as
     # `safetensors_to_rex` instead of keeping a second, hand-rolled reconstruction here.
     from .rex_state import RexState, from_state
-    return from_state(RexState(dict(tensors), meta))
+    return from_state(RexState(dict(tensors), meta), verify=verify)
 
 
 def _temporal_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any]):

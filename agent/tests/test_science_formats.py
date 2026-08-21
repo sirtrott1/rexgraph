@@ -312,3 +312,35 @@ def test_a_uniprot_style_fasta_header_is_parsed(tmp_path):
             "MASPDWGYDDKNGPEQWSKLYPIANGNN\n")
     ec = formats.load_fasta(_write(tmp_path, "p.fasta", text), k=6)
     assert ec.nE > 0 and ec.nV > 0
+
+
+def test_h5ad_refuses_an_X_that_will_not_fit(tmp_path, monkeypatch):
+    """This reader returns dense, so a stored-sparse X is materialised here.
+
+    A cells x genes matrix is routinely large enough to exhaust memory, and the library
+    has a guard for exactly that. Failing with the limit named beats an OOM from inside
+    h5py.
+    """
+    import numpy as np
+    import pytest
+    h5py = pytest.importorskip("h5py")
+    import scipy.sparse as sp
+    from agent.adapters import formats
+
+    p = tmp_path / "big.h5ad"
+    X = sp.csr_matrix(np.eye(4, dtype=np.float64))
+    with h5py.File(p, "w") as f:
+        g = f.create_group("X")
+        g.attrs["encoding-type"] = "csr_matrix"
+        g.attrs["shape"] = np.asarray(X.shape, dtype=np.int64)
+        g.create_dataset("data", data=X.data)
+        g.create_dataset("indices", data=X.indices)
+        g.create_dataset("indptr", data=X.indptr)
+    m, _obs, _var = formats.load_h5ad(p)          # small: goes through
+    assert m.shape == (4, 4)
+
+    # the guard is the library's, so it is exercised through the library and by its own
+    # error type rather than by a blanket except
+    from rexgraph.core._common import CoreMemoryLimitError, check_dense_allocation
+    with pytest.raises(CoreMemoryLimitError):
+        check_dense_allocation("load_h5ad X", 500_000, 30_000)

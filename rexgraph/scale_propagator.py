@@ -497,8 +497,26 @@ def malaugh_quantities(rex):
         trL = trL2 = 0.0
     L_T = trT2 / trT ** 2 if trT > 0 else float('nan')
     L_S = trL2 / trL ** 2 if trL > 0 else float('nan')
+    ok = trT > 0 and trL > 0
+    # BOTH directions are wanted, so both are named. They are reciprocals and only one of
+    # them satisfies the geometric-mean identity, so a bare `c2` could not say which:
+    #
+    #   c2_H     = L_T/L_S = e^{H_S - H_T}   the entropy coupling of C.1, and the one
+    #                                        for which sqrt(c2_E * c2_H) = c0^2 holds
+    #   c2_H_inv = L_S/L_T = e^{H_T - H_S}   the same rate read the other way
+    #
+    # The identity is what pins the direction; the Lagrangian curvature |log c2_H| does
+    # not, which is why the doc's "direction-free" note is about the MAGNITUDE only.
+    # Measured on K_k: c0^2 = (k-2)/2, and sqrt(c2_E * c2_H) reproduces it (1.5 at K5,
+    # 2.0 at K6) while sqrt(c2_E * c2_H_inv) collapses to 1.0 at every k. K4 cannot see
+    # the difference because 1 is its own reciprocal.
     return {
-        'c2': (L_S / L_T) if (trT > 0 and trL > 0) else float('nan'),
+        'c2_H': (L_T / L_S) if ok else float('nan'),
+        'c2_H_inv': (L_S / L_T) if ok else float('nan'),
+        #: deprecated alias of `c2_H_inv`, which is what this key has always returned.
+        #: Kept so an existing reader does not silently change meaning; new code wanting
+        #: the coupling that closes C.2 must ask for `c2_H`.
+        'c2': (L_S / L_T) if ok else float('nan'),
         'c2_E': (trL2 / trT2) if trT2 > 0 else float('nan'),
         'H_T': float(-np.log(L_T)) if L_T == L_T and L_T > 0 else float('nan'),
         'H_S': float(-np.log(L_S)) if L_S == L_S and L_S > 0 else float('nan'),

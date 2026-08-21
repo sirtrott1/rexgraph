@@ -830,8 +830,15 @@ def load_h5ad(path, **kw):
                 enc = enc.decode("utf-8")
             shape = tuple(int(x) for x in node.attrs["shape"])
             cls = sp.csc_matrix if "csc" in str(enc) else sp.csr_matrix
-            X = cls((node["data"][:], node["indices"][:], node["indptr"][:]),
-                    shape=shape).toarray()
+            Xs = cls((node["data"][:], node["indices"][:], node["indptr"][:]),
+                     shape=shape)
+            # this reader returns a dense array, so a stored-sparse X is materialised
+            # here. Ask the library's own guard first: a cells x genes matrix is
+            # routinely large enough to exhaust memory, and failing with the limit named
+            # is worth more than an OOM from inside h5py.
+            from rexgraph.core._common import check_dense_allocation
+            check_dense_allocation("load_h5ad X", int(shape[0]), int(shape[1]))
+            X = Xs.toarray()
         else:
             X = np.asarray(node[:], dtype=np.float64)
         obs = _h5_index(f["obs"]) if "obs" in f else []

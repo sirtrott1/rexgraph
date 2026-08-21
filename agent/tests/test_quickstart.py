@@ -5,7 +5,7 @@ allocation, the store registry knew which backends existed, auto_rex knew which
 files it could read, and nothing added them up for a particular machine and a
 particular directory.
 
-Planning reads only. Nothing is installed and nothing is written until asked --
+Planning reads only. Nothing is installed and nothing is written until asked,
 which matters most on the machine where you are only looking.
 """
 

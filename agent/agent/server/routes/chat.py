@@ -312,10 +312,25 @@ async def chat(session_id: str, body: dict = Body(...)):
                         corpus = cp
             except Exception:
                 corpus = None
+        # ...and then the PERSISTED corpus, which is the last resort and the largest one.
+        # `default_store()` resolves REXGRAPH_RCDB_URI and is workspace-scoped when auth
+        # is on, so this reaches what was ingested rather than a throwaway. It comes last
+        # for the same reason the workspace corpus does: a session that has its own
+        # document is asking about THAT document, and a store holding 61,353 others must
+        # not answer over it.
+        rc_store = None
+        if not has_doc and corpus is None:
+            try:
+                from agent.rcdb import default_store
+                rc_store = default_store()
+            except Exception:
+                # The corpus is optional here: with no store configured the chat
+                # answers over the complex it was given and does not reach past it.
+                rc_store = None
         try:
             qa = query_engine.answer_query(
                 rex, message, cached_results,
-                corpus=corpus, doc_summary=doc_summary)
+                corpus=corpus, doc_summary=doc_summary, store=rc_store)
             response = {
                 "text": qa["answer"] or doc_summary or "Upload data to begin analysis.",
                 "property": None,

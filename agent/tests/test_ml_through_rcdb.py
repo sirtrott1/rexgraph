@@ -1,8 +1,8 @@
 """Baselines trained on features read back out of the store.
 
 This pins the WIRING, not a method. The question is whether a supervised task can
-be run end to end off the RCDB -- ingest, persist across a process boundary, project
-signatures into a feature matrix, fit, and read the store as it stood at a time --
+be run end to end off the RCDB: ingest, persist across a process boundary, project
+signatures into a feature matrix, fit, and read the store as it stood at a time,
 without anything being smuggled in from the in-memory objects that produced it.
 
 Run against real binding data (651 protein complexes, sqlite on a local file) the

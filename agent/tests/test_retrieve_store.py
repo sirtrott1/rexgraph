@@ -1,7 +1,7 @@
 """retrieve_sections ranks over an RCStore.
 
-The consumer half of the seam. retrieve_sections had two modes -- an in-memory
-CorpusBuilder, or a single document -- so a persisted corpus was unreachable from
+The consumer half of the seam. retrieve_sections had two modes (an in-memory
+CorpusBuilder, or a single document) so a persisted corpus was unreachable from
 the query path even after slice 1 put it in the store. Store mode closes that, and
 ranks with the same score_document the in-memory path uses rather than a second
 copy of the ranking.
@@ -78,7 +78,7 @@ def test_store_mode_agrees_with_the_in_memory_corpus(store):
     Compared over the RELEVANT results only. The in-memory path scores every document
     and so pads its tail with zero-scoring ones; the store path's label prefilter
     drops anything sharing no vocabulary with the query, which is the point of having
-    a prefilter. Agreement on the nonzero prefix is the invariant that matters -- a
+    a prefilter. Agreement on the nonzero prefix is the invariant that matters: a
     zero-scored document is not a retrieval result.
     """
     back = CorpusBuilder.from_store(store)
@@ -129,3 +129,41 @@ def test_store_mode_reads_the_corpus_as_it_stood(store):
     sections, relation = qe.retrieve_sections("boundary map", top_k=3, store=store,
                                               as_of=1.0)
     assert sections == [] or relation["mode"] != "store"
+
+
+#### the chat path can reach a persisted corpus ################################
+
+def test_answer_query_can_answer_from_a_store(store):
+    """The whole point of the wiring: `answer_query` had no `store` parameter, so a chat
+    turn could only reach what was in memory and an ingested corpus of any size was
+    unreachable from a conversation."""
+    qa = qe.answer_query(None, "boundary map orientation sign endpoints",
+                         store=store, use_cache=False)
+    assert qa["sections"], "the store must be reachable"
+    assert qa["sections"][0]["doc_id"] == "boundary"
+
+
+def test_a_session_document_still_wins_over_the_store(store):
+    """A session that has its own document is asking about THAT document. The store holds
+    everything else and must not answer over it."""
+
+    from rexgraph.document import build_document
+
+    rex, _info = build_document(
+        "The kernel is the null space. A boundary column sums to zero.\n"
+        "Orientation lives in the sign, not the position of an endpoint.\n")
+    rex._agent_meta = dict(getattr(rex, "_agent_meta", {}) or {})
+    rex._agent_meta["source_text"] = "the session's own document"
+
+    qa = qe.answer_query(rex, "boundary map orientation sign endpoints",
+                         store=None, use_cache=False)
+    ids = {s.get("doc_id") for s in (qa["sections"] or [])}
+    assert "boundary" not in ids, "the store was not passed, so it must not be consulted"
+
+
+def test_the_cache_key_separates_a_store_answer_from_a_local_one(store):
+    """Same query text, different source. Without the source in the key the second
+    caller gets the first one's answer."""
+    a = qe._cache_key({"digest": "d"}, "same question", 5, "")
+    b = qe._cache_key({"digest": "d"}, "same question", 5, "store:/tmp/x")
+    assert a != b
