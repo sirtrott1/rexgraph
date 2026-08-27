@@ -967,12 +967,11 @@ class FileStore(RCStore):
                 for row, rid in enumerate(snap["ids"]):
                     rows_by_id.setdefault(str(rid), []).append(row)
             except Exception:
-                # An unreadable snapshot costs only speed while the log still holds the
-                # same changes. `_write_index` removes the log once it has folded it in,
-                # so past a compaction this file IS the index: continuing without it
-                # reports an EMPTY store over intact blobs, which is the silent-wrong
-                # answer the digest exists to prevent. Measured before this guard: one
-                # flipped byte took a five-record store to zero records and no error.
+                # An unreadable snapshot costs only speed while the log still holds
+                # the same changes. `_write_index` removes the log once it has folded it
+                # in, so past a compaction this file IS the index, and continuing
+                # without it reports an EMPTY store over intact blobs. That is the
+                # answer the digest exists to prevent, so it raises instead.
                 snap, rows_by_id = None, {}
                 if not os.path.exists(self._log_path):
                     raise

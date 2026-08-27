@@ -25,7 +25,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.1.0"
+version = "1.1.1"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
@@ -99,6 +99,16 @@ nn = [
 # GPU acceleration. Heavy: pulls cupy and needs a CUDA toolkit.
 cuda = [
     "cupy-cuda12x>=13.0",
+]
+
+# TensorFlow, for `rexgraph.nn.tf_relational`. Separate from `nn` on purpose:
+# tensorflow and a ROCm/CUDA torch CANNOT share an interpreter here. Importing
+# torch then tensorflow aborts outright (both bundle LLVM; the second to register
+# its CommandLine options calls LLVM ERROR), and even tf-first a later ROCm GPU
+# dispatch segfaults. Install both only if the two are kept in separate processes,
+# which is what rexgraph/tests/test_tf_integration.py does.
+tf = [
+    "tensorflow>=2.16",
 ]
 
 # Contributor tooling: test, lint, type-check, and the build backend.

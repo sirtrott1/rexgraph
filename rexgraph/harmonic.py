@@ -4,6 +4,17 @@ rexgraph/harmonic.py
 The harmonic plane of numbers: thin wrapper over _harmonic Cython module.
 Falls back to pure Python when compiled module is unavailable.
 See rexgraph.core._harmonic for full documentation.
+
+Nothing imports this module. It is not in `rexgraph.__init__`, has no callers and
+no tests, and it reaches the harmonic plane the retired way: `B1_dense`,
+`B2_dense`, a dense nE x nE L1 and `np.linalg.eigh` against a hardcoded cutoff.
+
+The live surface is `rexgraph.harmonic_sparse` for the frame and projection, and
+`rexgraph.hodge_coords` for coordinates, the metric, closure and the Gram
+determinant. `harmonic_product_structure` here and `harmonic_closure` there
+compute the same object; the latter does it off the small Gram with no
+eigendecomposition. Kept for the prime-coupling experiments, which have no
+equivalent elsewhere.
 """
 
 from __future__ import annotations

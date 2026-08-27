@@ -568,3 +568,106 @@ def test_topology_and_geometry_share_a_diagonal_so_the_axes_are_three():
     seeds = [vocab[w] for w, _a, _b in tokenize(q, ENGLISH_GUTENBERG) if w in vocab]
     prof, _l, _n = section_response(rex, sect, seeds, channels=True)
     assert np.allclose(prof[:, 0], prof[:, 1]), "T and G share their diagonal"
+
+
+def test_section_coverage_is_exact_over_the_rationals():
+    """Every quantity coverage reads is rational: a boundary entry is -1 at position 0
+    and 1/(k-1) after it, a seed weight is 1/deg, and the reading is the unsigned total
+    less the magnitude of the signed one."""
+    from fractions import Fraction
+
+    import numpy as np
+
+    from rexgraph.graph import RexGraph
+    from rexgraph.partition import section_coverage
+    from rexgraph.sectioning import add_sectioning, sectionings_of
+
+    ptr = np.array([0, 3, 6, 9, 12], dtype=np.int64)
+    idx = np.array([0, 1, 2, 1, 3, 4, 2, 4, 5, 0, 5, 3], dtype=np.int64)
+    rex = RexGraph.from_hypergraph(ptr, idx)
+    add_sectioning(rex, "s", {"a": [0, 1], "b": [2, 3]})
+    sect = sectionings_of(rex)["s"]
+    owner = np.asarray(sect.owner_cochain(int(rex.nE)), dtype=np.int64)
+    seeds = [0, 1, 4]
+
+    deg = np.bincount(idx, minlength=int(rex.nV))
+    want = [Fraction(0)] * 2
+    for e in range(int(rex.nE)):
+        lo, hi = int(ptr[e]), int(ptr[e + 1])
+        k = hi - lo
+        mass = Fraction(0)
+        signed = Fraction(0)
+        for j in range(lo, hi):
+            v = int(idx[j])
+            if v not in seeds:
+                continue
+            entry = Fraction(-1) if j == lo else Fraction(1, k - 1)
+            w = Fraction(1, int(deg[v]))
+            mass += abs(entry) * w
+            signed += entry * w
+        s = int(owner[e])
+        if 0 <= s < 2:
+            want[s] += mass - abs(signed)
+
+    got, _labels = section_coverage(rex, sect, seeds)
+    for s in range(2):
+        assert got[s] == float(want[s]), f"section {s}: {got[s]!r} != {float(want[s])!r}"
+
+
+def test_the_edge_primary_reading_is_exact_over_the_rationals():
+    """`mass[e] = SUM over seeds v in e of |B[v,e]|/deg[v]`, summed per section. One
+    hop, read at the relation, and every quantity in it is rational."""
+    from fractions import Fraction
+
+    import numpy as np
+
+    from rexgraph.graph import RexGraph
+    from rexgraph.partition import section_response
+    from rexgraph.sectioning import add_sectioning, sectionings_of
+
+    ptr = np.array([0, 3, 6, 9, 12], dtype=np.int64)
+    idx = np.array([0, 1, 2, 1, 3, 4, 2, 4, 5, 0, 5, 3], dtype=np.int64)
+    rex = RexGraph.from_hypergraph(ptr, idx)
+    add_sectioning(rex, "s", {"a": [0, 1], "b": [2, 3]})
+    sect = sectionings_of(rex)["s"]
+    owner = np.asarray(sect.owner_cochain(int(rex.nE)), dtype=np.int64)
+    seeds = [0, 1, 4]
+    deg = np.bincount(idx, minlength=int(rex.nV))
+
+    want = [Fraction(0)] * 2
+    for e in range(int(rex.nE)):
+        lo, hi = int(ptr[e]), int(ptr[e + 1])
+        k = hi - lo
+        for j in range(lo, hi):
+            v = int(idx[j])
+            if v not in seeds:
+                continue
+            entry = Fraction(1) if j == lo else Fraction(1, k - 1)   # |B[v,e]|
+            s = int(owner[e])
+            if 0 <= s < 2:
+                want[s] += entry * Fraction(1, int(deg[v]))
+
+    got, _labels = section_response(rex, sect, seeds, propagator="mass")
+    for s in range(2):
+        assert got[s] == float(want[s]), f"section {s}"
+
+
+def test_the_edge_primary_reading_survives_an_evenly_covered_column():
+    """A zero-sum column passes nothing signed when its support is seeded evenly, which
+    is where a section is most distinctive. The unsigned total does not cancel."""
+    import numpy as np
+
+    from rexgraph.graph import RexGraph
+    from rexgraph.partition import section_response
+    from rexgraph.sectioning import add_sectioning, sectionings_of
+
+    ptr = np.array([0, 3], dtype=np.int64)
+    idx = np.array([0, 1, 2], dtype=np.int64)
+    rex = RexGraph.from_hypergraph(ptr, idx)
+    add_sectioning(rex, "s", {"only": [0]})
+    sect = sectionings_of(rex)["s"]
+    seeds = [0, 1, 2]                      # the whole support, every degree 1
+    signed, _ = section_response(rex, sect, seeds, propagator="boundary")
+    mass, _ = section_response(rex, sect, seeds, propagator="mass")
+    assert float(mass[0]) > 0.0, "the unsigned reading still answers"
+    assert float(np.asarray(signed)[0]) >= 0.0

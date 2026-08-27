@@ -76,7 +76,7 @@ print(f"\n  answerable direction {np.round(ca, 4)}")
 print(f"  foreign    direction {np.round(cf, 4)}")
 print(f"  spread between them  {float(spread(ca, cf)):.6f}   (0 = same direction)")
 
-# --- can the DIRECTION classify, held out? Leave-one-out, no threshold anywhere:
+# can the DIRECTION classify, held out? Leave-one-out, no threshold anywhere:
 # each sample is assigned to whichever class centroid it has the smaller SPREAD to,
 # and the centroids are computed WITHOUT it.
 print("\n=== leave-one-out classification on the profile direction ===")

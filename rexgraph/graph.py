@@ -993,9 +993,9 @@ class RexGraph:
         if len(boundaries) == 0:
             raise ValueError("from_cells needs at least a grade-1 (edge) list")
 
-        # --- B1 slot: general boundary CSR straight from the grade-1 cells, using
-        #     the positional sign convention (first index is the source, rest are
-        #     targets), which is exactly what the CSR storage encodes. ---
+        # B1 slot: general boundary CSR straight from the grade-1 cells, using the
+        # positional sign convention (first index is the source, rest are targets),
+        # which is exactly what the CSR storage encodes.
         edge_cells = cells_by_grade[1]
         counts = np.empty(len(edge_cells), dtype=_i32)
         idx_parts = []
@@ -1351,12 +1351,11 @@ class RexGraph:
         self._ensure_clean()
         if self._is_standard_only:
             return _boundary.build_B1(self._nV, self._nE, self.sources, self.targets)
-        # General boundary, scattered straight into the DualCSR. It used to materialise a
-        # dense nV x nE and rescan it for the few nonzeros, which is what `_B2_dual` below
-        # already avoids and says so. A branching complex has sum(arity) entries and
-        # nothing else, so the dense form is nV/arity times larger than the data: at
-        # nV 345539 and nE 1399989 it asked for 3.87 TB and capped every branching
-        # complex, which is every complex `from_hypergraph` builds.
+        # General boundary, scattered straight into the DualCSR, which is what
+        # `_B2_dual` below already does. A branching complex has sum(arity) entries and
+        # nothing else, so a dense nV x nE is nV/arity times larger than the data: at
+        # nV 345539 and nE 1399989 that is 3.87 TB, and it caps every complex
+        # `from_hypergraph` builds.
         rows, cols, vals = self._b1_general_coo()
         return _sparse.dual_from_coo(rows, cols, vals, int(self._nV), int(self._nE))
 
@@ -2540,14 +2539,31 @@ class RexGraph:
 
     @cached_property
     def frustration_exact(self):
-        """Doc-exact frustration channel F = T - G (INTEGER, Def 3.3), as a sparse
-        scipy CSR. F[i,j] = T[i,j] - G[i,j] off-diagonal (0 same-orientation,
-        -2 opposite at a shared vertex), F[i,i] = Σ_j|F[i,j]|. Pure integer - the
-        exact/Hodge tower, built from T = B₁ᵀB₁ and G = |B₁|ᵀ|B₁| (no float weights,
-        unlike the legacy signed-Gramian `L_frustration_weighted`)."""
+        """Doc-exact frustration channel F = T - G (Def 3.3), as a sparse scipy CSR.
+        F[i,j] = T[i,j] - G[i,j] off-diagonal (0 same-orientation, -2 opposite at a
+        shared vertex), F[i,i] = Σ_j|F[i,j]|.
+
+        BOTH sides carry the metric. `overlap_gramian_sparse` is the WEIGHTED
+        unsigned Gram W|B₁|ᵀ|B₁|W, which is what G is: the weights are the metric,
+        and an unweighted G is only a count of shared vertices. Taking an unweighted
+        T against it subtracted one tower from the other, and the difference then
+        reported the WEIGHTS rather than the sign mismatch: on a uniformly oriented
+        complex, where every vertex heads all or none of its relations and F is zero
+        by construction, weights (3,1,2) gave a nonzero F while the sparse and the
+        exact rational characters both correctly read 0. Unweighted complexes never
+        showed it, W being the identity there.
+
+        The signed and unsigned Grams have identical diagonals whatever the metric,
+        because squaring kills the sign, so the mismatch F isolates is entirely
+        off-diagonal.
+        """
         from scipy import sparse as _sp
         T = _laplacians.build_L1_down_sparse(self._B1_dual).tocsr()   # B₁ᵀB₁
-        G = self.overlap_gramian_sparse.tocsr()                      # |B₁|ᵀ|B₁|
+        _w = self.edge_metric
+        if _w is not None:
+            _D = _sp.diags(_w)
+            T = (_D @ T @ _D).tocsr()                                # W B₁ᵀB₁ W
+        G = self.overlap_gramian_sparse.tocsr()                      # W|B₁|ᵀ|B₁|W
         Foff = (T - G).tocsr()
         Foff.setdiag(0.0); Foff.eliminate_zeros()
         d = np.asarray(np.abs(Foff).sum(axis=1)).ravel()
@@ -2599,8 +2615,12 @@ class RexGraph:
     def RL(self) -> NDArray:
         """Relational Laplacian RL = sum of trace-normalized typed Laplacians.
 
-        tr(RL) = nhats. When L_coPC is available, nhats = 4 (RL4).
-        Otherwise nhats = 3 (RL3).
+        nhats is the number of channels the complex CARRIES, four when L_coPC is
+        available (RL4) and three otherwise (RL3), fixed by what is assembled rather
+        than by which channels happen to be nonzero. tr(RL) counts the channels
+        carrying mass, so it equals nhats unless one of them is degenerate: a
+        uniformly oriented complex has zero frustration and reads tr(RL) = 3 against
+        nhats = 4, which is a fact about its orientation and not a missing channel.
 
         RL is inherently a dense nE x nE object (callers do np.trace / eigvalsh /
         RL.T on it). On the scale-free sparse path the dense bundle never built it,
@@ -2641,10 +2661,15 @@ class RexGraph:
 
     @cached_property
     def nhats(self) -> int:
-        """Number of active hat operators in the relational Laplacian."""
+        """Number of channels the relational Laplacian carries.
+
+        Fixed by the assembly, not by which channels are nonzero: a channel with no
+        mass contributes a zero hat and is still counted, so the character has a
+        stable width and two complexes are comparable column by column.
+        """
         if self._use_sparse_character:
             return self._sparse_character['nhats']
-        return self._rcf_bundle.get('nhats', 3)
+        return self._rcf_bundle.get('nhats', 4)
 
     @cached_property
     def hat_names(self) -> list:
@@ -4259,6 +4284,45 @@ class RexGraph:
             self._B1_dual, self._B2_hodge_dual, flow,
             L0=sb.get('L0'), L2=sb.get('L2'),
         )
+
+    def hodge_coords(self, g: NDArray):
+        """`g` in the coordinates of the three Hodge spaces.
+
+        `hodge` returns the components, each of length nE. Each is the image of
+        something smaller, and this returns that: phi on the vertices, psi on the
+        faces, and one harmonic coordinate per independent hole. See
+        `rexgraph.hodge_coords`.
+        """
+        from rexgraph.hodge_coords import hodge_coords as _coords
+        return _coords(self, g)
+
+    def harmonic_winding(self, g: ArrayLike, cycles=None) -> NDArray:
+        """Winding of the edge signal `g` around each cycle: one integer per cycle.
+
+        The complete cycle-visible content of `g`, and exact. Gradient and curl pair
+        to zero against a harmonic cycle, so this is not one component among others:
+        it is everything a cycle can read. Integer data gives integer counts, since
+        the frame stays integer. `hodge_coords` gives the metric reading (the Gram
+        solve); this is the counted one.
+
+        `cycles` chooses what to wind around. Pass an nE x k chain matrix, or an
+        iterable of `rexgraph.rings` masks, and the pairing costs one sparse matvec
+        against those k cycles alone. Left None it uses the full harmonic basis,
+        which is the right default only when beta_1 is small: a Gutenberg book runs
+        nE ~ 2e6 and beta_1 ~ 1.8e6, so the full frame is not a feature vector and
+        building it dominates everything. At that scale pass the cycles you care
+        about (`rings.relevant_cycles`, a retrieval walk, a section boundary)
+        and read the holonomy around those.
+        """
+        from rexgraph.harmonic_sparse import harmonic_basis, harmonic_winding
+        if cycles is None:
+            H = harmonic_basis(self)
+        elif hasattr(cycles, "shape"):
+            H = cycles
+        else:
+            from rexgraph.rings import cycle_vectors
+            H = cycle_vectors(self, cycles)
+        return harmonic_winding(H, g)
 
     # Signal operations
 
@@ -6752,14 +6816,17 @@ class RexGraph:
     def edge_signature(self, edge_idx: int) -> tuple:
         """Hashable algebraic signature for a relation on Delta^2: (T, G+C, F).
 
-        Channels are read by NAME. The character is (nE, nhats) with nhats 3 or 4,
-        because a channel whose trace vanishes is DROPPED and the remaining columns close
-        up, so a positional read is wrong twice over. This indexed chi[3] unconditionally
-        and raised IndexError on any complex with nhats == 3, which is not an edge case:
-        a consistently oriented complex has no head-to-tail disagreement, so trace(F) = 0
-        and F drops, and a bipartite measurement complex is exactly that. Worse where it
-        did not raise, the columns are then (T, G, C), so chi[2] silently reported
-        co-participation as though it were frustration.
+        Channels are read by NAME, which is now belt and braces rather than the only
+        safe route. It used to be the only one: a channel whose trace vanished was
+        DROPPED and the remaining columns closed up, so a positional read was wrong
+        twice over. Indexing chi[3] raised IndexError on any complex where frustration
+        vanished, which is not an edge case (a consistently oriented complex has no
+        head-to-tail disagreement, so trace(F) = 0, and a bipartite measurement complex
+        is exactly that), and where it did not raise the columns were (T, G, C) so
+        chi[2] silently reported co-participation as frustration.
+
+        Channels are carried at zero now instead of dropped, so positions are fixed.
+        Reading by name stays because it says what it means.
         """
         #: operator name -> channel. `hat_names` carries the OPERATOR names, and which
         #: ones are present varies with nhats: L_SG (frustration) is the one that drops
@@ -6910,8 +6977,9 @@ class RexGraph:
 # construct via make_edge_delta() so `directed` is stamped correctly; do not build raw from the kernel's 8-tuple
 TemporalDelta = namedtuple(
     "TemporalDelta",
-    "born_cols born_offsets born_wE born_signs died_keys mod_keys mod_wE mod_signs directed",
-    defaults=(False,),
+    "born_cols born_offsets born_wE born_signs died_keys mod_keys mod_wE mod_signs "
+    "mod_heads directed",
+    defaults=(None, False),
 )
 
 
@@ -6920,7 +6988,7 @@ def make_edge_delta(prev_ptr, prev_idx, prev_wE, prev_signs,
     """Build a TemporalDelta from two cell-states, stamping `directed` so the record
     faithfully carries the key-encoding scheme its keys were computed with. Always
     construct edge deltas through this helper, never `TemporalDelta(*kernel_return)`
-    directly (the kernel returns 8 arrays and does not carry `directed`, so a raw
+    directly (the kernel returns 9 arrays and does not carry `directed`, so a raw
     construction would default `directed` to False and mis-key a directed delta on
     replay)."""
     from rexgraph.core._temporal import encode_delta_full
@@ -6934,6 +7002,48 @@ def _cell_state(rex):
     Returns (boundary_ptr, boundary_idx, w_E_or_None, signs_or_None)."""
     rex._ensure_clean()
     return rex._boundary_ptr, rex._boundary_idx, rex._w_E, rex._signs
+
+
+def _head_to_front(col, head):
+    """Put `head` at position 0 of a boundary column, in place.
+
+    Position 0 carries the opposite sign to the rest of the column, so it is the
+    column's orientation. The remaining entries all carry 1/(k-1), so swapping the
+    head into place restores the column exactly and no other order matters.
+    """
+    if col[0] == head:
+        return
+    where = np.nonzero(col == head)[0]
+    if where.size == 0:
+        raise ValueError(
+            f"cell head {int(head)} is not in the cell's support; the delta was "
+            "applied onto the wrong base state")
+    j = int(where[0])
+    col[0], col[j] = col[j], col[0]
+
+
+def _set_cell_heads(rex, indices, heads):
+    """Reorient the named cells in place so each one's head sits at position 0.
+
+    A reversal leaves the support alone, so it never reaches the canonical key and
+    the cell keeps one identity. It does reach B1, which is why the delta carries
+    the head and why replay has to put it back.
+    """
+    rex._ensure_clean()
+    ptr = np.asarray(rex._boundary_ptr)
+    idx = np.asarray(rex._boundary_idx)
+    ind = _asarray(indices, _i32)
+    heads = np.asarray(heads)
+    lo = ptr[ind]
+    moved = np.nonzero(idx[lo] != heads.astype(idx.dtype, copy=False))[0]
+    if moved.size == 0:
+        return
+    for j in moved:
+        a = int(lo[j])
+        b = int(ptr[int(ind[j]) + 1])
+        _head_to_front(idx[a:b], idx.dtype.type(heads[j]))
+    rex._boundary_idx = idx
+    rex._invalidate(_TIER_B1_ONLY, _TIER_GLOBAL)
 
 
 # construct via make_face_delta() so directed is stamped; do not build raw from the kernel tuple
@@ -7069,6 +7179,8 @@ def apply_edge_delta(rex, delta):
         rex.set_cell_attrs(idx,
                            w_E=np.asarray(delta.mod_wE),
                            signs=np.asarray(delta.mod_signs))
+        if delta.mod_heads is not None:
+            _set_cell_heads(rex, idx, np.asarray(delta.mod_heads))
 
 
 def apply_face_delta(rex, fdelta):
@@ -7490,6 +7602,9 @@ class TemporalRex:
                             "resolve, so the index was built out of order" % (mk, k))
                     cells[mk][1] = float(d.mod_wE[i])
                     cells[mk][2] = int(d.mod_signs[i])
+                    if d.mod_heads is not None:
+                        _head_to_front(cells[mk][0], cells[mk][0].dtype.type(
+                            d.mod_heads[i]))
             fd = self._index_face_deltas[k] if self._index_face_deltas else None
             if fd is not None:
                 for fk in fd.died_face_keys:
@@ -7779,58 +7894,88 @@ class TemporalRex:
                 "moment": moment, "times": self.times}
 
     def delta_tensor(self, *, dense: bool = False):
-        """The temporal delta tensor: per step, the change in each of the composite
-        binary's two independent conditions.
+        """The temporal delta tensor: per step, the change in each condition a cell
+        carries independently.
 
-        A relational complex's entries carry an existence condition in {0,1} and an
-        orientation in {+1,-1}. They vary independently (a cell can persist while
-        its orientation reverses) so differencing each separately gives a history
-        with two channels rather than one churn count:
+        A cell's boundary column is fixed by three things, and they vary
+        independently, so differencing each separately gives a history with a
+        channel per condition rather than one churn count:
 
             existence   -1 the cell died, +1 it was born, 0 it persisted
-            orientation -1/+1 its orientation reversed, 0 it held
+            orientation -1/+1 the head moved across the canonical reference, 0 held
+            signing     -1/+1 the gauge flipped, 0 held
 
-        A born or died cell scores 0 in the orientation channel: it has no previous
-        orientation to have changed. That is what keeps the channels independent
-        rather than one shadowing the other.
+        Orientation and signing are different objects and the project measures them
+        apart: reversing a cell moves chi_F, re-signing one moves the cycle
+        frustration. Orientation is position 0 of the boundary column, the vertex
+        carrying the opposite sign to the arguments. Signing is `_signs`, a gauge
+        that leaves the spectrum alone.
 
-        Cells are identified by their canonical key, so a cell that reverses and
-        reverses back is one identity across the history, not three.
+        The canonical reference for orientation is the smallest vertex in the
+        cell's support, so the channel reads +1 when the head sits there and -1
+        otherwise. At arity 2 that is complete, since there are only two places the
+        head can be. Above arity 2 the head can move between two non reference
+        vertices without changing the polarity, so `head` carries the vertex itself
+        and is the exact reading. A row is emitted whenever the head moves, whether
+        or not the polarity followed.
 
-        Returns a sparse event view (t / key / existence / orientation, one row per
-        cell that changed) or, with ``dense=True``, the (T, n_cells, 2) array plus
-        the key axis. Step 0 has no predecessor and is all zeros.
+        A born or died cell scores 0 in orientation and signing: it has no previous
+        state to have changed. That is what keeps the channels independent rather
+        than one shadowing the other. `head` is the new head, or -1 for a death.
+
+        Cells are identified by their canonical key, which is built from the
+        support, so a cell that reverses and reverses back is one identity across
+        the history, not three.
+
+        Returns a sparse event view (t / when / key / existence / orientation /
+        signing / head, one row per cell that changed) or, with ``dense=True``, the
+        (T, n_cells, 3) array of the three signed channels plus the key axis. Step 0
+        has no predecessor and is all zeros.
         """
-        from rexgraph.core._temporal import cell_keys_of
+        from rexgraph.core._temporal import cell_heads_of, cell_keys_of
 
         self._ensure_index()
-        t_out, k_out, e_out, o_out = [], [], [], []
+        t_out, k_out, e_out, o_out, s_out, h_out = [], [], [], [], [], []
         prev = {}
         for t in range(self._T):
             rex = self.reconstruct_at(t)
             rex._ensure_clean()
-            keys = np.asarray(cell_keys_of(rex._boundary_ptr, rex._boundary_idx,
-                                           self._directed), dtype=np.int64)
+            bp = np.asarray(rex._boundary_ptr)
+            bi = np.asarray(rex._boundary_idx)
+            keys = np.asarray(cell_keys_of(bp, bi, self._directed), dtype=np.int64)
+            n = keys.shape[0]
+            heads = np.asarray(cell_heads_of(bp, bi), dtype=np.int64)
+            if n and bi.shape[0]:
+                base = np.minimum.reduceat(bi, bp[:-1]).astype(np.int64)
+            else:
+                base = np.zeros(n, dtype=np.int64)
+            pol = np.where(heads == base, 1, -1)
             signs = rex._signs
-            # signs=None is the all-positive orientation, not an absent one
-            signs = (np.ones(keys.shape[0], _i32) if signs is None
+            # signs=None is the all-positive gauge, not an absent one
+            signs = (np.ones(n, _i32) if signs is None
                      else np.asarray(signs, _i32).ravel())
-            curr = {int(k): int(sg) for k, sg in zip(keys, signs, strict=False)}
+            curr = {int(k): (int(heads[i]), int(pol[i]), int(signs[i]))
+                    for i, k in enumerate(keys)}
             if t:
-                for key, sg in curr.items():
+                for key, now in curr.items():
                     was = prev.get(key)
                     if was is None:
                         t_out.append(t); k_out.append(key)
-                        e_out.append(1); o_out.append(0)
-                    elif was != sg:
-                        # {-2, +2} halved: the orientation channel is a delta of the
-                        # condition, on the same {-1, 0, +1} scale as existence.
+                        e_out.append(1); o_out.append(0); s_out.append(0)
+                        h_out.append(now[0])
+                    elif was != now:
+                        # {-2, +2} halved: each channel is a delta of its condition,
+                        # on the same {-1, 0, +1} scale as existence.
                         t_out.append(t); k_out.append(key)
-                        e_out.append(0); o_out.append((sg - was) // 2)
+                        e_out.append(0)
+                        o_out.append((now[1] - was[1]) // 2)
+                        s_out.append((now[2] - was[2]) // 2)
+                        h_out.append(now[0])
                 for key in prev:
                     if key not in curr:
                         t_out.append(t); k_out.append(key)
-                        e_out.append(-1); o_out.append(0)
+                        e_out.append(-1); o_out.append(0); s_out.append(0)
+                        h_out.append(-1)
             prev = curr
 
         out = {
@@ -7839,15 +7984,18 @@ class TemporalRex:
             "key": np.asarray(k_out, dtype=np.int64),
             "existence": np.asarray(e_out, dtype=np.int8),
             "orientation": np.asarray(o_out, dtype=np.int8),
+            "signing": np.asarray(s_out, dtype=np.int8),
+            "head": np.asarray(h_out, dtype=np.int64),
         }
         if not dense:
             return out
         axis = np.unique(out["key"]) if out["key"].size else np.zeros(0, np.int64)
-        tensor = np.zeros((self._T, axis.shape[0], 2), dtype=np.int8)
+        tensor = np.zeros((self._T, axis.shape[0], 3), dtype=np.int8)
         if axis.shape[0]:
             col = np.searchsorted(axis, out["key"])
             tensor[out["t"], col, 0] = out["existence"]
             tensor[out["t"], col, 1] = out["orientation"]
+            tensor[out["t"], col, 2] = out["signing"]
         return tensor, axis
 
     def temporal_persistence(self, final_rex: RexGraph | None = None) -> dict:

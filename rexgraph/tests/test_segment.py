@@ -234,3 +234,36 @@ def test_the_sketch_preserves_the_total_it_is_a_share_of():
     B = to_scipy_csr(r._B1_dual).tocsc()
     approx, rank = leverage_sketch(B, epsilon=0.5, seed=3)
     assert abs(approx.sum() - rank) / max(rank, 1) < 0.05
+
+
+def test_every_entry_point_reads_bytes_as_text_not_as_its_repr():
+    """`str(b"...")` is the repr. Every function here takes text and every one of them
+    can be handed a file's bytes, so each decodes: matching against escape sequences
+    returned plausible spans addressing a string that does not exist."""
+    from rexgraph.corpus_profile import ENGLISH_GUTENBERG
+    from rexgraph.segment import (document_layers, segment_chapters,
+                                  segment_paragraphs, segment_sentences)
+
+    text = "The harpoon was darted. The whale sounded.\n\nA quiet morning here.\n"
+    raw = text.encode("utf-8")
+    for fn in (segment_sentences, segment_paragraphs, segment_chapters):
+        a, b = fn(text), fn(raw)
+        assert a[0] == b[0], fn.__name__
+
+    lay_t = document_layers(text, profile=ENGLISH_GUTENBERG)
+    lay_b = document_layers(raw, profile=ENGLISH_GUTENBERG)
+    assert sorted(lay_t) == sorted(lay_b)
+    for layer in lay_t:
+        assert lay_t[layer]["spans"] == lay_b[layer]["spans"], layer
+
+
+def test_a_decoded_document_keeps_its_non_ascii_boundaries():
+    """The decode has to use the real encoding, not latin-1 by accident: a multi byte
+    terminator would otherwise split a sentence in the middle of a character."""
+    from rexgraph.segment import segment_sentences
+
+    text = "Le harpon a été lancé. La baleine a plongé.\n"
+    spans, _how = segment_sentences(text)
+    from_bytes, _how2 = segment_sentences(text.encode("utf-8"))
+    assert spans == from_bytes
+    assert len(spans) == 2

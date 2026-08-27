@@ -254,13 +254,13 @@ def test_walkthrough(walk, tmp_path, capsys):
     with capsys.disabled():
         print("\n=== fixtures ==================================================")
 
-        # --- upload -> session -------------------------------------------------
+        # upload -> session
         r = w.call("POST", "/api/upload", note="fixture: session",
                    files={"file": ("walk.csv", _CSV, "text/csv")},
                    data={"options": "{}"})
         F["sid"] = ((r["json"] or {}).get("session_id")) or "no-such-session"
 
-        # --- corpus (workspace document + built corpus) ------------------------
+        # corpus (workspace document + built corpus)
         w.call("POST", "/api/v1/corpus/add-text", note="fixture: corpus doc",
                json={"text": _TEXT, "doc_id": "walkdoc", "depth": "quick"})
         w.call("POST", "/api/v1/corpus/add", note="fixture: 2nd doc",
@@ -269,7 +269,7 @@ def test_walkthrough(walk, tmp_path, capsys):
         w.call("POST", "/api/v1/corpus/build", data={"depth": "quick", "ontology": "false"})
         F["doc"] = "walkdoc"
 
-        # --- rcdb record + lineage --------------------------------------------
+        # rcdb record + lineage
         w.call("POST", "/api/v1/db/put", note="fixture: record",
                json={"id": "walk-rec", "text": _TEXT, "tags": ["walkthrough"]})
         w.call("POST", "/api/v1/db/put", note="fixture: record 2",
@@ -280,17 +280,17 @@ def test_walkthrough(walk, tmp_path, capsys):
                      "lineage_id": "walk-lineage", "tags": ["walkthrough"]})
         F["lineage"] = "walk-lineage"
 
-        # --- hive profile ------------------------------------------------------
+        # hive profile
         r = w.call("POST", "/api/v1/hive/profiles", note="fixture: profile",
                    json={"name": "walkthrough-setup", "base": "attach"})
         F["pid"] = (((r["json"] or {}).get("profile") or {}).get("id")) or "attach"
 
-        # --- dbmanager connection ---------------------------------------------
+        # dbmanager connection
         sqlite_uri = "sqlite:///" + str(tmp_path / "walk.sqlite")
         w.call("POST", "/api/v1/dbmanager/connections", note="fixture: connection",
                json={"name": "walkconn", "uri": sqlite_uri, "kind": "sql"})
 
-        # --- custom model path -------------------------------------------------
+        # custom model path
         mdir = tmp_path / "fake-model"
         mdir.mkdir()
         (mdir / "config.json").write_text("{}")

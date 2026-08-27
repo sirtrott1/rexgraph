@@ -116,16 +116,12 @@ class _LazyVersions:
 class RexIndex:
     """A compacted snapshot of the log, as tensors.
 
-    The record side of this is `rcdb_index`: the same cochains, the same accession
-    relation, the same string tables and the same digest. It used to be a second index
-    beside that one, holding the id list and the vocabulary as json in the safetensors
-    metadata and every record as a json document inside a tensor. The header then grew
-    with the store (21% of the file at 2,000 records) and `open` grew with it, 0.31 ms
-    at 100 records against 7.82 ms at 4,000, which is the parse this index exists to
-    avoid.
+    The record side is `rcdb_index`: the same cochains, the same accession relation,
+    the same string tables and the same digest, so a record reads the same whichever
+    backend holds it.
 
-    What is genuinely this backend's own is the blob address per row, and that rides in
-    `extra` so the one digest still covers it.
+    What is this backend's own is the blob address per row, and that rides in `extra`
+    so the one digest covers it.
     """
 
     def __init__(self, path: str):
@@ -326,8 +322,8 @@ class RexStore(RCStore):
         self._load_json_log(start_at)
 
     def _load_json_log(self, start_at: int) -> None:
-        """The `[u32 length][json record]` log this store wrote before frames. Read
-        only, so a store written by an older version still opens."""
+        """The `[u32 length][json record]` log, read only, so a store written by
+        an older version still opens."""
         with open(self._records_path, "rb") as fh:
             fh.seek(start_at)
             data = fh.read()
@@ -389,9 +385,8 @@ class RexStore(RCStore):
     def _append(self, entry: dict[str, Any]) -> None:
         """One frame per change, through the same writer the other store logs with.
 
-        This wrote `[u32 length][json record]`, so every field name and every number
-        was text and the log was the largest json artifact left in the store path. The
-        blob address is this backend's own, and rides the frame's `extra` row.
+        The frame carries the record; the blob address is this backend's own and rides
+        its `extra` row.
         """
         from agent import rcdb_index as _ix
 

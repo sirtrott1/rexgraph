@@ -15,10 +15,8 @@ import contextlib
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
 # Coherence: one entry point, so a caller cannot reach the O(nV*solve) read by
 # accident. See rexgraph.graph.local_coherence / coherence / coherence_response.
-# ---------------------------------------------------------------------------
 
 _GREENS_BUDGET_ENV = "REXGRAPH_VERTEX_CHARACTER_MAX_NODES"
 _GREENS_BUDGET_DEFAULT = 1500

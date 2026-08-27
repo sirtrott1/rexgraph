@@ -7,10 +7,8 @@ One frame is an op, an id, the fixed scalar row, a packed string table, the resi
 leaf descriptors, and optionally a backend's own int64 row. The layout is written by
 `agent.rcdb_index.log_append`; this reads it.
 
-Reading it in Python cost more than the json it replaced, because `json.loads` builds
-its dicts in C while a Python scan pays an interpreter step per field and a `decode`
-per string. The scan and the string table are what this moves; assembling the record
-stays in Python, where the shape of a record is defined.
+The scan and the string table are here; assembling the record stays in Python, where
+the shape of a record is defined.
 
 A torn tail is where a process died mid append. The scan stops at the first field that
 would read past the end and returns what came before it, so a partial frame is never
@@ -47,7 +45,6 @@ cdef inline object _split_terms(list strings, list rest):
 
     The table starts with a count, then per kind a code, a length and that many terms.
     Everything after it belongs to the residual leaves and is handed back in `rest`.
-    Walking this with a Python iterator was 86,000 `next` calls over 2,000 records.
     """
     cdef Py_ssize_t n = len(strings)
     cdef Py_ssize_t i = 0, nk, cnt, k, j

@@ -14,7 +14,7 @@ pytest.importorskip("torch")
 from rexgraph import compute
 from rexgraph.nn import optim
 
-# (a) pick_device resolves through the compute stack -----------------------------------------------
+# (a) pick_device resolves through the compute stack
 
 def test_pick_device_auto_consistent_with_compute_stack():
     import torch
@@ -47,7 +47,7 @@ def test_pick_device_explicit_overrides_and_cpu_safety():
         assert optim.pick_device("cuda").split(":")[0] == "cuda"
 
 
-# (b) lifecycle round-trip: build -> train -> save -> load(map_location) -> infer ------------------
+# (b) lifecycle round-trip: build -> train -> save -> load(map_location) -> infer
 
 def test_lifecycle_roundtrip_save_load_infer_on_resolved_backend(tmp_path):
     from agent.models import store
@@ -92,7 +92,7 @@ def test_predict_maps_checkpoint_onto_resolved_device(tmp_path):
     assert models.predict(ckpt, device="cpu")["n"] == p["n"]
 
 
-# (c) ComputeSpec.backend threads through the lifecycle train phase --------------------------------
+# (c) ComputeSpec.backend threads through the lifecycle train phase
 
 def test_train_phase_bridges_setup_backend(tmp_path, monkeypatch):
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))

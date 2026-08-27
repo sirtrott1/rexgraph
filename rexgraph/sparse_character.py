@@ -117,28 +117,47 @@ def build_sparse_channels(rex):
     K_off = (Kc - sp.diags(Kc.diagonal())).tocsr()       # G_off = shared-vertex counts
     deg_L = np.asarray(K_off.sum(axis=1)).ravel()        # weighted line-graph degree = Sum shared counts
     L_C = (sp.diags(deg_L) - K_off).tocsr()              # D_L - G_off, weighted line-graph Laplacian
-    if float(L_C.diagonal().sum()) > 1e-15:
-        channels.append(('L_C', L_C))
+    channels.append(('L_C', L_C))   # kept even at zero mass; see build_sparse_rl
 
     return channels
 
 
+def _trace_normalized(L, tr, nE):
+    """`L / tr` as CSR, or a zero matrix when the channel carries no mass.
+
+    A channel is kept whatever its trace, so this is the one place that decides what
+    a zero-trace hat looks like. Normalising by its own zero trace would be 0/0;
+    the hat is the zero operator, which is what "this channel measures nothing here"
+    means, and it contributes nothing to RL.
+    """
+    import scipy.sparse as sp
+    if tr > 1e-15:
+        return (L * (1.0 / tr)).tocsr()
+    return sp.csr_matrix((nE, nE), dtype=_f64)
+
+
 def build_sparse_rl(rex):
     """Assemble the sparse RL from trace-normalized hats. Returns
-    ``(RL_csr, hats, names, traces)`` with ``tr(RL) = nhats`` (channels with
-    trace <= 1e-15 are dropped), matching ``_relational.build_RL``."""
+    ``(RL_csr, hats, names, traces)``, matching ``_relational.build_RL``.
+
+    Every channel is kept. One carrying no mass contributes a zero hat rather
+    than being dropped, so ``hats`` and ``names`` have a fixed width and the
+    character built from them is comparable between complexes. ``tr(RL)`` is
+    therefore the number of channels carrying mass, which is ``nhats`` whenever
+    none of them is degenerate and less when one is.
+    """
     import scipy.sparse as sp
     nE = int(rex.nE)
     hats, names, traces = [], [], []
     RL = sp.csr_matrix((nE, nE), dtype=_f64)
     for name, L in build_sparse_channels(rex):
         tr = float(L.diagonal().sum())
-        if tr > 1e-15:
-            hat = (L * (1.0 / tr)).tocsr()
-            hats.append(hat)
-            names.append(name)
-            traces.append(tr)
+        hat = _trace_normalized(L, tr, nE)
+        if hat.nnz:
             RL = (RL + hat).tocsr()
+        hats.append(hat)
+        names.append(name)
+        traces.append(tr)
     return RL, hats, names, traces
 
 
@@ -226,9 +245,10 @@ class _CheapCharacter(dict):
             L = chan.get(name)
             if L is None:
                 continue
-            hat = (L * (1.0 / tr)).tocsr()
+            hat = _trace_normalized(L, tr, nE)
             hats.append(hat)
-            RL = (RL + hat).tocsr()
+            if hat.nnz:
+                RL = (RL + hat).tocsr()
         dict.__setitem__(self, 'RL', RL)
         dict.__setitem__(self, 'hats', hats)
 
@@ -368,15 +388,23 @@ def build_sparse_character_cheap(rex):
     if diags is None:                       # arity or weighting: assemble and read
         diags = {n: L.diagonal()
                  for n, L in dict(build_sparse_channels(rex)).items()}
+    # Every channel is a coordinate of the character and is always carried. A
+    # channel with no mass reads ZERO, which is a measurement and not an absence:
+    # frustration in particular vanishes exactly on a uniformly oriented complex,
+    # where every vertex is a pure source or a pure sink so the signed and unsigned
+    # overlaps agree at every shared vertex. Dropping it there made the character
+    # three wide on those complexes and four elsewhere, so two characters were not
+    # comparable, and the F column had no place to be read even as zero.
     names, traces, hat_diags_list = [], [], []
     for name in ('L1_down', 'L_O', 'L_SG', 'L_C'):
         d = diags.get(name)
         if d is None:
             continue
         tr = float(d.sum())
-        if tr > 1e-15:
-            names.append(name); traces.append(tr)
-            hat_diags_list.append(d / tr)          # hat_k = L_k / tr(L_k)
+        names.append(name)
+        traces.append(tr)
+        # tr == 0 means the channel carries nothing; normalising would be 0/0
+        hat_diags_list.append(d / tr if tr > 1e-15 else np.zeros_like(d))
     nhats = len(names)
     uniform = 1.0 / nhats if nhats > 0 else 0.0
 
@@ -637,7 +665,7 @@ def channel_spectral_gaps(rex):
             aB1 = abs(B1); lam = _smallest_pos_small_kernel((aB1 @ aB1.T).tocsr())
         else:
             lam = _smallest_positive_eig(L.tocsr(), nE)                    # F, C, normalized G
-        gaps[name] = lam / tr                                             # lambda_2 of the trace-normalized hat
+        gaps[name] = lam / tr        # lambda_2 of the trace-normalized hat
     return gaps
 
 
@@ -647,7 +675,14 @@ def per_channel_mixing_times_sparse(rex):
     duality on the tiny vertex-dual Laplacian; C/F kernel-robust), so the mixing time is
     exact for the topology/overlap channels and no longer the pathological huge-kernel
     inverse-power on those. Returns f64[nhats] in hat_names order; inf where there is no
-    gap (nE<=1 or a zero-gap channel)."""
+    gap and nE<=1.
+
+    A channel carrying NO MASS reports 0, not inf. Its operator is the zero matrix,
+    so `e^{-tL} = I` and every state is already stationary at t = 0: there is nothing
+    to equilibrate, which is a mixing time of zero rather than a process that never
+    settles. Frustration does this on any uniformly oriented complex. Reporting inf
+    there would also poison anything derived across channels, the anisotropy first.
+    A channel that HAS mass but no gap is the other case and still reads inf."""
     import numpy as _np
     cheap = build_sparse_character_cheap(rex)
     names = cheap['hat_names']
@@ -659,9 +694,13 @@ def per_channel_mixing_times_sparse(rex):
         return times
     log_nE = float(_np.log(nE))
     gaps = channel_spectral_gaps(rex)
+    traces = _np.asarray(cheap['trace_values'], dtype=_f64)
     for k, nm in enumerate(names):
         lam2 = gaps.get(nm, 0.0)
-        times[k] = (log_nE / lam2) if lam2 > 1e-15 else _np.inf
+        if k < traces.shape[0] and traces[k] <= 1e-15:
+            times[k] = 0.0            # no operator, so nothing to equilibrate
+        else:
+            times[k] = (log_nE / lam2) if lam2 > 1e-15 else _np.inf
     return times
 
 

@@ -370,14 +370,29 @@ def test_branching_moves_the_mean_off_three():
     assert float(np.mean(lf["c2"])) != pytest.approx(3.0, abs=1e-6)
 
 
-def test_a_dropped_channel_returns_nothing_rather_than_the_wrong_three():
-    """A consistently oriented star has zero frustration trace, so F drops and there
-    are three channels. Reading the remaining three as if they were T,G,F,C is the
-    silent failure this avoids."""
+def test_zero_frustration_is_read_rather_than_returning_nothing():
+    """A consistently oriented star has zero frustration. This used to drop the F
+    channel, leaving three, and these accessors returned None rather than risk the
+    remaining three being read as if they were T,G,F,C.
+
+    F is carried at zero now, so the position of every channel is fixed and that
+    misreading cannot happen. The accessors answer instead of declining, which is
+    the point: orientation conflict measuring zero is a measurement about the
+    complex, not a reason to stop reporting."""
     star = RexGraph(sources=np.array([0, 0, 0], dtype=np.int32),
                     targets=np.array([1, 2, 3], dtype=np.int32))
-    assert star.lagrangian_fields() is None
-    assert star.cr_violation() is None
+    fields = star.lagrangian_fields()
+    assert fields is not None
+    assert list(fields["channels"]) == ["L1_down", "L_O", "L_SG", "L_C"]
+    # L_t is the T channel's hat DIAGONAL and L_s the other three summed, so the pair
+    # adds to RL[e,e] and not to 1. It is 1 on this fixture only because a 3-edge star
+    # normalises that way; a 4-edge star reads 0.75.
+    rl_diag = np.diagonal(np.asarray(star.RL))
+    assert np.allclose(fields["Lt"] + fields["Ls"], rl_diag)
+    # F contributes exactly nothing to L_s here, which is the whole point of the fixture
+    hats = [np.asarray(h) for h in star._rcf_bundle["hats"]]
+    assert np.allclose(np.diagonal(hats[2]), 0.0)
+    assert star.cr_violation() is not None
 
 
 #### the arity- and degree-general form

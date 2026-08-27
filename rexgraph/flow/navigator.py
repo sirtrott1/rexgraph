@@ -121,7 +121,8 @@ def flow_step(rex, region: NDArray) -> dict[str, object]:
         sp_b2 = to_scipy_csr(b2)
         L2 = sp_b2.T @ sp_b2
 
-    gradient, curl, harmonic = _hodge_sparse(b1, b2, seed, L0, L2)
+    # [:3] drops the potentials; this path wants the components only
+    gradient, curl, harmonic = _hodge_sparse(b1, b2, seed, L0, L2)[:3]
     draining = gradient
     circulating = curl + harmonic
 

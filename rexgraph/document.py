@@ -165,11 +165,12 @@ def build_document(raw, *, profile=None, encoding=None, min_terms=1, grammar=Non
     from rexgraph.sectioning import add_coarsening, add_sectioning
     from rexgraph.segment import document_layers
 
-    text = str(raw)
     if profile is not None:
         encoding = encoding or getattr(profile, "encoding", "utf-8")
         grammar = grammar if grammar is not None else getattr(profile, "grammar", None)
     encoding = encoding or "utf-8"
+    from rexgraph.corpus_profile import as_text
+    text = as_text(raw, encoding)
     lay = document_layers(text, encoding=encoding, profile=profile)
     sent = lay.get("sentence", {}).get("spans") or []
     if not sent:

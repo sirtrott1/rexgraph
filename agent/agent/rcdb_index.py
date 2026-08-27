@@ -90,9 +90,9 @@ def _pack_strings(table):
 def _unpack_strings(blob, offs):
     """The table as a list of str.
 
-    `offs` arrives as a numpy array and indexing it per bound returns numpy scalars,
-    so it is converted once. Where the blob is ASCII the byte offsets are also
-    character offsets, and slicing one decoded str beats decoding each entry.
+    `offs` is converted once, since indexing a numpy array per bound returns numpy
+    scalars. Where the blob is ASCII the byte offsets are character offsets too, so one
+    decode and a slice per entry replaces a decode per entry.
     """
     o = offs.tolist() if hasattr(offs, "tolist") else list(offs)
     if not o or o[-1] == 0:
@@ -106,10 +106,9 @@ def _unpack_strings(blob, offs):
 class StringTable(Sequence):
     """A packed string table, decoded per entry rather than all at once.
 
-    Reads like the list it replaces: index it, iterate it, take its length. Decoding
-    the whole table on read was 75% of an index open and 420,010 `bytes.decode` calls
-    at 4,000 records, on a vocabulary most callers only index into. Entries are cached
-    as they are decoded, so repeated access costs one dict lookup.
+    Indexed, iterated and measured like a list. Entries decode as they are asked for
+    and are cached, so a caller that reads a handful of a large vocabulary decodes a
+    handful. Repeated access costs one dict lookup.
     """
 
     __slots__ = ("_blob", "_offs", "_cache")
@@ -576,8 +575,8 @@ def write(path, index: dict, *, extra: dict | None = None) -> None:
     edited index is caught on read instead of returning as data.
 
     `extra` carries a backend's own aligned arrays, one entry per row, under `extra/`.
-    They are covered by the same digest as everything else, which is the point of
-    putting them here rather than in a second file or in the metadata.
+    The digest covers them with everything else, which is why they belong here rather
+    than in a second file or in the metadata.
     """
     from safetensors.numpy import save_file
 
@@ -697,6 +696,58 @@ def _existence_operator(index: dict, B):
     return E
 
 
+def _row_operator(index: dict, P, reading: str):
+    """`P` with row access, cached beside it.
+
+    A seed set names a handful of TERM vertices and the relations they reach are those
+    vertices' rows, which `P` being CSC does not address. Built once per index: 3.3 s at
+    391M entries, against 840 ms per query for walking the whole operator instead.
+    """
+    key = "_B1_csr" if reading == "share" else "_B1_existence_csr"
+    hit = index.get(key)
+    if hit is not None:
+        return hit
+    index[key] = P.tocsr()
+    return index[key]
+
+
+def _seed_flux(index: dict, P, reading: str, seeds, weights):
+    """`g = P^T x` for a seed vector, computed over the seeds' rows alone.
+
+    `x` is nonzero only at the seeds, so `g` is nonzero only on the relations naming
+    one and every other column of the product is an exact zero. This reads the seed rows
+    and scatters them: the same arithmetic, in the same order of accumulation per
+    column.
+    """
+    R = _row_operator(index, P, reading)
+    rows = R[np.asarray(seeds, dtype=np.int64)]
+    g = np.zeros(P.shape[1], dtype=np.float64)
+    if rows.nnz:
+        per = np.diff(rows.indptr)
+        np.add.at(g, rows.indices, rows.data * np.repeat(weights, per))
+    return g
+
+
+def _vertex_degree_exact(index: dict, B):
+    """Incidences per vertex as INTEGERS, cached. `_vertex_degree` returns the float
+    array the matvec wants; a rational needs the integer it was rounded from."""
+    hit = index.get("_deg_int")
+    if hit is not None:
+        return hit
+    index["_deg_int"] = np.bincount(B.indices, minlength=B.shape[0])
+    return index["_deg_int"]
+
+
+def _arity(index: dict, B):
+    """Cells per relation, cached. Counting them is one pass over `indptr`, but doing it
+    per call on a 391M-entry operator is not free."""
+    hit = index.get("_arity")
+    if hit is not None:
+        return hit
+    index["_arity"] = np.diff(B.indptr)
+    return index["_arity"]
+
+
 def _vertex_degree(index: dict, B):
     """Incidences per VERTEX, cached beside the operator that shares its arrays.
 
@@ -748,7 +799,7 @@ def channel_diagonals(index: dict):
 
     # (G 1)_e = sum_f G[e,f] = |B|^T (|B| 1_nE). Both passes run on the DATA ARRAYS: the
     # sparsity is `ptr`/`idx` and the magnitudes are |data|, so nothing needs |B| built.
-    # `abs(B)` copies a 391-million-nonzero matrix on the Gutenberg index and was most of
+    # `abs(B)` copies a 391-million-nonzero matrix at Gutenberg scale, which is most of
     # a 36 s first call.
     mag = np.abs(B.data)
     rowsum = np.zeros(B.shape[0], dtype=np.float64)
@@ -858,7 +909,9 @@ def record_response(index: dict, terms, *, steps: int = 1, rex=None,
 
     codes = _term_codes(index)
     n = int(index["n"])
-    ids = list(index["ids"])
+    # the table itself, not a list: materialising it decodes every id on a
+    # call that returns a ranking over a handful of them.
+    ids = index["ids"]
     seeds = [codes[w] for w in {str(x).lower() for x in terms} if w in codes]
     if not seeds:
         return np.zeros(n, dtype=np.float64), ids
@@ -868,17 +921,44 @@ def record_response(index: dict, terms, *, steps: int = 1, rex=None,
     # the existence tower is the same sparsity pattern with every entry 1: the {0,1}
     # incidence, which is what "holds this term" means before any share is applied.
     P = B if reading == "share" else _existence_operator(index, B)
-    x = np.zeros(B.shape[0], dtype=np.float64)
     sd = np.asarray(seeds, dtype=np.int64)
-    # incidences per VERTEX. `B` is CSC, so `np.diff(B.indptr)` counts per COLUMN,
-    # per relation, which is a different array of a different length, and using it here
-    # silently mis-weighted every seed and then raised once a vertex id exceeded nE.
+    # incidences per VERTEX. `B` is CSC, so `np.diff(B.indptr)` counts per COLUMN, per
+    # relation: a different array of a different length, which mis-weights every seed
+    # and raises once a vertex id exceeds nE.
     deg = _vertex_degree(index, B)
-    x[sd] = 1.0 / np.maximum(deg[sd], 1.0)
-    for _ in range(max(1, int(steps))):
-        g = P.T @ x
-        x = np.abs(P @ g)
+    w = 1.0 / np.maximum(deg[sd], 1.0)
+    n_steps = max(1, int(steps))
+    if n_steps == 1 and not channels:
+        # the reading is a rational and is computed as one. The float returned is that
+        # rational divided once, not an accumulation of roundings, and the ordering it
+        # carries is the ordering of the exact values.
+        got = _response_terms(index, P, str(reading), sd)
+        if got is None:
+            return np.zeros(n, dtype=np.float64), ids
+        rows, carried, which, deg, den = got
+        return _render(rows, carried, which, deg, den, n), ids
+    if n_steps == 1:
+        # One step is accession proper and is the default, and at one step the answer is
+        # confined to the seeds' own star. Both matvecs below compute it over the whole
+        # operator, which on the Gutenberg index is 391M entries to reach a result that
+        # is nonzero on a few thousand columns.
+        g = _seed_flux(index, P, reading, sd, w)
+    else:
+        x = np.zeros(B.shape[0], dtype=np.float64)
+        x[sd] = w
+        for _ in range(n_steps):
+            g = P.T @ x
+            x = np.abs(P @ g)
     if not channels:
+        if n_steps == 1:
+            # a record vertex sits at position 0 of the relations it owns and in no
+            # other column, so its row of `P g` is the sum of `g` over those relations.
+            # The rest of `P g` is the term half, which this return discards.
+            owner0 = rel_owner(index)
+            acc = np.zeros(n, dtype=np.float64)
+            keep0 = (owner0 >= 0) & (owner0 < n)
+            np.add.at(acc, owner0[keep0], g[keep0])
+            return np.abs(acc), ids
         return x[:n], ids
 
     # A record is the HEAD of every relation it owns, so relation e hands it |g_e|. The
@@ -890,11 +970,189 @@ def record_response(index: dict, terms, *, steps: int = 1, rex=None,
     chi, names = _chi_of(index)
     owner = rel_owner(index)
     contrib = np.abs(g)
+    if n_steps == 1:
+        # the reading the scalar takes, one index down. `g` is exact here, so the
+        # profile summed over its channels is the scalar `record_response` returns.
+        contrib = _relation_flux(index, P, str(reading), sd)
     prof = np.zeros((n, chi.shape[1]), dtype=np.float64)
     keep = (owner >= 0) & (owner < n)
     for c in range(chi.shape[1]):
         np.add.at(prof[:, c], owner[keep], contrib[keep] * chi[keep, c])
     return prof, ids, names
+
+
+def _record_denominator(index: dict, B):
+    """`den[r]`, the product of `(k-1)` over the relations record `r` owns, cached.
+
+    Every denominator the share reading introduces sits inside this one number, and a
+    record owning five relations keeps it small: 2**23.3 at the widest over a
+    61,353-document store, so the reading's integer form holds in an int64.
+    """
+    hit = index.get("_den")
+    if hit is not None:
+        return hit
+    n = int(index["n"])
+    owner = rel_owner(index)
+    km1 = np.maximum(_arity(index, B).astype(np.int64) - 1, 1)
+    keep = (owner >= 0) & (owner < n)
+    den = np.ones(n, dtype=np.int64)
+    np.multiply.at(den, owner[keep], km1[keep])
+    index["_den"] = den
+    return den
+
+
+def _response_terms(index: dict, P, reading: str, seeds):
+    """The reading's contributions, before either denominator is divided out.
+
+        row[i]      the record contribution i lands on
+        carried[i]  den[row]/(k_e - 1), or 1 for the existence tower
+        seed[i]     which seed carried it
+        deg[v]      the incidence count of seed v
+        den[r]      the product of (k_e - 1) over the relations r owns
+
+    so that
+
+        response[r] = ( SUM over v of a[r,v]/deg[v] ) / den[r]
+        a[r,v]      = SUM over contributions on (r, v) of carried
+
+    Both denominators stay factored. Their common multiple grows without bound as
+    seeds are added, where dividing by each axis separately does not, and the two are
+    the same number.
+    """
+    n = int(index["n"])
+    B = boundary_operator(index)
+    owner = rel_owner(index)
+    degree = _vertex_degree_exact(index, B)
+    R = _row_operator(index, P, str(reading))
+    share = str(reading) == "share"
+    den = _record_denominator(index, B) if share else np.ones(n, dtype=np.int64)
+    km1 = np.maximum(_arity(index, B).astype(np.int64) - 1, 1)
+
+    rows, carried, which = [], [], []
+    for j, v in enumerate(seeds):
+        cols = R[int(v)].indices
+        r = owner[cols]
+        ok = (r >= 0) & (r < n)
+        r, cols = r[ok], cols[ok]
+        rows.append(r.astype(np.int64))
+        carried.append((den[r] // km1[cols]) if share
+                       else np.ones(r.size, dtype=np.int64))
+        which.append(np.full(r.size, j, dtype=np.int64))
+    if not rows:
+        return None
+    deg = np.array([int(degree[v]) for v in seeds], dtype=np.int64)
+    return (np.concatenate(rows), np.concatenate(carried), np.concatenate(which),
+            deg, den)
+
+
+def _accumulate(rows, carried, which):
+    """`{row: {seed: a}}` from the contributions. Shared by the exact reading and the
+    rendered one, so the two cannot drift."""
+    acc: dict[int, dict[int, int]] = {}
+    for i in range(len(rows)):
+        per = acc.setdefault(int(rows[i]), {})
+        v = int(which[i])
+        per[v] = per.get(v, 0) + int(carried[i])
+    return acc
+
+
+def _sum_axes(per_seed, deg, den_r):
+    """`( SUM_v a_v/deg_v ) / den_r` as an exact Fraction."""
+    from fractions import Fraction
+    total = Fraction(0)
+    for v, a in per_seed.items():
+        total += Fraction(int(a), int(deg[v]))
+    return total / int(den_r)
+
+
+def _relation_flux(index: dict, P, reading: str, seeds):
+    """`g[e]`, what each relation carries from the seeds, exactly.
+
+        g[e] = ( SUM over seeds v in e of 1/deg[v] ) / (k_e - 1)
+
+    The record reading's two axes, indexed by relation rather than by record, so the
+    same kernel evaluates it. A seed is a TERM vertex and a term never sits at position
+    0, so every entry it meets is the positive share and `g` carries no sign. The
+    existence tower drops the share, leaving a denominator of 1.
+    """
+    n_rel = int(P.shape[1])
+    B = boundary_operator(index)
+    degree = _vertex_degree_exact(index, B)
+    R = _row_operator(index, P, str(reading))
+    share = str(reading) == "share"
+    den = (np.maximum(_arity(index, B).astype(np.int64) - 1, 1) if share
+           else np.ones(n_rel, dtype=np.int64))
+    rows, which = [], []
+    for j, v in enumerate(seeds):
+        cols = np.asarray(R[int(v)].indices, dtype=np.int64)
+        rows.append(cols)
+        which.append(np.full(cols.size, j, dtype=np.int64))
+    if not rows:
+        return np.zeros(n_rel, dtype=np.float64)
+    rows = np.concatenate(rows)
+    which = np.concatenate(which)
+    carried = np.ones(rows.size, dtype=np.int64)
+    deg = np.array([int(degree[v]) for v in seeds], dtype=np.int64)
+    return _render(rows, carried, which, deg, den, n_rel)
+
+
+def _render(rows, carried, which, deg, den, n):
+    """The contributions as float64, one correctly rounded division per record.
+
+    `rexgraph.core._exact_ratio` divides the seed axis and the relation axis separately
+    in 128 bits, so the arithmetic is exact at any seed count and the only rounding is
+    the one that makes a double. Without the kernel the same identity runs on python
+    ints: a different dtype, not a different answer.
+    """
+    n = int(n)
+    if _exact_ratio is not None:
+        widest = int(carried.max(initial=1)) * max(len(rows), 1)
+        frac = _exact_ratio.frac_bits_for(widest, len(deg))
+        return _exact_ratio.axis_ratio(
+            np.ascontiguousarray(rows, dtype=np.int64),
+            np.ascontiguousarray(carried, dtype=np.int64),
+            np.ascontiguousarray(which, dtype=np.int64),
+            np.ascontiguousarray(deg, dtype=np.int64),
+            np.ascontiguousarray(den, dtype=np.int64), n, int(frac))
+    out = np.zeros(n, dtype=np.float64)
+    for r, per_seed in _accumulate(rows, carried, which).items():
+        out[r] = float(_sum_axes(per_seed, deg, den[r]))
+    return out
+
+
+def record_response_exact(index: dict, terms, *, reading: str = "share"):
+    """The accession reading over the RATIONALS, with no float anywhere.
+
+    `{row: Fraction}` for the records a seed reaches, and nothing for the rest, which
+    answer exactly zero. Every quantity the reading is built from is an exact rational:
+    a boundary entry is -1 or `1/(k-1)`, a seed weight is `1/deg`, and a record's answer
+    is a sum of five of them. Nothing here needs a tolerance, so nothing here has one.
+
+        response[r] = SUM over the relations e that r owns of
+                          (SUM over seeds v in e of 1/deg[v]) / (k_e - 1)
+
+    `record_response` returns the same quantity as float64, which is what a query
+    ranks on. This is the reading it answers to, and the tests assert the two orderings
+    are identical rather than close.
+    """
+    codes = _term_codes(index)
+    B = boundary_operator(index)
+    P = B if str(reading) == "share" else _existence_operator(index, B)
+    if str(reading) not in ("share", "existence"):
+        raise ValueError(f"reading must be 'share' or 'existence', got {reading!r}")
+    seeds = [codes[w] for w in {str(x).lower() for x in terms} if w in codes]
+    if not seeds:
+        return {}
+    got = _response_terms(index, P, str(reading), seeds)
+    if got is None:
+        return {}
+    rows, carried, which, deg, den = got
+    out = {}
+    for r, per_seed in _accumulate(rows, carried, which).items():
+        value = _sum_axes(per_seed, deg, den[r])
+        if value:
+            out[r] = value
+    return out
 
 
 def rel_owner(index: dict):
@@ -1144,6 +1402,11 @@ def record_at(index: dict, row: int):
 # A frame carries values and never field names.
 
 LOG_MAGIC = b"REXLOG\x00"
+try:                                        # exact 128 bit accumulation and division
+    from rexgraph.core import _exact_ratio
+except ImportError:                         # source checkout: python ints below
+    _exact_ratio = None
+
 _OP_PUT, _OP_DELETE = 1, 2
 
 try:                                        # the compiled frame scan, when built

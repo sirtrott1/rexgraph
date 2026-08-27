@@ -45,7 +45,7 @@ def store(request, tmp_path):
     return rcdb.open_store(f"rex://{tmp_path / 'rx'}")
 
 
-# --- identity and round-trip ---------------------------------------------------
+# identity and round-trip
 
 def test_a_stored_complex_comes_back(store):
     _put(store, "a")
@@ -72,7 +72,7 @@ def test_the_record_carries_a_queryable_signature(store):
     assert sig["n_labels"] == 6
 
 
-# --- versions ------------------------------------------------------------------
+# versions
 
 def test_versions_append_rather_than_replace(store):
     _put(store, "a")
@@ -94,7 +94,7 @@ def test_an_older_version_is_still_reachable(store):
     assert (old._agent_meta or {})["vertex_labels"] == ["first"] * 6
 
 
-# --- bitemporal ----------------------------------------------------------------
+# bitemporal
 
 def test_as_of_reads_the_store_as_it_stood(store):
     _put(store, "a", labels=["first"] * 6)
@@ -120,7 +120,7 @@ def test_query_as_of_applies_to_the_version_that_was_current(store):
     assert store.query(labels_any=["alpha"], limit=5) == []
 
 
-# --- structural and vocabulary query ------------------------------------------
+# structural and vocabulary query
 
 def test_labels_any_selects_by_vocabulary(store):
     _put(store, "a", labels=["frustration"] * 6)
@@ -152,7 +152,7 @@ def test_list_returns_current_versions_only(store):
     assert sorted(r.id for r in store.list(limit=10)) == ["a", "b"]
 
 
-# --- deletion ------------------------------------------------------------------
+# deletion
 
 def test_delete_removes_every_version(store):
     _put(store, "a")
@@ -167,7 +167,7 @@ def test_deleting_what_is_not_there_is_false(store):
     assert store.delete("nope") is False
 
 
-# --- durability ----------------------------------------------------------------
+# durability
 
 def test_a_persistent_store_survives_being_reopened(store, tmp_path):
     if isinstance(store, rcdb.MemoryStore):
@@ -186,7 +186,7 @@ def test_stats_report_something_sane(store):
     assert isinstance(s, dict)
 
 
-# --- what the embedded backend exists for -------------------------------------
+# what the embedded backend exists for
 
 def _rexstore(tmp_path):
     return rcdb.open_store(f"rex://{tmp_path / 'rx'}")
@@ -289,7 +289,7 @@ def test_a_vocabulary_query_does_not_scan_every_record(tmp_path):
     assert len(seen) <= 5, f"examined {len(seen)} records for a one-record answer"
 
 
-# --- the index, as tensors ----------------------------------------------------
+# the index, as tensors
 
 def test_an_indexed_store_reads_exactly_what_replay_would(tmp_path):
     """A faster open that answers differently is not an open. Every read is compared

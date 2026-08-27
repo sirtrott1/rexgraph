@@ -11,10 +11,38 @@ their own ``tmp_path``; that just overrides this (already-safe) default per-test
 import atexit
 import contextlib
 import os
+import pathlib
 import shutil
+import sys
 import tempfile
 
 import pytest
+
+# Put the agent project root on the path before anything imports from it.
+#
+# Two things resolve wrongly without this when pytest is invoked from the REPOSITORY
+# root rather than from agent/. The directory `agent/` has no __init__.py, so from the
+# repository root `import agent` finds it as a namespace package and binds to the outer
+# directory instead of the real package at agent/agent/, which has no __version__ and
+# made three version tests fail for a reason that had nothing to do with versions. And
+# five test modules import their fixtures with `from tests.test_... import`, which needs
+# agent/ on the path to resolve at all, so they were not collected and the suite reported
+# a pass without them.
+#
+# Both worked when the suite was run from agent/, so the failures looked like a broken
+# checkout rather than a rootdir difference. Fixing it here means the same command works
+# from either directory.
+_AGENT_ROOT = str(pathlib.Path(__file__).resolve().parents[1])
+if _AGENT_ROOT not in sys.path:
+    sys.path.insert(0, _AGENT_ROOT)
+
+# If `agent` already bound to the namespace directory, drop it so the next import picks
+# up the real package. A namespace package has no __file__, which is what distinguishes
+# it; a correctly imported agent is left alone.
+_bound = sys.modules.get("agent")
+if _bound is not None and getattr(_bound, "__file__", None) is None:
+    for _name in [n for n in sys.modules if n == "agent" or n.startswith("agent.")]:
+        del sys.modules[_name]
 
 # Set at module import time (before agent.* is imported by any test module) so the
 # import-time config-dir binding picks up the temp location. Force it - the whole

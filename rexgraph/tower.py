@@ -35,7 +35,9 @@ import numpy as np
 import scipy.sparse as sp
 
 __all__ = ["boundary_mass", "mass_tower", "trace_tower", "moments",
-           "tower_law", "incidence_degrees", "closure_at", "manifold_state", "surface_identity", "apd", "semantic_closure"]
+           "tower_law", "incidence_degrees", "closure_at", "manifold_state",
+           "surface_identity", "apd", "semantic_closure",
+           "graded_delta", "channel_delta"]
 
 
 def _boundaries(rex):
@@ -490,3 +492,42 @@ def semantic_closure(rex, seed: int, *, max_depth: int = 8, grade: int = 0) -> d
                     "stops being more answer there. Exact, with no threshold, because the "
                     "reading either changed or it did not"),
     }
+
+
+def graded_delta(rex) -> list:
+    """L_gb across every adjacent grade pair: the graded boundary delta.
+
+    Where the mass tower reads each grade on its own, this reads the COUPLING
+    between adjacent grades. `L_gb = a a^T/|a|^2 - b b^T/|b|^2` on the two grades'
+    normalized coherence spectra, a difference of two rank-1 orthogonal projectors,
+    so its whole spectrum follows from one dot product:
+
+        nonzero eigenvalues   +-sqrt(spread(a, b))
+        ||L_gb||_F            sqrt(2 * spread(a, b))
+
+    No eigensolver and no L x L matrix for those three. `localization` still reads
+    the entrywise |L_gb|, which is not rank-2 and has no closed form.
+
+    Returns one dict per pair with `pair`, `top_eig`, `bot_eig`, `spread`, `frob`
+    and `localization`. The tower is a fingerprint: a sphere has a distinctive
+    signature across its pairs.
+    """
+    from rexgraph.core._l_gb import l_gb_tower
+    return l_gb_tower([np.asarray(b.todense(), dtype=np.float64)
+                       for b in _boundaries(rex)])
+
+
+def channel_delta(rex):
+    """L_gb between the four channel hats at grade 1, as a 4x4 array.
+
+    The within-grade companion to `graded_delta`: entry [i, j] is the Frobenius
+    norm of L_gb between channel i and channel j, in the order
+    (topology, geometry, frustration, coparticipation). The diagonal is zero by
+    construction, a channel matching itself.
+    """
+    from rexgraph.core._l_gb import l_gb_channel_tensor
+    rex._ensure_clean()
+    hats = list(rex._rcf_bundle.get("hats", []) or [])
+    if not hats:
+        return np.zeros((0, 0), dtype=np.float64)
+    return np.asarray(l_gb_channel_tensor(hats), dtype=np.float64)

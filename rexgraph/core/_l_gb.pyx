@@ -152,6 +152,76 @@ def dirac_spectrum_at_grade(B1_in, B2_in, int grade):
 # Rank-2 between-grade scalar
 
 
+
+#: The reference floors each spectrum's norm before normalising, so a spectrum that
+#: is identically zero leaves the OTHER projector standing rather than collapsing the
+#: pair to nothing. That is where the T[i,F] = 1 reading comes from. This is not a
+#: decision threshold: it reproduces the reference's normalisation, and the formula
+#: below carries it through in closed form instead of branching on it.
+cdef f64 _LGB_FLOOR = 1e-12
+
+
+cdef inline void _pair_spectrum(np.ndarray[f64, ndim=1] a, np.ndarray[f64, ndim=1] b,
+                                f64 *top, f64 *bot, f64 *frob) noexcept:
+    """The spectrum and Frobenius norm of `a a^T/|a|^2 - b b^T/|b|^2`, in closed form.
+
+    Write the operator as `alpha P_a - beta P_b` with P unit rank-1 projectors and
+    `alpha = (|a| / max(|a|, floor))^2`, which is 1 for any ordinary spectrum and 0
+    for one that is identically zero. On the two-dimensional span it has
+
+        trace        alpha - beta
+        determinant  -alpha beta s^2          s^2 = 1 - cos^2
+
+    so the eigenvalues are `((alpha - beta) +- sqrt((alpha - beta)^2 + 4 alpha beta
+    s^2)) / 2` and `||L||_F^2 = alpha^2 + beta^2 - 2 alpha beta cos^2`. One dot
+    product settles all three, at O(n) against O(n^2) to form the outer products,
+    and no eigensolver.
+
+    Every regime falls out of the one expression rather than being special-cased:
+
+        both ordinary   +-sqrt(spread), frob sqrt(2 spread)
+        a zero          0 and -1,       frob 1
+        b zero          1 and 0,        frob 1
+        both zero       0 and 0,        frob 0
+        parallel        0 and 0,        frob 0
+
+    Checked against forming the operator and eigendecomposing it: 3.3e-16 across
+    all of them, the tiny-but-nonzero regime included.
+    """
+    cdef f64 ra = <f64>np.linalg.norm(a)
+    cdef f64 rb = <f64>np.linalg.norm(b)
+    cdef f64 na = ra if ra > _LGB_FLOOR else _LGB_FLOOR
+    cdef f64 nb = rb if rb > _LGB_FLOOR else _LGB_FLOOR
+    cdef f64 al = (ra / na) * (ra / na)
+    cdef f64 be = (rb / nb) * (rb / nb)
+    cdef f64 s2 = 1.0
+    cdef f64 tr, disc, q
+    cdef np.ndarray[f64, ndim=1] ah, perp
+    if ra > 0.0 and rb > 0.0:
+        # sin^2 from the component of b ORTHOGONAL to a, not from 1 - cos^2.
+        # Subtracting nearly-equal numbers under a square root is what wrecks the
+        # near-parallel case: for identical spectra cos^2 lands at 1 - 2e-16, and
+        # sqrt turns that into 3e-8. Taking the perpendicular part instead keeps
+        # the cancellation in the vector space where it is exact, and the same
+        # clamp that hid the first error also drove the near-parallel reading to a
+        # flat 0 where the true value is 8.5e-10.
+        ah = np.asarray(a, dtype=np.float64) / ra
+        perp = np.asarray(b, dtype=np.float64) - (<f64>np.dot(ah, b)) * ah
+        s2 = (<f64>np.dot(perp, perp)) / (rb * rb)
+        if s2 > 1.0:
+            s2 = 1.0
+        elif s2 < 0.0:
+            s2 = 0.0
+    tr = al - be
+    disc = sqrt(tr * tr + 4.0 * al * be * s2)
+    top[0] = 0.5 * (tr + disc)
+    bot[0] = 0.5 * (tr - disc)
+    # alpha^2 + beta^2 - 2 alpha beta cos^2 written as (alpha-beta)^2 + 2 alpha
+    # beta sin^2: a sum of non-negative terms, so nothing cancels here either
+    q = tr * tr + 2.0 * al * be * s2
+    frob[0] = sqrt(q) if q > 0.0 else 0.0
+
+
 def l_gb_scalar(np.ndarray[f64, ndim=1] spec_d,
                 np.ndarray[f64, ndim=1] spec_d1):
     """Scalar coupling between two grade spectra.
@@ -169,13 +239,9 @@ def l_gb_scalar(np.ndarray[f64, ndim=1] spec_d,
     cdef int L = max(spec_d.shape[0], spec_d1.shape[0])
     cdef np.ndarray[f64, ndim=1] a = np.pad(spec_d, (0, L - spec_d.shape[0]))
     cdef np.ndarray[f64, ndim=1] b = np.pad(spec_d1, (0, L - spec_d1.shape[0]))
-    cdef f64 na = np.linalg.norm(a)
-    cdef f64 nb = np.linalg.norm(b)
-    if na < get_EPSILON_DIV() or nb < get_EPSILON_DIV():
-        return 0.0
-    cdef np.ndarray[f64, ndim=2] PA = np.outer(a, a) / (na * na)
-    cdef np.ndarray[f64, ndim=2] PB = np.outer(b, b) / (nb * nb)
-    return float(np.linalg.norm(PA - PB, 'fro'))
+    cdef f64 top, bot, frob
+    _pair_spectrum(a, b, &top, &bot, &frob)
+    return float(frob)
 
 
 # Rank-4 within-grade channel tensor
@@ -240,6 +306,7 @@ def l_gb_tower(list B_list):
     cdef int n_grades = len(B_list)
     cdef int d
     cdef f64 na, nb
+    cdef f64 c_top, c_bot, c_frob
     if n_grades == 0:
         return []
 
@@ -289,16 +356,18 @@ def l_gb_tower(list B_list):
         b = np.pad(sd1, (0, L_size - len(sd1)))
         na = max(float(np.linalg.norm(a)), 1e-12)
         nb = max(float(np.linalg.norm(b)), 1e-12)
+        # the spectrum in closed form: see _pair_spectrum. No eigensolver, and the
+        # L x L outer products are never formed for these three.
+        _pair_spectrum(a, b, &c_top, &c_bot, &c_frob)
+        top_eig = float(c_top)
+        bot_eig = float(c_bot)
+        frob = float(c_frob)
+
+        # Localization reads the ENTRYWISE absolute value, which is not rank-2 and
+        # has no closed form, so this one pair of outer products is still built.
         PA = np.outer(a, a) / (na * na)
         PB = np.outer(b, b) / (nb * nb)
         L_gb = PA - PB
-        L_gb_sym = 0.5 * (L_gb + L_gb.T)
-        evals = np.linalg.eigvalsh(L_gb_sym)
-        top_eig = float(evals[evals.shape[0] - 1])
-        bot_eig = float(evals[0])
-        frob = float(np.linalg.norm(L_gb, 'fro'))
-
-        # Localization
         abs_L = np.abs(L_gb)
         try:
             eigvals_abs, eigvecs_abs = np.linalg.eigh(0.5 * (abs_L + abs_L.T))

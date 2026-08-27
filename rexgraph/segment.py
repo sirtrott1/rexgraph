@@ -31,18 +31,20 @@ import unicodedata
 
 import numpy as np
 
+from rexgraph.corpus_profile import as_text as _as_text
+
 __all__ = ["encoding_energy", "encoding_width", "boundary_signals",
            "segment_sentences", "segment_paragraphs", "segment_chapters",
            "strip_markers", "document_layers"]
 
-# The English-and-Gutenberg constants that used to live here: the inserted markers,
+# The English-and-Gutenberg constants belong to the corpus: the inserted markers,
 # the chapter conventions and the abbreviation veto: are now on
 # `rexgraph.corpus_profile.ENGLISH_GUTENBERG`. They are facts about one corpus in one
 # language, and a segmenter that carries them cannot serve a Chinese corpus or a source
 # tree without being edited.
 
 
-def strip_markers(raw, markers=()):
+def strip_markers(raw, markers=(), *, encoding="utf-8"):
     """The body between a corpus's inserted markers, and which were found.
 
     `markers` is `(start_pattern, end_pattern)` from the profile. Project Gutenberg's
@@ -54,7 +56,7 @@ def strip_markers(raw, markers=()):
     pointer layer's contract: a section's byte range has to mean something in the file on
     disk, not in a cleaned copy that no longer exists.
     """
-    text = str(raw)
+    text = _as_text(raw, encoding)
     start, end, how = 0, len(text), []
     pats = tuple(markers or ())
     if pats:
@@ -80,7 +82,7 @@ def encoding_energy(text, *, encoding="utf-8"):
     energy in utf-8 than in a CJK encoding, and comparing across encodings is meaningless
     without saying which one.
     """
-    s = str(text)
+    s = _as_text(text)
     out = np.zeros(len(s), dtype=np.float64)
     for i, ch in enumerate(s):
         try:
@@ -106,7 +108,7 @@ def encoding_width(text, *, encoding="utf-8"):
     "above the middle" is a level rather than a fact. Byte width is exact, per-encoding,
     and needs neither.
     """
-    s = str(text)
+    s = _as_text(text)
     if encoding.lower().replace("_", "-") in ("utf-8", "utf8"):
         cp = np.frombuffer(s.encode("utf-32-le"), dtype=np.uint32)
         return (1 + (cp >= 0x80).astype(np.int64) + (cp >= 0x800).astype(np.int64)
@@ -140,7 +142,7 @@ def boundary_signals(text, *, encoding="utf-8", abbreviations=None):
     positions and `suppress` is a bool array. Nothing is combined here on purpose: the
     caller decides how much agreement it wants, and gets to see which channels fired.
     """
-    s = str(text)
+    s = _as_text(text)
     n = len(s)
     term = np.zeros(n, dtype=bool)
     spacing = np.zeros(n, dtype=bool)
@@ -214,7 +216,7 @@ def segment_sentences(text, *, encoding="utf-8", offset=0, abbreviations=None):
 
     Returns `(spans, method)` as `(start, length)` CHARACTER ranges shifted by `offset`.
     """
-    s = str(text)
+    s = _as_text(text, encoding)
     if not s.strip():
         return [], "empty"
     sig, suppress = boundary_signals(s, encoding=encoding,
@@ -244,7 +246,7 @@ def segment_paragraphs(text, *, offset=0):
     and does not have to be inferred, so this needs no agreement rule. Where a file has
     no blank lines at all the whole body is one paragraph, reported as such.
     """
-    s = str(text)
+    s = _as_text(text)
     # `\r?\n` on BOTH sides: a CRLF file separates paragraphs with "\r\n\r\n",
     # which an LF-only pattern cannot match, so every such document read as one
     # block. `read_document` deliberately does not translate newlines (that is what
@@ -278,7 +280,7 @@ def segment_chapters(text, *, offset=0, min_sections=2, headings=()):
     that no two books would agree on. Retrieval then reads a paragraph where it could
     have read a chapter, which costs context and does not cost correctness.
     """
-    s = str(text)
+    s = _as_text(text)
     for name, pat in (headings or ()):
         rx = pat if hasattr(pat, "finditer") else re.compile(pat, re.M)
         marks = [(m.start(), m.group(0).strip()) for m in rx.finditer(s)]
@@ -308,7 +310,7 @@ def document_layers(raw, *, encoding="utf-8", profile=None):
     markers = getattr(profile, "markers", ()) if profile is not None else ()
     headings = getattr(profile, "headings", ()) if profile is not None else ()
     veto = getattr(profile, "veto", None) if profile is not None else None
-    body, off, pg = strip_markers(raw, markers)
+    body, off, pg = strip_markers(raw, markers, encoding=encoding)
     out = {"document": {"spans": [(off, len(body))], "method": pg}}
     ch, titles, how = segment_chapters(body, offset=off, headings=headings)
     if ch:

@@ -285,6 +285,21 @@ def cell_keys_of_i64(np.ndarray[i64, ndim=1] boundary_ptr,
     return keys
 
 
+def cell_heads_of(boundary_ptr, boundary_idx):
+    """The distinguished vertex of each boundary column, as int64.
+
+    Position 0 of a column carries the opposite sign to the rest, so it is where
+    the column's orientation lives. `cell_keys_of` deliberately cannot see it:
+    the key is the support, so that a cell keeps one identity across a reversal.
+    Read the two together to tell a cell apart from its reverse.
+    """
+    ptr = np.asarray(boundary_ptr)
+    idx = np.asarray(boundary_idx)
+    if ptr.shape[0] < 2:
+        return np.empty(0, dtype=np.int64)
+    return idx[ptr[:-1]].astype(np.int64, copy=False)
+
+
 def cell_keys_of(boundary_ptr, boundary_idx, directed=False):
     """Auto-dispatch by dtype (mirrors encode_delta_full)."""
     if boundary_ptr.dtype == np.int64:
@@ -311,8 +326,15 @@ def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
       key only in prev  -> DIED     (emit the key)
       key only in curr  -> BORN     (emit the cell's vertices in original
                                       order, plus its w_E/sign)
-      key in both       -> compare w_E and sign; if either differs, emit
-                            MODIFIED (curr key, curr w_E, curr sign)
+      key in both       -> compare w_E, sign and head; if any differs, emit
+                            MODIFIED (curr key, w_E, sign, head)
+
+    The key is built from the cell's support, so a cell that reverses keeps its
+    identity. Orientation rides alongside it as the head: the vertex at position 0,
+    the one carrying the opposite sign to the arguments. Support and head together
+    determine the boundary column, because the remaining entries all carry
+    1/(k-1) and their order does not reach B1. A reversal is therefore a
+    MODIFIED record on a persisting cell, not a death and a birth.
 
     Returns
     -------
@@ -324,6 +346,7 @@ def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
     mod_keys : int64[n_mod]
     mod_wE : f64[n_mod]
     mod_signs : int32[n_mod]
+    mod_heads : int64[n_mod]
     """
     cdef Py_ssize_t nP = prev_ptr.shape[0] - 1
     cdef Py_ssize_t nC = curr_ptr.shape[0] - 1
@@ -351,10 +374,12 @@ def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
     cdef np.ndarray[i64, ndim=1] mod_keys = np.empty(nC, dtype=np.int64)
     cdef np.ndarray[f64, ndim=1] mod_wE = np.empty(nC, dtype=np.float64)
     cdef np.ndarray[i32, ndim=1] mod_signs = np.empty(nC, dtype=np.int32)
+    cdef np.ndarray[i64, ndim=1] mod_heads = np.empty(nC, dtype=np.int64)
     cdef np.ndarray[i64, ndim=1] born_cj = np.empty(nC, dtype=np.int64)
     cdef i64[::1] dk = died_keys, mk = mod_keys, bcj = born_cj
     cdef f64[::1] mw = mod_wE
     cdef i32[::1] msg = mod_signs
+    cdef i64[::1] mhd = mod_heads
 
     cdef Py_ssize_t ip = 0, ic = 0, pj, cj
     cdef Py_ssize_t nd = 0, nm = 0, nb = 0
@@ -368,8 +393,10 @@ def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
             bcj[nb] = cj; nb += 1
             ic += 1
         else:
-            if pw[pj] != cw[cj] or ps[pj] != cs[cj]:
-                mk[nm] = ck[cj]; mw[nm] = cw[cj]; msg[nm] = cs[cj]; nm += 1
+            if (pw[pj] != cw[cj] or ps[pj] != cs[cj]
+                    or pidx[pp[pj]] != cidx[cp[cj]]):
+                mk[nm] = ck[cj]; mw[nm] = cw[cj]; msg[nm] = cs[cj]
+                mhd[nm] = <i64>cidx[cp[cj]]; nm += 1
             ip += 1; ic += 1
     while ip < nP:
         dk[nd] = pk[porder[ip]]; nd += 1
@@ -404,7 +431,8 @@ def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
         bs[k] = cs[cj]
 
     return (born_cols, born_offsets, born_wE, born_signs,
-            died_keys[:nd], mod_keys[:nm], mod_wE[:nm], mod_signs[:nm])
+            died_keys[:nd], mod_keys[:nm], mod_wE[:nm], mod_signs[:nm],
+            mod_heads[:nm])
 
 
 def encode_delta_full_i64(np.ndarray[i64, ndim=1] prev_ptr,
@@ -417,7 +445,8 @@ def encode_delta_full_i64(np.ndarray[i64, ndim=1] prev_ptr,
                            np.ndarray[i32, ndim=1] curr_signs,
                            bint directed=False):
     """int64-boundary variant of encode_delta_full_i32 (born_cols/born_offsets
-    are int64 here; keys stay int64, w_E stays f64, signs stay int32)."""
+    are int64 here; keys stay int64, w_E stays f64, signs stay int32,
+    heads stay int64)."""
     cdef Py_ssize_t nP = prev_ptr.shape[0] - 1
     cdef Py_ssize_t nC = curr_ptr.shape[0] - 1
     cdef i64[::1] pp = prev_ptr, pidx = prev_idx, cp = curr_ptr, cidx = curr_idx
@@ -442,10 +471,12 @@ def encode_delta_full_i64(np.ndarray[i64, ndim=1] prev_ptr,
     cdef np.ndarray[i64, ndim=1] mod_keys = np.empty(nC, dtype=np.int64)
     cdef np.ndarray[f64, ndim=1] mod_wE = np.empty(nC, dtype=np.float64)
     cdef np.ndarray[i32, ndim=1] mod_signs = np.empty(nC, dtype=np.int32)
+    cdef np.ndarray[i64, ndim=1] mod_heads = np.empty(nC, dtype=np.int64)
     cdef np.ndarray[i64, ndim=1] born_cj = np.empty(nC, dtype=np.int64)
     cdef i64[::1] dk = died_keys, mk = mod_keys, bcj = born_cj
     cdef f64[::1] mw = mod_wE
     cdef i32[::1] msg = mod_signs
+    cdef i64[::1] mhd = mod_heads
 
     cdef Py_ssize_t ip = 0, ic = 0, pj, cj
     cdef Py_ssize_t nd = 0, nm = 0, nb = 0
@@ -459,8 +490,10 @@ def encode_delta_full_i64(np.ndarray[i64, ndim=1] prev_ptr,
             bcj[nb] = cj; nb += 1
             ic += 1
         else:
-            if pw[pj] != cw[cj] or ps[pj] != cs[cj]:
-                mk[nm] = ck[cj]; mw[nm] = cw[cj]; msg[nm] = cs[cj]; nm += 1
+            if (pw[pj] != cw[cj] or ps[pj] != cs[cj]
+                    or pidx[pp[pj]] != cidx[cp[cj]]):
+                mk[nm] = ck[cj]; mw[nm] = cw[cj]; msg[nm] = cs[cj]
+                mhd[nm] = <i64>cidx[cp[cj]]; nm += 1
             ip += 1; ic += 1
     while ip < nP:
         dk[nd] = pk[porder[ip]]; nd += 1
@@ -493,7 +526,8 @@ def encode_delta_full_i64(np.ndarray[i64, ndim=1] prev_ptr,
         bs[k] = cs[cj]
 
     return (born_cols, born_offsets, born_wE, born_signs,
-            died_keys[:nd], mod_keys[:nm], mod_wE[:nm], mod_signs[:nm])
+            died_keys[:nd], mod_keys[:nm], mod_wE[:nm], mod_signs[:nm],
+            mod_heads[:nm])
 
 
 def encode_delta_full(prev_ptr, prev_idx, prev_wE, prev_signs,

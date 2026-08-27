@@ -29,7 +29,7 @@ def corpus_dir(tmp_path):
     return tmp_path
 
 
-# --- planning ------------------------------------------------------------------
+# planning
 
 def test_a_plan_reads_and_changes_nothing(corpus_dir):
     before = sorted(p.name for p in corpus_dir.iterdir())
@@ -115,7 +115,7 @@ def test_nothing_is_missing_when_everything_is_present(corpus_dir, monkeypatch):
     assert p.install_command() is None
 
 
-# --- installing ----------------------------------------------------------------
+# installing
 
 def test_install_does_not_run_without_being_asked(corpus_dir, monkeypatch):
     monkeypatch.setattr(quickstart, "_have", lambda m: False)
@@ -133,7 +133,7 @@ def test_install_is_a_no_op_when_nothing_is_missing(corpus_dir, monkeypatch):
     assert out["skipped"] is True and out["reason"] == "nothing missing"
 
 
-# --- running -------------------------------------------------------------------
+# running
 
 def test_running_the_plan_ingests_builds_and_persists(corpus_dir):
     p = quickstart.plan(str(corpus_dir))

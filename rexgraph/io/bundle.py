@@ -157,6 +157,34 @@ def _resolve_cache(cache) -> set[str]:
     return out
 
 
+def _channel_diagonals(rex):
+    """The four channel diagonals per edge, trace-normalized, shape (nE, 4).
+
+    Exact from the boundary structure when the complex carries a rational
+    character. The normalized G channel takes a square root and does not, so
+    that case reads the assembled hats instead, which is the only reason the
+    fallback exists.
+    """
+    from rexgraph.rational_trig import exact_channel_diagonals
+
+    nE = int(rex.nE)
+    chi = np.zeros((nE, 4), dtype=np.float64)
+    diagonals, names = exact_channel_diagonals(rex)
+    if diagonals is not None:
+        for ci, name in enumerate(names[:4]):
+            col = np.array([float(x) for x in diagonals[name]], dtype=np.float64)
+            total = col.sum()
+            chi[:, ci] = col / total if total else col
+        return chi
+    bundle = rex._hat_eigen_bundle
+    for ci in range(min(4, len(bundle))):
+        ev, evec = bundle[ci]
+        col = np.einsum("ij,j,ij->i", evec, ev, evec)
+        total = col.sum()
+        chi[:, ci] = col / total if total else col
+    return chi
+
+
 def _save_npy(directory: pathlib.Path, name: str, arr: NDArray) -> str:
     """Save an array as `<name>.npy` and return the relative path."""
     arr = np.asarray(arr)
@@ -682,47 +710,53 @@ def _write_cache(
                 "frustration_per_edge", "coparticipation_per_edge",
                 "sigma_asymmetry_per_edge"}:
         try:
-            from rexgraph.core._harmonic import harmonic_projectors
-            B1 = rex.B1_dense
-            B2 = rex.B2_dense
-            projs = harmonic_projectors(B1, B2)
-            dim_H = projs["dim_H"]
+            # the sparse cycle frame, not core._harmonic.harmonic_projectors: that
+            # one builds a dense nE x nE L1, eigendecomposes it, then assembles
+            # P_harm, P_grad and P_curl at nE x nE each plus a pinv, and only
+            # P_harm and the basis are ever read here
+            from rexgraph.harmonic_sparse import harmonic_basis, harmonic_projection
+            H = harmonic_basis(rex)
+            dim_H = int(H.shape[1])
             scalars["harmonic_dim"] = dim_H
 
             if dim_H > 0:
-                _save_npy(cache_dir, "harmonic_basis", projs["harm_basis"])
+                import scipy.sparse as _sp
+                _save_npy(cache_dir, "harmonic_basis",
+                          np.asarray(H.todense()) if _sp.issparse(H) else np.asarray(H))
                 written.append("harmonic_basis")
 
-                # Frustration and coparticipation
                 w = rex.w_E if rex.w_E is not None else np.ones(rex.nE)
-                harm_sig = projs["P_harm"] @ w
-                chi = np.zeros((rex.nE, 4))
-                for ci in range(4):
-                    ev, evec = rex._hat_eigen_bundle[ci]
-                    hat = evec @ np.diag(ev) @ evec.T
-                    for e in range(rex.nE):
-                        chi[e, ci] = hat[e, e]
+                harm_sig = np.asarray(harmonic_projection(H, w), dtype=np.float64)
 
-                frustration = np.abs(harm_sig) * chi[:, 0]
-                coparticipation = np.abs(harm_sig) * chi[:, 1]
+                # channel diagonals from the boundary structure. The old path
+                # rebuilt each hat as evec @ diag(ev) @ evec.T, an nE x nE per
+                # channel, to read nE numbers off the diagonal.
+                chi = _channel_diagonals(rex)
+
+                # chi columns are (topology, geometry, frustration,
+                # coparticipation). frustration read column 0 and coparticipation
+                # column 1, so both named a channel and used another; the sigma
+                # line below already had the order right.
+                frustration = np.abs(harm_sig) * chi[:, 2]
+                coparticipation = np.abs(harm_sig) * chi[:, 3]
                 _save_npy(cache_dir, "frustration_per_edge", frustration)
                 _save_npy(cache_dir, "coparticipation_per_edge", coparticipation)
                 written.extend(["frustration_per_edge", "coparticipation_per_edge"])
 
-                # Sigma-asymmetry
-                sigma = np.zeros(rex.nE)
-                for e in range(rex.nE):
-                    T, F = chi[e, 0], chi[e, 2]
-                    if T + F > 1e-10:
-                        sigma[e] = (T - F) / (T + F)
+                # T against F, per edge, where the pair carries anything at all
+                T, F = chi[:, 0], chi[:, 2]
+                total = T + F
+                sigma = np.divide(T - F, total, out=np.zeros_like(total),
+                                  where=total > 0)
                 _save_npy(cache_dir, "sigma_asymmetry_per_edge", sigma)
                 written.append("sigma_asymmetry_per_edge")
 
-                scalars["frustration_total"] = float(np.sum(frustration))
-                scalars["coparticipation_total"] = float(np.sum(coparticipation))
+                frust_sum = float(np.sum(frustration))
                 copart_sum = float(np.sum(coparticipation))
-                if copart_sum > 1e-10:
-                    scalars["health_ratio"] = float(np.sum(frustration)) / copart_sum
+                scalars["frustration_total"] = frust_sum
+                scalars["coparticipation_total"] = copart_sum
+                if copart_sum != 0.0:
+                    scalars["health_ratio"] = frust_sum / copart_sum
         except (ImportError, Exception):
             pass
 

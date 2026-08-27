@@ -564,16 +564,18 @@ class TestRL4:
         assert r['nhats'] == 4
         assert abs(np.trace(r['RL']) - 4.0) < 1e-10
 
-    def test_build_RL_skips_zero_trace(self):
-        """build_RL skips Laplacians with zero trace."""
+    def test_build_RL_keeps_a_zero_trace_channel(self):
+        """A zero-trace Laplacian is kept as a zero hat rather than dropped, so the
+        channel list has a fixed width. tr(RL) still counts only what carries mass."""
         from rexgraph.core import _relational
         nE = 5
         L1 = np.eye(nE, dtype=np.float64)
         L_zero = np.zeros((nE, nE), dtype=np.float64)
         r = _relational.build_RL([L1, L_zero], ['A', 'B'])
-        assert r['nhats'] == 1
+        assert r['nhats'] == 2
+        assert r['hat_names'] == ['A', 'B']
         assert abs(np.trace(r['RL']) - 1.0) < 1e-10
-        assert r['hat_names'] == ['A']
+        assert not np.asarray(r['hats'][1]).any()
 
     def test_build_RL_backward_compat(self):
         """build_RL_from_laplacians still works as alias."""

@@ -2,17 +2,207 @@
 contention objective."""
 from __future__ import annotations
 
+import math as _math
+
 LANES = ("proc", "thread", "igpu")
-TYPES = ("cpu_coordination", "io_llm", "gpu_kernel")
+TYPES = ("cpu_coordination", "io_llm", "local_llm", "gpu_kernel")
 
 # (time_s prior, bandwidth_demand prior) per (type, lane), seeded from the 2026-07-25 benchmark:
 # cpu_coordination scales on the forkserver (proc), is GIL-flat on threads; io_llm is I/O-bound
 # (cheap on threads, pointless elsewhere); gpu_kernel is cheap on the iGPU, dearer on the CPU.
+#
+# local_llm is NOT io_llm. io_llm is a REMOTE call: the caller blocks on a socket, so it is cheap
+# on a thread and draws no local bandwidth, which is what the 0.1 prior says. A model running on
+# THIS box is the opposite and is the heaviest bandwidth draw in the system: measured 2026-08-23 on
+# the 8060S, a 27B Q4 decodes at 12.5 tok/s x 16.5 GB = 224 GB/s against a ~256 GB/s bus, so ~87%
+# of it, and attention is only ~6% of that. Calling it 0.1 tells the actuator it can run a wave of
+# gpu_kernel work alongside generation for free, when in fact the two are competing for one bus.
+#
+# The bandwidth is drawn by the SERVER, not by the caller's lane, so it is high on all three: the
+# caller's thread blocking does not make the bus quieter. Time is cheap on a thread for the same
+# reason it is for io_llm: the caller is waiting, not working.
 _PRIORS = {
     "cpu_coordination": {"proc": (0.10, 0.6), "thread": (0.80, 0.6), "igpu": (1.00, 0.6)},
     "io_llm":           {"proc": (1.00, 0.1), "thread": (0.10, 0.1), "igpu": (1.00, 0.1)},
+    # TIME mirrors io_llm exactly and only BANDWIDTH differs. That is deliberate: the
+    # agent adapter routes LLM work here partly for a CORRECTNESS reason. A spawn or a
+    # live-server attach mutates hive state in place and must not run in a forkserver
+    # child, where the mutation would be lost, so it relies on the thread lane being
+    # strictly cheapest. Giving local_llm a cheaper proc or igpu time would silently move
+    # that work off-thread and lose the mutation. The fix here is the bus accounting, not
+    # the placement, so the placement is left identical by construction.
+    "local_llm":        {"proc": (1.00, 0.9), "thread": (0.10, 0.9), "igpu": (1.00, 0.9)},
     "gpu_kernel":       {"proc": (1.00, 0.9), "thread": (1.00, 0.9), "igpu": (0.10, 0.9)},
 }
+
+# Concurrent requests to ONE local server SHARE their weight reads, so N generations cost far less
+# than N times one. Measured on the 35B-A3B MoE, aggregate decode: 1 stream 53.4 tok/s, 2 concurrent
+# 74.1, 4 concurrent 81.2, 8 concurrent 120.8.
+LOCAL_LLM_BATCH_GAIN = {1: 1.00, 2: 1.39, 4: 1.52, 8: 2.26}
+
+# Types whose cost is SHARED rather than additive: the bus draw belongs to one server serving all of
+# them, and their wall-clock overlaps. Everything else stays strictly additive as before.
+_SHARED_TYPES = frozenset({"local_llm"})
+
+
+#### which lanes share a bus is HARDWARE, so it is declared and not hardcoded
+#
+# `min(proc, igpu)` baked in unified memory. On the 8060S that is right, since the iGPU and
+# the CPU are on one physical bus, so a draw on either is a draw on the same resource --
+# and on a discrete-GPU box it is wrong, because VRAM is its own pool and an igpu draw
+# costs a CPU draw nothing.
+#
+# So the topology is a COMPLEX, edge-primary the way everything else here is: a bus is a
+# vertex, a LANE is the relation over the buses it draws on, and two lanes meet exactly
+# when they share one. A lane on a single bus is a 1-ary witness relation, and two
+# witnesses on one vertex meet there, which is what makes the unified case fall out
+# rather than being special-cased.
+UNIFIED_MEMORY = {"mem": ("proc", "thread", "igpu")}
+SPLIT_MEMORY = {"sys_mem": ("proc", "thread"), "vram": ("igpu",)}
+_BUSES = UNIFIED_MEMORY
+
+
+def bus_topology() -> dict:
+    """The active bus -> lanes map. Unified memory by default, which is what the machine
+    this was measured on has and what the previous hardcoded form assumed."""
+    return dict(_BUSES)
+
+
+def _validate_buses(buses: dict) -> None:
+    for name, lanes in buses.items():
+        bad = [ln for ln in lanes if ln not in LANES]
+        if bad:
+            raise ValueError(f"bus {name!r} names unknown lanes {bad}; lanes are {LANES}")
+
+
+def set_bus_topology(buses: dict | None) -> None:
+    """Declare the PROCESS-default topology. None restores unified memory.
+
+    Per-machine topology belongs on a CostModel (`set_buses`); this is the convenience
+    for the common case of one process describing one machine.
+    """
+    global _BUSES
+    if buses is None:
+        _BUSES = UNIFIED_MEMORY
+        return
+    _validate_buses(buses)
+    _BUSES = {k: tuple(v) for k, v in buses.items()}
+
+
+def _buses_of(cost) -> dict:
+    """The topology the given cost model describes, or the process default."""
+    fn = getattr(cost, "buses", None)
+    return fn() if callable(fn) else bus_topology()
+
+
+def bus_topology_for(unified) -> dict | None:
+    """The topology implied by whether the compute GPU's memory is unified.
+
+    True -> UNIFIED_MEMORY, False -> SPLIT_MEMORY, and None stays None: an undetermined
+    answer must not become a guess, because guessing wrong silently mis-prices every
+    bandwidth decision while guessing nothing only asks the caller to declare.
+
+    Pure on purpose (it takes the answer rather than probing), so rexgraph does not
+    reach into the agent layer for hardware. `agent.local_runtime.detect_gpus` is what
+    produces the input.
+    """
+    if unified is True:
+        return dict(UNIFIED_MEMORY)
+    if unified is False:
+        return dict(SPLIT_MEMORY)
+    return None
+
+
+def bus_complex(buses: dict | None = None):
+    """The topology as a relational complex: buses are vertices, lanes are the relations
+    over the buses they draw on.
+
+    Returned so the structure can be READ with the rest of the machinery: `Sheaf` over
+    it recovers which lanes meet, through `mediators`, from the incidence alone, rather
+    than the sharing being a fact buried in an expression. The hot path below uses the
+    derived lane sets, not this object: the complex is the declaration, not the inner loop.
+    """
+    from rexgraph.graph import RexGraph
+
+    b = buses or bus_topology()
+    bus_ids = {name: i for i, name in enumerate(sorted(b))}
+    ptr, idx = [0], []
+    lanes = []
+    for ln in LANES:
+        on = sorted(bus_ids[name] for name, ls in b.items() if ln in ls)
+        if not on:
+            continue
+        idx.extend(on)
+        ptr.append(len(idx))
+        lanes.append(ln)
+    if len(ptr) == 1:
+        return None, []
+    rex = RexGraph.from_hypergraph(np.array(ptr, np.int64), np.array(idx, np.int64))
+    rex._ensure_clean()
+    return rex, lanes
+
+
+def _bus_draws(bw: dict, buses: dict | None = None) -> list[list[float]]:
+    """Per bus, the draws of the lanes on it."""
+    return [[bw[ln] for ln in lanes if ln in bw]
+            for lanes in (buses or bus_topology()).values()]
+
+
+def _interp_gain(table: dict, n: int) -> float:
+    """Linear between measured points, FLAT above the largest: past what was measured the
+    honest answer is the last thing seen, not a projection."""
+    if n <= 1:
+        return 1.0
+    pts = sorted(table)
+    if not pts:
+        return 1.0
+    if n >= pts[-1]:
+        return table[pts[-1]]
+    lo = max(k for k in pts if k <= n)
+    hi = min(k for k in pts if k >= n)
+    if lo == hi:
+        return table[lo]
+    f = (n - lo) / (hi - lo)
+    return table[lo] + f * (table[hi] - table[lo])
+
+
+def _enforce_gain_monotone(table: dict) -> None:
+    """Clamp the curve so n/gain(n) never decreases, in place.
+
+    The actuator's greedy requires that absorbing one more unit into a batch cannot make
+    the wave cheaper; if it could, the search would pile every unit onto one lane. gain(n)
+    may rise with n, but no faster than n itself, so the admissible ceiling at n is
+    gain(prev) * n / prev. A learned value above that is clamped down to it.
+    """
+    pts = sorted(table)
+    for prev, cur in zip(pts, pts[1:], strict=False):
+        ceiling = table[prev] * (cur / prev)
+        if table[cur] > ceiling:
+            table[cur] = ceiling
+        if table[cur] < table[prev]:          # and gain itself never falls
+            table[cur] = table[prev]
+
+
+def _batch_gain(n: int) -> float:
+    """The SEEDED curve, for callers without a CostModel. A model that has been fed
+    measurements should be asked instead: see CostModel.batch_gain."""
+    return _interp_gain(LOCAL_LLM_BATCH_GAIN, n)
+
+
+def share_key(unit: dict) -> str:
+    """Which shared resource a unit draws on. Units sharing a key share weight reads.
+
+    An explicit `share_group` is the honest answer when the caller knows it: a hive with
+    three bees has three servers, and requests to different bees share nothing. Without
+    one, units of a type are assumed to hit the same server, which is the single-bee case
+    and the common one.
+    """
+    return str(unit.get("share_group") or unit.get("type"))
+
+# And it does not stack with speculation: the same measurement gives 8 concurrent + MTP at 93.9
+# tok/s against 120.8 without it, because MTP fills idle compute with drafting and batching fills
+# it with other sequences. Single stream is the other way round: MTP 89.4 against 60.3. So the
+# choice is a function of how many generations are in flight, not a setting to fix once.
 _EMA = 0.15
 
 
@@ -23,6 +213,14 @@ class CostModel:
     def __init__(self):
         self._t = {ty: {ln: _PRIORS[ty][ln][0] for ln in LANES} for ty in TYPES}
         self._bw = {ty: {ln: _PRIORS[ty][ln][1] for ln in LANES} for ty in TYPES}
+        self._gain = dict(LOCAL_LLM_BATCH_GAIN)   # per-model, so two boxes do not collide
+        self._base = None                         # measured n = 1 aggregate tok/s
+        self._pending = []                        # n > 1 samples seen before any baseline
+        # The bus topology is HARDWARE, so it belongs to the model that describes a
+        # machine and not to the process: a hive spanning a unified-memory laptop and a
+        # discrete-GPU desktop has to hold both at once. Seeded from the process default
+        # so a single-machine caller never has to say anything.
+        self._buses = None
 
     def cost(self, task_type: str, lane: str) -> tuple[float, float]:
         return self._t[task_type][lane], self._bw[task_type][lane]
@@ -33,6 +231,76 @@ class CostModel:
 
     def best_lane(self, task_type: str) -> str:
         return min(LANES, key=lambda ln: self._t[task_type][ln])
+
+    #### the batch gain, learned the same way the times are
+    def batch_gain(self, n: int) -> float:
+        """This model's aggregate throughput multiplier for `n` concurrent units.
+
+        Starts at the seeded table and moves as `observe_throughput` is fed. Kept on the
+        model rather than in the module constant so two coordinators on different hardware
+        do not overwrite each other's curve: the seed is the 35B-A3B MoE on an 8060S and
+        a dense model or another box has a different one."""
+        return _interp_gain(self._gain, n)
+
+    def observe_throughput(self, n: int, tok_per_s: float) -> None:
+        """Record that `n` concurrent units achieved `tok_per_s` AGGREGATE.
+
+        n = 1 refines the baseline; n > 1 refines the gain at that point as the ratio to
+        it. A gain is meaningless before a baseline exists, so early n > 1 samples are
+        held and replayed once one does. Dropping them would quietly discard the first
+        wave of a fresh process, which is exactly when the seed is least trustworthy.
+
+        Every update is followed by _enforce_gain_monotone, because the actuator needs
+        n/gain(n) to keep rising. One unlucky sample could otherwise make a bigger batch
+        score CHEAPER than a smaller one, and the greedy would hoard units onto one lane
+        forever. A learned curve must not be able to break the search.
+        """
+        n = int(n)
+        r = float(tok_per_s)
+        if n < 1 or not (r > 0.0) or not _math.isfinite(r):
+            return
+        if n == 1:
+            self._base = r if self._base is None else (1 - _EMA) * self._base + _EMA * r
+            for pend_n, pend_r in self._pending:
+                self._fold_gain(pend_n, pend_r / self._base)
+            self._pending.clear()
+            return
+        if self._base is None:
+            self._pending.append((n, r))
+            if len(self._pending) > 32:
+                self._pending.pop(0)
+            return
+        self._fold_gain(n, r / self._base)
+
+    def _fold_gain(self, n: int, gain: float) -> None:
+        if not (gain > 0.0) or not _math.isfinite(gain):
+            return
+        cur = self._gain.get(n, _interp_gain(self._gain, n))
+        self._gain[n] = (1 - _EMA) * cur + _EMA * gain
+        _enforce_gain_monotone(self._gain)
+
+    #### the machine this model describes
+    def buses(self) -> dict:
+        """This model's bus -> lanes map, falling back to the process default."""
+        return dict(self._buses) if self._buses is not None else bus_topology()
+
+    def set_buses(self, buses: dict | None) -> None:
+        """Declare the hardware THIS model describes. None defers to the process default.
+
+        A 7900 XTX or a 3070 has its own VRAM, so `SPLIT_MEMORY`; a Strix Halo laptop is
+        unified, so `UNIFIED_MEMORY`. Getting it wrong does not crash, it silently charges
+        a bandwidth war between pools that do not touch, or fails to charge one that does.
+        """
+        if buses is None:
+            self._buses = None
+            return
+        _validate_buses(buses)
+        self._buses = {k: tuple(v) for k, v in buses.items()}
+
+    def gain_table(self) -> dict:
+        """A copy of the learned curve, for reporting. The baseline is separate because a
+        gain is a ratio and the caller usually wants to see what it is a ratio TO."""
+        return {"baseline_tok_s": self._base, "gain": dict(self._gain)}
 
 
 #### Resource complex + contention sensor (edge-centric delegation complex)
@@ -84,21 +352,81 @@ def capacity(share_fraction: float = 1.0) -> dict:
             "igpu": 2.0}
 
 
-def _lane_groups(assignment, units, cost):
-    by_id = {u["id"]: u for u in units}
-    time = {ln: 0.0 for ln in LANES}
-    bw = {ln: 0.0 for ln in LANES}
-    for tid, ln in assignment.items():
-        t, b = cost.cost(by_id[tid]["type"], ln)
-        time[ln] += t
-        bw[ln] += b
+def _new_state(gain=None):
+    """Lane accumulators. `solo_t`/`solo_bw` are the additive part; `grp[lane][key]` is
+    `[count, time_sum, bw_once]` for a shared resource, whose bus draw is counted ONCE
+    however many units draw on it and whose wall-clock is divided by the batch gain."""
+    return {"solo_t": {ln: 0.0 for ln in LANES}, "solo_bw": {ln: 0.0 for ln in LANES},
+            "grp": {ln: {} for ln in LANES},
+            # the LEARNED curve when a model supplies one, so a coordinator that has been
+            # fed measurements prices batches by what it saw and not by the seed
+            "gain": gain or _batch_gain}
+
+
+def _state_apply(st, unit, ty, lane, t, b, sign=1):
+    if ty in _SHARED_TYPES:
+        g = st["grp"][lane]
+        key = share_key(unit)
+        e = g.get(key)
+        if e is None:
+            e = g[key] = [0, 0.0, b]
+        e[0] += sign
+        e[1] += sign * t
+        if e[0] <= 0:
+            del g[key]
+    else:
+        st["solo_t"][lane] += sign * t
+        st["solo_bw"][lane] += sign * b
+
+
+def _state_sums(st):
+    time = dict(st["solo_t"])
+    bw = dict(st["solo_bw"])
+    for ln in LANES:
+        for _key, (n, tsum, bonce) in st["grp"][ln].items():
+            time[ln] += tsum / st["gain"](n)
+            bw[ln] += bonce                      # one server, one weight stream
     return time, bw
 
 
-def _contention_from_sums(time: dict, bw: dict, cap: dict) -> float:
-    """Contention from precomputed per-lane time/bw sums (the actuator hot path)."""
+def _lane_groups(assignment, units, cost):
+    by_id = {u["id"]: u for u in units}
+    st = _new_state(getattr(cost, "batch_gain", None))
+    for tid, ln in assignment.items():
+        u = by_id[tid]
+        t, b = cost.cost(u["type"], ln)
+        _state_apply(st, u, u["type"], ln, t, b, +1)
+    return _state_sums(st)
+
+
+def _contention_from_sums(time: dict, bw: dict, cap: dict, buses: dict | None = None) -> float:
+    """Contention from precomputed per-lane time/bw sums (the actuator hot path).
+
+    The bandwidth term counts what is CO-DRAWN, which is the circulating part: a lane
+    drawing while the others are idle has the bus to itself and is not at war with
+    anyone. That was written as `min(proc, igpu)`, which says it for two lanes but
+    silently excluded the third, so anything on the thread lane drew for free, and
+    since free is cheap, the actuator PREFERRED that lane, which is where a blocking
+    call into a local model lands. One local_llm plus one gpu_kernel scored 0.0680 on
+    proc, 0.1000 on igpu and 0.0500 on thread, and io_llm at 0.1 bandwidth tied
+    local_llm at 0.9 exactly, both at 0.1180.
+
+    The generalisation is `total - max`, because for two terms that IS the minimum:
+    min(a, b) = (a + b) - max(a, b). So every lane's draw is counted, the largest one
+    is credited with owning the bus, and the rest are the co-drawn mass contending with
+    it. Whenever the thread lane draws nothing this returns the OLD value exactly, so
+    the correction is confined to the case that was wrong.
+
+    Measured, 8060S, 2026-08-23: a 27B Q4 decodes at 12.5 tok/s x 16.5 GB = 224 GB/s
+    against a ~256 GB/s bus, so a local model is ~87% of it and is the heaviest draw in
+    the system. Scoring a wave that mixes generation with gpu_kernel work as free was
+    not a small error.
+    """
     wall = max((time[ln] / cap[ln] for ln in LANES), default=0.0)
-    bw_war = min(bw["proc"], bw["igpu"])   # co-drawn shared bandwidth = the circulating (curl) part
+    bw_war = 0.0
+    for draws in _bus_draws(bw, buses):
+        if draws:
+            bw_war += sum(draws) - max(draws)     # co-drawn mass on THAT bus
     return wall + _BW_LAMBDA * bw_war
 
 
@@ -123,7 +451,7 @@ def contention(assignment: dict, units: list, cost: CostModel, cap: dict | None 
     plus a small CPU<->iGPU bandwidth-war term plus a priority penalty that keeps high-weight tasks
     on their fast lane. `cap` overrides the per-lane capacity (e.g. a hive-share-scaled capacity)."""
     time, bw = _lane_groups(assignment, units, cost)
-    base = _contention_from_sums(time, bw, cap or capacity())
+    base = _contention_from_sums(time, bw, cap or capacity(), _buses_of(cost))
     return base + _LAMBDA_PRI * _priority_penalty(assignment, units, cost)
 
 
@@ -160,44 +488,78 @@ def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
     by_id = {u["id"]: u for u in units}
     cap = cap or capacity()
     a = {u["id"]: cost.best_lane(u["type"]) for u in units}
-    time = {ln: 0.0 for ln in LANES}
-    bw = {ln: 0.0 for ln in LANES}
+    # A shared type's cost is not separable per unit, since moving one changes what the
+    # others on that lane cost, so the running state is per (lane, share group) rather than a
+    # single float, and a move re-derives only the two groups it touched. Still O(1) per
+    # candidate: _state_sums walks LANES and the few live groups, not the units.
+    buses = _buses_of(cost)
+    st = _new_state(getattr(cost, "batch_gain", None))
     for tid, ln in a.items():
-        t, b = cost.cost(by_id[tid]["type"], ln)
-        time[ln] += t
-        bw[ln] += b
+        u = by_id[tid]
+        t, b = cost.cost(u["type"], ln)
+        _state_apply(st, u, u["type"], ln, t, b, +1)
     penalty = 0.0   # seed is best_lane for all, so the penalty starts at zero
 
     improved = True
     while improved:
         improved = False
-        base = _contention_from_sums(time, bw, cap) + _LAMBDA_PRI * penalty
+        time, bw = _state_sums(st)
+        base = _contention_from_sums(time, bw, cap, buses) + _LAMBDA_PRI * penalty
         best_move = None
         best_gain = 1e-12
         for u in units:
             tid = u["id"]
             cur = a[tid]
+            ty = u["type"]
             w = float(u.get("weight", 1.0)) - 1.0
-            tc, bc = cost.cost(u["type"], cur)
+            tc, bc = cost.cost(ty, cur)
             for ln in LANES:
                 if ln == cur:
                     continue
-                tn, bn = cost.cost(u["type"], ln)
-                time[cur] -= tc; bw[cur] -= bc; time[ln] += tn; bw[ln] += bn
+                tn, bn = cost.cost(ty, ln)
+                _state_apply(st, u, ty, cur, tc, bc, -1)
+                _state_apply(st, u, ty, ln, tn, bn, +1)
+                t2, b2 = _state_sums(st)
                 dpen = w * (tn - tc)
-                cand = _contention_from_sums(time, bw, cap) + _LAMBDA_PRI * (penalty + dpen)
+                cand = _contention_from_sums(t2, b2, cap, buses) + _LAMBDA_PRI * (penalty + dpen)
                 gain = base - cand
-                time[cur] += tc; bw[cur] += bc; time[ln] -= tn; bw[ln] -= bn
+                _state_apply(st, u, ty, ln, tn, bn, -1)
+                _state_apply(st, u, ty, cur, tc, bc, +1)
                 if gain > best_gain:
                     best_gain = gain
-                    best_move = (tid, ln, cur, tc, bc, tn, bn, dpen)
+                    best_move = (tid, ln, cur, tc, bc, tn, bn, dpen, u, ty)
         if best_move is not None:
-            tid, ln, cur, tc, bc, tn, bn, dpen = best_move
+            tid, ln, cur, tc, bc, tn, bn, dpen, u, ty = best_move
             a[tid] = ln
-            time[cur] -= tc; bw[cur] -= bc; time[ln] += tn; bw[ln] += bn
+            _state_apply(st, u, ty, cur, tc, bc, -1)
+            _state_apply(st, u, ty, ln, tn, bn, +1)
             penalty += dpen
             improved = True
     return a
+
+
+def detect_bus_topology() -> dict | None:
+    """This machine's topology, or None when it cannot be determined.
+
+    The probe lives in the agent layer (it is a fact about a host, not about the math),
+    so this is a soft import: rexgraph stays usable without it and simply declines to
+    guess. Any failure is a None, never an assertion.
+    """
+    try:
+        from agent.local_runtime import detect_gpus
+    except Exception:
+        return None
+    try:
+        gpus = detect_gpus()
+    except Exception:
+        return None
+    pick = None
+    with_vram = [g for g in gpus if g.get("vram_gb")]
+    if with_vram:
+        pick = max(with_vram, key=lambda g: g["vram_gb"])
+    elif gpus:
+        pick = gpus[0]
+    return bus_topology_for((pick or {}).get("unified"))
 
 
 #### Dispatch seam: execute an assignment across the compute lanes
@@ -486,10 +848,23 @@ class Coordinator:
     capacity used by the actuator."""
 
     def __init__(self, cost: CostModel|None = None, pools: LanePools|None = None,
-                 cap: dict|None = None):
+                 cap: dict|None = None, buses: dict|None = None, detect: bool = True):
         self.cost = cost or CostModel()
         self.pools = pools
         self.cap = cap
+        # Describe THIS machine. An explicit `buses` wins; otherwise ask the hardware,
+        # and if it cannot tell, leave the model deferring to the process default rather
+        # than asserting a topology. `detect=False` skips the probe for a coordinator
+        # that stands for a machine other than the one it runs on. A remote bee's
+        # hardware is not this box's.
+        if buses is not None:
+            self.cost.set_buses(buses)
+        elif detect and cost is None:
+            self.cost.set_buses(detect_bus_topology())
+
+    @property
+    def buses(self) -> dict:
+        return self.cost.buses()
 
     def plan(self, units: list) -> dict:
         return assign(units, self.cost, cap=self.cap)

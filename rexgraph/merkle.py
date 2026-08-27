@@ -242,25 +242,22 @@ def pack_merkle(rex, t, h, *, base=None):
     boundary columns of the cells it owns, every one of them already a tensor here. A
     stored digest is a cached hash of data sitting beside it.
 
-    It used to store both. The leaves were kept on the grounds that a proof must be
-    checkable "without the source text the leaves were built from", which is not what
-    they are built from: `_leaf_digests` never touches the text. They were also 35% of
-    a document blob and, being digests, at full entropy: the one part of the file no
-    compressor can touch, so they dominated the COMPRESSED size far more than the raw.
+    Storing them would not make a proof checkable "without the source text the leaves
+    were built from", because that is not what they are built from: `_leaf_digests`
+    never touches the text. Digests are also at full entropy, the one part of a file no
+    compressor can touch, so they weigh on the COMPRESSED size far more than the raw.
 
-    Deriving them makes verification stronger rather than weaker. Checking stored leaves
-    against a stored root asks "do these leaves make this root". Recomputing from state
-    asks "does this complex make this root", which is the question that catches a
-    tampered boundary column, and the old form explicitly could not ask it.
+    Deriving them makes verification stronger. Checking stored leaves against a stored
+    root asks "do these leaves make this root". Recomputing from state asks "does this
+    complex make this root", which is the question that catches a tampered boundary
+    column.
 
-    That is what this says and it used to also write `layer_roots`, every interior node
-    of every coarser layer, as hex strings in the JSON header: the exact thing the
-    paragraph above says it does not do. Nothing read it: `unpack_merkle` takes `chain`
-    and `root`, and `layer_digest` reads the `roots` that `build_merkle` recomputes. On
-    Webster's Unabridged (nV 223,609, nE 1,991,070) it was 72.8 MiB of header, and the
-    header is written twice, so 145.6 MiB against safetensors' 100 MB limit: the
-    document could not be stored at all. Digests are bytes and belong in a tensor, which
-    is where the leaves already are.
+    `layer_roots`, every interior node of every coarser layer, is not written either.
+    Nothing reads it: `unpack_merkle` takes `chain` and `root`, and `layer_digest` reads
+    the `roots` that `build_merkle` recomputes. As hex in the JSON header it is 72.8 MiB
+    on Webster's Unabridged (nV 223,609, nE 1,991,070), and the header is written twice,
+    so 145.6 MiB against safetensors' 100 MB limit: the document cannot be stored at
+    all. Digests are bytes and belong in a tensor, where the leaves already are.
     """
     from rexgraph.sectioning import sectionings_of
 

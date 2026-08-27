@@ -127,6 +127,7 @@ _cython_modules = [
     '_temporal_entity',
     '_curvature',
     '_recordlog',
+    '_exact_ratio',
 ]
 
 foreach mod : _cython_modules

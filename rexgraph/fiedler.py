@@ -238,9 +238,9 @@ def solve_block_width(nV, nE, *, panels=6):
             check_dense_allocation("leverage_diagonal block", tall, width)
             return width
         except CoreMemoryLimitError:
-            # The limit is the only thing being probed. Catching wider would turn any
-            # fault inside the check into a silent halving down to width 1, which reads
-            # as a small memory budget and costs 512 times the solves to find out.
+            # the limit is the only thing being probed. Catching wider would turn a
+            # fault inside the check into a silent halving to width 1, which reads as a
+            # small memory budget and costs 512 times the solves.
             width //= 2
     return 1
 

@@ -568,7 +568,7 @@ def temporal_rex_to_safetensors(
     `B2_row_idx` / `B2_vals` (only if the checkpoint has faces). Each
     non checkpoint step `t` is stored as a `TemporalDelta` under
     `delta/<t>/born_cols|born_offsets|born_wE|born_signs|died_keys|
-    mod_keys|mod_wE|mod_signs`, and, when a face delta was recorded for
+    mod_keys|mod_wE|mod_signs|mod_heads`, and, when a face delta was recorded for
     that step, a `FaceDelta` under `face_delta/<t>/born_edge_keys|
     born_offsets|born_signs|died_face_keys`.
 
@@ -620,6 +620,8 @@ def temporal_rex_to_safetensors(
             tensors[f"delta/{t}/mod_keys"] = _as_storable(d.mod_keys)
             tensors[f"delta/{t}/mod_wE"] = _as_storable(d.mod_wE)
             tensors[f"delta/{t}/mod_signs"] = _as_storable(d.mod_signs)
+            if d.mod_heads is not None:
+                tensors[f"delta/{t}/mod_heads"] = _as_storable(d.mod_heads)
         fd = trex._index_face_deltas[t]
         if fd is not None:
             has_faces_any = True
@@ -794,6 +796,7 @@ def _temporal_from_loaded_delta(tensors: dict[str, NDArray], meta: dict[str, Any
                 mod_keys=tensors[f"delta/{t}/mod_keys"],
                 mod_wE=tensors[f"delta/{t}/mod_wE"],
                 mod_signs=tensors[f"delta/{t}/mod_signs"],
+                mod_heads=tensors.get(f"delta/{t}/mod_heads"),
                 directed=directed,
             )
         if f"face_delta/{t}/born_offsets" in tensors:

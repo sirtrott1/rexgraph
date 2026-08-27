@@ -384,7 +384,7 @@ def spans_of(tokens, delimiters, *, with_gates=False):
     support and the head is the FIRST CONTENT TOKEN by position, which is the model's
     ordinary rule (`precedence_field`: the vertex at position 0 IS the orientation).
 
-    This is a correction. The delimiters used to be kept in the span at the front and the
+    The delimiters are not kept in the span. Keeping them at the front and the
     docstring called the first one "the distinguished vertex", which made the comma head
     "your mother, Jerry": a punctuation mark carrying the -1 of a semantic relation.
 

@@ -209,12 +209,10 @@ def test_get_ver_falls_back_for_backend_without_get_version():
     assert r2.nE == 5
 
 
-# ---------------------------------------------------------------------------
 # parametrized over all three backends, plus a
 # versioned-store dogfood test. Everything below exercises behavior already
 # implemented in Tasks 1 to 9; the point is coverage and cross-backend proof,
 # not new production code.
-# ---------------------------------------------------------------------------
 
 def _open(backend, tmp_path, name="db"):
     """Open a fresh store of the given kind, isolated per test via tmp_path."""
@@ -374,10 +372,8 @@ def test_trajectory_signed_movement_all_backends(backend, tmp_path):
     st.close()
 
 
-# ---------------------------------------------------------------------------
 # Slice C final-review fix: {base}@{version} display-id resolution as a
 # fallback, plus the legacy meta.lineage scheme fallback for lineage/drift.
-# ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("backend", _ALL_BACKENDS)
 def test_display_id_resolves_via_get_all_backends(backend, tmp_path):

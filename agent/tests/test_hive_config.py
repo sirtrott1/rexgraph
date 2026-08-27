@@ -97,7 +97,7 @@ def test_apply_switches_setups(store, monkeypatch):
     assert res["status"]["n_bees"] == 0                   # prior swarm was cleared on switch
 
 
-# --- specialty rules: the model-name -> specialty table as CONFIG, not a hardcoded list -----
+# specialty rules: the model-name -> specialty table as CONFIG, not a hardcoded list
 
 def test_builtin_specialty_rules_cover_the_shipped_families():
     rules = hive_config.load_specialty_rules()

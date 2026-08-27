@@ -32,8 +32,20 @@ except ImportError:
 
 from . import compute
 from .mesh_health import harmonic_health, mesh_health
+from .harmonic_sparse import (harmonic_basis, harmonic_coordinates,
+                              harmonic_projection, harmonic_winding,
+                              multiplicity_cycles, multiplicity_dimension,
+                              multiplicity_groups,
+                              multiplicity_homology_dimension,
+                              simple_cycle_dimension)
+from .hodge_coords import (complex_structure, coordinate_dims, from_hodge_coords,
+                           harmonic_coords, harmonic_frame, harmonic_metric,
+                           hodge_coords)
+from .rings import (cycle_vector, cycle_vectors, minimum_cycle_basis,
+                    relevant_cycles, ring_sizes, shortest_cycles)
+from .tower import channel_delta, graded_delta
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 __all__ = [
     "core",
@@ -41,4 +53,32 @@ __all__ = [
     "compute",
     "mesh_health",
     "harmonic_health",
+    "channel_delta",
+    "graded_delta",
+    # rings: the cycle space of the 1-skeleton, basis-free
+    "cycle_vector",
+    "cycle_vectors",
+    "minimum_cycle_basis",
+    "relevant_cycles",
+    "ring_sizes",
+    "shortest_cycles",
+    # the Hodge chart and its coordinates
+    "coordinate_dims",
+    "complex_structure",
+    "from_hodge_coords",
+    "harmonic_coords",
+    "harmonic_frame",
+    "harmonic_metric",
+    "hodge_coords",
+    # the harmonic sector: basis, projection, and the exact integer reading
+    "harmonic_basis",
+    "harmonic_coordinates",
+    "harmonic_projection",
+    "harmonic_winding",
+    # multiplicity: the part of the cycle space that is repetition, not shape
+    "multiplicity_cycles",
+    "multiplicity_dimension",
+    "multiplicity_groups",
+    "multiplicity_homology_dimension",
+    "simple_cycle_dimension",
 ]

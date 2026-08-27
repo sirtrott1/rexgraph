@@ -86,7 +86,7 @@ def main():
     print(f"\nfiltering DIFFERED from blind on {fired}/{len(CASES)} queries")
 
     # why: how often does a query term even get disambiguated?
-    print("\n--- why: does the query's own context reach a sense's extent? ---")
+    print("\nwhy: does the query's own context reach a sense's extent?")
     tot = amb = decided = 0
     for q, _doc in CASES:
         seeds = [w for w in q.lower().replace("'s", " ").split() if w not in STOP]

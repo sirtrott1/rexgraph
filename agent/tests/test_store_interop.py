@@ -46,7 +46,7 @@ def _open(kind, tmp_path, tag=""):
     return rcdb.open_store(f"rex://{tmp_path / f'rx{tag}'}")
 
 
-# --- FileStore is no longer quadratic -----------------------------------------
+# FileStore is no longer quadratic
 
 def test_filestore_put_cost_no_longer_grows_with_the_store(tmp_path):
     """It reserialized its whole index on every put: 4 ms at a hundred records,
@@ -114,7 +114,7 @@ def test_an_existing_filestore_still_opens(tmp_path):
     assert (again.get("a")._agent_meta or {})["vertex_labels"][0] == "legacy"
 
 
-# --- migration between any two backends ---------------------------------------
+# migration between any two backends
 
 @pytest.mark.parametrize("src_kind", ALL)
 @pytest.mark.parametrize("dst_kind", ALL)
@@ -160,7 +160,7 @@ def test_migration_into_a_populated_store_adds_rather_than_replaces(tmp_path):
     assert sorted(r.id for r in dst.list(limit=9)) == ["already_here", "from_src"]
 
 
-# --- choosing a backend --------------------------------------------------------
+# choosing a backend
 
 def test_auto_picks_an_embedded_store_for_a_plain_path(tmp_path):
     store = rcdb.open_store(f"auto://{tmp_path / 'auto'}")
@@ -196,7 +196,7 @@ def test_recommend_backend_explains_itself():
         "rex", "file", "memory", "sql")
 
 
-# --- object storage ------------------------------------------------------------
+# object storage
 #
 # Exercised over fsspec's in-memory filesystem, which is the SAME code path S3 takes
 # rather than a stand-in for it: what differs on a real bucket is the driver's wire

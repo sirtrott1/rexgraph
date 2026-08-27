@@ -166,14 +166,20 @@ class TestBuildRL:
         for h in result['hats']:
             assert abs(np.trace(h) - 1.0) < 1e-12
 
-    def test_skips_zero_trace(self, tri_ops):
-        """A zero matrix is dropped from the active hats."""
+    def test_a_zero_trace_channel_is_kept_and_reads_zero(self, tri_ops):
+        """A channel carrying no mass is still a channel. It contributes a zero hat,
+        so RL is unchanged and tr(RL) counts the channels that carry mass, while
+        nhats counts the channels the complex has. Dropping it instead made the
+        character narrower on exactly the complexes where the missing channel was
+        the informative one."""
         _, L1, L_O, _, _, nE = tri_ops
         Z = np.zeros((nE, nE), dtype=np.float64)
         result = _relational.build_RL([L1, L_O, Z], ['L1', 'L_O', 'zero'])
-        assert result['nhats'] == 2
-        assert 'zero' not in result['hat_names']
-        assert abs(np.trace(result['RL']) - 2) < 1e-10
+        assert result['nhats'] == 3
+        assert result['hat_names'] == ['L1', 'L_O', 'zero']
+        assert float(result['trace_values'][2]) == 0.0
+        assert not np.asarray(result['hats'][2]).any(), "the zero channel is a zero hat"
+        assert abs(np.trace(result['RL']) - 2) < 1e-10, "tr(RL) counts what carries mass"
 
     def test_hat_names_preserved(self, tri_ops):
         _, L1, L_O, L_SG, _, _ = tri_ops

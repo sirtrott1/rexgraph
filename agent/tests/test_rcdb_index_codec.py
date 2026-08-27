@@ -412,3 +412,157 @@ def test_both_readers_stop_at_the_same_torn_tail(tmp_path, monkeypatch):
         pure = [(g[0], g[1]) for g in ix.log_read(torn)]
         monkeypatch.undo()
         assert compiled == pure, f"cut {cut}"
+
+
+#### accession is confined to the seeds' star ###################################
+
+def _reference_response(index, terms, reading="share"):
+    """`|P (P^T x)|` over the whole operator, which is what the reading means."""
+    import numpy as np
+
+    from agent import rcdb_index as ix
+    B = ix.boundary_operator(index)
+    P = B if reading == "share" else ix._existence_operator(index, B)
+    codes = ix._term_codes(index)
+    deg = ix._vertex_degree(index, B)
+    sd = np.array([codes[w] for w in terms if w in codes], dtype=np.int64)
+    x = np.zeros(B.shape[0])
+    x[sd] = 1.0 / np.maximum(deg[sd], 1.0)
+    g = P.T @ x
+    return np.abs(P @ g)[:int(index["n"])], g
+
+
+@pytest.mark.parametrize("reading", ["share", "existence"])
+def test_the_star_restriction_is_exact_not_an_approximation(reading):
+    """One step reaches only the relations that name a seed, so the rest of the product
+    is an exact zero. Reading the seeds' rows is the same arithmetic over the entries
+    that can contribute, and the answer has to be identical, not close."""
+    import numpy as np
+
+    from agent import rcdb_index as ix
+
+    recs = [_rec(f"r{i}", meta={"vertex_labels":
+                 [f"t{i}", f"t{i + 1}", "shared", f"w{i % 3}"]}) for i in range(12)]
+    index = ix.build([(r.id, r) for r in recs])
+    for terms in (["t0"], ["shared"], ["t0", "t3", "w1"], ["shared", "w0", "t11"],
+                  ["absent-from-the-vocabulary"]):
+        want, _g = _reference_response(index, terms, reading)
+        got, _ids = ix.record_response(index, terms, reading=reading)
+        assert np.array_equal(want, got), f"{terms} under {reading}"
+
+
+def test_a_record_row_is_the_sum_over_the_relations_it_owns():
+    """Why the second matvec is not needed for the answer. A record sits at position 0
+    of its own relations and appears in no other column, so its row of `P g` is `g`
+    accumulated by owner. A term vertex is not, which is why the term half is dropped
+    rather than derived the same way."""
+    import numpy as np
+
+    from agent import rcdb_index as ix
+
+    recs = [_rec(f"r{i}", meta={"vertex_labels": [f"t{i}", "shared"]}) for i in range(6)]
+    index = ix.build([(r.id, r) for r in recs])
+    B = ix.boundary_operator(index)
+    n = int(index["n"])
+    heads = np.asarray(B.indices)[np.asarray(B.indptr)[:-1]]
+    assert (heads < n).all(), "position 0 of every column is a record"
+    assert set(np.asarray(B.indices)) - set(heads), "terms occupy the other positions"
+
+    want, g = _reference_response(index, ["t0", "shared"])
+    owner = np.asarray(ix.rel_owner(index))
+    acc = np.zeros(n)
+    keep = (owner >= 0) & (owner < n)
+    np.add.at(acc, owner[keep], g[keep])
+    assert np.array_equal(np.abs(acc), want)
+
+
+def test_more_than_one_step_still_walks_the_whole_operator():
+    """The star argument holds at one step only: a second moment reaches records through
+    shared vocabulary, which is the whole point of it, so that path is unchanged."""
+    from agent import rcdb_index as ix
+
+    recs = [_rec(f"r{i}", meta={"vertex_labels": [f"t{i}", f"t{i + 1}"]}) for i in range(8)]
+    index = ix.build([(r.id, r) for r in recs])
+    one, _ = ix.record_response(index, ["t0"], steps=1)
+    two, _ = ix.record_response(index, ["t0"], steps=2)
+    assert int((one > 0).sum()) < int((two > 0).sum()), "a second step reaches further"
+
+
+#### the reading over the rationals #############################################
+
+def test_the_exact_reading_needs_no_tolerance():
+    """Every quantity the accession reading is built from is an exact rational, so the
+    reading is one too and is computed as one: a boundary entry is -1 or 1/(k-1), a seed
+    weight is 1/deg, and a record's answer is a sum of those."""
+    from fractions import Fraction
+
+    from agent import rcdb_index as ix
+
+    recs = [_rec(f"r{i}", meta={"vertex_labels": [f"t{i}", "shared"]}) for i in range(4)]
+    index = ix.build([(r.id, r) for r in recs])
+    got = ix.record_response_exact(index, ["shared"])
+    assert got, "shared reaches every record"
+    assert all(isinstance(v, Fraction) for v in got.values())
+    # every record holds `shared` on the same footing, so they answer identically
+    assert len(set(got.values())) == 1
+
+
+def test_a_record_outside_the_star_answers_exactly_zero():
+    """Not nearly zero. A record naming none of the seeds receives no share at all, and
+    the exact reading says so by having no entry for it."""
+    from agent import rcdb_index as ix
+
+    recs = [_rec(f"r{i}", meta={"vertex_labels": [f"only{i}"]}) for i in range(5)]
+    index = ix.build([(r.id, r) for r in recs])
+    got = ix.record_response_exact(index, ["only2"])
+    assert list(got) == [2], f"only the record naming the seed answers: {got}"
+
+
+@pytest.mark.parametrize("reading", ["share", "existence"])
+def test_the_float_reading_orders_records_the_way_the_exact_one_does(reading):
+    """The float path is what a query runs. It has to agree with the rationals on the
+    ORDER, which is what a ranking uses, and this asserts the two orders are identical
+    rather than close."""
+    import numpy as np
+
+    from agent import rcdb_index as ix
+
+    recs = [_rec(f"r{i}", meta={"vertex_labels":
+                 [f"t{i}", f"t{i % 3}", "shared"] + ([f"w{i}"] if i % 2 else [])})
+            for i in range(15)]
+    index = ix.build([(r.id, r) for r in recs])
+    for terms in (["shared"], ["t0"], ["t1", "shared"], ["t2", "w3", "shared"]):
+        exact = ix.record_response_exact(index, terms, reading=reading)
+        flt, _ids = ix.record_response(index, terms, reading=reading)
+        rows = list(exact)
+        by_exact = sorted(rows, key=lambda r: (-exact[r], r))
+        by_float = sorted(rows, key=lambda r: (-np.asarray(flt)[r], r))
+        assert by_exact == by_float, f"{terms} under {reading}"
+        for r in range(int(index["n"])):
+            if r not in exact:
+                assert np.asarray(flt)[r] == 0.0, "outside the star is exactly zero"
+
+
+def test_the_channel_profile_reads_the_same_exact_flux_as_the_scalar():
+    """The profile is `g` carried through the character instead of summed, so the two
+    have to read the same `g`. Both go through the kernel now; before, the scalar was
+    exact and the profile was a float matvec, which is the reading a query ranks on."""
+    import numpy as np
+
+    from agent import rcdb_index as ix
+
+    recs = [_rec(f"r{i}", meta={"vertex_labels": [f"t{i}", f"t{i % 3}", "shared"]})
+            for i in range(9)]
+    index = ix.build([(r.id, r) for r in recs])
+    for terms in (["shared"], ["t0"], ["t1", "shared"]):
+        prof, _ids, names = ix.record_response(index, terms, channels=True)
+        scalar, _ = ix.record_response(index, terms)
+        assert len(names) == 4
+        # the channels partition each relation's diagonal, so their sum is the scalar
+        # up to what the character itself carries in float
+        assert np.allclose(np.asarray(prof).sum(axis=1), np.asarray(scalar),
+                           rtol=1e-12, atol=0.0)
+        exact = ix.record_response_exact(index, terms)
+        for r in range(int(index["n"])):
+            if r not in exact:
+                assert np.asarray(prof)[r].sum() == 0.0, "outside the star is zero"

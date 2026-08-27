@@ -177,7 +177,7 @@ def test_observe_requests_the_semantic_signal(monkeypatch):
     assert ReactiveHive(h).observe()["alignment_mode"] == "embedding"
 
 
-# --- monitor_embed: the profile field that decides whether the monitor is semantic ----------
+# monitor_embed: the profile field that decides whether the monitor is semantic
 
 def _profile_hive(monkeypatch, tmp_path, monitor_embed, *, active=True):
     """A hive with an attached embedder and an active profile carrying `monitor_embed`."""

@@ -50,6 +50,29 @@ def _dense(M):
     return M.toarray() if sp.issparse(M) else np.asarray(M, dtype=float)
 
 
+def _b1_csr(rex):
+    """B1 as sparse CSR, from the dual rather than through `rex.B1`.
+
+    `rex.B1` is a cached_property returning `to_dense_f64(self._B1_dual)`, so
+    reading it materialises an nV x nE float array AND keeps it: 1.5 GB at
+    nV 8,000 against 1.5 MB for the same operator in CSR. The dual is the sparse
+    source both are built from.
+    """
+    from rexgraph.core._sparse import to_scipy_csr
+    rex._ensure_clean()
+    return to_scipy_csr(rex._B1_dual).tocsr()
+
+
+def _b2_csr(rex):
+    """B2 as sparse CSR, from the dual. See `_b1_csr` for why not `rex.B2`."""
+    from rexgraph.core._sparse import to_scipy_csr
+    rex._ensure_clean()
+    B2 = rex._B2_hodge_dual if rex._B2_hodge_dual is not None else rex._B2_dual
+    if B2 is None or B2.ncol == 0:
+        return sp.csr_matrix((int(rex.nE), 0), dtype=float)
+    return to_scipy_csr(B2).tocsr()
+
+
 def build_flow_complex(groups: Sequence[Sequence[int]], *,
                        include_groups: bool = True, measurements: bool = True,
                        close: bool = True,
@@ -112,25 +135,45 @@ class FlowComplex:
 
     @property
     def _B1(self):
+        """Dense B1. No caller left: every reader moved to `_b1_csr`, which reads
+        the dual instead of materialising and caching an nV x nE float array.
+        Kept rather than removed; remove when that is decided."""
         return _dense(self.rex.B1)
 
     @property
     def _B2(self):
+        """Dense B2. No caller left; see `_B1`."""
         nE = int(self.rex.nE)
         return _dense(self.rex.B2) if self.n_faces else np.zeros((nE, 0))
 
     @property
     def gradient_dim(self) -> int:
-        """dim im(B1^T): the part of a signal explained by a vertex potential."""
-        B1 = self._B1
-        return 0 if B1.size == 0 else int(np.linalg.matrix_rank(B1.T))
+        """dim im(B1^T): the part of a signal explained by a vertex potential.
+
+        Read through `graded_boundary._sparse_rank`, which settles the rank over the
+        rationals and only falls to a float estimate when neither exact path applies.
+        A boundary column carries the share 1/(k-1), so it looks like a float matrix
+        while having an exact integer representative: scaling by (k-1) clears the
+        denominator and the rank is invariant under that. Taking a float SVD rank
+        here instead would put an integer answer on a tolerance, and the operator
+        would have to be densified to ask.
+        """
+        if int(self.rex.nE) == 0:
+            return 0
+        from rexgraph.graded_boundary import _sparse_rank
+        # rank(B1^T) == rank(B1), and B1 is the cheap side to reduce: its columns
+        # carry the arity of one relation, where a column of the transpose carries
+        # the degree of one vertex. Same integer, far less fill.
+        return _sparse_rank(_b1_csr(self.rex))
 
     @property
     def curl_dim(self) -> int:
         """dim im(B2): the cycles that BOUND. Zero without faces, so this is the
-        dimension a hyperface adds."""
-        B2 = self._B2
-        return 0 if B2.size == 0 else int(np.linalg.matrix_rank(B2))
+        dimension a hyperface adds. Same exact rank as `gradient_dim`."""
+        if not self.n_faces:
+            return 0
+        from rexgraph.graded_boundary import _sparse_rank
+        return _sparse_rank(_b2_csr(self.rex))
 
     @property
     def harmonic_dim(self) -> int:
@@ -161,17 +204,21 @@ class FlowComplex:
         available as `chain_residual_float` for anyone who wants the numerical size rather
         than the answer.
         """
-        if self._B2.size == 0:
+        if not self.n_faces:
             return 0.0
         return 0.0 if self.rex.chain_valid else self.chain_residual_float
 
     @property
     def chain_residual_float(self) -> float:
-        """The float magnitude of B1 B2, for scale rather than for the verdict."""
-        B2 = self._B2
-        if B2.size == 0:
+        """The float magnitude of B1 B2, for scale rather than for the verdict.
+
+        Sparse: the verdict is `chain_residual` and this only reports how large the
+        numerical violation is, which needs no dense operator to say.
+        """
+        if not self.n_faces:
             return 0.0
-        return float(np.abs(self._B1 @ B2).max())
+        prod = (_b1_csr(self.rex) @ _b2_csr(self.rex)).tocoo()
+        return float(np.abs(prod.data).max()) if prod.nnz else 0.0
 
     def summary(self) -> dict:
         return {

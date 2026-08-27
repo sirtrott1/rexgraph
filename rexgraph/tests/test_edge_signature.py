@@ -35,23 +35,30 @@ def _bipartite(n_t=6, per_t=5):
     return RexGraph(sources=np.asarray(src, np.int32), targets=np.asarray(tgt, np.int32))
 
 
-def test_a_consistently_oriented_complex_drops_a_channel():
-    """The precondition. If this stops being true the tests below stop testing anything.
-    L_SG is the frustration channel and it is the one that vanishes."""
+def test_a_consistently_oriented_complex_reads_zero_frustration():
+    """The precondition. Frustration VANISHES here and is reported as zero rather
+    than dropped: every vertex is a pure source or a pure sink, so the signed and
+    unsigned overlaps agree at every shared vertex and there is no orientation
+    conflict to measure. That is a reading, not an absent channel, so the character
+    keeps its width and stays comparable with any other complex."""
     rex = _bipartite()
-    assert int(rex.nhats) == 3
-    assert np.asarray(rex.structural_character).shape[1] == 3
-    assert "L_SG" not in list(rex.hat_names)
+    assert int(rex.nhats) == 4
+    chi = np.asarray(rex.structural_character)
+    assert chi.shape[1] == 4
+    names = list(rex.hat_names)
+    assert names == ["L1_down", "L_O", "L_SG", "L_C"]
+    assert np.allclose(chi[:, names.index("L_SG")], 0.0)
+    assert np.allclose(chi.sum(axis=1), 1.0), "still on the simplex"
 
 
-def test_edge_signature_does_not_crash_when_a_channel_drops():
+def test_edge_signature_does_not_crash_when_frustration_is_zero():
     rex = _bipartite()
     sig = rex.edge_signature(0)
     assert isinstance(sig, tuple)
     assert all(isinstance(x, float) for x in sig)
 
 
-def test_group_edges_by_signature_works_when_a_channel_drops():
+def test_group_edges_by_signature_works_when_frustration_is_zero():
     rex = _bipartite()
     groups = rex.group_edges_by_signature()
     assert sum(len(v) for v in groups.values()) == int(rex.nE)

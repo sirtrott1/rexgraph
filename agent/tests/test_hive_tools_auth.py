@@ -100,7 +100,7 @@ _TEXT_RESPONSE = {
 }
 
 
-# --- the structured path: tools go out, tool_calls come back -------------------
+# the structured path: tools go out, tool_calls come back
 
 def test_chat_full_forwards_tools_and_parses_tool_calls(monkeypatch):
     cap = _stub_http(monkeypatch, _TOOL_CALL_RESPONSE)
@@ -149,7 +149,7 @@ def test_chat_full_omits_optional_fields_when_unset(monkeypatch):
         assert k not in cap["json"]
 
 
-# --- backwards compatibility: the text path is untouched ----------------------
+# backwards compatibility: the text path is untouched
 
 def test_chat_text_path_still_returns_a_bare_string(monkeypatch):
     cap = _stub_http(monkeypatch, _TEXT_RESPONSE)
@@ -184,7 +184,7 @@ def test_ask_full_returns_structured_result(monkeypatch):
     assert res.tool_calls[0]["function"]["name"] == "read_file"
 
 
-# --- authentication: a credential is resolved per call, never stored ----------
+# authentication: a credential is resolved per call, never stored
 
 def test_no_authorization_header_without_a_credential(monkeypatch):
     cap = _stub_http(monkeypatch, _TEXT_RESPONSE)
@@ -229,7 +229,7 @@ def test_resolve_ref_reads_env_then_secret_store(monkeypatch, tmp_path):
     assert secrets.resolve_ref("prov") == "sk-from-store"
 
 
-# --- the credential must never appear anywhere the hive serializes -----------
+# the credential must never appear anywhere the hive serializes
 
 _SECRET = "sk-live-DO-NOT-LEAK-9999"
 

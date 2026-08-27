@@ -300,6 +300,11 @@ def check_orthogonality(np.ndarray[f64, ndim=1] grad,
 def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
     """Dense Hodge decomposition via lstsq (LAPACK dgelsd).
 
+    Returns the potentials alongside the components. phi and psi are the
+    coordinates the components are built from, so a caller wanting to work in
+    the Hodge spaces rather than in the edge space reads them here instead of
+    solving the same systems again.
+
     Parameters
     ----------
     B1 : DualCSR, shape (nV, nE).
@@ -311,6 +316,8 @@ def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
     Returns
     -------
     grad, curl, harm : f64[nE]
+    phi : f64[nV]
+    psi : f64[nF], empty when there are no faces
     """
     from rexgraph.core._sparse import matvec, rmatvec
 
@@ -331,12 +338,15 @@ def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
         curl = matvec(B2, psi)
     else:
         curl = np.zeros(nE, dtype=np.float64)
+        psi = np.zeros(0, dtype=np.float64)
 
     harm = flow - grad - curl
 
     return (np.asarray(grad, dtype=np.float64),
             np.asarray(curl, dtype=np.float64),
-            np.asarray(harm, dtype=np.float64))
+            np.asarray(harm, dtype=np.float64),
+            np.asarray(phi, dtype=np.float64),
+            np.asarray(psi, dtype=np.float64))
 
 
 # Hodge decomposition, sparse path
@@ -355,6 +365,8 @@ def _hodge_sparse(B1, B2, np.ndarray[f64, ndim=1] flow, L0_sp, L2_sp):
     Returns
     -------
     grad, curl, harm : f64[nE]
+    phi : f64[nV]
+    psi : f64[nF], empty when there are no faces
     """
     from rexgraph.core._sparse import to_scipy_csr
     # scipy.sparse.linalg.lsqr: kept for sparse Hodge path
@@ -379,18 +391,21 @@ def _hodge_sparse(B1, B2, np.ndarray[f64, ndim=1] flow, L0_sp, L2_sp):
         curl = sp_B2 @ psi
     else:
         curl = np.zeros(nE, dtype=np.float64)
+        psi = np.zeros(0, dtype=np.float64)
 
     harm = flow - grad - curl
 
     return (np.asarray(grad, dtype=np.float64),
             np.asarray(curl, dtype=np.float64),
-            np.asarray(harm, dtype=np.float64))
+            np.asarray(harm, dtype=np.float64),
+            np.asarray(phi, dtype=np.float64),
+            np.asarray(psi, dtype=np.float64))
 
 
 # Hodge decomposition entry point
 
 def hodge_decomposition(B1, B2, np.ndarray[f64, ndim=1] flow,
-                        L0=None, L2=None):
+                        L0=None, L2=None, bint potentials=False):
     """Decompose edge signal into gradient, curl, and harmonic.
 
     B_2 should have self-loop faces filtered out so that B_1 B_2 = 0
@@ -417,6 +432,10 @@ def hodge_decomposition(B1, B2, np.ndarray[f64, ndim=1] flow,
         Curl component B_2 psi, in im(B_2).
     harm : f64[nE]
         Harmonic residual, in ker(L_1).
+    phi : f64[nV], only when `potentials` is set
+        The vertex potential the gradient is built from.
+    psi : f64[nF], only when `potentials` is set
+        The face potential the curl is built from, empty without faces.
     """
     cdef Py_ssize_t nE = flow.shape[0]
     cdef Py_ssize_t nV = B1.nrow
@@ -447,12 +466,13 @@ def hodge_decomposition(B1, B2, np.ndarray[f64, ndim=1] flow,
             sp_B2 = to_scipy_csr(B2)
             L2 = sp_B2.T @ sp_B2
 
+    cdef tuple out
     if use_dense:
         if L0 is not None and not isinstance(L0, np.ndarray):
             L0 = np.asarray(L0.toarray() if hasattr(L0, 'toarray') else L0, dtype=np.float64)
         if L2 is not None and not isinstance(L2, np.ndarray):
             L2 = np.asarray(L2.toarray() if hasattr(L2, 'toarray') else L2, dtype=np.float64)
-        return _hodge_dense(B1, B2, flow, L0, L2)
+        out = _hodge_dense(B1, B2, flow, L0, L2)
     else:
         if L0 is not None and isinstance(L0, np.ndarray):
             from scipy.sparse import csr_matrix
@@ -460,7 +480,8 @@ def hodge_decomposition(B1, B2, np.ndarray[f64, ndim=1] flow,
         if L2 is not None and isinstance(L2, np.ndarray):
             from scipy.sparse import csr_matrix
             L2 = csr_matrix(L2)
-        return _hodge_sparse(B1, B2, flow, L0, L2)
+        out = _hodge_sparse(B1, B2, flow, L0, L2)
+    return out if potentials else out[:3]
 
 
 # Full Hodge analysis

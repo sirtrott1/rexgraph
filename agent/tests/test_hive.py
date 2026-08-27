@@ -247,7 +247,7 @@ def test_hive_persist_to_rcdb_by_signature():
     assert "predict" in rec.signature.get("tags", []) and "score" in rec.signature.get("tags", [])
 
 
-# --- collaborate(): dynamic delegation with topological deadlock breaking --------
+# collaborate(): dynamic delegation with topological deadlock breaking
 
 def _team_hive():
     h = hive.get_hive()
@@ -302,7 +302,7 @@ def test_collaborate_linear_chain_completes(monkeypatch):
     assert [s["bee"] for s in res["trail"]] == ["planner", "coder"]
 
 
-# --- consensus(): aggregate workers by the structure of their agreement ----------
+# consensus(): aggregate workers by the structure of their agreement
 
 def test_consensus_flags_the_divergent_worker(monkeypatch):
     monkeypatch.setattr(hive, "_chat", _scripted({

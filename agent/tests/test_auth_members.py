@@ -23,7 +23,7 @@ def _client():
     return TestClient(app)
 
 
-# --- manager semantics --------------------------------------------------------
+# manager semantics
 
 def test_role_normalization_and_roster():
     mgr = _fresh()
@@ -76,7 +76,7 @@ def test_revoke_one_workspace_keeps_other_access():
     assert al.is_admin_in("default") and not al.can_access("proj")  # ...just no longer in proj
 
 
-# --- route enforcement --------------------------------------------------------
+# route enforcement
 
 def test_routes_enforce_per_workspace_admin():
     mgr = _fresh()

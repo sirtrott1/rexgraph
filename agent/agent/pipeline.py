@@ -594,6 +594,26 @@ class AnalysisPipeline:
             dim_H = int(rex.betti[1])
             result["dim_H"] = dim_H
             result["n_oscillatory_modes"] = dim_H
+
+            # beta_1 splits, and the split is worth reporting. Two relations can be
+            # distinct and still have the same boundary column: two occurrences of
+            # one token are two spans, so two witnesses on one vertex, and their
+            # difference is a cycle. It is a real class (a bigon IS a hole), but it
+            # records an occurrence count rather than the shape of the document, and
+            # being 2-sparse it dominates any shortest-cycle reading. Measured across
+            # the Gutenberg store it carries 37% to 85% of dim_H.
+            #
+            # dim_H_simple is beta_1 of the complex with identical-boundary relations
+            # identified, so the two ALWAYS sum to dim_H: it is a quotient, not a
+            # subtraction, and a face that fills a multiplicity cycle is accounted
+            # for. ~0.35s at nE 2e6, against the ~5s the betti call beside it costs.
+            try:
+                from rexgraph.harmonic_sparse import simple_cycle_dimension
+                _simple = int(simple_cycle_dimension(rex))
+                result["dim_H_simple"] = _simple
+                result["dim_H_multiplicity"] = dim_H - _simple
+            except Exception as _e:            # never lose the rest of the reading
+                result["dim_H_multiplicity_error"] = f"{type(_e).__name__}: {_e}"
             try:
                 _hbudget = int(_os.environ.get(
                     "REXGRAPH_VERTEX_CHARACTER_MAX_NODES", "1500"))
@@ -610,6 +630,16 @@ class AnalysisPipeline:
                     harm_sq = harm_signal ** 2
                     safe_total = np.where(total_sq > 1e-30, total_sq, 1.0)
                     result["harm_frac_per_edge"] = (harm_sq / safe_total).tolist()
+
+                    # the exact reading of the same sector, per cycle rather than
+                    # per edge. Gradient and curl pair to zero against a harmonic
+                    # cycle, so this is the whole of what a cycle sees, and the
+                    # frame is integer so integer flow gives an integer count.
+                    # harm_frac_per_edge is the energy share; this is the holonomy.
+                    winding = _hsp.harmonic_winding(H, flow)
+                    result["harmonic_winding"] = winding.tolist()
+                    result["harmonic_winding_exact"] = bool(
+                        np.issubdtype(winding.dtype, np.integer))
 
                     nh = int(rex.nhats)
                     if nh >= 3:

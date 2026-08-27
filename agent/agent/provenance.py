@@ -22,7 +22,7 @@ A query is a SECTION of the corpus complex, so its provenance is the section rea
     coupling        how strongly the supporting relations couple through the complex.
                     Measured to track functional relatedness with overlap held fixed;
                     it is NOT a conflict or disagreement reading. OPT-IN: it is the only
-                    reading here that costs a solve, and it was 1.33s of a 1.35s query
+                    reading here that costs a solve, at 1.33s of a 1.35s query
     unaccounted     the harmonic share of the response: what no higher-order structure
                     in the corpus explains
 
@@ -92,7 +92,7 @@ def query_provenance(rex, retrieved, *, response=None, leverage=None, labels=Non
     Hodge split; without it the structural readings are still returned.
 
     `coupling` is OFF by default because it is the only reading here that costs a solve.
-    Measured on a real store it was 1.33s of a 1.35s query while every structural reading
+    Measured on a real store: 1.33s of a 1.35s query, while every structural reading
     together came to 0.02s, so computing it unasked made every retrieval pay for a
     coordinate most callers never read. Pass `field` to reuse a solve across queries.
 

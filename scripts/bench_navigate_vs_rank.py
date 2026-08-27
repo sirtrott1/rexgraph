@@ -119,7 +119,7 @@ for p in paths:
         sd = np.asarray(seeds)
         x[sd] = 1.0 / np.maximum(deg[sd], 1.0)
 
-        # --- A: rank every leaf
+        # A: rank every leaf
         t0 = time.perf_counter()
         applied = np.abs(B @ (B.T @ x))
         cells_A = cell_reading(B, applied)
@@ -127,7 +127,7 @@ for p in paths:
         t_rank += time.perf_counter() - t0
         touched_A.append(n_base)
 
-        # --- B: descend on the same reading
+        # B: descend on the same reading
         t0 = time.perf_counter()
         mask = np.ones(int(rex.nE), dtype=bool)
         seen = 0
@@ -142,7 +142,7 @@ for p in paths:
         t_walk += time.perf_counter() - t0
         touched_B.append(seen)
 
-        # --- C: descend on the Green's potential
+        # C: descend on the Green's potential
         cells_C = cell_reading(B, greens_potential(B, x))
         mask = np.ones(int(rex.nE), dtype=bool)
         for name in chain:
@@ -152,7 +152,7 @@ for p in paths:
             mask = mask & (owners[name] == int(np.argmax(sc)))
         c = int(np.argmax(accumulate(owners[base], cells_C, mask))) if mask.any() else -1
 
-        # --- D: Theorem 26's own setting: the potential solved ON THE TREE
+        # D: Theorem 26's own setting: the potential solved ON THE TREE
         leaves = accumulate(owners[base], cells_A)
         u, nodes, root = tree_potential(chain, owners, leaves, base)
         cur, d = root, -1

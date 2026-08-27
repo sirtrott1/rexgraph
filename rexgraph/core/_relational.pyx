@@ -94,7 +94,11 @@ def build_RL(list laplacians, list names):
 
     Each Laplacian is trace-normalized. Those with tr < epsilon are
     skipped. The result is RL = sum of active hats, with
-    tr(RL) = nhats exactly.
+    Every channel is kept, including one carrying no mass, which contributes a
+    zero hat. So `nhats` is the number of channels the complex has rather than
+    the number that happen to be nonzero, and the character built from it has a
+    fixed width and is comparable between complexes. `tr(RL)` is the count of
+    channels carrying mass, equal to nhats when none is degenerate.
 
     For N=3 and N=4, C-level fast paths avoid Python overhead entirely.
 
@@ -135,18 +139,16 @@ def build_RL(list laplacians, list names):
                      &_RL[0, 0], &_h0[0, 0], &_h1[0, 0], &_h2[0, 0],
                      &_tr[0], nE)
         all_hats = [_h0, _h1, _h2]
-        active_hats = []
-        active_traces = []
-        active_names = []
-        for k in range(3):
-            if _tr[k] > 1e-15:
-                active_hats.append(all_hats[k])
-                active_traces.append(float(_tr[k]))
-                active_names.append(names[k])
-        if len(active_hats) < 3:
-            _RL = np.zeros((nE, nE), dtype=np.float64)
-            for h in active_hats:
-                _RL += h
+        # Every channel is kept. _trace_normalize_inplace already zeroes a hat
+        # whose trace is nothing, so a degenerate channel contributes a zero
+        # matrix to RL and a zero column to the character. Dropping it instead
+        # made the character narrower on exactly the complexes where the missing
+        # channel was the informative one: frustration vanishes on a uniformly
+        # oriented complex, and that is a fact about the orientation, not a
+        # reason to stop reporting it.
+        active_hats = list(all_hats)
+        active_traces = [float(_tr[k]) for k in range(3)]
+        active_names = list(names[:3])
         return {
             'RL': _RL, 'hats': active_hats,
             'nhats': len(active_hats),
@@ -170,18 +172,16 @@ def build_RL(list laplacians, list names):
                      &_RL[0, 0], &_h0[0, 0], &_h1[0, 0], &_h2[0, 0],
                      &_h3[0, 0], &_tr[0], nE)
         all_hats = [_h0, _h1, _h2, _h3]
-        active_hats = []
-        active_traces = []
-        active_names = []
-        for k in range(4):
-            if _tr[k] > 1e-15:
-                active_hats.append(all_hats[k])
-                active_traces.append(float(_tr[k]))
-                active_names.append(names[k])
-        if len(active_hats) < 4:
-            _RL = np.zeros((nE, nE), dtype=np.float64)
-            for h in active_hats:
-                _RL += h
+        # Every channel is kept. _trace_normalize_inplace already zeroes a hat
+        # whose trace is nothing, so a degenerate channel contributes a zero
+        # matrix to RL and a zero column to the character. Dropping it instead
+        # made the character narrower on exactly the complexes where the missing
+        # channel was the informative one: frustration vanishes on a uniformly
+        # oriented complex, and that is a fact about the orientation, not a
+        # reason to stop reporting it.
+        active_hats = list(all_hats)
+        active_traces = [float(_tr[k]) for k in range(4)]
+        active_names = list(names[:4])
         return {
             'RL': _RL, 'hats': active_hats,
             'nhats': len(active_hats),
@@ -199,10 +199,12 @@ def build_RL(list laplacians, list names):
         hat_k = np.ascontiguousarray(laplacians[k], dtype=np.float64).copy()
         tr_k = 0
         _trace_normalize_inplace(&hat_k[0, 0], &tr_k, nE)
+        # kept whatever its trace; a zeroed hat adds nothing to RL. See the
+        # three-input path above for why a degenerate channel is still a channel.
+        active_hats.append(hat_k)
+        active_traces.append(float(tr_k))
+        active_names.append(names[k])
         if tr_k > 1e-15:
-            active_hats.append(hat_k)
-            active_traces.append(float(tr_k))
-            active_names.append(names[k])
             _RL += hat_k
 
     return {

@@ -27,12 +27,12 @@ class PassageAnswerer:
         recorded reading an article, conjunction, determiner, particle, postposition,
         preposition or pronoun, plus the words that name a relation to some structure,
         which are question vocabulary. Both are facts about a structure rather than a
-        curated list of English, which is what this used to be.
+        curated list of English.
 
-        With no lexicon on disk both sets are empty and nothing is excluded. That is the
-        canonical stance and not a silent fallback: `record_response` weights seeds by
-        1/deg and excludes nothing for the same reason, since a term in most records
-        already says so by its degree.
+        With no lexicon on disk both sets are empty and nothing is excluded, which is
+        the stance and not a fallback: `record_response` weights seeds by 1/deg and
+        excludes nothing for the same reason, a term in most records having said so by
+        its degree.
         """
         gate = Q.function_words() | Q.interface_words()
         seen, out = set(), []

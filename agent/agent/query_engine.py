@@ -480,17 +480,16 @@ def _field_candidates(store, q_tokens: set, limit: int, prefix: str = ""):
         # coverage.
         mass, _ids2 = ix.record_response(snap, q_tokens, reading="existence")
     except Exception:
-        # A silent None here means the caller quietly falls back to the scan, which is
-        # 88 s against 1.2 s: an eighty-fold regression that looks like nothing. It
-        # happened: a CSC/CSR mixup made `deg` per-relation instead of per-vertex and
-        # this except swallowed the IndexError for an entire session. Say so.
+        # A silent None here means the caller falls back to the scan, 88 s against
+        # 1.2 s, an eighty-fold regression that looks like nothing. A CSC/CSR mixup
+        # making `deg` per-relation is the shape this hides, so it is logged.
         logger.warning("field prefilter unavailable, falling back to the scan",
                        exc_info=True)
         return None
     import numpy as _np
     # THE ORDER IS A REDUCTION AND IS NAMED AS ONE. Identification needs an ordering:
     # that is what identification IS, so the profile is summed over its channels to get
-    # one, and the sum is exactly the scalar `record_response` used to return. What is
+    # one, and the sum is the scalar `record_response` returns. What is
     # different is that the reduction happens HERE, visibly, and the profile travels with
     # the record instead of being discarded at the source. The axes matter downstream:
     # a record that answers responds through topology, one that merely shares vocabulary
@@ -898,7 +897,7 @@ def answer_query(doc_rex, query: str, results: dict | None = None, *,
     # structure, so the question goes to the structure that makes it exact rather than to
     # one mechanism stretched over everything. The lexicon's relations ARE predications:
     # `hypernym` is is-a, so "what does X mean" is answerable there and is not answerable
-    # from a corpus of co-occurrence, which is why it used to return whaling narratives.
+    # from a corpus of co-occurrence, which returns whaling narratives instead.
     #
     # Each DECLINES anything it cannot support, and declining costs nothing: an answerer
     # checks its own interface before touching its structure, so a non-lexical query never

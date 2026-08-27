@@ -485,19 +485,49 @@ def test_both_propagators_find_the_section_and_the_boundary_one_is_free():
     assert int(np.argmax(b)) == target
 
 
-def test_the_propagator_is_a_real_switch_and_boundary_is_the_default():
-    """Both readings must be reachable and the default must be the measured-cheap one.
+def test_the_propagator_is_a_real_switch_and_mass_is_the_default():
+    """Every reading must be reachable and the default must be the edge-primary one.
+
+    `mass` reads at the relation, which is where the data is, and is exact. `boundary`
+    reads `|B(B^T x)|` at the vertices, which is a derived object over two hops, and is
+    float because its denominators compound through pairs. On 337 queries lifted from
+    14 Gutenberg books of 56 to 104,962 sections: 66.2% top-1 at median rank 1 against
+    12.5% at median rank 20.
 
     Note what is NOT asserted here: that a second boundary step degrades localisation.
-    That is real (97.8% top-1 to 0.0% over 46 queries on 10 Gutenberg documents, and the
-    same collapse one grade up on the corpus index) but it needs thousands of sections
-    to show. On a nine-section fixture two steps still lands on the target, so a test here
-    would pass or fail for reasons that have nothing to do with the claim. The measurement
-    lives in `section_response`'s docstring and in `bench_section_localization.py`.
+    That is real but it needs thousands of sections to show, and on a nine-section
+    fixture a test would pass or fail for reasons unrelated to the claim. The
+    measurements live in `section_response`'s docstring.
     """
     import inspect
 
     from rexgraph.partition import section_response
 
     sig = inspect.signature(section_response)
-    assert sig.parameters["propagator"].default == "boundary"
+    assert sig.parameters["propagator"].default == "mass"
+
+
+def test_a_document_handed_in_as_bytes_reads_the_same_as_its_text():
+    """`str(b"...")` is the repr, so bytes tokenised as their own escape sequences:
+    `\\r` and `\\n` arrived as the words `r` and `n`, every file reduced to the same
+    boilerplate prefix, and three books of 30 KB, 4.4 MB and 5.6 MB built the identical
+    complex. The span layer already read `raw` as bytes, so the two disagreed about
+    what the text was."""
+    raw = _BOOK if isinstance(_BOOK, bytes) else _BOOK.encode("utf-8")
+    by_bytes, info_b = build_document(raw, profile=ENGLISH_GUTENBERG)
+    by_text, info_t = build_document(raw.decode("utf-8"), profile=ENGLISH_GUTENBERG)
+    assert int(by_bytes.nV) == int(by_text.nV)
+    assert int(by_bytes.nE) == int(by_text.nE)
+    assert info_b["vocab"] == info_t["vocab"]
+    assert "r" not in info_b["vocab"][:4], "escape sequences are not words"
+    assert info_b["n_sentences"] == info_t["n_sentences"]
+
+
+def test_two_different_documents_do_not_build_the_same_complex():
+    """The shape the repr bug had: plausible output, identical for every input."""
+    a, _ = build_document(b"The harpoon was darted at the whale. The line ran out.",
+                          profile=ENGLISH_GUTENBERG)
+    b, _ = build_document(b"A quiet morning in the village. Nothing of note happened.",
+                          profile=ENGLISH_GUTENBERG)
+    assert (int(a.nV), int(a.nE)) != (int(b.nV), int(b.nE)) or \
+        list(a._boundary_idx) != list(b._boundary_idx)

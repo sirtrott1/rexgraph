@@ -227,6 +227,15 @@ class Bee:
     # never the credential itself. Resolved per call by _chat_full via agent.secrets.resolve_ref,
     # so nothing that serializes a Bee can ever carry a key. Empty => unauthenticated bee.
     api_key_ref: str = ""
+    # WHERE this bee runs. A llama.cpp server binds its device at spawn (`-ngl`) and
+    # cannot be moved after, so placement is a property of the BEE, not of a task, and
+    # scheduling across devices means ROUTING to the right bee rather than reassigning
+    # work. `host` is the machine (bees on different hosts never contend); `device` is
+    # what it was pinned to there.
+    host: str = ""                   # "" => this machine
+    device: str = ""                 # "cpu" | "igpu" | "gpu:N" | "" when unknown
+    n_gpu_layers: int | None = None   # what it was actually spawned with
+    tok_s: float | None = None        # measured solo decode rate, filled by observe()
     _proc: object = None             # Popen for managed worker bees (not serialized)
     _handler: object = None          # local callable for non-chat workers (not serialized)
 
@@ -237,7 +246,9 @@ class Bee:
                 "specialties": self.specialties, "managed": self.managed, "pid": self.pid,
                 "port": self.port, "summary": self.summary, "capability": self.capability,
                 "worker_type": self.worker_type, "local": self._handler is not None,
-                "has_api_key": bool(self.api_key_ref)}
+                "has_api_key": bool(self.api_key_ref),
+                "host": self.host or "local", "device": self.device or "unknown",
+                "n_gpu_layers": self.n_gpu_layers, "tok_s": self.tok_s}
 
 
 @dataclass
@@ -527,9 +538,23 @@ class Hive:
             self.relay(name, sender, f"result:{bee.capability}")
         return result
 
+    @staticmethod
+    def _device_of(n_gpu_layers) -> str:
+        """What `-ngl` actually pins the server to. 0 is CPU-only; anything else puts at
+        least some layers on the accelerator, and a partial split is named as such because
+        it is measurably the worst of both: on this laptop every partial split of a 7B
+        was slower than pure CPU or pure iGPU (26.66 tok/s at the best split against 47.06
+        fully offloaded)."""
+        if n_gpu_layers == 0:
+            return "cpu"
+        if n_gpu_layers is None:
+            return "auto"
+        return "igpu" if n_gpu_layers >= 999 else f"split:{n_gpu_layers}"
+
     def spawn(self, name: str, model_path: str, *, role: str = "worker", specialties=None,
               port: int | None = None, ctx_size: int | None = None,
-              n_gpu_layers: int | None = None, wait: float = 90.0) -> Bee:
+              n_gpu_layers: int | None = None, wait: float = 90.0,
+              device: str = "", host: str = "") -> Bee:
         """Bring a bee up as a managed llama.cpp subprocess. queen registers as the chat backend
         (chat/metrics run on it); embedder registers as the embedding endpoint (so the monitor's
         semantic signal is live); worker is an independent server the hive owns. Requires a built
@@ -552,8 +577,21 @@ class Hive:
             bee = Bee(name=name, role=role, url=st["url"], model=st.get("model", ""),
                       specialties=list(specialties or []), managed=True, pid=st.get("pid"),
                       summary=st.get("model_summary"), _proc=proc)
+        bee.n_gpu_layers = n_gpu_layers
+        bee.device = device or self._device_of(n_gpu_layers)
+        bee.host = host
         self._bees[name] = bee
         return bee
+
+    def observe_bee_rate(self, name: str, tok_s: float) -> None:
+        """Record a bee's measured decode rate, and feed it to the coordinator's batch
+        curve so placement prices THIS machine rather than the seeded one."""
+        bee = self._bees.get(name)
+        if bee is None or not (tok_s and tok_s > 0):
+            return
+        bee.tok_s = float(tok_s)
+        with contextlib.suppress(Exception):
+            self._coordinator_obj().cost.observe_throughput(1, float(tok_s))
 
     def remove(self, name: str) -> bool:
         """Stop (if managed) and unregister a bee."""

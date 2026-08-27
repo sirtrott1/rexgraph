@@ -103,6 +103,7 @@ from fractions import Fraction
 import numpy as np
 
 __all__ = [
+    "bareiss_determinant",
     "exact_channel_diagonals",
     "quadrance", "spread", "gram", "gram_determinant", "gram_rank",
     "carries_cycle", "independent_cycles", "spread_matrix",
@@ -183,6 +184,36 @@ def gram(vectors, *, exact: bool = False):
     return M @ M.T
 
 
+def bareiss_determinant(A_in):
+    """Exact determinant by fraction-free (Bareiss) elimination.
+
+    Every division is exact in the ring the entries came from, so integer input
+    stays integer all the way through and never grows a denominator. Ordinary
+    elimination divides by the pivot at each step, which turns integers into
+    rationals whose denominators compound down the matrix; that is the cost this
+    avoids. Intermediates are bounded by minors of the input rather than by the
+    product of the pivots.
+    """
+    k = len(A_in)
+    if k == 0:
+        return Fraction(1)
+    A = [row[:] for row in A_in]
+    prev = Fraction(1)
+    sign = 1
+    for i in range(k - 1):
+        if A[i][i] == 0:
+            pivot = next((r for r in range(i + 1, k) if A[r][i] != 0), None)
+            if pivot is None:
+                return Fraction(0)
+            A[i], A[pivot] = A[pivot], A[i]
+            sign = -sign
+        for r in range(i + 1, k):
+            for c in range(i + 1, k):
+                A[r][c] = (A[r][c] * A[i][i] - A[r][i] * A[i][c]) / prev
+        prev = A[i][i]
+    return sign * A[k - 1][k - 1]
+
+
 def gram_determinant(vectors, *, exact: bool = True):
     """``det`` of the Gram block, by fraction-free elimination when exact.
 
@@ -193,24 +224,7 @@ def gram_determinant(vectors, *, exact: bool = True):
     G = gram(vectors, exact=exact)
     if not exact:
         return float(np.linalg.det(np.asarray(G)))
-    k = len(G)
-    if k == 0:
-        return Fraction(1)
-    A = [row[:] for row in G]
-    det = Fraction(1)
-    for i in range(k):
-        pivot = next((r for r in range(i, k) if A[r][i] != 0), None)
-        if pivot is None:
-            return Fraction(0)
-        if pivot != i:
-            A[i], A[pivot] = A[pivot], A[i]
-            det = -det
-        det *= A[i][i]
-        for r in range(i + 1, k):
-            f = A[r][i] / A[i][i]
-            for c in range(i, k):
-                A[r][c] -= f * A[i][c]
-    return det
+    return bareiss_determinant(G)
 
 
 def gram_rank(vectors, *, exact: bool = True) -> int:
@@ -331,24 +345,7 @@ def cross_spread(T, G):
 
 def _det_of(A_in):
     """Exact determinant of a square Fraction matrix."""
-    k = len(A_in)
-    if k == 0:
-        return Fraction(1)
-    A = [row[:] for row in A_in]
-    det = Fraction(1)
-    for i in range(k):
-        pivot = next((r for r in range(i, k) if A[r][i] != 0), None)
-        if pivot is None:
-            return Fraction(0)
-        if pivot != i:
-            A[i], A[pivot] = A[pivot], A[i]
-            det = -det
-        det *= A[i][i]
-        for r in range(i + 1, k):
-            f = A[r][i] / A[i][i]
-            for c in range(i, k):
-                A[r][c] -= f * A[i][c]
-    return det
+    return bareiss_determinant(A_in)
 
 
 #: A rational p/q is uniquely determined by a double approximation only while
@@ -444,15 +441,27 @@ def exact_channel_diagonals(rex):
     metric = getattr(rex, "edge_metric_exact", None)
     w = list(metric) if metric is not None else [Fraction(1)] * nE
 
-    # the exact B1 column: the first boundary vertex is distinguished at -1, the rest
-    # share 1/(k-1), which is what makes the column sum to zero at every arity
+    # the exact B1 column: the head is distinguished at -1 and the rest share
+    # 1/(k-1), which is what makes the column sum to zero at every arity k >= 2.
+    #
+    # A WITNESS (k = 1) is the exception and does not follow the head rule: the
+    # construction emits (+1), so that L0 u = u, and there is no second vertex for
+    # the zero-sum condition to constrain. Reconstructing it as (-1) flipped the
+    # sign of every T off-diagonal it took part in, and since F is built from
+    # T - G off-diagonal it was the only channel that moved: on a 1-ary/2-ary
+    # complex F read [0,2,4,2] against the definition's [2,2,4,4], and on one
+    # carrying arities 1..4 it read [0,0,0,0] against [6,2,2,2]. T, G and C were
+    # untouched, the diagonal squaring the sign away and C taking absolute values.
     cols = []
     for support in supports:
         k = len(support)
         if k == 0:
             cols.append({})
             continue
-        share = Fraction(1) if k < 2 else Fraction(1, k - 1)
+        if k == 1:
+            cols.append({support[0]: Fraction(1)})
+            continue
+        share = Fraction(1, k - 1)
         col = {support[0]: Fraction(-1)}
         for v in support[1:]:
             col[v] = col.get(v, Fraction(0)) + share
@@ -484,13 +493,17 @@ def exact_channel_diagonals(rex):
             F[e] += abs(t - g)
             C[e] += sum((abs(cols[e][v]) * abs(cols[f][v]) for v in shared), Fraction(0))
 
+    # Every channel is reported, including one summing to zero. A channel with no
+    # mass is a MEASUREMENT and not an absence: frustration vanishes exactly on a
+    # uniformly oriented complex, where every vertex is a pure source or a pure sink
+    # so the signed and unsigned overlaps agree at every shared vertex. Dropping it
+    # there disagreed with the float bundle, which now keeps it too, and made two
+    # characters of different widths not comparable.
     diagonals, names = {}, []
     for name, values in (("L1_down", T), ("L_O", G), ("L_SG", F), ("L_C", C)):
-        if sum(values, Fraction(0)) == 0:
-            continue                        # a channel carrying nothing is not active
         names.append(name)
         diagonals[name] = values
-    return (diagonals, names) if names else (None, [])
+    return diagonals, names
 
 
 def exact_character(rex):
@@ -516,8 +529,10 @@ def exact_character(rex):
     `vertex_character` (phi) is NOT of this form. It is a Green's function and needs
     solves, so an exact phi is a different and much more expensive problem.
 
-    Returns `(chi, channel_names)` with `chi` a list of rows of Fractions, or
-    `(None, [])` when no channel is active.
+    Returns `(chi, channel_names)` with `chi` a list of rows of Fractions. Every
+    channel the complex carries gets a column, including one with no mass, which
+    reads exactly zero: the row is still on the simplex and the columns keep fixed
+    positions, so two characters are comparable.
     """
     diagonals, names = exact_channel_diagonals(rex)
     if not names:
@@ -530,7 +545,13 @@ def exact_character(rex):
     uniform = Fraction(1, len(names))
     chi = []
     for e in range(n_edges):
-        hats = [diags[k][e] / traces[k] for k in range(len(names))]
+        # A channel with no mass reads exactly zero rather than being normalised by
+        # its own zero trace. Frustration does this on any uniformly oriented complex,
+        # where every vertex is a pure source or a pure sink and there is no
+        # orientation conflict to measure. The remaining channels still sum to one, so
+        # the row stays on the simplex and the column keeps its position.
+        hats = [(diags[k][e] / traces[k]) if traces[k] != 0 else Fraction(0)
+                for k in range(len(names))]
         rl = sum(hats, Fraction(0))
         chi.append([uniform] * len(names) if rl == 0 else [h / rl for h in hats])
     return chi, names

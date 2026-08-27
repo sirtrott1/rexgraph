@@ -45,7 +45,8 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
-__all__ = ["CorpusProfile", "tokenize", "TEXT", "ENGLISH_GUTENBERG", "PYTHON_SOURCE",
+__all__ = [
+    "as_text", "CorpusProfile", "tokenize", "TEXT", "ENGLISH_GUTENBERG", "PYTHON_SOURCE",
            "is_scriptio_continua"]
 
 #: Scripts written without word separators, so their natural unit is the CHARACTER
@@ -128,6 +129,19 @@ class CorpusProfile:
     extra: dict = field(default_factory=dict)
 
 
+def as_text(value, encoding="utf-8"):
+    """Text from either bytes or str.
+
+    `str(b"...")` is the repr, so a document handed in as bytes is read as its own
+    escape sequences: `\r` and `\n` become the characters `r` and `n`, and the first
+    token of a file becomes `b'the`. Every entry point that takes text can be handed a
+    file's bytes, so each one decodes through here.
+    """
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode(encoding, "replace")
+    return str(value)
+
+
 def tokenize(text, profile: CorpusProfile):
     """`[(token, start, end)]` with CHARACTER offsets, so spans stay addressable.
 
@@ -143,7 +157,7 @@ def tokenize(text, profile: CorpusProfile):
     Under `"identifier"`, an identifier stays whole and each operator run is its own
     token, because in source the punctuation is what gates.
     """
-    s = str(text)
+    s = as_text(text, getattr(profile, "encoding", "utf-8"))
     fold = bool(getattr(profile, "casefold", True))
     veto = getattr(profile, "veto", None)
     out = []

@@ -70,7 +70,7 @@ def _reff_of(Bk):
     return np.einsum("ve,ve->e", Bc, X)
 
 
-# --- Theorem 18: L_gb is a spread ------------------------------------------------
+# Theorem 18: L_gb is a spread
 
 def test_l_gb_is_the_spread_of_the_two_spectra():
     rng = np.random.default_rng(0)
@@ -83,7 +83,7 @@ def test_l_gb_is_the_spread_of_the_two_spectra():
         assert l_gb_scalar(a, b) == pytest.approx(np.sqrt(2.0 * spread), abs=1e-6)
 
 
-# --- the graded coupling ---------------------------------------------------------
+# the graded coupling
 
 def test_the_coupling_is_an_exact_rational_in_three_integers():
     """Cycles read (2n-1)/n^2 and paths 1/n, off the rank tower alone."""
@@ -127,7 +127,7 @@ def test_the_seal_is_where_beta_2_appears():
     assert int(full.betti[2]) == 1
 
 
-# --- the identity is grade-general -----------------------------------------------
+# the identity is grade-general
 
 def test_the_rank_identity_holds_at_grade_two():
     """sum R_eff_k = rank(B_k) with the grade's own boundary operator."""
@@ -142,7 +142,7 @@ def test_the_rank_identity_holds_at_grade_two():
         assert float((1.0 - r).sum()) == pytest.approx(B.shape[1] - rank, abs=1e-9)
 
 
-# --- Theorem 19 and the mixed construction ---------------------------------------
+# Theorem 19 and the mixed construction
 
 @pytest.mark.parametrize("groups", [
     [[0, 1, 2]],
@@ -207,7 +207,7 @@ def test_two_wide_relations_sharing_an_edge_enclose_a_void():
     assert int(rex.betti[2]) == 1
 
 
-# --- section 6j: what a circle is ------------------------------------------------
+# section 6j: what a circle is
 
 def _lone(*groups):
     rex = _hyper([list(g) for g in groups])
@@ -290,7 +290,7 @@ def test_arity_and_degree_are_opposite_axes():
     assert len(arity) == int(rex.nE) and len(degree) == int(rex.nV)
 
 
-# --- sections 6k and 6l ----------------------------------------------------------
+# sections 6k and 6l
 
 def _leverage(M):
     """diag of the projector onto row(M): Theorem 21."""

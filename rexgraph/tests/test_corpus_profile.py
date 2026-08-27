@@ -254,3 +254,28 @@ def test_the_ellipsis_divides_the_span_but_not_the_sentence():
     assert info["n_spans"] == 2
     assert info["base_layer"] == "span", "the layer is named for what it DOES"
     assert "mr." in info["vocab"], "the abbreviation is a vertex, not a fragment"
+
+
+def test_the_tokenizer_reads_bytes_as_text_not_as_its_repr():
+    """`str(b"...")` is the repr, so the first token of a file came back as `b'the`
+    and every escape sequence became a word."""
+    from rexgraph.corpus_profile import TEXT, tokenize
+
+    text = "The harpoon was darted at the whale.\r\nThe line ran out."
+    by_text = [w for w, _a, _b in tokenize(text, TEXT)]
+    by_bytes = [w for w, _a, _b in tokenize(text.encode("utf-8"), TEXT)]
+    assert by_text == by_bytes
+    assert "r" not in by_bytes and "n" not in by_bytes
+    assert by_bytes[0] == "the"
+
+
+def test_the_decoder_is_one_function():
+    """Three modules take text and each can be handed a file's bytes. One decoder, so
+    the defect cannot be fixed in one of them and left in the others."""
+    from rexgraph import segment
+    from rexgraph.corpus_profile import as_text
+
+    assert segment._as_text is as_text
+    assert as_text(b"caf\xc3\xa9") == "café"
+    assert as_text("café") == "café"
+    assert as_text(b"caf\xe9", "latin-1") == "café"
