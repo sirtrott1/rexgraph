@@ -238,6 +238,11 @@ class Bee:
     tok_s: float | None = None        # measured solo decode rate, filled by observe()
     _proc: object = None             # Popen for managed worker bees (not serialized)
     _handler: object = None          # local callable for non-chat workers (not serialized)
+    # WHICH caller this bee was registered for, when one was named. A tool bee runs
+    # under the context bound at registration, so two callers registering the same tool
+    # name on one hive would otherwise leave the first caller's bee executing as the
+    # second. Never serialized: it carries an identity and a workspace.
+    _context: object = None
 
     def public(self) -> dict:
         # `has_api_key` reports only the FACT that a credential is configured - never the key and
@@ -373,6 +378,24 @@ class Hive:
 
     # membership
 
+    def _register(self, bee: Bee) -> Bee:
+        """Take a bee into the roster, refusing to silently rebind one another caller owns.
+
+        `get_hive()` hands out a process-wide singleton, so two callers that each scope
+        themselves correctly still meet on one roster. Registration is keyed by bee name,
+        so the second would replace the first and the first caller's tool would then run
+        under the second's workspace and admin flag with neither told. A name already held
+        for a different caller is refused instead."""
+        prev = self._bees.get(bee.name)
+        if prev is not None and prev._context != bee._context:
+            raise ValueError(
+                f"{bee.name!r} is already registered on hive {self.name!r} for a different "
+                f"caller; replacing it would rebind that caller's worker to this one. "
+                f"Remove it first, or give each caller its own hive via "
+                f"get_network().hive(<name>).")
+        self._bees[bee.name] = bee
+        return bee
+
     def attach(self, name: str, url: str, *, role: str = "worker",
                model: str = "", specialties=None, api_key_ref: str = "") -> Bee:
         """Register a bee for an already-running endpoint (Ollama/vLLM/llama.cpp/etc). The hive
@@ -386,13 +409,14 @@ class Hive:
         bee = Bee(name=name, role=role, url=url.rstrip("/"), model=model,
                   specialties=list(specialties or []), managed=False,
                   api_key_ref=api_key_ref)
-        self._bees[name] = bee
+        self._register(bee)
         from . import activity as _act
         _act.record("worker:" + name, "attach", detail={"role": role, "model": model})
         return bee
 
     def add_worker(self, name: str, handler, *, capability: str = "predict",
-                   specialties=None, worker_type: str = "", model: str = "") -> Bee:
+                   specialties=None, worker_type: str = "", model: str = "",
+                   context=None) -> Bee:
         """Register any callable as a worker member. `handler(data, **kw)` runs the worker's
         capability on structured input. This is the general primitive: a trained NN, a statistical
         model, a rexgraph analyzer, an embedder, or any inference module becomes a first-class hive
@@ -403,8 +427,8 @@ class Hive:
         bee = Bee(name=name, role="worker", url="", model=model,
                   specialties=list(specialties or []), managed=False,
                   capability=capability, worker_type=worker_type or f"worker:{capability}",
-                  _handler=handler)
-        self._bees[name] = bee
+                  _handler=handler, _context=context)
+        self._register(bee)
         from . import activity as _act
         _act.record("worker:" + name, "deploy", detail={"type": bee.worker_type, "capability": capability})
         return bee
@@ -440,6 +464,10 @@ class Hive:
         A bee is a caller like any other, not a trusted one. `context=None` is the local
         operator, unrestricted, the same rule the rest of the stack uses.
 
+        The context is recorded on each bee it registers, so a second caller registering
+        the same tool on the same hive is refused rather than silently rebinding the
+        first caller's bee to its own workspace. See `_register`.
+
         Tools are typed `tool:<name>`, so they join the worker-type taxonomy
         `type_complex` builds and are routable and diagnosable like any other member.
         """
@@ -461,7 +489,7 @@ class Hive:
                 continue                      # not advertised to a bee that cannot run it
             self.add_worker(name, _bind(tool), capability=capability,
                             specialties=[name, *tool.description.split()[:6]],
-                            worker_type=f"tool:{name}")
+                            worker_type=f"tool:{name}", context=context)
             added.append(name)
         return added
 

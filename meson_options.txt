@@ -31,3 +31,7 @@ option(
     value: 'auto',
     description: 'Require a BLAS/LAPACK at build time. disabled = build anyway, symbols must come from elsewhere at runtime.',
 )
+
+# GPU architecture for the optional HIP ternary lane, e.g. gfx1151. Empty asks rocminfo.
+option('hip_arch', type: 'string', value: '',
+       description: 'offload arch for the HIP ternary kernel (empty: detect)')

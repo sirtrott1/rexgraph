@@ -231,7 +231,7 @@ _RANK_MEMO: _OrderedDict[tuple, int] = _OrderedDict()
 _RANK_MEMO_MAX = 64
 
 
-def _exact_rank_reduction(M: sp.spmatrix) -> int:
+def _exact_rank_reduction(M: sp.spmatrix, *, with_pivots: bool = False):
     """EXACT rank of an INTEGER sparse matrix by column reduction over Z: eigen-free,
     NO SVD, no eigendecomposition, no dense operator. Each column is reduced against the
     registered pivots (lowest-nonzero-row 'low' convention, as in persistence
@@ -254,6 +254,13 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
     12,500), against the Fraction path: 14.5x, 30.1x and 45.3x for the same rank, the
     ratio growing with size because the fill it avoids is superlinear.
 
+    `with_pivots` also returns the pivot ROW indices, which are a maximal independent
+    set of rows: each reduced column has its lowest nonzero at its own pivot row, so the
+    pivot columns restricted to the pivot rows are triangular with a nonzero diagonal.
+    Anything wanting an invertible submatrix wants exactly that set, and it is already
+    built here, so asking for it costs nothing. The memo carries the rank only, so a
+    request for pivots reduces rather than reading it back.
+
     Memoized on exact matrix content (see :data:`_RANK_MEMO`)."""
     from math import gcd
     A = M.tocsc()
@@ -267,10 +274,10 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
     indptr, indices, data = A.indptr, A.indices, A.data
     exact = _rational_data(A)
     if exact is None:
-        return None                         # caller falls back to the float path
+        return (None, None) if with_pivots else None   # caller falls back to the float path
     key = (A.shape, indptr.tobytes(), indices.tobytes(), data.tobytes())
     hit = _RANK_MEMO.get(key)
-    if hit is not None:
+    if hit is not None and not with_pivots:
         _RANK_MEMO.move_to_end(key)
         return hit
 
@@ -308,7 +315,7 @@ def _exact_rank_reduction(M: sp.spmatrix) -> int:
     _RANK_MEMO.move_to_end(key)
     if len(_RANK_MEMO) > _RANK_MEMO_MAX:
         _RANK_MEMO.popitem(last=False)
-    return rank
+    return (rank, sorted(pivots)) if with_pivots else rank
 
 
 def _pairwise_rank(M: sp.spmatrix):

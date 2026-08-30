@@ -2080,6 +2080,31 @@ def compare(store: RCStore, id_a: str, id_b: str):
     }
 
 
+def copy_record(src: RCStore, dst: RCStore, record, *, meta=None, tags=None):
+    """Copy one stored version of one record from `src` into `dst`.
+
+    The single place a record crosses between stores. `migrate` walks a whole history
+    through here and a courier carries one current version through here, so the two
+    differ in WHICH versions they select and in nothing else. That matters because what
+    has to travel with a complex is easy to forget one carrier at a time: the meta the
+    record was stored under, the tags that keep it queryable, and the valid time it was
+    true for, which is not the time it is being copied at.
+
+    `record` is a ComplexRecord from `src`, current or historical. `meta` and `tags`
+    override what it carried, which is how a caller stamps provenance without having to
+    reassemble the rest. Returns the destination record, or None when the source cannot
+    produce the complex.
+    """
+    rex = src.get_version(record.id, record.version)
+    if rex is None:
+        return None
+    return dst.put(
+        record.id, rex,
+        meta=dict(record.meta or {}) if meta is None else meta,
+        tags=list((record.signature or {}).get("tags", [])) if tags is None else tags,
+        valid_from=record.valid_from, valid_to=record.valid_to)
+
+
 def migrate(src: RCStore, dst: RCStore, *, ids=None, limit: int = 10 ** 9) -> dict:
     """Copy records from one store into another, every version, oldest first.
 
@@ -2096,13 +2121,8 @@ def migrate(src: RCStore, dst: RCStore, *, ids=None, limit: int = 10 ** 9) -> di
             continue
         n_records += 1
         for rec in sorted(history, key=lambda r: r.version):
-            rex = src.get_version(rid, rec.version)
-            if rex is None:
-                continue
-            dst.put(rid, rex, meta=rec.meta,
-                    tags=list((rec.signature or {}).get("tags", [])),
-                    valid_from=rec.valid_from, valid_to=rec.valid_to)
-            n_versions += 1
+            if copy_record(src, dst, rec) is not None:
+                n_versions += 1
     return {"records": n_records, "versions": n_versions,
             "src": getattr(src, "backend", "?"), "dst": getattr(dst, "backend", "?")}
 

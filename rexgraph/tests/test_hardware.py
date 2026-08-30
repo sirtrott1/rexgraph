@@ -55,6 +55,27 @@ def test_an_explicit_override_wins(monkeypatch):
     assert hardware.cpu_count() == 5
 
 
+def test_physical_cores_never_exceeds_the_usable_count():
+    """SMT siblings are not extra cores, so this is at most `cpu_count` and at least 1.
+
+    It exists because a memory-bound kernel gains nothing from a sibling that shares the
+    load/store units: `sparse_character._tower_width` reads it for exactly that reason.
+    """
+    n = hardware.physical_cores()
+    assert isinstance(n, int) and n >= 1
+    assert n <= hardware.cpu_count()
+
+
+def test_physical_cores_reports_where_it_got_the_number():
+    """Either the topology was readable or it was not, and saying which is the point:
+    without it there is no way to tell a sibling from a core, so it falls back to
+    `cpu_count` rather than guessing a ratio."""
+    n, source = hardware.physical_cores(with_source=True)
+    assert source in ("sysfs topology", "cpu_count")
+    if source == "cpu_count":
+        assert n == hardware.cpu_count()
+
+
 def test_memory_is_reported_in_bytes():
     m = hardware.memory_bytes()
     assert isinstance(m, int) and m > 0

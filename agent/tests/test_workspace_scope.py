@@ -192,3 +192,41 @@ def test_a_record_with_no_workspace_stays_visible():
     assert owns({"workspace": None}, "beta") is True
     assert owns({"workspace": "beta"}, "beta") is True
     assert owns({"workspace": "default"}, "beta") is False
+
+
+def test_a_write_records_who_made_it(two_tenants):
+    """`/api/v1/db/put` stamps no identity of its own, so a `stored_by` here is the
+    scoped store's or nothing. Every route that did not stamp its own wrote anonymously
+    while the request in hand already knew the caller."""
+    client, ah, bh, a_id, b_id = two_tenants
+    r = client.post("/api/v1/db/put", headers=bh,
+                    json={"id": "bobs", "text": "alpha beta gamma delta"})
+    assert r.status_code == 200, r.text
+
+    from agent.rcdb import default_store
+    meta = default_store().get_record("bobs").meta
+    assert meta["stored_by"] == "bob"
+    assert meta["workspace"] == "beta", "the workspace stamp it already had is unchanged"
+
+
+def test_the_trail_names_the_caller_rather_than_local(two_tenants):
+    """The chain was written with user='local' for every caller, because the identity
+    was resolved by the middleware and then dropped."""
+    client, ah, bh, a_id, b_id = two_tenants
+    client.post("/api/v1/db/put", headers=bh, json={"id": "bobs", "text": "alpha beta"})
+
+    from agent.server import audit
+    puts = [e for e in audit.read() if e["action"] == "db.put" and e["target"] == "bobs"]
+    assert puts, "the write left no trail entry"
+    assert puts[-1]["user"] == "bob"
+    assert audit.verify()["valid"] is True, "the chain still verifies with the field set"
+
+
+def test_two_callers_are_told_apart_in_the_trail(two_tenants):
+    client, ah, bh, a_id, b_id = two_tenants
+    client.post("/api/v1/db/put", headers=ah, json={"id": "mine", "text": "one two three"})
+    client.post("/api/v1/db/put", headers=bh, json={"id": "bobs", "text": "four five six"})
+
+    from agent.server import audit
+    who = {e["target"]: e["user"] for e in audit.read() if e["action"] == "db.put"}
+    assert who["mine"] == "admin" and who["bobs"] == "bob"

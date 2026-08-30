@@ -45,7 +45,7 @@ from .rings import (cycle_vector, cycle_vectors, minimum_cycle_basis,
                     relevant_cycles, ring_sizes, shortest_cycles)
 from .tower import channel_delta, graded_delta
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 __all__ = [
     "core",

@@ -13,6 +13,7 @@ from rexgraph; this module is the agent-to-complex adapter plus the monitor/rout
 """
 from __future__ import annotations
 
+import contextlib
 import re
 from collections import Counter, defaultdict
 
@@ -23,6 +24,126 @@ from agent.metrics import coherence_kappa
 
 def _tokens(text: str):
     return [t for t in re.findall(r"[a-z0-9]{3,}", str(text).lower())]
+
+
+def act_complex(events, *, close_trips: bool = True):
+    """Oriented acts as a GRADED relational complex: legs at grade 1, trips at grade 2.
+
+    `interaction_complex` below answers a different question and answers it undirected: it
+    folds a message and its reply into one weighted edge, because for routing and load what
+    matters is the traffic and not who spoke first. Acts are the opposite case, and three
+    things about them do not survive being flattened to a graph.
+
+    DIRECTION IS POSITIONAL, not a sign. A column and its negation are the same cell: the
+    library canonicalises, which is right, because re-signing is a gauge and leaves the
+    spectrum alone. So orientation is WHICH participant carries the single -1. A write
+    distinguishes the actor, ``[actor, *objects]``; a read distinguishes the object,
+    ``[object, actor]``. Two writers meeting at an object then agree, a writer against a
+    reader does not, and that disagreement is the whole content of the frustration channel.
+    A read naming several objects is several acts rather than one: a relation has exactly
+    one distinguished end, and a gather from many has no single one to nominate.
+
+    ARITY. A leg is k-ary when the act was. One carrier writing to three destinations is
+    ONE 4-ary relation, not three edges: expanding it invents C(3,2) pairs that no act
+    performed and reports cycles nothing traversed.
+
+    RETURN. A carrier goes somewhere and comes back, and out-and-back is a cycle. Giving
+    that cycle a FACE is what says it closes. The face column is SOLVED from ``B_1 c = 0``
+    rather than declared, because a declared one fails the chain condition and then bounds
+    nothing, which is indistinguishable from having no face at all until the arithmetic is
+    checked. So `betti[1]` afterwards counts the circulation that did NOT close: an
+    exchange nobody reciprocated, as against a round trip that came home.
+
+    Participants keep their `kind:` prefix as their label, so `subcomplex` and `hyperslice`
+    can cut the ambient complex down to one hive, one worker, or one grade without the
+    builder needing to know the nesting in advance.
+
+    Returns `(rex, labels)`, or `(None, [])` when no event carried an orientation.
+    """
+    from rexgraph.graph import RexGraph
+    legs, trips = [], defaultdict(list)
+    for e in events:
+        d = e if isinstance(e, dict) else e.public()
+        actor, flow = d.get("entity", ""), d.get("flow", "")
+        on = d.get("on")
+        if not (actor and on) or flow not in ("read", "write"):
+            continue
+        objs = list(on) if isinstance(on, (list, tuple)) else [on]
+        legs.append((actor, objs, flow))
+        tid = (d.get("detail") or {}).get("trip")
+        if tid:
+            trips[(actor, tid)].append(len(legs) - 1)
+    if not legs:
+        return None, []
+
+    labels = sorted({actor for actor, _, _ in legs} | {o for _, objs, _ in legs for o in objs})
+    idx = {v: i for i, v in enumerate(labels)}
+    cells, leg_of = [], []
+    for n, (actor, objs, flow) in enumerate(legs):
+        if flow == "write":
+            cells.append([idx[actor], *(idx[o] for o in objs)])
+            leg_of.append(n)
+        else:
+            for o in objs:                               # a gather is several acts
+                cells.append([idx[o], idx[actor]])
+                leg_of.append(n)
+    rex = RexGraph.from_cells([len(labels), cells])
+    legs = [legs[n] for n in leg_of]
+    trips = {k: [i for i, n in enumerate(leg_of) if n in set(v)] for k, v in trips.items()}
+    if close_trips:
+        _close_round_trips(rex, legs, trips)
+    return rex, labels
+
+
+def slice_participants(rex, labels, keep):
+    """The subcomplex on a set of participants: one hive, one worker, one kind.
+
+    `subcomplex` takes an edge mask rather than a vertex mask, because which acts survive
+    is a decision and not a consequence: an act reaching out of the slice is either cut or
+    kept, and the two give different topology. Cut is the answer here. A trip half inside a
+    hive is not that hive's trip, and counting it as one would report the hive as closed
+    when the closing happened somewhere it cannot see.
+
+    `keep` is a predicate on the label or a set of labels. Returns what `subcomplex`
+    returns, `(v_mask, e_mask, f_mask)`: MASKS over the parent complex, so `.sum()` counts
+    what survived and the arrays stay aligned with the labels they came from.
+    """
+    import numpy as _np
+    want = keep if callable(keep) else (lambda n, _k=set(keep): n in _k)
+    v_mask = _np.array([bool(want(n)) for n in labels], dtype=_np.uint8)
+    B1 = rex.B1
+    B1 = _np.asarray(B1.todense() if hasattr(B1, "todense") else B1)
+    inside = _np.array([bool(v_mask[_np.nonzero(B1[:, j])[0]].all())
+                        for j in range(rex.nE)], dtype=_np.uint8)
+    return rex.subcomplex(v_mask=v_mask, e_mask=inside)
+
+
+def _close_round_trips(rex, legs, trips) -> None:
+    """Give every out-and-back its face, solved rather than declared.
+
+    A single delivery is a path and does not bound; it is the RECIPROCAL delivery that
+    closes it, so trips are paired by carrier and by the two ends taken in either order.
+    An unreciprocated trip is left open on purpose, because that is the reading."""
+    ends = {}
+    for (actor, _tid), leg_ids in trips.items():
+        read = [i for i in leg_ids if legs[i][2] == "read"]
+        write = [i for i in leg_ids if legs[i][2] == "write"]
+        if not (read and write):
+            continue                                    # not a there-and-back-again shape
+        src = tuple(sorted(legs[read[0]][1]))
+        dst = tuple(sorted(legs[write[0]][1]))
+        ends.setdefault((actor, frozenset((src, dst))), []).append((src, dst, leg_ids))
+    faces = []
+    for runs in ends.values():
+        outward = {(s, d) for s, d, _ in runs}
+        if len(outward) < 2:
+            continue                                    # went, never came back
+        faces.append(sorted({i for _, _, ids in runs for i in ids}))
+    if not faces:
+        return
+    with contextlib.suppress(Exception):                # a face that will not solve is not one
+        rex.add_faces(faces)
+        rex._ensure_clean()
 
 
 class AgentComplex:

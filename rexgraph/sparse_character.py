@@ -310,6 +310,238 @@ def closed_form_applies(rex) -> bool:
     return True
 
 
+def channel_diagonals_integer(rex):
+    """The four diagonals as EXACT int64 numerators over one common denominator.
+
+    No float enters at any point. The share 1/(k-1) becomes the integer L/(k-1) for
+    L = lcm(k-1), so a pairwise complex works at L = 1 and needs no denominator at all.
+    C and F multiply two shares, so the whole tower lands over L^2 and that single
+    integer is returned beside it.
+
+    Returns ({name: int64 numerators}, scale) or (None, None) when the scale would
+    leave int64, which is when the approximation tower is the honest answer and
+    `channel_diagonals` gives it.
+    """
+    import numpy as _np
+    from collections import defaultdict
+
+    rex._ensure_clean()
+    bp = _np.asarray(rex._boundary_ptr)
+    bi = _np.asarray(rex._boundary_idx)
+    prec = channel_tower_precision(bp, bi)
+    if prec["scale"] is None:
+        return None, None
+    L2 = int(prec["scale"])
+    L = int_sqrt_limit(L2)
+    nE = int(rex.nE)
+
+    # |c| as an integer over L: 1 becomes L, and the share 1/(k-1) becomes L/(k-1)
+    negu = defaultdict(int)
+    posu = defaultdict(int)
+    cols = []
+    for e in range(nE):
+        span = [int(v) for v in bi[bp[e]:bp[e + 1]]]
+        k = len(span)
+        if k == 0:
+            cols.append(([], 0)); continue
+        if k == 1:                                   # a witness is (+1): positive
+            cols.append(([(span[0], L, +1)], k))
+            posu[span[0]] += L
+            continue
+        share = L // (k - 1)
+        entries = [(span[0], L, -1)]                 # the head, magnitude 1
+        negu[span[0]] += L
+        for v in span[1:]:
+            entries.append((v, share, +1))
+            posu[v] += share
+        cols.append((entries, k))
+
+    T = _np.zeros(nE, dtype=_np.int64)
+    C = _np.zeros(nE, dtype=_np.int64)
+    Fc = _np.zeros(nE, dtype=_np.int64)
+    for e, (entries, k) in enumerate(cols):
+        if not entries:
+            continue
+        T[e] = L2 if k == 1 else L2 + L2 // (k - 1)
+        c = 0
+        f = 0
+        for v, mag, sign in entries:
+            total = negu[v] + posu[v]
+            c += mag * (total - mag)
+            f += mag * (posu[v] if sign < 0 else negu[v])
+        C[e] = c
+        Fc[e] = 2 * f
+    return {"L1_down": T, "L_O": T.copy(), "L_SG": Fc, "L_C": C}, L2
+
+
+def channel_tower_precision(bp, bi, *, int64_max=(1 << 62)):
+    """Which numeric tower this complex's channel diagonals actually need.
+
+    The share is 1/(k-1), which is 1 at a witness and at a pairwise relation, so a
+    complex carrying only those has NO denominator and its whole tower is exact in
+    int64. Branching introduces k-1, and C and F multiply two shares, so the common
+    denominator is lcm(k-1)^2. Where that scale still fits an int64 the tower is exact
+    in integers anyway; only past it is a float needed, and then the width is chosen
+    from the magnitude rather than assumed.
+
+    Returns {tower, scale, dtype, reason}. `scale` is what every diagonal must be
+    multiplied by to be integral, so 1 means integral as it stands.
+    """
+    import numpy as _np
+    from math import gcd
+
+    k = _np.diff(_np.asarray(bp, dtype=_np.int64))
+    if k.size == 0:
+        return {"tower": "integer", "scale": 1, "dtype": "int64", "reason": "empty"}
+    dens = _np.unique(_np.maximum(k - 1, 1))          # k=1 and k=2 both give 1
+    lcm = 1
+    for d in dens:
+        d = int(d)
+        lcm = lcm // gcd(lcm, d) * d
+        if lcm > int_sqrt_limit(int64_max):
+            return {"tower": "float", "scale": None, "dtype": "float64",
+                    "reason": f"lcm(k-1) = {lcm} squares past int64"}
+    scale = lcm * lcm
+    if scale == 1:
+        return {"tower": "integer", "scale": 1, "dtype": "int64",
+                "reason": "every relation is a witness or pairwise, so the share is 1"}
+    # the largest diagonal is bounded by the co-participation mass, and the incidence
+    # count bounds that, so this is a bound and not a sample
+    bound = int(scale) * int(_np.bincount(_np.asarray(bi, dtype=_np.int64)).max() or 1) * int(k.sum())
+    if bound < int64_max:
+        return {"tower": "rational", "scale": int(scale), "dtype": "int64",
+                "reason": f"exact over a common denominator of {scale}"}
+    return {"tower": "float", "scale": None, "dtype": "float64",
+            "reason": f"scaled bound {bound} past int64"}
+
+
+def int_sqrt_limit(n: int) -> int:
+    """The largest L with L*L <= n. Integer only, no float sqrt to round wrongly."""
+    lo, hi = 0, 1
+    while hi * hi <= n:
+        hi <<= 1
+    while lo + 1 < hi:
+        mid = (lo + hi) // 2
+        if mid * mid <= n:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def _any_arity_diagonals(rex):
+    """The tower past the pairwise derivation, by accumulating at the vertex.
+
+    Refuses only what genuinely separates the channels: a vertex weighting, which makes
+    diag(G) differ from diag(T), and the normalized G channel, which takes a square
+    root. Both then have to be assembled and read.
+    """
+    import numpy as _np
+    if str(getattr(rex, "g_channel", "raw")) != "raw":
+        return None
+    for attr in ("w_V", "vertex_weights"):
+        wv = getattr(rex, attr, None)
+        if wv is not None and not _np.allclose(_np.asarray(wv, dtype=float), 1.0):
+            return None
+    bp = getattr(rex, "_boundary_ptr", None)
+    bi = getattr(rex, "_boundary_idx", None)
+    if bp is None or bi is None:
+        return None
+    from rexgraph import compute
+    w = getattr(rex, "w_E", None)
+    # Prefer the parallel lane. `_tower_cpu`'s `threads=1` is a signature default rather
+    # than a decision, and dispatch was reaching it first because "cpu" registers before
+    # "openmp", so the tower ran serial. Bit-identical either way, the serial lane
+    # staying as the reference. Measured on this path, serial against the width
+    # `_tower_width` picks:
+    #
+    #     nnz         nnz/nV     serial      now
+    #     10.5M            7   379.9 ms   96.1 ms
+    #     10.5M           52   318.4 ms   42.8 ms
+    #      1.4M           23    23.4 ms    8.3 ms
+    #
+    # Preferred only when the caller has expressed nothing: an explicit
+    # `set_default_backend` still wins, which is how the hip lane is reached. Hip is not
+    # the default because it is SLOWER, measured once the transpose went parallel too:
+    # 208.0 ms against 104.4 at 10.5M over 1.5M vertices, 199.6 against 43.8 over 200k,
+    # 22.3 against 10.2 at 1.7M. It pays the same CPU transpose and then gathers over
+    # variable-degree vertices, which suits the device poorly. Against the serial path it
+    # won; the CPU overtook it.
+    T, G, F, C = compute.dispatch("channel_tower",
+                                  _np.asarray(bp), _np.asarray(bi), int(rex.nV),
+                                  None if w is None else _np.asarray(w, float),
+                                  prefer=compute.get_default_backend() or "openmp")
+    return {'L1_down': T, 'L_O': G, 'L_SG': F, 'L_C': C}
+
+
+#### the lanes. Same registry as every other device-specialised kernel here, so a new
+#### architecture is a register_op call and nothing in this module moves.
+def _tower_cpu(bp, bi, nV, w, threads=1, transposed=None):
+    from rexgraph.core._channel_tower import channel_diagonals_any_arity
+    return channel_diagonals_any_arity(bp, bi, nV, w, threads, transposed)
+
+
+def _tower_width() -> int:
+    """The width the tower runs at when the caller has not set one.
+
+    PHYSICAL cores, not logical. Both passes stream the incidence and scatter into
+    vertex-indexed arrays, so the kernel is memory-bound, and SMT siblings share L1 and
+    the load/store units: they add contention without adding memory parallelism. Swept
+    at three densities, median of 5, the best width is 14 on a 16c/32t machine and the
+    curve is flat from 10 to 24, while all 32 logical costs 10 to 15%:
+
+        nnz/nV      12      14      16      32
+             7    96.7    91.8    95.6   107.4  ms
+            52    47.6    44.8    49.4    55.3
+
+    Physical cores lands inside that flat region on every case without anyone picking a
+    number, and it moves correctly on a machine with a different SMT ratio or none.
+    An explicit `compute.set_threads` still wins, which is how a measured per-host
+    optimum gets used where someone has actually measured one.
+    """
+    from rexgraph import compute as _c
+    explicit = _c.get_threads()
+    if explicit:
+        return int(explicit)
+    from rexgraph.hardware import physical_cores
+    return int(physical_cores())
+
+
+def _tower_openmp(bp, bi, nV, w, transposed=None):
+    """The accumulation is over VERTICES after transposing the incidence, so each
+    thread owns what it writes and no atomic is needed. Measured 9.2x at 12 threads on
+    12M nonzeros, bit-identical to the serial path at every width.
+
+    The transpose it depends on is split the same way, so a cold call is parallel
+    throughout. Passing `transposed` still skips it entirely, which is worth it when the
+    same complex is read more than once."""
+    return _tower_cpu(bp, bi, nV, w, _tower_width(), transposed)
+
+
+def _register_tower_lanes():
+    from rexgraph import compute as _c
+    _c.register_op("channel_tower", "cpu", _tower_cpu)
+    _c.register_op("channel_tower", "openmp", _tower_openmp)
+    # The native HIP lane registers itself on import, so without an import it was
+    # registered nowhere and could never be selected: `hip` was not a live backend at
+    # all. Importing it costs a torch import (it has to go first, since both link
+    # libamdhip64 and the loader binds one SONAME per process), so the import is
+    # deferred behind the object's own presence. The filename is repeated rather than
+    # read from `hip_ternary.library_path`, because reaching that function is the
+    # import this guard exists to avoid.
+    import contextlib
+    import os
+    if (os.environ.get("REXGRAPH_TERNARY_HIP")
+            or os.path.exists(os.path.join(os.path.dirname(__file__), "core",
+                                           "lib_ternary_hip.so"))):
+        # an optional lane never breaks the tower
+        with contextlib.suppress(Exception):
+            import rexgraph.hip_ternary  # noqa: F401  registers on import
+
+
+_register_tower_lanes()
+
+
 def channel_diagonals(rex):
     """The four channel diagonals in closed form, O(nnz), forming no edge x edge matrix.
 
@@ -334,17 +566,33 @@ def channel_diagonals(rex):
     and 112 s for four arrays of length nE.
 
     The derivation above is exact for a SIGNED PAIRWISE UNWEIGHTED complex and only
-    there, so `closed_form_applies` gates it and the caller assembles otherwise:
-      - under weighting diag(G) = sum_v w_v B1[v,e]^2 no longer equals diag(T);
-      - a branching column carries -1 and 1/(k-1), so an off-diagonal T-G entry is not
-        |s_e s_j - 1| and the disagreement count is not the F diagonal.
-    Returns None when it does not apply.
+    there, because a branching column carries -1 and 1/(k-1), so an off-diagonal T-G
+    entry is not |s_e s_j - 1| and the disagreement count is not the F diagonal.
+    `closed_form_applies` reports whether THAT derivation holds.
+
+    Past it the disagreement count is standing in for a MAGNITUDE, and the magnitude
+    accumulates at any arity. Both off-diagonal channels sum over pairs that share a
+    vertex and a pair contributes only there, so the sum reorders onto the vertex and
+    no pair is formed:
+
+        M[v] = sum over relations f at v of |c_f[v]|
+        C[e] = sum over v in supp(e) of |c_e[v]| * (M[v] - |c_e[v]|)
+        F[e] = 2 * sum over v in supp(e) of |c_e[v]| * (opposite-sign mass at v)
+
+    `core._channel_tower` carries that, still O(nnz), still exact, and it is what runs
+    when the pairwise derivation does not. Checked against the exact rational tower on
+    witness, pairwise, branching and mixed complexes.
+
+    VERTEX weighting is the one case still refused: there diag(G) = sum_v w_v B1[v,e]^2
+    no longer equals diag(T), so the two channels separate and the caller assembles.
+    The normalized G channel is refused for the same reason it has no rational
+    character, a square root. Returns None in both.
 
     Returns {name: diagonal} for the active channels, in the canonical channel order.
     """
     from rexgraph.core._sparse import to_scipy_csr
     if not closed_form_applies(rex):
-        return None
+        return _any_arity_diagonals(rex)
 
     nV, nE = int(rex.nV), int(rex.nE)
     B1 = to_scipy_csr(rex._B1_dual).astype(_f64)

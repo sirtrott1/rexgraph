@@ -29,9 +29,26 @@ from contextvars import ContextVar
 #: the workspace serving the current request, or None outside one
 _current: ContextVar[str | None] = ContextVar("rexgraph_workspace", default=None)
 
+#: WHO is serving it. Bound beside the workspace because the middleware already
+#: resolved both and only kept one, which left every record and every trail entry
+#: written during a request saying "local" while the request itself knew better.
+_caller: ContextVar[str | None] = ContextVar("rexgraph_caller", default=None)
+
 
 def current_workspace() -> str | None:
     return _current.get()
+
+
+def current_caller() -> str | None:
+    return _caller.get()
+
+
+def set_caller(name: str | None):
+    return _caller.set(name)
+
+
+def reset_caller(token) -> None:
+    _caller.reset(token)
 
 
 def set_workspace(name: str | None):
@@ -77,9 +94,10 @@ class ScopedStore:
     them in bulk are the ones that need an opinion.
     """
 
-    def __init__(self, inner, workspace: str | None):
+    def __init__(self, inner, workspace: str | None, caller: str | None = None):
         self._inner = inner
         self._workspace = workspace
+        self._caller = caller
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
@@ -113,7 +131,7 @@ class ScopedStore:
         and a route added later would not know to write one.
         """
         from agent.server import audit
-        audit.record(action, workspace=self._workspace or "default",
+        audit.record(action, user=self._caller or "", workspace=self._workspace or "default",
                      target=str(target), outcome=outcome, detail=detail)
 
     def delete(self, id, **kw):
@@ -125,13 +143,17 @@ class ScopedStore:
         return out
 
     def put(self, id, rex, meta=None, tags=None, **kw):
-        """Store a record stamped with the workspace that is storing it.
+        """Store a record stamped with the workspace and the caller storing it.
 
-        The stamp is applied here rather than by the caller so that every write goes in
-        owned, including the ones written by routes that know nothing about workspaces.
+        The stamps are applied here rather than by the caller so that every write goes
+        in owned and attributed, including the ones written by routes that know nothing
+        about workspaces. `setdefault` rather than assignment, so a route that already
+        knows better keeps its own value.
         """
         meta = dict(meta or {})
         meta.setdefault("workspace", self._workspace)
+        if self._caller:
+            meta.setdefault("stored_by", self._caller)
         out = self._inner.put(id, rex, meta=meta, tags=tags, **kw)
         self._record("db.put", id, nE=int(getattr(rex, "nE", 0) or 0))
         return out
@@ -141,7 +163,7 @@ def scoped(store):
     """`store` as this request may see it, or unchanged outside a scoped request."""
     if not scoping_active():
         return store
-    return ScopedStore(store, _current.get())
+    return ScopedStore(store, _current.get(), _caller.get())
 
 
 def add_workspace_scope(app) -> None:
@@ -160,9 +182,11 @@ def add_workspace_scope(app) -> None:
 
     @app.middleware("http")
     async def _bind(request, call_next):
-        _identity, name = identity_and_workspace(request)
+        identity, name = identity_and_workspace(request)
         token = set_workspace(name or "default")
+        who = set_caller(identity or None)
         try:
             return await call_next(request)
         finally:
+            reset_caller(who)
             reset_workspace(token)

@@ -48,3 +48,10 @@ try:
     __all__ += ["FieldNavigator", "flow_step", "changed_edges"]
 except ImportError:
     pass
+
+try:                                    # needs the compiled ternary core, like its neighbours
+    from rexgraph.flow.ternary_cochain import TernaryCochain  # noqa: E402
+
+    __all__ += ["TernaryCochain"]
+except ImportError:
+    pass

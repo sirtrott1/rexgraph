@@ -126,3 +126,50 @@ def test_selecting_a_subset_registers_only_that_subset(obo):
     added = h.add_tools(names=["rexgraph_homology"])
     assert added == ["rexgraph_homology"]
     assert h.providers("analyze") == ["rexgraph_homology"]
+
+
+def test_a_second_caller_cannot_rebind_the_first_callers_bee(obo):
+    """Registration is keyed by tool name, and `get_hive()` hands out one process-wide
+    hive, so two callers that each scope themselves correctly still meet on one roster.
+    Replacing the first caller's bee would leave its tool running under the second
+    caller's workspace and admin flag with neither told, which is the boundary this
+    module exists to keep. A held name is refused instead."""
+    from agent.hive import Hive
+    from agent.mcp_tools import Context
+
+    a = Context(workspace="writer_a", identity="a", is_admin=False, auth_enabled=True)
+    b = Context(workspace="writer_b", identity="b", is_admin=False, auth_enabled=True)
+
+    h = Hive("shared")
+    h.add_tools(context=a, names=["rexgraph_homology"])
+    with pytest.raises(ValueError, match="different caller"):
+        h.add_tools(context=b, names=["rexgraph_homology"])
+    assert h.get("rexgraph_homology")._context is a, "the first caller keeps its bee"
+
+
+def test_the_same_caller_may_register_again(obo):
+    """Re-registration is not the hazard; a DIFFERENT caller is. An idempotent
+    re-register has to keep working or a caller cannot refresh its own tools."""
+    from agent.hive import Hive
+    from agent.mcp_tools import Context
+
+    a = Context(workspace="writer_a", identity="a", is_admin=False, auth_enabled=True)
+    h = Hive("shared")
+    h.add_tools(context=a, names=["rexgraph_homology"])
+    h.add_tools(context=a, names=["rexgraph_homology"])
+    assert h.providers("analyze") == ["rexgraph_homology"]
+
+
+def test_separate_hives_are_the_way_two_callers_coexist(obo):
+    """The refusal names this as the fix, so it has to actually work."""
+    from agent.hive import get_network
+    from agent.mcp_tools import Context
+
+    net = get_network()
+    a = Context(workspace="writer_a", identity="a", is_admin=False, auth_enabled=True)
+    b = Context(workspace="writer_b", identity="b", is_admin=False, auth_enabled=True)
+    net.hive("for_a").add_tools(context=a, names=["rexgraph_homology"])
+    net.hive("for_b").add_tools(context=b, names=["rexgraph_homology"])
+
+    assert net.get("for_a").get("rexgraph_homology")._context is a
+    assert net.get("for_b").get("rexgraph_homology")._context is b

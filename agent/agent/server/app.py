@@ -138,6 +138,7 @@ from .routes import (
     chat,
     connectors,
     corpus,
+    courier,
     dbmanager,
     deploy,
     enrichment,
@@ -200,6 +201,7 @@ app.include_router(connectors.router, prefix="/api", tags=["connectors"])
 app.include_router(integrations.router, prefix="/api", tags=["integrations"])
 app.include_router(agents.router, prefix="/api", tags=["agents"])
 app.include_router(hive.router, prefix="/api", tags=["hive"])
+app.include_router(courier.router, prefix="/api", tags=["courier"])
 app.include_router(ops.router, prefix="/api", tags=["ops"])
 app.include_router(ml.router, prefix="/api", tags=["ml"])
 app.include_router(builder.router, prefix="/api", tags=["builder"])

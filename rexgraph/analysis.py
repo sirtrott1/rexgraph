@@ -810,9 +810,12 @@ def analyze(
             "alpha_G": _round(alpha_G),
             "alpha_T": _round(alpha_T),
             "fiedler_RL1": _round(fiedler_RL1),
+            # alpha_G is a RATIO, so its crossing is 1 and there is no band around it.
+            # The old "balanced if > 0.5" invented one: at 0.6 the ratio says topology
+            # is the stronger term by two thirds and the band said balanced.
             "interpretation": (
                 "geometry stronger" if alpha_G > 1
-                else ("balanced" if alpha_G > 0.5 else "topology stronger")
+                else ("balanced" if alpha_G == 1 else "topology stronger")
             ),
         },
         "energy": {

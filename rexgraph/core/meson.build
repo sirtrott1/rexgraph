@@ -128,6 +128,8 @@ _cython_modules = [
     '_curvature',
     '_recordlog',
     '_exact_ratio',
+    '_ternary',
+    '_channel_tower',
 ]
 
 foreach mod : _cython_modules
@@ -161,3 +163,32 @@ foreach mod : _finite_safe_modules
         override_options: ['werror=false'],
     )
 endforeach
+
+# The native HIP ternary lane is OPTIONAL and built only where hipcc exists. Absent it
+# the cpu, openmp and cuda lanes are unchanged, so no machine needs ROCm to run
+# rexgraph. The architecture is asked of the toolchain rather than assumed, and a
+# failure to detect one leaves the lane unbuilt rather than guessing a target.
+hipcc = find_program('hipcc', '/opt/rocm/bin/hipcc', required: false)
+if hipcc.found()
+    hip_arch = get_option('hip_arch')
+    if hip_arch == ''
+        arch_probe = run_command('sh', '-c',
+            'rocminfo 2>/dev/null | grep -m1 -o "gfx[0-9a-f]*"', check: false)
+        hip_arch = arch_probe.returncode() == 0 ? arch_probe.stdout().strip() : ''
+    endif
+    if hip_arch != ''
+        custom_target('lib_ternary_hip',
+            input: '_ternary_hip.hip',
+            output: 'lib_ternary_hip.so',
+            command: [hipcc, '--offload-arch=' + hip_arch, '-O3', '-shared', '-fPIC',
+                      '-o', '@OUTPUT@', '@INPUT@'],
+            install: true,
+            install_dir: py.get_install_dir() / 'rexgraph/core',
+            build_by_default: true)
+        message('HIP ternary lane: building for ' + hip_arch)
+    else
+        message('HIP ternary lane: hipcc found but no gfx arch detected, skipping')
+    endif
+else
+    message('HIP ternary lane: hipcc absent, skipping (cpu/openmp/cuda unaffected)')
+endif

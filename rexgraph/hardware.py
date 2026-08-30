@@ -123,6 +123,58 @@ def cpu_count(*, with_source: bool = False):
     return (value, source) if with_source else value
 
 
+def physical_cores(*, with_source: bool = False):
+    """Cores that do not share a load/store path, capped by `cpu_count`.
+
+    SMT siblings share L1 and the load/store units, so on a MEMORY-BOUND kernel they add
+    contention without adding memory parallelism. The channel tower is exactly that shape
+    and measures it: on a 16c/32t machine the best width is 14 and 32 costs 10 to 15%
+    against it, while the curve is flat from 10 to 24. Physical cores lands inside that
+    flat region without anyone choosing a number.
+
+    Counted as distinct `(package, core)` pairs over the CPUs this process may actually
+    run on, so an affinity mask or a cgroup narrows it the same way `cpu_count` does.
+    Falls back to `cpu_count` wherever the topology is not readable, which is the honest
+    answer rather than a guess: without the topology there is no way to tell a sibling
+    from a core.
+    """
+    def _topology_id(path):
+        # NOT `_read_int`: that treats 0 as absent, which is right for a quota and wrong
+        # here, since cpu0's core_id IS 0 and every id is 0-based.
+        try:
+            with open(path) as fh:
+                return int(fh.read().strip())
+        except (OSError, ValueError):
+            return None
+
+    try:
+        allowed = os.sched_getaffinity(0)
+    except (AttributeError, OSError):
+        allowed = None
+    total = cpu_count()
+    pairs = set()
+    try:
+        base = "/sys/devices/system/cpu"
+        for name in os.listdir(base):
+            if not name.startswith("cpu") or not name[3:].isdigit():
+                continue
+            n = int(name[3:])
+            if allowed is not None and n not in allowed:
+                continue
+            core = _topology_id(f"{base}/{name}/topology/core_id")
+            pkg = _topology_id(f"{base}/{name}/topology/physical_package_id")
+            if core is None:
+                pairs = set()
+                break
+            pairs.add((pkg if pkg is not None else 0, core))
+    except OSError:
+        pairs = set()
+    if not pairs:
+        return (total, "cpu_count") if with_source else total
+    value = max(1, min(len(pairs), total))
+    return (value, "sysfs topology") if with_source else value
+
+
 def _meminfo_available() -> int | None:
     """MemAvailable, not MemTotal: what can actually be allocated without swapping
     is the number that decides whether a chunk size is safe."""

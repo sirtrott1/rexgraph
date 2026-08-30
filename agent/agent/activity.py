@@ -14,6 +14,7 @@ process's events into its own log and pushing them to the live (SSE) UI. So a `r
 one terminal shows up live in the GUI running in another: they share the file, not a socket.
 
     activity.record("worker:coder", "dispatch", detail={"query": "..."})
+    activity.record("worker:mule", "deliver", on="hive:beta", flow="write")   # an oriented act
     h = activity.open_use("qwen-7b", "collaborate", by="hive:alpha"); ...; activity.close_use(h)
     activity.get_log().events(scope="worker")     # the log, filtered (this process + tailed peers)
     activity.get_log().usage()                    # per-model: instantiated / runtime / concurrent uses
@@ -26,6 +27,7 @@ from __future__ import annotations
 import contextlib
 import itertools
 import json
+import logging
 import os
 import threading
 import time
@@ -34,6 +36,8 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _SCOPES = ("network", "hive", "team", "worker", "model")
 
@@ -64,6 +68,14 @@ def _journal_default() -> Path | None:
     return base / "activity.jsonl"
 
 
+#: How an act is oriented against the thing it acted on. `write` sends the actor's
+#: sign into the object, `read` sends the object's into the actor. It is the only
+#: content the boundary of an act has: an entity and a verb say that something
+#: happened, and cannot say which way it went, so nothing composes and no cycle can
+#: be read as consistent or not.
+FLOWS = ("read", "write")
+
+
 @dataclass
 class Event:
     ts: float
@@ -71,10 +83,27 @@ class Event:
     scope: str           # network | hive | team | worker | model
     action: str
     detail: dict[str, Any] = field(default_factory=dict)
+    #: WHAT was acted on, and WHICH WAY. Both empty is an unoriented event, which is
+    #: every event recorded before this and every one where the pair is not known.
+    #: `on` is one name, or SEVERAL: an act over k participants is one k-ary relation
+    #: and not k acts, so a carrier writing to three destinations says so in one event.
+    on: str | list = ""
+    flow: str = ""       # read | write
+
+    @property
+    def oriented(self) -> bool:
+        return bool(self.on) and self.flow in FLOWS
 
     def public(self) -> dict:
-        return {"ts": round(self.ts, 3), "entity": self.entity, "scope": self.scope,
-                "action": self.action, "detail": self.detail}
+        out = {"ts": round(self.ts, 3), "entity": self.entity, "scope": self.scope,
+               "action": self.action, "detail": self.detail}
+        # only when known, so a journal line for an unoriented event is byte-identical
+        # to the ones already on disk and an old reader is unaffected
+        if self.on:
+            out["on"] = self.on
+        if self.flow:
+            out["flow"] = self.flow
+        return out
 
 
 class ActivityLog:
@@ -125,8 +154,20 @@ class ActivityLog:
                 fn(pub)
 
     #### recording
-    def record(self, entity: str, action: str, *, scope: str = "", detail: dict | None = None) -> Event:
-        ev = Event(time.time(), entity, scope or _scope_of(entity), action, detail or {})
+    def record(self, entity: str, action: str, *, scope: str = "", detail: dict | None = None,
+               on: str | list = "", flow: str = "") -> Event:
+        """Append one event, oriented when the caller knows the pair.
+
+        `on` names what was acted on and `flow` says which way, so an act becomes a
+        relation with a boundary rather than a label with a timestamp. Both are optional
+        and default to the unoriented event this always recorded. An unrecognised `flow`
+        is dropped rather than raised: the log must never be the reason a caller fails,
+        and a bad orientation is better absent than believed."""
+        if flow and flow not in FLOWS:
+            logger.debug("dropping unknown flow %r on %s/%s", flow, entity, action)
+            flow = ""
+        ev = Event(time.time(), entity, scope or _scope_of(entity), action, detail or {},
+                   on=on, flow=flow)
         pub = ev.public()
         line = None
         with self._lock:

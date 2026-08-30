@@ -428,6 +428,31 @@ def _render(files=None, record_id: str = "", dim: int = 3, limit: int = 200,
 
 
 #: every capability a model can call, each with the handler that answers it
+def _courier_survey(hive: str, tags=None, limit: int = 100) -> dict:
+    from agent.courier import CarrySpec, get_courier
+    c = get_courier()
+    spec = CarrySpec(tags=list(tags or []), limit=int(limit))
+    return {"hive": hive, "records": c.survey(hive, carry=spec)}
+
+
+def _courier_deliver(source: str, dest: str, tags=None, ids=None,
+                     limit: int = 100) -> dict:
+    """A trip between places the operator already bound.
+
+    The destination is looked up, never built from the argument. A tool that took a url
+    would let anything that can call a tool name a machine to send records to, which is
+    the one thing a carrier must not decide for itself.
+    """
+    from agent.courier import CarrySpec, get_courier
+    c = get_courier()
+    if dest not in c.destinations():
+        raise ValueError(
+            f"no destination {dest!r}; this courier routes for "
+            f"{', '.join(c.destinations()) or 'nothing yet'}. Register it first.")
+    spec = CarrySpec(tags=list(tags or []), ids=list(ids or []), limit=int(limit))
+    return c.deliver(source, dest, carry=spec)
+
+
 TOOLS: dict[str, Tool] = {t.name: t for t in [
     Tool("rexgraph_join_sources",
          "Join ontology, annotation, structure and schema files into one relational "
@@ -696,6 +721,32 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
                                        "name (curvature, arity, quadrance) ramps, which "
                                        "is a heat map, and reports its domain."}},
          _render, wants_context=True),
+    Tool("rexgraph_courier_survey",
+         "What a trip out of one of this courier's bound stores would consider, "
+         "carrying nothing. Reports each record's id, version, tags and structure, so "
+         "a caller can decide whether a trip is worth making before asking for one.",
+         {"hive": {"type": "string",
+                   "description": "A store this courier routes for, by the name it was "
+                                  "bound under."},
+          "tags": {"type": "array", "items": {"type": "string"},
+                   "description": "Only records carrying any of these tags."},
+          "limit": {"type": "integer"}},
+         _courier_survey, required=["hive"], requires="admin", reads_files=False),
+    Tool("rexgraph_courier_deliver",
+         "Carry catalogued complexes from one bound store to another, or to a "
+         "registered remote peer. Records the destination already holds are skipped by "
+         "structural signature, so a repeat trip writes nothing. Both ends must already "
+         "be registered on this courier; a destination cannot be named by url here.",
+         {"source": {"type": "string", "description": "The store to carry from."},
+          "dest": {"type": "string",
+                   "description": "A bound store or a registered peer to carry to."},
+          "tags": {"type": "array", "items": {"type": "string"},
+                   "description": "Only records carrying any of these tags."},
+          "ids": {"type": "array", "items": {"type": "string"},
+                  "description": "Named records, instead of a tag match."},
+          "limit": {"type": "integer"}},
+         _courier_deliver, required=["source", "dest"], requires="admin",
+         reads_files=False),
 ]}
 
 
