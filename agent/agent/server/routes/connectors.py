@@ -24,9 +24,9 @@ router = APIRouter(prefix="/v1/connectors")
 def _resolve(body: dict) -> str:
     from agent.server.dbguard import check_db_uri
     if body.get("name") and not body.get("uri"):
-        from agent.secrets import open_secret_store
+        from agent.server.scope import secret_store
         try:
-            uri = open_secret_store().get(body["name"])
+            uri = secret_store().get(body["name"])
         except KeyError as exc:
             raise HTTPException(404, f"No saved connection '{body['name']}'") from exc
         check_db_uri(uri)

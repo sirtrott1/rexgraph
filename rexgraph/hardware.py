@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
+import subprocess
 import sys
 from typing import Any
 
@@ -240,6 +242,240 @@ def gpus() -> list[dict[str, Any]]:
     except Exception:
         return out
     return out
+
+
+
+
+#### this machine's GPUs, from sysfs rather than from a framework
+#
+# `gpus()` above asks torch, so it sees what CUDA exposes and nothing else. This
+# reads the DRM nodes directly, which is the only way to learn whether a device's
+# memory is UNIFIED with system RAM: that decides bus topology, and a framework
+# that reports total memory will not tell you.
+#### GPU probes################################
+# One probe per driver family, registered rather than branched, so a vendor this has
+# never seen can be added from outside without editing anything here. A probe takes the
+# system RAM in bytes and returns a list of device dicts; it must never raise, and it
+# must return `unified=None` rather than a guess when its signals do not decide.
+#
+# CONFIDENCE is carried per probe and reported, because these were not all verified the
+# same way: amdgpu is measured on a Strix Halo 8060S, the rest are written from each
+# driver's documented sysfs/tool contract and have not been run on that hardware.
+
+
+_GPU_PROBES: dict = {}
+
+_CARVEOUT_FRAC = 0.15
+
+def _read_str(path: str):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+def _ram_bytes() -> int:
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) * 1024
+    except Exception:
+        pass
+    try:
+        if hasattr(os, "sysconf") and "SC_PHYS_PAGES" in os.sysconf_names:
+            return int(os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
+    except Exception:
+        pass
+    return 0
+
+def register_gpu_probe(name: str, fn, *, confidence: str = "reasoned") -> None:
+    """Add or replace a probe. `fn(ram_bytes) -> list[dict]`.
+
+    Each dict wants vendor, driver, vram_bytes, gtt_bytes, unified, unified_evidence;
+    missing keys are filled with None. Replacing a shipped probe is allowed on purpose:
+    a machine that knows its own answer should be able to say so without a patch.
+    """
+    _GPU_PROBES[name] = {"fn": fn, "confidence": confidence}
+
+def gpu_probes() -> dict:
+    """The registered probes and how far each was verified."""
+    return {k: v["confidence"] for k, v in _GPU_PROBES.items()}
+
+def _unified_from_memory(vram, gtt, ram_bytes) -> tuple:
+    """(unified, evidence) from a device's pools, or (None, why) when they do not decide.
+
+    The PRIMARY signal is an identity, not a threshold: an integrated GPU's GTT covers
+    system memory exactly, because its "VRAM" is a carveout OF that memory and the driver
+    hands it the whole of what is left. Measured on a Strix Halo 8060S, gtt and MemTotal
+    are the same integer, 130452873216.
+
+    The fallback is a ratio and is named as one. A carveout is small relative to the RAM
+    it comes out of and a card's pool is sized independently of it, so the two are far
+    apart in practice (Strix Halo runs 0.03, and the cards nearby run 0.25 to 0.38),
+    but that is a gap observed, not a law, so it only decides when the identity does not
+    and it reports the magnitudes either way.
+    """
+    if not ram_bytes:
+        return None, "system RAM unknown"
+    if gtt is None:
+        return None, "no GTT reported"
+    gtt_frac = gtt / ram_bytes
+    vram_frac = (vram / ram_bytes) if vram else 0.0
+    # The identity still needs the pool to be a plausible carveout. A 30 GiB pool on a
+    # 64 GiB machine cannot be carved OUT of it and leave MemTotal at 64: the two signals
+    # contradict, and that is a decline rather than a tie for the identity to win.
+    if gtt == ram_bytes and vram_frac <= _CARVEOUT_FRAC:
+        return True, (f"gtt == MemTotal exactly ({gtt}): the GPU addresses all of system "
+                      f"memory, so its {vram} pool is a carveout of it")
+    if gtt_frac >= 0.95 and vram_frac <= _CARVEOUT_FRAC:
+        return True, (f"gtt {gtt_frac:.3f} of RAM with vram {vram_frac:.3f}: carveout "
+                      "shape, by ratio rather than the exact identity")
+    if vram and vram_frac > _CARVEOUT_FRAC and gtt_frac < 0.95:
+        return False, (f"vram {vram_frac:.3f} of RAM with gtt {gtt_frac:.3f}: a pool "
+                       "sized independently of system memory")
+    return None, (f"inconclusive: vram_frac {vram_frac:.3f}, gtt_frac {gtt_frac:.3f}")
+
+def _unified_from_drm(dev: dict, ram_bytes: int) -> tuple:
+    """Back-compat shim: the memory test, taking a device dict."""
+    return _unified_from_memory(dev.get("vram_bytes"), dev.get("gtt_bytes"), ram_bytes)
+
+def _drm_cards(driver_match) -> list:
+    """DRM device dirs whose driver satisfies `driver_match`."""
+    import glob
+
+    out = []
+    for dev in sorted(glob.glob("/sys/class/drm/card*/device")):
+        drv = pci = None
+        try:
+            with open(os.path.join(dev, "uevent")) as f:
+                for line in f:
+                    if line.startswith("DRIVER="):
+                        drv = line.strip().split("=", 1)[1]
+                    elif line.startswith("PCI_ID="):
+                        pci = line.strip().split("=", 1)[1]
+        except Exception:
+            continue
+        if drv and driver_match(drv):
+            out.append((dev, drv, pci))
+    return out
+
+def _probe_amdgpu(ram_bytes: int) -> list:
+    """amdgpu: reports both pools directly. MEASURED on a Strix Halo 8060S."""
+    out = []
+    for dev, drv, pci in _drm_cards(lambda d: d == "amdgpu"):
+        vram = _read_int(os.path.join(dev, "mem_info_vram_total"))
+        gtt = _read_int(os.path.join(dev, "mem_info_gtt_total"))
+        if vram is None and gtt is None:
+            continue
+        unified, why = _unified_from_memory(vram, gtt, ram_bytes)
+        out.append({"vendor": "amd", "driver": drv, "pci_id": pci,
+                    "vram_bytes": vram, "gtt_bytes": gtt,
+                    "unified": unified, "unified_evidence": why})
+    return out
+
+def _probe_intel(ram_bytes: int) -> list:
+    """i915 / xe. An integrated Intel GPU has no dedicated pool at all, which is itself
+    the answer; Arc reports one through the same lmem files. REASONED, not measured."""
+    out = []
+    for dev, drv, pci in _drm_cards(lambda d: d in ("i915", "xe")):
+        lmem = (_read_int(os.path.join(dev, "lmem_total_bytes"))
+                or _read_int(os.path.join(dev, "drm/card0/lmem_total_bytes")))
+        if lmem:
+            unified, why = False, f"lmem_total_bytes {lmem}: a dedicated pool (Arc-class)"
+        else:
+            unified, why = True, "no lmem_total_bytes: integrated, drawing on system RAM"
+        out.append({"vendor": "intel", "driver": drv, "pci_id": pci,
+                    "vram_bytes": lmem, "gtt_bytes": None if lmem else ram_bytes,
+                    "unified": unified, "unified_evidence": why})
+    return out
+
+def _probe_nvidia(ram_bytes: int) -> list:
+    """The proprietary driver exposes no DRM memory manager, so this asks nvidia-smi.
+
+    Every PCIe card has its own VRAM. Tegra and Grace are unified and would need their
+    own probe; this does not claim them, and says so rather than calling them discrete.
+    REASONED, not measured.
+    """
+    if not shutil.which("nvidia-smi"):
+        return []
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.total,name", "--format=csv,noheader,nounits"],
+            stderr=subprocess.DEVNULL, timeout=5).decode()
+    except Exception:
+        return []
+    devs = []
+    for line in out.strip().splitlines():
+        parts = [x.strip() for x in line.split(",")]
+        if not parts or not parts[0]:
+            continue
+        try:
+            vram = int(float(parts[0]) * 1024 ** 2)
+        except ValueError:
+            continue
+        name = parts[1] if len(parts) > 1 else ""
+        tegra = any(k in name.lower() for k in ("tegra", "orin", "xavier", "grace"))
+        devs.append({"vendor": "nvidia", "driver": "nvidia", "pci_id": None,
+                     "vram_bytes": vram, "gtt_bytes": None,
+                     "unified": None if tegra else False,
+                     "unified_evidence": ("a Tegra/Grace part is unified and this probe "
+                                          "does not measure it" if tegra else
+                                          f"nvidia-smi reports a dedicated {vram} pool")})
+    return devs
+
+def _probe_apple(ram_bytes: int) -> list:
+    """Apple silicon is unified by construction. REASONED, not measured."""
+    import platform
+
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        return []
+    return [{"vendor": "apple", "driver": "metal", "pci_id": None,
+             "vram_bytes": None, "gtt_bytes": ram_bytes, "unified": True,
+             "unified_evidence": "Apple silicon shares one pool by construction"}]
+
+def drm_devices() -> list[dict]:
+    """Raw DRM memory facts, for callers that want the reading rather than the verdict."""
+    _ram_bytes()
+    return [{"path": None, "driver": g.get("driver"), "pci_id": g.get("pci_id"),
+             "vram_bytes": g.get("vram_bytes"), "gtt_bytes": g.get("gtt_bytes")}
+            for g in detect_gpus() if g.get("vram_bytes") or g.get("gtt_bytes")]
+
+def detect_gpus() -> list[dict]:
+    """Every GPU any registered probe can see, with whether its memory is unified.
+
+    A box can hold several, and they need not agree: an APU plus a card is one unified
+    device and one discrete device, which is why this returns a list and does not fold to
+    a single verdict. A probe that raises is skipped rather than taking the sweep down.
+    """
+    ram_b = _ram_bytes()
+    gpus = []
+    for name, entry in _GPU_PROBES.items():
+        try:
+            found = entry["fn"](ram_b) or []
+        except Exception:
+            continue
+        for g in found:
+            g.setdefault("vendor", None)
+            g.setdefault("driver", None)
+            g.setdefault("pci_id", None)
+            g.setdefault("vram_bytes", None)
+            g.setdefault("gtt_bytes", None)
+            g.setdefault("unified", None)
+            g.setdefault("unified_evidence", "")
+            g["probe"] = name
+            g["probe_confidence"] = entry["confidence"]
+            g["vram_gb"] = (round(g["vram_bytes"] / 1024 ** 3, 1)
+                            if g["vram_bytes"] else None)
+            g["gtt_gb"] = (round(g["gtt_bytes"] / 1024 ** 3, 1)
+                           if g["gtt_bytes"] else None)
+            gpus.append(g)
+    return gpus
+
+register_gpu_probe("amdgpu", _probe_amdgpu, confidence="measured")
+register_gpu_probe("intel", _probe_intel)
+register_gpu_probe("nvidia", _probe_nvidia)
+register_gpu_probe("apple", _probe_apple)
 
 
 def _torch_info() -> dict[str, Any]:

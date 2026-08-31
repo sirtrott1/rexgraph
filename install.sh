@@ -202,16 +202,35 @@ case "$CONDA" in *micromamba)
     ;;
 esac
 
-# 7. build the core + install the agent
+# 7. build the core, install the siblings, then the agent
 say "Building the rexgraph core from source (compiles Cython - ~3-4 min)"
 NATIVE_ARG=""; [ "$NATIVE" = 1 ] && { NATIVE_ARG="-Csetup-args=-Dnative=true"; info "(native/-march=native enabled)"; }
 # The buildable core package is the REPO ROOT: the root meson.build holds the
 # project() call and descends into rexgraph/ via subdir('rexgraph'). The nested
 # rexgraph/meson.build is only a subdir include (no project()), so
 # `pip install ./rexgraph` fails with "Not the project root". Build from '.'.
-# The [io] extra is identical in the root and nested pyproject.toml.
+# [io] and [security] are declared in the root pyproject, which is the only one the
+# core has: rexgraph/meson.build is a subdir include with no project(). [security] brings
+# cryptography, which the AES-GCM envelopes and Ed25519 signatures need: without it the
+# modules still import and fail only when a sealing or signing call is made, which is a
+# worse way to find out than at install.
 # shellcheck disable=SC2086
-INENV pip install $BUILD_ISOLATION $NATIVE_ARG ".[io]" || die "core build failed."
+INENV pip install $BUILD_ISOLATION $NATIVE_ARG ".[io,security]" || die "core build failed."
+
+# The store, the query language and the observatory are distributions of their own,
+# sitting beside the core rather than inside the agent. They are installed from THIS
+# repo, in dependency order, and they have to be installed before the agent: the agent
+# requires rexgraph-rcdb, and without a local install pip would go looking for it on an
+# index where it does not exist, and the install would fail there rather than here.
+# Editable for the same reason the agent is: this repo stays the source of truth.
+say "Installing the sibling distributions (rcdb, rcql, system)"
+# Every rcdb extra, because this is the full-repo installer: the agent uses SQL and
+# object stores and record encryption, and each of those is an optional dependency of the
+# store rather than a base one. The protected search index is NOT among them: safetensors
+# is a base dependency, because every backend's put writes safetensors bytes.
+INENV pip install -e "./rcdb[sql,objectstore,crypto]" || die "rcdb install failed."
+INENV pip install -e "./rcql" || die "rcql install failed."
+INENV pip install -e "./system" || die "system install failed."
 
 say "Installing the agent (extras: $EXTRAS)"
 X="$EXTRAS"

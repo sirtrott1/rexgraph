@@ -61,7 +61,10 @@ def _load_binding_subcomplex(n_rows=6000):
     Returns None if the preserved data file is absent (so CI without the file still passes)."""
     if not os.path.exists(_REAL_DATA_PATH):
         return None
-    from agent.warehouse import source as S
+    S = pytest.importorskip(
+        "agent.warehouse.source",
+        reason="requires the optional rexgraph-agent package",
+    )
 
     with open(_REAL_DATA_PATH) as f_in:
         header = f_in.readline()

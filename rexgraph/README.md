@@ -99,6 +99,21 @@ avoid densification and eigensolves.
 | `harmonic_entropy` | Eigen-free Renyi-2 harmonic log H2(RL4) = -log(tr(RL4^2)/tr(RL4)^2) |
 | `harmonic_space` | Basis for ker(L1) |
 
+### Typed cochains, graded operators, and Green actions
+
+`Cochain` keeps a value array together with its grade and optional ordered cell
+basis; `Field` attaches the operator that gives those values their meaning, and
+`GradedState` collects cochains by grade. `boundary_operator` and
+`coboundary_operator` expose the full `B_1, B_2, B_3, ...` tower, while
+`down_laplacian`, `up_laplacian`, and `hodge_operator` retain their sparse boundary
+factorizations and materialize a CSR product only through `as_scipy()`.
+
+`GreenOperator.resolvent(L, alpha)` applies `(I + alpha L)^-1` without forming an
+inverse. `vertex_green(rex)` applies the Moore-Penrose action `(B_1 B_1^T)^+`;
+it uses the factored deflated solve for pairwise complexes and a minimum-norm
+matrix-free solve for branching relations, whose kernel is not generally spanned
+by graph-component indicators.
+
 ### Exact / integer channels
 
 The typed channels are built from integer boundary counts, so the tower is

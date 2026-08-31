@@ -42,6 +42,7 @@ def _get_tracker(session_id: str, ws=None):
 
 #: the one encoder (rexgraph.io._compat). Non-finite floats go out as null:
 #: a bare NaN token is not JSON and every browser JSON.parse rejects it.
+from agent.server.scope import effective_workspace
 from rexgraph.io._compat import json_sanitize
 
 
@@ -191,7 +192,7 @@ async def chat_session_metrics(session_id: str, structural: bool = False):
     _ws = None
     try:
         from agent.server.auth import get_auth_manager
-        _ws = get_auth_manager().get_workspace("default")
+        _ws = get_auth_manager().get_workspace(effective_workspace("default"))
     except Exception:
         pass
     tracker = _get_tracker(session_id, _ws)
@@ -210,7 +211,7 @@ async def chat(session_id: str, body: dict = Body(...)):
     try:
         from agent.server.auth import get_auth_manager
         mgr = get_auth_manager()
-        _ws = mgr.get_workspace("default")
+        _ws = mgr.get_workspace(effective_workspace("default"))
     except Exception:
         pass
     store = get_store()

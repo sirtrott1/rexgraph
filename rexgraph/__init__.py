@@ -31,26 +31,64 @@ except ImportError:
     io = None
 
 from . import compute
+from .cochain import Cochain, Field, GradedState
+from .green import GreenOperator, vertex_green
+from .harmonic_sparse import (
+    harmonic_basis,
+    harmonic_coordinates,
+    harmonic_projection,
+    harmonic_winding,
+    multiplicity_cycles,
+    multiplicity_dimension,
+    multiplicity_groups,
+    multiplicity_homology_dimension,
+    simple_cycle_dimension,
+)
+from .hodge_coords import (
+    complex_structure,
+    coordinate_dims,
+    from_hodge_coords,
+    harmonic_coords,
+    harmonic_frame,
+    harmonic_metric,
+    hodge_coords,
+)
+from .linear_operator import (
+    RexOperator,
+    boundary_operator,
+    coboundary_operator,
+    down_laplacian,
+    hodge_operator,
+    up_laplacian,
+)
 from .mesh_health import harmonic_health, mesh_health
-from .harmonic_sparse import (harmonic_basis, harmonic_coordinates,
-                              harmonic_projection, harmonic_winding,
-                              multiplicity_cycles, multiplicity_dimension,
-                              multiplicity_groups,
-                              multiplicity_homology_dimension,
-                              simple_cycle_dimension)
-from .hodge_coords import (complex_structure, coordinate_dims, from_hodge_coords,
-                           harmonic_coords, harmonic_frame, harmonic_metric,
-                           hodge_coords)
-from .rings import (cycle_vector, cycle_vectors, minimum_cycle_basis,
-                    relevant_cycles, ring_sizes, shortest_cycles)
+from .rings import (
+    cycle_vector,
+    cycle_vectors,
+    minimum_cycle_basis,
+    relevant_cycles,
+    ring_sizes,
+    shortest_cycles,
+)
 from .tower import channel_delta, graded_delta
 
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 
 __all__ = [
     "core",
     "io",
     "compute",
+    "Cochain",
+    "Field",
+    "GradedState",
+    "RexOperator",
+    "GreenOperator",
+    "boundary_operator",
+    "coboundary_operator",
+    "down_laplacian",
+    "up_laplacian",
+    "hodge_operator",
+    "vertex_green",
     "mesh_health",
     "harmonic_health",
     "channel_delta",

@@ -31,9 +31,15 @@ Everything is reachable from the CLI, the HTTP API, and the browser UI.
 From the repo root (build the core first, then install a profile):
 
 ```bash
-pip install .                       # rexgraph Cython core
-pip install "./agent[standard]"     # full local deployment: UI, connectors, schema, OCR, training
+pip install ".[io,security]"                            # rexgraph Cython core
+pip install "./rcdb[sql,objectstore,crypto]"     # the store the agent requires
+pip install "./agent[standard]"                         # full local deployment
 ```
+
+Run from the repo root. The store is a distribution of its own now and the agent
+requires it, so it goes first: pip resolves an unsatisfied requirement from PyPI, where
+it is not published. `sh install.sh` from the repo root does all of this, including the
+query language and the observatory.
 
 Profiles bundle the granular extras. Pick the smallest one that fits:
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -260,19 +260,38 @@ if _FRONTEND_DIR.exists():
 # Health check
 
 @app.get("/api/health")
-async def health():
+async def health(request: Request):
+    """Liveness, and the workspace roster only for a caller entitled to it.
+
+    The probe stays unauthenticated so a load balancer can reach it, but the roster
+    does not travel with it. A workspace name is exactly what `X-Workspace` takes, so
+    listing every tenant to an anonymous caller hands them the namespace to aim at and
+    names usually carry customer identity. With auth off there is one operator and no
+    tenant boundary to cross, so the list is what it always was.
+    """
     from agent.server.auth import get_auth_manager
 
     from .launch import _check_rexgraph
     mgr = get_auth_manager()
-    return {
+    out = {
         "status": "ok",
         "version": VERSION,
         "core_version": CORE_VERSION,
         "rexgraph": _check_rexgraph(),
         "auth_enabled": mgr.auth_enabled,
-        "workspaces": mgr.list_workspaces() or ["default"],
     }
+    if not mgr.auth_enabled:
+        out["workspaces"] = mgr.list_workspaces() or ["default"]
+        return out
+    header = request.headers.get("Authorization", "")
+    raw = header[7:].strip() if header[:7].lower() == "bearer " else ""
+    entry = mgr.verify(raw) if raw else None
+    if entry is not None:
+        # A wildcard token holds a role in every workspace, so the whole roster IS its
+        # access list. Anyone else sees only what they can actually reach.
+        out["workspaces"] = (mgr.list_workspaces() if entry.can_access("*")
+                             else list(entry.workspaces))
+    return out
 
 
 # Console-script entry point (rcf-server)

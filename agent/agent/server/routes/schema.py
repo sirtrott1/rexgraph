@@ -17,10 +17,16 @@ def _parse_schema(body: dict):
         return sc.parse_schema_json(body["spec"])
     if body.get("mongo"):
         return sc.infer_mongo_schema(body["mongo"])
+    # Both of these hand a caller-supplied URI to a live connection, so they answer to
+    # the same allow-list dbmanager and connectors do. Without it the REXGRAPH_DB_SAFE
+    # and host policies were simply absent on this router.
+    from agent.server.dbguard import check_db_uri
     if body.get("mongo_connection"):
+        check_db_uri(body["mongo_connection"])
         return sc.reflect_mongo(body["mongo_connection"], body.get("db") or "test",
                                 sample=int(body.get("sample", 100)))
     if body.get("connection"):
+        check_db_uri(body["connection"])
         return sc.reflect_schema(body["connection"])
     raise HTTPException(
         400, "Provide 'ddl' (+optional 'dialect'), 'spec', 'mongo', "

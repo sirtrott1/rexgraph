@@ -1,8 +1,35 @@
 """Shared test fixtures and configuration for rexgraph."""
+import pathlib
+import sys
+
 import numpy as np
 import pytest
 
 collect_ignore_glob = ["**/*.pyx"]
+
+
+def _ensure_sibling(name: str) -> None:
+    """Reach a sibling distribution when it is not installed.
+
+    A few tests here exercise integration with rexgraph-rcdb through agent.rcdb. The
+    package under test must never import those, which its own architecture test enforces,
+    but a TEST may. The bare import is dropped first because the repository root shadows
+    each as a namespace package, and an empty one imports fine and then fails on the first
+    real attribute.
+    """
+    try:
+        module = __import__(name)
+        if getattr(module, "__file__", None):
+            return
+    except ImportError:
+        pass
+    sys.modules.pop(name, None)
+    root = pathlib.Path(__file__).resolve().parents[2] / name
+    if root.is_dir():
+        sys.path.insert(0, str(root))
+
+
+_ensure_sibling("rcdb")
 
 
 @pytest.fixture

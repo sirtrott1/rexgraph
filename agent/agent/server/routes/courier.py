@@ -20,7 +20,7 @@ back, or held on the peer, which is the same contract `/api/v1/hive/attach` keep
 """
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from ..auth import TokenEntry, require_admin, require_auth
+from ..auth import TokenEntry, require_admin
 
 router = APIRouter(prefix="/v1")
 
@@ -37,8 +37,14 @@ def _spec(body: dict):
 
 
 @router.get("/courier/status")
-async def courier_status(_t: TokenEntry = Depends(require_auth)):
-    """Which stores and peers this courier routes for, and what it has carried."""
+async def courier_status(_t: TokenEntry = Depends(require_admin)):
+    """Which stores and peers this courier routes for, and what it has carried.
+
+    Binding a store or a peer is already an admin operation, so reading which ones are
+    bound is too: the courier is a process-wide singleton holding store views bound by
+    whoever bound them, and a survey lists records through those views rather than
+    through the caller's own.
+    """
     return _courier().status()
 
 
@@ -77,9 +83,12 @@ async def courier_peer(body: dict = Body(...), _t: TokenEntry = Depends(require_
         raise HTTPException(400, "pass 'api_key_ref', a reference; the API takes no keys")
     from agent.client import RexClient
     from agent.courier_remote import Ledger, Peer
-    from agent.secrets import resolve_ref
+    from agent.secrets import resolve_request_ref
     ref = body.get("api_key_ref", "")
-    key = resolve_ref(ref) if ref else ""
+    try:
+        key = resolve_request_ref(ref)          # admin is not a licence to name any variable
+    except PermissionError as e:
+        raise HTTPException(400, str(e)) from e
     peer = Peer(name, RexClient(url, api_key=key or None),
                 ledger=Ledger(body.get("ledger") or None),
                 confirm=bool(body.get("confirm", False)))
@@ -90,7 +99,7 @@ async def courier_peer(body: dict = Body(...), _t: TokenEntry = Depends(require_
 
 @router.get("/courier/survey")
 async def courier_survey(hive: str, tags: str = "", limit: int = 100,
-                         _t: TokenEntry = Depends(require_auth)):
+                         _t: TokenEntry = Depends(require_admin)):
     """What a trip out of this hive would consider, carrying nothing."""
     from agent.courier import CarrySpec
     c = _courier()

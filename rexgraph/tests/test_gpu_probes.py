@@ -1,5 +1,8 @@
 """Hardware detection is a registry, so a machine this has never seen can be added.
 
+The probe lives in core: whether a device's memory is unified with system RAM is a
+fact about the machine, and the coordinator needs it for bus topology.
+
 Four probes ship. Only amdgpu is MEASURED (a Strix Halo 8060S); intel, nvidia and apple
 are written from each driver's documented contract and have not been run on that
 hardware, which the registry reports rather than leaving the reader to assume.
@@ -10,7 +13,7 @@ editing the module.
 """
 import pytest
 
-from agent import local_runtime as LR
+from rexgraph import hardware as LR
 
 
 @pytest.fixture(autouse=True)

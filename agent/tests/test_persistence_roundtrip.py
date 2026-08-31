@@ -27,10 +27,10 @@ WS = "roundtrip-ws"
 def store(tmp_path, monkeypatch):
     """A workspace rooted in tmp_path.
 
-    `_BASE_DIR` is computed at import time, so setting REXGRAPH_CONFIG_DIR in a test
+    The base directory is read when asked, so setting REXGRAPH_CONFIG_DIR in a test
     has no effect: the module attribute is what has to move.
     """
-    monkeypatch.setattr(P, "_BASE_DIR", tmp_path / "workspaces")
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     return tmp_path
 
 

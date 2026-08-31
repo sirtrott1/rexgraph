@@ -127,15 +127,23 @@ def test_the_product_table_is_harmonic_closure():
 def test_only_the_dead_module_still_imports_the_dense_one():
     """If this fails, something new took a dependency on the eigen path."""
     import pathlib
-    roots = [pathlib.Path("rexgraph"), pathlib.Path("agent/agent")]
+
+    # Anchored to this file, not the caller's cwd. Relative roots plus a skip-if-absent
+    # meant that running the suite from anywhere but the repository root scanned nothing
+    # and passed, so the guard stopped guarding without ever failing.
+    repo = pathlib.Path(__file__).resolve().parents[2]
+    roots = [repo / "rexgraph", repo / "agent" / "agent"]
+    scanned = 0
     offenders = []
     for root in roots:
         if not root.exists():
             continue
         for p in root.rglob("*.py"):
+            scanned += 1
             if "tests" in p.parts or p.name == "harmonic.py":
                 continue
             txt = p.read_text(errors="ignore")
             if "core._harmonic import" in txt or "from .core._harmonic" in txt:
                 offenders.append(str(p))
+    assert scanned, f"scanned no files under {[str(r) for r in roots]}; the guard is inert"
     assert offenders == [], offenders

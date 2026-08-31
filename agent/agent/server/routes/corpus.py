@@ -34,6 +34,14 @@ async def add_text_json(
         raise HTTPException(400, "Provide 'text'")
     corpus = ws.get_corpus()
     doc_id = body.get("doc_id")
+    if doc_id:
+        # Checked before anything is built, so a refused id costs nothing. The save
+        # checks again on the id the corpus actually assigned.
+        from agent.server.persistence import doc_path
+        try:
+            doc_path(ws.name, str(doc_id))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     ws.record_activity(token.user_id, "add_document", doc_id or "text")
     did = corpus.add_text(str(text), doc_id=doc_id, date=body.get("date"))
 
@@ -66,23 +74,22 @@ async def add_document(
     ws.record_activity(token.user_id, "add_document", doc_id or "file")
     if file and file.filename:
         suffix = os.path.splitext(file.filename)[1] or ".bin"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir=tempfile.gettempdir()) as tmp:
+        from agent.server.persistence import staging_dir
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False,
+                                         dir=str(staging_dir(ws.name))) as tmp:
             content = await file.read(); tmp.write(content); source = tmp.name
         did = corpus.add_document(source=source, doc_id=doc_id or file.filename, date=date)
     elif text:
         did = corpus.add_text(text, doc_id=doc_id, date=date)
     elif path:
-        # Path traversal protection
+        # Which directories a caller may read from, and the test that decides it.
+        # The home directory is NOT here any more. It was, and it holds ~/.ssh, ~/.aws
+        # and the deployment's own credential store, so the widest entry in the
+        # allow-list contained the secrets the allow-list exists to protect. An
+        # operator who wants a directory says so in REXGRAPH_ALLOWED_DIRS.
+        from ..handles import path_allowed
         resolved = os.path.realpath(path)
-        allowed_dirs = [
-            os.path.realpath(os.getcwd()),
-            os.path.realpath(os.path.expanduser("~")),
-            "/tmp",
-        ]
-        allowed_env = os.environ.get("REXGRAPH_ALLOWED_DIRS", "")
-        if allowed_env:
-            allowed_dirs.extend(os.path.realpath(d) for d in allowed_env.split(":"))
-        if not any(resolved.startswith(d) for d in allowed_dirs):
+        if not path_allowed(resolved):
             raise HTTPException(403, "Path outside allowed directories")
         if os.path.isdir(resolved):
             ids = corpus.add_directory(resolved, date=date)

@@ -57,6 +57,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 __all__ = [
+    "parquet_encryption_properties",
     "write_parquet",
     "read_parquet",
     "write_boundary_table",
@@ -105,11 +106,51 @@ _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
 # Generic Parquet I/O
 
 
+def parquet_encryption_properties(
+    crypto_factory: Any,
+    kms_connection_config: Any,
+    *,
+    footer_key: str,
+    column_keys: dict[str, Sequence[str]],
+    plaintext_footer: bool = False,
+) -> Any:
+    """Build PyArrow file-encryption properties from caller-owned KMS objects.
+
+    ``footer_key`` and the keys of ``column_keys`` are master-key identifiers,
+    never raw key material.  ``column_keys`` maps each identifier to the physical
+    columns it protects inside *one* Parquet file.  Rex grade tables are separate
+    files, so grade-level disclosure is a caller-owned file/bundle key policy;
+    column keys are a finer policy within each file.  PME authorizes columns, not
+    rows: row-group pruning remains a performance mechanism, never access control.
+
+    The footer is encrypted by default, hiding the schema and Rex metadata from a
+    keyless reader.  Set ``plaintext_footer=True`` explicitly for a distribution
+    file whose schema may be public; PyArrow still signs that plaintext footer.
+
+    Core neither owns a KMS client nor sees key bytes.  It constructs PyArrow's
+    high-level configuration and delegates creation of the opaque
+    ``FileEncryptionProperties`` to the caller-supplied ``CryptoFactory``.
+    """
+    _pq()  # preserve parquet_bridge's lazy optional-dependency error
+    from pyarrow.parquet.encryption import EncryptionConfiguration
+
+    normalized = {str(key_id): list(names) for key_id, names in column_keys.items()}
+    if not normalized or any(not names for names in normalized.values()):
+        raise ValueError("column_keys must map at least one key identifier to columns")
+    config = EncryptionConfiguration(
+        footer_key=footer_key,
+        column_keys=normalized,
+        plaintext_footer=bool(plaintext_footer),
+    )
+    return crypto_factory.file_encryption_properties(kms_connection_config, config)
+
+
 def write_parquet(
     data: dict[str, NDArray],
     path: str | os.PathLike,
     *,
     metadata: dict[str, Any] | None = None,
+    encryption_properties: Any | None = None,
 ) -> None:
     """Write a dict of equal-length 1D arrays to Parquet.
 
@@ -142,32 +183,70 @@ def write_parquet(
     if schema_meta:
         table = table.replace_schema_metadata(schema_meta)
 
-    pq.write_table(table, os.fspath(path))
+    pq.write_table(
+        table,
+        os.fspath(path),
+        encryption_properties=encryption_properties,
+    )
 
 
 def read_parquet(
     path: str | os.PathLike,
     *,
     columns: Sequence[str] | None = None,
+    decryption_properties: Any | None = None,
 ) -> dict[str, np.ndarray]:
     """Read a Parquet file into a dict of arrays.
 
-    Reassembles 2D arrays that were split by write_parquet().
+    Reassembles 2D arrays that were split by write_parquet().  ``columns``
+    is pushed into the physical Parquet read: a logical 2D name expands to
+    all of its ``name_0``, ``name_1``, ... components, while an explicitly
+    requested physical component remains a 1D result under that name.
     """
     pa, pq = _pq()
+    parquet_path = os.fspath(path)
 
-    table = pq.read_table(os.fspath(path))
-
-    schema_meta = table.schema.metadata or {}
+    # The split-column map lives in schema metadata, so inspect the footer before
+    # choosing the physical projection.  Reading a schema does not load column
+    # data; passing the expanded projection to read_table is what prevents an
+    # unrequested (and, under modular encryption, potentially undecryptable)
+    # physical column from being touched.
+    schema = pq.read_schema(
+        parquet_path,
+        decryption_properties=decryption_properties,
+    )
+    schema_meta = schema.metadata or {}
     col_meta: dict[str, dict] = {}
     if b"rex_col_meta" in schema_meta:
         col_meta = json.loads(schema_meta[b"rex_col_meta"].decode("utf-8"))
+
+    physical_columns: list[str] | None = None
+    if columns is not None:
+        available = set(schema.names)
+        physical_columns = []
+        seen: set[str] = set()
+        for name in columns:
+            info = col_meta.get(name)
+            if info is not None and info.get("split"):
+                candidates = (f"{name}_{j}" for j in range(info["shape"][1]))
+            else:
+                candidates = (name,)
+            for candidate in candidates:
+                if candidate in available and candidate not in seen:
+                    physical_columns.append(candidate)
+                    seen.add(candidate)
+
+    table = pq.read_table(
+        parquet_path,
+        columns=physical_columns,
+        decryption_properties=decryption_properties,
+    )
 
     result: dict[str, np.ndarray] = {}
     consumed: set = set()
 
     for name, info in col_meta.items():
-        if columns and name not in columns:
+        if columns is not None and name not in columns:
             continue
         if info.get("split"):
             n_cols = info["shape"][1]
@@ -183,17 +262,24 @@ def read_parquet(
     for cn in table.column_names:
         if cn in consumed:
             continue
-        if columns and cn not in columns:
+        if columns is not None and cn not in columns:
             continue
         result[cn] = table.column(cn).to_numpy()
 
     return result
 
 
-def _read_metadata(path: str | os.PathLike) -> dict:
+def _read_metadata(
+    path: str | os.PathLike,
+    *,
+    decryption_properties: Any | None = None,
+) -> dict:
     """Read rex_metadata from a Parquet file without loading data."""
     pa, pq = _pq()
-    schema = pq.read_schema(os.fspath(path))
+    schema = pq.read_schema(
+        os.fspath(path),
+        decryption_properties=decryption_properties,
+    )
     meta = schema.metadata or {}
     if b"rex_metadata" in meta:
         return json.loads(meta[b"rex_metadata"].decode("utf-8"))
@@ -206,6 +292,8 @@ def _read_metadata(path: str | os.PathLike) -> dict:
 def write_boundary_table(
     rex,
     path: str | os.PathLike,
+    *,
+    encryption_properties: Any | None = None,
 ) -> None:
     """Write the general boundary operator d_1 to Parquet.
 
@@ -245,11 +333,18 @@ def write_boundary_table(
         "n_entries": n_entries,
         "directed": bool(rex._directed),
     }
-    write_parquet(data, path, metadata=meta)
+    write_parquet(
+        data,
+        path,
+        metadata=meta,
+        encryption_properties=encryption_properties,
+    )
 
 
 def read_boundary_table(
     path: str | os.PathLike,
+    *,
+    decryption_properties: Any | None = None,
 ) -> dict[str, Any]:
     """Read boundary table and reconstruct `boundary_ptr`/`boundary_idx`.
 
@@ -258,8 +353,8 @@ def read_boundary_table(
     dict with `boundary_ptr`, `boundary_idx`, `nV`, `nE`,
     `directed`, and the raw columns.
     """
-    raw = read_parquet(path)
-    meta = _read_metadata(path)
+    raw = read_parquet(path, decryption_properties=decryption_properties)
+    meta = _read_metadata(path, decryption_properties=decryption_properties)
 
     nE = meta.get("nE", int(raw["edge_idx"].max()) + 1)
 
@@ -293,6 +388,7 @@ def write_edge_table(
     path: str | os.PathLike,
     *,
     include: list[str] | None = None,
+    encryption_properties: Any | None = None,
 ) -> None:
     r"""Write per-edge data to Parquet.
 
@@ -375,12 +471,21 @@ def write_edge_table(
         "nF": int(rex.nF),
         "directed": bool(rex._directed),
     }
-    write_parquet(data, path, metadata=meta)
+    write_parquet(
+        data,
+        path,
+        metadata=meta,
+        encryption_properties=encryption_properties,
+    )
 
 
-def read_edge_table(path: str | os.PathLike) -> dict[str, np.ndarray]:
+def read_edge_table(
+    path: str | os.PathLike,
+    *,
+    decryption_properties: Any | None = None,
+) -> dict[str, np.ndarray]:
     """Read edge table from Parquet."""
-    return read_parquet(path)
+    return read_parquet(path, decryption_properties=decryption_properties)
 
 
 # Vertex table
@@ -391,6 +496,7 @@ def write_vertex_table(
     path: str | os.PathLike,
     *,
     include: list[str] | None = None,
+    encryption_properties: Any | None = None,
 ) -> None:
     r"""Write per-vertex data to Parquet.
 
@@ -441,12 +547,21 @@ def write_vertex_table(
                     pass
 
     meta = {"rex_table_type": "vertex_table", "nV": nV, "nE": int(rex.nE)}
-    write_parquet(data, path, metadata=meta)
+    write_parquet(
+        data,
+        path,
+        metadata=meta,
+        encryption_properties=encryption_properties,
+    )
 
 
-def read_vertex_table(path: str | os.PathLike) -> dict[str, np.ndarray]:
+def read_vertex_table(
+    path: str | os.PathLike,
+    *,
+    decryption_properties: Any | None = None,
+) -> dict[str, np.ndarray]:
     """Read vertex table from Parquet."""
-    return read_parquet(path)
+    return read_parquet(path, decryption_properties=decryption_properties)
 
 
 # Face table (Definition 4.1, the B2 boundary operator)
@@ -455,6 +570,8 @@ def read_vertex_table(path: str | os.PathLike) -> dict[str, np.ndarray]:
 def write_face_table(
     rex,
     path: str | os.PathLike,
+    *,
+    encryption_properties: Any | None = None,
 ) -> None:
     """Write the face boundary operator B_2 to Parquet.
 
@@ -493,16 +610,25 @@ def write_face_table(
         "nnz_B2": nnz,
         "chain_valid": bool(rex.chain_valid) if rex.nF > 0 else True,
     }
-    write_parquet(data, path, metadata=meta)
+    write_parquet(
+        data,
+        path,
+        metadata=meta,
+        encryption_properties=encryption_properties,
+    )
 
 
-def read_face_table(path: str | os.PathLike) -> dict[str, Any]:
+def read_face_table(
+    path: str | os.PathLike,
+    *,
+    decryption_properties: Any | None = None,
+) -> dict[str, Any]:
     """Read face table and reconstruct B2 CSC arrays.
 
     Returns `B2_col_ptr`, `B2_row_idx`, `B2_vals`, plus raw columns.
     """
-    raw = read_parquet(path)
-    meta = _read_metadata(path)
+    raw = read_parquet(path, decryption_properties=decryption_properties)
+    meta = _read_metadata(path, decryption_properties=decryption_properties)
     nF = meta.get("nF", 0)
     nE = meta.get("nE", 0)
 
@@ -538,6 +664,8 @@ def read_face_table(path: str | os.PathLike) -> dict[str, Any]:
 def write_persistence_table(
     result: Any,
     path: str | os.PathLike,
+    *,
+    encryption_properties: Any | None = None,
 ) -> None:
     r"""Write persistence pairs to Parquet.
 
@@ -585,13 +713,22 @@ def write_persistence_table(
     if betti is not None:
         meta["betti"] = list(betti)
 
-    write_parquet(data, path, metadata=meta)
+    write_parquet(
+        data,
+        path,
+        metadata=meta,
+        encryption_properties=encryption_properties,
+    )
 
 
-def read_persistence_table(path: str | os.PathLike) -> dict[str, Any]:
+def read_persistence_table(
+    path: str | os.PathLike,
+    *,
+    decryption_properties: Any | None = None,
+) -> dict[str, Any]:
     """Read persistence table with metadata (betti, essential)."""
-    result = read_parquet(path)
-    meta = _read_metadata(path)
+    result = read_parquet(path, decryption_properties=decryption_properties)
+    meta = _read_metadata(path, decryption_properties=decryption_properties)
     if "betti" in meta:
         result["betti"] = tuple(meta["betti"])
     if "essential" in meta:
@@ -610,6 +747,7 @@ def write_filtration_table(
     path: str | os.PathLike,
     *,
     kind: str = "",
+    encryption_properties: Any | None = None,
 ) -> None:
     r"""Write filtration values on the relational complex to Parquet.
 
@@ -647,13 +785,22 @@ def write_filtration_table(
         "nF": int(len(filt_f)),
         "kind": kind,
     }
-    write_parquet(data, path, metadata=meta)
+    write_parquet(
+        data,
+        path,
+        metadata=meta,
+        encryption_properties=encryption_properties,
+    )
 
 
-def read_filtration_table(path: str | os.PathLike) -> dict[str, Any]:
+def read_filtration_table(
+    path: str | os.PathLike,
+    *,
+    decryption_properties: Any | None = None,
+) -> dict[str, Any]:
     """Read filtration table -> `filt_v`, `filt_e`, `filt_f`."""
-    raw = read_parquet(path)
-    meta = _read_metadata(path)
+    raw = read_parquet(path, decryption_properties=decryption_properties)
+    meta = _read_metadata(path, decryption_properties=decryption_properties)
 
     cell_dim = raw["cell_dim"]
     filt_val = raw["filtration_value"]
@@ -674,6 +821,7 @@ def write_metrics_table(
     path: str | os.PathLike,
     *,
     index_name: str = "cell_idx",
+    encryption_properties: Any | None = None,
 ) -> None:
     """Write per-cell metrics to Parquet.  All arrays must have equal length."""
     if not metrics:
@@ -691,16 +839,22 @@ def write_metrics_table(
         "n_cells": n,
         "metric_names": list(metrics.keys()),
     }
-    write_parquet(data, path, metadata=meta)
+    write_parquet(
+        data,
+        path,
+        metadata=meta,
+        encryption_properties=encryption_properties,
+    )
 
 
 def read_metrics_table(
     path: str | os.PathLike,
     *,
     exclude_index: bool = True,
+    decryption_properties: Any | None = None,
 ) -> dict[str, np.ndarray]:
     """Read metrics table.  Omits index column by default."""
-    result = read_parquet(path)
+    result = read_parquet(path, decryption_properties=decryption_properties)
     if exclude_index:
         result.pop("cell_idx", None)
     return result
@@ -714,6 +868,7 @@ def read_parquet_batches(
     *,
     batch_rows: int = 100_000,
     columns: Sequence[str] | None = None,
+    decryption_properties: Any | None = None,
 ) -> Iterator[dict[str, np.ndarray]]:
     """Stream a Parquet file as batches of arrays.
 
@@ -721,7 +876,10 @@ def read_parquet_batches(
     """
     pa, pq = _pq()
 
-    pf = pq.ParquetFile(os.fspath(path))
+    pf = pq.ParquetFile(
+        os.fspath(path),
+        decryption_properties=decryption_properties,
+    )
     pending: list[dict[str, np.ndarray]] = []
     pending_rows = 0
 
@@ -752,6 +910,8 @@ def _merge_dicts(batches: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
 def write_character_table(
     rex,
     path,
+    *,
+    encryption_properties: Any | None = None,
 ):
     """Write per-edge structural character to Parquet.
 
@@ -775,16 +935,16 @@ def write_character_table(
         names.append(col_name)
 
     table = pa.table(arrays, names=names)
-    pq.write_table(table, path)
+    pq.write_table(table, path, encryption_properties=encryption_properties)
 
 
-def read_character_table(path):
+def read_character_table(path, *, decryption_properties: Any | None = None):
     """Read per-edge structural character from Parquet.
 
     Returns dict with edge_idx and chi columns.
     """
     _, pq = _pq()
-    table = pq.read_table(path)
+    table = pq.read_table(path, decryption_properties=decryption_properties)
     result = {}
     for name in table.column_names:
         col = table.column(name)
@@ -798,6 +958,8 @@ def read_character_table(path):
 def write_vertex_character_table(
     rex,
     path,
+    *,
+    encryption_properties: Any | None = None,
 ):
     """Write per-vertex character (phi, kappa) to Parquet.
 
@@ -824,13 +986,13 @@ def write_vertex_character_table(
     names.append("kappa")
 
     table = pa.table(arrays, names=names)
-    pq.write_table(table, path)
+    pq.write_table(table, path, encryption_properties=encryption_properties)
 
 
-def read_vertex_character_table(path):
+def read_vertex_character_table(path, *, decryption_properties: Any | None = None):
     """Read per-vertex character from Parquet."""
     _, pq = _pq()
-    table = pq.read_table(path)
+    table = pq.read_table(path, decryption_properties=decryption_properties)
     result = {}
     for name in table.column_names:
         col = table.column(name)
@@ -844,6 +1006,8 @@ def read_vertex_character_table(path):
 def write_void_table(
     rex,
     path,
+    *,
+    encryption_properties: Any | None = None,
 ):
     """Write void complex data to Parquet.
 
@@ -865,7 +1029,7 @@ def write_void_table(
         ])
         table = pa.table({name: pa.array([], type=typ) for name, typ in zip(
             schema.names, schema.types, strict=False)})
-        pq.write_table(table, path)
+        pq.write_table(table, path, encryption_properties=encryption_properties)
         return
 
     eta = vc['eta']
@@ -887,13 +1051,13 @@ def write_void_table(
         names.append(col_name)
 
     table = pa.table(arrays, names=names)
-    pq.write_table(table, path)
+    pq.write_table(table, path, encryption_properties=encryption_properties)
 
 
-def read_void_table(path):
+def read_void_table(path, *, decryption_properties: Any | None = None):
     """Read void complex data from Parquet."""
     _, pq = _pq()
-    table = pq.read_table(path)
+    table = pq.read_table(path, decryption_properties=decryption_properties)
     result = {}
     for name in table.column_names:
         col = table.column(name)

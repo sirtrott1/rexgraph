@@ -101,7 +101,10 @@ def test_compute_backends_can_be_unregistered():
 
 
 def test_rcdb_backends_are_listable_and_removable():
-    from agent import rcdb
+    rcdb = pytest.importorskip(
+        "agent.rcdb",
+        reason="requires the optional rexgraph-agent package",
+    )
     rcdb.register_backend("probe", lambda uri: None)
     try:
         assert "probe" in rcdb.available_backends()
@@ -118,13 +121,23 @@ def test_serialization_types_are_listable():
 def test_temporal_policies_are_a_registry_not_a_tuple():
     """The holdout. Rerank policies were a fixed tuple, so a domain-specific one
     (pseudotime order, a batch-corrected recency) meant editing the module."""
-    from agent import temporal
+    temporal = pytest.importorskip(
+        "agent.temporal",
+        reason="requires the optional rexgraph-agent package",
+    )
     assert set(temporal.available_policies()) >= {"off", "stability", "recency",
                                                   "settled"}
 
 
 def test_a_temporal_policy_can_be_registered_from_outside():
-    from agent import rcdb, temporal
+    rcdb = pytest.importorskip(
+        "agent.rcdb",
+        reason="requires the optional rexgraph-agent package",
+    )
+    temporal = pytest.importorskip(
+        "agent.temporal",
+        reason="requires the optional rexgraph-agent package",
+    )
 
     temporal.register_policy("newest_only", lambda feats, rec, did: 1.0 if rec.get(did, 0) >= 1.0 else 0.0)
     try:
@@ -138,6 +151,13 @@ def test_a_temporal_policy_can_be_registered_from_outside():
 
 
 def test_an_unknown_temporal_policy_still_errors():
-    from agent import rcdb, temporal
+    rcdb = pytest.importorskip(
+        "agent.rcdb",
+        reason="requires the optional rexgraph-agent package",
+    )
+    temporal = pytest.importorskip(
+        "agent.temporal",
+        reason="requires the optional rexgraph-agent package",
+    )
     with pytest.raises(ValueError):
         temporal.rerank([], rcdb.MemoryStore(), mode="vibes")

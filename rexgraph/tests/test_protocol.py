@@ -23,6 +23,20 @@ def _filled():
     return rex
 
 
+def _rewrite_header(frame, update):
+    """Return the same framed payload under a deliberately changed JSON header."""
+    import json
+    import struct
+
+    version, flags, head_len, body_len = struct.unpack("<HHII", frame[4:16])
+    header = json.loads(frame[16:16 + head_len])
+    update(header)
+    new_head = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    return (P.MAGIC
+            + struct.pack("<HHII", version, flags, len(new_head), body_len)
+            + new_head + frame[16 + head_len:])
+
+
 #### the flush: faces attached and immediately serialised
 
 
@@ -138,6 +152,24 @@ def test_a_tensor_pointing_outside_the_payload_is_refused():
         P.decode(rebuilt)
 
 
+def test_a_frame_cannot_delete_its_wire_digest():
+    frame = P.encode(_filled(), compress=False)
+    downgraded = _rewrite_header(frame, lambda h: h.pop("wire_digest"))
+    with pytest.raises(P.ProtocolError, match="no valid payload digest"):
+        P.decode(downgraded)
+
+
+def test_a_frame_cannot_delete_its_state_digest():
+    def remove_state_seal(header):
+        for name in ("digest", "digest_names", "digest_algo"):
+            header.pop(name, None)
+
+    frame = P.encode(_filled(), compress=False)
+    downgraded = _rewrite_header(frame, remove_state_seal)
+    with pytest.raises(P.ProtocolError, match="content digest"):
+        P.decode(downgraded)
+
+
 #### the chain condition is the STRUCTURAL check
 
 
@@ -148,7 +180,14 @@ def test_a_tampered_boundary_fails_verification():
     frame = P.decode(P.encode(rex))
     vals = frame.tensors["B2_vals"]
     vals[0] = vals[0] + 1.0
-    frame.header.pop("digest", None)             # isolate the structural check
+    # Re-seal the changed payload to isolate the independent structural check. An
+    # unkeyed digest is corruption detection, so an active writer can recompute it.
+    from rexgraph.io.rex_state import state_digest
+    frame.header["digest"] = state_digest(
+        frame.tensors,
+        frame.header["digest_names"],
+        algo=int(frame.header["digest_algo"]),
+    )
     with pytest.raises(P.ProtocolError, match="do not bound"):
         P.to_complex(frame)
 
@@ -159,9 +198,11 @@ def test_the_report_names_which_face_failed(_=None):
     rex = _filled()
     frame = P.decode(P.encode(rex))
     frame.tensors["B2_vals"][0] += 1.0
-    frame.header.pop("digest", None)
     from rexgraph.io.rex_state import RexState, from_state
-    bad = from_state(RexState(tensors=frame.tensors, header=frame.header))
+    bad = from_state(
+        RexState(tensors=frame.tensors, header=frame.header),
+        verify=False,
+    )
     report = P.chain_report(bad)
     assert report["valid"] is False
     assert report["unbounded"] == [0]

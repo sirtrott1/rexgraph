@@ -190,12 +190,13 @@ def decode(data: bytes, *, max_frame: int = DEFAULT_MAX_FRAME,
             raise ProtocolError("payload does not decompress") from e
 
     declared = header.get("wire_digest")
-    if declared is not None:
-        actual = hashlib.sha256(payload).hexdigest()
-        if not hmac.compare_digest(str(declared), actual):
-            raise ProtocolError(
-                "the payload does not match the digest in its header; it was "
-                "altered or truncated in transit")
+    if not isinstance(declared, str) or len(declared) != 64:
+        raise ProtocolError("the frame header declares no valid payload digest")
+    actual = hashlib.sha256(payload).hexdigest()
+    if not hmac.compare_digest(declared, actual):
+        raise ProtocolError(
+            "the payload does not match the digest in its header; it was "
+            "altered or truncated in transit")
 
     index = header.get("tensors")
     if not isinstance(index, list):

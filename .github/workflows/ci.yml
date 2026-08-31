@@ -68,6 +68,14 @@ jobs:
       - name: install rexgraph, editable
         run: pip install --no-build-isolation -e ".[io]"
 
+      # rexgraph-rcdb is a sibling in this repository rather than a published wheel, and
+      # the agent depends on it, so pip cannot resolve the agent until it is installed.
+      # Dependency order is rexgraph, then rcdb, then the agent. rcql is not installed on
+      # purpose: its tests fall back to the in-repo copy, which exercises the same code
+      # without the extra install.
+      - name: install rexgraph-rcdb
+        run: pip install -e "rcdb/[sql,objectstore,crypto]"
+
       - name: install rexgraph-agent
         run: pip install -e "agent/[server]"
 

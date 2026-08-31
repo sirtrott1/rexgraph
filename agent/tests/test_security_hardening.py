@@ -1,6 +1,8 @@
 """Tests for the DB-URI allow-list (dbguard) and the error-response sanitizer."""
 from __future__ import annotations
 
+import os
+
 import pytest
 from agent.server.dbguard import check_db_uri
 from agent.server.security import add_error_sanitizer
@@ -207,3 +209,59 @@ def test_dbguard_resolves_hostname_to_private(monkeypatch):
         raise OSError("name resolution failed")
     monkeypatch.setattr(dbg.socket, "getaddrinfo", _boom)
     dbg.check_db_uri("postgresql://does-not-exist.invalid/db")
+
+
+#### path containment: a prefix of the text is not containment in the tree
+
+def test_a_prefix_is_not_containment():
+    """`resolved.startswith(root)` admitted /tmpfoo for /tmp and /home/artifacts for
+    /home/art. Both are siblings of the allowed root, not children of it."""
+    from agent.server.handles import path_within
+    roots = ["/tmp", "/home/art"]
+    assert path_within("/tmp/ok.txt", roots)
+    assert path_within("/home/art/doc.txt", roots)
+    assert not path_within("/tmpfoo/evil", roots)
+    assert not path_within("/home/artifacts/evil", roots)
+    assert not path_within("/etc/passwd", roots)
+
+
+def test_the_config_directory_is_refused_inside_an_allowed_root(tmp_path, monkeypatch):
+    """An allow-list whose widest entry contains the credential store is not an
+    allow-list. auth.json, connections.json and the audit journal all live there."""
+    from agent.server.handles import path_within
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path / "cfg"))
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg" / "auth.json").write_text("{}")
+    assert path_within(str(tmp_path / "doc.txt"), [str(tmp_path)])
+    assert not path_within(str(tmp_path / "cfg" / "auth.json"), [str(tmp_path)])
+
+
+def test_the_home_directory_is_not_allowed_by_default(tmp_path, monkeypatch):
+    """It was, and it holds ~/.ssh and ~/.aws as well as the config dir. An operator
+    who wants a directory names it in REXGRAPH_ALLOWED_DIRS."""
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    monkeypatch.delenv("REXGRAPH_ALLOWED_DIRS", raising=False)
+    from agent.server import auth
+    auth.reset_auth_manager()
+    from agent.server.app import app
+    probe = os.path.expanduser("~/.rexgraph_containment_probe")
+    r = TestClient(app).post("/api/v1/corpus/add", data={"path": probe})
+    assert r.status_code == 403, f"home is reachable again: {r.status_code}"
+    auth.reset_auth_manager()
+
+
+def test_ocr_no_longer_answers_questions_about_paths(tmp_path, monkeypatch):
+    """It had no allow-list at all, so "File not found" versus "Unsupported file type"
+    was an existence oracle for any path. Containment is decided before existence."""
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
+    monkeypatch.delenv("REXGRAPH_ALLOWED_DIRS", raising=False)
+    from agent.server import auth
+    auth.reset_auth_manager()
+    from agent.server.app import app
+    c = TestClient(app)
+    for probe in ("/etc/hosts", "/etc/definitely-not-here-xyz"):
+        r = c.post("/api/v1/ocr", data={"path": probe})
+        assert r.status_code == 403, f"{probe} -> {r.status_code} {r.text[:80]}"
+    auth.reset_auth_manager()

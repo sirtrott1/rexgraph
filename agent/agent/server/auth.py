@@ -702,9 +702,8 @@ class AuthManager:
 
     def get_workspace(self, name: str) -> WorkspaceState:
         """Get or create a workspace."""
-        # Validate workspace name
-        import re
-        if not re.match(r'^[a-zA-Z0-9_\-]{1,64}$', name):
+        from agent.server.handles import valid_workspace
+        if not valid_workspace(name):
             raise ValueError("Invalid workspace name: use alphanumeric, dash, underscore (max 64 chars)")
         if name not in self._workspaces:
             self._workspaces[name] = WorkspaceState(
@@ -767,8 +766,13 @@ def identity_and_workspace(request) -> tuple[str, str]:
         entry = mgr.verify(raw) if raw else None
         if entry is None:
             return "", (ws or "default")
-        if not ws:
-            ws = entry.workspaces[0] if entry.workspaces else "default"
+        granted = entry.workspaces[0] if entry.workspaces else "default"
+        if not ws or not entry.can_access(ws):
+            # A workspace this token holds no role in is never bound. `require_workspace`
+            # answers 403 for the routes that declare it, but the routes that do not
+            # would otherwise run scoped to a name the caller merely asserted, which
+            # makes every store scoped off this value scope to the wrong tenant.
+            ws = granted
         return entry.user_id, ws
     except Exception:                            # noqa: BLE001 - never break a request
         return "", (ws or "default")

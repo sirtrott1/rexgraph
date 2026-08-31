@@ -50,25 +50,24 @@ async def export_session(
         return JSONResponse(export)
 
     if rex is not None and format in ("safetensors", "hdf5", "h5"):
-        import os
-        import tempfile
+        from agent.server import artifacts
         suffix = ".safetensors" if format == "safetensors" else ".h5"
-        fd, tmp = tempfile.mkstemp(suffix=suffix)
-        os.close(fd)
-        try:
+
+        def _write(path):
             if format == "safetensors":
                 from rexgraph.io.safetensors_bridge import rex_to_safetensors
-                rex_to_safetensors(rex, tmp)
+                rex_to_safetensors(rex, path)
             else:
                 from rexgraph.io import save_hdf5
-                save_hdf5(tmp, rex)
+                save_hdf5(path, rex)
+
+        try:
+            return artifacts.download(_write, suffix, f"{session_id}{suffix}")
         except ImportError as e:
             raise HTTPException(
                 400, f"'{format}' export needs an optional dependency: {e}") from e
         except Exception as e:
             raise HTTPException(500, f"Export failed: {e}") from e
-        return FileResponse(tmp, filename=f"{session_id}{suffix}",
-                            media_type="application/octet-stream")
 
     if format == "rex" and rex:
         from agent.server.persistence import save_document_rex

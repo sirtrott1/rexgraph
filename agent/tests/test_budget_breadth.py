@@ -110,15 +110,22 @@ def test_identity_and_workspace_agree_with_the_token(isolated):
     mgr.enable_auth()
     mgr.bootstrap_admin()
     bob = mgr.create_token("bob", ["beta"], role="user")
+    carol = mgr.create_token("carol", ["beta", "gamma"], role="user")
 
     # no header: the token's own workspace is what scopes the caller
     assert identity_and_workspace(
         _request({"Authorization": f"Bearer {bob}"})) == ("bob", "beta")
-    # an explicit workspace is carried through; whether bob MAY use it is the route's
-    # decision, not this reader's
+    # a workspace the token holds a role in is carried through
+    assert identity_and_workspace(
+        _request({"Authorization": f"Bearer {carol}",
+                  "X-Workspace": "gamma"})) == ("carol", "gamma")
+    # one it does not is NOT. This value becomes `scope._current`, so on any route that
+    # does not declare `require_workspace` it is what every scoped store filters on, and
+    # carrying it through let a caller name their way into another tenant's records,
+    # sessions and saved connections.
     assert identity_and_workspace(
         _request({"Authorization": f"Bearer {bob}",
-                  "X-Workspace": "gamma"})) == ("bob", "gamma")
+                  "X-Workspace": "gamma"})) == ("bob", "beta")
 
 
 def test_an_unverifiable_token_is_not_given_an_identity(isolated):

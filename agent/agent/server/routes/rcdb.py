@@ -76,6 +76,8 @@ async def db_put(body: dict = Body(...)):
     meta = getattr(rex, "_agent_meta", {}) or {}
     try:
         rec = _store().put(rec_id, rex, meta=meta, tags=body.get("tags") or [])
+    except PermissionError as e:
+        raise HTTPException(403, str(e)) from e
     except Exception as e:
         raise HTTPException(500, f"Store failed: {e}") from e
     return {"stored": True, "source": source, **rec.to_dict()}
@@ -168,6 +170,7 @@ async def db_record_work(body: dict = Body(...)):
     an explicit request does not need the automatic switch to be on.
     """
     from agent import work_recorder as wr
+    from agent.server.scope import effective_workspace
     labels = body.get("labels") or []
     if not labels:
         raise HTTPException(400, "Provide 'labels' (stages or turns)")
@@ -178,7 +181,7 @@ async def db_record_work(body: dict = Body(...)):
     if not lineage_id:
         raise HTTPException(400, "Provide 'lineage_id' (the run or session this belongs to)")
     info = wr.record(kind, labels, lineage_id=lineage_id,
-                     workspace=body.get("workspace", "default"),
+                     workspace=effective_workspace(body.get("workspace", "")),
                      edges=body.get("edges"), tags=body.get("tags"),
                      when=body.get("when"), force=True)
     if info is None:

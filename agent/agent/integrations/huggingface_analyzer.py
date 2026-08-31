@@ -167,9 +167,13 @@ def analyze_transformer(
     """
     _require_hf()
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    # `model_name` reaches here from a request body, so the repository's own code does
+    # not run unless the deployment has said it may. See agent.hfguard.
+    from agent.hfguard import remote_code_allowed
+    trust = remote_code_allowed(caller_named=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=trust)
     model = AutoModelForCausalLM.from_pretrained(
-        model_name, output_attentions=True, trust_remote_code=True,
+        model_name, output_attentions=True, trust_remote_code=trust,
         torch_dtype=torch.float32,
     ).to(device).eval()
 

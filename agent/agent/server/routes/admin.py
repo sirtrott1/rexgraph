@@ -263,7 +263,11 @@ async def list_workspaces(token: TokenEntry = Depends(require_auth)):
     """List all workspaces the current user can access."""
     mgr = get_auth_manager()
     all_ws = mgr.list_workspaces()
-    if token.role == "admin":
+    # `token.role` is the legacy scalar view, which _resync sets to admin when the token
+    # is admin in ANY workspace, so an admin of one workspace was handed the whole
+    # instance roster. The roster is an instance question, the same one /api/health
+    # answers, so it takes the instance answer.
+    if is_admin(token, "default"):
         return {"workspaces": all_ws}
     return {"workspaces": [w for w in all_ws if w in token.workspaces]}
 
@@ -368,22 +372,20 @@ async def delete_workspace_file(
     """Delete a document from the workspace."""
     import shutil
 
-    from agent.server.persistence import _docs_dir
-    doc_path = _docs_dir(ws.name) / (doc_id + ".rex")
-    if doc_path.exists():
-        if doc_path.is_dir():
-            shutil.rmtree(str(doc_path))
-        else:
-            doc_path.unlink()
-        return {"deleted": doc_id}
-    # Try without .rex extension
-    doc_path2 = _docs_dir(ws.name) / doc_id
-    if doc_path2.exists():
-        if doc_path2.is_dir():
-            shutil.rmtree(str(doc_path2))
-        else:
-            doc_path2.unlink()
-        return {"deleted": doc_id}
+    # This rmtree's whatever the id resolves to, so a doc_id of ".." deleted the
+    # workspace root rather than a document in it.
+    from agent.server.persistence import doc_path as _doc_path
+    try:
+        candidates = [_doc_path(ws.name, doc_id), _doc_path(ws.name, doc_id, suffix="")]
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    for target in candidates:
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(str(target))
+            else:
+                target.unlink()
+            return {"deleted": doc_id}
     raise HTTPException(404, f"Document not found: {doc_id}")
 
 

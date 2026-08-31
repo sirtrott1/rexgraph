@@ -157,6 +157,54 @@ def test_a_device_operator_checks_the_vector_length_too():
 
 
 #### the native device lane, where it is built
+def test_hip_availability_rejects_a_loadable_runtime_without_a_device(monkeypatch):
+    """A container may see libamdhip64 while having no device nodes at all."""
+    from rexgraph import hip_ternary as H
+
+    class RuntimeWithoutDevice:
+        allocations = 0
+        frees = 0
+
+        def ternary_alloc(self, _ptr, _nbytes):
+            self.allocations += 1
+            return 100                         # hipErrorNoDevice
+
+        def ternary_free(self, _ptr):
+            self.frees += 1
+            return 0
+
+    runtime = RuntimeWithoutDevice()
+    monkeypatch.setattr(H, "_DEVICE_OK", None)
+    monkeypatch.setattr(H, "_load", lambda: runtime)
+    assert H.available() is False
+    assert H.available() is False              # the failed probe is cached too
+    assert runtime.allocations == 1
+    assert runtime.frees == 0
+
+
+def test_hip_availability_releases_its_successful_probe(monkeypatch):
+    from rexgraph import hip_ternary as H
+
+    class RuntimeWithDevice:
+        allocations = 0
+        frees = 0
+
+        def ternary_alloc(self, _ptr, _nbytes):
+            self.allocations += 1
+            return 0
+
+        def ternary_free(self, _ptr):
+            self.frees += 1
+            return 0
+
+    runtime = RuntimeWithDevice()
+    monkeypatch.setattr(H, "_DEVICE_OK", None)
+    monkeypatch.setattr(H, "_load", lambda: runtime)
+    assert H.available() is True
+    assert H.available() is True
+    assert runtime.allocations == runtime.frees == 1
+
+
 def _hip():
     from rexgraph import hip_ternary
     if not hip_ternary.available():

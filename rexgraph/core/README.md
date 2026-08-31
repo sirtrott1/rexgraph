@@ -3841,6 +3841,13 @@ witness edges alongside standard 2-endpoint edges.
   stored when cumulative delta exceeds checkpoint_threshold * current edge
   count. Returns checkpoint snapshots, per-step deltas, and checkpoint times.
 
+  `TemporalRex` additionally stores a full checkpoint whenever either side of
+  a transition has repeated cell or face keys. Canonical keys describe boundary
+  support, not relation identity, so key-level deltas are used only where those
+  keys are injective. This preserves parallel relations and repeated faces as
+  multisets during reconstruction instead of projecting them onto unique
+  boundaries.
+
   Called by `TemporalRex.temporal_index`.
 
 - `build_temporal_index_general(snapshots, checkpoint_threshold=0.5)` -> same

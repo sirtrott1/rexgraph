@@ -37,6 +37,7 @@ __all__ = ["available", "library_path", "resident", "ResidentTernary"]
 
 _LIB = None
 _TRIED = False
+_DEVICE_OK = None
 
 
 def library_path() -> Path:
@@ -82,8 +83,35 @@ def _load():
 
 
 def available() -> bool:
-    """Whether the compiled kernel is present and loadable on this machine."""
-    return _load() is not None
+    """Whether the compiled kernel can allocate on a device visible to this process.
+
+    Loading ``libamdhip64`` proves that the runtime exists, not that this process can
+    reach a GPU. Containers commonly expose the host library without ``/dev/kfd`` or
+    a render node; registering the lane there makes automatic dispatch choose a
+    backend whose first allocation fails with ``hipErrorNoDevice``. Probe one byte
+    once, release it immediately, and cache the answer used by the registry.
+    """
+    global _DEVICE_OK
+    if _DEVICE_OK is not None:
+        return _DEVICE_OK
+    lib = _load()
+    if lib is None:
+        _DEVICE_OK = False
+        return False
+    ptr = ctypes.c_void_p()
+    try:
+        rc = int(lib.ternary_alloc(ctypes.byref(ptr), 1))
+    except Exception:
+        _DEVICE_OK = False
+        return False
+    if rc != 0:
+        _DEVICE_OK = False
+        return False
+    try:
+        _DEVICE_OK = int(lib.ternary_free(ptr)) == 0
+    except Exception:
+        _DEVICE_OK = False
+    return _DEVICE_OK
 
 
 class ResidentTernary:

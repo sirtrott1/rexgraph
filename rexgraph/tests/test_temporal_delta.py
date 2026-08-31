@@ -151,6 +151,152 @@ def test_reconstruct_at_matches_direct_build():
     assert np.array_equal(np.asarray(r1.betti), np.asarray(s1.betti))
 
 
+def test_parallel_relations_reconstruct_without_changing_topology():
+    from rexgraph import multiplicity_dimension
+    from rexgraph.graph import TemporalRex
+
+    t0 = RexGraph(sources=np.array([0, 1], np.int32),
+                  targets=np.array([1, 2], np.int32))
+    t1 = RexGraph(sources=np.array([0, 0, 1], np.int32),
+                  targets=np.array([1, 1, 2], np.int32))
+    trex = TemporalRex([(t0.sources, t0.targets), (t1.sources, t1.targets)])
+    trex._ensure_index()
+
+    rebuilt = trex.reconstruct_at(1)
+    assert trex._index_deltas[1] is None
+    assert 1 in trex._index_checkpoints
+    assert rebuilt.nE == t1.nE == 3
+    assert rebuilt.betti == t1.betti == (1, 1, 0)
+    assert multiplicity_dimension(rebuilt) == multiplicity_dimension(t1) == 1
+    assert np.array_equal(rebuilt._boundary_ptr, t1._boundary_ptr)
+    assert np.array_equal(rebuilt._boundary_idx, t1._boundary_idx)
+
+
+def test_parallel_relation_checkpoint_preserves_attribution_and_faces():
+    from rexgraph.graph import TemporalRex
+
+    parallel = RexGraph(
+        sources=np.array([0, 0], np.int32),
+        targets=np.array([1, 1], np.int32),
+        w_E=np.array([3.0, 7.0], np.float64),
+        signs=np.array([1, -1], np.int32),
+        B2_col_ptr=np.array([0, 2], np.int32),
+        B2_row_idx=np.array([0, 1], np.int32),
+        B2_vals=np.array([1.0, -1.0], np.float64),
+    )
+    trex = TemporalRex([])
+    trex.append_snapshot(parallel)
+
+    rebuilt = trex.reconstruct_at(0)
+    assert rebuilt.nE == 2 and rebuilt.nF == 1
+    for name in ("_boundary_ptr", "_boundary_idx", "_w_E", "_signs",
+                 "_B2_col_ptr", "_B2_row_idx", "_B2_vals"):
+        assert np.array_equal(getattr(rebuilt, name), getattr(parallel, name)), name
+
+
+def test_repeated_faces_reconstruct_as_a_multiset():
+    from rexgraph.graph import TemporalRex
+
+    edges = dict(
+        sources=np.array([0, 1, 2], np.int32),
+        targets=np.array([1, 2, 0], np.int32),
+    )
+    one_face = RexGraph(
+        **edges,
+        B2_col_ptr=np.array([0, 3], np.int32),
+        B2_row_idx=np.array([0, 1, 2], np.int32),
+        B2_vals=np.ones(3, np.float64),
+    )
+    two_faces = RexGraph(
+        **edges,
+        B2_col_ptr=np.array([0, 3, 6], np.int32),
+        B2_row_idx=np.array([0, 1, 2, 0, 1, 2], np.int32),
+        B2_vals=np.ones(6, np.float64),
+    )
+    trex = TemporalRex([])
+    trex.append_snapshot(one_face)
+    trex.append_snapshot(two_faces)
+
+    rebuilt = trex.reconstruct_at(1)
+    assert trex._index_deltas[1] is None
+    assert rebuilt.nF == two_faces.nF == 2
+    assert rebuilt.betti == two_faces.betti == (1, 0, 1)
+    assert np.array_equal(rebuilt._B2_col_ptr, two_faces._B2_col_ptr)
+    assert np.array_equal(rebuilt._B2_row_idx, two_faces._B2_row_idx)
+
+
+def test_leaving_multiplicity_checkpoints_before_resuming_deltas():
+    from rexgraph.graph import TemporalRex
+
+    def graph(edges):
+        return RexGraph(sources=np.array([s for s, _ in edges], np.int32),
+                        targets=np.array([t for _, t in edges], np.int32))
+
+    refs = [
+        graph([(0, 1), (0, 1), (1, 2), (2, 3), (3, 4)]),
+        graph([(0, 1), (1, 2), (2, 3), (3, 4)]),
+        graph([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]),
+    ]
+    trex = TemporalRex([(r.sources, r.targets) for r in refs])
+    trex._ensure_index()
+
+    assert trex._index_deltas[1] is None  # the transition away from multiplicity
+    assert trex._index_deltas[2] is not None  # injective states may use deltas again
+    for t, ref in enumerate(refs):
+        rebuilt = trex.reconstruct_at(t)
+        assert rebuilt.nE == ref.nE
+        assert rebuilt.betti == ref.betti
+
+
+def test_legacy_parallel_relation_delta_refuses_lossy_replay():
+    from rexgraph.graph import TemporalRex
+
+    base = RexGraph(sources=np.array([0, 1], np.int32),
+                    targets=np.array([1, 2], np.int32))
+    parallel = RexGraph(sources=np.array([0, 0, 1], np.int32),
+                        targets=np.array([1, 1, 2], np.int32))
+    legacy = TemporalRex([])
+    legacy.append_snapshot(base)
+    legacy._index_deltas.append(_delta_between(base, parallel))
+    legacy._index_face_deltas.append(None)
+    legacy._T = 2
+
+    with pytest.raises(ValueError, match="cannot represent parallel relations"):
+        legacy.reconstruct_at(1)
+
+
+def test_parallel_relations_survive_delta_store_serialization(tmp_path):
+    pytest.importorskip("safetensors")
+    from rexgraph import multiplicity_dimension
+    from rexgraph.graph import TemporalRex
+    from rexgraph.io.safetensors_bridge import (
+        safetensors_to_temporal_rex,
+        temporal_rex_to_safetensors,
+    )
+
+    base = RexGraph(sources=np.array([0, 1], np.int32),
+                    targets=np.array([1, 2], np.int32))
+    parallel = RexGraph(sources=np.array([0, 0, 1], np.int32),
+                        targets=np.array([1, 1, 2], np.int32),
+                        w_E=np.array([2.0, 5.0, 9.0], np.float64),
+                        signs=np.array([1, -1, 1], np.int32))
+    trex = TemporalRex([])
+    trex.append_snapshot(base)
+    trex.append_snapshot(parallel)
+    path = tmp_path / "parallel.safetensors"
+    temporal_rex_to_safetensors(trex, path)
+
+    loaded = safetensors_to_temporal_rex(path)
+    rebuilt = loaded.reconstruct_at(1)
+    assert rebuilt.nE == 3
+    assert rebuilt.betti == parallel.betti
+    assert multiplicity_dimension(rebuilt) == 1
+    assert np.array_equal(rebuilt._boundary_ptr, parallel._boundary_ptr)
+    assert np.array_equal(rebuilt._boundary_idx, parallel._boundary_idx)
+    assert np.array_equal(rebuilt._w_E, parallel._w_E)
+    assert np.array_equal(rebuilt._signs, parallel._signs)
+
+
 def test_reconstruct_at_with_deaths_across_deltas():
     # moderate churn against a stable 9-vertex path core (0-1-2-...-8) so at
     # least one reconstruct_at call replays 2+ real deltas including an edge

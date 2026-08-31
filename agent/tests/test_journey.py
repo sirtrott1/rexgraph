@@ -19,9 +19,8 @@ DOC = (b"Alpha connects beta. Beta connects gamma. Gamma connects alpha and delt
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("REXGRAPH_RCDB_URI", "sqlite:///" + str(tmp_path / "rcdb.sqlite"))
-    import agent.server.persistence as pers
     from agent.rcdb import reset_default_store
-    monkeypatch.setattr(pers, "_BASE_DIR", tmp_path / "ws", raising=False)
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path / "ws"))
     reset_default_store()
     from agent.server.app import app
     yield TestClient(app)

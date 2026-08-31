@@ -592,6 +592,7 @@ def graded_boundaries_from_rex(rex) -> list[sp.csr_matrix]:
       * ``B_1`` always, from the rex's own signed vertex-edge incidence;
       * ``B_2`` when ``nF > 0``, from the chain-consistent Hodge slice
         (``_B2_hodge_dual``), so whatever face arity the complex carries is kept;
+        an explicitly empty B2 is retained when higher grades exist;
       * ``B_3, B_4, ...`` when the rex additionally stores higher boundaries in the
         optional ``_graded_duals`` attribute (populated by ``RexGraph.from_cells``).
 
@@ -602,10 +603,14 @@ def graded_boundaries_from_rex(rex) -> list[sp.csr_matrix]:
     B1 = _rex_b1_csr(rex)
     boundaries: list[sp.csr_matrix] = [B1]
 
+    duals = getattr(rex, "_graded_duals", None)
     if int(getattr(rex, "nF", 0)) > 0 and getattr(rex, "_B2_hodge_dual", None) is not None:
         boundaries.append(to_scipy_csr(rex._B2_hodge_dual).tocsr())
+    elif duals and int(getattr(rex, "nF", 0)) == 0:
+        # A higher tower with an empty grade two still carries B2 as an empty operator.
+        # Omitting it relabels stored B3 as B2 and shifts every subsequent grade down.
+        boundaries.append(sp.csr_matrix((int(rex.nE), int(duals[0].shape[0]))))
 
-    duals = getattr(rex, "_graded_duals", None)
     if duals:
         for Bd in duals:
             boundaries.append(sp.csr_matrix(Bd))

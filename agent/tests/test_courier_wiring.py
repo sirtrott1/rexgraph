@@ -70,8 +70,13 @@ def test_a_trip_is_admin_only(tenants):
     assert r.status_code == 403
     assert client.post("/api/v1/courier/routes", headers=bh,
                        json={"hive": "x", "store": a_uri}).status_code == 403
-    # reading what the courier is wired to is not a trip
-    assert client.get("/api/v1/courier/status", headers=bh).status_code == 200
+    # Reading what the courier is wired to was treated as an ordinary read. It is not:
+    # status names the peer hives this deployment reaches and what has already been
+    # carried between them, and the courier is a process-wide singleton holding store
+    # views bound by whoever bound them, so a survey lists records through someone
+    # else's view rather than the caller's.
+    assert client.get("/api/v1/courier/status", headers=bh).status_code == 403
+    assert client.get("/api/v1/courier/status", headers=ah).status_code == 200
 
 
 def test_the_route_carries_and_then_holds(tenants):
@@ -102,6 +107,9 @@ def test_a_destination_cannot_be_named_by_a_caller(tenants):
 def test_a_peer_is_named_by_reference_never_by_key(tenants, monkeypatch):
     client, ah, bh, a_uri, b_uri = tenants
     monkeypatch.setenv("PEER_TOKEN", "s3cret")
+    # a reference arriving in a REQUEST needs the operator's permission; naming one
+    # is no longer enough on its own. See test_request_refs.
+    monkeypatch.setenv("REXGRAPH_REQUEST_KEY_REFS", "PEER_TOKEN")
     r = client.post("/api/v1/courier/peers", headers=ah,
                     json={"name": "gpu-box", "url": "https://gpu-box:8000",
                           "api_key_ref": "PEER_TOKEN"})

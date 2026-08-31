@@ -42,8 +42,9 @@ Design principles:
 1. Round-trip fidelity: `RexGraph.from_dict(to_dict())` is the
    contract. Every field that `from_dict` needs is stored as an
    individual `.npy` file, and every field is loaded back.
-2. Memory-mappable: Individual `.npy` files can be `mmap`'d
-   for lazy/partial reads of large graphs.
+2. Indexed access: Plain `.npy` members can be `mmap`'d. Authenticated
+   encrypted members use chunk-selective reads instead of pretending
+   ciphertext is memory-mappable typed data.
 3. Zero heavy deps: Only `numpy` and `json`. No zarr, h5py,
    scipy, pandas, or pyarrow.
 4. Cache groups: Same `algebra/spectral/topology/hodge/faces`
@@ -71,18 +72,43 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
 import os
 import pathlib
+import secrets
 import shutil
+import tempfile
+import threading
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover, non-POSIX publication is thread-safe only
+    fcntl = None
+
 if TYPE_CHECKING:
     from ..graph import RexGraph, TemporalRex
 
+from ._container_crypto import (
+    ContainerDecryptionProperties,
+    ContainerEncryptionError,
+    ContainerEncryptionProperties,
+    _predicate_mask,
+    _predicate_value,
+    _protect_tensor_members,
+    _query_protected_indices,
+    _read_protected_indices,
+    encrypted_metadata,
+    open_encrypted_manifest,
+    read_protected_tensor,
+    validate_storage_inventory,
+)
 from .rex_state import fname_encode as _fname_encode
 
 __all__ = [
@@ -93,6 +119,9 @@ __all__ = [
 
 _FORMAT_VERSION = 1
 _MAGIC = "rex-bundle"
+_ENCRYPTED_STORAGE = "__rex_encrypted_storage__"
+_PUBLISH_LOCK = threading.Lock()
+_PUBLISH_LOCK_PID = os.getpid()
 
 # Cache groups - same definitions as zarr_format / hdf5_format.
 _CACHE_GROUPS: dict[str, list[str]] = {
@@ -209,9 +238,250 @@ def _load_npy(
 
 #: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
 #: existing call sites keep working; `dumps` is what applies the non-finite policy.
-import contextlib
-
 from ._compat import dumps as _dumps
+
+
+@contextlib.contextmanager
+def _bundle_publish_lock(parent: pathlib.Path):
+    """Serialize the short directory replacement across threads/processes."""
+    global _PUBLISH_LOCK, _PUBLISH_LOCK_PID
+    pid = os.getpid()
+    if pid != _PUBLISH_LOCK_PID:
+        # A child must not inherit a lock another thread held across fork.
+        _PUBLISH_LOCK = threading.Lock()
+        _PUBLISH_LOCK_PID = pid
+    with _PUBLISH_LOCK:
+        if fcntl is None:
+            yield
+            return
+        fd = os.open(parent, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(fd)
+
+
+def _bundle_staging_directory(root: pathlib.Path) -> pathlib.Path:
+    """Create a same-parent staging directory with normal mkdir/umask semantics."""
+    for _ in range(100):
+        candidate = root.with_name(
+            f".{root.name}.tmp-{os.getpid()}-{secrets.token_hex(8)}"
+        )
+        try:
+            candidate.mkdir()
+        except FileExistsError:
+            continue
+        return candidate
+    raise FileExistsError(f"could not allocate a staging directory beside {root}")
+
+
+def _encrypted_member_path(
+    root: pathlib.Path,
+    member: dict[str, Any],
+) -> pathlib.Path:
+    suffix = ".rexenc" if member["protected"] else ".npy"
+    return root / f"{member['storage_name']}{suffix}"
+
+
+class _BundleStorageView:
+    """Safetensors-like uint8 view over one directory member."""
+
+    def __init__(self, array: np.ndarray):
+        self._array = array
+
+    def get_dtype(self) -> str:
+        return "U8"
+
+    def get_shape(self) -> list[int]:
+        return [int(self._array.size)]
+
+    def __getitem__(self, index):
+        return self._array[index]
+
+
+class _BundleStorage:
+    """Adapt authenticated directory members to the common chunk reader."""
+
+    def __init__(self, root: pathlib.Path, manifest: dict[str, Any]):
+        self.root = root
+        self.manifest = manifest
+        self._members = {
+            member["storage_name"]: member for member in manifest["members"]
+        }
+        self._logical_members = {
+            member["logical_name"]: member for member in manifest["members"]
+        }
+
+    def keys(self) -> list[str]:
+        return list(self._members)
+
+    def logical_member(self, logical_name: str) -> dict[str, Any] | None:
+        return self._logical_members.get(logical_name)
+
+    def logical_array(
+        self,
+        member: dict[str, Any],
+        *,
+        mmap: bool = True,
+    ) -> np.ndarray:
+        if member["protected"]:
+            raise ContainerEncryptionError("protected member is not a native npy array")
+        path = _encrypted_member_path(self.root, member)
+        try:
+            array = np.load(path, mmap_mode="r" if mmap else None, allow_pickle=False)
+        except (OSError, ValueError, EOFError) as exc:
+            raise ContainerEncryptionError(
+                f"plaintext storage for {member['logical_name']!r} is malformed"
+            ) from exc
+        if array.dtype.str != member["dtype"] or list(array.shape) != member["shape"]:
+            raise ContainerEncryptionError(
+                f"plaintext storage spec for {member['logical_name']!r} "
+                "differs from the authenticated manifest"
+            )
+        if not array.flags.c_contiguous:
+            raise ContainerEncryptionError("plaintext bundle member is not C-contiguous")
+        return array
+
+    def get_slice(self, storage_name: str) -> _BundleStorageView:
+        member = self._members[storage_name]
+        path = _encrypted_member_path(self.root, member)
+        if member["protected"]:
+            try:
+                array = np.memmap(path, dtype=np.uint8, mode="r")
+            except (OSError, ValueError) as exc:
+                raise ContainerEncryptionError(
+                    f"protected storage for {member['logical_name']!r} is malformed"
+                ) from exc
+        else:
+            logical = self.logical_array(member)
+            array = logical.view(np.uint8).reshape(-1)
+        return _BundleStorageView(array)
+
+
+def _bundle_storage_digest(view: _BundleStorageView) -> str:
+    digest = hashlib.sha256()
+    size = view.get_shape()[0]
+    block = 8 << 20
+    for start in range(0, size, block):
+        digest.update(np.asarray(view[start:min(start + block, size)]).tobytes())
+    return digest.hexdigest()
+
+
+def _validate_encrypted_bundle_files(
+    root: pathlib.Path,
+    manifest: dict[str, Any],
+    storage: _BundleStorage,
+) -> None:
+    expected_files = {"MANIFEST.json"}
+    for member in manifest["members"]:
+        expected_files.add(
+            _encrypted_member_path(root, member).relative_to(root).as_posix()
+        )
+    expected_directories = {_ENCRYPTED_STORAGE} if manifest["members"] else set()
+
+    actual_files: set[str] = set()
+    actual_directories: set[str] = set()
+    for path in root.rglob("*"):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            raise ContainerEncryptionError(
+                f"encrypted bundle inventory contains symlink {relative!r}"
+            )
+        if path.is_dir():
+            actual_directories.add(relative)
+        elif path.is_file():
+            actual_files.add(relative)
+        else:
+            raise ContainerEncryptionError(
+                f"encrypted bundle inventory contains unsupported entry {relative!r}"
+            )
+
+    if actual_files != expected_files or actual_directories != expected_directories:
+        raise ContainerEncryptionError(
+            "encrypted bundle file inventory differs from authenticated manifest; "
+            f"missing={sorted(expected_files - actual_files)!r}, "
+            f"extra={sorted(actual_files - expected_files)!r}, "
+            f"unexpected_directories={sorted(actual_directories - expected_directories)!r}"
+        )
+
+    validate_storage_inventory(storage, manifest)
+    for member in manifest["members"]:
+        expected_digest = member.get("storage_sha256")
+        if not isinstance(expected_digest, str):
+            raise ContainerEncryptionError(
+                f"storage digest is missing for {member['logical_name']!r}"
+            )
+        actual = _bundle_storage_digest(storage.get_slice(member["storage_name"]))
+        if actual != expected_digest:
+            raise ContainerEncryptionError(
+                f"storage digest failed for {member['logical_name']!r}"
+            )
+
+
+def _write_encrypted_bundle(
+    root: pathlib.Path,
+    tensors: dict[str, NDArray],
+    metadata: dict[str, Any],
+    encryption_properties: ContainerEncryptionProperties,
+    *,
+    kind: str,
+) -> dict[str, Any]:
+    storage, outer_metadata, manifest = _protect_tensor_members(
+        tensors,
+        metadata,
+        encryption_properties,
+        kind=kind,
+    )
+    if manifest["members"]:
+        (root / _ENCRYPTED_STORAGE).mkdir()
+    by_name = {member["logical_name"]: member for member in manifest["members"]}
+    for logical_name, member in by_name.items():
+        path = _encrypted_member_path(root, member)
+        if member["protected"]:
+            path.write_bytes(np.asarray(storage[member["storage_name"]]).tobytes())
+        else:
+            np.save(path, np.ascontiguousarray(np.asarray(tensors[logical_name])))
+
+    public_manifest = {
+        "encrypted": True,
+        "magic": _MAGIC,
+        "version": _FORMAT_VERSION,
+        **outer_metadata,
+    }
+    # Publication happens only after this last file exists in the staging directory.
+    (root / "MANIFEST.json").write_text(_dumps(public_manifest))
+    storage_reader = _BundleStorage(root, manifest)
+    _validate_encrypted_bundle_files(root, manifest, storage_reader)
+    return manifest
+
+
+def _open_bundle_manifest(
+    root: pathlib.Path,
+    decryption_properties: ContainerDecryptionProperties | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None, _BundleStorage | None]:
+    public = json.loads((root / "MANIFEST.json").read_text())
+    if public.get("magic") != _MAGIC:
+        raise ValueError(f"Not a rex bundle (magic={public.get('magic')!r})")
+
+    marked_encrypted = public.get("encrypted") is True or public.get("rex_encrypted") == "1"
+    is_encrypted = encrypted_metadata(public)
+    if marked_encrypted and not is_encrypted:
+        raise ContainerEncryptionError("encrypted bundle descriptor is missing")
+    if not is_encrypted:
+        return public, None, None
+
+    manifest = open_encrypted_manifest(public, decryption_properties)
+    metadata = manifest["metadata"]
+    if not isinstance(metadata, dict) or metadata.get("magic") != _MAGIC:
+        raise ContainerEncryptionError("authenticated bundle metadata is invalid")
+    if metadata.get("object_type") != manifest["kind"]:
+        raise ContainerEncryptionError(
+            "authenticated bundle object type differs from its container kind"
+        )
+    storage = _BundleStorage(root, manifest)
+    _validate_encrypted_bundle_files(root, manifest, storage)
+    return metadata, manifest, storage
 
 # RexBundle
 
@@ -234,6 +504,12 @@ class RexBundle:
     def __init__(self, root: pathlib.Path, manifest: dict):
         self._root = root
         self._manifest = manifest
+        self._mmap = False
+        self._encrypted_manifest = None
+        self._encrypted_storage = None
+        self._decryption_properties = None
+        self._query_chunk_cache: dict[tuple[str, str, int], bytes] = {}
+        self._query_statistics_cache: dict[str, list[dict[str, Any]]] = {}
 
     @property
     def manifest(self) -> dict:
@@ -283,6 +559,12 @@ class RexBundle:
         bundle._manifest = manifest
         bundle._source = graph
         bundle._cache_spec = cache
+        bundle._mmap = False
+        bundle._encrypted_manifest = None
+        bundle._encrypted_storage = None
+        bundle._decryption_properties = None
+        bundle._query_chunk_cache = {}
+        bundle._query_statistics_cache = {}
         return bundle
 
     @classmethod
@@ -291,6 +573,7 @@ class RexBundle:
         path: str | os.PathLike,
         *,
         mmap: bool = False,
+        decryption_properties: ContainerDecryptionProperties | None = None,
     ) -> RexBundle:
         """Load a bundle from a `.rex` directory.
 
@@ -300,6 +583,9 @@ class RexBundle:
             Bundle directory.
         mmap : bool
             If `True`, memory-map arrays for lazy loading.
+        decryption_properties : opaque property, optional
+            Caller-owned authenticated opener for an encrypted bundle. Core
+            receives no key bytes and imports no KMS implementation.
         """
         root = _ensure_rex(str(path))
         if not root.exists():
@@ -309,49 +595,103 @@ class RexBundle:
         if not mf_path.exists():
             raise FileNotFoundError(f"No MANIFEST.json in {root}")
 
-        manifest = json.loads(mf_path.read_text())
-        if manifest.get("magic") != _MAGIC:
-            raise ValueError(
-                f"Not a rex bundle (magic={manifest.get('magic')!r})"
-            )
+        manifest, encrypted_manifest, storage = _open_bundle_manifest(
+            root,
+            decryption_properties,
+        )
 
         bundle = cls(root, manifest)
         bundle._mmap = mmap
+        bundle._encrypted_manifest = encrypted_manifest
+        bundle._encrypted_storage = storage
+        bundle._decryption_properties = decryption_properties
         return bundle
 
 
     # Persistence
 
 
-    def save(self, path: str | os.PathLike) -> None:
+    def save(
+        self,
+        path: str | os.PathLike,
+        *,
+        encryption_properties: ContainerEncryptionProperties | None = None,
+    ) -> None:
         """Write this bundle to a `.rex` directory.
 
         If the bundle was created via `from_graph()`, arrays are
         written from the source graph.  If it was loaded from disk,
-        the existing directory is copied.
+        the existing directory is copied. An opaque encryption property writes
+        an authenticated manifest and indexed encrypted members.
         """
         root = _ensure_rex(str(path))
+        root.parent.mkdir(parents=True, exist_ok=True)
+        staging = _bundle_staging_directory(root)
+        encrypted_state: tuple[dict[str, Any], dict[str, Any]] | None = None
 
-        if root.exists():
-            shutil.rmtree(root)
-        root.mkdir(parents=True)
-
-        source = getattr(self, "_source", None)
-        if source is not None:
-            from ..graph import RexGraph, TemporalRex
-            if isinstance(source, TemporalRex):
-                _write_temporal_bundle(root, source)
-            elif isinstance(source, RexGraph):
-                cache = getattr(self, "_cache_spec", None)
-                _write_rex_bundle(root, source, cache)
+        try:
+            source = getattr(self, "_source", None)
+            if source is not None:
+                from ..graph import RexGraph, TemporalRex
+                if isinstance(source, TemporalRex):
+                    encrypted_state = _write_temporal_bundle(
+                        staging,
+                        source,
+                        encryption_properties=encryption_properties,
+                    )
+                elif isinstance(source, RexGraph):
+                    cache = getattr(self, "_cache_spec", None)
+                    encrypted_state = _write_rex_bundle(
+                        staging,
+                        source,
+                        cache,
+                        encryption_properties=encryption_properties,
+                    )
+                else:
+                    raise TypeError(f"Unexpected source: {type(source)}")
+            elif self._root is not None and self._root.exists():
+                if encryption_properties is not None:
+                    raise ValueError(
+                        "cannot change encryption while copying a loaded bundle; "
+                        "reconstruct the object and save it with the new property"
+                    )
+                shutil.copytree(self._root, staging, dirs_exist_ok=True)
+                if self._encrypted_manifest is not None:
+                    _open_bundle_manifest(staging, self._decryption_properties)
             else:
-                raise TypeError(f"Unexpected source: {type(source)}")
-        elif self._root is not None and self._root.exists():
-            # Copy existing bundle
-            if root != self._root:
-                shutil.copytree(self._root, root, dirs_exist_ok=True)
+                raise RuntimeError("Bundle has no source data and no existing path")
+
+            with _bundle_publish_lock(root.parent):
+                if root.is_symlink() or (root.exists() and not root.is_dir()):
+                    raise FileExistsError(f"Bundle destination is not a directory: {root}")
+                backup = root.with_name(
+                    f".{root.name}.old-{os.getpid()}-{secrets.token_hex(8)}"
+                )
+                had_existing = root.exists()
+                if had_existing:
+                    os.replace(root, backup)
+                try:
+                    os.replace(staging, root)
+                except Exception:
+                    if had_existing and backup.exists() and not root.exists():
+                        os.replace(backup, root)
+                    raise
+                if had_existing:
+                    shutil.rmtree(backup)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+
+        if encrypted_state is not None:
+            self._manifest, self._encrypted_manifest = encrypted_state
+            self._encrypted_storage = _BundleStorage(root, self._encrypted_manifest)
+            self._decryption_properties = encryption_properties
+        elif getattr(self, "_encrypted_manifest", None) is not None:
+            self._encrypted_storage = _BundleStorage(root, self._encrypted_manifest)
         else:
-            raise RuntimeError("Bundle has no source data and no existing path")
+            self._encrypted_manifest = None
+            self._encrypted_storage = None
+            self._decryption_properties = None
 
         self._root = root
         self._source = None  # drop reference after write
@@ -360,8 +700,12 @@ class RexBundle:
     # Reconstruction
 
 
-    def to_graph(self) -> RexGraph:
+    def to_graph(self, *, allow_unsealed: bool = False) -> RexGraph:
         """Reconstruct a RexGraph from this bundle.
+
+        ``allow_unsealed=True`` is an explicit migration path for trusted bundles
+        written before content digests existed. The default refuses them because their
+        stored tensors cannot be checked for modification or truncation.
 
         Raises
         ------
@@ -372,7 +716,17 @@ class RexBundle:
             raise TypeError(
                 f"Bundle contains {self.object_type}, not RexGraph"
             )
-        return _read_rex_graph(self._root)
+        if self._encrypted_manifest is not None:
+            from .rex_state import RexState, from_state
+
+            tensors = {
+                name: self._read_encrypted_tensor(name)
+                for name in self._manifest.get("tensor_names", [])
+            }
+            # An authenticated v1 container is never treated as an unsealed legacy
+            # state, even when a caller enables the plaintext migration flag.
+            return from_state(RexState(tensors, self._manifest), _allow_unsealed=False)
+        return _read_rex_graph(self._root, allow_unsealed=allow_unsealed)
 
     def to_temporal(self) -> TemporalRex:
         """Reconstruct a TemporalRex from this bundle."""
@@ -380,16 +734,137 @@ class RexBundle:
             raise TypeError(
                 f"Bundle contains {self.object_type}, not TemporalRex"
             )
+        if self._encrypted_manifest is not None:
+            return _read_temporal_rex(
+                self._root,
+                tensor_reader=self._read_encrypted_tensor,
+                manifest=self._manifest,
+            )
         return _read_temporal_rex(self._root)
 
-    def to_object(self):
+    def to_object(self, *, allow_unsealed: bool = False):
         """Reconstruct the appropriate object (RexGraph or TemporalRex)."""
         if self.object_type == "TemporalRex":
             return self.to_temporal()
-        return self.to_graph()
+        return self.to_graph(allow_unsealed=allow_unsealed)
 
 
     # Array access
+
+    def _encrypted_member(self, key: str) -> dict[str, Any]:
+        for candidate in (key, f"cache/{key}"):
+            member = self._encrypted_storage.logical_member(candidate)
+            if member is not None:
+                return member
+        raise KeyError(f"Array {key!r} not found in bundle")
+
+    def _read_encrypted_tensor(
+        self,
+        key: str,
+        index: int | slice | None = None,
+    ) -> np.ndarray:
+        member = self._encrypted_member(key)
+        return read_protected_tensor(
+            self._encrypted_storage,
+            self._encrypted_manifest,
+            member["logical_name"],
+            self._decryption_properties,
+            index=index,
+        )
+
+    def read_slice(
+        self,
+        key: str,
+        index: int | slice | None = None,
+    ) -> np.ndarray:
+        """Read an array or first-axis slice without opening unrelated members."""
+        if self._encrypted_manifest is None:
+            array = self[key]
+            return np.asarray(array if index is None else array[index])
+        member = self._encrypted_member(key)
+        if not member["protected"]:
+            array = self._encrypted_storage.logical_array(
+                member,
+                mmap=getattr(self, "_mmap", False),
+            )
+            return np.asarray(array if index is None else array[index])
+        return self._read_encrypted_tensor(member["logical_name"], index)
+
+    def where(
+        self,
+        key: str,
+        operator: str,
+        value: Any = None,
+    ) -> NDArray[np.int64]:
+        """Return first-axis positions satisfying a scalar member predicate."""
+        if self._encrypted_manifest is not None:
+            member = self._encrypted_member(key)
+            return _query_protected_indices(
+                self._encrypted_storage,
+                self._encrypted_manifest,
+                member["logical_name"],
+                operator,
+                value,
+                self._decryption_properties,
+                chunk_cache=self._query_chunk_cache,
+                statistics_cache=self._query_statistics_cache,
+            )
+        values = np.asarray(self[key])
+        if values.ndim != 1:
+            raise ValueError("query predicates require a one-dimensional tensor")
+        converted = _predicate_value(values.dtype, operator, value)
+        return np.flatnonzero(
+            _predicate_mask(values, operator, converted)
+        ).astype(np.int64, copy=False)
+
+    def select(
+        self,
+        keys: str | Sequence[str],
+        *,
+        where: tuple[str, str, Any],
+    ) -> dict[str, np.ndarray]:
+        """Gather named members at rows matching ``(name, operator, value)``."""
+        requested = [keys] if isinstance(keys, str) else list(keys)
+        if any(not isinstance(key, str) or not key for key in requested):
+            raise ValueError("query result names must be nonempty strings")
+        if not isinstance(where, tuple) or len(where) != 3:
+            raise TypeError("where must be a (name, operator, value) tuple")
+        predicate_key, operator, value = where
+        positions = self.where(predicate_key, operator, value)
+        predicate = np.asarray(self[predicate_key]) if self._encrypted_manifest is None else None
+        result: dict[str, np.ndarray] = {}
+        for key in requested:
+            if self._encrypted_manifest is not None:
+                predicate_member = self._encrypted_member(predicate_key)
+                member = self._encrypted_member(key)
+                if (
+                    not member["shape"]
+                    or member["shape"][0] != predicate_member["shape"][0]
+                ):
+                    raise ValueError(
+                        f"query result {key!r} does not share the predicate first axis"
+                    )
+                result[key] = _read_protected_indices(
+                    self._encrypted_storage,
+                    self._encrypted_manifest,
+                    member["logical_name"],
+                    positions,
+                    self._decryption_properties,
+                    chunk_cache=self._query_chunk_cache,
+                )
+            else:
+                values = np.asarray(self[key])
+                if values.ndim == 0 or values.shape[0] != predicate.shape[0]:
+                    raise ValueError(
+                        f"query result {key!r} does not share the predicate first axis"
+                    )
+                result[key] = values[positions]
+        return result
+
+    def clear_query_cache(self) -> None:
+        """Forget decrypted chunks and statistics retained by bundle queries."""
+        self._query_chunk_cache.clear()
+        self._query_statistics_cache.clear()
 
 
     def __getitem__(self, key: str) -> np.ndarray:
@@ -404,6 +879,17 @@ class RexBundle:
             raise KeyError(key)
 
         mmap = getattr(self, "_mmap", False)
+
+        if self._encrypted_manifest is not None:
+            member = self._encrypted_member(key)
+            if not member["protected"]:
+                return self._encrypted_storage.logical_array(member, mmap=mmap)
+            if mmap:
+                raise ValueError(
+                    "encrypted bundle members cannot be memory-mapped; "
+                    "use bundle.read_slice(name, index) to decrypt selected chunks"
+                )
+            return self._read_encrypted_tensor(member["logical_name"])
 
         # Check root level
         npy = self._root / f"{key}.npy"
@@ -420,6 +906,12 @@ class RexBundle:
     def __contains__(self, key: str) -> bool:
         if self._root is None:
             return False
+        if self._encrypted_manifest is not None:
+            try:
+                self._encrypted_member(key)
+            except KeyError:
+                return False
+            return True
         return (
             (self._root / f"{key}.npy").exists()
             or (self._root / "cache" / f"{key}.npy").exists()
@@ -429,6 +921,11 @@ class RexBundle:
         """List all available array names."""
         if self._root is None:
             return []
+        if self._encrypted_manifest is not None:
+            return sorted(
+                member["logical_name"].removeprefix("cache/")
+                for member in self._encrypted_manifest["members"]
+            )
         names = []
         for f in self._root.glob("*.npy"):
             names.append(f.stem)
@@ -440,6 +937,13 @@ class RexBundle:
 
     def read_cache(self) -> dict:
         """Read all cached properties as a dict."""
+        if self._encrypted_manifest is not None:
+            result = {
+                name: self[name]
+                for name in self._manifest.get("cached_arrays", [])
+            }
+            result.update(self._manifest.get("cache_scalars", {}))
+            return result
         cache_dir = self._root / "cache"
         if not cache_dir.exists():
             return {}
@@ -483,6 +987,8 @@ def _build_rex_manifest(rex, cache) -> dict:
 
 def _build_temporal_manifest(trex) -> dict:
     """Build MANIFEST.json content for a TemporalRex."""
+    g_channels = list(getattr(trex, "_g_channels", ()))
+    c_channels = list(getattr(trex, "_c_channels", ()))
     return {
         "magic": _MAGIC,
         "version": _FORMAT_VERSION,
@@ -491,17 +997,72 @@ def _build_temporal_manifest(trex) -> dict:
         "directed": bool(trex._directed),
         "general": bool(trex._general),
         "has_face_snapshots": bool(trex._face_snapshots),
+        "times": [float(value) for value in trex._times],
+        "g_channels": [
+            str(g_channels[index]) if index < len(g_channels) else "raw"
+            for index in range(trex.T)
+        ],
+        "c_channels": [
+            str(c_channels[index]) if index < len(c_channels) else "share"
+            for index in range(trex.T)
+        ],
     }
 
 
 # Internal: RexGraph write/read
 
 
-def _write_rex_bundle(root: pathlib.Path, rex, cache) -> None:
+def _write_rex_bundle(
+    root: pathlib.Path,
+    rex,
+    cache,
+    *,
+    encryption_properties: ContainerEncryptionProperties | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Write a RexGraph to a .rex directory."""
     from .rex_state import to_state
     st = to_state(rex)
     names = list(st.tensors.keys())
+    manifest = dict(st.header)
+    manifest["magic"] = _MAGIC
+    manifest["object_type"] = "RexGraph"
+    manifest["tensor_names"] = names
+
+    if encryption_properties is not None:
+        tensors = {
+            name: np.ascontiguousarray(np.asarray(value))
+            for name, value in st.tensors.items()
+        }
+        if cache:
+            requested = _resolve_cache(cache)
+            if requested:
+                with tempfile.TemporaryDirectory(
+                    prefix=".rex-cache-",
+                    dir=root,
+                ) as cache_temp:
+                    cache_root = pathlib.Path(cache_temp)
+                    written_cache, scalar_cache = _write_cache(
+                        cache_root,
+                        rex,
+                        requested,
+                    )
+                    for cache_name in written_cache:
+                        tensors[f"cache/{cache_name}"] = np.load(
+                            cache_root / f"{cache_name}.npy",
+                            allow_pickle=False,
+                        )
+                manifest["cached_arrays"] = written_cache
+                if scalar_cache:
+                    manifest["cache_scalars"] = scalar_cache
+        encrypted_manifest = _write_encrypted_bundle(
+            root,
+            tensors,
+            manifest,
+            encryption_properties,
+            kind="RexGraph",
+        )
+        return manifest, encrypted_manifest
+
     # Filenames use a REVERSIBLE, collision-free percent-encoding of the tensor name (see
     # _fname_encode). A tensor name may contain '/' (nested rexes) or '__' (user metadata keys); the
     # old '/'->'__' substitution was neither filesystem-safe nor invertible and collided. Core arrays
@@ -509,10 +1070,6 @@ def _write_rex_bundle(root: pathlib.Path, rex, cache) -> None:
     # keeping the RexBundle array-access API working.
     for name in names:
         _save_npy(root, _fname_encode(name), np.asarray(st.tensors[name]))
-    manifest = dict(st.header)
-    manifest["magic"] = "rex-bundle"
-    manifest["object_type"] = "RexGraph"
-    manifest["tensor_names"] = names
     (root / "MANIFEST.json").write_text(_dumps(manifest))
     if cache:
         names = _resolve_cache(cache)
@@ -524,24 +1081,65 @@ def _write_rex_bundle(root: pathlib.Path, rex, cache) -> None:
             if scalar_cache:
                 manifest["cache_scalars"] = scalar_cache
             (root / "MANIFEST.json").write_text(_dumps(manifest))
+    return None
 
 
-def _read_rex_graph(root: pathlib.Path) -> RexGraph:
+def _read_rex_graph(
+    root: pathlib.Path,
+    *,
+    allow_unsealed: bool = False,
+) -> RexGraph:
     """Reconstruct a RexGraph from a .rex directory."""
     from .rex_state import RexState, from_state
     manifest = json.loads((root / "MANIFEST.json").read_text())
     tensors = {}
     for name in manifest.get("tensor_names", []):
         tensors[name] = np.load(root / f"{_fname_encode(name)}.npy")
-    return from_state(RexState(tensors, manifest))
+    return from_state(
+        RexState(tensors, manifest),
+        _allow_unsealed=allow_unsealed,
+    )
 
 
 # Internal: TemporalRex write/read
 
 
-def _write_temporal_bundle(root: pathlib.Path, trex) -> None:
+def _write_temporal_bundle(
+    root: pathlib.Path,
+    trex,
+    *,
+    encryption_properties: ContainerEncryptionProperties | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Write a TemporalRex to a .rex directory."""
     manifest = _build_temporal_manifest(trex)
+
+    if encryption_properties is not None:
+        manifest["face_snapshot_count"] = len(trex._face_snapshots)
+        tensors: dict[str, NDArray] = {}
+        for t in range(trex.T):
+            snap = trex._snapshots[t]
+            if trex._general:
+                tensors[f"snapshots/{t}/boundary_ptr"] = snap[0]
+                tensors[f"snapshots/{t}/boundary_idx"] = snap[1]
+            else:
+                tensors[f"snapshots/{t}/sources"] = snap[0]
+                tensors[f"snapshots/{t}/targets"] = snap[1]
+        for t, face_snapshot in enumerate(trex._face_snapshots):
+            tensors[f"face_snapshots/{t}/B2_col_ptr"] = face_snapshot[0]
+            tensors[f"face_snapshots/{t}/B2_row_idx"] = face_snapshot[1]
+            if len(face_snapshot) > 2:
+                tensors[f"face_snapshots/{t}/B2_vals"] = face_snapshot[2]
+        manifest["face_snapshot_values"] = [
+            len(face_snapshot) > 2 for face_snapshot in trex._face_snapshots
+        ]
+        encrypted_manifest = _write_encrypted_bundle(
+            root,
+            tensors,
+            manifest,
+            encryption_properties,
+            kind="TemporalRex",
+        )
+        return manifest, encrypted_manifest
 
     snap_dir = root / "snapshots"
     snap_dir.mkdir()
@@ -569,13 +1167,20 @@ def _write_temporal_bundle(root: pathlib.Path, trex) -> None:
     (root / "MANIFEST.json").write_text(
         _dumps(manifest, indent=2)
     )
+    return None
 
 
-def _read_temporal_rex(root: pathlib.Path) -> TemporalRex:
+def _read_temporal_rex(
+    root: pathlib.Path,
+    *,
+    tensor_reader=None,
+    manifest: dict[str, Any] | None = None,
+) -> TemporalRex:
     """Reconstruct a TemporalRex from a .rex directory."""
     from ..graph import TemporalRex
 
-    manifest = json.loads((root / "MANIFEST.json").read_text())
+    if manifest is None:
+        manifest = json.loads((root / "MANIFEST.json").read_text())
     T = manifest["T"]
     directed = manifest.get("directed", False)
     general = manifest.get("general", False)
@@ -586,33 +1191,67 @@ def _read_temporal_rex(root: pathlib.Path) -> TemporalRex:
         tdir = snap_dir / str(t)
         if general:
             snapshots.append((
-                _load_npy(tdir, "boundary_ptr"),
-                _load_npy(tdir, "boundary_idx"),
+                tensor_reader(f"snapshots/{t}/boundary_ptr")
+                if tensor_reader else _load_npy(tdir, "boundary_ptr"),
+                tensor_reader(f"snapshots/{t}/boundary_idx")
+                if tensor_reader else _load_npy(tdir, "boundary_idx"),
             ))
         else:
             snapshots.append((
-                _load_npy(tdir, "sources"),
-                _load_npy(tdir, "targets"),
+                tensor_reader(f"snapshots/{t}/sources")
+                if tensor_reader else _load_npy(tdir, "sources"),
+                tensor_reader(f"snapshots/{t}/targets")
+                if tensor_reader else _load_npy(tdir, "targets"),
             ))
 
     face_snapshots = []
     fdir = root / "face_snapshots"
-    if fdir.exists():
-        for t in range(len(list(fdir.iterdir()))):
+    if tensor_reader:
+        face_count = int(manifest.get("face_snapshot_count", 0))
+    else:
+        face_count = len(list(fdir.iterdir())) if fdir.exists() else 0
+    if face_count:
+        face_values = manifest.get("face_snapshot_values", [])
+        for t in range(face_count):
             ftdir = fdir / str(t)
-            if not ftdir.exists():
-                break
-            face_snapshots.append((
-                _load_npy(ftdir, "B2_col_ptr"),
-                _load_npy(ftdir, "B2_row_idx"),
-            ))
+            face_snapshot = (
+                tensor_reader(f"face_snapshots/{t}/B2_col_ptr")
+                if tensor_reader else _load_npy(ftdir, "B2_col_ptr"),
+                tensor_reader(f"face_snapshots/{t}/B2_row_idx")
+                if tensor_reader else _load_npy(ftdir, "B2_row_idx"),
+            )
+            if tensor_reader and t < len(face_values) and face_values[t]:
+                face_snapshot = (*face_snapshot, tensor_reader(
+                    f"face_snapshots/{t}/B2_vals"
+                ))
+            face_snapshots.append(face_snapshot)
 
-    return TemporalRex(
+    trex = TemporalRex(
         snapshots,
         face_snapshots=face_snapshots or None,
         directed=directed,
         general=general,
     )
+    raw_times = manifest.get("times")
+    if raw_times is not None:
+        if not isinstance(raw_times, list) or len(raw_times) != T:
+            raise ValueError("TemporalRex bundle times must contain one value per step")
+        trex._times = [float(value) for value in raw_times]
+    for field, default, allowed in (
+        ("g_channels", "raw", {"raw", "normalized"}),
+        ("c_channels", "share", {"share", "count"}),
+    ):
+        values = manifest.get(field)
+        if values is None:
+            values = [default] * T
+        if (
+            not isinstance(values, list)
+            or len(values) != T
+            or any(not isinstance(value, str) or value not in allowed for value in values)
+        ):
+            raise ValueError(f"TemporalRex bundle {field} are invalid")
+        setattr(trex, f"_{field}", list(values))
+    return trex
 
 
 # Internal: cache writer
@@ -771,6 +1410,7 @@ def save_rex(
     obj: Any,
     *,
     cache: None | str | list[str] = None,
+    encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> None:
     """Save a RexGraph or TemporalRex to a `.rex` bundle.
 
@@ -782,6 +1422,9 @@ def save_rex(
         Object to save.
     cache : None, "all", or list of str
         Precomputed properties to include.
+    encryption_properties : opaque property, optional
+        Authenticated sealing context. ``None`` preserves the native plaintext
+        directory layout.
 
     Examples
     --------
@@ -790,16 +1433,26 @@ def save_rex(
     >>> save_rex("graph.rex", rex, cache=["topology", "spectral"])
     """
     bundle = RexBundle.from_graph(obj, cache=cache)
-    bundle.save(path)
+    bundle.save(path, encryption_properties=encryption_properties)
 
 
-def load_rex(path: str) -> Any:
+def load_rex(
+    path: str,
+    *,
+    allow_unsealed: bool = False,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+) -> Any:
     """Load a RexGraph or TemporalRex from a `.rex` bundle.
 
     Parameters
     ----------
     path : str
         Path to `.rex` directory.
+    allow_unsealed : bool
+        Permit a trusted legacy RexGraph bundle with no content digest. This is false
+        by default because an unsealed bundle cannot be checked for modification.
+    decryption_properties : opaque property, optional
+        Authenticated opening context required by an encrypted bundle.
 
     Returns
     -------
@@ -810,5 +1463,5 @@ def load_rex(path: str) -> Any:
     >>> rex = load_rex("graph.rex")
     >>> trex = load_rex("temporal.rex")
     """
-    bundle = RexBundle.load(path)
-    return bundle.to_object()
+    bundle = RexBundle.load(path, decryption_properties=decryption_properties)
+    return bundle.to_object(allow_unsealed=allow_unsealed)
