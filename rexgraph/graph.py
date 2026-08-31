@@ -7130,6 +7130,27 @@ def face_key_of(B2_col_ptr, B2_row_idx, edge_keys, directed=False):
     return out
 
 
+def _has_repeated_keys(keys) -> bool:
+    """Whether a canonical-key vector aliases two distinct stored objects."""
+    keys = np.asarray(keys)
+    return bool(keys.size and np.unique(keys).size != keys.size)
+
+
+def _temporal_state_needs_identity_checkpoint(face_state) -> bool:
+    """Whether key-level temporal replay would lose relation or face identity.
+
+    Cell keys describe boundary support, not relation identity.  Face keys likewise
+    describe constituent relation keys.  Repeated keys are therefore valid RexGraph
+    multiplicity, but they cannot be used as the unique dictionary addresses that a
+    TemporalDelta/FaceDelta requires.  Such a state must travel as a full checkpoint.
+    """
+    b2cp, b2ri, _b2v, edge_keys = face_state
+    if _has_repeated_keys(edge_keys):
+        return True
+    face_keys = face_key_of(b2cp, b2ri, edge_keys)
+    return _has_repeated_keys(face_keys)
+
+
 def apply_edge_delta(rex, delta):
     """Fold a TemporalDelta onto a live RexGraph via in-place mutators (O(delta)).
 
@@ -7279,6 +7300,11 @@ class TemporalRex:
         # time: the identity bridge, so a store built without timestamps behaves
         # exactly as it always did.
         self._times = [float(i) for i in range(self._T)]
+        # Algebra channels are snapshot semantics, not caches. The checkpoint/delta
+        # index stores topology and attribution, so keep the selected channel tower
+        # beside its step clock and reapply it whenever a RexGraph is reconstructed.
+        self._g_channels = ["raw"] * self._T
+        self._c_channels = ["share"] * self._T
 
         # snapshots-backed construction: full snapshots already held in
         # `_snapshots`, so `at(t)` is authoritative and the incremental
@@ -7343,6 +7369,8 @@ class TemporalRex:
             src, tgt = snap
             kwargs = dict(sources=src, targets=tgt)
         kwargs["directed"] = self._directed
+        kwargs["g_channel"] = self._channel_at("_g_channels", t, "raw")
+        kwargs["c_channel"] = self._channel_at("_c_channels", t, "share")
 
         if self._face_snapshots and t < len(self._face_snapshots):
             fsnap = self._face_snapshots[t]
@@ -7360,6 +7388,16 @@ class TemporalRex:
             )
 
         return RexGraph(**kwargs)
+
+    def _channel_at(self, field: str, t: int, default: str) -> str:
+        values = getattr(self, field, ())
+        return str(values[t]) if t < len(values) else default
+
+    def _restore_channels(self, rex: RexGraph, t: int) -> RexGraph:
+        """Reapply the algebra tower selected by snapshot ``t``."""
+        rex._g_channel = self._channel_at("_g_channels", t, "raw")
+        rex._c_channel = self._channel_at("_c_channels", t, "share")
+        return rex
 
     def _seed_rex(self, checkpoint) -> RexGraph:
         """Build a fresh RexGraph from a full checkpoint tuple
@@ -7402,11 +7440,32 @@ class TemporalRex:
         and `_ensure_index` (batch build over already-materialized snapshots), so
         the two paths produce a byte-identical index.
 
+        Boundary-derived keys are not relation IDs: parallel relations legitimately
+        have the same key.  A transition touching repeated cell or face keys is
+        therefore checkpointed regardless of churn.  That keeps reconstruction an
+        exact multiset round trip instead of projecting relations onto unique
+        boundaries.
+
         `record_snapshot=False` is how `_ensure_index` replays snapshots that are
         already sitting in `self._snapshots` (placed there at construction time)
         without appending duplicates onto that list.
         """
         t = self._T
+        channels = (
+            ("_g_channels", str(getattr(rex, "_g_channel", "raw"))),
+            ("_c_channels", str(getattr(rex, "_c_channel", "share"))),
+        )
+        for field, value in channels:
+            values = getattr(self, field, None)
+            if values is None:
+                values = []
+                setattr(self, field, values)
+            while len(values) < t:
+                values.append("raw" if field == "_g_channels" else "share")
+            if len(values) == t:
+                values.append(value)
+            else:
+                values[t] = value
         cp, ci, cw, cs = _cell_state(rex)
         nE = int(cp.shape[0] - 1)
         cw = np.zeros(nE, _f64) if cw is None else np.asarray(cw, _f64)
@@ -7423,29 +7482,40 @@ class TemporalRex:
             self._cumulative_delta = 0
         else:
             pp, pi, pw, ps = self._last_state
-            d = make_edge_delta(pp, pi, pw, ps, cp, ci, cw, cs, self._directed)
-            fd = make_face_delta(self._last_face_state, curr_face_state, self._directed) if face else None
-
-            n_born = int(d.born_offsets.shape[0] - 1)
-            n_died = int(d.died_keys.shape[0])
-            # Modifications count too. Existence and orientation are independent
-            # conditions of the composite binary, so a cell reversing orientation is
-            # a real change to replay, not a weaker form of one appearing. Counting
-            # only born+died meant a history made entirely of reversals (the normal
-            # case wherever direction carries the signal) registered zero churn,
-            # never checkpointed, and left reconstruct_at replaying the whole chain.
-            n_mod = int(d.mod_keys.shape[0])
-            self._cumulative_delta += n_born + n_died + n_mod
-
-            if nE > 0 and (self._cumulative_delta / nE) > self._checkpoint_threshold:
+            identity_checkpoint = (
+                _temporal_state_needs_identity_checkpoint(self._last_face_state)
+                or _temporal_state_needs_identity_checkpoint(curr_face_state)
+            )
+            if identity_checkpoint:
                 self._index_checkpoints[t] = self._checkpoint_of(rex, t)
                 self._index_cp_times = np.append(self._index_cp_times, t).astype(np.int64)
                 self._index_deltas.append(None)
                 self._index_face_deltas.append(None)
                 self._cumulative_delta = 0
             else:
-                self._index_deltas.append(d)
-                self._index_face_deltas.append(fd)
+                d = make_edge_delta(pp, pi, pw, ps, cp, ci, cw, cs, self._directed)
+                fd = make_face_delta(self._last_face_state, curr_face_state, self._directed) if face else None
+
+                n_born = int(d.born_offsets.shape[0] - 1)
+                n_died = int(d.died_keys.shape[0])
+                # Modifications count too. Existence and orientation are independent
+                # conditions of the composite binary, so a cell reversing orientation is
+                # a real change to replay, not a weaker form of one appearing. Counting
+                # only born+died meant a history made entirely of reversals (the normal
+                # case wherever direction carries the signal) registered zero churn,
+                # never checkpointed, and left reconstruct_at replaying the whole chain.
+                n_mod = int(d.mod_keys.shape[0])
+                self._cumulative_delta += n_born + n_died + n_mod
+
+                if nE > 0 and (self._cumulative_delta / nE) > self._checkpoint_threshold:
+                    self._index_checkpoints[t] = self._checkpoint_of(rex, t)
+                    self._index_cp_times = np.append(self._index_cp_times, t).astype(np.int64)
+                    self._index_deltas.append(None)
+                    self._index_face_deltas.append(None)
+                    self._cumulative_delta = 0
+                else:
+                    self._index_deltas.append(d)
+                    self._index_face_deltas.append(fd)
 
         if record_snapshot and self._snapshots_materialized:
             self._snapshots.append((cp, ci) if self._general else (rex.sources, rex.targets))
@@ -7552,17 +7622,31 @@ class TemporalRex:
         vertex ids straight from the delta, apply died/born/modified purely at
         the key level, then build exactly ONE RexGraph at the end from the
         accumulated cells. No live rex is ever mutated mid-replay, so there is
-        nothing to renumber and every key stays valid for the whole chain."""
+        nothing to renumber and every key stays valid for the whole chain.
+
+        A key names boundary support, not a relation instance.  Index creation
+        therefore stores full checkpoints for every transition that touches
+        parallel relations or repeated face keys.  A checkpoint target is returned
+        directly, preserving the multiset exactly.  Ambiguous legacy deltas are
+        rejected below rather than silently collapsing topology."""
         self._ensure_index()
         from rexgraph.core._temporal import cell_keys_of
         cts = self._index_cp_times
         c = int(cts[np.searchsorted(cts, t, side="right") - 1])
-        _, bp, bi, wE, signs, b2cp, b2ri, b2v = self._index_checkpoints[c]
+        checkpoint = self._index_checkpoints[c]
+        if c == t:
+            return self._restore_channels(self._seed_rex(checkpoint), t)
+        _, bp, bi, wE, signs, b2cp, b2ri, b2v = checkpoint
         directed = self._directed
 
         # live cells: canonical key -> [column (original vertex ids), w_E, sign]
         cells = {}
         seed_keys = cell_keys_of(np.asarray(bp), np.asarray(bi), directed)
+        if _has_repeated_keys(seed_keys):
+            raise ValueError(
+                "reconstruct_at: a checkpoint with parallel relations precedes a "
+                "key-level delta; this legacy index lacks relation identity and "
+                "cannot be replayed without changing the complex")
         for j in range(len(bp) - 1):
             col = np.asarray(bi[bp[j]:bp[j + 1]]).copy()
             cells[int(seed_keys[j])] = [
@@ -7576,15 +7660,24 @@ class TemporalRex:
         # replace their entry wholesale with the delta's own edge keys)
         faces = {}
         if b2cp is not None and len(b2cp) > 1:
+            seed_face_keys = face_key_of(b2cp, b2ri, seed_keys)
+            if _has_repeated_keys(seed_face_keys):
+                raise ValueError(
+                    "reconstruct_at: a checkpoint with repeated face keys precedes "
+                    "a key-level delta; this legacy index lacks face identity")
             for f in range(len(b2cp) - 1):
                 rows = np.asarray(b2ri[b2cp[f]:b2cp[f + 1]])
                 eks = seed_keys[rows]
-                faces[int(face_key_of_keys(eks))] = (
+                faces[int(seed_face_keys[f])] = (
                     eks.copy(), np.asarray(b2v[b2cp[f]:b2cp[f + 1]]).copy())
 
         for k in range(c + 1, t + 1):
             d = self._index_deltas[k]
             if d is not None:
+                if _has_repeated_keys(d.died_keys) or _has_repeated_keys(d.mod_keys):
+                    raise ValueError(
+                        f"reconstruct_at: step {k} contains repeated relation keys; "
+                        "this legacy delta lacks relation identity")
                 for key in d.died_keys:
                     cells.pop(int(key), None)
                 nb = int(d.born_offsets.shape[0] - 1)
@@ -7592,6 +7685,11 @@ class TemporalRex:
                     col = np.asarray(d.born_cols[d.born_offsets[i]:d.born_offsets[i + 1]]).copy()
                     bk = int(cell_keys_of(np.array([0, len(col)], dtype=col.dtype),
                                           col, d.directed)[0])
+                    if bk in cells:
+                        raise ValueError(
+                            f"reconstruct_at: relation key {bk} collides at step {k}; "
+                            "this legacy delta cannot represent parallel relations "
+                            "without changing the complex")
                     cells[bk] = [col, float(d.born_wE[i]), int(d.born_signs[i])]
                 for i in range(len(d.mod_keys)):
                     mk = int(d.mod_keys[i])
@@ -7607,6 +7705,10 @@ class TemporalRex:
                             d.mod_heads[i]))
             fd = self._index_face_deltas[k] if self._index_face_deltas else None
             if fd is not None:
+                if _has_repeated_keys(fd.died_face_keys):
+                    raise ValueError(
+                        f"reconstruct_at: step {k} contains repeated face keys; "
+                        "this legacy delta lacks face identity")
                 for fk in fd.died_face_keys:
                     faces.pop(int(fk), None)
                 nbf = int(fd.born_offsets.shape[0] - 1)
@@ -7615,7 +7717,12 @@ class TemporalRex:
                         fd.born_edge_keys[fd.born_offsets[i]:fd.born_offsets[i + 1]]).copy()
                     fsg = np.asarray(
                         fd.born_signs[fd.born_offsets[i]:fd.born_offsets[i + 1]]).copy()
-                    faces[int(face_key_of_keys(eks))] = (eks, fsg)
+                    fk = int(face_key_of_keys(eks))
+                    if fk in faces:
+                        raise ValueError(
+                            f"reconstruct_at: face key {fk} collides at step {k}; this "
+                            "legacy delta cannot represent repeated faces")
+                    faces[fk] = (eks, fsg)
 
         # build ONE RexGraph, preserving original vertex ids (no renumber)
         ordered = list(cells.items())
@@ -7664,7 +7771,7 @@ class TemporalRex:
                 B2_row_idx=np.array(fri, dtype=_i32),
                 B2_vals=np.array(fv, dtype=_f64),
             )
-        return RexGraph(**kw)
+        return self._restore_channels(RexGraph(**kw), t)
 
     def _snapshot_at(self, t: int) -> RexGraph:
         """Return the snapshot at `t`, from materialized storage if available,

@@ -7,9 +7,18 @@ relational-complex monitor over swarm traffic. Every bee interaction is recorded
 into the live complex, so this monitor and `/api/v1/agents/monitor` read the same
 flow.
 """
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+
+from ..auth import require_admin
 
 router = APIRouter(prefix="/v1")
+
+# Reading what the instance is running is ordinary use. Everything that MOVES it is not:
+# the runtime is process-wide, so these start and stop subprocesses, spend disk and VRAM,
+# and take a model or a profile out from under whoever else is using it. Those are
+# instance operations rather than workspace ones, and they are gated on instance admin.
+_admin = [Depends(require_admin)]
+
 
 
 @router.get("/hive/status")
@@ -26,17 +35,29 @@ async def hive_monitor(embed: bool = False):
     return hive.get_hive().monitor(embed=embed)
 
 
-@router.post("/hive/attach")
+@router.post("/hive/attach", dependencies=_admin)
 async def hive_attach(body: dict = Body(...)):
     """Attach an already-running endpoint as a bee.
 
     body: {name, url, role?, model?, specialties?, api_key_ref?}. `api_key_ref` names an env var /
     secret-store entry holding the endpoint's credential - the API never accepts or returns a raw
-    key, so a credential cannot arrive over the wire or be echoed back."""
+    key, so a credential cannot arrive over the wire or be echoed back.
+
+    Admin, because this points the hive at a url the CALLER chose and can hand that url a
+    credential. The reference is checked against the operator's allow-list first: without
+    that check a caller names any environment variable and the value leaves as a bearer
+    header on the first request routed to their endpoint.
+    """
     from agent import hive
+    from agent.secrets import REQUEST_REFS_ENV, request_refs_allowed
     name, url = body.get("name"), body.get("url")
     if not (name and url):
         raise HTTPException(400, "need 'name' and 'url'")
+    ref = body.get("api_key_ref", "")
+    if ref and ref not in request_refs_allowed():
+        raise HTTPException(
+            400, f"{ref!r} is not an allowed request reference; an operator lists the "
+                 f"permitted ones in {REQUEST_REFS_ENV}")
     try:
         b = hive.get_hive().attach(name, url, role=body.get("role", "worker"),
                                    model=body.get("model", ""),
@@ -47,7 +68,7 @@ async def hive_attach(body: dict = Body(...)):
     return {"ok": True, "bee": b.public()}
 
 
-@router.post("/hive/attach-live")
+@router.post("/hive/attach-live", dependencies=_admin)
 async def hive_attach_live():
     """Discover running inference servers (ollama/vLLM/llama.cpp/…) and attach any new ones."""
     from agent import hive
@@ -62,14 +83,14 @@ async def hive_plan(budget: float = None):
     return hive.get_hive().auto_plan(budget)
 
 
-@router.post("/hive/auto")
+@router.post("/hive/auto", dependencies=_admin)
 async def hive_auto(body: dict = Body(default={})):
     """Plan and stand up the hive that fits this machine, from the models on disk. body: {budget?}. Blocking; model loads take time. Use /hive/plan to preview first."""
     from agent import hive
     return hive.get_hive().auto((body or {}).get("budget"))
 
 
-@router.post("/hive/spawn")
+@router.post("/hive/spawn", dependencies=_admin)
 async def hive_spawn(body: dict = Body(...)):
     """Bring a bee up as a managed llama.cpp subprocess. body: {name, model_path, role?, specialties?, port?, ctx_size?}. Needs a built llama.cpp binary and the GGUF on disk."""
     from agent import hive
@@ -85,7 +106,7 @@ async def hive_spawn(body: dict = Body(...)):
     return {"ok": True, "bee": b.public(), "status": hive.get_hive().status()}
 
 
-@router.post("/hive/remove")
+@router.post("/hive/remove", dependencies=_admin)
 async def hive_remove(body: dict = Body(...)):
     """Stop (if managed) and unregister a bee. body: {name}."""
     from agent import hive
@@ -131,7 +152,7 @@ async def hive_ask(body: dict = Body(...)):
     return {"bee": name, "reply": reply}
 
 
-@router.post("/hive/down")
+@router.post("/hive/down", dependencies=_admin)
 async def hive_down():
     """Stop all managed bees and clear the hive."""
     from agent import hive
@@ -158,7 +179,7 @@ async def hive_profile_get(pid: str):
     return p.to_dict()
 
 
-@router.post("/hive/profiles")
+@router.post("/hive/profiles", dependencies=_admin)
 async def hive_profile_save(body: dict = Body(...)):
     """Create or update a user profile. body: a profile dict, or {name, base?, ...overrides} to clone an existing preset. Built-ins are not mutated in place; this shadows them."""
     from agent import hive_config
@@ -171,14 +192,14 @@ async def hive_profile_save(body: dict = Body(...)):
     return {"ok": True, "profile": p.to_dict()}
 
 
-@router.delete("/hive/profiles/{pid}")
+@router.delete("/hive/profiles/{pid}", dependencies=_admin)
 async def hive_profile_delete(pid: str):
     """Delete a user profile (or a user override of a preset). Presets themselves persist."""
     from agent import hive_config
     return {"ok": hive_config.get_store().delete(pid)}
 
 
-@router.post("/hive/profiles/{pid}/apply")
+@router.post("/hive/profiles/{pid}/apply", dependencies=_admin)
 async def hive_profile_apply(pid: str, body: dict = Body(default={})):
     """Switch to a setup: stop the current swarm and bring the hive up per this profile, and set it active. Blocking; model loads and managed spawns take time."""
     from agent import hive_config
@@ -188,7 +209,7 @@ async def hive_profile_apply(pid: str, body: dict = Body(default={})):
         raise HTTPException(404, str(e)) from e
 
 
-@router.post("/hive/profiles/active")
+@router.post("/hive/profiles/active", dependencies=_admin)
 async def hive_profile_set_active(body: dict = Body(...)):
     """Mark a profile active without applying it (pointer only). body: {id}."""
     from agent import hive_config

@@ -414,7 +414,7 @@ class DriftTracker:
 
 # live registry: the running swarm's shared complex, fed as agents/models interact
 
-_LIVE: AgentComplex | None = None
+_LIVE: dict[str, AgentComplex] = {}
 _DRIFT: DriftTracker | None = None
 
 
@@ -432,13 +432,21 @@ def reset_drift():
     _DRIFT = None
 
 
-def get_live() -> AgentComplex:
-    """The process-wide live agentic complex: the shared structure the runtime appends to as
-    agents/models exchange messages (model, memory, and database as one complex)."""
-    global _LIVE
-    if _LIVE is None:
-        _LIVE = AgentComplex()
-    return _LIVE
+def get_live(workspace: str | None = None) -> AgentComplex:
+    """The live agentic complex for one workspace: the structure the runtime appends to as
+    agents/models exchange messages (model, memory, and database as one complex).
+
+    Keyed by workspace rather than process-wide. One shared complex meant any tenant could
+    append to the structure every other tenant reads through the monitor, the router and
+    the hive's own routing, so a forged message moved another workspace's alignment and
+    load-bearing readings. Resolved from the bound request when not named, so a caller
+    outside a request keeps the single "default" complex it always had.
+    """
+    from agent.server.scope import bound_workspace
+    name = workspace or bound_workspace()
+    if name not in _LIVE:
+        _LIVE[name] = AgentComplex()
+    return _LIVE[name]
 
 
 def record(sender, recipient, text, **meta):
@@ -447,9 +455,12 @@ def record(sender, recipient, text, **meta):
     get_live().add_message(sender, recipient, text, **meta)
 
 
-def reset_live():
-    global _LIVE
-    _LIVE = None
+def reset_live(workspace: str | None = None):
+    """Drop one workspace's complex, or every one of them when none is named."""
+    if workspace is None:
+        _LIVE.clear()
+    else:
+        _LIVE.pop(workspace, None)
 
 
 def model_embed_fn(url: str | None = None):

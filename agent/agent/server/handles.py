@@ -33,8 +33,87 @@ from pathlib import Path
 #: a handle is the hex sha256 of the content it names
 _HANDLE_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 
-#: workspace names become directory names, so they are held to the same rule
-_WORKSPACE_RE = re.compile(r"\A[A-Za-z0-9._-]{1,64}\Z")
+#: workspace names become directory names, so they are held to the same rule.
+#: A dot is NOT permitted, which looks over-strict for a name and is not: the
+#: previous class allowed one, so "." and ".." were valid workspaces and resolved
+#: to the parent of the workspace root. That is a namespace two tenants share and
+#: neither asked for. There is exactly one rule and it lives here, because the
+#: reason it exists is that these names become paths.
+WORKSPACE_RE = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
+_WORKSPACE_RE = WORKSPACE_RE          # the old private name, kept for callers
+
+
+def config_dir() -> Path:
+    """Where this deployment keeps its credentials and trail."""
+    return Path(os.environ.get("REXGRAPH_CONFIG_DIR",
+                               os.path.expanduser("~/.config/rexgraph"))).resolve()
+
+
+def allowed_roots() -> list[str]:
+    """The directories a request may name a path inside.
+
+    Built here because three routes had assembled the same list from the same two
+    sources, and a fourth needed it: a list that is rebuilt at each seam is a list that
+    can be tightened at one and left loose at another.
+    """
+    roots = [os.path.realpath(os.getcwd()), "/tmp"]
+    extra = os.environ.get("REXGRAPH_ALLOWED_DIRS", "")
+    if extra:
+        roots.extend(d for d in extra.split(":") if d)
+    return roots
+
+
+def path_allowed(path: str) -> bool:
+    """Whether a caller-supplied path may be read or written."""
+    return path_within(path, allowed_roots())
+
+
+def path_within(path: str, roots) -> bool:
+    """Whether a resolved path lies inside one of `roots`, by PATH COMPONENT.
+
+    `resolved.startswith(root)` is a string test wearing a path test's clothes: it
+    admits /tmpfoo for /tmp and /home/artifacts for /home/art, because a prefix of the
+    text is not containment in the tree. `Path.is_relative_to` compares components,
+    which is the question actually being asked.
+
+    The deployment's own config directory is refused even when it falls inside an
+    allowed root, because the common allow-list includes a home directory and that is
+    where auth.json, connections.json and the audit journal live. An allow-list whose
+    widest entry contains the credential store is not an allow-list.
+    """
+    try:
+        # expanduser BEFORE resolving, because every sink downstream expands it:
+        # models/store.py mkdirs os.path.expanduser(path) and models/data.py reads it.
+        # Path.resolve() leaves "~" alone, so "~/x" resolved to "<cwd>/~/x", passed as
+        # inside the allow-list, and then wrote to the real home directory. Fired: a
+        # save_to of "~/x" put 3.6 MB of weights in $HOME.
+        #
+        # Environment variables are deliberately NOT expanded, because the sinks do not
+        # expand them either. A guard that normalises differently from the sink is
+        # checking a path nobody writes to.
+        r = Path(os.path.expanduser(path)).resolve()
+    except (OSError, ValueError):
+        return False
+    cfg = config_dir()
+    if r == cfg or cfg in r.parents:
+        return False
+    for root in roots:
+        try:
+            if r == Path(root).resolve() or Path(root).resolve() in r.parents:
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def valid_workspace(name: str) -> bool:
+    """Whether a name may be used as a workspace.
+
+    One predicate rather than a regex repeated at each seam. Two copies had already
+    drifted apart, and the looser of the two was the one reached from a request
+    header, so the strict rule guarded the door nobody was coming through.
+    """
+    return bool(WORKSPACE_RE.match(name or ""))
 
 #: refuse to store a single file larger than this (bytes)
 DEFAULT_MAX_FILE = 512 * 1024 * 1024

@@ -27,6 +27,8 @@ import numpy as np
 from fastapi import APIRouter, File, Form, UploadFile
 from starlette.responses import StreamingResponse
 
+from agent.server.scope import effective_workspace
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/pipeline")
 
@@ -300,7 +302,7 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
 
 def _save_to_workspace(runner, workspace):
     try:
-        from agent.server.persistence import _docs_dir, save_document_rex
+        from agent.server.persistence import doc_path, save_document_rex
         corpus = getattr(runner, '_last_corpus', None)
         if corpus is None:
             return
@@ -310,7 +312,7 @@ def _save_to_workspace(runner, workspace):
             try:
                 save_document_rex(workspace, doc.doc_id, doc.rex)
                 if doc.text:
-                    text_path = _docs_dir(workspace) / (f"{doc.doc_id}.txt")
+                    text_path = doc_path(workspace, doc.doc_id, suffix=".txt")
                     text_path.write_text(doc.text, encoding="utf-8")
             except Exception:
                 pass
@@ -428,6 +430,11 @@ async def stream_pipeline(
     makes a PDB take only its CONECT records. Asserting a face rule is a claim about the
     data, so `face_selection` stays the caller's too and defaults to none.
     """
+    # The workspace names where this run writes. Inside a request it is the bound
+    # one, not the form field: a form field naming another tenant wrote documents,
+    # text and a stamped session into their namespace.
+    workspace = effective_workspace(workspace)
+
     upload_data = []
     for f in files:
         content = await f.read()

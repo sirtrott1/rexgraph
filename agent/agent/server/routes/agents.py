@@ -9,13 +9,31 @@ called wherever agents or models message, so this route reads live traffic.
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from starlette.responses import StreamingResponse
 
-from agent.server.auth import TokenEntry, WorkspaceState, is_admin, require_auth, require_workspace
+from agent.server.auth import (
+    TokenEntry,
+    WorkspaceState,
+    is_admin,
+    require_admin,
+    require_auth,
+    require_workspace,
+)
 
 # Verbs that change the world irreversibly. Only an admin may actually execute them (with confirm).
 # Everyone with a valid token may still run read/build verbs and may PROPOSE these (confirm=False).
-_CONSEQUENTIAL = {"kill"}
+# `set` overwrites a worker's specialties on the shared hive, `require` deploys workers
+# and `forge` trains and forges a model. Each spends the instance or changes it under
+# everyone else, so each belongs here beside `kill` rather than executing for anyone with
+# a token.
+_CONSEQUENTIAL = {"kill", "set", "require", "forge"}
 
 router = APIRouter(prefix="/v1")
+
+# Reading what the instance is running is ordinary use. Everything that MOVES it is not:
+# the runtime is process-wide, so these start and stop subprocesses, spend disk and VRAM,
+# and take a model or a profile out from under whoever else is using it. Those are
+# instance operations rather than workspace ones, and they are gated on instance admin.
+_admin = [Depends(require_admin)]
+
 
 _MAX_STREAMS = 8            # cap concurrent live streams so a client can't exhaust connections
 _streams = {"n": 0}
@@ -54,9 +72,14 @@ async def agent_route(body: dict = Body(...)):
 
 @router.post("/agents/reset")
 async def agent_reset():
-    """Clear the live agentic complex."""
+    """Clear this workspace's live agentic complex.
+
+    Ordinary use again: this was gated on instance admin while one process-wide complex
+    meant clearing it wiped every tenant's. It names its own workspace now, so it cannot.
+    """
     from agent import agent_complex
-    agent_complex.reset_live()
+    from agent.server.scope import current_workspace
+    agent_complex.reset_live(current_workspace() or "default")
     return {"ok": True}
 
 
@@ -169,7 +192,7 @@ async def agents_network():
     return hivemod.get_network().status()
 
 
-@router.post("/agents/network/hives")
+@router.post("/agents/network/hives", dependencies=_admin)
 async def agents_network_create(body: dict = Body(...)):
     """Create a named hive. body: {name}."""
     name = (body.get("name") or "").strip()

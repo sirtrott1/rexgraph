@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rexgraph-rcql"
+version = "1.1.3"
+description = "Relational Complex Query Language"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = ["rexgraph>=1.1.3", "numpy>=1.24", "scipy>=1.10"]
+
+# The RCDB operators reach a store through an injected `source`, never by importing one.
+# This names where such a store comes from, for a caller that wants one.
+[project.optional-dependencies]
+rcdb = ["rexgraph-rcdb>=1.1.3"]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rcql*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# The same rules the rest of the repository is held to, so a new distribution does not
+# quietly get its own standard.
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",   # line length: enforced by review, not by the linter
+    "E701",   # `if x: return` and paired statements on one line, used throughout
+    "E702",   # `a.append(x); b.append(y)`, the same compact style
+]

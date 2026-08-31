@@ -115,17 +115,33 @@ Fingerprint corpus export for ML consumption:
 
 from __future__ import annotations
 
-from rexgraph.io.bundle import _CACHE_GROUPS as _BUNDLE_CACHE_GROUPS
-
 import contextlib
 import json
 import os
 import pathlib
+import sys
 import warnings
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
+
+from rexgraph.io.bundle import _CACHE_GROUPS as _BUNDLE_CACHE_GROUPS
+
+from ._container_crypto import (
+    ContainerDecryptionProperties,
+    ContainerEncryptionProperties,
+    _predicate_mask,
+    _predicate_value,
+    _query_protected_indices,
+    _read_protected_indices,
+    encrypted_metadata,
+    open_encrypted_manifest,
+    protect_tensors,
+    read_protected_tensor,
+    validate_storage_inventory,
+)
 
 __all__ = [
     "rex_to_safetensors",
@@ -134,6 +150,8 @@ __all__ = [
     "safetensors_to_temporal_rex",
     "save_safetensors",
     "load_safetensors",
+    "read_safetensor_tensor",
+    "SafetensorQuerySession",
     "load_extra",
     "fingerprints_to_safetensors",
     "safetensors_to_fingerprints",
@@ -157,6 +175,287 @@ def _st():
             "safetensors is required for safetensors features: "
             "pip install safetensors"
         ) from exc
+
+
+def _write_tensor_file(
+    tensors: dict[str, NDArray],
+    path: pathlib.Path,
+    metadata: dict[str, str],
+    *,
+    kind: str,
+    encryption_properties: ContainerEncryptionProperties | None,
+) -> None:
+    save_file, _, _ = _st()
+    if encryption_properties is not None:
+        tensors, metadata = protect_tensors(
+            tensors,
+            metadata,
+            encryption_properties,
+            kind=kind,
+        )
+    save_file(tensors, str(path), metadata=metadata)
+
+
+def _load_tensor_file(
+    path: pathlib.Path,
+    *,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+    expected_kind: str | None = None,
+) -> tuple[dict[str, NDArray], dict[str, str]]:
+    """Load logical tensors plus their original safetensors metadata."""
+    _, load_file, safe_open = _st()
+    with safe_open(str(path), framework="numpy") as opened:
+        raw_metadata = opened.metadata() or {}
+        if encrypted_metadata(raw_metadata):
+            manifest = open_encrypted_manifest(
+                raw_metadata,
+                decryption_properties,
+                expected_kind=expected_kind,
+            )
+            validate_storage_inventory(opened, manifest)
+            tensors = {
+                member["logical_name"]: read_protected_tensor(
+                    opened,
+                    manifest,
+                    member["logical_name"],
+                    decryption_properties,
+                )
+                for member in manifest["members"]
+            }
+            metadata = manifest["metadata"]
+            if any(not isinstance(k, str) or not isinstance(v, str)
+                   for k, v in metadata.items()):
+                raise ValueError("safetensors inner metadata must map strings to strings")
+            return tensors, dict(metadata)
+    return dict(load_file(str(path))), dict(raw_metadata)
+
+
+def _read_tensor_metadata(
+    path: pathlib.Path,
+    *,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+) -> dict[str, str]:
+    _, _, safe_open = _st()
+    with safe_open(str(path), framework="numpy") as opened:
+        raw_metadata = opened.metadata() or {}
+        if encrypted_metadata(raw_metadata):
+            manifest = open_encrypted_manifest(raw_metadata, decryption_properties)
+            validate_storage_inventory(opened, manifest)
+            metadata = manifest["metadata"]
+            if any(not isinstance(k, str) or not isinstance(v, str)
+                   for k, v in metadata.items()):
+                raise ValueError("safetensors inner metadata must map strings to strings")
+            return dict(metadata)
+        return dict(raw_metadata)
+
+
+class SafetensorQuerySession:
+    """One authenticated manifest open shared by selective reads and predicates.
+
+    The session keeps only chunks already opened by this instance in memory. A
+    statistics-pruned predicate opens the predicate member's sealed statistics,
+    decrypts candidate chunks for exact comparison, then gathers result rows from
+    only their touched chunks. Use it as a context manager to close the underlying
+    safetensors mapping deterministically.
+    """
+
+    def __init__(
+        self,
+        path: str | os.PathLike,
+        *,
+        decryption_properties: ContainerDecryptionProperties | None = None,
+    ) -> None:
+        _, _, safe_open = _st()
+        self.path = _coerce_path(path)
+        self._decryption_properties = decryption_properties
+        self._context = safe_open(str(self.path), framework="numpy")
+        self._opened = self._context.__enter__()
+        self._chunk_cache: dict[tuple[str, str, int], bytes] = {}
+        self._statistics_cache: dict[str, list[dict[str, Any]]] = {}
+        try:
+            raw_metadata = self._opened.metadata() or {}
+            self._manifest = None
+            if encrypted_metadata(raw_metadata):
+                self._manifest = open_encrypted_manifest(
+                    raw_metadata,
+                    decryption_properties,
+                )
+                validate_storage_inventory(self._opened, self._manifest)
+                raw_metadata = self._manifest["metadata"]
+                self._names = {
+                    member["logical_name"] for member in self._manifest["members"]
+                }
+            else:
+                self._names = set(self._opened.keys())
+            if any(
+                not isinstance(key, str) or not isinstance(value, str)
+                for key, value in raw_metadata.items()
+            ):
+                raise ValueError("safetensors metadata must map strings to strings")
+            self.metadata = dict(raw_metadata)
+        except Exception:
+            self._context.__exit__(*sys.exc_info())
+            self._opened = None
+            raise
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """Logical tensor names in deterministic order."""
+        self._require_open()
+        return tuple(sorted(self._names))
+
+    @property
+    def closed(self) -> bool:
+        return self._opened is None
+
+    def _require_open(self) -> None:
+        if self.closed:
+            raise ValueError("safetensor query session is closed")
+
+    def read(
+        self,
+        name: str,
+        *,
+        index: int | slice | None = None,
+    ) -> NDArray:
+        """Read one tensor or contiguous first-axis region."""
+        self._require_open()
+        if self._manifest is not None:
+            return read_protected_tensor(
+                self._opened,
+                self._manifest,
+                name,
+                self._decryption_properties,
+                index=index,
+                _chunk_cache=self._chunk_cache,
+            )
+        if name not in self._names:
+            raise KeyError(name)
+        if index is None:
+            return self._opened.get_tensor(name)
+        return np.asarray(self._opened.get_slice(name)[index])
+
+    def where(
+        self,
+        name: str,
+        operator: str,
+        value: Any = None,
+    ) -> NDArray[np.int64]:
+        """Return first-axis positions satisfying a scalar predicate."""
+        self._require_open()
+        if self._manifest is not None:
+            return _query_protected_indices(
+                self._opened,
+                self._manifest,
+                name,
+                operator,
+                value,
+                self._decryption_properties,
+                chunk_cache=self._chunk_cache,
+                statistics_cache=self._statistics_cache,
+            )
+        if name not in self._names:
+            raise KeyError(name)
+        values = self._opened.get_tensor(name)
+        if values.ndim != 1:
+            raise ValueError("query predicates require a one-dimensional tensor")
+        converted = _predicate_value(values.dtype, operator, value)
+        return np.flatnonzero(
+            _predicate_mask(values, operator, converted)
+        ).astype(np.int64, copy=False)
+
+    def select(
+        self,
+        names: str | Sequence[str],
+        *,
+        where: tuple[str, str, Any],
+    ) -> dict[str, NDArray]:
+        """Gather named tensors at rows matching ``(name, operator, value)``."""
+        self._require_open()
+        requested = [names] if isinstance(names, str) else list(names)
+        if any(not isinstance(name, str) or not name for name in requested):
+            raise ValueError("query result names must be nonempty strings")
+        if not isinstance(where, tuple) or len(where) != 3:
+            raise TypeError("where must be a (name, operator, value) tuple")
+        predicate_name, operator, value = where
+        positions = self.where(predicate_name, operator, value)
+        if self._manifest is not None:
+            predicate = next(
+                member for member in self._manifest["members"]
+                if member["logical_name"] == predicate_name
+            )
+            row_count = predicate["shape"][0]
+            result = {}
+            for name in requested:
+                member = next(
+                    (
+                        candidate
+                        for candidate in self._manifest["members"]
+                        if candidate["logical_name"] == name
+                    ),
+                    None,
+                )
+                if member is None:
+                    raise KeyError(name)
+                if not member["shape"] or member["shape"][0] != row_count:
+                    raise ValueError(
+                        f"query result {name!r} does not share the predicate first axis"
+                    )
+                result[name] = _read_protected_indices(
+                    self._opened,
+                    self._manifest,
+                    name,
+                    positions,
+                    self._decryption_properties,
+                    chunk_cache=self._chunk_cache,
+                )
+            return result
+
+        predicate = self._opened.get_tensor(predicate_name)
+        result = {}
+        for name in requested:
+            if name not in self._names:
+                raise KeyError(name)
+            values = self._opened.get_tensor(name)
+            if values.ndim == 0 or values.shape[0] != predicate.shape[0]:
+                raise ValueError(
+                    f"query result {name!r} does not share the predicate first axis"
+                )
+            result[name] = np.asarray(values[positions])
+        return result
+
+    def clear_cache(self) -> None:
+        """Forget decrypted data and decoded statistics retained by this session."""
+        self._chunk_cache.clear()
+        self._statistics_cache.clear()
+
+    def close(self) -> None:
+        if self._opened is not None:
+            self._context.__exit__(None, None, None)
+            self._opened = None
+            self.clear_cache()
+
+    def __enter__(self) -> SafetensorQuerySession:
+        self._require_open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()
+
+
+def read_safetensor_tensor(
+    path: str | os.PathLike,
+    name: str,
+    *,
+    index: int | slice | None = None,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+) -> NDArray:
+    """Read one logical tensor, decrypting only touched first-axis chunks."""
+    with SafetensorQuerySession(
+        path,
+        decryption_properties=decryption_properties,
+    ) as session:
+        return session.read(name, index=index)
 
 
 # Cache groups: bundle's, minus the one this format cannot write.
@@ -248,6 +547,7 @@ def rex_to_safetensors(
     cache: None | str | list[str] = None,
     extra_tensors: dict[str, NDArray] | None = None,
     extra_meta: dict[str, Any] | None = None,
+    encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> pathlib.Path:
     """Write a RexGraph to a `.safetensors` file.
 
@@ -286,7 +586,6 @@ def rex_to_safetensors(
     pathlib.Path
         The file path that was written.
     """
-    save_file, _, _ = _st()
     out = _coerce_path(path)
 
     # The graph itself is encoded through the one canonical rex-state serializer, so this
@@ -338,25 +637,38 @@ def rex_to_safetensors(
     if extra_meta is not None:
         st_meta["extra_meta"] = _dumps(extra_meta)
 
-    save_file(tensors, str(out), metadata=st_meta)
+    _write_tensor_file(
+        tensors,
+        out,
+        st_meta,
+        kind="RexGraph",
+        encryption_properties=encryption_properties,
+    )
     return out
 
 
-def load_extra(path: str | os.PathLike) -> dict[str, Any]:
+def load_extra(
+    path: str | os.PathLike,
+    *,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+) -> dict[str, Any]:
     """Read back the `extra_meta` dict written by :func:`rex_to_safetensors`.
 
     Returns `{}` when the file carries no caller-owned metadata. The extra
     *tensors* come back through :func:`load_safetensors` (in its `"tensors"`
     dict); this reads only the JSON metadata sidecar.
     """
-    _, _, safe_open = _st()
     p = _coerce_path(path)
-    with safe_open(str(p), framework="numpy") as f:
-        raw = f.metadata() or {}
+    raw = _read_tensor_metadata(p, decryption_properties=decryption_properties)
     return json.loads(raw["extra_meta"]) if "extra_meta" in raw else {}
 
 
-def safetensors_to_rex(path: str | os.PathLike, *, verify: bool = True):
+def safetensors_to_rex(
+    path: str | os.PathLike,
+    *,
+    verify: bool = True,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+):
     """Reconstruct a RexGraph from a `.safetensors` file.
 
     Only the core reconstruction arrays plus weights are consumed by the
@@ -376,10 +688,12 @@ def safetensors_to_rex(path: str | os.PathLike, *, verify: bool = True):
     """
     from .rex_state import RexState, from_state
 
-    _, load_file, safe_open = _st()
     p = _coerce_path(path)
-    with safe_open(str(p), framework="numpy") as f:
-        raw_meta = f.metadata() or {}
+    raw, raw_meta = _load_tensor_file(
+        p,
+        decryption_properties=decryption_properties,
+        expected_kind="RexGraph",
+    )
     if "rex_state_header" not in raw_meta:
         raise ValueError(
             f"File {p} has no `rex_state_header` key: it was written by a pre-canonical "
@@ -392,15 +706,18 @@ def safetensors_to_rex(path: str | os.PathLike, *, verify: bool = True):
             f"Safetensors file contains {hdr.get('object_type')!r}, "
             "not RexGraph."
         )
-    raw = load_file(str(p))
     return from_state(RexState(dict(raw), hdr), verify=verify)
 
 
 # Full load (returns both the rex and any cached arrays/scalars)
 
 
-def load_safetensors(path: str | os.PathLike, *,
-                     verify: bool = True) -> dict[str, Any]:
+def load_safetensors(
+    path: str | os.PathLike,
+    *,
+    verify: bool = True,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+) -> dict[str, Any]:
     """Load the full contents of a safetensors file as a dict.
 
     Returns a dict with keys:
@@ -413,10 +730,12 @@ def load_safetensors(path: str | os.PathLike, *,
     This is the escape hatch when a caller needs both the object and
     its precomputed cache without recomputing.
     """
-    _, load_file, _ = _st()
     p = _coerce_path(path)
-    tensors = load_file(str(p))
-    meta = _load_meta(str(p))
+    tensors, raw_metadata = _load_tensor_file(
+        p,
+        decryption_properties=decryption_properties,
+    )
+    meta = _meta_from_raw(raw_metadata, str(p))
     obj_type = meta.get("object_type")
     if obj_type == "RexGraph":
         obj = _rex_from_loaded(tensors, meta, verify=verify)
@@ -440,6 +759,7 @@ def save_safetensors(
     obj: Any,
     *,
     cache: None | str | list[str] = None,
+    encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> pathlib.Path:
     """Save a RexGraph or TemporalRex to `.safetensors`.
 
@@ -461,9 +781,18 @@ def save_safetensors(
         )
         path, obj = obj, path
     if isinstance(obj, TemporalRex):
-        return temporal_rex_to_safetensors(obj, path)
+        return temporal_rex_to_safetensors(
+            obj,
+            path,
+            encryption_properties=encryption_properties,
+        )
     if isinstance(obj, RexGraph):
-        return rex_to_safetensors(obj, path, cache=cache)
+        return rex_to_safetensors(
+            obj,
+            path,
+            cache=cache,
+            encryption_properties=encryption_properties,
+        )
     raise TypeError(
         f"save_safetensors expects RexGraph or TemporalRex, got {type(obj).__name__}"
     )
@@ -557,6 +886,8 @@ def _collect_cache(
 def temporal_rex_to_safetensors(
     trex,
     path: str | os.PathLike,
+    *,
+    encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> pathlib.Path:
     """Write a TemporalRex to a `.safetensors` file as a DELTA INDEX
     (checkpoints + deltas), not full per-step snapshots.
@@ -576,7 +907,6 @@ def temporal_rex_to_safetensors(
     returns a delta backed `TemporalRex` (`_snapshots_materialized =
     False`) rather than reconstructing full per-step snapshots.
     """
-    save_file, _, _ = _st()
     out = _coerce_path(path)
 
     trex._ensure_index()
@@ -643,11 +973,29 @@ def temporal_rex_to_safetensors(
         # the step clock: without it a reloaded history can only be addressed by
         # index, and cannot be lined up against anything recorded in wall time.
         "times": [float(x) for x in trex._times],
+        "g_channels": [
+            str(trex._g_channels[index])
+            if index < len(getattr(trex, "_g_channels", ()))
+            else "raw"
+            for index in range(T)
+        ],
+        "c_channels": [
+            str(trex._c_channels[index])
+            if index < len(getattr(trex, "_c_channels", ()))
+            else "share"
+            for index in range(T)
+        ],
         "bridge_version": _BRIDGE_VERSION,
     }
 
     st_meta = {"rex_meta": json.dumps(meta)}
-    save_file(tensors, str(out), metadata=st_meta)
+    _write_tensor_file(
+        tensors,
+        out,
+        st_meta,
+        kind="TemporalRex",
+        encryption_properties=encryption_properties,
+    )
     return out
 
 
@@ -661,13 +1009,38 @@ def _restore_times(trex, meta):
         trex._times.append(float(len(trex._times)))
 
 
-def safetensors_to_temporal_rex(path: str | os.PathLike):
+def _restore_channels(trex, meta):
+    """Restore per-step algebra channels, defaulting artifacts written before them."""
+    for field, default, allowed in (
+        ("g_channels", "raw", {"raw", "normalized"}),
+        ("c_channels", "share", {"share", "count"}),
+    ):
+        values = meta.get(field)
+        if values is None:
+            values = [default] * trex._T
+        if (
+            not isinstance(values, list)
+            or len(values) != trex._T
+            or any(not isinstance(value, str) or value not in allowed for value in values)
+        ):
+            raise ValueError(f"TemporalRex safetensors {field} are invalid")
+        setattr(trex, f"_{field}", list(values))
+
+
+def safetensors_to_temporal_rex(
+    path: str | os.PathLike,
+    *,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+):
     """Reconstruct a TemporalRex from a `.safetensors` file."""
 
-    _, load_file, _ = _st()
     p = _coerce_path(path)
-    tensors = load_file(str(p))
-    meta = _load_meta(str(p))
+    tensors, raw_metadata = _load_tensor_file(
+        p,
+        decryption_properties=decryption_properties,
+        expected_kind="TemporalRex",
+    )
+    meta = _meta_from_raw(raw_metadata, str(p))
 
     if meta.get("object_type") != "TemporalRex":
         raise TypeError(
@@ -746,6 +1119,7 @@ def _temporal_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any]):
     if face_snapshots:
         trex._face_snapshots = face_snapshots
     _restore_times(trex, meta)
+    _restore_channels(trex, meta)
     return trex
 
 
@@ -819,20 +1193,30 @@ def _temporal_from_loaded_delta(tensors: dict[str, NDArray], meta: dict[str, Any
     if "checkpoint_threshold" in meta:
         trex._checkpoint_threshold = float(meta["checkpoint_threshold"])
     _restore_times(trex, meta)
+    _restore_channels(trex, meta)
     return trex
 
 
-def _load_meta(path: str) -> dict[str, Any]:
-    """Load and parse the `rex_meta` JSON from a safetensors file header."""
-    _, _, safe_open = _st()
-    with safe_open(path, framework="numpy") as f:
-        raw = f.metadata() or {}
+def _meta_from_raw(raw: dict[str, str], path: str) -> dict[str, Any]:
     if "rex_meta" not in raw:
         raise ValueError(
             f"File {path} has no `rex_meta` key in its header; "
             "it was not written by rex_to_safetensors."
         )
     return json.loads(raw["rex_meta"])
+
+
+def _load_meta(
+    path: str,
+    *,
+    decryption_properties: ContainerDecryptionProperties | None = None,
+) -> dict[str, Any]:
+    """Load and parse authenticated ``rex_meta`` container metadata."""
+    raw = _read_tensor_metadata(
+        _coerce_path(path),
+        decryption_properties=decryption_properties,
+    )
+    return _meta_from_raw(raw, path)
 
 
 # Fingerprint corpus export
@@ -852,6 +1236,7 @@ def fingerprints_to_safetensors(
     feature_names: list[str] | None = None,
     block_offsets: dict[str, tuple[int, int]] | None = None,
     metadata: dict[str, Any] | None = None,
+    encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> pathlib.Path:
     """Write a fingerprint corpus to a `.safetensors` file.
 
@@ -881,7 +1266,6 @@ def fingerprints_to_safetensors(
     pathlib.Path
         The file path that was written.
     """
-    save_file, _, _ = _st()
     out = _coerce_path(path)
 
     feature_matrix = np.asarray(feature_matrix)
@@ -938,12 +1322,20 @@ def fingerprints_to_safetensors(
             fp_meta[k] = v
 
     st_meta = {"rex_meta": json.dumps(fp_meta)}
-    save_file(tensors, str(out), metadata=st_meta)
+    _write_tensor_file(
+        tensors,
+        out,
+        st_meta,
+        kind="FingerprintCorpus",
+        encryption_properties=encryption_properties,
+    )
     return out
 
 
 def safetensors_to_fingerprints(
     path: str | os.PathLike,
+    *,
+    decryption_properties: ContainerDecryptionProperties | None = None,
 ) -> tuple[NDArray, NDArray | None, list[str] | None, dict[str, Any]]:
     """Load a fingerprint corpus from a `.safetensors` file.
 
@@ -959,10 +1351,13 @@ def safetensors_to_fingerprints(
         Remaining metadata keys (excluding reserved fields already
         surfaced as return values).
     """
-    _, load_file, _ = _st()
     p = _coerce_path(path)
-    tensors = load_file(str(p))
-    meta = _load_meta(str(p))
+    tensors, raw_metadata = _load_tensor_file(
+        p,
+        decryption_properties=decryption_properties,
+        expected_kind="FingerprintCorpus",
+    )
+    meta = _meta_from_raw(raw_metadata, str(p))
     if meta.get("object_type") != "FingerprintCorpus":
         raise TypeError(
             f"Safetensors file contains {meta.get('object_type')!r}, "

@@ -49,6 +49,12 @@ def _context(request: Request, token: TokenEntry):
     ws = (request.headers.get("X-Workspace")
           or request.query_params.get("workspace")
           or (token.workspaces[0] if token.workspaces else "default"))
+    # The name arrives from a header and becomes a directory name downstream, so it
+    # is checked here rather than trusted. Without this the strict rule guarded only
+    # `get_workspace`, which this path never calls.
+    from ..handles import valid_workspace
+    if not valid_workspace(ws):
+        raise HTTPException(400, "invalid workspace name")
     if mgr.auth_enabled and not token.can_access(ws):
         raise HTTPException(403, f"No access to workspace '{ws}'")
     return Context(workspace=ws, identity=token.user_id,

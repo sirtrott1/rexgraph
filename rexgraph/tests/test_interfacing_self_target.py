@@ -11,6 +11,7 @@ with the psi it already has.
 """
 
 import numpy as np
+import pytest
 
 from rexgraph.graph import RexGraph
 
@@ -76,7 +77,10 @@ def test_the_scorer_no_longer_builds_a_whole_bundle_per_document():
     demand-driven at the seed, so interfacing_vector is not on that path at all."""
     import inspect
 
-    from agent import scoring
+    scoring = pytest.importorskip(
+        "agent.scoring",
+        reason="requires the optional rexgraph-agent package",
+    )
 
     src = inspect.getsource(scoring)
     assert "interfacing_vector" not in src.split('"""')[2], \
@@ -88,7 +92,10 @@ def test_the_scorer_reads_only_the_seed():
     """coherence_response is O(|seed|), so scoring must not touch the full field.
     Reading rex.coherence would compute every vertex to answer about a handful."""
     import numpy as np
-    from agent.scoring import interfacing_score
+    interfacing_score = pytest.importorskip(
+        "agent.scoring",
+        reason="requires the optional rexgraph-agent package",
+    ).interfacing_score
 
     rex = _graph(nV=60, extra=50)
     labels = [f"w{i}" for i in range(rex.nV)]

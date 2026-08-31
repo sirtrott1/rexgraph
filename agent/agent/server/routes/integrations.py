@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Body, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.responses import JSONResponse
+
+from agent.server.auth import TokenEntry, is_admin, require_auth
+from agent.server.scope import effective_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +69,12 @@ def _get_tg_adapter(url=None):
             "Install with: pip install trustgraph-base"
         ) from exc
     import os
+    if url:
+        # `url` arrives in a request body and becomes an outbound fetch from the server,
+        # so it answers to the anti-SSRF host policy. The environment fallback below is
+        # operator configuration and does not.
+        from agent.server.dbguard import check_outbound_url
+        check_outbound_url(str(url))
     tg_url = url or os.environ.get("TRUSTGRAPH_URL", "")
     return TrustGraphAdapter(url=tg_url or None)
 
@@ -177,7 +186,8 @@ async def trustgraph_assess(body: dict = Body(...)):
 # HuggingFace
 
 @router.post("/huggingface/analyze")
-async def huggingface_analyze(body: dict = Body(...)):
+async def huggingface_analyze(body: dict = Body(...),
+                              token: TokenEntry = Depends(require_auth)):
     """Measure RCF axiom compliance.
 
     With ``model``: hooks a HuggingFace transformer and measures how far
@@ -193,6 +203,13 @@ async def huggingface_analyze(body: dict = Body(...)):
         raise HTTPException(400, "Provide 'text', a 'session_id', or a 'model'")
 
     if model_name:
+        # Naming a model downloads it and loads it into this process, which spends the
+        # box's disk, bandwidth and VRAM. That is the same instance operation
+        # /api/v1/models/pull is gated on, so it answers to the same rule. Text-level
+        # analysis names nothing and stays ordinary use.
+        if not is_admin(token, "default"):
+            raise HTTPException(403, "Naming a model is an instance operation; "
+                                     "omit 'model' for text-level analysis")
         try:
             from agent.integrations.huggingface_analyzer import analyze_transformer
         except ImportError as exc:
@@ -357,7 +374,7 @@ async def generate_training_data(body: dict = Body(...)):
 
     from agent.server.auth import get_auth_manager
     mgr = get_auth_manager()
-    ws = mgr.get_workspace("default")
+    ws = mgr.get_workspace(effective_workspace("default"))
 
     corpus = ws.get_corpus()
     if not corpus or not corpus._built:
@@ -378,8 +395,11 @@ async def generate_training_data(body: dict = Body(...)):
             "format": fmt,
         }
 
-        # Export to temp file
-        tmp_dir = tempfile.mkdtemp(prefix="rexgraph_training_")
+        # Under the workspace rather than the shared temp directory: the export is
+        # handed back as a FileResponse and nothing removes it afterwards, and the
+        # filename inside is fixed, so only the directory stem was ever unguessable.
+        from agent.server.persistence import staging_dir
+        tmp_dir = tempfile.mkdtemp(prefix="training_", dir=str(staging_dir(ws.name)))
 
         if fmt == "safetensors":
             path = os.path.join(tmp_dir, "features.safetensors")
@@ -658,28 +678,28 @@ async def download_training_data(fmt: str = "safetensors", target: str = "summar
     structural features.
     """
     from agent.server.auth import get_auth_manager
-    ws = get_auth_manager().get_workspace("default")
+    ws = get_auth_manager().get_workspace(effective_workspace("default"))
     corpus = ws.get_corpus()
     if not corpus or not getattr(corpus, "_built", False):
         raise HTTPException(400, "Build a corpus first (Corpus tab) before exporting")
     try:
         from agent.training import TrainingExporter
         exporter = TrainingExporter(corpus=corpus)
-        import os
-        import tempfile
-        fd, tmp = tempfile.mkstemp(suffix=".safetensors")
-        os.close(fd)
+        from agent.server import artifacts
         if fmt == "pairs":
-            exporter.export_training_pairs(tmp, target=target)
             fname = "rexgraph_training_pairs.safetensors"
+
+            def _write(path):
+                exporter.export_training_pairs(path, target=target)
         elif fmt == "safetensors":
-            exporter.export_features(tmp)
             fname = "rexgraph_features.safetensors"
+
+            def _write(path):
+                exporter.export_features(path)
         else:
             raise HTTPException(400, f"Downloadable formats: safetensors, pairs "
                                      f"('{fmt}' is metadata-only)")
-        return FileResponse(tmp, filename=fname,
-                            media_type="application/octet-stream")
+        return artifacts.download(_write, ".safetensors", fname)
     except HTTPException:
         raise
     except Exception as e:

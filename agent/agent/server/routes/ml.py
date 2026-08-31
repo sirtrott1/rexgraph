@@ -33,6 +33,20 @@ async def ml_run(body: dict = Body(...)):
     arch = body.get("archetype")
     if not arch:
         raise HTTPException(400, "need 'archetype'")
+    # `data` is read and `save_to` is written as the server user, so both are held to
+    # the same allow-list every other caller-supplied path is: save_to reached
+    # Path(expanduser(p)).mkdir(parents=True) and then wrote weights there.
+    from ..handles import path_allowed
+    for field in ("data", "save_to"):
+        value = body.get(field)
+        if value is None or value == "":
+            continue
+        # A non-string skipped the check entirely and then crashed at the sink, which
+        # reported a 500 for what is a bad request.
+        if not isinstance(value, str):
+            raise HTTPException(400, f"'{field}' must be a path")
+        if not path_allowed(value):
+            raise HTTPException(403, f"'{field}' is outside the allowed directories")
     specs = None
     if body.get("specs"):                       # [[name, {params}], ...] -> tuples
         specs = [(s[0], s[1] if len(s) > 1 else {}) for s in body["specs"]]
@@ -64,6 +78,9 @@ async def ml_ingest(body: dict = Body(...)):
     triples = body.get("triples")
     if not (triples or body.get("flow")):
         raise HTTPException(400, "need 'triples' or 'url'+'flow'")
+    if body.get("url"):
+        from agent.server.dbguard import check_outbound_url
+        check_outbound_url(str(body["url"]))
     try:
         bundle = models.bundle_from_core(triples, url=body.get("url"), flow=body.get("flow"),
                                          labels=body.get("labels"))
@@ -76,6 +93,16 @@ async def ml_ingest(body: dict = Body(...)):
                                    optimizer=body.get("optimizer", "auto"),
                                    steps=int(body.get("steps", 150)))
     if body.get("rcdb_uri"):
+        # A caller-named store URI writes outside the workspace-scoped view that
+        # default_store() provides, and trustgraph opened it directly. Inside a request
+        # the workspace store is used and the named one is ignored; outside a request
+        # the operator's own choice stands.
+        from agent.server.scope import scoping_active
+        store = None
+        if scoping_active():
+            from agent.rcdb import default_store
+            store = default_store()
         out["rcdb"] = models.core_to_rcdb(triples, url=body.get("url"), flow=body.get("flow"),
-                                          uri=body["rcdb_uri"], name=body.get("name", "knowledge_core"))
+                                          uri=body["rcdb_uri"], store=store,
+                                          name=body.get("name", "knowledge_core"))
     return out

@@ -155,6 +155,41 @@ class EnvSecretStore(SecretStore):
         return existed
 
 
+#: Which references a REQUEST may name, as a comma-separated allow-list. Empty or
+#: unset denies every one, which is the safe default: a reference arriving in a request
+#: is chosen by the caller, and `resolve_ref` reads any environment variable, so without
+#: this a caller names AWS_SECRET_ACCESS_KEY and the credential leaves as a bearer
+#: header on the first request routed to whatever endpoint they attached.
+REQUEST_REFS_ENV = "REXGRAPH_REQUEST_KEY_REFS"
+
+
+def request_refs_allowed() -> set:
+    """The references an operator has agreed a request may name."""
+    raw = os.environ.get(REQUEST_REFS_ENV, "")
+    return {r.strip() for r in raw.split(",") if r.strip()}
+
+
+def resolve_request_ref(ref: str) -> str:
+    """Resolve a reference that arrived in a REQUEST rather than in operator config.
+
+    Config is written by whoever runs the server and may name anything it likes. A
+    request is written by whoever can reach the server, and the two must not have the
+    same reach. Deny by default and let the operator name the exceptions: the set is
+    small in practice, one entry per endpoint anyone is allowed to attach.
+
+    Raises PermissionError rather than returning "" so a refusal is reported to the
+    caller instead of degrading silently into an unauthenticated request, which would
+    look like the reference was simply wrong.
+    """
+    if not ref:
+        return ""
+    if ref not in request_refs_allowed():
+        raise PermissionError(
+            f"{ref!r} is not an allowed request reference; an operator lists the "
+            f"permitted ones in {REQUEST_REFS_ENV}")
+    return resolve_ref(ref)
+
+
 def resolve_ref(ref: str) -> str:
     """Resolve a secret *reference* to its value, or "" when it cannot be resolved.
 

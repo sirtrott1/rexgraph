@@ -18,16 +18,13 @@ from fastapi import APIRouter, Body, HTTPException
 router = APIRouter(prefix="/v1/dbmanager")
 
 # Connection secrets live behind the SecretStore interface (file by default,
-# env-reference / Vault as drop-ins via REXGRAPH_SECRETS_URI).
-_SECRETS = None
+# env-reference / Vault as drop-ins via REXGRAPH_SECRETS_URI). The per-request view of
+# it is shared with routes/connectors.py, which resolves the same saved names.
 
 
 def _secrets():
-    global _SECRETS
-    if _SECRETS is None:
-        from agent.secrets import open_secret_store
-        _SECRETS = open_secret_store()
-    return _SECRETS
+    from agent.server.scope import secret_store
+    return secret_store()
 
 
 def _mask(uri: str) -> str:

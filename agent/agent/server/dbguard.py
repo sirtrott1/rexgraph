@@ -79,6 +79,48 @@ def _host_is_local_or_private(host: str) -> bool:
     return any(_ip_blocked(info[4][0]) for info in infos)
 
 
+def check_outbound_url(url: str) -> None:
+    """Raise HTTPException(400) if `url` names something this deployment will not fetch.
+
+    Same SSRF question as `check_db_uri`, different policy question, so it shares the
+    host test and not the scheme list: a TrustGraph read travels over http, which no
+    REXGRAPH_ALLOWED_DB_SCHEMES would ever name, and running it through the database
+    policy would reject every legitimate url the moment that policy was turned on.
+
+    The scheme check is unconditional because it is not policy: `file://` handed to an
+    HTTP client is a local file read, and no deployment wants that from a request body.
+    The host policy follows the same opt-in the database one does, so local and single
+    operator use is unchanged, which also means a default deployment has no host check.
+
+    A REDIRECT is not covered. This sees the url the caller supplied, and the client that
+    fetches it follows redirects on its own, so a permitted host can forward to one that
+    is not. Closing that means refusing redirects at the client, which belongs with the
+    client rather than here.
+    """
+    if not url:
+        return
+    if "://" not in url:
+        # check_db_uri returns early here because a bare name like "edgelist" is a valid
+        # in-memory scheme. Nothing of the sort is a fetchable URL, so the same early
+        # return let "//169.254.169.254/latest/" past without any check at all.
+        raise HTTPException(400, "not a fetchable url")
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        raise HTTPException(400, f"'{scheme}://' is not a fetchable scheme")
+    host = parsed.hostname or ""
+    if (os.environ.get("REXGRAPH_DB_SAFE") == "1"
+            or os.environ.get("REXGRAPH_BLOCK_LOCAL_FETCH") == "1") and \
+            _host_is_local_or_private(host):
+        raise HTTPException(
+            400, f"fetch from loopback/private host '{host}' is blocked (anti-SSRF)")
+    allowed = _csv_env("REXGRAPH_ALLOWED_FETCH_HOSTS")
+    if allowed is not None and host.lower() not in allowed:
+        raise HTTPException(
+            400, f"host '{host or '(none)'}' is not permitted "
+                 f"(REXGRAPH_ALLOWED_FETCH_HOSTS)")
+
+
 def check_db_uri(uri: str) -> None:
     """Raise HTTPException(400) if ``uri`` violates the configured DB policy.
 

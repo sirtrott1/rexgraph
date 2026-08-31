@@ -77,14 +77,19 @@ directory (no miniforge or module loads) and builds in-environment.
 ```bash
 mamba env create -f environment.yml
 mamba activate rexgraph
-pip install -e . --no-build-isolation      # rexgraph Cython core, from the repo root
-pip install -e ./agent                     # agent + integrations
+pip install -e ".[io,security]" --no-build-isolation   # rexgraph Cython core
+pip install -e "./rcdb[sql,objectstore,crypto]" # the store
+pip install -e ./rcql                                  # the query language
+pip install -e ./system                                # the observatory
+pip install -e ./agent                                 # agent + integrations
 ```
 
-The order matters, and will until the core is published. The agent requires
-`rexgraph>=0.5.0`, which pip resolves from PyPI unless it is already installed, and
-the core is not there yet. Installing the agent first fails with `No matching
-distribution found for rexgraph>=0.5.0`, which reads like a missing release rather
+The order matters, and will until these are published, because pip resolves an
+unsatisfied requirement from PyPI where none of them is yet. It is not a single chain:
+the store and the query language each need only the core and are independent of each
+other, the observatory needs the query language, and the agent needs the store. Core
+first, agent last, and installing out of order fails with `No matching
+distribution found for rexgraph-rcdb>=1.1.3`, which reads like a missing release rather
 than a missing step.
 
 Minimal (core only, no I/O deps):
@@ -103,8 +108,16 @@ sudo apt install libopenblas-dev pkg-config
 
 pip install .                                 # core only
 pip install ".[io]"                           # + zarr, h5py, pyarrow, sqlalchemy, pandas
-pip install ".[all]"                          # currently the same as [io]
+pip install ".[security]"                     # + cryptography, for sealed and signed bytes
+pip install ".[all]"                          # io + security
 pip install -e ".[dev]" --no-build-isolation  # editable dev install
+
+# The store, the query language and the observatory. The agent REQUIRES the store, so
+# install it first; the other two are optional and rcql is needed only for the
+# observatory or the agent's [rcql] extra.
+pip install "./rcdb[sql,objectstore,crypto]"
+pip install ./rcql
+pip install ./system
 
 pip install ./agent                           # CLI + integrations, no server
 pip install "./agent[server]"                 # + web UI and API (light)
@@ -142,12 +155,34 @@ The granular extras behind the profiles (`schema`, `connectors`, `ocr`, `ocr-pad
 
 ### Verify
 
+Run these from anywhere EXCEPT the repo root:
+
 ```bash
 python -c "from rexgraph.graph import RexGraph; print('rexgraph OK')"
 python -c "from agent.pipeline import AnalysisPipeline; print('agent OK')"
-python -m pytest rexgraph/tests/
-python -m pytest agent/tests/
 ```
+
+The repo root holds a directory named `rexgraph`, and Python puts the working
+directory first on `sys.path`. So from there `import rexgraph` finds the source tree,
+which carries no compiled extensions, instead of what was installed, and fails inside
+`graph.py` on a null compiled module. It reads like a broken build and is a shadowed
+import. An editable install is immune, since its finder serves that same tree on
+purpose, which is why the failure only appears after a plain `pip install .`.
+
+The test suites are a different case. They need the tests, which are in the tree and
+are deliberately not shipped, so they run FROM the repo root and require the editable
+install:
+
+```bash
+pip install -e . --no-build-isolation      # if you have not already
+sh run_core_tests.sh -q                    # core
+python -m pytest agent/tests -q            # agent
+```
+
+`run_core_tests.sh` exists for this: the repo-root `conftest.py` points the package
+`__path__` at the source directory so `rexgraph.tests` resolves, while the package
+itself and its `.so` still come from the build. A non-editable install cannot run the
+in-tree suites without the source shadowing the wheel it just installed.
 
 
 ## Agent Platform
@@ -686,8 +721,86 @@ standard_metrics). The harmonic cache group persists harmonic_basis,
 frustration_per_edge, coparticipation_per_edge, sigma_asymmetry_per_edge,
 and scalar health metrics.
 
+### Provenance and integrity
+
+Twelve further modules in `rexgraph/io/` answer a different question than the format
+loaders do. A format asks how bytes are laid out. These ask what a payload is, whether it
+still is that, and where it came from. They are pure tensor plus bytes with no service
+dependencies, so the same code runs in a notebook and in a server.
+
+```python
+from rexgraph.io.catalog import object_digest
+from rexgraph.io.security import Ed25519Signer, StaticKeyProvider, encrypt_bytes, decrypt_bytes
+from rexgraph.io.transport import pack, unpack
+from rexgraph.io.transition import TransitionCommit
+from rexgraph.io.commit import CommitLink
+
+keys = StaticKeyProvider({"k1": key_bytes})
+signer = Ed25519Signer.generate("alice")
+
+before = object_digest(rex)                            # identity, over the whole object
+sealed = encrypt_bytes(b"payload", key_id="k1", keys=keys)
+frame = pack(sealed, object_type="rex")                # what crosses a boundary
+payload, meta = unpack(frame)                          # and what comes back
+decrypt_bytes(payload, keys=keys)
+
+change = TransitionCommit(before, delta, after, tx_time, actor="alice").signed(signer)
+link = CommitLink(change.digest, parent_digest).signed(signer)   # its place in a lineage
+link.verify(signer.verifier())                         # whether THIS link's signature holds
+```
+
+`object_digest` is the whole-object API. `manifest_digest` and `canonical_json` digest
+JSON-safe metadata, and a RexGraph is not JSON-safe, so they are not interchangeable.
+`CommitLink.verify` authenticates one link's signature and signer, not the chain: parent
+continuity and endpoint agreement are checked when `mutation` and `replication` apply a
+chain, which is where a broken lineage is actually caught.
+
+| Module | Answers |
+|--------|---------|
+| `manifest` | what canonical bytes JSON-safe metadata digests to |
+| `security` | whether a payload is sealed, and who signed it |
+| `transition`, `commit` | what one change was, and its place in a chain |
+| `transport` | what a frame is, without asking the reader to guess |
+| `temporal_state` | how a TemporalRex verifies as tensors |
+| `catalog` | what a file is, and what an object is |
+| `mutation` | what a change was, bound to both endpoints |
+| `privacy` | pseudonyms that do not join across scopes |
+| `export` | a Parquet artifact carrying its own identity |
+| `partition_state` | a sub complex that is still a complex |
+| `replication` | applying a chain somewhere else |
+
+Full reference with signatures and the digest and signature model:
+[`rexgraph/io/README.md`](rexgraph/io/README.md#manifest-canonical-bytes-for-a-digest).
+
 
 ## Architecture
+
+### Five distributions
+
+The repository builds five packages, and the split is a dependency rule rather than
+filing. Nothing lower imports anything higher, which is what lets each be installed
+and reasoned about on its own, and a test in each enforces it.
+
+| distribution | is | depends on |
+|---|---|---|
+| `rexgraph` | the relational complex library, its kernels and its IO | nothing in this repo |
+| `rexgraph-rcdb` | a database of complexes: stores, index, protected search | `rexgraph` |
+| `rexgraph-rcql` | the query language: parser, optimizer, executor, capabilities | `rexgraph` |
+| `rexgraph-system` | the observatory, reading live values through RCQL | `rexgraph`, `rexgraph-rcql` |
+| `rexgraph-agent` | the platform: server, pipeline, hive, couriers | `rexgraph`, `rexgraph-rcdb` |
+
+RCDB does not import the agent. What the agent adds to a store, the activity feed,
+request scoping, metadata privacy and similarity scoring, arrives through
+`rcdb.configure_hooks`, which the agent calls when it is imported. With none of them
+set the store still stores. RCQL likewise never imports a store: it evaluates against
+a source it is handed, which is what lets the same store be exposed to one caller as
+records without identity and to another as history it may name.
+
+The five ship together and their formats depend on each other, so every
+inter-distribution requirement floors at the current release. `install.sh` installs
+all five from this repo in dependency order.
+
+### Inside the core
 
 Two layers sit under the `RexGraph` object. The **kernels** in `rexgraph.core`
 build the structures and are optimized to run on sparse operators. The

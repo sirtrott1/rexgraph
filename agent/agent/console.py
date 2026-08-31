@@ -36,6 +36,18 @@ class CommandConsole:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    @staticmethod
+    def _propose(what: str) -> dict[str, Any]:
+        """The answer to a governed verb that was not confirmed.
+
+        One form rather than the same block per handler: `kill` had it and `set`,
+        `require` and `forge` did not, which meant the route's admin check never ran for
+        them. That check only fires when confirm is true, so a handler that ignores
+        confirm is a handler with no gate at all.
+        """
+        return {"ok": False, "governed": True, "proposed": what,
+                "confirm": "re-run the command with confirm=True to apply"}
+
     def _verbs(self) -> list[str]:
         return sorted(n[5:] for n in dir(self) if n.startswith("_cmd_"))
 
@@ -48,7 +60,9 @@ class CommandConsole:
     def _cmd_help(self, arg, *, scope, confirm):
         return {"ok": True, "commands": self._verbs(),
                 "scopes": ["network", "hive", "team:<name>", "worker:<name>"],
-                "note": "consequential verbs (kill) require confirm=True"}
+                "governed": ["require", "forge", "set", "kill"],
+                "note": "governed verbs propose unless confirm=True, and confirming one "
+                        "needs admin of the workspace"}
 
     def _cmd_status(self, arg, *, scope, confirm):
         return {"ok": True, "scope": scope, "status": self.hive.status()}
@@ -60,20 +74,6 @@ class CommandConsole:
         from .dashboard import hive_dashboard
         return {"ok": True, "dashboard": hive_dashboard(self.hive)}
 
-    #### build verbs (grow / drive the hive)
-    def _cmd_require(self, arg, *, scope, confirm):
-        if self.reactive is None:
-            return {"ok": False, "error": "no reactive layer attached (pass reactive=...)"}
-        return {"ok": True, "deployed": self.reactive.require(*arg.split())}
-
-    def _cmd_forge(self, arg, *, scope, confirm):
-        if self.foundry is None:
-            return {"ok": False, "error": "no foundry attached (pass foundry=...)"}
-        parts = arg.split()
-        if len(parts) < 2:
-            return {"ok": False, "error": "usage: forge <name> <archetype>"}
-        return {"ok": True, "forged": self.foundry.forge(parts[0], parts[1], steps=30)}
-
     def _cmd_chat(self, arg, *, scope, confirm):
         """Talk to a scope: a worker gets asked directly; a hive/network routes to the best bee."""
         target = self._scope_target(scope)
@@ -82,22 +82,43 @@ class CommandConsole:
         d = self.hive.dispatch(arg)
         return {"ok": True, "from": d.get("bee"), "reply": d.get("reply"), "routed": d.get("routed")}
 
+    #### governed: no effect unless confirm=True, and the route requires admin to confirm
+    def _cmd_require(self, arg, *, scope, confirm):
+        if self.reactive is None:
+            return {"ok": False, "error": "no reactive layer attached (pass reactive=...)"}
+        if not confirm:
+            return self._propose(f"deploy workers for {arg or '(nothing named)'}")
+        return {"ok": True, "deployed": self.reactive.require(*arg.split())}
+
+    def _cmd_forge(self, arg, *, scope, confirm):
+        if self.foundry is None:
+            return {"ok": False, "error": "no foundry attached (pass foundry=...)"}
+        parts = arg.split()
+        if len(parts) < 2:
+            return {"ok": False, "error": "usage: forge <name> <archetype>"}
+        if not confirm:
+            return self._propose(f"forge model '{parts[0]}' from archetype '{parts[1]}'")
+        return {"ok": True, "forged": self.foundry.forge(parts[0], parts[1], steps=30)}
+
     def _cmd_set(self, arg, *, scope, confirm):
         """Overwrite a worker's specialties: set <worker> <kw1> <kw2> ..."""
         parts = arg.split()
         name = parts[0] if parts else self._scope_target(scope)
+        # Governance is decided before existence, the rule the OCR path already follows:
+        # answering "no worker 'w1'" to a caller who may not act tells them which workers
+        # exist, which is a question they were never entitled to ask.
+        if not confirm:
+            return self._propose(f"overwrite the specialties of worker '{name}'")
         bee = self.hive.get(name) if name else None
         if bee is None:
             return {"ok": False, "error": f"no worker '{name}'"}
         bee.specialties = parts[1:]
         return {"ok": True, "worker": name, "specialties": bee.specialties}
 
-    #### consequential (governed)
     def _cmd_kill(self, arg, *, scope, confirm):
         name = arg or self._scope_target(scope)
         if not name:
             return {"ok": False, "error": "usage: kill <worker>"}
         if not confirm:
-            return {"ok": False, "governed": True, "proposed": f"remove worker '{name}'",
-                    "confirm": "re-run the command with confirm=True to apply"}
+            return self._propose(f"remove worker '{name}'")
         return {"ok": self.hive.remove(name), "removed": name}

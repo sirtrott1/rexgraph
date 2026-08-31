@@ -102,9 +102,9 @@ def bus_topology_for(unified) -> dict | None:
     answer must not become a guess, because guessing wrong silently mis-prices every
     bandwidth decision while guessing nothing only asks the caller to declare.
 
-    Pure on purpose (it takes the answer rather than probing), so rexgraph does not
-    reach into the agent layer for hardware. `agent.local_runtime.detect_gpus` is what
-    produces the input.
+    Pure on purpose: it takes the answer rather than probing, so the decision can be
+    tested without a machine that has the hardware. `rexgraph.hardware.detect_gpus` is
+    what produces the input.
     """
     if unified is True:
         return dict(UNIFIED_MEMORY)
@@ -541,14 +541,13 @@ def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
 def detect_bus_topology() -> dict | None:
     """This machine's topology, or None when it cannot be determined.
 
-    The probe lives in the agent layer (it is a fact about a host, not about the math),
-    so this is a soft import: rexgraph stays usable without it and simply declines to
-    guess. Any failure is a None, never an assertion.
+    The probe used to live in the agent layer, on the reasoning that a host is not the
+    math. It is here now: whether a device's memory is unified with system RAM decides
+    bus topology, which this module needs, and reaching up into the application to learn
+    it made the core depend on the thing built on top of it. Any failure is still a None,
+    never an assertion.
     """
-    try:
-        from agent.local_runtime import detect_gpus
-    except Exception:
-        return None
+    from rexgraph.hardware import detect_gpus
     try:
         gpus = detect_gpus()
     except Exception:

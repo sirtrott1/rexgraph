@@ -15,69 +15,23 @@ import contextlib
 
 import numpy as np
 
+# These live in the sibling rcdb package, because a store needs them on every
+# put to describe what it is storing and cannot import the application to do it.
+# Re-exported so callers here keep the import path they had.
+from rcdb.analytics import (  # noqa: E402,F401
+    coherence_greens,
+    coherence_greens_mean,
+    coherence_kappa,
+    coherence_mean,
+    greens_budget,
+    structural_metrics,
+)
+
 # Coherence: one entry point, so a caller cannot reach the O(nV*solve) read by
 # accident. See rexgraph.graph.local_coherence / coherence / coherence_response.
 
 _GREENS_BUDGET_ENV = "REXGRAPH_VERTEX_CHARACTER_MAX_NODES"
 _GREENS_BUDGET_DEFAULT = 1500
-
-
-def greens_budget() -> int:
-    """Vertex budget for the global Green's coherence, from the environment
-    (0 = no budget, run it at any size). One reader so every caller gates alike."""
-    import os
-    try:
-        return int(os.environ.get(_GREENS_BUDGET_ENV, str(_GREENS_BUDGET_DEFAULT)))
-    except ValueError:
-        return _GREENS_BUDGET_DEFAULT
-
-
-def coherence_kappa(rex) -> np.ndarray:
-    """Per-vertex coherence kappa, shape (nV,), at any scale. THE default read.
-
-    This is `local_coherence`: kappa against the star-average character, O(nnz), so
-    it answers on a complex of any size. Its companion `rex.coherence` is a
-    different moment of the same propagator (kappa against the global Green's phi),
-    not a more accurate version of this one: on real complexes the two correlate
-    anywhere from -0.30 to +0.99, and the global read costs one block-CG solve per
-    vertex because its sandwiched two-inverse numerator resists selected inversion.
-    Reach for that one through `coherence_greens`, which gates it, and report it
-    under its own key rather than mixing the two in one field."""
-    with contextlib.suppress(Exception):
-        k = np.asarray(rex.local_coherence, dtype=float).ravel()
-        if k.size:
-            return np.where(np.isfinite(k), k, 0.0)
-    return np.zeros(int(getattr(rex, "nV", 0) or 0), dtype=float)
-
-
-def coherence_mean(rex, default: float = 0.0) -> float:
-    """Mean of `coherence_kappa`. The value stored as a signature's `kappa_mean`:
-    one quantity at every scale, so records stay comparable under `avg(kappa_mean)`."""
-    k = coherence_kappa(rex)
-    return float(k.mean()) if k.size else float(default)
-
-
-def coherence_greens(rex, budget: int | None = None) -> np.ndarray | None:
-    """Per-vertex GLOBAL Green's coherence, or None when the complex is over budget.
-
-    The exact global moment, at one solve per vertex. None means "not computed at
-    this size", never "zero": store it under its own key so an absent value stays
-    distinguishable from a low one."""
-    b = greens_budget() if budget is None else int(budget)
-    nV = int(getattr(rex, "nV", 0) or 0)
-    if b > 0 and nV > b:
-        return None
-    with contextlib.suppress(Exception):
-        k = np.asarray(rex.coherence, dtype=float).ravel()
-        if k.size:
-            return np.where(np.isfinite(k), k, 0.0)
-    return None
-
-
-def coherence_greens_mean(rex, budget: int | None = None) -> float | None:
-    """Mean of `coherence_greens`, or None when over budget."""
-    k = coherence_greens(rex, budget)
-    return float(k.mean()) if k is not None and k.size else None
 
 
 def _norm(p) -> np.ndarray:
@@ -141,51 +95,6 @@ def token_metrics(logprobs) -> dict:
 
 
 # Structural metrics (RCF-native, from a rex; no LLM needed)
-def structural_metrics(rex) -> dict:
-    """The relational complex's OWN information metrics from the RL4 spectrum, all
-    eigen-free: `structural_entropy_H2` = the harmonic-log (Rényi-2);
-    `structural_perplexity` = exp(H₂) = the effective mode count (how many degrees of
-    freedom the relation graph carries); `varentropy_gap` = the H₂-H₃ reliability
-    certificate (small -> the H₂ summary is trustworthy). The structural analog of an
-    LLM's perplexity/varentropy - computed with the same calculus as token_metrics."""
-    H2 = float(rex.harmonic_entropy)
-    # The H3 half needs tr(RL4^3), which forms RL4^2, and that product's FILL is
-    # data-dependent: on a complex with wide branching groups the co-participation
-    # matrix squares into something enormous. Measured on a lexical complex, 31.4s and
-    # 22.3 GB at nE 553,021, and still climbing through 94 GB at nE 1,626,490 before it
-    # was killed. The bound nnz(X^2) <= sum_i sum_{j in row i} nnz(row j) is one matvec,
-    # so the cost is knowable BEFORE paying it rather than after.
-    ve = {"H2": round(H2, 6), "H3": None, "gap": None, "declined": None}
-    try:
-        X = rex._rl4_sparse
-        rownnz = np.diff(X.indptr).astype(np.float64)
-        # sum over nonzeros (i,j) of nnz(row j): the exact upper bound on nnz(X^2)
-        fill = (float(np.dot(np.bincount(X.indices, minlength=X.shape[0])
-                             .astype(np.float64), rownnz)) if X.nnz else 0.0)
-        from rexgraph.core._common import check_dense_allocation
-        check_dense_allocation("character_varentropy RL4^2 fill",
-                               int(max(fill, 1)), 1)
-        ve = rex.character_varentropy
-    except Exception as exc:
-        ve = {"H2": round(H2, 6), "H3": None, "gap": None,
-              "declined": f"{type(exc).__name__}"}
-    return {
-        "structural_entropy_H2": round(H2, 6),
-        "structural_perplexity": round(float(np.exp(H2)), 4),
-        "effective_modes": round(float(np.exp(H2)), 4),
-        "varentropy_gap": ve.get("gap"),
-        # gap is None when the H3 moment was declined; that is "not certified", which is
-        # a different statement from "certified unreliable"
-        # `reliability_gap` certifies that the CHEAP H2 is exact, and its own docstring
-        # says when: "~0 on flat/unweighted spectra (the cheap H2 is exact); grows with
-        # weight-induced non-uniformity". So this is an exactness test, not a policy
-        # band, and measured the values are 13 orders apart with nothing in between:
-        # 5.6e-16 and 1.1e-15 where H2 is exact, 4.3e-02 where it is not. The old 0.05
-        # sat ABOVE the inexact case and certified it.
-        "reliable": (None if ve.get("gap") is None
-                     else bool(abs(ve["gap"]) <= 1e-9 * max(abs(ve.get("H2") or 1.0), 1.0))),
-    }
-
 
 def _summ(values) -> dict:
     """Distribution summary (mean/std/min/max/n) of a list of numbers."""

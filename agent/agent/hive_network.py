@@ -166,18 +166,31 @@ class HiveNetwork:
         return name
 
 
-# process-wide singleton
+# one network per workspace
 
-_NETWORK: HiveNetwork | None = None
-
-
-def get_network() -> HiveNetwork:
-    global _NETWORK
-    if _NETWORK is None:
-        _NETWORK = HiveNetwork()
-    return _NETWORK
+_NETWORKS: dict[str, HiveNetwork] = {}
 
 
-def reset_network():
-    global _NETWORK
-    _NETWORK = None
+def get_network(workspace: str | None = None) -> HiveNetwork:
+    """The hive network for one workspace: its registry of named hives.
+
+    Keyed by workspace rather than process-wide. `hive(name)` is get-or-create, and
+    /agents/command reaches it with `scope: "hive:<name>"`, so any tenant could bring a
+    named hive into being, and every tenant then shared that one object: the same worker
+    bees, and the same coordination complex they each write through `chat` and read
+    through `monitor`. Resolved from the bound request when not named, so a caller
+    outside a request keeps the single "default" network it always had.
+    """
+    from agent.server.scope import bound_workspace
+    name = workspace or bound_workspace()
+    if name not in _NETWORKS:
+        _NETWORKS[name] = HiveNetwork()
+    return _NETWORKS[name]
+
+
+def reset_network(workspace: str | None = None):
+    """Drop one workspace's network, or every one of them when none is named."""
+    if workspace is None:
+        _NETWORKS.clear()
+    else:
+        _NETWORKS.pop(workspace, None)

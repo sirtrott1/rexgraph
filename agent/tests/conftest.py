@@ -18,6 +18,36 @@ import tempfile
 
 import pytest
 
+
+# rexgraph-rcdb is a sibling distribution. Preferring an installed one and falling back
+# to the copy beside this checkout means the suite exercises the real package without
+# anything being installed into the caller's environment, which is the same rule the rcql
+# and system suites follow. The bare import is dropped first because the repository root
+# shadows both as namespace packages and an empty one would otherwise pass for the real
+# thing.
+def _ensure_sibling(name: str) -> None:
+    try:
+        module = __import__(name)
+        if getattr(module, "__file__", None):
+            return
+    except ImportError:
+        pass
+    sys.modules.pop(name, None)
+    root = pathlib.Path(__file__).resolve().parents[2] / name
+    if not root.is_dir():
+        return
+    sys.path.insert(0, str(root))
+    # And for CHILD processes: several tests reopen a store from a fresh interpreter,
+    # which is the only way to prove persistence rather than one process's memory. A
+    # sys.path insert does not reach them, so the environment has to carry it.
+    existing = os.environ.get("PYTHONPATH", "")
+    parts = [p for p in existing.split(os.pathsep) if p]
+    if str(root) not in parts:
+        os.environ["PYTHONPATH"] = os.pathsep.join([str(root), *parts])
+
+
+_ensure_sibling("rcdb")
+
 # Put the agent project root on the path before anything imports from it.
 #
 # Two things resolve wrongly without this when pytest is invoked from the REPOSITORY

@@ -1,9 +1,16 @@
 """Every place that states a version must state the same one.
 
-There are five, because each serves something that cannot read the others: meson needs
+There are eleven, because each serves something that cannot read the others: meson needs
 its own at configure time, pip reads pyproject before any code runs, and `__version__`
 has to answer without the package being installed. None of them is removable without
 giving something up, so instead of one source of truth there is one test.
+
+It matters more than it did. rcdb, rcql and system are their own distributions now, and
+the wire formats broke this release, so every inter-distribution floor was raised to
+>=1.1.3. That floor rejects a pre-1.1.3 sibling; it does not pin the five to each other,
+and a later release can still resolve an older one unless its own floor moves. What this
+test guarantees is the half that is checkable here: this source release states 1.1.3 in
+every one of the eleven places that state a version.
 
 It is here because the drift already happened: meson.build sat at 1.0.1 against a 1.0.6
 package through two releases. Nothing was mis-built, since pyproject is what
@@ -15,23 +22,40 @@ until it is embarrassing, which is the kind worth a test rather than a conventio
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
 import pytest
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 
-#: every file that names a version, and how to get it out
+def _toml_version(p):
+    return tomllib.loads(p.read_text())["project"]["version"]
+
+
+def _module_version(p):
+    return re.search(r'^__version__\s*=\s*"([^"]+)"', p.read_text(), re.M).group(1)
+
+
+#: every file that names a version, and how to get it out.
+#:
+#: There are eleven now rather than five, because rcdb, rcql and system became
+#: distributions of their own. A package declaring one version while its distribution
+#: declares another is what makes a floor meaningless, and each package's own test proves
+#: only that it agrees with ITSELF, so the cross-distribution check lives here.
 SOURCES = {
-    "pyproject.toml": lambda p: tomllib.loads(p.read_text())["project"]["version"],
-    "agent/pyproject.toml": lambda p: tomllib.loads(p.read_text())["project"]["version"],
+    "pyproject.toml": _toml_version,
+    "agent/pyproject.toml": _toml_version,
+    "rcdb/pyproject.toml": _toml_version,
+    "rcql/pyproject.toml": _toml_version,
+    "system/pyproject.toml": _toml_version,
     "meson.build": lambda p: re.search(r"^\s*version:\s*'([^']+)'",
                                        p.read_text(), re.M).group(1),
-    "rexgraph/__init__.py": lambda p: re.search(r'^__version__\s*=\s*"([^"]+)"',
-                                                p.read_text(), re.M).group(1),
-    "agent/agent/__init__.py": lambda p: re.search(r'^__version__\s*=\s*"([^"]+)"',
-                                                   p.read_text(), re.M).group(1),
+    "rexgraph/__init__.py": _module_version,
+    "agent/agent/__init__.py": _module_version,
+    "rcdb/rcdb/__init__.py": _module_version,
+    "rcql/rcql/__init__.py": _module_version,
+    "system/system/__init__.py": _module_version,
 }
 
 

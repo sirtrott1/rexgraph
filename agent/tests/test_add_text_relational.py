@@ -17,8 +17,7 @@ TEXT = ("Alpha connects beta. Beta connects gamma. "
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    import agent.server.persistence as pers
-    monkeypatch.setattr(pers, "_BASE_DIR", tmp_path / "ws", raising=False)
+    monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path / "ws"))
     from agent.server.app import app
     return TestClient(app)
 

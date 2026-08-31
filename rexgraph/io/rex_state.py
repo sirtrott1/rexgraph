@@ -4,8 +4,8 @@ to_state(rex) produces a RexState{tensors, header}. All numeric payload is named
 header is a KB scale json safe dict of version plus pointers, types, roles, and nested rex names.
 Three tiers:
   tier 1 (pointers, identity): label_names, agent_meta.
-  tier 2 (composite binary relations): boundary, B2, w_E, signs, edge_types, directed, g_channel,
-    w_boundary.
+  tier 2 (composite binary relations): boundary, B2, w_E, signs, edge_types, directed,
+    g_channel, c_channel, w_boundary.
   tier 3 (rexgraph outputs): signals plus the spectral signature scalars.
 Nested rexes (a cell value that is itself a RexGraph) serialize recursively under a namespaced
 tensor group.
@@ -246,6 +246,7 @@ def to_state(rex) -> RexState:
     h["nV"], h["nE"], h["nF"] = int(rex._nV), int(rex._nE), int(rex._nF)
     h["directed"] = bool(rex._directed)
     h["g_channel"] = getattr(rex, "_g_channel", "raw")
+    h["c_channel"] = getattr(rex, "_c_channel", "share")
 
     # tier 2: composite binary relations
     t["boundary_ptr"] = np.asarray(rex._boundary_ptr)
@@ -370,25 +371,38 @@ def state_digest(tensors: dict, names=None, *, algo: int = DIGEST_ALGO) -> str:
 def verify_state(state: RexState) -> bool:
     """Whether a state's tensors still match the digest recorded with them.
 
-    True when no digest was recorded: a bundle written before this existed is old, not
-    corrupt, and refusing it would turn an upgrade into data loss.
+    A missing digest fails: without a recorded value there is nothing to compare the
+    stored bytes against. The ``.rex`` loader owns the one explicit migration path for
+    trusted bundles written before the content seal existed.
 
     A name the digest covered that is no longer present is a failure, not an absence:
     dropping a tensor is exactly the truncation this is here to catch.
     """
-    declared = state.header.get("digest")
-    if not declared:
-        return True
+    if "digest" not in state.header:
+        return False
+    declared = state.header["digest"]
+    if not isinstance(declared, str) or len(declared) != 64:
+        return False
+    try:
+        bytes.fromhex(declared)
+    except ValueError:
+        return False
     names = state.header.get("digest_names")
-    if names is None:
-        names = sorted(state.tensors)
-    if any(n not in state.tensors for n in names):
+    if (not isinstance(names, list) or not names
+            or any(not isinstance(n, str) or not n for n in names)
+            or len(set(names)) != len(names)
+            or any(n not in state.tensors for n in names)):
         return False
     # a bundle sealed before the framing fix carries no stamp and must be checked under
     # the rule it was written with, or an upgrade would report every stored object corrupt
-    algo = int(state.header.get("digest_algo", 1))
+    try:
+        algo = int(state.header.get("digest_algo", 1))
+    except (TypeError, ValueError):
+        return False
+    if algo not in (1, DIGEST_ALGO):
+        return False
     return hmac.compare_digest(
-        str(declared), state_digest(state.tensors, names, algo=algo))
+        declared, state_digest(state.tensors, names, algo=algo))
 
 
 def _pack_cell_metadata(cm, t, h):
@@ -452,23 +466,27 @@ def _unpack_cell_metadata(rex, t, h):
                 rex.attach_metadata(dim, int(col["idx"][entry["j"]]), key, sub)
 
 
-def from_state(state: RexState, *, verify: bool = True):
-    """Rebuild the complex a state describes, checking its digest first.
+def from_state(
+    state: RexState,
+    *,
+    verify: bool = True,
+    _allow_unsealed: bool = False,
+):
+    """Rebuild the complex a state describes, checking its format and digest first.
 
-    Checked here rather than in each reader, so `.rex`, hdf5, zarr, safetensors and the
-    wire all refuse a payload whose tensors no longer match what was written, instead of
-    four of them refusing and one loading it. A state carrying no digest predates this
-    and loads unchanged.
+    Format precedes integrity so a pre-canonical bundle gets the actionable diagnosis
+    that it is old, not a suggestion to enable a migration flag that cannot decode it.
+    Integrity is checked here rather than in each reader, so `.rex`, hdf5, zarr,
+    safetensors and the wire all refuse a payload whose tensors no longer match what
+    was written. A state carrying no digest is refused.
+    ``_allow_unsealed`` is private plumbing for the explicit legacy option on the
+    ``.rex`` loader and must not be exposed by a network or general container reader.
 
     `verify=False` is for a caller that assembled the tensors itself and never wrote a
     digest to check against.
     """
     from rexgraph.graph import RexGraph
     h, t = state.header, state.tensors
-    if verify and not verify_state(state):
-        raise ValueError(
-            "the stored tensors do not match the digest recorded with them: this "
-            "object was modified or truncated after it was written")
     ver = h.get("format_version")
     if ver not in READABLE_VERSIONS:
         # A bundle written before the canonical rex-state carried its version under
@@ -482,12 +500,27 @@ def from_state(state: RexState, *, verify: bool = True):
                 f"{FORMAT_VERSION}. Rebuild it from its source.")
         raise ValueError(f"unsupported rex state format_version {ver!r} "
                          f"(this reader accepts {READABLE_VERSIONS})")
+    if verify:
+        unsealed = "digest" not in h
+        if unsealed and not _allow_unsealed:
+            raise ValueError(
+                "the stored state carries no content digest; pass "
+                "allow_unsealed=True only to migrate a trusted legacy object")
+        if not unsealed and not verify_state(state):
+            raise ValueError(
+                "the stored tensors do not match the digest recorded with them: this "
+                "object was modified or truncated after it was written")
     if CODEC_TENSOR in t:
         t = dict(t)                              # never mutate the caller's state
         spec = json.loads(bytes(np.asarray(t.pop(CODEC_TENSOR)).tobytes()).decode("utf-8"))
         decode_tensors(t, spec)
-    kw = {"boundary_ptr": t["boundary_ptr"], "boundary_idx": t["boundary_idx"],
-          "directed": h.get("directed", False), "g_channel": h.get("g_channel", "raw")}
+    kw = {
+        "boundary_ptr": t["boundary_ptr"],
+        "boundary_idx": t["boundary_idx"],
+        "directed": h.get("directed", False),
+        "g_channel": h.get("g_channel", "raw"),
+        "c_channel": h.get("c_channel", "share"),
+    }
     for name in ("B2_col_ptr", "B2_row_idx", "B2_vals"):
         if name in t:
             kw[name] = t[name]

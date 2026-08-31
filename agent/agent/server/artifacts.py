@@ -100,6 +100,18 @@ def _write_and_read(writer, suffix: str) -> bytes:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def download(writer, suffix: str, filename: str) -> Response:
+    """A file response whose scratch is gone by the time the response is sent.
+
+    The two routes that hand back an export wrote to `mkstemp` and streamed that path
+    with no cleanup at all, so every download left a file in the shared temp directory
+    permanently, readable by any tenant who names that directory, since /corpus/add and
+    /ocr both accept one and walk it. This is the same write-then-read the typed helpers
+    below already use, exposed for callers that produce their own file.
+    """
+    return _download(_write_and_read(writer, suffix), filename)
+
+
 def _is_directory_container(fmt: str) -> bool:
     """Whether a container is written as a directory, so downloads zipped."""
     return fmt in ("rex", "zarr")

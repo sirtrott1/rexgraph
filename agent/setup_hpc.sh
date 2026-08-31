@@ -101,6 +101,10 @@ fi
 # Install agent with server deps
 echo ""
 echo "Installing agent..."
+# The agent requires rexgraph-rcdb, which is not published, so the sibling
+# distributions install from this repo first and in dependency order.
+pip install -e "./rcdb[sql,objectstore,crypto]"
+pip install -e ./rcql
 pip install -e ./agent[server]
 
 # Install GPU-specific packages

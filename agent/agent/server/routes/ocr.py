@@ -43,6 +43,14 @@ async def ocr_file(
             ocr_path = tmp.name
             cleanup_path = tmp.name
     elif path:
+        # This had no allow-list at all, only an existence check, which made it both an
+        # arbitrary read for anything the OCR backend accepts and an existence oracle for
+        # everything else: "File not found" and "Unsupported file type" answer a question
+        # about a path the caller was never entitled to ask. Containment is decided
+        # before existence, so the refusal reveals nothing either way.
+        from ..handles import path_allowed
+        if not path_allowed(path):
+            raise HTTPException(status_code=403, detail="Path outside allowed directories")
         if not os.path.exists(path):
             raise HTTPException(status_code=400, detail=f"File not found: {path}")
         ocr_path = path

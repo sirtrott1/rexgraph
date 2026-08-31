@@ -17,8 +17,122 @@ Labeled vector corpora (embeddings, structural fingerprints) share one container
 """
 
 from ._compat import HAS_HDF5, HAS_ZARR, ZARR_V3
+from ._container_crypto import (
+    ContainerDecryptionProperties,
+    ContainerEncryptionConfig,
+    ContainerEncryptionProperties,
+)
+from .catalog import CatalogEntry, FileCatalog, object_digest, state_object_digest
+from .commit import CommitLink
+from .export import ExportManifest, export_parquet, parquet_bytes, verify_export
+from .manifest import canonical_json, digest_parts, manifest_digest
+from .mutation import (
+    MutationPackage,
+    MutationPolicy,
+    mutation_from_bytes,
+    mutation_to_bytes,
+    prepare_mutation,
+    verify_mutation,
+)
+from .partition_state import PartitionState, RexPartition, build_rex_partition
+from .privacy import (
+    IdentityKeyProvider,
+    PrivacyProjection,
+    StaticIdentityKeyProvider,
+    project_rows,
+    scoped_pseudonym,
+)
+from .replication import (
+    AppliedReplication,
+    ReplicationManifest,
+    apply_replication,
+    pack_replication,
+    unpack_replication,
+)
+from .security import (
+    Ed25519Signer,
+    Ed25519Verifier,
+    EnvelopeInfo,
+    KeyProvider,
+    Signer,
+    StaticKeyProvider,
+    Verifier,
+    decrypt_bytes,
+    encrypt_bytes,
+    envelope_info,
+)
+from .temporal_state import (
+    TemporalState,
+    from_temporal_state,
+    to_temporal_state,
+    verify_temporal_state,
+)
+from .transition import TransitionCommit
+from .transport import TransportInfo
+from .transport import inspect as inspect_transport
+from .transport import pack as pack_transport
+from .transport import unpack as unpack_transport
 
-__all__ = ["ZARR_V3", "HAS_ZARR", "HAS_HDF5", "save", "load"]
+__all__ = [
+    "ZARR_V3",
+    "HAS_ZARR",
+    "HAS_HDF5",
+    "ContainerEncryptionConfig",
+    "ContainerEncryptionProperties",
+    "ContainerDecryptionProperties",
+    "CatalogEntry",
+    "FileCatalog",
+    "object_digest",
+    "state_object_digest",
+    "canonical_json",
+    "digest_parts",
+    "manifest_digest",
+    "MutationPolicy",
+    "MutationPackage",
+    "prepare_mutation",
+    "verify_mutation",
+    "mutation_to_bytes",
+    "mutation_from_bytes",
+    "PartitionState",
+    "RexPartition",
+    "build_rex_partition",
+    "CommitLink",
+    "ExportManifest",
+    "parquet_bytes",
+    "export_parquet",
+    "verify_export",
+    "IdentityKeyProvider",
+    "StaticIdentityKeyProvider",
+    "PrivacyProjection",
+    "scoped_pseudonym",
+    "project_rows",
+    "ReplicationManifest",
+    "AppliedReplication",
+    "pack_replication",
+    "unpack_replication",
+    "apply_replication",
+    "KeyProvider",
+    "StaticKeyProvider",
+    "EnvelopeInfo",
+    "encrypt_bytes",
+    "decrypt_bytes",
+    "envelope_info",
+    "Signer",
+    "Verifier",
+    "Ed25519Signer",
+    "Ed25519Verifier",
+    "TemporalState",
+    "to_temporal_state",
+    "from_temporal_state",
+    "verify_temporal_state",
+    "TransitionCommit",
+    "TransportInfo",
+    "pack_transport",
+    "inspect_transport",
+    "unpack_transport",
+    "save",
+    "load",
+]
 
 if HAS_ZARR:
     from .zarr_format import RexZarrFormat, load_zarr, save_zarr
@@ -52,6 +166,7 @@ except ImportError:
 
 try:
     from .parquet_bridge import (
+        parquet_encryption_properties,
         read_boundary_table,
         read_character_table,
         read_edge_table,
@@ -77,6 +192,7 @@ try:
         write_void_table,
     )
     __all__ += [
+        "parquet_encryption_properties",
         "write_parquet", "read_parquet",
         "write_boundary_table", "read_boundary_table",
         "write_edge_table", "read_edge_table",
@@ -144,8 +260,10 @@ __all__ += ["HAS_ARROW", "HAS_PARQUET", "HAS_SQL"]
 
 try:
     from .safetensors_bridge import (
+        SafetensorQuerySession,
         fingerprints_to_safetensors,
         load_safetensors,
+        read_safetensor_tensor,
         rex_to_safetensors,
         safetensors_to_fingerprints,
         safetensors_to_rex,
@@ -164,6 +282,7 @@ try:
         "rex_to_safetensors", "safetensors_to_rex",
         "temporal_rex_to_safetensors", "safetensors_to_temporal_rex",
         "save_safetensors", "load_safetensors",
+        "read_safetensor_tensor", "SafetensorQuerySession",
         "fingerprints_to_safetensors", "safetensors_to_fingerprints",
         "save_vectors", "load_vectors",
     ]
@@ -306,10 +425,28 @@ def _load_safetensors(path, **kwargs):
         _load_meta,
         safetensors_to_fingerprints,
         safetensors_to_rex,
+        safetensors_to_temporal_rex,
     )
-    if _load_meta(str(path)).get("object_type") == "FingerprintCorpus":
-        return safetensors_to_fingerprints(path)
-    return safetensors_to_rex(path)
+    decryption = kwargs.pop("decryption_properties", None)
+    object_type = _load_meta(
+        str(path),
+        decryption_properties=decryption,
+    ).get("object_type")
+    if object_type == "FingerprintCorpus":
+        return safetensors_to_fingerprints(
+            path,
+            decryption_properties=decryption,
+        )
+    if object_type == "TemporalRex":
+        return safetensors_to_temporal_rex(
+            path,
+            decryption_properties=decryption,
+        )
+    return safetensors_to_rex(
+        path,
+        decryption_properties=decryption,
+        **kwargs,
+    )
 
 
 def _needs(pkg, extra):

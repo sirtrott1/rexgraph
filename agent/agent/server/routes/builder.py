@@ -23,6 +23,8 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from agent.server.scope import effective_workspace
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/builder")
@@ -65,6 +67,11 @@ async def builder_run(
     is the same document the CLI takes. Files are optional: a config whose steps do
     not read documents runs without them.
     """
+    # The workspace names where this run writes. Inside a request it is the bound
+    # one, not the form field: a form field naming another tenant wrote documents,
+    # text and a stamped session into their namespace.
+    workspace = effective_workspace(workspace)
+
     try:
         cfg = json.loads(config)
     except json.JSONDecodeError as e:
@@ -79,6 +86,33 @@ async def builder_run(
         raise HTTPException(
             400, f"unknown step type(s): {', '.join(map(str, unknown))}. "
                  f"Registered: {', '.join(sorted(known))}")
+
+    # Only the step TYPE was checked. The export and training_export steps take their
+    # destination from `params.output` and write there directly, so an arbitrary file
+    # write as the server user travelled in the same config JSON, including over another
+    # workspace's documents. Checked here rather than in agent/builder.py, so a step run
+    # from the CLI by the operator keeps naming whatever it likes.
+    # Checked on the MERGED params, because AgentBuilder builds each step's params as
+    # dict(self.defaults) updated with the step's own: naming the output in `defaults`
+    # rather than in `params` skipped the check entirely and wrote outside the
+    # allow-list. Fired.
+    from ..handles import path_allowed
+    defaults = cfg.get("defaults") if isinstance(cfg.get("defaults"), dict) else {}
+    for step in cfg["steps"]:
+        own = step.get("params")
+        if own is not None and not isinstance(own, dict):
+            # AgentBuilder does dict(defaults) then .update(params), so a list here
+            # reached that update and surfaced as a 500 for what is a bad request.
+            raise HTTPException(
+                400, f"step '{step.get('type')}' has non-object 'params'")
+        merged = {**defaults, **(own or {})}
+        out = merged.get("output")
+        if out is None:
+            continue
+        if not isinstance(out, str) or not path_allowed(os.path.realpath(out)):
+            raise HTTPException(
+                403, f"step '{step.get('type')}' names an output outside the "
+                     f"allowed directories")
 
     paths = []
     try:

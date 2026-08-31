@@ -10,8 +10,14 @@ import numpy as np
 import pytest
 
 from rexgraph.graph import RexGraph
-from rexgraph.io.rex_state import (DIGEST_ALGO, RexState, from_state, state_digest,
-                                   to_state, verify_state)
+from rexgraph.io.rex_state import (
+    DIGEST_ALGO,
+    RexState,
+    from_state,
+    state_digest,
+    to_state,
+    verify_state,
+)
 
 
 def test_unframed_concatenation_collides_and_framed_does_not():
@@ -71,6 +77,55 @@ def test_a_bundle_written_before_the_fix_still_verifies(rex):
     assert verify_state(legacy)
 
 
+def test_an_unsealed_state_is_not_successful_verification(rex):
+    """The .rex loader owns legacy migration; the general verifier fails closed."""
+    st = to_state(rex)
+    unsealed = RexState(
+        dict(st.tensors),
+        {k: v for k, v in st.header.items()
+         if k not in {"digest", "digest_names", "digest_algo"}},
+    )
+
+    assert not verify_state(unsealed)
+    with pytest.raises(ValueError, match="no content digest"):
+        from_state(unsealed)
+
+
+def test_a_precanonical_bundle_reports_age_before_the_absent_seal(rex):
+    """The unsealed migration flag cannot decode the old array naming scheme, so the
+    reader must not recommend it for a bundle that predates canonical RexState."""
+    st = to_state(rex)
+    legacy_header = {
+        k: v for k, v in st.header.items()
+        if k not in {"format_version", "digest", "digest_names", "digest_algo"}
+    }
+    legacy_header["version"] = "0.9.0"
+
+    with pytest.raises(ValueError, match="older version"):
+        from_state(RexState(dict(st.tensors), legacy_header))
+    with pytest.raises(ValueError, match="older version"):
+        from_state(
+            RexState(dict(st.tensors), legacy_header),
+            _allow_unsealed=True,
+        )
+
+
+@pytest.mark.parametrize("field,value", [
+    ("digest", ""),
+    ("digest", 0),
+    ("digest", "not-a-sha256"),
+    ("digest_names", None),
+    ("digest_names", ["boundary_idx", "boundary_idx"]),
+    ("digest_algo", 999),
+])
+def test_malformed_digest_metadata_is_not_a_legacy_state(rex, field, value):
+    st = to_state(rex)
+    st.header[field] = value
+    assert not verify_state(st)
+    with pytest.raises(ValueError, match="do not match"):
+        from_state(st, _allow_unsealed=True)
+
+
 def test_tampering_is_still_caught_under_the_legacy_rule(rex):
     st = to_state(rex)
     legacy = RexState(dict(st.tensors),
@@ -93,3 +148,31 @@ def test_a_state_round_trips_under_the_new_framing(rex):
     back = from_state(st, verify=True)
     assert int(back.nE) == int(rex.nE)
     assert to_state(back).header["digest"] == st.header["digest"]
+
+
+def test_a_rex_bundle_cannot_downgrade_integrity_by_deleting_the_seal(rex, tmp_path):
+    """Reproduce the on-disk downgrade: altered tensors plus deleted declarations
+    must be refused before reconstruction. A genuine unsealed legacy bundle can still
+    be migrated only through the explicit opt-in."""
+    import json
+
+    from rexgraph.io import load_rex, save_rex
+
+    path = tmp_path / "unsealed.rex"
+    save_rex(str(path), rex)
+    manifest_path = path / "MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text())
+    for name in ("digest", "digest_names", "digest_algo"):
+        manifest.pop(name, None)
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(ValueError, match="no content digest"):
+        load_rex(str(path))
+    assert load_rex(str(path), allow_unsealed=True).nE == rex.nE
+
+    boundary_path = path / "boundary_idx.npy"
+    boundary = np.load(boundary_path)
+    boundary[0] = (int(boundary[0]) + 1) % rex.nV
+    np.save(boundary_path, boundary)
+    with pytest.raises(ValueError, match="no content digest"):
+        load_rex(str(path))

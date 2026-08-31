@@ -293,6 +293,101 @@ uniform length for valid Arrow tables.
 
 
 
+## `safetensors_bridge`: ML Transport and Indexed Encryption
+
+Safetensors export preserves the canonical `rex_state` tensors in a single
+file and also supports `TemporalRex`, fingerprint/vector corpora, cache arrays,
+and caller-owned extra tensors. Plain files retain the native safetensors layout
+and remain compatible with earlier RexGraph releases.
+
+Pass `encryption_properties=` to a writer and the matching opaque
+`decryption_properties=` to a reader to use the authenticated indexed layout.
+Core never accepts raw key bytes, imports an Agent KMS, or implements a cipher.
+The caller-owned property exposes `authenticated_encryption = True` plus:
+
+```python
+seal(key_id: str, plaintext: bytes, aad: bytes) -> bytes
+open(envelope: bytes, aad: bytes) -> bytes
+# Optional fast path when key_id came from the authenticated inner manifest:
+open_with(key_id: str, envelope: bytes, aad: bytes) -> bytes
+```
+
+`seal` must return a self-framing authenticated-encryption envelope. Configure
+exact logical tensor names with `ContainerEncryptionConfig`:
+
+```python
+from rexgraph.io import (
+    ContainerEncryptionConfig,
+    SafetensorQuerySession,
+    read_safetensor_tensor,
+)
+
+config = ContainerEncryptionConfig(
+    footer_key="project-footer",
+    tensor_keys={
+        "grade-1": ["boundary_ptr", "boundary_idx"],
+        "grade-2": ["B2_col_ptr", "B2_row_idx", "B2_vals"],
+    },
+    plaintext_tensors=["public/model_revision"],
+)
+# properties.configuration = config; properties owns KMS/envelope state
+save_safetensors("graph.safetensors", rex, encryption_properties=properties)
+rex2 = load_safetensors(
+    "graph.safetensors", decryption_properties=properties
+)["object"]
+rows = read_safetensor_tensor(
+    "graph.safetensors", "boundary_idx", index=slice(0, 100),
+    decryption_properties=properties,
+)
+with SafetensorQuerySession(
+    "graph.safetensors", decryption_properties=properties
+) as query:
+    selected = query.select(
+        ["cochain/value"],
+        where=("cochain/row_id", ">=", 1_000_000),
+    )
+```
+
+The logical manifest is encrypted with `footer_key` by default. Setting
+`plaintext_manifest=True` makes it visible but still authenticates it. Tensors
+not explicitly mapped to another key or to the plaintext list fail closed to
+`footer_key`; unknown names, overlaps, missing grade keys, incomplete chunk
+inventories, and authentication failures are rejected. A random bundle id and
+the tensor name, dtype, shape, byte range, chunk index, and total chunk count
+are bound into associated data. Explicit plaintext tensors are bound by hashes
+inside the authenticated manifest. The default 1 MiB chunks let
+`read_safetensor_tensor` open only the requested first-axis region.
+
+Each new member also carries fixed-length min, max, and null-count facts for
+every chunk. A protected member's facts are sealed under that member's own key,
+not the footer key. A reader that can open the manifest but cannot open a member
+therefore learns no value distribution for that member. Statistics associated
+with an explicitly public member are plaintext but remain authenticated. NaN
+and NaT values count as null; integer and Boolean tensors have no null values.
+
+`SafetensorQuerySession` authenticates the manifest once and reuses opened
+statistics and data chunks. `where(name, operator, value)` returns matching row
+positions. `select(names, where=(name, operator, value))` first uses statistics
+to reject impossible predicate chunks, checks candidate chunks exactly, then
+gathers result rows from only their touched chunks. Supported operators are
+`==`, `!=`, `<`, `<=`, `>`, `>=`, `isnull`, and `notnull`. Predicates must be
+one-dimensional, and every selected tensor must share their first axis. Older
+encrypted files without statistics still read and query, but their predicate
+tensor is scanned in full. Min/max pruning also cannot help an unclustered
+predicate whose range overlaps every chunk.
+
+When a property implements `open_with`, core uses it only for a key identifier
+that came from the authenticated inner manifest. This resolves the one member
+being read without trying or preloading keys for unrelated members. The outer
+descriptor is not yet authenticated when the footer is opened, so it does not
+qualify for this keyed fast path.
+
+This protects container confidentiality and integrity, not row-level access,
+identity authorization independent of key possession, or rollback. Ciphertext
+and member sizes still disclose approximate complex shape and therefore can
+suggest `nV`, `nE`, or `nF`; this version does not pad. Use an external trusted
+version/digest anchor when rollback detection matters.
+
 ## `parquet_bridge`: Parquet Table Export/Import
 
 **File:** `parquet_bridge.py` (915 lines)
@@ -306,9 +401,24 @@ dependency.
 
 ### Generic Parquet I/O
 
-- `write_parquet(data, path, metadata=None)`: writes a dict of equal-length 1D arrays; 2D arrays split into `{name}_0`, `{name}_1`, etc.
-- `read_parquet(path, columns=None)` -> dict: reads and reassembles 2D arrays from split columns
-- `read_parquet_batches(path, batch_rows=100_000, columns=None)` -> Iterator: streaming reads
+- `parquet_encryption_properties(crypto_factory, kms_connection_config, footer_key=..., column_keys=..., plaintext_footer=False)`: builds opaque PyArrow file-encryption properties from caller-owned KMS objects. Key values are identifiers, not raw keys. The encrypted footer is the safe default; a signed plaintext footer is explicit. Column keys protect columns inside one file, not rows; separate Rex grade tables need a caller-owned file/bundle key policy.
+- `write_parquet(data, path, metadata=None, encryption_properties=None)`: writes a dict of equal-length 1D arrays; 2D arrays split into `{name}_0`, `{name}_1`, etc. An opaque PyArrow `FileEncryptionProperties` enables Parquet Modular Encryption; `None` preserves plaintext compatibility.
+- `read_parquet(path, columns=None, decryption_properties=None)` -> dict: pushes the physical column projection into PyArrow, reassembles requested 2D arrays from split columns, and accepts optional opaque PyArrow `FileDecryptionProperties`.
+- `read_parquet_batches(path, batch_rows=100_000, columns=None, decryption_properties=None)` -> Iterator: streaming reads with the same optional decryption properties.
+
+Core does not ship a `WorkspaceKeyring` adapter for PyArrow. The adapter used in
+RexGraph's integration measurement is test only. With PyArrow 24, every nonempty
+projection of a file using distinct column keys also unwraps the first physical
+column key even when that column's pages are not read. DuckDB 1.5.5 cannot open
+that distinct-key PyArrow shape; its Arrow interoperability currently requires
+one uniform key for the footer and every column. Treat Parquet column projection
+as an I/O optimization, not as independent per-column authorization. The native
+safetensors and `.rex` paths do not have this first-column coupling.
+
+Every typed table writer/reader accepts the matching opaque encryption/decryption
+property as a keyword argument, including character, vertex-character, and void
+tables. Core does not accept raw keys or implement a KMS client; callers construct
+their client and connection policy outside RexGraph.
 
 ---
 
@@ -734,7 +844,7 @@ properties.
 
 ## `bundle`: RexGraph Bundle (.rex)
 
-**File:** `bundle.py` (784 lines)
+**File:** `bundle.py`
 
 Portable relational complex package using only NumPy .npy files and JSON.
 No zarr, h5py, scipy, or pyarrow required. A bundle is a self-contained
@@ -763,21 +873,79 @@ On-disk layout:
 
 Construction:
 - `RexBundle.from_graph(graph, cache=None)`: creates in-memory bundle spec (does not write to disk). Call `.save()` to persist.
-- `RexBundle.load(path, mmap=False)`: loads from a .rex directory. mmap=True for lazy array loading.
+- `RexBundle.load(path, mmap=False, decryption_properties=None)`: loads from a
+  .rex directory and authenticates its complete encrypted inventory when present.
+  `mmap=True` remains lazy for plaintext arrays.
 
 Persistence:
-- `save(path)`: writes bundle to disk. Arrays from source graph or copies existing bundle.
+- `save(path, encryption_properties=None)`: writes through an isolated staging
+  directory and serializes publication (threads on every platform and processes
+  through `flock` on POSIX), so writers cannot interleave two exports.
+
+`save` treats its destination as an already authorized filesystem path and
+creates missing parent directories. A request-facing caller must resolve and
+validate that destination inside its bound workspace root before calling core;
+bundle publication is not a path authorization boundary.
 
 Reconstruction:
-- `to_graph()` -> RexGraph
+- `to_graph(allow_unsealed=False)` -> RexGraph. The opt-in is only for migrating a
+  trusted bundle written before content digests existed; the default refuses an
+  unsealed bundle.
 - `to_temporal()` -> TemporalRex
-- `to_object()` -> RexGraph or TemporalRex (auto-dispatch)
+- `to_object(allow_unsealed=False)` -> RexGraph or TemporalRex (auto-dispatch)
 
 Array access:
 - `bundle["boundary_ptr"]` -> ndarray: loads by name (root or cache/)
+- `read_slice(name, index=None)` -> ndarray: decrypts only the selected
+  first-axis chunks of a protected member
+- `where(name, operator, value=None)` -> int64 ndarray: uses authenticated
+  member statistics to prune impossible predicate chunks
+- `select(names, where=(name, operator, value))` -> dict: checks a predicate
+  exactly and gathers matching rows from named members
+- `clear_query_cache()`: forgets opened chunks and statistics retained by bundle
+  queries
 - `"layout" in bundle` -> bool
 - `list_arrays()` -> sorted list of array names
 - `read_cache()` -> dict of all cached arrays + scalar cache from manifest
+
+### Authenticated Encrypted Bundles
+
+The same opaque `ContainerEncryptionConfig` and property contract used by the
+safetensors bridge applies to `.rex` directories. With
+`encryption_properties=None`, the existing named `.npy` layout is unchanged.
+With a property, `MANIFEST.json` contains a small public envelope and the logical
+manifest is encrypted by `footer_key` unless `plaintext_manifest=True` is
+explicit. Generated storage paths do not reveal logical names. Protected members
+are authenticated `.rexenc` chunk streams; names in `plaintext_tensors` remain
+native `.npy` files whose dtype, shape, bytes, and presence are bound by the
+authenticated manifest.
+
+Opening an encrypted bundle authenticates the manifest before using its paths,
+then rejects missing, extra, renamed, truncated, altered, or cross-bundle member
+files. The inventory covers canonical Rex state, cache arrays, every temporal
+snapshot, and every face snapshot. Members omitted from an exact caller policy
+use `footer_key`; they never silently become public. `allow_unsealed=True` is a
+legacy plaintext migration flag and cannot downgrade this check.
+
+Cold `RexBundle.load` streams SHA-256 over every stored member, so it rejects a
+same-length substitution before the member is requested. That eager validation
+is O(total ciphertext bytes). After validation, logical-name lookup is O(1), and
+`read_slice` decrypts only the selected member chunks. Deferring the hashes would
+make initial open cheaper but could not detect an unrequested same-size swap.
+
+Per-chunk query statistics use the same fixed-length format as safetensors. Facts
+for a protected member are sealed under that member's key, so opening the footer
+does not disclose value ranges for unauthorized grades. `where` and `select`
+prune, verify, and gather through the already-open `RexBundle`; a legacy bundle
+without statistics falls back to scanning its predicate member.
+
+An explicitly public `.npy` remains memory-mappable. A protected member cannot
+honestly be an `np.memmap`; indexed access under `mmap=True` raises with direction
+to `read_slice`. The encryption claim remains confidentiality and authenticated
+container integrity, not row authorization, identity independent of key
+possession, or rollback detection. File/member sizes still disclose approximate
+complex shape and may suggest `nV`, `nE`, or `nF`; there is no padding. An older
+intact directory can only be detected with an external trusted monotonic anchor.
 
 ---
 
@@ -802,5 +970,326 @@ Snapshots stored as numbered subdirectories:
 
 ### Convenience Functions
 
-- `save_rex(path, obj, cache=None)`: saves RexGraph or TemporalRex to .rex bundle
-- `load_rex(path)` -> RexGraph or TemporalRex: loads from .rex bundle
+- `save_rex(path, obj, cache=None, encryption_properties=None)`: saves RexGraph
+  or TemporalRex to a `.rex` bundle
+- `load_rex(path, allow_unsealed=False, decryption_properties=None)` -> RexGraph
+  or TemporalRex: loads from a
+  sealed .rex bundle by default. Set `allow_unsealed=True` only while migrating a
+  trusted pre-digest RexGraph bundle; wire and other container readers never expose
+  this downgrade.
+
+---
+
+# Provenance and confidentiality
+
+Twelve modules that answer one question in layers: what is this object, who says
+so, and what may be learned from it. They compose upward. `manifest` fixes what a
+digest is computed over, `security` seals and signs bytes, `transition` and
+`commit` describe one change and place it in a lineage, `transport` frames the
+result, and `mutation` binds all of it to a pair of endpoints. `catalog` and
+`temporal_state` supply the identities those endpoints are stated in.
+`partition_state`, `privacy`, `export` and `replication` are what you do with a
+complex once it has one.
+
+All are pure Python and import without `cryptography` installed; the AEAD and
+signature paths raise only when called. `pyarrow` is likewise lazy in `export`.
+
+**Identity here means the whole object, not its tensors.** The archived design
+digested tensors alone, which meant two complexes differing in orientation,
+channel semantics, cell metadata or sectioning had the same identity. Every
+digest in this stack covers the full canonical header. That is a deliberate
+break with the archived format and is why `TemporalState` v1 can never verify.
+
+---
+
+## `manifest`: Canonical Bytes for a Digest
+
+**File:** `manifest.py` (55 lines)
+
+Two objects agree on a digest only if they agree on what was hashed. This is that
+agreement: one JSON encoding, sorted keys, no whitespace, no NaN, and a
+length-prefixed framing so two different structures cannot serialize alike.
+
+- `canonical_json(value)` -> bytes
+
+  Sorted keys, `(",", ":")` separators, `ensure_ascii=False`, `allow_nan=False`.
+  A float that cannot round-trip is an error rather than a token no other reader
+  will accept.
+
+- `manifest_digest(value, algorithm="sha256")` -> hex str
+
+  Digest over `canonical_json(value)` behind a domain prefix and a version, so a
+  manifest digest can never collide with a bare hash of the same bytes.
+
+- `digest_parts(kind, parts, algorithm="sha256")` -> hex str
+
+  For a sequence of `(name, value)` pairs, each length-prefixed. Used where the
+  thing being identified is an ordered set of named digests rather than a document.
+
+---
+
+## `security`: Sealed Bytes and Detached Signatures
+
+**File:** `security.py` (230 lines)
+
+AES-256-GCM with an authenticated header, and Ed25519 signatures. Keys arrive
+through a `KeyProvider` protocol and are never serialized: an envelope carries a
+key IDENTIFIER, never key material.
+
+- `encrypt_bytes(payload, key_id, keys, object_type)` -> bytes
+
+  `ENVELOPE_MAGIC` + header length + canonical header + ciphertext. The header
+  names the object type and key id and is bound as AAD, so a ciphertext cannot be
+  relabelled as a different kind of object.
+
+- `decrypt_bytes(blob, keys, max_header=...)` -> bytes
+- `envelope_info(blob, max_header=...)` -> `EnvelopeInfo`
+
+  Reads the header without the key, for a reader deciding whether it can open
+  something before trying.
+
+- `Ed25519Signer.generate(signer_id)`, `.sign(payload)`, `.verifier()`
+- `Ed25519Verifier.verify(payload, signature)` -> bool
+
+  Only the verifier verifies. `Ed25519Signer.verifier()` hands back the matching
+  verifier; the signer itself has no verify.
+
+  **Returns a bool rather than raising.** Every call site must branch on it: a
+  bare call reads as success. The signer and verifier provide no domain
+  separation of their own, so a caller signing more than one kind of record must
+  put the kind inside the signed bytes. `TransitionCommit` and `CommitLink` do.
+
+---
+
+## `transition` and `commit`: One Change, and Its Place in a Lineage
+
+**Files:** `transition.py` (67 lines), `commit.py` (55 lines)
+
+Two records, deliberately separate. A `TransitionCommit` says a change happened
+between two named states; a `CommitLink` says where that change sits in a chain.
+Splitting them means a lineage can be re-signed without re-signing the change.
+
+- `TransitionCommit(previous_state, delta_state, resulting_state, tx_time, actor, policy, signer_id, signature)`
+
+  `previous_state` and `resulting_state` are object identities; `delta_state` is
+  the identity of the evidence between them. `policy` is the digest of the policy
+  in force, so a package cannot later be verified under a weaker one.
+
+- `CommitLink(transition_digest, parent_digest, signer_id, signature)`
+
+  `parent_digest` is `None` only at genesis, and that is checked rather than
+  assumed.
+
+Both embed their own `object_type` in `signing_bytes()`, so a transition
+signature does not verify as a lineage signature.
+
+---
+
+## `transport`: A Self-Describing Frame
+
+**File:** `transport.py` (127 lines)
+
+`MAGIC` + header length + canonical header + payload, where the header carries
+the object type, the payload size and its SHA-256.
+
+- `pack(payload, object_type, metadata=None)` -> bytes
+- `inspect(blob, max_header=...)` -> `TransportInfo`, without validating the payload
+- `unpack(blob, verify=True)` -> `(payload, metadata)`
+
+The digest here is a corruption check. It is unkeyed, so it says nothing about
+authenticity on its own; that is what the signatures above are for.
+
+---
+
+## `temporal_state`: A TemporalRex as Verifiable Tensors
+
+**File:** `temporal_state.py` (394 lines)
+
+- `to_temporal_state(trex)` -> `TemporalState`
+- `verify_temporal_state(state)` -> bool
+- `from_temporal_state(state, verify=True, allow_legacy=False)` -> TemporalRex
+
+**v1 is migration-only and can never verify.** Its header digest covered the
+tensors alone, leaving `directed`, `general`, `T`, `checkpoint_times`, the
+checkpoint threshold and the clock unsigned: an attacker could flip orientation
+or rewrite history length, leave every tensor untouched, and every signature
+still passed. v2 seals every header field. `verify_temporal_state` returns False
+on a version mismatch before any digest work, so a v1 header cannot report
+verified whatever its tensors say, and `from_temporal_state` refuses v1 unless
+`allow_legacy=True` is passed explicitly. That gate sits outside the `verify`
+flag, so `verify=False` does not slip past it.
+
+Reconstruction validates rather than clamps: `T` non-negative, the booleans
+actually boolean, checkpoints sorted, unique, in range and starting at zero, and
+one finite non-decreasing time per step.
+
+---
+
+## `catalog`: What a File Is, and What an Object Is
+
+**File:** `catalog.py` (484 lines)
+
+- `object_digest(value)` -> hex str, over the full canonical `RexState` header
+- `state_object_digest(state)` -> the same for an already-built state
+- `FileCatalog(roots)`, `.entries()`, `.info(name)`
+
+A catalog names files by a rooted RELATIVE path (`root0/sub/name`), never an
+absolute one, refuses a name that escapes its root, and does not list symlinks.
+The point is that a caller can be handed a catalog without being told where the
+files are.
+
+`object_digest` covers channel semantics, agent and cell metadata, nested
+complexes, sectionings and Merkle state, not only the tensors. Two complexes with
+identical tensors and different channels have different identities, which is what
+makes an endpoint in a signed transition mean anything.
+
+---
+
+## `mutation`: A Change Bound to Its Endpoints
+
+**File:** `mutation.py` (528 lines)
+
+- `MutationPolicy(require_transition_signature, require_lineage_signature, allowed_signers)`
+- `prepare_mutation(previous, resulting, tx_time, actor, policy, parent_digest, ...)` -> `MutationPackage`
+- `verify_mutation(package, *, previous, policy=None, verifiers=None, parent_digest=...)` -> bool
+- `mutation_to_bytes(package)` / `mutation_from_bytes(blob, allow_legacy=False)`
+
+A v2 package carries ONE full canonical resulting `RexState`. The previous
+endpoint is not carried, because in a chain it is the prior version the verifier
+already holds; carrying it would pay 110% overhead to ship a second copy of
+something on disk, against 55% for the result alone.
+
+**`previous` is a required keyword.** Omitting it raises `TypeError`, and genesis
+must pass `None` explicitly. This is structural rather than documentary: a
+package verified in isolation can prove the carried result was signed, but cannot
+prove the transition, and those two claims must not share a return value. Without
+it, a genuine package presented against a store whose prior version is not the one
+it was signed against would read as verified. `parent_digest` uses a sentinel, so
+omitting the parent check is distinguishable from asserting genesis.
+
+Identity is verified from the CARRIED canonical state, never from a temporal
+reconstruction. The checkpoint and delta tuples drop `w_boundary`, graded duals,
+signals, labels, agent metadata, cell metadata, nested complexes, sectionings and
+Merkle state, so a reconstruction is structural EVIDENCE and not an identity.
+
+A v1 package cannot verify, the writer refuses to emit one, and relabelling a v2
+package as v1 fails on the temporal prefix rather than downgrading.
+
+---
+
+## `privacy`: Pseudonyms That Do Not Join
+
+**File:** `privacy.py` (152 lines)
+
+- `PrivacyProjection(fields, pseudonym_fields, scope, key_id)`
+- `scoped_pseudonym(value, scope, key_id, keys)` -> base32 token
+- `project_rows(rows, projection, keys)` -> projected rows
+
+The same subject identifier under two different scopes produces two unrelated
+tokens, so the same person in two studies cannot be joined. Scope and value are
+each length-prefixed inside the HMAC message behind a domain prefix, so
+`(scope_a, id)` cannot frame identically to `(scope_b, id')`.
+
+**A missing key is a hard failure, not a fallback.** There is no plain-hash path:
+one would make every pseudonym recomputable by anyone who can guess a subject id,
+which is the entire property this module exists to provide.
+
+Pseudonymisation is not de-identification. A token is stable within its scope,
+which is what makes it useful and also what makes it linkable to other records in
+that same scope.
+
+---
+
+## `export`: A Parquet Artifact With an Identity
+
+**File:** `export.py` (253 lines)
+
+- `parquet_bytes(data, metadata=None)` -> bytes, in memory, no temporary file
+- `export_parquet(data, partition_digest, key_id=None, keys=None)` -> `(payload, ExportManifest)`
+- `verify_export(payload, manifest, keys=None)` -> bool
+
+`verify_export` recomputes SHA-256 over the payload it is handed and compares
+with `hmac.compare_digest`, rather than trusting a stored digest, so a swapped
+payload fails.
+
+**An encrypted export is one AES-GCM envelope over the complete artifact.** It is
+not Parquet modular column encryption, promises no per-column isolation, and
+supports no projection or predicate pushdown: the whole thing is decrypted before
+a single column can be read. That is the right shape for a handoff artifact,
+whose recipient reads all of it, and the wrong shape for a working store. The
+indexed containers in `safetensors_bridge` and `bundle` are where selective
+reading lives.
+
+Logical columns are sorted, so output is deterministic regardless of the order a
+caller built the mapping. This diverges deliberately from the archived
+caller-order bytes.
+
+**An `ExportManifest` does not name the disclosure policy.** It carries the
+partition digest, the schema and payload identity and whether the artifact is
+encrypted, but there is no `PrivacyProjection` digest field. So if `project_rows`
+was applied after partitioning, the payload's integrity still holds and the
+authorising policy is still not named in the artifact. This is inherited from the
+archived design rather than introduced here, and it means end-to-end policy
+binding has to be asserted out of band until the field exists.
+
+---
+
+## `partition_state`: A Sub-Complex That Is Still a Complex
+
+**File:** `partition_state.py` (273 lines)
+
+- `build_rex_partition(rex, e_mask, *, f_mask=None, grade_masks=None, policy_digest="", closure="subcomplex")` -> `RexPartition`
+
+  `e_mask` is positional and required: a partition of nothing is not a useful
+  default. `closure` accepts only `"subcomplex"`, which is the parameter
+  reserving room for a rule that is not downward closure, not a choice today.
+
+Selecting cells is not enough: a selection that keeps a face without its edges is
+not a complex and `B_k B_{k+1} = 0` will not hold on it. Closure propagates
+downward from the top grade, so a selected cell brings its complete boundary at
+every grade below it.
+
+Grade one closes from the raw `boundary_ptr`/`boundary_idx` supports rather than
+from matrix non-zeros, because a self-loop's signed column cancels to sparse zero
+and counting non-zeros would drop a vertex the relation structurally contains.
+
+Accepts the legacy `e_mask`/`f_mask` pair and explicit `grade_masks` for grade two
+and above; the archived version rejected grades above two. Orientation, weights,
+signs, heads, channels and boundary attribution are preserved by copy, not by
+reference, so the partition and its source cannot mutate each other. An empty
+grade is preserved as an empty grade rather than dropped, since dropping it
+relabels every higher operator. Application metadata is deliberately omitted.
+`policy_digest` records the projection that authorised the selection.
+
+---
+
+## `replication`: Applying a Chain Somewhere Else
+
+**File:** `replication.py` (305 lines)
+
+- `pack_replication(checkpoint, mutations, *, checkpoint_state="", checkpoint_commit="")`
+  -> `(bytes, ReplicationManifest)`
+- `unpack_replication(blob)` -> `(checkpoint_bytes, mutation_bytes, manifest)`
+
+  The middle element is raw mutation BYTES, not decoded packages. Unpacking still
+  decodes every mutation internally to validate its type and claimed ordering, then
+  returns the original bytes so the caller controls when and where they are applied.
+- `apply_replication(blob, *, checkpoint_loader, policy=None, verifiers=None)` -> `AppliedReplication`
+
+`unpack_replication` checks the inventory: digests, counts, and that the lineage
+is contiguous. `apply_replication` does the real work, and the division matters.
+It matches the loaded checkpoint's identity against what the manifest claims
+BEFORE applying anything, then walks the packages in order, calling
+`verify_mutation` with the ACTUAL current graph and the exact prior link digest at
+each step. Dropping an interior package therefore fails twice over: the lineage is
+no longer contiguous, and the next package's `previous_state` no longer matches
+what is on disk.
+
+`checkpoint_loader` is a plain callable, which is how this module applies a chain
+into a store without importing one.
+
+**The transport chain is unkeyed SHA-256.** By default that is a corruption and
+consistency check, not an authenticity boundary: resisting an adversary who
+fabricates a whole self-consistent sequence requires the producer to have required
+signatures and the verifier to hold real keys. A chain that WAS signed cannot be
+downgraded, because the policy digest is bound into the transition.

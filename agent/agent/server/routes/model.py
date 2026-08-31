@@ -10,10 +10,19 @@ from __future__ import annotations
 import os
 import shutil
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from agent.server.auth import require_admin
+
 router = APIRouter(prefix="/v1")
+
+# Reading what the instance is running is ordinary use. Everything that MOVES it is not:
+# the runtime is process-wide, so these start and stop subprocesses, spend disk and VRAM,
+# and take a model or a profile out from under whoever else is using it. Those are
+# instance operations rather than workspace ones, and they are gated on instance admin.
+_admin = [Depends(require_admin)]
+
 
 
 def _build_context(session, results: dict) -> str:
@@ -387,7 +396,7 @@ async def chat_model_config():
     return status()
 
 
-@router.post("/model/chat-config")
+@router.post("/model/chat-config", dependencies=_admin)
 async def set_chat_model_config(body: dict = Body(...)):
     """Configure the chat model.
 
@@ -432,7 +441,7 @@ async def local_runtime_endpoints():
             "probed": [t["url"] for t in local_runtime._default_probe_targets()]}
 
 
-@router.post("/model/local/start")
+@router.post("/model/local/start", dependencies=_admin)
 async def local_runtime_start(body: dict = Body(...)):
     """Launch a local llama.cpp server for a GGUF and make it the chat backend, so
     chat + metrics + agentic all run on the local model.
@@ -449,7 +458,7 @@ async def local_runtime_start(body: dict = Body(...)):
         raise HTTPException(400, str(e)) from e
 
 
-@router.post("/model/local/stop")
+@router.post("/model/local/stop", dependencies=_admin)
 async def local_runtime_stop():
     """Stop the managed local server and clear the chat-backend override."""
     from agent import local_runtime
@@ -457,7 +466,7 @@ async def local_runtime_stop():
     return {"ok": True, "status": local_runtime.status()}
 
 
-@router.post("/model/embedder/start")
+@router.post("/model/embedder/start", dependencies=_admin)
 async def embedder_start(body: dict = Body(...)):
     """Launch the dedicated embedding worker (the beehive's nomic-embed bee) ALONGSIDE the chat
     model, so the swarm's alignment/hallucination signal is always live. body: {model_path}."""
@@ -471,7 +480,7 @@ async def embedder_start(body: dict = Body(...)):
         raise HTTPException(400, str(e)) from e
 
 
-@router.post("/model/embedder/stop")
+@router.post("/model/embedder/stop", dependencies=_admin)
 async def embedder_stop():
     from agent import local_runtime
     local_runtime.stop_embedder()
@@ -509,7 +518,7 @@ async def attention_capture_available():
     return {"available": attn_introspect.available()}
 
 
-@router.post("/model/introspect/attention")
+@router.post("/model/introspect/attention", dependencies=_admin)
 async def model_introspect_attention(body: dict = Body(...)):
     """Tier-2: capture the running model's OWN per-layer attention (llama.cpp cb_eval, no ggml
     patch) and run the RCF analysis on each layer - Hodge grad/curl/harmonic, the four channels,

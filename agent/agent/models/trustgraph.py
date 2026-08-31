@@ -61,11 +61,18 @@ def bundle_from_core(triples=None, *, url=None, flow=None, labels=None, feat_dim
 
 
 def core_to_rcdb(triples=None, *, url=None, flow=None, uri="memory://", name="knowledge_core",
-                 tags=None):
-    """Ingest a knowledge core and catalogue its complex in the RCDB (queryable by Betti/coherence)."""
+                 tags=None, store=None):
+    """Ingest a knowledge core and catalogue its complex in the RCDB (queryable by Betti/coherence).
+
+    `store` takes an already-opened store and `uri` is then ignored. A route passes the
+    workspace-scoped store that way, because opening a caller-named URI here writes
+    outside the scoped view entirely.
+    """
     rex, _ = core_to_rex(triples, url=url, flow=flow)
-    from agent.rcdb import open_store
-    open_store(uri).put(name, rex, meta={"source": "trustgraph"}, tags=tags or ["trustgraph"])
+    if store is None:
+        from agent.rcdb import open_store
+        store = open_store(uri)
+    store.put(name, rex, meta={"source": "trustgraph"}, tags=tags or ["trustgraph"])
     return name
 
 

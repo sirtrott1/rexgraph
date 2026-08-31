@@ -92,7 +92,10 @@ def test_the_delta_tensor_reports_when_in_real_time():
 def test_times_survive_the_rcdb_round_trip():
     """The point of the bridge: a stored TemporalRex keeps the coordinate system
     that lets its steps be lined up against anything else recorded in wall clock."""
-    from agent import rcdb
+    rcdb = pytest.importorskip(
+        "agent.rcdb",
+        reason="requires the optional rexgraph-agent package",
+    )
 
     tr = _store(times=[10.0, 20.0, 35.0, 60.0])
     store = rcdb.MemoryStore()
@@ -103,7 +106,10 @@ def test_times_survive_the_rcdb_round_trip():
 
 
 def test_the_signature_exposes_the_time_span_for_querying():
-    from agent import rcdb
+    rcdb = pytest.importorskip(
+        "agent.rcdb",
+        reason="requires the optional rexgraph-agent package",
+    )
 
     tr = _store(times=[10.0, 20.0, 35.0, 60.0])
     store = rcdb.MemoryStore()

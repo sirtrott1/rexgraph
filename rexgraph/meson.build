@@ -1,7 +1,7 @@
 # rexgraph/ package
 py.install_sources(
     ['__init__.py', 'graph.py', 'analysis.py', 'rextypes.py', 'dense_matrix.py',
-     'sparse_character.py',
+     'cochain.py', 'green.py', 'linear_operator.py', 'sparse_character.py',
     'ternary.py', 'hip_ternary.py', 'coboundary_volume.py', 'sparse_interfacing.py', 'scale_propagator.py',
      'dirac_propagator.py', 'faces.py',
      'field_propagator.py', 'graded_boundary.py', '_env.py', '_experimental.py',

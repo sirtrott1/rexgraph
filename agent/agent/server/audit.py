@@ -9,8 +9,15 @@ misses.
 Each entry carries the digest of the entry before it. The digests form a chain, so
 altering entry k changes its digest, which is recorded in k+1, and every entry after it
 disagrees. Removing an entry breaks the same link. An attacker who can write the file
-can still rewrite the whole tail, which is why the head digest is worth reading off the
-box: verification is local, but anchoring is not.
+can still rewrite the whole tail and recompute every digest, and `verify` then reports a
+clean chain, so the chain alone cannot detect that.
+
+`anchor` is the other half. It witnesses how long the trail is and what its head is into
+a separate sink, so a rewrite has to also change a record the rewriter does not hold, and
+`verify_against_anchors` reports the oldest anchor the trail stopped agreeing with. The
+sink is the whole point: anchors beside the journal are rewritten with it. Sign them by
+naming a key reference in REXGRAPH_ANCHOR_KEY, and put them somewhere this service
+cannot write, via REXGRAPH_AUDIT_ANCHORS.
 
 That is tamper EVIDENCE, not tamper prevention, and the distinction is the point. The
 trail proves a record was not edited after it was written; keeping the file writable
@@ -27,18 +34,24 @@ concurrent writers interleave whole lines rather than corrupting each other.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import hmac
 import json
 import os
 import threading
 import time
 from pathlib import Path
 
+try:
+    import fcntl
+except ImportError:                                  # non-POSIX: one process only
+    fcntl = None
+
 #: the digest recorded by the first entry, which has nothing before it
 GENESIS = "0" * 64
 
 _lock = threading.Lock()
-_head: str | None = None
 
 
 def journal_path() -> Path:
@@ -48,6 +61,30 @@ def journal_path() -> Path:
     base = Path(os.environ.get("REXGRAPH_CONFIG_DIR",
                                Path.home() / ".config" / "rexgraph"))
     return base / "audit.jsonl"
+
+
+def _line(obj: dict) -> bytes:
+    """One canonical JSON line. Sorted keys, so the same object serializes the same way."""
+    return (json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                       default=str) + "\n").encode("utf-8")
+
+
+@contextlib.contextmanager
+def _locked_append(p: Path):
+    """Hold `p` exclusively for the duration of the block, yielding an append-mode fd.
+
+    Both writers in this module read a file and then append to it based on what they
+    read, so the lock has to span both halves. Closing the descriptor releases it.
+    """
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with _lock:                                      # threads inside this process
+        fd = os.open(p, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            if fcntl is not None:                    # and every other process
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            yield fd
+        finally:
+            os.close(fd)
 
 
 def _digest(entry: dict) -> str:
@@ -61,16 +98,34 @@ def _digest(entry: dict) -> str:
     return hashlib.sha256(body).hexdigest()
 
 
+def _last_line(path: Path, block: int = 4096) -> str:
+    """The last complete line, read from the end of the file.
+
+    Read backwards because this runs under the lock on every append: walking the whole
+    journal to find its own tail would make writing the trail quadratic in its length.
+    """
+    if not path.is_file():
+        return ""
+    with path.open("rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        pos = fh.tell()
+        data = b""
+        while pos > 0:
+            step = min(block, pos)
+            pos -= step
+            fh.seek(pos)
+            data = fh.read(step) + data
+            trimmed = data.rstrip(b"\n")
+            cut = trimmed.rfind(b"\n")
+            if cut != -1:
+                return trimmed[cut + 1:].decode("utf-8", "replace")
+        return data.rstrip(b"\n").decode("utf-8", "replace")
+
+
 def _read_head(path: Path) -> str:
     """The digest of the last entry on disk, or GENESIS for an empty trail."""
-    if not path.is_file():
-        return GENESIS
-    last = ""
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            if line.strip():
-                last = line
-    if not last:
+    last = _last_line(path)
+    if not last.strip():
         return GENESIS
     try:
         return str(json.loads(last).get("digest") or GENESIS)
@@ -87,7 +142,6 @@ def record(action: str, *, user: str = "", workspace: str = "default",
     its trail could not be written. A trail that cannot be written is itself worth
     noticing, so the failure goes to the logger.
     """
-    global _head
     p = path or journal_path()
     entry = {
         "ts": time.time(),
@@ -100,20 +154,15 @@ def record(action: str, *, user: str = "", workspace: str = "default",
         "pid": os.getpid(),
     }
     try:
-        with _lock:
-            if _head is None or path is not None:
-                _head = _read_head(p)
-            entry["prev"] = _head
+        with _locked_append(p) as fd:
+            # The head is read from the file while the lock is held, never from a
+            # process-local cache. Two processes stamping `prev` from their own cached
+            # head both extended the same entry, so the chain forked and `verify`
+            # reported a break with nothing tampered, which makes a real break
+            # indistinguishable from ordinary concurrency.
+            entry["prev"] = _read_head(p)
             entry["digest"] = _digest(entry)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            line = json.dumps(entry, sort_keys=True, separators=(",", ":"),
-                              default=str) + "\n"
-            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-            try:
-                os.write(fd, line.encode("utf-8"))
-            finally:
-                os.close(fd)
-            _head = entry["digest"]
+            os.write(fd, _line(entry))
     except OSError:
         import logging
         logging.getLogger(__name__).warning(
@@ -173,6 +222,121 @@ def head(path: Path | None = None) -> str:
 
 
 def reset_cache() -> None:
-    """Drop the cached head so the next append re-reads the file. For tests."""
-    global _head
-    _head = None
+    """No head is cached any more; every append reads it from the file under the lock.
+
+    Kept because it is the reset seam ten test modules already call, and because it
+    stays correct if this module gains process state again.
+    """
+    return None
+
+
+#: names the reference to the anchor key, not the key. Absent means anchors are unsigned.
+ANCHOR_KEY_REF_ENV = "REXGRAPH_ANCHOR_KEY"
+
+
+def anchor_path() -> Path:
+    """Where anchors are appended.
+
+    The default sits beside the journal, which is convenient and weak: whoever can
+    rewrite the trail can rewrite anchors in the same directory. Point
+    REXGRAPH_AUDIT_ANCHORS at a sink this service cannot rewrite, another host, an
+    append-only mount, object storage under a retention lock, or an anchor proves
+    nothing the journal does not already prove on its own.
+    """
+    explicit = os.environ.get("REXGRAPH_AUDIT_ANCHORS")
+    if explicit:
+        return Path(explicit)
+    return journal_path().with_name("audit.anchors.jsonl")
+
+
+def _anchor_key() -> str:
+    """The anchor key, resolved from the reference the environment names."""
+    from agent.secrets import resolve_ref
+    return resolve_ref(os.environ.get(ANCHOR_KEY_REF_ENV, ""))
+
+
+def _anchor_mac(body: dict, key: str) -> str:
+    if not key:
+        return ""
+    return hmac.new(key.encode("utf-8"), _line(body), hashlib.sha256).hexdigest()
+
+
+def anchor(path: Path | None = None, sink: Path | None = None) -> dict:
+    """Witness how long the trail is and what its head is, so a later rewrite shows.
+
+    The chain proves no entry was edited in place. It cannot prove the tail was not
+    rewritten wholesale, because whoever rewrites it recomputes every digest from the
+    point they changed. An anchor is the missing half: a statement kept somewhere the
+    service cannot reach about where the trail stood at one moment, so rewriting history
+    now also requires changing a record the rewriter does not hold.
+
+    Signing is what stops an anchor from being rewritten alongside the journal when the
+    sink turns out to be reachable after all. Unsigned anchors still catch an accident
+    and a careless attacker, and the return value says which kind was written.
+    """
+    p = path or journal_path()
+    state = verify(p)
+    body = {"ts": time.time(), "journal": str(p),
+            "n_entries": state["n_entries"], "head": state["head"]}
+    key = _anchor_key()
+    out = dict(body, mac=_anchor_mac(body, key), signed=bool(key),
+               valid_when_taken=state["valid"])
+    with _locked_append(sink or anchor_path()) as fd:
+        os.write(fd, _line(out))
+    return out
+
+
+def read_anchors(sink: Path | None = None) -> list[dict]:
+    """Every anchor taken, oldest first. An unreadable line is skipped, not fatal."""
+    src = sink or anchor_path()
+    if not src.is_file():
+        return []
+    out = []
+    for line in src.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        with contextlib.suppress(json.JSONDecodeError):
+            out.append(json.loads(line))
+    return out
+
+
+def verify_against_anchors(path: Path | None = None,
+                           sink: Path | None = None) -> dict:
+    """Check the trail against every anchor taken of it.
+
+    Reports the OLDEST anchor the journal disagrees with, because that is where the
+    record stopped matching what was witnessed and everything after it is already
+    suspect. Three ways to fail, apart because they mean different things: an anchor
+    whose MAC does not verify was forged or the key changed; a trail shorter than an
+    anchor witnessed was truncated; a head that differs at a length that was witnessed
+    means the trail was rewritten behind the anchor.
+
+    With no anchors this reduces to `verify`, and says so, because a chain that has
+    never been witnessed cannot detect its own wholesale rewrite.
+    """
+    p = path or journal_path()
+    state = verify(p)
+    anchors = sorted(read_anchors(sink), key=lambda a: int(a.get("n_entries", 0)))
+    key = _anchor_key()
+    heads = [GENESIS]
+    for entry in read(p):
+        heads.append(str(entry.get("digest") or ""))
+
+    for a in anchors:
+        body = {k: a[k] for k in ("ts", "journal", "n_entries", "head") if k in a}
+        expected = _anchor_mac(body, key)
+        if expected and not hmac.compare_digest(expected, str(a.get("mac") or "")):
+            return {"valid": False, "reason": "an anchor was forged or the key changed",
+                    "anchor": a, "n_anchors": len(anchors), "chain": state}
+        n = int(a.get("n_entries", 0))
+        if n >= len(heads):
+            return {"valid": False,
+                    "reason": "the trail is shorter than an anchor witnessed",
+                    "anchor": a, "n_anchors": len(anchors), "chain": state}
+        if heads[n] != a.get("head"):
+            return {"valid": False,
+                    "reason": "the trail was rewritten behind an anchor",
+                    "anchor": a, "n_anchors": len(anchors), "chain": state}
+
+    return {"valid": bool(state["valid"]), "reason": state["reason"],
+            "anchor": None, "n_anchors": len(anchors), "chain": state}

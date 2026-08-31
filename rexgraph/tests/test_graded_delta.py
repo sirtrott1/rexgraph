@@ -105,11 +105,7 @@ def test_channel_delta_is_a_symmetric_four_by_four_with_a_zero_diagonal():
 
 
 def test_channel_delta_matches_the_reference_implementation():
-    import importlib.util as iu
-    spec = iu.spec_from_file_location(
-        "l_gb_reference", "rexgraph/tests/reference/l_gb_reference.py")
-    ref = iu.module_from_spec(spec)
-    spec.loader.exec_module(ref)
+    ref = _ref()
     for n in (4, 5, 6):
         r = _complete(n)
         hats = list(r._rcf_bundle.get("hats", []) or [])
@@ -120,9 +116,17 @@ def test_channel_delta_matches_the_reference_implementation():
 
 #### the degenerate case, which is where the reference convention lives
 def _ref():
+    """Load the reference implementation relative to this file, not the caller's cwd.
+
+    A cwd-relative path only resolves when pytest is invoked from the repository root,
+    so running the installed suite from anywhere else failed seven tests on a missing
+    file rather than on any property of the math.
+    """
     import importlib.util as iu
-    spec = iu.spec_from_file_location(
-        "l_gb_reference", "rexgraph/tests/reference/l_gb_reference.py")
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parent / "reference" / "l_gb_reference.py"
+    spec = iu.spec_from_file_location("l_gb_reference", path)
     mod = iu.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

@@ -26,12 +26,30 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_BASE_DIR = Path(os.environ.get("REXGRAPH_CONFIG_DIR",
-    Path.home() / ".config" / "rexgraph")) / "workspaces"
+def _base_dir() -> Path:
+    """Where workspaces live, read when asked rather than captured at import.
+
+    Captured at import this disagreed with `handles.config_dir()`, which reads the
+    environment on each call, so one process could hold two different ideas of where the
+    configuration is and a containment test would compare paths from different roots.
+    One source of truth instead.
+    """
+    from agent.server.handles import config_dir
+    return config_dir() / "workspaces"
 
 
 def _ws_dir(workspace: str) -> Path:
-    d = _BASE_DIR / workspace
+    """The directory holding one workspace's files.
+
+    The name is validated here because this function both joins it onto a path and
+    creates what it names: /api/v1/pipeline/stream took the workspace from a form field,
+    so "../.." escaped the workspace root and mkdir made the directories on the way out.
+    The predicate is the one `handles` already uses, not a second rule that can drift.
+    """
+    from agent.server.handles import valid_workspace
+    if not valid_workspace(workspace):
+        raise ValueError(f"not a usable workspace name: {workspace!r}")
+    d = _base_dir() / workspace
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -131,10 +149,46 @@ def doc_session_map(workspace: str) -> dict:
 
 # RexGraph persistence (uses rexgraph/io/bundle.py directly)
 
+def staging_dir(workspace: str) -> Path:
+    """Where a file this workspace uploaded is kept while a document refers to it.
+
+    Not the shared temp directory. A staged upload becomes the document's source path,
+    so it deliberately outlives the request, and gettempdir() is both nameable by anyone
+    who may name a path and walked by the routes that accept a directory, so one
+    tenant's upload sat next to another's indefinitely and enumerating it needed no
+    guessed filename. Under the workspace instead, which no caller can name at all
+    because path_within refuses the deployment's config directory outright.
+    """
+    d = _ws_dir(workspace) / "staging"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def doc_path(workspace: str, doc_id: str, suffix: str = ".rex") -> Path:
+    """The path of one document, with the id held inside its own workspace.
+
+    Validating the workspace name settled which directory this is; it said nothing about
+    what gets joined onto it. A doc_id of "../../victim/documents/ordinary" resolved into
+    another workspace, and RexBundle.save creates parents, so a tenant could plant or
+    overwrite a document in a workspace they cannot otherwise reach. Reproduced, not
+    theorised.
+
+    `handles.path_within` is the wrong predicate here and deliberately so: it refuses
+    anything under the deployment's config directory, which is exactly where every
+    workspace lives. That predicate answers whether a caller may name a path on the
+    filesystem at all. This one answers whether an id stays inside its own workspace.
+    """
+    base = _docs_dir(workspace).resolve()
+    p = (base / f"{doc_id}{suffix}").resolve()
+    if p == base or base not in p.parents:
+        raise ValueError(f"not a document id: {doc_id!r}")
+    return p
+
+
 def save_document_rex(workspace: str, doc_id: str, rex, cache="all"):
     """Save a document's RexGraph as a .rex bundle."""
     from rexgraph.io import save_rex
-    path = str(_docs_dir(workspace) / (f"{doc_id}.rex"))
+    path = str(doc_path(workspace, doc_id))
     save_rex(path, rex, cache=cache)
     return path
 
@@ -142,7 +196,7 @@ def save_document_rex(workspace: str, doc_id: str, rex, cache="all"):
 def load_document_rex(workspace: str, doc_id: str):
     """Load a document's RexGraph from its .rex bundle."""
     from rexgraph.io import load_rex
-    path = str(_docs_dir(workspace) / (f"{doc_id}.rex"))
+    path = str(doc_path(workspace, doc_id))
     if not os.path.exists(path):
         return None
     return load_rex(path)

@@ -14,6 +14,10 @@ Verifies:
     - Metrics table: generic per-cell roundtrip
 """
 
+import base64
+import hashlib
+import hmac
+
 import numpy as np
 import pytest
 
@@ -27,6 +31,7 @@ pytestmark = pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow not installed")
 
 if HAS_PYARROW:
     from rexgraph.io.parquet_bridge import (
+        parquet_encryption_properties,
         read_boundary_table,
         read_character_table,
         read_edge_table,
@@ -52,6 +57,67 @@ if HAS_PYARROW:
     )
 
 from rexgraph.graph import RexGraph
+
+
+if HAS_PYARROW:
+    try:
+        from pyarrow.parquet.encryption import CryptoFactory, KmsClient, KmsConnectionConfig
+        HAS_PARQUET_ENCRYPTION = True
+    except ImportError:
+        HAS_PARQUET_ENCRYPTION = False
+else:
+    HAS_PARQUET_ENCRYPTION = False
+
+if HAS_PARQUET_ENCRYPTION:
+    class _TestKmsClient(KmsClient):
+        """Authenticated reversible wrapper for PME tests, never production crypto."""
+
+        def __init__(self, master_keys):
+            super().__init__()
+            self._master_keys = master_keys
+
+        def wrap_key(self, key_bytes, master_key_identifier):
+            master = self._master_keys[master_key_identifier]
+            mask = hashlib.sha256(master + b"rexgraph-pme-test").digest()
+            wrapped = bytes(value ^ mask[i % len(mask)]
+                            for i, value in enumerate(key_bytes))
+            tag = hmac.new(master, wrapped, hashlib.sha256).digest()
+            return base64.b64encode(tag + wrapped)
+
+        def unwrap_key(self, wrapped_key, master_key_identifier):
+            master = self._master_keys[master_key_identifier]
+            payload = base64.b64decode(wrapped_key)
+            tag, wrapped = payload[:32], payload[32:]
+            expected = hmac.new(master, wrapped, hashlib.sha256).digest()
+            if not hmac.compare_digest(tag, expected):
+                raise ValueError("wrong test master key")
+            mask = hashlib.sha256(master + b"rexgraph-pme-test").digest()
+            return bytes(value ^ mask[i % len(mask)]
+                         for i, value in enumerate(wrapped))
+
+
+def _test_crypto(master_keys=None):
+    keys = master_keys or {
+        "footer-key": b"f" * 32,
+        "column-key": b"c" * 32,
+    }
+    factory = CryptoFactory(lambda _config: _TestKmsClient(keys))
+    connection = KmsConnectionConfig(kms_instance_id="rexgraph-tests")
+    return factory, connection
+
+
+def _test_properties(*, columns, plaintext_footer=False, master_keys=None):
+    factory, connection = _test_crypto(master_keys)
+    encryption = parquet_encryption_properties(
+        factory,
+        connection,
+        footer_key="footer-key",
+        column_keys={"column-key": list(columns)},
+        plaintext_footer=plaintext_footer,
+    )
+    decryption = factory.file_decryption_properties(connection)
+    return encryption, decryption
+
 
 # Fixtures
 
@@ -96,6 +162,265 @@ class TestGenericParquet:
         write_parquet({"x": np.ones(3)}, tmp_path_pq,
                       metadata={"version": 2})
         # Just verify it doesn't crash; metadata is in schema
+
+    def test_column_projection_is_pushed_into_pyarrow(self, tmp_path_pq, monkeypatch):
+        import pyarrow.parquet as pq
+
+        write_parquet({"x": np.arange(3), "secret": np.arange(3) + 10}, tmp_path_pq)
+        real_read_table = pq.read_table
+        seen = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("columns"))
+            return real_read_table(*args, **kwargs)
+
+        monkeypatch.setattr(pq, "read_table", spy)
+        loaded = read_parquet(tmp_path_pq, columns=["x"])
+        assert seen == [["x"]]
+        assert set(loaded) == {"x"}
+
+    def test_logical_2d_projection_expands_to_physical_columns(self, tmp_path_pq, monkeypatch):
+        import pyarrow.parquet as pq
+
+        mat = np.arange(12, dtype=np.float64).reshape(4, 3)
+        write_parquet({"mat": mat, "secret": np.arange(4)}, tmp_path_pq)
+        real_read_table = pq.read_table
+        seen = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("columns"))
+            return real_read_table(*args, **kwargs)
+
+        monkeypatch.setattr(pq, "read_table", spy)
+        loaded = read_parquet(tmp_path_pq, columns=["mat"])
+        assert seen == [["mat_0", "mat_1", "mat_2"]]
+        assert set(loaded) == {"mat"}
+        assert np.array_equal(loaded["mat"], mat)
+
+    def test_mixed_projection_reads_only_requested_physical_columns(self, tmp_path_pq, monkeypatch):
+        import pyarrow.parquet as pq
+
+        mat = np.arange(8).reshape(4, 2)
+        write_parquet({"x": np.arange(4), "mat": mat, "secret": np.arange(4)}, tmp_path_pq)
+        real_read_table = pq.read_table
+        seen = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("columns"))
+            return real_read_table(*args, **kwargs)
+
+        monkeypatch.setattr(pq, "read_table", spy)
+        loaded = read_parquet(tmp_path_pq, columns=["x", "mat"])
+        assert seen == [["x", "mat_0", "mat_1"]]
+        assert set(loaded) == {"x", "mat"}
+
+    def test_physical_2d_component_can_be_projected_directly(self, tmp_path_pq, monkeypatch):
+        import pyarrow.parquet as pq
+
+        mat = np.arange(8).reshape(4, 2)
+        write_parquet({"mat": mat}, tmp_path_pq)
+        real_read_table = pq.read_table
+        seen = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("columns"))
+            return real_read_table(*args, **kwargs)
+
+        monkeypatch.setattr(pq, "read_table", spy)
+        loaded = read_parquet(tmp_path_pq, columns=["mat_1"])
+        assert seen == [["mat_1"]]
+        assert set(loaded) == {"mat_1"}
+        assert np.array_equal(loaded["mat_1"], mat[:, 1])
+
+    @pytest.mark.parametrize("requested", [[], ["missing"]])
+    def test_empty_projection_never_falls_back_to_all_columns(
+            self, tmp_path_pq, monkeypatch, requested):
+        import pyarrow.parquet as pq
+
+        write_parquet({"secret": np.arange(3)}, tmp_path_pq)
+        real_read_table = pq.read_table
+        seen = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("columns"))
+            return real_read_table(*args, **kwargs)
+
+        monkeypatch.setattr(pq, "read_table", spy)
+        loaded = read_parquet(tmp_path_pq, columns=requested)
+        assert seen == [[]]
+        assert loaded == {}
+
+
+@pytest.mark.skipif(
+    not HAS_PARQUET_ENCRYPTION,
+    reason="PyArrow was built without Parquet encryption",
+)
+class TestParquetModularEncryption:
+
+    def test_plaintext_defaults_remain_compatible(self, tmp_path_pq):
+        data = {"x": np.arange(4), "y": np.arange(4) + 10}
+        write_parquet(data, tmp_path_pq)
+        loaded = read_parquet(tmp_path_pq)
+        assert np.array_equal(loaded["x"], data["x"])
+        assert np.array_equal(loaded["y"], data["y"])
+
+    def test_encrypted_footer_is_default_and_roundtrips_with_properties(self, tmp_path_pq):
+        import pyarrow.parquet as pq
+
+        encryption, decryption = _test_properties(columns=["secret"])
+        write_parquet(
+            {"public": np.arange(4), "secret": np.arange(4) + 10},
+            tmp_path_pq,
+            metadata={"classification": "test"},
+            encryption_properties=encryption,
+        )
+
+        with pytest.raises(OSError, match="encrypted metadata"):
+            pq.read_schema(tmp_path_pq)
+        with pytest.raises(OSError, match="encrypted metadata"):
+            read_parquet(tmp_path_pq)
+        loaded = read_parquet(tmp_path_pq, decryption_properties=decryption)
+        assert set(loaded) == {"public", "secret"}
+        schema = pq.read_schema(tmp_path_pq, decryption_properties=decryption)
+        assert b"classification" in schema.metadata[b"rex_metadata"]
+
+    def test_plaintext_footer_exposes_schema_but_not_encrypted_column(self, tmp_path_pq):
+        import pyarrow.parquet as pq
+
+        encryption, decryption = _test_properties(
+            columns=["secret"],
+            plaintext_footer=True,
+        )
+        write_parquet(
+            {"public": np.arange(4), "secret": np.arange(4) + 10},
+            tmp_path_pq,
+            metadata={"distribution": True},
+            encryption_properties=encryption,
+        )
+
+        schema = pq.read_schema(tmp_path_pq)
+        assert schema.names == ["public", "secret"]
+        assert b"distribution" in schema.metadata[b"rex_metadata"]
+        public = read_parquet(tmp_path_pq, columns=["public"])
+        assert set(public) == {"public"}
+        with pytest.raises(OSError, match="Cannot decrypt"):
+            read_parquet(tmp_path_pq, columns=["secret"])
+        secret = read_parquet(
+            tmp_path_pq,
+            columns=["secret"],
+            decryption_properties=decryption,
+        )
+        assert np.array_equal(secret["secret"], np.arange(4) + 10)
+
+    def test_wrong_key_is_refused(self, tmp_path_pq):
+        encryption, _decryption = _test_properties(columns=["secret"])
+        write_parquet(
+            {"secret": np.arange(4)},
+            tmp_path_pq,
+            encryption_properties=encryption,
+        )
+        wrong_keys = {
+            "footer-key": b"x" * 32,
+            "column-key": b"y" * 32,
+        }
+        wrong_factory, wrong_connection = _test_crypto(wrong_keys)
+        wrong_decryption = wrong_factory.file_decryption_properties(wrong_connection)
+        with pytest.raises((OSError, ValueError), match="wrong test master key"):
+            read_parquet(tmp_path_pq, decryption_properties=wrong_decryption)
+
+    def test_ciphertext_tamper_is_refused(self, tmp_path):
+        path = tmp_path / "tampered.parquet"
+        encryption, decryption = _test_properties(columns=["secret"])
+        write_parquet(
+            {"secret": np.arange(1000)},
+            path,
+            encryption_properties=encryption,
+        )
+        payload = bytearray(path.read_bytes())
+        payload[len(payload) // 2] ^= 1
+        path.write_bytes(payload)
+        with pytest.raises(OSError):
+            read_parquet(path, decryption_properties=decryption)
+
+    def test_logical_2d_projection_expands_under_encryption(self, tmp_path_pq):
+        mat = np.arange(12, dtype=np.float64).reshape(4, 3)
+        encryption, decryption = _test_properties(
+            columns=["mat_0", "mat_1", "mat_2"],
+            plaintext_footer=True,
+        )
+        write_parquet(
+            {"public": np.arange(4), "mat": mat},
+            tmp_path_pq,
+            encryption_properties=encryption,
+        )
+        assert set(read_parquet(tmp_path_pq, columns=["public"])) == {"public"}
+        with pytest.raises(OSError, match="Cannot decrypt"):
+            read_parquet(tmp_path_pq, columns=["mat"])
+        loaded = read_parquet(
+            tmp_path_pq,
+            columns=["mat"],
+            decryption_properties=decryption,
+        )
+        assert np.array_equal(loaded["mat"], mat)
+
+    def test_encrypted_batch_read(self, tmp_path_pq):
+        from rexgraph.io.parquet_bridge import read_parquet_batches
+
+        encryption, decryption = _test_properties(columns=["secret"])
+        write_parquet(
+            {"secret": np.arange(9)},
+            tmp_path_pq,
+            encryption_properties=encryption,
+        )
+        with pytest.raises(OSError, match="encrypted metadata"):
+            list(read_parquet_batches(tmp_path_pq, batch_rows=3))
+        batches = list(read_parquet_batches(
+            tmp_path_pq,
+            batch_rows=3,
+            decryption_properties=decryption,
+        ))
+        assert np.array_equal(
+            np.concatenate([batch["secret"] for batch in batches]),
+            np.arange(9),
+        )
+
+    def test_typed_boundary_table_passes_properties_both_ways(self, k4, tmp_path_pq):
+        encryption, decryption = _test_properties(columns=["vertex_idx"])
+        write_boundary_table(k4, tmp_path_pq, encryption_properties=encryption)
+        with pytest.raises(OSError, match="encrypted metadata"):
+            read_boundary_table(tmp_path_pq)
+        loaded = read_boundary_table(
+            tmp_path_pq,
+            decryption_properties=decryption,
+        )
+        assert np.array_equal(loaded["boundary_ptr"], k4._boundary_ptr)
+
+    def test_character_and_void_writers_do_not_bypass_encryption(
+            self, k4, triangle, tmp_path):
+        cases = [
+            (write_character_table, read_character_table, k4, "edge_idx"),
+            (write_vertex_character_table, read_vertex_character_table, k4, "vertex_idx"),
+            (write_void_table, read_void_table, triangle, "void_idx"),
+            (write_void_table, read_void_table, k4, "void_idx"),  # empty-table branch
+        ]
+        for i, (writer, reader, rex, protected_column) in enumerate(cases):
+            path = tmp_path / f"direct_{i}.parquet"
+            encryption, decryption = _test_properties(columns=[protected_column])
+            writer(rex, path, encryption_properties=encryption)
+            with pytest.raises(OSError, match="encrypted metadata"):
+                reader(path)
+            loaded = reader(path, decryption_properties=decryption)
+            assert protected_column in loaded
+
+    def test_builder_rejects_an_empty_column_policy(self):
+        factory, connection = _test_crypto()
+        with pytest.raises(ValueError, match="column_keys"):
+            parquet_encryption_properties(
+                factory,
+                connection,
+                footer_key="footer-key",
+                column_keys={},
+            )
 
 
 # Boundary Table

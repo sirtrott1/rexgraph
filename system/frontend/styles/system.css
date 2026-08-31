@@ -1,0 +1,11 @@
+.system-shell{min-height:100vh}
+.system-title{display:flex;align-items:center;gap:8px}
+.system-main{width:100%}
+.system-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.system-query{min-height:180px;resize:vertical}
+.system-result{min-height:220px}
+.system-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.system-toolbar .input{max-width:280px}
+.system-empty{padding:24px;color:var(--fg3)}
+.system-view-note{color:var(--fg3);max-width:720px;margin-bottom:16px}
+@media(max-width:760px){.sidebar{display:none}.mobile-nav{display:flex}.content{padding:12px}}

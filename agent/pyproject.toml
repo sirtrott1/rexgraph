@@ -10,11 +10,15 @@
 # Integration-specific deps are optional extras so users only
 # install what they need.
 #
-# Install locally from the monorepo:
-#   pip install ./rexgraph ./agent                              # baseline
-#   pip install ./rexgraph "./agent[server]"                    # + FastAPI UI
-#   pip install ./rexgraph "./agent[ocr]"                       # + OCR backends
-#   pip install ./rexgraph "./agent[all]"                       # everything
+# Install locally from the monorepo. The core builds from the REPO ROOT, not from
+# ./rexgraph, which is a meson subdir include with no project() call. The agent requires
+# rexgraph-rcdb, so the store is installed before it or pip goes looking on an index
+# where it is not published:
+#   RCDB="./rcdb[sql,objectstore,crypto]"
+#   pip install . "$RCDB" ./agent                               # baseline
+#   pip install . "$RCDB" "./agent[server]"                     # + FastAPI UI
+#   pip install . "$RCDB" "./agent[ocr]"                        # + OCR backends
+#   pip install . "$RCDB" "./agent[all]"                        # everything
 #
 # Or, once published:
 #   pip install rexgraph-agent                                  # baseline
@@ -26,7 +30,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rexgraph-agent"
-version = "1.1.2"
+version = "1.1.3"
 description = "Orchestration, server, frontend, and integrations for the RexGraph ecosystem"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
@@ -61,12 +65,28 @@ classifiers = [
 # (imported by `agent/__init__.py`) uses pandas for CSV/DataFrame
 # auto-detection, so it is required for the package to import at all.
 dependencies = [
-    "rexgraph>=0.5.0",
+    "rexgraph>=1.1.3",
+    # Not optional: agent.metrics and agent.scoring re-export from rcdb.analytics, and
+    # agent.rcdb and its four siblings are compatibility surfaces over the package. The
+    # agent does not import without it.
+    "rexgraph-rcdb>=1.1.3",
     "numpy>=1.24",
     "pandas>=2.0",
 ]
 
 [project.optional-dependencies]
+# Typed queries over live agent values. agent/agent/rcql_runtime.py binds sources and
+# policies; the language itself depends on rexgraph alone and never imports the agent.
+rcql = [
+    "rexgraph-rcql>=1.1.3",
+]
+
+# Sealing and opening a rexgraph container. agent/agent/kms.py resolves a key
+# identifier and does the AEAD; rexgraph core stays free of both.
+crypto = [
+    "cryptography>=42",
+]
+
 # Schema/ontology diagnosis: dialect-aware SQL parsing + Mongo sampling
 schema = [
     "sqlglot>=20",
@@ -218,7 +238,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.3",
     "httpx>=0.27",
-    "rexgraph-agent[server,objectstore]",
+    "rexgraph-agent[server,objectstore,crypto]",
 ]
 
 # Profiles: named bundles for common deployments. Compose the granular extras
