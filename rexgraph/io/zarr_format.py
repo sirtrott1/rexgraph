@@ -379,6 +379,7 @@ class RexZarrFormat(CacheLayoutMixin):
 
         sg = g["snapshots"]
         snapshots = []
+        relation_ids = []
         for t in range(T):
             tg = sg[str(t)]
             if general:
@@ -391,6 +392,9 @@ class RexZarrFormat(CacheLayoutMixin):
                     self._load(tg, "sources"),
                     self._load(tg, "targets"),
                 ))
+            relation_ids.append(
+                self._load(tg, "relation_ids") if self._has(tg, "relation_ids") else None
+            )
 
         face_snapshots = []
         if self._has(g, "face_snapshots"):
@@ -408,6 +412,7 @@ class RexZarrFormat(CacheLayoutMixin):
         return TemporalRex(
             snapshots,
             face_snapshots=face_snapshots or None,
+            relation_ids=relation_ids,
             directed=directed,
             general=general,
         )

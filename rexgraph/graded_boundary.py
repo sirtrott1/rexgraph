@@ -1,13 +1,15 @@
 """rexgraph.graded_boundary: a general, graded, mixed-arity boundary builder.
 
-A relational complex (rex) is a finite sequence of signed integer boundary maps
+A relational complex (rex) is a finite sequence of sparse boundary maps
 
     C_G --B_G--> C_{G-1} --> ... --> C_1 --B_1--> C_0
 
-with entries in {-1, 0, +1}, satisfying the chain condition B_{d-1} B_d = 0 at every
-consecutive pair. Edges are primitive and vertices are derived: a vertex exists exactly
-when some column of B_1 is nonzero in its row. Nothing is assumed beyond the integers:
-no metric, no manifold, no continuity.
+with entries on the exact integer/rational tower, satisfying the chain condition
+``B_{d-1} B_d = 0`` at every consecutive pair. A C1 relation is special: its declared
+column is ``(-1, 1/(k-1), ..., 1/(k-1))`` (or ``(+1)`` for a witness), with exact
+integer representative ``(-(k-1), +1, ..., +1)``. Higher-grade columns are declared
+as signed/integer coefficients. Relations are primitive and vertices are derived: a
+vertex exists exactly when some column of B_1 is nonzero in its row.
 
 Each ``B_d : C_d -> C_{d-1}`` is a *signed* sparse matrix whose COLUMNS carry any number
 of nonzeros. The number of nonzeros in a column is the cell's *arity* and is INDEPENDENT
@@ -29,15 +31,20 @@ reading graded boundaries. It is pure Python + scipy.sparse; it does not touch t
 Cython core, and it is the generalization of
 ``rexgraph.dirac_propagator._boundaries_from_rex``.
 
-Sign convention (positional, matching the existing B1 storage in graph.py):
-a d-cell given as a plain list of (d-1)-cell indices ``[i0, i1, ...]`` has the FIRST
-index signed ``-1`` and every remaining index signed ``+1`` (source ``-1``, targets
-``+1``). Cells may instead be given in explicit ``[(index, sign), ...]`` form for
-arbitrary orientations. Both forms are accepted per cell.
+Sign convention: a C1 relation given as a plain participant list ``[v0, v1, ...]`` has
+``v0`` distinguished and receives the canonical shares above. At grades >= 2, a plain
+boundary list ``[i0, i1, ...]`` has the first lower cell signed ``-1`` and every
+remaining lower cell signed ``+1``. Explicit ``[(index, coefficient), ...]`` form is
+accepted at every grade; C1 coefficients select orientation only and must have one
+negative distinguished participant with positive shares.
 """
 from __future__ import annotations
 
+from collections import OrderedDict as _OrderedDict
 from collections.abc import Sequence
+from fractions import Fraction
+from math import gcd
+from numbers import Integral
 
 import numpy as np
 import scipy.sparse as sp
@@ -54,15 +61,20 @@ __all__ = [
 ]
 
 _f64 = np.float64
+_I64 = np.iinfo(np.int64)
 
 
 #### -
 # Cell parsing
 #### -
 def _is_signed_cell(cell) -> bool:
-    """True if ``cell`` is in explicit ``[(index, sign), ...]`` form rather than a
-    plain list of indices. A signed cell's every element is a length-2 pair whose
-    second entry is a +/-1 sign; a plain cell's elements are bare integers."""
+    """True for explicit ``[(index, coefficient), ...]`` instead of bare indices.
+
+    The builder carries higher-grade coefficients as sparse numeric values. Exact
+    rational normalisation for a primary branching C1 is performed by
+    :meth:`RexGraph.from_cells`; this generic builder preserves the supplied numeric
+    carrier for inspection and chain verification.
+    """
     if len(cell) == 0:
         return False
     for x in cell:
@@ -70,27 +82,234 @@ def _is_signed_cell(cell) -> bool:
             return False
         if len(x) != 2:
             return False
-        s = x[1]
-        if s not in (1, -1, 1.0, -1.0):
+        try:
+            s = float(Fraction(x[1]))
+        except (TypeError, ValueError):
+            return False
+        if not np.isfinite(s) or s == 0.0:
             return False
     return True
+
+
+def _exact_cell_index(value, *, context: str) -> int:
+    """Read a graded basis address without coercing a float or boolean."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+        raise ValueError(f"{context} must be an exact integral basis index")
+    integer = int(value)
+    if integer < _I64.min or integer > _I64.max:
+        raise ValueError(f"{context} is outside int64")
+    return integer
 
 
 def _cell_entries(cell) -> tuple[np.ndarray, np.ndarray]:
     """Return ``(indices, signs)`` for one cell.
 
     Plain form ``[i0, i1, ...]`` -> first index ``-1``, the rest ``+1`` (positional).
-    Signed form ``[(i, s), ...]`` -> exactly as given.
+    Explicit form ``[(i, c), ...]`` -> exactly as given in its numeric carrier.
     """
     if _is_signed_cell(cell):
-        idx = np.fromiter((int(x[0]) for x in cell), dtype=np.int64, count=len(cell))
-        sgn = np.fromiter((float(x[1]) for x in cell), dtype=_f64, count=len(cell))
+        idx = np.fromiter(
+            (_exact_cell_index(x[0], context="explicit cell index") for x in cell),
+            dtype=np.int64,
+            count=len(cell),
+        )
+        sgn = np.fromiter((float(Fraction(x[1])) for x in cell), dtype=_f64, count=len(cell))
         return idx, sgn
-    idx = np.asarray(cell, dtype=np.int64).ravel()
+    raw = np.asarray(cell)
+    if raw.ndim != 1:
+        raise ValueError("plain cell boundary must be a one-dimensional basis-index list")
+    idx = np.fromiter(
+        (_exact_cell_index(value, context="plain cell index") for value in raw),
+        dtype=np.int64,
+        count=raw.size,
+    )
     sgn = np.ones(idx.shape[0], dtype=_f64)
     if idx.shape[0] >= 1:
         sgn[0] = -1.0
     return idx, sgn
+
+
+def _canonical_c1_entries(cell, cell_index: int):
+    """Return one declared C1 boundary in display and exact forms.
+
+    ``float64`` is only the sparse display carrier for the canonical share.  The
+    accompanying dict is built straight over :class:`Fraction` and is what the
+    branching C2 importer solves against, so no coefficient is recovered from a
+    decimal approximation.
+    """
+    idx, sgn = _cell_entries(cell)
+    if idx.size == 0:
+        raise ValueError(f"grade-1 cell {cell_index} has empty boundary support")
+    self_loop = idx.size == 2 and int(idx[0]) == int(idx[1])
+    if not self_loop and np.unique(idx).size != idx.size:
+        raise ValueError(f"grade-1 cell {cell_index} repeats a C0 boundary participant")
+    if self_loop:
+        # A deliberate [v, v] relation exists but carries no C0 boundary.  Keep both
+        # occurrences in the sparse display carrier so the primary support survives;
+        # scipy sums the signed entries to its exact zero column.
+        v = int(idx[0])
+        return idx, np.asarray([-1.0, 1.0], dtype=_f64), {}
+    if idx.size == 1:
+        v = int(idx[0])
+        return idx, np.ones(1, dtype=_f64), {v: Fraction(1)}
+
+    head = np.flatnonzero(sgn < 0)
+    shares = np.flatnonzero(sgn > 0)
+    if (head.size != 1 or shares.size != idx.size - 1
+            or not np.all(np.abs(sgn) == 1.0)):
+        raise ValueError(
+            f"grade-1 cell {cell_index} must have one negative distinguished "
+            "participant and positive unit orientation signs"
+        )
+    h = int(head[0])
+    ordered = np.concatenate((idx[h:h + 1], np.delete(idx, h)))
+    display = np.full(ordered.shape[0], 1.0 / (ordered.shape[0] - 1), dtype=_f64)
+    display[0] = -1.0
+    share = Fraction(1, int(ordered.shape[0] - 1))
+    exact = {int(ordered[0]): Fraction(-1)}
+    exact.update({int(v): share for v in ordered[1:]})
+    return ordered, display, exact
+
+
+def _exact_higher_coefficient(value) -> Fraction:
+    """Read an explicit branching C2 coefficient without float reconstruction."""
+    if isinstance(value, (float, np.floating)):
+        if not np.isfinite(value) or not float(value).is_integer():
+            raise ValueError(
+                "explicit branching C2 coefficients must be integers, Fraction values, "
+                "or rational strings; a nonintegral float is not an exact carrier"
+            )
+        q = Fraction(int(value))
+    else:
+        try:
+            q = Fraction(value)
+        except (TypeError, ValueError, ZeroDivisionError) as exc:
+            raise ValueError("explicit branching C2 coefficients must be exact rationals") from exc
+    if q == 0:
+        raise ValueError("an explicit branching C2 coefficient cannot be zero")
+    return q
+
+
+def _exact_face_column(c1_columns, edge_ids):
+    """One primitive exact null vector for C1 support, or ``None`` if none closes."""
+    cols = [c1_columns[int(e)] for e in edge_ids]
+    verts = sorted({v for col in cols for v in col})
+    m = len(cols)
+    if not verts or m == 0:
+        return None
+    row_of = {v: i for i, v in enumerate(verts)}
+    A = [[Fraction(0)] * m for _ in verts]
+    for j, col in enumerate(cols):
+        for v, coefficient in col.items():
+            A[row_of[v]][j] = coefficient
+
+    pivot_columns: list[int] = []
+    row = 0
+    for column in range(m):
+        pivot = next((i for i in range(row, len(verts)) if A[i][column] != 0), None)
+        if pivot is None:
+            continue
+        A[row], A[pivot] = A[pivot], A[row]
+        inv = Fraction(1) / A[row][column]
+        A[row] = [value * inv for value in A[row]]
+        for i in range(len(verts)):
+            if i != row and A[i][column] != 0:
+                factor = A[i][column]
+                A[i] = [a - factor * b for a, b in zip(A[i], A[row], strict=True)]
+        pivot_columns.append(column)
+        row += 1
+        if row == len(verts):
+            break
+
+    pivots = set(pivot_columns)
+    free = [column for column in range(m) if column not in pivots]
+    if not free:
+        return None
+    vector = [Fraction(0)] * m
+    vector[free[0]] = Fraction(1)
+    for i, pivot in enumerate(pivot_columns):
+        vector[pivot] = -A[i][free[0]]
+    lead = next((value for value in vector if value != 0), None)
+    if lead is None:
+        return None
+    vector = [value / lead for value in vector]
+    return _primitive_integer_column(vector)
+
+
+def _primitive_integer_column(coefficients) -> list[int]:
+    """Clear rational denominators and common integer scale, retaining orientation."""
+    denominator = 1
+    for coefficient in coefficients:
+        denominator = denominator * coefficient.denominator // gcd(
+            denominator, coefficient.denominator
+        )
+    integers = [int(coefficient * denominator) for coefficient in coefficients]
+    common = 0
+    for value in integers:
+        common = gcd(common, abs(value))
+    if common > 1:
+        integers = [value // common for value in integers]
+    if any(abs(value) > 2 ** 53 for value in integers):
+        raise ValueError(
+            "grade-2 coefficient exceeds the exact integer range of the current B2 storage"
+        )
+    return integers
+
+
+def _build_branching_c2(n_edges: int, cells, c1_columns) -> sp.csr_matrix:
+    """Derive/validate C2 over canonical branching C1, exactly and sparsely."""
+    rows: list[int] = []
+    columns: list[int] = []
+    values: list[int] = []
+    for face, cell in enumerate(cells):
+        explicit = (
+            len(cell) > 0
+            and all(isinstance(item, (tuple, list, np.ndarray)) and len(item) == 2
+                    for item in cell)
+        )
+        if explicit:
+            edge_ids = np.fromiter((int(item[0]) for item in cell), dtype=np.int64,
+                                   count=len(cell))
+            coefficients = [_exact_higher_coefficient(item[1]) for item in cell]
+        else:
+            edge_ids = np.asarray(cell, dtype=np.int64).ravel()
+            coefficients = None
+        if edge_ids.size == 0:
+            raise ValueError(f"grade-2 cell {face} has empty relation support")
+        if np.any(edge_ids < 0) or np.any(edge_ids >= n_edges):
+            raise ValueError(f"grade-2 cell {face} refers to a relation outside C1")
+        if np.unique(edge_ids).size != edge_ids.size:
+            raise ValueError(f"grade-2 cell {face} repeats a relation in one boundary")
+
+        if coefficients is None:
+            integers = _exact_face_column(c1_columns, edge_ids)
+            if integers is None:
+                raise ValueError(
+                    f"grade-2 cell {face} does not close over the declared C1 relations; "
+                    "no face is attached"
+                )
+        else:
+            residual: dict[int, Fraction] = {}
+            for coefficient, edge in zip(coefficients, edge_ids, strict=True):
+                for vertex, value in c1_columns[int(edge)].items():
+                    residual[vertex] = residual.get(vertex, Fraction(0)) + coefficient * value
+            if any(residual.values()):
+                raise ValueError(
+                    f"grade-2 cell {face} does not satisfy the exact canonical C1 "
+                    "chain condition"
+                )
+            integers = _primitive_integer_column(coefficients)
+
+        for edge, value in zip(edge_ids, integers, strict=True):
+            if value:
+                rows.append(int(edge))
+                columns.append(face)
+                values.append(value)
+    return sp.coo_matrix(
+        (np.asarray(values, dtype=np.int64),
+         (np.asarray(rows, dtype=np.int64), np.asarray(columns, dtype=np.int64))),
+        shape=(n_edges, len(cells)),
+    ).tocsr()
 
 
 def build_graded_boundaries(cells_by_grade) -> list[sp.csr_matrix]:
@@ -108,24 +327,50 @@ def build_graded_boundaries(cells_by_grade) -> list[sp.csr_matrix]:
     Returns
     -------
     list of scipy.sparse.csr_matrix
-        ``B_d`` has shape ``(n_{d-1}, n_d)`` and is signed with arbitrary column
-        arity. Length ``G`` where ``G`` is the top grade present.
+        ``B_1`` is the canonical C1 share boundary.  When any C1 relation is
+        branching or a witness, C2 is derived/validated over that exact boundary and
+        returned with primitive integer coefficients. Higher maps have shape
+        ``(n_{d-1}, n_d)`` with arbitrary column arity. Length ``G`` where ``G`` is
+        the top grade present.
     """
     if len(cells_by_grade) == 0:
         raise ValueError("cells_by_grade must at least declare the vertex count")
-    n_prev = int(cells_by_grade[0])
+    n_prev = _exact_cell_index(cells_by_grade[0], context="vertex count")
+    if n_prev < 0:
+        raise ValueError("vertex count must be nonnegative")
     boundaries: list[sp.csr_matrix] = []
+    c1_columns = None
+    c1_is_pairwise = True
 
     for d in range(1, len(cells_by_grade)):
         cells = cells_by_grade[d]
         n_cells = len(cells)
+        if d == 2 and not c1_is_pairwise:
+            # C2 is not a positional sign template over a primary branching C1.
+            # Derive the only coefficients that satisfy the actual declared C1
+            # boundary, or validate an explicit exact coefficient vector.
+            B = _build_branching_c2(n_prev, cells, c1_columns)
+            boundaries.append(B)
+            n_prev = n_cells
+            continue
         rows: list[np.ndarray] = []
         cols: list[np.ndarray] = []
         vals: list[np.ndarray] = []
         for j, cell in enumerate(cells):
-            idx, sgn = _cell_entries(cell)
-            if idx.shape[0] == 0:
-                continue
+            if d == 1:
+                idx, sgn, exact = _canonical_c1_entries(cell, j)
+                if c1_columns is None:
+                    c1_columns = []
+                c1_columns.append(exact)
+                c1_is_pairwise = c1_is_pairwise and idx.shape[0] == 2
+            else:
+                idx, sgn = _cell_entries(cell)
+                if idx.shape[0] == 0:
+                    raise ValueError(f"grade-{d} cell {j} has empty boundary support")
+            if np.any(idx < 0) or np.any(idx >= n_prev):
+                raise ValueError(
+                    f"grade-{d} cell {j} refers to a lower-grade basis index outside C{d - 1}"
+                )
             rows.append(idx)
             cols.append(np.full(idx.shape[0], j, dtype=np.int64))
             vals.append(sgn)
@@ -147,17 +392,111 @@ def build_graded_boundaries(cells_by_grade) -> list[sp.csr_matrix]:
 #### -
 # Verification, Laplacians, homology
 #### -
+def _canonical_c1_columns(B1: sp.spmatrix):
+    """Exact C1 columns if ``B1`` is the declared canonical carrier, else ``None``.
+
+    This does not recover rationals from arbitrary floats. It recognises only the
+    unique C1 representation declared by the relational complex axiom: one literal
+    ``-1`` and literal equal ``1/(k-1)`` shares, or one literal ``+1`` witness. Once
+    recognised, the exact fractions are reconstructed from arity, not from decimals.
+    """
+    A = B1.tocsc(copy=True)
+    A.sum_duplicates()
+    A.eliminate_zeros()
+    columns = []
+    for edge in range(A.shape[1]):
+        lo, hi = int(A.indptr[edge]), int(A.indptr[edge + 1])
+        rows = A.indices[lo:hi]
+        values = A.data[lo:hi]
+        arity = int(rows.size)
+        if arity == 0:
+            columns.append({})
+            continue
+        if arity == 1:
+            if values[0] != 1.0:
+                return None
+            columns.append({int(rows[0]): Fraction(1)})
+            continue
+        heads = np.flatnonzero(values == -1.0)
+        if heads.size != 1:
+            return None
+        share = 1.0 / (arity - 1)
+        shares = np.flatnonzero(values == share)
+        if shares.size != arity - 1:
+            return None
+        head = int(heads[0])
+        column = {int(rows[head]): Fraction(-1)}
+        column.update({int(rows[i]): Fraction(1, arity - 1) for i in shares})
+        columns.append(column)
+    return columns
+
+
+def _integer_columns(B: sp.spmatrix):
+    """Sparse columns as exact integer dictionaries, or ``None`` for numeric input."""
+    A = B.tocsc(copy=True)
+    A.sum_duplicates()
+    A.eliminate_zeros()
+    if A.data.size and not np.all(A.data == np.round(A.data)):
+        return None
+    out = []
+    for column in range(A.shape[1]):
+        lo, hi = int(A.indptr[column]), int(A.indptr[column + 1])
+        out.append({int(row): Fraction(int(round(float(value))))
+                    for row, value in zip(A.indices[lo:hi], A.data[lo:hi], strict=True)})
+    return out
+
+
+def _exact_composition_residual(lower_columns, upper_columns) -> Fraction:
+    """Maximum coefficient of a sparse exact column composition."""
+    maximum = Fraction(0)
+    for upper in upper_columns:
+        total: dict[int, Fraction] = {}
+        for middle, upper_value in upper.items():
+            for row, lower_value in lower_columns[middle].items():
+                total[row] = total.get(row, Fraction(0)) + lower_value * upper_value
+        for value in total.values():
+            if abs(value) > maximum:
+                maximum = abs(value)
+    return maximum
+
+
+def _exact_chain_residual(boundaries: Sequence[sp.spmatrix]):
+    """Exact residual for canonical C1 + integral higher maps, else ``None``."""
+    if len(boundaries) < 2:
+        return Fraction(0)
+    lower = _canonical_c1_columns(boundaries[0])
+    if lower is None:
+        return None
+    maximum = Fraction(0)
+    for upper_boundary in boundaries[1:]:
+        upper = _integer_columns(upper_boundary)
+        if upper is None or len(lower) != upper_boundary.shape[0]:
+            return None
+        residual = _exact_composition_residual(lower, upper)
+        if residual > maximum:
+            maximum = residual
+        lower = upper
+    return maximum
+
+
 def verify_chain(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> tuple[bool, float]:
     """Sparsely check ``B_d @ B_{d+1} == 0`` for every consecutive pair.
 
-    Never densifies: each product is a sparse matmul and only its stored nonzeros
-    are inspected.
+    A canonical C1 plus integral higher tower takes the exact Fraction/sparse-column
+    route: C1 shares are reconstructed from declared arity, never from a decimal, and
+    every composition must vanish at literal zero. Genuinely non-exact matrices retain
+    the numerical sparse fallback, whose ``tol`` is therefore an explicit oracle
+    contract rather than the ordinary relational complex path. Neither route densifies.
 
     Returns
     -------
     (ok, max_residual)
         ``ok`` is True iff ``max_residual <= tol``.
     """
+    exact = _exact_chain_residual(boundaries)
+    if exact is not None:
+        return exact == 0, float(exact)
+
     max_res = 0.0
     for d in range(len(boundaries) - 1):
         prod = (boundaries[d].tocsr() @ boundaries[d + 1].tocsr())
@@ -216,8 +555,6 @@ def _rational_data(M: sp.spmatrix):
         return None
     return [int(round(float(x))) for x in d]
 
-
-from collections import OrderedDict as _OrderedDict
 
 # Content-addressed memo for the exact integer rank. The rational column reduction below
 # is the dominant cost on a large monitor step, and the SAME integer boundary map is

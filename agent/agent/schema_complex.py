@@ -249,42 +249,48 @@ def reflect_schema(conn_str: str) -> SchemaModel:
     from sqlalchemy import create_engine, inspect
     # short connect timeout so a bad host fails fast rather than hanging
     engine = create_engine(conn_str, connect_args={})
-    insp = inspect(engine)
-    tables, fks = [], []
+    # dispose on every exit path. Without it the engine's pooled connection stayed
+    # open until the garbage collector reached it, which is a ResourceWarning on
+    # sqlite and a held server connection on a networked database.
     try:
-        names = insp.get_table_names()
-        for schema in (insp.get_schema_names() if hasattr(insp, "get_schema_names") else []):
-            if schema in ("information_schema", "pg_catalog", "sys"):
-                continue
-    except Exception as e:
-        raise RuntimeError(f"could not read schema: {e}") from e
-    for name in names:
-        col_info = insp.get_columns(name)
-        cols = [c["name"] for c in col_info]
-        nullable_of = {c["name"]: c.get("nullable", True) for c in col_info}
+        insp = inspect(engine)
+        tables, fks = [], []
         try:
-            pk = insp.get_pk_constraint(name).get("constrained_columns", []) or []
-        except Exception:
-            pk = []
-        pk_set = set(pk)
-        tables.append(TableDef(name=name, columns=cols, primary_key=pk))
-        for fk in insp.get_foreign_keys(name):
-            if fk.get("referred_table"):
-                child_cols = fk.get("constrained_columns", []) or []
-                # mandatory if any FK column is NOT NULL; identifying if the FK
-                # columns are part of the child's primary key (composition)
-                mandatory = any(not nullable_of.get(c, True) for c in child_cols)
-                identifying = bool(child_cols) and set(child_cols) <= pk_set
-                on_delete = ((fk.get("options") or {}).get("ondelete") or "").upper()
-                fks.append(ForeignKey(
-                    from_table=name,
-                    from_cols=child_cols,
-                    to_table=fk["referred_table"],
-                    to_cols=fk.get("referred_columns", []) or [],
-                    nullable=not mandatory,
-                    identifying=identifying,
-                    on_delete=on_delete))
-    return SchemaModel(tables=tables, foreign_keys=fks)
+            names = insp.get_table_names()
+            for schema in (insp.get_schema_names() if hasattr(insp, "get_schema_names") else []):
+                if schema in ("information_schema", "pg_catalog", "sys"):
+                    continue
+        except Exception as e:
+            raise RuntimeError(f"could not read schema: {e}") from e
+        for name in names:
+            col_info = insp.get_columns(name)
+            cols = [c["name"] for c in col_info]
+            nullable_of = {c["name"]: c.get("nullable", True) for c in col_info}
+            try:
+                pk = insp.get_pk_constraint(name).get("constrained_columns", []) or []
+            except Exception:
+                pk = []
+            pk_set = set(pk)
+            tables.append(TableDef(name=name, columns=cols, primary_key=pk))
+            for fk in insp.get_foreign_keys(name):
+                if fk.get("referred_table"):
+                    child_cols = fk.get("constrained_columns", []) or []
+                    # mandatory if any FK column is NOT NULL; identifying if the FK
+                    # columns are part of the child's primary key (composition)
+                    mandatory = any(not nullable_of.get(c, True) for c in child_cols)
+                    identifying = bool(child_cols) and set(child_cols) <= pk_set
+                    on_delete = ((fk.get("options") or {}).get("ondelete") or "").upper()
+                    fks.append(ForeignKey(
+                        from_table=name,
+                        from_cols=child_cols,
+                        to_table=fk["referred_table"],
+                        to_cols=fk.get("referred_columns", []) or [],
+                        nullable=not mandatory,
+                        identifying=identifying,
+                        on_delete=on_delete))
+        return SchemaModel(tables=tables, foreign_keys=fks)
+    finally:
+        engine.dispose()
 
 
 def infer_mongo_schema(collections: dict[str, list[dict]]) -> SchemaModel:
@@ -456,6 +462,7 @@ def list_tables(conn_str: str, with_counts: bool = False) -> list[dict]:
     finally:
         if conn is not None:
             conn.close()
+        engine.dispose()          # release the pool, not just the one connection
     return out
 
 
@@ -1152,9 +1159,12 @@ def pull_cardinality_stats(conn_str: str, model: SchemaModel = None,
         model = reflect_schema(conn_str)
     engine = create_engine(conn_str)
     counts = {}
-    with engine.connect() as c:
-        for t in model.table_names():
-            counts[t] = _row_count(c, engine, t, approximate=approximate)
+    try:
+        with engine.connect() as c:
+            for t in model.table_names():
+                counts[t] = _row_count(c, engine, t, approximate=approximate)
+    finally:
+        engine.dispose()          # the with-block closes the connection, not the pool
     weights = {}
     for fk in model.foreign_keys:
         child = counts.get(fk.from_table, 0)

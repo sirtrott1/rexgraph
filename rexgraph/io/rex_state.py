@@ -259,6 +259,8 @@ def to_state(rex) -> RexState:
         t["w_E"] = np.asarray(rex._w_E)
     if rex._signs is not None:
         t["signs"] = np.asarray(rex._signs, dtype=np.float64)
+    if getattr(rex, "_relation_ids", None) is not None:
+        t["relation_ids"] = np.asarray(rex._relation_ids, dtype=np.int64)
     # edge_types is a deterministic cached_property recomputed from the boundary on load, so it is
     # NOT stored: storing it is dead weight and forces a kernel classification on every save.
     if getattr(rex, "_w_boundary", None):
@@ -528,6 +530,8 @@ def from_state(
         kw["w_E"] = t["w_E"]
     if "signs" in t:
         kw["signs"] = t["signs"]
+    if "relation_ids" in t:
+        kw["relation_ids"] = t["relation_ids"]
     if "wb_keys" in t:
         kw["w_boundary"] = _unpack_w_boundary(t["wb_keys"], t["wb_offsets"], t["wb_values"],
                                               t.get("wb_scalar"))

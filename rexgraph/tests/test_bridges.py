@@ -113,6 +113,21 @@ def test_the_two_masks_partition_the_relations():
     assert np.all(bridge_mask(rex) ^ cycle_support_mask(rex))
 
 
+def test_branching_cycle_support_is_read_from_the_exact_c1_kernel():
+    """The wide relation is 2e1-e2-e3 in ker(B1), not a first-two-vertex edge.
+
+    The former endpoint traversal marked e3 load-bearing because it could only
+    see the first two boundary participants of e1.  The declared C1 boundary
+    gives one exact cycle with support on all three relations.
+    """
+    rex = RexGraph.from_hypergraph(
+        np.array([0, 3, 5, 7], dtype=np.int32),
+        np.array([0, 1, 2, 0, 1, 0, 2], dtype=np.int32),
+    )
+    assert bridge_mask(rex).tolist() == [False, False, False]
+    assert cycle_support_mask(rex).tolist() == [True, True, True]
+
+
 def test_the_mask_agrees_with_the_solve():
     """The identity the routing rests on: bridge iff R_eff is 1."""
     for s, t in ([[0, 1, 2, 0, 3], [1, 2, 0, 3, 4]],

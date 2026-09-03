@@ -152,6 +152,9 @@ class CacheLayoutMixin:
         g.attrs["T"] = T
         g.attrs["directed"] = bool(trex._directed)
         g.attrs["general"] = bool(trex._general)
+        g.attrs["relation_id_snapshots"] = dumps([
+            value is not None for value in getattr(trex, "_snapshot_relation_ids", ())
+        ])
 
         sg = g.create_group("snapshots")
         for t in range(T):
@@ -163,6 +166,9 @@ class CacheLayoutMixin:
             else:
                 self._store(tg, "sources", snap[0])
                 self._store(tg, "targets", snap[1])
+            relation_ids = trex._snapshot_relation_ids[t]
+            if relation_ids is not None:
+                self._store(tg, "relation_ids", relation_ids)
 
         if trex._face_snapshots:
             fg = g.create_group("face_snapshots")
@@ -361,4 +367,3 @@ class CacheLayoutMixin:
         if not (names & (signal_props | {"signal"})):
             return
         self._get_or_create(g, "signal")
-

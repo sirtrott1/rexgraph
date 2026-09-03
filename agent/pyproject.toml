@@ -30,7 +30,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rexgraph-agent"
-version = "1.1.3"
+version = "1.1.4"
 description = "Orchestration, server, frontend, and integrations for the RexGraph ecosystem"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
@@ -65,11 +65,11 @@ classifiers = [
 # (imported by `agent/__init__.py`) uses pandas for CSV/DataFrame
 # auto-detection, so it is required for the package to import at all.
 dependencies = [
-    "rexgraph>=1.1.3",
+    "rexgraph>=1.1.4",
     # Not optional: agent.metrics and agent.scoring re-export from rcdb.analytics, and
     # agent.rcdb and its four siblings are compatibility surfaces over the package. The
     # agent does not import without it.
-    "rexgraph-rcdb>=1.1.3",
+    "rexgraph-rcdb>=1.1.4",
     "numpy>=1.24",
     "pandas>=2.0",
 ]
@@ -78,7 +78,7 @@ dependencies = [
 # Typed queries over live agent values. agent/agent/rcql_runtime.py binds sources and
 # policies; the language itself depends on rexgraph alone and never imports the agent.
 rcql = [
-    "rexgraph-rcql>=1.1.3",
+    "rexgraph-rcql>=1.1.4",
 ]
 
 # Sealing and opening a rexgraph container. agent/agent/kms.py resolves a key
@@ -238,6 +238,9 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.3",
     "httpx>=0.27",
+    # Starlette 1.3 moved TestClient onto httpx2 and warns when it falls back to httpx.
+    # Test-only: the server runtime still speaks httpx and must not gain this.
+    "httpx2>=2.0.0",
     "rexgraph-agent[server,objectstore,crypto]",
 ]
 

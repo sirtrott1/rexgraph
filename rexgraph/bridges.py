@@ -55,18 +55,31 @@ def cycle_support_mask(rex) -> np.ndarray:
 
 
 def bridge_mask(rex) -> np.ndarray:
-    """Boolean over relations: True where removing the relation disconnects it.
+    """Boolean over relations outside the support of the C1 cycle kernel.
 
     Vectorised throughout: one traversal for the forest, one depth-lifting pass for
     every non-tree relation's meeting point at once, and one accumulation per depth
     level. Nothing iterates over relations in Python.
 
-    A relation of arity other than two is never a bridge here: the walk is on the
-    1-skeleton, and a branching relation is not an incidence between two points.
+    On a pairwise C1 this is the usual bridge predicate and the traversal below
+    is its linear-time implementation.  On primary branching or witness C1,
+    endpoint reachability is not the definition: the exact statement is that a
+    load-bearing relation lies outside the support of ``ker(B1)``.  That support
+    is read from the exact rational cycle basis, without creating a graph
+    projection.
     """
     nV, nE = int(rex.nV), int(rex.nE)
     if nE == 0:
         return np.zeros(0, dtype=bool)
+    if not rex._is_standard_only:
+        from rexgraph.faces import cycle_basis
+
+        supported = np.zeros(nE, dtype=bool)
+        for column in cycle_basis(rex):
+            for e, coefficient in enumerate(column):
+                if coefficient:
+                    supported[e] = True
+        return ~supported
     src = np.asarray(rex.sources, dtype=np.int64)
     tgt = np.asarray(rex.targets, dtype=np.int64)
     binary = src != tgt                                # a self-loop is never a bridge

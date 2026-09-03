@@ -155,16 +155,23 @@ def ingest(uri: str, record_id: str, *, store: Any = None,
     ``store_uri``."""
     from agent.rcdb import open_store
 
+    # Close only what we opened. A caller that handed us its own store, the app's
+    # singleton for instance, still owns it and must get it back open.
+    ours = None
     if store is None:
         if not store_uri:
             raise ValueError("ingest needs a 'store' object or a 'store_uri'")
-        store = open_store(store_uri)
+        store = ours = open_store(store_uri)
 
-    connector = open_connector(uri, **kwargs)
-    rex, meta = connector.read(uri if source is None else source)
-    g = to_rexgraph(rex, meta)
-    store.put(record_id, g, meta=getattr(g, "_agent_meta", None),
-              tags=list(tags or []))
-    out = _summary(g, meta)
-    out.update({"stored_as": record_id, "store": store_uri or type(store).__name__})
-    return out
+    try:
+        connector = open_connector(uri, **kwargs)
+        rex, meta = connector.read(uri if source is None else source)
+        g = to_rexgraph(rex, meta)
+        store.put(record_id, g, meta=getattr(g, "_agent_meta", None),
+                  tags=list(tags or []))
+        out = _summary(g, meta)
+        out.update({"stored_as": record_id, "store": store_uri or type(store).__name__})
+        return out
+    finally:
+        if ours is not None:
+            ours.close()

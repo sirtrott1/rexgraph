@@ -132,7 +132,7 @@ def test_the_star_is_a_closed_subcomplex(rex):
     """An adjacency list returns cells and leaves their boundary to the caller."""
     out = neighbors(rex, 2)
     rex._ensure_clean()
-    bp, bi = np.asarray(rex._boundary_ptr), np.asarray(rex._boundary_idx)
+    bp, bi = np.asarray(rex.boundary_ptr), np.asarray(rex.boundary_idx)
     verts = set(out["vertices"])
     for e in out["edges"]:
         assert set(int(v) for v in bi[bp[e]:bp[e + 1]]) <= verts

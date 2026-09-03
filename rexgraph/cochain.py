@@ -1,8 +1,9 @@
-"""Typed cochains and collections of graded values.
+"""Typed chains, cochains, and collections of graded values.
 
-A value array does not identify the cell space on which it lives.  These small
-wrappers keep its grade and, when available, its ordered basis and source rex
-beside it so callers can preserve that identity across operator applications.
+A value array does not identify the cell space or variance on which it lives.
+These small wrappers keep grade, primal/dual variance and, when available, the
+ordered basis and source Rex beside it so callers can preserve that identity
+across operator applications.
 """
 from __future__ import annotations
 
@@ -12,7 +13,53 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["Cochain", "Field", "GradedState"]
+__all__ = ["Chain", "Cochain", "Field", "GradedState"]
+
+
+@dataclass(frozen=True)
+class Chain:
+    """Coefficients on one primal grade of a relational complex.
+
+    A chain has the same basis bookkeeping as a :class:`Cochain`, but carries
+    the opposite variance.  Keeping both at runtime prevents a boundary
+    ``B_k : C_k -> C_(k-1)`` from being silently relabelled as a cochain
+    operation merely because both are represented by an array.
+    """
+
+    grade: int
+    values: Any
+    cell_keys: Any = None
+    source: Any = None
+
+    def __post_init__(self) -> None:
+        grade = int(self.grade)
+        if grade < 0:
+            raise ValueError("grade must be >= 0")
+        shape = getattr(self.values, "shape", None)
+        if shape is None or len(shape) == 0:
+            raise ValueError("values must have a cell axis")
+        if self.cell_keys is not None and len(self.cell_keys) != int(shape[0]):
+            raise ValueError("cell_keys must match the first value axis")
+        object.__setattr__(self, "grade", grade)
+
+    @property
+    def n_cells(self) -> int:
+        """Number of cells in the chain's basis."""
+        return int(self.values.shape[0])
+
+    def numpy(self, *, dtype=None, copy: bool = False) -> np.ndarray:
+        """Return the values as NumPy, detaching a torch tensor if necessary."""
+        if hasattr(self.values, "detach"):
+            out = self.values.detach().cpu().numpy()
+        else:
+            out = np.asarray(self.values)
+        if dtype is not None:
+            out = out.astype(dtype, copy=False)
+        return out.copy() if copy else out
+
+    def with_values(self, values) -> Chain:
+        """Return values on the same primal grade and ordered basis."""
+        return Chain(self.grade, values, self.cell_keys, self.source)
 
 
 @dataclass(frozen=True)

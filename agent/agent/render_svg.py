@@ -451,8 +451,20 @@ def render_svg(payload, *, width: int = 900, height: int = 700, pad: int = 60,
         return _render_character(payload, width, height, pad, labels, dLT, eps,
                                  azimuth, elevation, colour_of, exposure_note)
 
-    if view == "structural":
-        source = payload.get("positions", {}).get("structural", {})
+    drawn_view = view
+    structural = payload.get("positions", {}).get("structural", {})
+    # The adjacency layout is undefined for a branching or witness relation: it seeds from
+    # the pairwise component kernel, which does not span H0 once a relation carries more
+    # than two participants. Rather than return a blank document, fall through to the
+    # exact placement, which is defined at every arity and is exact rather than iterative.
+    # The caption names which view was drawn, so the substitution is stated rather than
+    # silent; a drawing that quietly answered a different question under the requested
+    # view's name would be worse than an empty one.
+    if view == "structural" and structural.get("available") is False:
+        drawn_view = "exact"
+
+    if drawn_view == "structural":
+        source = structural
         cells = source.get("cells", [])
         # Fraction of a float is that double exactly, so the viewport arithmetic below is
         # unchanged. It does not make the coordinate exact and the caption does not claim
@@ -556,6 +568,9 @@ def render_svg(payload, *, width: int = 900, height: int = 700, pad: int = 60,
         note += ' | COLLINEAR, the character does not separate these'
     if labels and n_roomy < len(points):
         note += f' | {n_roomy}/{len(points)} labelled, the rest have no room'
+    if drawn_view != view:
+        note += (f' | {view} view undefined for a branching or witness relation, '
+                 f'drawn with the exact placement')
     if exposure_note:
         note += f' | {exposure_note}'
     caption = (f'{len(points)} vertices, {len(relations)} relations, '

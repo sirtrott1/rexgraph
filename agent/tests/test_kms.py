@@ -111,7 +111,7 @@ def test_it_seals_a_real_rex_bundle_end_to_end(scoped, tmp_path):
     ring, token = _in_workspace(scoped, "alpha")
     try:
         ring.configuration = ContainerEncryptionConfig(footer_key="grade0", tensor_keys={})
-        rex = RexGraph.from_hypergraph([0, 2, 4], [0, 1, 1, 2, 2, 0])
+        rex = RexGraph.from_hypergraph([0, 2, 4], [0, 1, 1, 2])
         out = str(tmp_path / "sealed.rex")
         save_rex(out, rex, encryption_properties=ring)
 

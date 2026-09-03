@@ -45,7 +45,10 @@ def store(request, tmp_path):
     else:
         st = rcdb.SQLStore(f"sqlite:///{tmp_path / 'rc.sqlite'}")
     _corpus().persist(st)
-    return st
+    # yield, not return: a SQL store holds a connection pool that stays open
+    # until the collector reaches it unless the owner closes it.
+    yield st
+    st.close()
 
 
 def test_labels_any_narrows_to_records_sharing_a_token(store):
@@ -139,16 +142,20 @@ def test_sql_pushes_the_label_predicate_into_the_database(tmp_path):
     """Not just the same answer: SQLStore must resolve labels in SQL rather than
     reading every row back and filtering in Python."""
     st = rcdb.SQLStore(f"sqlite:///{tmp_path / 'rc.sqlite'}")
-    _corpus().persist(st)
+    try:
+        _corpus().persist(st)
 
-    seen = []
-    real_row_to_record = st._row_to_record
+        seen = []
+        real_row_to_record = st._row_to_record
 
-    def counting(row):
-        seen.append(1)
-        return real_row_to_record(row)
+        def counting(row):
+            seen.append(1)
+            return real_row_to_record(row)
 
-    st._row_to_record = counting
-    hits = st.query(labels_any=["frustration"], limit=50)
-    assert {r.id for r in hits} == {"channels"}
-    assert len(seen) == 1, f"materialized {len(seen)} rows for a 1-record answer"
+        st._row_to_record = counting
+        hits = st.query(labels_any=["frustration"], limit=50)
+        assert {r.id for r in hits} == {"channels"}
+        assert len(seen) == 1, f"materialized {len(seen)} rows for a 1-record answer"
+
+    finally:
+        st.close()

@@ -171,13 +171,9 @@ def test_cell_metadata_slash_vs_underscore_keys_do_not_collide(tmp_path):
 
 
 def test_grade3_boundary_roundtrips():
-    verts = 4
-    edges = [[i, j] for i in range(4) for j in range(i + 1, 4)]
-    eidx = {(e[0], e[1]): k for k, e in enumerate(edges)}
-    tris_v = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
-    triangles = [[eidx[(min(a, b), max(a, b))] for a, b in ((t[0], t[1]), (t[0], t[2]), (t[1], t[2]))]
-                 for t in tris_v]
-    g = RexGraph.from_cells([verts, edges, triangles, [[0, 1, 2, 3]]])
+    from rexgraph.graded_boundary import solid_octahedron_3rex
+
+    g = RexGraph.from_cells(solid_octahedron_3rex())
     assert getattr(g, "_graded_duals", None)             # has grade-3
     r = from_state(to_state(g))
     assert r._graded_duals is not None

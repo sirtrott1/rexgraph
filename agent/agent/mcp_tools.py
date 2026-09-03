@@ -232,7 +232,7 @@ def _edges_of(rex, mask):
         raise ValueError(
             f"a selection of {mask.shape[0]} cells matches neither nV={nV} nor nE={nE}")
     rex._ensure_clean()
-    bp, bi = rex._boundary_ptr, rex._boundary_idx
+    bp, bi = rex.boundary_ptr, rex.boundary_idx
     out = np.zeros(nE, dtype=np.uint8)
     if bp is None:
         src, tgt = rex._ensure_src_tgt()

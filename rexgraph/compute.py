@@ -465,3 +465,78 @@ register_backend("cuda", available=_cuda_available, kind="gpu",
                  description="NVIDIA / ROCm GPU (via torch or cupy).")
 register_backend("mps", available=_mps_available, kind="gpu",
                  description="Apple Metal (via torch mps).")
+
+
+# Torch sparse construction
+#
+# torch leaves sparse invariant checking OFF by default and warns once that it has, because
+# a tensor whose invariants are broken does not raise when it is later used: it segfaults.
+# Every sparse tensor rexgraph builds is built from COMPUTED indices, which is exactly the
+# case where a bug yields a malformed tensor rather than an obvious error.
+#
+# The checks are enabled per construction rather than by flipping torch's global switch. A
+# library that sets process-wide torch state decides for every other user of torch in that
+# process, including the application that imported it. Scoping it here validates what
+# rexgraph builds, leaves everyone else's tensors alone, and removes the one-time warning
+# because the flag is no longer implicit where we construct.
+#
+# Both helpers live here so the policy is one decision in one place rather than a copy at
+# each construction site, which is how the sites drift apart.
+
+def sparse_coo_tensor(indices, values, size=None, **kwargs):
+    """``torch.sparse_coo_tensor`` with the invariants actually checked."""
+    import torch
+
+    with torch.sparse.check_sparse_tensor_invariants(True):
+        if size is None:
+            return torch.sparse_coo_tensor(indices, values, **kwargs)
+        return torch.sparse_coo_tensor(indices, values, size, **kwargs)
+
+
+def sparse_csr_tensor(crow_indices, col_indices, values, size=None, **kwargs):
+    """``torch.sparse_csr_tensor`` with the invariants actually checked.
+
+    Building a CSR tensor also draws torch's "CSR support is in beta" notice, which says
+    nothing a caller can act on and which no argument avoids. It is filtered by message
+    and category here, in the one place that constructs, rather than by a bare
+    ``simplefilter("ignore")`` at each call, which would also hide whatever else the
+    construction raised.
+    """
+    import warnings
+
+    import torch
+
+    with warnings.catch_warnings(), torch.sparse.check_sparse_tensor_invariants(True):
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Sparse CSR tensor support is in beta state.*",
+            category=UserWarning,
+        )
+        if size is None:
+            return torch.sparse_csr_tensor(crow_indices, col_indices, values, **kwargs)
+        return torch.sparse_csr_tensor(crow_indices, col_indices, values, size, **kwargs)
+
+
+def sparse_mm(sparse, dense_or_sparse):
+    """``torch.sparse.mm`` without torch's CSR beta notice.
+
+    torch routes sparse matmul through its CSR kernels and warns that CSR support is in
+    beta, whatever the operands are: COO by COO warns too, and returns COO. No choice of
+    input representation avoids it, so there is nothing to fix at the call sites and the
+    notice says nothing a caller can act on.
+
+    The filter names that one message and that one category. A bare
+    ``simplefilter("ignore")`` around the call would also swallow anything else raised
+    inside it, which is how a real warning goes missing.
+    """
+    import warnings
+
+    import torch
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Sparse CSR tensor support is in beta state.*",
+            category=UserWarning,
+        )
+        return torch.sparse.mm(sparse, dense_or_sparse)

@@ -407,16 +407,19 @@ def test_zero_frustration_is_read_rather_than_returning_nothing():
        [(1, 1), (5, 1), (2, -1)]]], "tetra, 3 faces"),
 ], ids=["open", "branching", "partial"])
 def test_the_general_identity_holds_where_the_twos_do_not(cells, name):
-    """`a/d + c/k = 1 + chi/E`, with a the mean arity and c the mean closure. Exact on
-    complexes that break both of the surface form's 2s."""
-    import scipy.sparse as sp
+    """`a/d + c/k = 1 + chi/E` for the declared incidence profile.
 
-    from rexgraph.graded_boundary import build_graded_boundaries
-    B = [sp.csr_matrix(b) for b in build_graded_boundaries(cells)]
-    nV, nE = B[0].shape
-    nF = B[1].shape[1]
-    i1 = int((abs(B[0]) > 0).sum())
-    i2 = int((abs(B[1]) > 0).sum())
+    This is an arity-count identity, not a chain-complex construction test. In
+    particular, its branching fixture deliberately has an all-positive five-relation
+    C2 declaration so that ``c=5``; canonical C1 shares correctly reject that as a
+    face boundary. Count the declared supports directly rather than asking the exact
+    relational-complex importer to materialize a non-closing C2 column.
+    """
+    nV = int(cells[0])
+    nE = len(cells[1])
+    nF = len(cells[2])
+    i1 = sum(len(cell) for cell in cells[1])
+    i2 = sum(len(cell) for cell in cells[2])
     a, d = Fraction(i1, nE), Fraction(i1, nV)
     c, k = Fraction(i2, nE), Fraction(i2, nF)
     chi = nV - nE + nF

@@ -112,11 +112,20 @@ def load_10x(path) -> tuple[scipy.sparse.csr_matrix, list[str], list[str]]:
             "features/genes.tsv[.gz])."
         )
 
+    # scipy 1.15 added mmread's `spmatrix` keyword and warns when it is not given,
+    # because the default flips to False in 1.20 and the return becomes a sparse ARRAY.
+    # Declaring the choice is the fix; the declared floor is scipy>=1.10, where the
+    # keyword does not exist, so which call is correct depends on the installed version.
+    # Verified against the wheels: absent in 1.12.0 and 1.14.1, present from 1.15.0.
+    import inspect
+    takes_spmatrix = "spmatrix" in inspect.signature(mmread).parameters
+    kwargs = {"spmatrix": False} if takes_spmatrix else {}
     if str(mtx).endswith(".gz"):
         with gzip.open(mtx, "rb") as fh:
-            m = mmread(fh)
+            m = mmread(fh, **kwargs)
     else:
-        m = mmread(str(mtx))
+        m = mmread(str(mtx), **kwargs)
+    # Either return type coerces to the same csr_matrix, which is what this returns.
     m = sparse.csr_matrix(m)  # genes x cells
 
     # 10X features.tsv: col 0 = id, col 1 = symbol. Prefer symbol.

@@ -55,6 +55,7 @@ from numpy.typing import NDArray
 
 __all__ = [
     "get_engine",
+    "dispose_engines",
     "write_boundary_sql",
     "read_boundary_sql",
     "write_edge_sql",
@@ -139,7 +140,29 @@ def get_engine(conn_str: str):
             )
         return _ENGINE_CACHE[mapped]
 
-    return create_engine(conn_str)
+    # Cached like the in-memory branch above. This used to build a NEW engine on every
+    # call, and an engine owns a connection pool: a caller that asks per operation, as
+    # the workspace persistence layer does, opened one pool per save and left every one
+    # of them for the collector. An engine is meant to be long lived and shared by
+    # conn_str, which is what the cache this function already keeps is for.
+    if conn_str not in _ENGINE_CACHE:
+        _ENGINE_CACHE[conn_str] = create_engine(conn_str)
+    return _ENGINE_CACHE[conn_str]
+
+
+def dispose_engines() -> None:
+    """Dispose every cached engine and forget them.
+
+    The cache is process-wide and deliberately long lived, so this exists for the cases
+    that need the pools actually released: a test that has finished with a database, or
+    a process shutting a workspace down.
+    """
+    import contextlib
+
+    while _ENGINE_CACHE:
+        _, engine = _ENGINE_CACHE.popitem()
+        with contextlib.suppress(Exception):    # a broken engine must not block the rest
+            engine.dispose()
 
 
 def _ensure_engine(conn):

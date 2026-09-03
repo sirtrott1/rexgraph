@@ -45,10 +45,15 @@ def _client(monkeypatch, *, signed: bool = False):
     transport = TestClient(app)
     rc = RexClient("http://testserver", frame_key=KEY if signed else None)
     import httpx
+    # RexClient passes a timeout for a real network call; TestClient deprecates the
+    # argument because there is no socket to time out against, so it is dropped here.
+    def _strip(kw):
+        return {k: v for k, v in kw.items() if k != "timeout"}
+
     monkeypatch.setattr(httpx, "post", lambda url, **kw: transport.post(
-        url.replace("http://testserver", ""), **kw))
+        url.replace("http://testserver", ""), **_strip(kw)))
     monkeypatch.setattr(httpx, "get", lambda url, **kw: transport.get(
-        url.replace("http://testserver", ""), **kw))
+        url.replace("http://testserver", ""), **_strip(kw)))
     return rc
 
 

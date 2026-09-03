@@ -33,7 +33,7 @@ def relation_field(rex, edges=None):
     """
 
     from rexgraph.core._sparse import to_scipy_csr
-    from rexgraph.fiedler import deflated_operator
+    from rexgraph.fiedler import deflated_operator, minimum_norm_gram_solve
     from rexgraph.sparse_character import _block_cg
 
     B1 = to_scipy_csr(rex._B1_dual).tocsc()
@@ -44,8 +44,15 @@ def relation_field(rex, edges=None):
     Bc = np.ascontiguousarray(np.asarray(B1[:, idx].todense(), dtype=np.float64))
     # L0 is never formed: _block_cg takes the operator as a callable, and B1 is 22x
     # smaller than B1 B1^T with a matvec 6.8x faster (see fiedler.deflated_operator).
-    apply_A, dinv, _U, _nc = deflated_operator(B1)
-    V = _block_cg(apply_A, Bc, dinv, tol=1e-12, maxit=500)
+    try:
+        apply_A, dinv, _U, _nc = deflated_operator(B1)
+    except ValueError:
+        # Branching C1 has a larger ker(B1.T) than its support components.  The
+        # general Green action is the minimum-norm solve over the declared boundary,
+        # never a pairwise component surrogate.
+        V = minimum_norm_gram_solve(B1, Bc, tol=1e-12, maxit=500)
+    else:
+        V = _block_cg(apply_A, Bc, dinv, tol=1e-12, maxit=500)
     return V, np.einsum("ve,ve->e", Bc, V)
 
 

@@ -38,7 +38,12 @@ def journal(tmp_path, monkeypatch):
 def test_the_chain_survives_concurrent_processes(journal):
     from agent.server import audit
     audit.record("test.genesis")
-    ctx = mp.get_context("fork")
+    # spawn, not fork. Python 3.13 warns that forking a multi-threaded process may
+    # deadlock the child, and pytest is multi-threaded, so this was a real hazard rather
+    # than noise. _append is a top-level function that re-imports what it needs, so it
+    # survives being pickled to a fresh interpreter; spawn is also the only one of the
+    # three that exists everywhere.
+    ctx = mp.get_context("spawn")
     procs = [ctx.Process(target=_append, args=(str(journal), 25)) for _ in range(4)]
     for pr in procs:
         pr.start()

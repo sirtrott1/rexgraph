@@ -69,5 +69,12 @@ docs/v1.0.4/
 # until it is built, so nothing breaks without it.
 agent/agent/native/rex_attn_capture
 
-# local release notes, not for the public tree
+# internal documents, not for the public tree. Every markdown file here is internal
+# except a README: those describe the package to whoever installs it. AGENTS.md is
+# working guidance for whoever edits it, and it names internal paths outside this repo.
 CHANGELOG.md
+AGENTS.md
+
+# generated demonstration output: the writer refuses to overwrite an existing
+# artifact, so a checked-in copy would prevent re-running the demo into it
+bio-demo-out/

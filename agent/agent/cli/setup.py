@@ -280,10 +280,11 @@ def install_gpu_backend(
     try:
         _ensure_pip_packages(["huggingface_hub"], interactive=False)
         from huggingface_hub import snapshot_download
+        # See model_manager.download: the Hub removed local_dir_use_symlinks and a
+        # local_dir download no longer symlinks, so the argument is now a no-op warning.
         snapshot_download(
             model,
             local_dir=str(model_dir),
-            local_dir_use_symlinks=False,
         )
         return True
     except Exception as e:

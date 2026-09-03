@@ -351,7 +351,7 @@ def candidate_readings(rex, candidates, *, shares=True):
     import scipy.sparse as sp
 
     from rexgraph.core._sparse import to_scipy_csr
-    from rexgraph.fiedler import deflated_operator
+    from rexgraph.fiedler import deflated_operator, minimum_norm_gram_solve
     from rexgraph.graded_boundary import _sparse_rank
     from rexgraph.sparse_character import _block_cg
 
@@ -365,9 +365,16 @@ def candidate_readings(rex, candidates, *, shares=True):
     # L0 is never formed here either: membership is a kernel test and the quadrance is
     # one deflated solve, both of which the boundary supplies directly.
     Bfull = to_scipy_csr(rex._B1_dual).tocsc()
-    _apply, dinv, U, _nk = deflated_operator(Bfull)
-
     Bint = rex._integer_B1().tocsc()
+    try:
+        _apply, dinv, U, _nk = deflated_operator(Bfull)
+        general_boundary = False
+    except ValueError:
+        # Branching C1 has a larger kernel than its support components.  Range
+        # membership remains an exact rank question; quadrance takes the general
+        # minimum-norm Green action below instead of an incomplete deflation.
+        _apply = dinv = U = None
+        general_boundary = True
     rank_B = None                    # exact rank is computed only if adjudication needs it
     adjudicated = 0
 
@@ -418,17 +425,9 @@ def candidate_readings(rex, candidates, *, shares=True):
         # tolerance is doing any work, and inside it the integer rank decides. The band
         # selects the method, never the verdict.
         kind = ("pairwise" if sup.size == 2 else "branching")
-        nb = float(np.linalg.norm(b)) or 1.0
-        # a column lies in range(B) exactly when it is orthogonal to ker(L0), so the
-        # test is |U^T b| and costs nV x beta_0. In-span leaves this at machine level and
-        # out-of-span leaves an O(1) fraction of the column, thirteen orders apart, so
-        # the band picks the method and the integer rank settles anything between.
-        rel = (float(np.linalg.norm(U.T @ b)) / nb) if U.shape[1] else 0.0
-        if rel > 1e-6:
-            spans_new = True
-        elif rel < 1e-10:
-            spans_new = False
-        else:
+        if general_boundary:
+            # No component indicator can stand in for ker(B1.T) here.  The exact
+            # integer rank change is the membership verdict at arbitrary arity.
             if rank_B is None:
                 rank_B = int(_sparse_rank(Bint))
             col = np.zeros(nV)
@@ -436,11 +435,35 @@ def candidate_readings(rex, candidates, *, shares=True):
                       vals * ((sup.size - 1) if shares and sup.size > 1 else 1))
             aug = sp.hstack([Bint, sp.csc_matrix(col.reshape(-1, 1))]).tocsc()
             spans_new = int(_sparse_rank(aug)) > rank_B
+            rel = float("nan")
             adjudicated += 1
+        else:
+            nb = float(np.linalg.norm(b)) or 1.0
+            # a column lies in range(B) exactly when it is orthogonal to ker(L0), so the
+            # test is |U^T b| and costs nV x beta_0. In-span leaves this at machine level and
+            # out-of-span leaves an O(1) fraction of the column, thirteen orders apart, so
+            # the band picks the method and the integer rank settles anything between.
+            rel = (float(np.linalg.norm(U.T @ b)) / nb) if U.shape[1] else 0.0
+            if rel > 1e-6:
+                spans_new = True
+            elif rel < 1e-10:
+                spans_new = False
+            else:
+                if rank_B is None:
+                    rank_B = int(_sparse_rank(Bint))
+                col = np.zeros(nV)
+                np.add.at(col, sup,
+                          vals * ((sup.size - 1) if shares and sup.size > 1 else 1))
+                aug = sp.hstack([Bint, sp.csc_matrix(col.reshape(-1, 1))]).tocsc()
+                spans_new = int(_sparse_rank(aug)) > rank_B
+                adjudicated += 1
         if spans_new:
             q = float("inf")
         else:
-            y = _block_cg(_apply, b.reshape(-1, 1), dinv, tol=1e-12, maxit=500)
+            y = (minimum_norm_gram_solve(Bfull, b.reshape(-1, 1), tol=1e-12, maxit=500)
+                 if general_boundary else _block_cg(
+                     _apply, b.reshape(-1, 1), dinv, tol=1e-12, maxit=500
+                 ))
             q = float(b @ y[:, 0])
         out.append({"support": sup.tolist(), "k": int(sup.size), "kind": kind,
                     "spans_new": bool(spans_new), "quadrance": q,

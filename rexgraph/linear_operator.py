@@ -13,6 +13,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from rexgraph.graded_boundary import graded_boundaries_from_rex
+from rexgraph.compute import sparse_mm
 
 __all__ = [
     "RexOperator",
@@ -101,7 +102,9 @@ class RexOperator:
         if dtype is None:
             dtype = torch.get_default_dtype()
         values = torch.as_tensor(matrix.data, dtype=dtype, device=device)
-        return torch.sparse_coo_tensor(
+        from rexgraph.compute import sparse_coo_tensor
+
+        return sparse_coo_tensor(
             index, values, matrix.shape, device=device
         ).coalesce()
 
@@ -121,17 +124,17 @@ def _torch_sparse(matrix, dtype, device):
     if dtype is None:
         dtype = torch.get_default_dtype()
     values = torch.as_tensor(coo.data, dtype=dtype, device=device)
-    return torch.sparse_coo_tensor(
+    from rexgraph.compute import sparse_coo_tensor
+
+    return sparse_coo_tensor(
         index, values, coo.shape, device=device
     ).coalesce()
 
 
 def _torch_apply(matrix, values):
-    import torch
-
     one = values.dim() == 1
     block = values.unsqueeze(1) if one else values
-    out = torch.sparse.mm(matrix, block)
+    out = sparse_mm(matrix, block)
     return out[:, 0] if one else out
 
 
@@ -167,8 +170,32 @@ def boundary_operator(rex, grade: int) -> RexOperator:
 
 
 def coboundary_operator(rex, grade: int) -> RexOperator:
-    """Return ``B_(grade+1)^T`` from one grade to the next."""
+    """Return ``B_(grade+1)^T`` from one grade to the next.
+
+    At the top carried grade the next cochain space is empty, so the
+    coboundary is the rectangular zero map ``C^d -> C^(d+1)``.  It is a
+    genuine typed sector of the boundary tower, rather than an attempt to
+    manufacture another nonempty cell grade.
+    """
     grade = int(grade)
+    boundaries = _boundaries(rex)
+    sizes = _grade_sizes(boundaries)
+    if grade < 0 or grade >= len(sizes):
+        raise ValueError(f"grade {grade} is not present")
+    if grade == len(boundaries):
+        n_cells = sizes[grade]
+        matrix = sp.csr_matrix((0, n_cells), dtype=np.float64)
+        return RexOperator(
+            f"B{grade + 1}T",
+            matrix.shape,
+            grade,
+            grade + 1,
+            lambda values, matrix=matrix: matrix @ values,
+            matrix=matrix,
+            torch_factory=_matrix_torch_factory(matrix),
+            source=rex,
+            arithmetic="structural",
+        )
     boundary = boundary_operator(rex, grade + 1)
     matrix = boundary.as_scipy().T.tocsr()
     return RexOperator(

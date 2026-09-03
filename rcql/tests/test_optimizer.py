@@ -8,5 +8,5 @@ def test_chain_rewrite():
         Call("BOUNDARY", (Literal(2), Literal("face"))),
     ))
     got, rewrites = optimize_expr(expr)
-    assert got == Call("ZERO", (Literal(0),))
+    assert got == Call("ZERO", (Literal(0), Literal("chain")))
     assert len(rewrites) == 1

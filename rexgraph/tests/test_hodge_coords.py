@@ -627,7 +627,7 @@ def test_the_intrinsic_angle_of_a_simple_graph_carries_no_valence():
     # a branching relation puts 1/(k-1) in the column and the quadrance follows
     seen = set()
     for k in (2, 3, 4, 5):
-        ptr = np.array([0, k, 2 * k - 1], np.int64)
+        ptr = np.array([0, k, 2 * k], np.int64)
         idx = np.array(list(range(k)) + [0] + list(range(k, 2 * k - 1)), np.int64)
         r = RexGraph.from_hypergraph(ptr, idx)
         r._ensure_clean()

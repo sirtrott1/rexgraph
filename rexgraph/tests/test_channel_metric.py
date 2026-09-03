@@ -88,9 +88,10 @@ def test_the_two_axes_are_independent():
     """Arity and the metric are separate structure. A branching relation at unit weight
     already differs from a pairwise one, and weighting moves it again."""
     def K00(ptr, idx, w):
-        rex = RexGraph.from_hypergraph(np.asarray(ptr, np.int32), np.asarray(idx, np.int32))
-        if w is not None:
-            rex._w_E = np.asarray(w, float)     # from_hypergraph takes no w_E; set it after
+        rex = RexGraph.from_hypergraph(
+            np.asarray(ptr, np.int32), np.asarray(idx, np.int32),
+            w_E=None if w is None else np.asarray(w, float),
+        )
         return rex.overlap_gramian_sparse.toarray()[0, 0]
 
     pair = K00([0, 2], [0, 1], None)

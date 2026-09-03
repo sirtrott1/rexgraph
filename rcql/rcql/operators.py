@@ -3,17 +3,56 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from fractions import Fraction
+from numbers import Integral
 from typing import Any
 
 import numpy as np
-from rexgraph.cochain import Cochain, Field
+from rexgraph.cells import (
+    Cell,
+    CellBoundary,
+    CellCoboundary,
+    CellSet,
+    CompositeBinary,
+    boundary_of,
+    coboundary_of,
+    composite_binary,
+    corelations,
+    enclosure,
+    star,
+)
+from rexgraph.cells import (
+    cell as make_cell,
+)
+from rexgraph.cells import (
+    cells as make_cells,
+)
+from rexgraph.cochain import Chain, Cochain, Field
 from rexgraph.graded_boundary import _sparse_rank, graded_boundaries_from_rex
-from rexgraph.green import vertex_green
+from rexgraph.green import GreenOperator, vertex_green
 from rexgraph.linear_operator import (
     RexOperator,
     boundary_operator,
     coboundary_operator,
     hodge_operator,
+)
+from rexgraph.metric_field import relation_metric_curvature
+from rexgraph.rational_trig import (
+    exact_character,
+)
+from rexgraph.rational_trig import (
+    quadrance as rational_quadrance,
+)
+from rexgraph.rational_trig import (
+    spread as rational_spread,
+)
+from rexgraph.temporal_signal import (
+    TemporalSignal,
+    TemporalSignalFlow,
+    temporal_signal,
+)
+from rexgraph.temporal_signal import (
+    signal_flow as temporal_signal_flow,
 )
 
 from .describe import describe_rex
@@ -53,6 +92,162 @@ def _cell_count(rex, grade: int) -> int:
     return int(sizes[grade])
 
 
+def _typed_cells(source, value, *, operator: str):
+    """Require a direct primary-cell value from the current source complex."""
+    if not isinstance(value, (Cell, CellSet)):
+        raise TypeError(f"{operator} expects a Cell or CellSet")
+    if value.source is not source:
+        raise ValueError(f"{operator} requires a value bound to its source Rex")
+    return value
+
+
+def _typed_composite(source, value, *, operator: str) -> CompositeBinary:
+    """Read one exact C1 composite value, retaining source and cell identity."""
+    if isinstance(value, CompositeBinary):
+        if value.cell.source is not source:
+            raise ValueError(f"{operator} requires a value bound to its source Rex")
+        return value
+    value = _typed_cells(source, value, operator=operator)
+    if not isinstance(value, Cell):
+        raise TypeError(f"{operator} expects one grade-1 Cell or CompositeBinary")
+    return composite_binary(value)
+
+
+def _typed_value(source, value, *, operator: str, variance: str | None = None,
+                 grade: int | None = None):
+    """Require one source-bound graded value before performing mathematics.
+
+    Arrays have no grade, variance, source-state, or basis identity.  RCQL's
+    adapters therefore accept the core carriers rather than guessing from a
+    matching length.  ``Field`` is a cochain reading and unwraps to its
+    underlying cochain for geometry.
+    """
+    if isinstance(value, Field):
+        value = value.cochain
+    elif isinstance(value, CellBoundary):
+        if value.cell.source is not source:
+            raise ValueError(f"{operator} requires a value bound to its source Rex")
+        if value.chain is None:
+            raise ValueError(f"{operator} cannot act on an empty C0 boundary")
+        value = value.chain
+    elif isinstance(value, CellCoboundary):
+        if value.cell.source is not source:
+            raise ValueError(f"{operator} requires a value bound to its source Rex")
+        value = value.cochain
+    expected = {"chain": Chain, "cochain": Cochain}.get(variance)
+    if expected is not None and not isinstance(value, expected):
+        raise TypeError(f"{operator} expects a {variance}")
+    if expected is None and not isinstance(value, (Chain, Cochain)):
+        raise TypeError(f"{operator} expects a typed Chain or Cochain")
+    if value.source is not source:
+        raise ValueError(f"{operator} requires a value bound to its source Rex")
+    if grade is not None and value.grade != int(grade):
+        raise ValueError(
+            f"{operator} expects grade {int(grade)}, got grade {value.grade}"
+        )
+    expected_cells = _cell_count(source, value.grade)
+    if value.n_cells != expected_cells:
+        raise ValueError(
+            f"{operator} expects {expected_cells} cells at grade {value.grade}, "
+            f"got {value.n_cells}"
+        )
+    return value
+
+
+def _same_space(source, left, right, *, operator: str):
+    """Require two values to name the same typed mathematical space."""
+    left = _typed_value(source, left, operator=operator)
+    right = _typed_value(source, right, operator=operator)
+    if type(left) is not type(right):
+        raise TypeError(f"{operator} requires matching chain/cochain variance")
+    if left.grade != right.grade:
+        raise ValueError(f"{operator} requires matching grades")
+    if left.cell_keys != right.cell_keys:
+        raise ValueError(f"{operator} requires the same ordered basis")
+    if left.values.shape != right.values.shape:
+        raise ValueError(f"{operator} requires matching value shapes")
+    return left, right
+
+
+def _typed_temporal_signal(source, value, *, operator: str) -> TemporalSignal:
+    """Require one delta field from the same bound TemporalRex source."""
+    if not isinstance(value, TemporalSignal):
+        raise TypeError(f"{operator} expects a TemporalSignal")
+    if value.source is not source:
+        raise ValueError(f"{operator} requires a temporal signal bound to its source")
+    return value
+
+
+def _exact_coefficients(values) -> tuple[Fraction, ...] | None:
+    """Return a certified exact C1/C0 coefficient vector, or decline the fast path.
+
+    The numerical sparse operator is still the right adapter for measured floats and
+    block fields.  An integral or Fraction-valued one-dimensional carrier, however,
+    has enough information to apply the declared C1 columns directly and must not be
+    rounded through B1 merely because a sparse work matrix happens to be float-backed.
+    """
+    array = np.asarray(values)
+    if array.ndim != 1:
+        return None
+    exact: list[Fraction] = []
+    for value in array:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, Fraction):
+            exact.append(value)
+        elif isinstance(value, Integral):
+            exact.append(Fraction(int(value)))
+        else:
+            return None
+    return tuple(exact)
+
+
+def _exact_c1_boundary_action(source, coefficients: tuple[Fraction, ...]) -> Chain:
+    """Apply declared C1 relation boundaries without materializing float B1."""
+    values = [Fraction(0) for _ in range(_cell_count(source, 0))]
+    for coefficient, support in zip(coefficients, source.relation_supports(), strict=True):
+        arity = len(support)
+        if arity == 1:
+            values[int(support[0])] += coefficient
+        elif arity:
+            values[int(support[0])] -= coefficient
+            share = coefficient / (arity - 1)
+            for vertex in support[1:]:
+                values[int(vertex)] += share
+    return Chain(0, np.asarray(values, dtype=object), source=source)
+
+
+def _exact_c0_coboundary_action(source, coefficients: tuple[Fraction, ...]) -> Cochain:
+    """Apply the declared C1 transpose directly to an exact C0 cochain."""
+    values: list[Fraction] = []
+    for support in source.relation_supports():
+        arity = len(support)
+        if arity == 1:
+            values.append(coefficients[int(support[0])])
+        elif arity:
+            share = sum((coefficients[int(vertex)] for vertex in support[1:]), Fraction(0))
+            values.append(-coefficients[int(support[0])] + share / (arity - 1))
+        else:
+            values.append(Fraction(0))
+    return Cochain(1, np.asarray(values, dtype=object), source=source)
+
+
+def _quadrance(raw, *, exact: bool):
+    """Apply rational quadrance columnwise while preserving a block cell axis."""
+    values = np.asarray(raw)
+    if values.ndim == 1:
+        return rational_quadrance(values, exact=exact)
+    if values.ndim == 2:
+        if exact:
+            return np.asarray(
+                [rational_quadrance(values[:, column], exact=True)
+                 for column in range(values.shape[1])],
+                dtype=object,
+            )
+        return np.einsum("ij,ij->j", values.conj(), values).real
+    raise ValueError("QUADRANCE expects a vector or a two-dimensional block")
+
+
 @register("REX")
 def rex_source(source, name):
     return name
@@ -63,17 +258,27 @@ def grade(source, value=None):
     if value is None:
         B = graded_boundaries_from_rex(source)
         return len(B)
+    if isinstance(value, CellBoundary) and value.grade is None:
+        raise ValueError("the boundary of a C0 cell has no lower grade")
     return int(value.grade)
 
 
 @register("BOUNDARY")
 def boundary(source, grade, values=None):
+    if isinstance(grade, (Cell, CellSet)):
+        if values is not None:
+            raise TypeError("BOUNDARY accepts either a cell value or grade plus Chain")
+        return boundary_of(_typed_cells(source, grade, operator="BOUNDARY"))
     op = boundary_operator(source, int(grade))
     if values is None:
         return op
-    raw = values.values if isinstance(values, Cochain) else values
-    out = op.apply(raw)
-    return Cochain(int(grade) - 1, out, source=source)
+    chain = _typed_value(source, values, operator="BOUNDARY", variance="chain",
+                         grade=int(grade))
+    exact = _exact_coefficients(chain.values)
+    if int(grade) == 1 and exact is not None:
+        return _exact_c1_boundary_action(source, exact)
+    out = op.apply(chain.values)
+    return Chain(int(grade) - 1, out, source=source)
 
 
 @register("DESCRIBE")
@@ -83,12 +288,107 @@ def describe(source):
 
 @register("COBOUNDARY")
 def coboundary(source, grade, values=None):
+    if isinstance(grade, (Cell, CellSet)):
+        if values is not None:
+            raise TypeError("COBOUNDARY accepts either a cell value or grade plus Cochain")
+        return coboundary_of(_typed_cells(source, grade, operator="COBOUNDARY"))
     op = coboundary_operator(source, int(grade))
     if values is None:
         return op
-    raw = values.values if isinstance(values, Cochain) else values
-    out = op.apply(raw)
+    cochain = _typed_value(source, values, operator="COBOUNDARY", variance="cochain",
+                           grade=int(grade))
+    exact = _exact_coefficients(cochain.values)
+    if int(grade) == 0 and exact is not None:
+        return _exact_c0_coboundary_action(source, exact)
+    out = op.apply(cochain.values)
     return Cochain(int(grade) + 1, out, source=source)
+
+
+@register("CELL")
+def cell_at(source, grade, index):
+    """Address one source-bound carried cell in the graded complex."""
+    return make_cell(source, grade, index)
+
+
+@register("CELLS")
+def cells_at(source, grade, indices=None):
+    """Address all or selected carried cells at a single grade."""
+    return make_cells(source, grade, indices)
+
+
+@register("INDICATOR")
+def indicator(source, value):
+    """Materialize the exact 0/1 cochain for one selected primary cell pattern.
+
+    The Cell/CellSet remains an addressing object; this explicit constructor is
+    the bridge to a coefficient field for a Green, Hodge, or metric action. A
+    lookup of the selected cell is local, while materializing its full graded
+    basis necessarily costs O(number of cells at that grade).
+    """
+    value = _typed_cells(source, value, operator="INDICATOR")
+    coefficients = np.zeros(_cell_count(source, value.grade), dtype=np.int64)
+    if isinstance(value, Cell):
+        coefficients[value.index] = 1
+    else:
+        coefficients[list(value.indices)] = 1
+    return Cochain(value.grade, coefficients, source=source)
+
+
+@register("COMPOSITE")
+def composite(source, value):
+    """Read exact C1 existence, orientation/head, and share binary tensors."""
+    value = _typed_cells(source, value, operator="COMPOSITE")
+    if not isinstance(value, Cell):
+        raise TypeError("COMPOSITE expects one Cell")
+    return composite_binary(value)
+
+
+@register("EXISTENCE")
+def existence(source, value):
+    """Return the exact 0/1 C0 existence mask of one C1 relation."""
+    return _typed_composite(source, value, operator="EXISTENCE").existence
+
+
+@register("HEAD")
+def head(source, value):
+    """Return the exact 0/1 distinguished-head mask of one C1 relation."""
+    return _typed_composite(source, value, operator="HEAD").head
+
+
+@register("SHARE")
+def share(source, value):
+    """Return the exact rational C0 share vector of one C1 relation."""
+    return _typed_composite(source, value, operator="SHARE").share
+
+
+@register("SHARE_SUPPORT")
+def share_support(source, value):
+    """Return the exact 0/1 C0 share-support mask of one C1 relation."""
+    return _typed_composite(source, value, operator="SHARE_SUPPORT").share_support
+
+
+@register("ARITY")
+def arity(source, value):
+    """Return the declared incidence arity of one C1 relation."""
+    return _typed_composite(source, value, operator="ARITY").arity
+
+
+@register("CORELATIONS")
+def co_relations(source, value):
+    """Read direct co-relations without a graph projection or clique expansion."""
+    return corelations(_typed_cells(source, value, operator="CORELATIONS"))
+
+
+@register("STAR")
+def graded_star(source, value):
+    """Return the upward graded closure of cells under direct co-relation."""
+    return star(_typed_cells(source, value, operator="STAR"))
+
+
+@register("ENCLOSURE")
+def graded_enclosure(source, value):
+    """Return the full source-bound graded enclosure of a cell pattern."""
+    return enclosure(_typed_cells(source, value, operator="ENCLOSURE"))
 
 
 @register("HODGE_OPERATOR")
@@ -99,6 +399,8 @@ def hodge_op(source, grade, alpha=1):
 @register("RANK")
 def rank(source, value):
     if isinstance(value, RexOperator):
+        if value.source is not source:
+            raise ValueError("RANK requires an operator bound to its source Rex")
         return int(_sparse_rank(value.as_scipy()))
     if isinstance(value, (int, np.integer)):
         return int(_sparse_rank(boundary_operator(source, int(value)).as_scipy()))
@@ -108,6 +410,8 @@ def rank(source, value):
 @register("NULLITY")
 def nullity(source, value):
     if isinstance(value, RexOperator):
+        if value.source is not source:
+            raise ValueError("NULLITY requires an operator bound to its source Rex")
         return int(value.shape[1] - _sparse_rank(value.as_scipy()))
     grade = int(value)
     op = boundary_operator(source, grade)
@@ -121,8 +425,8 @@ def betti(source, grade):
 
 @register("HODGE")
 def hodge(source, flow):
-    values = flow.values if isinstance(flow, Cochain) else flow
-    grad, curl, harm = source.hodge(np.ascontiguousarray(values, dtype=np.float64))
+    cochain = _typed_value(source, flow, operator="HODGE", variance="cochain", grade=1)
+    grad, curl, harm = source.hodge(np.ascontiguousarray(cochain.values, dtype=np.float64))
     return {
         "gradient": Cochain(1, grad, source=source),
         "curl": Cochain(1, curl, source=source),
@@ -136,45 +440,81 @@ def harmonic(source, flow):
 
 
 @register("GREEN")
-def green(source, values):
-    grade = values.grade if isinstance(values, Cochain) else 0
-    if grade != 0:
-        raise ValueError("GREEN currently expects a grade 0 cochain")
-    raw = values.values if isinstance(values, Cochain) else values
-    op = vertex_green(source)
-    field = Cochain(0, op.solve(np.asarray(raw, dtype=np.float64)), source=source)
-    return Field(field, op, kind="green")
+def green(source, values=None):
+    action = vertex_green(source)
+    if values is None:
+        return action
+    return apply(source, action, values)
+
+
+@register("APPLY")
+def apply(source, action, values):
+    """Apply a declared Green or grade-preserving Rex action to a typed cochain."""
+    if isinstance(action, GreenOperator):
+        operator = action.operator
+        solve = action.solve
+        kind = action.kind
+    elif isinstance(action, RexOperator):
+        operator = action
+        solve = action.apply
+        kind = action.name
+    else:
+        raise TypeError("APPLY expects a GreenOperator or RexOperator action")
+    if operator.source is not source:
+        raise ValueError("APPLY requires an action bound to its source Rex")
+    if operator.domain_grade != operator.codomain_grade:
+        raise TypeError(
+            "APPLY accepts only grade-preserving RexOperator actions; use BOUNDARY or "
+            "COBOUNDARY for a graded map"
+        )
+    cochain = _typed_value(
+        source,
+        values,
+        operator="APPLY",
+        variance="cochain",
+        grade=operator.domain_grade,
+    )
+    out = solve(np.asarray(cochain.values, dtype=np.float64))
+    field = Cochain(operator.codomain_grade, out, source=source)
+    return Field(field, action, kind=kind)
 
 
 @register("QUADRANCE")
-def quadrance(source, values):
-    raw = values.values if isinstance(values, (Cochain, Field)) else values
-    x = np.asarray(raw)
-    if x.ndim == 1:
-        return np.vdot(x, x).real.item()
-    return np.einsum("ij,ij->j", x.conj(), x).real
+def quadrance(source, values, exact=False):
+    value = _typed_value(source, values, operator="QUADRANCE")
+    return _quadrance(value.values, exact=bool(exact))
 
 
 @register("SPREAD")
-def spread(source, left, right):
-    a = left.values if isinstance(left, (Cochain, Field)) else left
-    b = right.values if isinstance(right, (Cochain, Field)) else right
-    a = np.asarray(a)
-    b = np.asarray(b)
-    qa = np.vdot(a, a).real
-    qb = np.vdot(b, b).real
-    if qa == 0 or qb == 0:
-        return 0
-    ab = np.vdot(a, b)
-    return (1 - (ab.conjugate() * ab).real / (qa * qb)).item()
+def spread(source, left, right, exact=False):
+    left, right = _same_space(source, left, right, operator="SPREAD")
+    a, b = np.asarray(left.values), np.asarray(right.values)
+    if a.ndim != 1:
+        raise ValueError("SPREAD currently expects one-dimensional typed values")
+    return rational_spread(a, b, exact=bool(exact))
+
+
+@register("ACCUMULATE")
+def accumulate(source, left, right):
+    """Add two aligned graded coefficient fields without discarding their carrier.
+
+    This is a tensor accumulation, not a path count. The values must already
+    inhabit the same source-bound ordered basis and temporal state; time or
+    basis transport has to be a separately declared action rather than an
+    implicit length-based merge.
+    """
+    left, right = _same_space(source, left, right, operator="ACCUMULATE")
+    return left.with_values(np.asarray(left.values) + np.asarray(right.values))
 
 
 @register("HODGE_COORDS")
 def hodge_coordinates(source, flow):
     from rexgraph.hodge_coords import hodge_coords
 
-    raw = flow.values if isinstance(flow, Cochain) else flow
-    return hodge_coords(source, raw)
+    cochain = _typed_value(
+        source, flow, operator="HODGE_COORDS", variance="cochain", grade=1
+    )
+    return hodge_coords(source, cochain.values)
 
 
 @register("WINDING")
@@ -182,33 +522,130 @@ def winding(source, flow):
     from rexgraph.harmonic_sparse import harmonic_winding
     from rexgraph.hodge_coords import harmonic_frame
 
-    raw = flow.values if isinstance(flow, Cochain) else flow
-    return harmonic_winding(harmonic_frame(source), raw)
+    cochain = _typed_value(source, flow, operator="WINDING", variance="cochain", grade=1)
+    return harmonic_winding(harmonic_frame(source), cochain.values)
 
 
 @register("CLOSURE")
 def closure(source, seed, max_depth=8, grade=0):
     from rexgraph.tower import semantic_closure
 
-    return semantic_closure(source, int(seed), max_depth=int(max_depth), grade=int(grade))
+    if int(grade) != 0:
+        raise NotImplementedError(
+            "CLOSURE currently implements only grade-0 vertex seeds; "
+            "other grades must refuse until their incidence semantics exist"
+    )
+    if isinstance(seed, (bool, np.bool_)) or not isinstance(seed, (int, np.integer)):
+        raise TypeError("CLOSURE currently expects an integer grade-0 cell index")
+    seed = int(seed)
+    if seed < 0 or seed >= _cell_count(source, 0):
+        raise ValueError(f"CLOSURE seed index {seed} is not present at grade 0")
+    return semantic_closure(source, seed, max_depth=int(max_depth), grade=0)
 
 
 @register("SIGNIFICANCE")
 def significance(source, edge):
+    if isinstance(edge, (bool, np.bool_)) or not isinstance(edge, (int, np.integer)):
+        raise TypeError("SIGNIFICANCE currently expects an integer grade-1 cell index")
     idx = int(edge)
+    if idx < 0 or idx >= _cell_count(source, 1):
+        raise ValueError(f"SIGNIFICANCE edge index {idx} is not present")
     from rexgraph.semantic import significance as _significance
     return float(_significance(source, [idx])[0])
 
 
 @register("CHARACTER")
-def character(source):
-    return np.asarray(source.structural_character)
+def character(source, exact=False):
+    if not exact:
+        return np.asarray(source.structural_character)
+    values, channels = exact_character(source)
+    return {
+        "values": np.asarray(values if values is not None else (), dtype=object),
+        "channels": tuple(channels),
+        "exactness": "rational",
+    }
 
 
 @register("ZERO")
-def zero(source, grade):
+def zero(source, grade, kind="cochain"):
     grade = int(grade)
-    return Cochain(grade, np.zeros(_cell_count(source, grade), dtype=np.float64), source=source)
+    size = _cell_count(source, grade)
+    if str(kind).lower() == "cochain":
+        return Cochain(grade, np.zeros(size, dtype=np.int64), source=source)
+    if str(kind).lower() == "chain":
+        return Chain(grade, np.zeros(size, dtype=np.int64), source=source)
+    raise ValueError("ZERO kind must be 'chain' or 'cochain'")
+
+
+@register("TEMPORAL_DELTA")
+def temporal_delta(source, step):
+    """Read one exact C1 temporal delta field from a TemporalRex source.
+
+    The returned value keeps existence, orientation, signing, exact head identity,
+    and separately declared amplitude rather than collapsing the transition to a
+    table diff or vertex-path request.
+    """
+    return temporal_signal(source, int(step))
+
+
+@register("SIGNAL_AT")
+def signal_at(source, signal, key):
+    """Read one changed C1 relation by its exact support identity."""
+    return _typed_temporal_signal(source, signal, operator="SIGNAL_AT").event(key)
+
+
+@register("SIGNAL_SOURCE")
+def signal_source(source, signal, channel="structural"):
+    """Materialize a typed C0 source field from one temporal delta channel."""
+    return _typed_temporal_signal(source, signal, operator="SIGNAL_SOURCE").source_field(channel)
+
+
+@register("RELATION_SIGNAL")
+def relation_signal(source, signal, channel="amplitude"):
+    """Read the direct current-C1 temporal field for a named delta channel."""
+    return _typed_temporal_signal(source, signal, operator="RELATION_SIGNAL").relation_field(channel)
+
+
+@register("SIGNAL_FLOW")
+def signal_field_flow(source, signal, channel="structural") -> TemporalSignalFlow:
+    """Apply the local graded B1* then B1 response to a temporal source field."""
+    return temporal_signal_flow(
+        _typed_temporal_signal(source, signal, operator="SIGNAL_FLOW"), channel
+    )
+
+
+@register("SIGNAL_HODGE")
+def signal_hodge(source, signal, channel="amplitude"):
+    """Split a direct temporal C1 field on its current relational-complex basis.
+
+    The action is numerical because the current Hodge adapter is numerical.  It
+    is deliberately separate from the exact delta carrier and from SIGNAL_FLOW:
+    the latter starts from a C0 boundary source and is therefore gradient by
+    construction, whereas this operation may expose curl or harmonic content.
+    """
+    signal = _typed_temporal_signal(source, signal, operator="SIGNAL_HODGE")
+    field = signal.relation_field(channel)
+    gradient, curl, harmonic = signal.current.hodge(
+        np.ascontiguousarray(field.values, dtype=np.float64)
+    )
+    return {
+        "gradient": Cochain(1, gradient, cell_keys=field.cell_keys, source=signal.current),
+        "curl": Cochain(1, curl, cell_keys=field.cell_keys, source=signal.current),
+        "harmonic": Cochain(1, harmonic, cell_keys=field.cell_keys, source=signal.current),
+    }
+
+
+@register("METRIC_CURVATURE")
+def metric_curvature(source, metric):
+    """Read C0 strain and C1 contributions from a direct C1 metric field.
+
+    This is metric curvature over declared relation boundaries.  It retains
+    branching shares and repeated incidence, rather than delegating to a
+    pairwise source/target projection.
+    """
+    metric = _typed_value(source, metric, operator="METRIC_CURVATURE",
+                          variance="cochain", grade=1)
+    return relation_metric_curvature(source, metric)
 
 
 @register("FILES")

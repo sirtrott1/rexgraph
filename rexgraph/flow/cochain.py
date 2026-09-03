@@ -25,6 +25,7 @@ try:  # torch is an optional dependency (as elsewhere in rexgraph.nn)
     import torch as _torch
 
     _HAS_TORCH = True
+    from rexgraph.compute import sparse_coo_tensor as _sparse_coo_tensor
 except Exception:  # pragma: no cover (env without torch)
     _HAS_TORCH = False
 
@@ -76,7 +77,7 @@ def coparticipation_adjacency(rex, restrict_vertices: NDArray | None = None):
     dinv = 1.0 / np.sqrt(np.maximum(deg, 1e-12))
     a_hat = (sp.diags(dinv) @ renorm @ sp.diags(dinv)).tocoo()
     idx = np.vstack([a_hat.row, a_hat.col])
-    return _torch.sparse_coo_tensor(
+    return _sparse_coo_tensor(
         idx, _torch.tensor(a_hat.data, dtype=_torch.float64), a_hat.shape
     ).coalesce()
 

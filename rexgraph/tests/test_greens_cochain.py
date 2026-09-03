@@ -56,7 +56,7 @@ def test_greens_falls_back_to_adam_without_adj():
     opt = GreensCochain([w], lr=0.1)
     for _ in range(300):
         opt.zero_grad(); (w * w).sum().backward(); opt.step()
-    assert float((w * w).sum()) < 1e-2
+    assert float((w * w).sum().detach()) < 1e-2
 
 
 def test_khop_channels_run_and_propagate():

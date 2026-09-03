@@ -30,7 +30,9 @@ def client(tmp_path, monkeypatch):
     import agent.server.routes.rcdb as rcdbroute
     rcdbroute._STORE = None
     from agent.server.app import app
-    yield TestClient(app)
+    # entered, so the app's lifespan runs and its shutdown disposes the SQL engines
+    with TestClient(app) as client:
+        yield client
     rcdbroute._STORE = None
 
 

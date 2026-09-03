@@ -6,11 +6,13 @@ No black box. Every claim is a matrix operation. Every uncertainty is a void cou
 """
 
 #: The agent version, kept here rather than read back from installed metadata so a
-#: source checkout reports what it is. The wire formats broke this release, so every
-#: inter-distribution floor requires a sibling at >=1.1.3: that rejects a pre-1.1.3
-#: sibling rather than pinning the five to each other. pyproject.toml has to match, and
-#: one test pins every declaration across all five.
-__version__ = "1.1.3"
+#: source checkout reports what it is. The carrier contract changed this release, so
+#: every inter-distribution floor requires a sibling at >=1.1.4: rcdb.index.repair only
+#: means anything against a core that actually refuses duplicate incidence, and a
+#: pre-1.1.4 core still accepts it. That rejects an older sibling rather than pinning
+#: the five to each other. pyproject.toml has to match, and one test pins every
+#: declaration across all five.
+__version__ = "1.1.4"
 
 from .auto import auto_analyze, auto_rex, detect_input_type
 from .engine import DecisionEngine

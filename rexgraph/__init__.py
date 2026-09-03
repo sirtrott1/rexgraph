@@ -31,8 +31,35 @@ except ImportError:
     io = None
 
 from . import compute
-from .cochain import Cochain, Field, GradedState
+from .cells import (
+    Cell,
+    CellBoundary,
+    CellCoboundary,
+    CellSet,
+    CompositeBinary,
+    GradedCellPattern,
+    boundary_of,
+    cell,
+    cells,
+    coboundary_of,
+    composite_binary,
+    corelations,
+    enclosure,
+    star,
+)
+from .cochain import Chain, Cochain, Field, GradedState
+from .temporal_signal import (
+    RelationKey,
+    TemporalSignal,
+    TemporalSignalEvent,
+    TemporalSignalFlow,
+    relation_identity,
+    relation_key,
+    signal_flow,
+    temporal_signal,
+)
 from .green import GreenOperator, vertex_green
+from .metric_field import MetricCurvature, relation_metric_curvature
 from .harmonic_sparse import (
     harmonic_basis,
     harmonic_coordinates,
@@ -71,16 +98,46 @@ from .rings import (
     shortest_cycles,
 )
 from .tower import channel_delta, graded_delta
+# Import this only after the foundational public types above.  graph imports
+# ``rexgraph.core`` during construction, so placing the re-export here keeps
+# package-root import acyclic while making the primary public class available
+# from the documented package surface.
+from .graph import RexGraph, TemporalRex
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 
 __all__ = [
     "core",
     "io",
     "compute",
+    "RexGraph",
+    "TemporalRex",
+    "Cell",
+    "CellSet",
+    "GradedCellPattern",
+    "CompositeBinary",
+    "CellBoundary",
+    "CellCoboundary",
+    "cell",
+    "cells",
+    "composite_binary",
+    "boundary_of",
+    "coboundary_of",
+    "corelations",
+    "star",
+    "enclosure",
+    "Chain",
     "Cochain",
     "Field",
     "GradedState",
+    "RelationKey",
+    "TemporalSignal",
+    "TemporalSignalEvent",
+    "TemporalSignalFlow",
+    "relation_identity",
+    "relation_key",
+    "temporal_signal",
+    "signal_flow",
     "RexOperator",
     "GreenOperator",
     "boundary_operator",
@@ -89,8 +146,18 @@ __all__ = [
     "up_laplacian",
     "hodge_operator",
     "vertex_green",
+    "MetricCurvature",
+    "relation_metric_curvature",
     "mesh_health",
     "harmonic_health",
+    "build_mtor_demo",
+    "write_demo_artifacts",
+    "CellPaintingPlate",
+    "DEFAULT_JUMP_SECTIONS",
+    "JumpCellPaintingStudy",
+    "load_jump_plate",
+    "build_jump_cell_painting_temporal",
+    "analyze_jump_delta",
     "channel_delta",
     "graded_delta",
     # rings: the cycle space of the 1-skeleton, basis-free
@@ -120,3 +187,22 @@ __all__ = [
     "multiplicity_homology_dimension",
     "simple_cycle_dimension",
 ]
+
+
+def __getattr__(name):
+    """Load the optional biomedical demonstration API only when a caller asks for it.
+
+    Keeping this lazy leaves the module untouched until a caller explicitly requests
+    its builder or artifact writer. The functions remain part of the documented
+    package surface without adding an RCDB or Agent dependency to normal core imports.
+    """
+    if name in {"build_mtor_demo", "write_demo_artifacts"}:
+        from . import biomedical_demo
+        return getattr(biomedical_demo, name)
+    if name in {
+        "CellPaintingPlate", "DEFAULT_JUMP_SECTIONS", "JumpCellPaintingStudy", "load_jump_plate",
+        "build_jump_cell_painting_temporal", "analyze_jump_delta",
+    }:
+        from . import jump_cell_painting
+        return getattr(jump_cell_painting, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

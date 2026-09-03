@@ -1,11 +1,14 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._joins: Relational complex join operations.
+rexgraph.core._joins: legacy dense pairwise join operations.
 
-Two complexes share structure through a vertex identification map.
-All joins produce valid relational complexes (B1j @ B2j = 0 guaranteed
-because restriction/extension of relational complexes preserves the chain condition).
+This module scans dense B1 columns through endpoint thresholds, so it cannot
+read a primary branching C1 relation whose canonical shares are <= 1/2.  The
+arity-general primary join is ``rexgraph.joins.join``; it reads oriented
+boundary support directly and carries faces only when their full boundary
+survives.  These routines are retained for their historical dense pairwise
+result contract and oracle coverage.
 """
 
 from __future__ import annotations

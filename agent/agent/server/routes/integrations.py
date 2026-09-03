@@ -246,7 +246,11 @@ async def huggingface_analyze(body: dict = Body(...),
         }
         try:
             kappa = coherence_kappa(rex)
-            result["kappa_mean"] = round(float(kappa.mean()), 4)
+            # A mean over no cells is NaN, and NaN serialises to a bare token that strict
+            # JSON readers reject, so an empty complex would have made the whole response
+            # unparseable rather than leaving one field without a value.
+            result["kappa_mean"] = (round(float(kappa.mean()), 4)
+                                    if kappa is not None and kappa.size else None)
         except Exception:
             pass
         result["note"] = ("Pass 'model' (with torch+transformers) to measure a "
@@ -489,8 +493,15 @@ def _confidence_report(rex) -> dict:
         out["void_affinity"] = None
     try:
         kappa = coherence_kappa(rex)
-        out["kappa_mean"] = round(float(kappa.mean()), 4)
-        out["kappa_min"] = round(float(kappa.min()), 4)
+        # Undefined over no cells, and NaN is not valid JSON. min() additionally RAISES on
+        # an empty array, which would have aborted this block after kappa_mean was already
+        # set to NaN, leaving the payload both poisoned and short a field.
+        if kappa is not None and kappa.size:
+            out["kappa_mean"] = round(float(kappa.mean()), 4)
+            out["kappa_min"] = round(float(kappa.min()), 4)
+        else:
+            out["kappa_mean"] = None
+            out["kappa_min"] = None
         # EXACT: a vertex at kappa 0 has no coherence at all. A count is an invariant
         # where a mean is a summary, so this is the part a verdict may rest on.
         out["n_zero_kappa"] = int((_np.asarray(kappa) == 0.0).sum())

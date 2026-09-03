@@ -32,6 +32,7 @@ _f64 = np.float64
 # via the REXGRAPH_GPU_MIN_WORK env var. The RESULT is identical either way. This is a
 # pure performance gate, never a correctness one.
 import os as _os
+from rexgraph.compute import sparse_mm
 
 _GPU_MIN_WORK = int(_os.environ.get("REXGRAPH_GPU_MIN_WORK", 1 << 22))
 
@@ -151,16 +152,15 @@ def _torch_csr(R, device):
     """Build an on-device torch sparse-CSR operator from a scipy CSR `R`. Shared by every
     GPU kernel (single- and multi-device) so the operator construction lives in one place;
     the tensor is identical on whatever device it is placed."""
-    import warnings
-
     import torch
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")                   # torch sparse-CSR beta notice
-        return torch.sparse_csr_tensor(
-            torch.as_tensor(R.indptr, dtype=torch.int64),
-            torch.as_tensor(R.indices, dtype=torch.int64),
-            torch.as_tensor(R.data, dtype=torch.float64),
-            size=R.shape, device=device)
+
+    from rexgraph.compute import sparse_csr_tensor
+
+    return sparse_csr_tensor(
+        torch.as_tensor(R.indptr, dtype=torch.int64),
+        torch.as_tensor(R.indices, dtype=torch.int64),
+        torch.as_tensor(R.data, dtype=torch.float64),
+        size=R.shape, device=device)
 
 
 def _partition_columns(ncols, nparts):
@@ -221,13 +221,13 @@ def _block_cg_gpu(Rt, B, dinv, tol=1e-10, maxit=1000):
     columns at once, every vector on-device. Mirrors sparse_character._block_cg."""
     import torch
     X = torch.zeros_like(B)
-    R = B - torch.sparse.mm(Rt, X)
+    R = B - sparse_mm(Rt, X)
     Z = dinv[:, None] * R
     P = Z.clone()
     rz = (R * Z).sum(0)
     bnorm = torch.clamp(torch.linalg.norm(B, dim=0), min=1e-300)
     for _ in range(maxit):
-        AP = torch.sparse.mm(Rt, P)
+        AP = sparse_mm(Rt, P)
         # see the CPU _block_cg: clamping a zero curvature up to 1e-300 produces
         # +-inf, not a small step. Zero curvature means the column is done.
         curv = (P * AP).sum(0)
@@ -663,7 +663,7 @@ def _matfunc_gpu(L, f, coeffs, lam_max, order, device=None):
     scale = 2.0 / lam_max
 
     def Ltil(x):
-        return scale * torch.sparse.mm(At, x) - x
+        return scale * sparse_mm(At, x) - x
 
     ct = torch.as_tensor(np.asarray(coeffs, dtype=_f64), dtype=torch.float64, device=dev)
     acc = ct[0] * X0

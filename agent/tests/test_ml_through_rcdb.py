@@ -15,6 +15,7 @@ here so nobody later mistakes a passing pipeline for a result.
 
 import subprocess
 import sys
+from contextlib import closing
 
 import numpy as np
 import pytest
@@ -47,8 +48,14 @@ def _corpus(store, n=120, seed=0):
 
 @pytest.fixture
 def sqlite_store(tmp_path):
-    """A local file endpoint: no server, no network, just a path."""
-    return rcdb.open_store(f"sqlite:///{tmp_path / 'rcdb.sqlite'}")
+    """A local file endpoint: no server, no network, just a path.
+
+    Yields so the store is closed with the test. A SQL store holds a connection pool,
+    and returning it left that pool open until the collector reached it.
+    """
+    store = rcdb.open_store(f"sqlite:///{tmp_path / 'rcdb.sqlite'}")
+    yield store
+    store.close()
 
 
 def test_a_local_sqlite_file_is_a_working_endpoint(sqlite_store, tmp_path):
@@ -72,9 +79,9 @@ def test_the_store_is_readable_from_another_process(sqlite_store, tmp_path):
 def test_features_come_from_the_store_not_the_objects(sqlite_store, tmp_path):
     """Reopened from disk, so nothing can arrive via the complexes still in memory."""
     truth = _corpus(sqlite_store, n=60)
-    reopened = rcdb.open_store(f"sqlite:///{tmp_path / 'rcdb.sqlite'}")
-    view = analytics.signature_view(reopened)
-    rows = view.sql("SELECT id, nV, nE, betti0, betti1, kappa_mean FROM signatures")
+    with closing(rcdb.open_store(f"sqlite:///{tmp_path / 'rcdb.sqlite'}")) as reopened:
+        view = analytics.signature_view(reopened)
+        rows = view.sql("SELECT id, nV, nE, betti0, betti1, kappa_mean FROM signatures")
     assert len(rows) == 60
     assert all(r[0] in truth for r in rows)
     assert {r[2] for r in rows} != {0}, "every edge count came back zero"
@@ -87,9 +94,9 @@ def test_a_baseline_fits_on_what_the_store_returned(sqlite_store, tmp_path):
     from sklearn.model_selection import KFold
 
     truth = _corpus(sqlite_store, n=150)
-    reopened = rcdb.open_store(f"sqlite:///{tmp_path / 'rcdb.sqlite'}")
-    view = analytics.signature_view(reopened)
-    rows = view.sql("SELECT id, nV, nE, betti0, betti1, kappa_mean FROM signatures")
+    with closing(rcdb.open_store(f"sqlite:///{tmp_path / 'rcdb.sqlite'}")) as reopened:
+        view = analytics.signature_view(reopened)
+        rows = view.sql("SELECT id, nV, nE, betti0, betti1, kappa_mean FROM signatures")
     X = np.array([[r[1], r[2], r[3], r[4], r[5]] for r in rows], float)
     y = np.array([truth[r[0]] for r in rows], float)
 
@@ -108,12 +115,19 @@ def test_a_baseline_fits_on_what_the_store_returned(sqlite_store, tmp_path):
 
 
 @pytest.mark.parametrize("lib", ["lightgbm", "xgboost"])
-def test_the_gradient_boosted_baselines_run_on_store_features(sqlite_store, tmp_path, lib):
+def test_the_gradient_boosted_baselines_run_on_store_features(
+        sqlite_store, tmp_path, lib, monkeypatch):
+    # joblib probes for physical cores and warns when it cannot find them, which is the
+    # normal case in a container. Naming the ceiling answers the probe instead of
+    # filtering it, and it is set here rather than in production because it describes
+    # the executor running the test, not the hardware. Same outcome either way: verified
+    # on bare metal where the probe does not fire, and in a sandbox where it does.
+    monkeypatch.setenv("LOKY_MAX_CPU_COUNT", "1")
     mod = pytest.importorskip(lib)
     truth = _corpus(sqlite_store, n=120)
-    reopened = rcdb.open_store(f"sqlite:///{tmp_path / 'rcdb.sqlite'}")
-    view = analytics.signature_view(reopened)
-    rows = view.sql("SELECT id, nV, nE, betti0, betti1, kappa_mean FROM signatures")
+    with closing(rcdb.open_store(f"sqlite:///{tmp_path / 'rcdb.sqlite'}")) as reopened:
+        view = analytics.signature_view(reopened)
+        rows = view.sql("SELECT id, nV, nE, betti0, betti1, kappa_mean FROM signatures")
     X = np.array([[r[1], r[2], r[3], r[4], r[5]] for r in rows], float)
     y = np.array([truth[r[0]] for r in rows], float)
 

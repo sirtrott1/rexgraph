@@ -53,7 +53,14 @@ def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None) -
         return _bundle_from_rex(rio.load_rex(s))
     if table is not None:                                   # a database URI + table
         eng = rio.get_engine(s)
-        rows = next(rio.read_sql_batches(eng.connect() if hasattr(eng, "connect") else eng, table))
+        # The ENGINE is cached for the life of the process, which is what makes asking
+        # for one per load correct. A checked-out CONNECTION is not: it has to go back
+        # to the pool when this read is done, or every load holds one open.
+        if hasattr(eng, "connect"):
+            with eng.connect() as conn:
+                rows = next(rio.read_sql_batches(conn, table))
+        else:
+            rows = next(rio.read_sql_batches(eng, table))
         y = np.asarray(rows.pop(y_col), "int64")
         keys = x_cols or list(rows)
         X = np.stack([np.asarray(rows[k], "float32") for k in keys], axis=1)
@@ -64,17 +71,24 @@ def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None) -
 
 
 def _bundle_from_rex(rex):
-    """Convert a loaded rex complex into a hypergraph DataBundle using its signed incidence."""
-    B1 = np.asarray(rex.B1_dense)
-    n_nodes, n_he = B1.shape
-    # reconstruct CSR hyperedges from the incidence columns (nonzero rows per hyperedge)
-    ptr, idx = [0], []
-    for e in range(n_he):
-        members = np.nonzero(B1[:, e])[0]
-        idx.extend(int(v) for v in members); ptr.append(len(idx))
-    meta = {"feat_dim": 0, "n_classes": 0, "n_nodes": n_nodes}
+    """Convert a loaded rex complex into a hypergraph DataBundle using its stored support.
+
+    The complex already holds the CSR this needs, in ``boundary_ptr`` and
+    ``boundary_idx``, and that is the only place the relation's participant order lives.
+
+    This previously densified B1 and rebuilt the CSR with ``np.nonzero`` per column, which
+    is wrong twice. It costs nV*nE to recover what is already stored in nnz, and
+    ``np.nonzero`` returns rows in ascending order, so a relation declared ``[3, 0]`` came
+    back as ``[0, 3]``. The head is the participant carrying the -1 coefficient, and the
+    composite binary puts it first in the stored support; sort order is not where the head
+    lives. Rebuilding that way reduces a signed relation to unsigned membership and then
+    invents an orientation from the vertex numbering.
+    """
+    ptr = np.asarray(rex.boundary_ptr, dtype=np.int64)
+    idx = np.asarray(rex.boundary_idx, dtype=np.int64)
+    meta = {"feat_dim": 0, "n_classes": 0, "n_nodes": int(rex.nV)}
     return D.DataBundle("hypergraph", None, None, meta,
-                        extra={"he_ptr": np.array(ptr, "int32"), "he_idx": np.array(idx, "int32")})
+                        extra={"he_ptr": ptr.astype("int32"), "he_idx": idx.astype("int32")})
 
 
 # save: a checkpoint on the rexgraph IO stack

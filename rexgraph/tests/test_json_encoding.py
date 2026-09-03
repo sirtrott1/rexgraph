@@ -9,6 +9,7 @@ is not JSON and no strict reader will parse.
 
 import json
 import os
+import pathlib
 
 import numpy as np
 import pytest
@@ -88,7 +89,7 @@ def test_a_bundle_manifest_is_always_strict_json(tmp_path):
         for f in files:
             if f.endswith(".json"):
                 seen += 1
-                _strict_loads(open(os.path.join(root, f)).read())
+                _strict_loads(pathlib.Path(root, f).read_text())
     assert seen, "no manifest was written, the test proves nothing"
 
 

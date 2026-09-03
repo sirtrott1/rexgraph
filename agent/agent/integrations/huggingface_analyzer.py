@@ -8,7 +8,7 @@ The hook: "Your model violates ∂²=0 by 0.3 at layer 7. Here's what that means
 
 Usage:
 
-    from rexgraph.integrations.huggingface_analyzer import analyze_transformer
+    from agent.integrations.huggingface_analyzer import analyze_transformer
 
     report = analyze_transformer(
         model_name="mistralai/Mistral-7B-v0.1",
@@ -19,7 +19,7 @@ Usage:
     print(report["equiweight_deviation"])
     print(report["channel_specialization"])
 
-Requirements: pip install rexgraph[huggingface]
+Requirements: pip install rexgraph-agent[huggingface]
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def _require_hf():
     if not _HAS_HF:
         raise ImportError(
             "HuggingFace integration requires torch and transformers.\n"
-            "Install with: pip install rexgraph[huggingface]"
+            "Install with: pip install rexgraph-agent[huggingface]"
         )
 
 
@@ -109,9 +109,20 @@ def measure_equiweight(D: np.ndarray, nV: int, nE: int, nF: int) -> dict:
     # obligation to be a graded Dirac. The residual is its distance from being one.
     anticomm_norm = equiweight_residual(D, (nV, nE, nF), ord="fro")
 
-    # Non-harmonic mode count is the EXACT integer dim - dim ker(D) = dim - nullity(D),
-    # via rank (no eigenvalue-magnitude threshold).
-    n_harmonic = dim - int(np.linalg.matrix_rank(D))
+    # A NUMERICAL nullity, and it has to be: D is assembled from attention weights, so it
+    # is a float operator with no exact rational source to reduce. np.linalg.matrix_rank
+    # is a singular value decomposition against a tolerance, and there is no exact rank
+    # available for an operator that was never exact.
+    #
+    # This previously claimed "the EXACT integer dim - dim ker(D) ... no
+    # eigenvalue-magnitude threshold", which described a contract the call does not
+    # deliver: the tolerance is a singular value threshold under a different name. The
+    # tolerance is now explicit and travels with the result, so a consumer can see that
+    # this count is a numerical reading rather than a topological invariant. The exact
+    # path exists for exact operands and is used elsewhere, for example _sparse_rank by
+    # elimination in the analysis pipeline.
+    rank_tol = float(max(D.shape) * np.finfo(np.float64).eps * float(np.abs(D).max() or 1.0))
+    n_harmonic = dim - int(np.linalg.matrix_rank(D, tol=rank_tol))
     n_nonharmonic = dim - n_harmonic
 
     # The per-mode even/odd (chirality) fraction genuinely needs the eigenVECTORS - it
@@ -134,6 +145,9 @@ def measure_equiweight(D: np.ndarray, nV: int, nE: int, nF: int) -> dict:
         "max_equiweight_deviation": float(np.max(deviations)) if deviations else 0.0,
         "n_harmonic_modes": int(n_harmonic),
         "n_nonharmonic_modes": int(n_nonharmonic),
+        # the contract the two counts above were produced under
+        "mode_count_method": "numerical_rank",
+        "mode_count_tolerance": rank_tol,
     }
 
 
@@ -230,17 +244,21 @@ def analyze_transformer(
             # Structural character
             try:
                 chi = rex.structural_character
-                means = chi.mean(axis=0)
-                channel_names = ["T", "G", "F", "C"]
-                for i in range(min(len(means), 4)):
-                    layer_data[f"chi_{channel_names[i]}"] = round(float(means[i]), 4)
+                # A layer with no relations has no mean, and NaN is not valid JSON. The
+                # per-head path below already guards this way; these did not.
+                if chi.shape[0] > 0:
+                    means = chi.mean(axis=0)
+                    channel_names = ["T", "G", "F", "C"]
+                    for i in range(min(len(means), 4)):
+                        layer_data[f"chi_{channel_names[i]}"] = round(float(means[i]), 4)
             except Exception:
                 pass
 
             # Coherence
             try:
                 kappa = coherence_kappa(rex)
-                layer_data["kappa_mean"] = round(float(kappa.mean()), 4)
+                if kappa is not None and kappa.size:
+                    layer_data["kappa_mean"] = round(float(kappa.mean()), 4)
             except Exception:
                 pass
 
@@ -331,10 +349,11 @@ def quick_attention_analysis(
 
         try:
             chi = rex.structural_character
-            means = chi.mean(axis=0)
-            for i, name in enumerate(["T", "G", "F", "C"]):
-                if i < len(means):
-                    result[f"chi_{name}"] = round(float(means[i]), 4)
+            if chi.shape[0] > 0:
+                means = chi.mean(axis=0)
+                for i, name in enumerate(["T", "G", "F", "C"]):
+                    if i < len(means):
+                        result[f"chi_{name}"] = round(float(means[i]), 4)
         except Exception:
             pass
 

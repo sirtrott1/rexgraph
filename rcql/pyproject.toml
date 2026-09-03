@@ -4,18 +4,27 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rexgraph-rcql"
-version = "1.1.3"
+version = "1.1.4"
 description = "Relational Complex Query Language"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-dependencies = ["rexgraph>=1.1.3", "numpy>=1.24", "scipy>=1.10"]
+# scipy is NOT here: rcql never imports it. as_scipy() is a method on rexgraph's
+# RexOperator, and rexgraph declares scipy itself. Declaring it here asserted a direct
+# dependency that does not exist.
+#
+# numpy remains only because the Rex-math adapters in operators.py still hold arrays
+# directly. RCQL is meant to use the exact tensor carriers of the core library, so this
+# line is expected to shrink to rexgraph alone once those adapters move onto Chain,
+# Cochain and the composite-binary carriers. A test keeps this list honest in both
+# directions, so an unused declaration fails as loudly as a missing one.
+dependencies = ["rexgraph>=1.1.4", "numpy>=1.24"]
 
 # The RCDB operators reach a store through an injected `source`, never by importing one.
 # This names where such a store comes from, for a caller that wants one.
 [project.optional-dependencies]
-rcdb = ["rexgraph-rcdb>=1.1.3"]
+rcdb = ["rexgraph-rcdb>=1.1.4"]
 dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]

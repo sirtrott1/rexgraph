@@ -115,7 +115,7 @@ def propagator_positions(rex, *, anchors=None, dim: int = 3, t: float = 1.0) -> 
     if L0 is None:
         import scipy.sparse as sp
         from rexgraph.core._sparse import to_scipy_csr
-        B1 = to_scipy_csr(rex._B1_dual).tocsr()
+        B1 = to_scipy_csr(rex.B1_sparse).tocsr()
         L0 = sp.csr_matrix(B1 @ B1.T)
 
     if anchors is None:
@@ -190,7 +190,7 @@ def reach(rex, seeds, *, t: float = 1.0, limit: int = 25) -> dict:
 
     import scipy.sparse as sp
     from rexgraph.core._sparse import to_scipy_csr
-    B1 = to_scipy_csr(rex._B1_dual).tocsr()
+    B1 = to_scipy_csr(rex.B1_sparse).tocsr()
     L0 = sp.csr_matrix(B1 @ B1.T)
 
     x = np.zeros(nV, dtype=float)
@@ -246,20 +246,44 @@ def structural_positions(rex, *, dim: int = 2) -> dict:
     structure does not: that is what the renderer's fan is for, and what a signal view is
     for when there is a measurement to separate them by.
 
-    One limitation, stated because it is in the code path rather than because it showed up
-    in the numbers. The force step reads `_ensure_src_tgt`, which truncates a k-ary
-    relation to its first two vertices, so the springs miss the rest of a branching
-    relation's support. The spectral seed does not: `L0 = B1 B1^T` carries the whole
-    boundary. Feeding the force step every pair inside each support instead measured
-    WORSE on relation cohesion (0.676 against 0.607, lower being tighter), so this is left
-    alone rather than corrected into something that reads better and draws worse.
+    The force step is pairwise by construction, and that is enforced above rather than
+    tolerated: this function declines a complex carrying any relation of arity other than
+    two, so the springs never receive a support they cannot represent. `_ensure_src_tgt`
+    is exact on what remains, and raises rather than truncating if it is reached with a
+    branching C1 at all. Kept from when this WAS a live limitation: feeding the force step
+    every pair inside each support measured WORSE on relation cohesion (0.676 against
+    0.607, lower being tighter), so pair expansion was not the answer for branching
+    either, and declining is.
 
     Not exact, and says so. Floats the whole way, and the force refinement is iterative.
+
+    Undefined for a branching or witness relation, and it now says that rather than
+    drawing something. The seed is the low L0 eigenvectors taken through the pairwise
+    component kernel, and that kernel is not the kernel of a complex whose relations carry
+    more than two participants: one k-ary relation is one component but rank one, so H0 has
+    k-1 dimensions and the component indicators span only one of them. The core declines
+    the mode for that reason.
+
+    The absence is reported rather than filled. Substituting the character or exact
+    embedding here and still calling the result structural would be the same substitution
+    in a different place: those answer who is LIKE whom and where a cell exactly IS, not
+    who is NEAR whom, and the payload carries them separately under their own names.
     """
     rex._ensure_clean()
+    if not all(len(support) == 2 for support in rex.relation_supports()):
+        return {
+            "mode": "structural", "grade": "vertex", "exact": False,
+            "positions": np.zeros((0, int(dim))), "cells": [],
+            "available": False,
+            "note": ("undefined for a branching or witness relation: the adjacency layout "
+                     "seeds from the pairwise component kernel, which does not span H0 "
+                     "once a relation has more than two participants. The exact and "
+                     "character embeddings in this payload are defined for any arity."),
+        }
     P = np.asarray(rex.layout_3d if int(dim) >= 3 else rex.layout, dtype=float)
     return {
         "mode": "structural", "grade": "vertex", "exact": False,
+        "available": True,
         "positions": P,
         "cells": [{"index": i, "at": [float(x) for x in row]}
                   for i, row in enumerate(P)],
@@ -309,7 +333,7 @@ def flow_positions(rex, signal, *, grade: int = 1) -> dict:
             f"a grade-{grade} signal needs {expected} values, got {values.shape[0]}")
 
     hodge = rex.hodge_full(values) if grade == 1 else None
-    B1 = to_scipy_csr(rex._B1_dual).tocsr()
+    B1 = to_scipy_csr(rex.B1_sparse).tocsr()
     divergence = np.asarray(B1 @ values).ravel()
     potential = np.asarray(_l0_pinv_matvec((B1 @ B1.T).tocsr(), divergence)).ravel()
 
@@ -380,7 +404,7 @@ def render_payload(rex, *, labels=None, dim: int = 3, limit: int = 0,
     if embedding:
         from rexgraph.geometry import embedded_geometry_of
         embedded = embedded_geometry_of(rex, embedding, limit=limit, exact=True)
-    bp, bi = rex._boundary_ptr, rex._boundary_idx
+    bp, bi = rex.boundary_ptr, rex.boundary_idx
 
     def _label(v):
         return str(labels[v]) if labels is not None and v < len(labels) else f"v{v}"
@@ -436,7 +460,7 @@ def render_payload(rex, *, labels=None, dim: int = 3, limit: int = 0,
 
         from rexgraph.core._sparse import to_scipy_csr
 
-        B2 = to_scipy_csr(rex._B2_hodge_dual).tocsc()
+        B2 = to_scipy_csr(rex.B2_hodge_sparse).tocsc()
         cells = apd(rex, 2)["cells"]
         for f in range(nF if not limit else min(nF, int(limit))):
             lo, hi = B2.indptr[f], B2.indptr[f + 1]

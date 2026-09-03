@@ -67,7 +67,7 @@ def samples(rex, H, n, rng, noise, w=None):
     C = rng.normal(size=(n, k))
     phi = rng.normal(size=(n, rex.nV)) * noise
     Hd = np.asarray(H.todense())
-    F = C @ Hd.T + np.array([np.asarray(rmatvec(rex._B1_dual, p)).ravel() for p in phi])
+    F = C @ Hd.T + np.array([np.asarray(rmatvec(rex.B1_sparse, p)).ravel() for p in phi])
     return F, np.argmax(np.abs(C), axis=1), (C @ w > 0).astype(int)
 
 

@@ -189,8 +189,8 @@ def _drive_dogfood(store):
         # stable ids across the intervening deletion: edge (0,1)'s canonical key survives
         r0 = loop.trex.at(0)
         rN = loop.trex.at(loop.trex.T - 1)
-        k0 = cell_keys_of(r0._boundary_ptr, r0._boundary_idx, r0._directed)
-        kN = set(cell_keys_of(rN._boundary_ptr, rN._boundary_idx, rN._directed).tolist())
+        k0 = cell_keys_of(r0.boundary_ptr, r0.boundary_idx, r0._directed)
+        kN = set(cell_keys_of(rN.boundary_ptr, rN.boundary_idx, rN._directed).tolist())
         assert int(k0[0]) in kN
 
         # derived lineage: one version per cycle, every cycle time-travelable

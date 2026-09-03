@@ -2038,6 +2038,23 @@ class SQLStore(RCStore):
             self._emit("rcdb.delete", id, 0, {})
         return existed
 
+    def close(self):
+        """Release the engine's connection pool.
+
+        SQLStore had no close, so it inherited RCStore's no-op and every caller that
+        dutifully called close kept the pool open. The connections then surfaced at
+        garbage collection, which reports whatever frame happened to be running rather
+        than where they were opened, so the leak read as scattered third-party warnings
+        instead of one lifecycle bug here.
+
+        Idempotent: dispose on an already-disposed engine is a no-op in SQLAlchemy, and
+        close is called from several paths and from reset_default_store.
+        """
+        engine = getattr(self, "engine", None)
+        if engine is not None:
+            engine.dispose()
+
+
 
 # backend registry + URI opener
 
@@ -2649,6 +2666,15 @@ def default_store() -> RCStore:
 
 
 def reset_default_store() -> None:
-    """Drop the memoized default so the next call re-reads the environment."""
+    """Close the memoized default and drop it, so the next call re-reads the environment.
+
+    Dropping the reference alone left a SQL store's pool open until the collector got to
+    it, which is what made the connections surface as warnings from unrelated frames.
+    The close is best-effort: a store that fails to close must not stop the reset, or a
+    single bad store would pin the default forever.
+    """
     global _DEFAULT_STORE
-    _DEFAULT_STORE = None
+    store, _DEFAULT_STORE = _DEFAULT_STORE, None
+    if store is not None:
+        with contextlib.suppress(Exception):
+            store.close()

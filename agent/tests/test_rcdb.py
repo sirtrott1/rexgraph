@@ -1,7 +1,7 @@
 """Tests for the Relational Complex Database (agent.rcdb) - core backends,
 structural query, and the HTTP routes."""
 
-import tempfile
+from contextlib import closing
 
 import pytest
 from agent.adapters.text import TextAdapter
@@ -27,40 +27,51 @@ DENSE = _rex("cells signal receptors genes express proteins pathways regulate "
 SPARSE = _rex("alpha beta gamma")
 
 
-def _uris():
-    return ["memory://",
-            "file://" + tempfile.mkdtemp() + "/store",
-            "sqlite:///" + tempfile.mktemp(suffix=".db")]
+@pytest.fixture(params=["memory", "file", "sql"])
+def backend_store(request, tmp_path):
+    """An opened store per backend, closed when the test ends.
+
+    This was a module-level _uris() built with tempfile.mkdtemp and mktemp, so the paths
+    were created at COLLECTION time and left in /tmp, and every parametrization opened a
+    store that nothing closed. A SQL store owns a connection pool, so those stayed open
+    until the collector reached them.
+    """
+    kind = request.param
+    if kind == "memory":
+        uri = "memory://"
+    elif kind == "file":
+        uri = f"file://{tmp_path / 'store'}"
+    else:
+        uri = f"sqlite:///{tmp_path / 'store.db'}"
+    store = open_store(uri)
+    yield store
+    store.close()
 
 
 class TestBackends:
-    @pytest.mark.parametrize("uri", _uris())
-    def test_put_get_roundtrip(self, uri):
-        st = open_store(uri)
+    def test_put_get_roundtrip(self, backend_store):
+        st = backend_store
         st.put("d", DENSE, meta=DENSE._agent_meta, tags=["x"])
         got = st.get("d")
         assert got is not None and got.nV == DENSE.nV and got.nE == DENSE.nE
 
-    @pytest.mark.parametrize("uri", _uris())
-    def test_structural_query(self, uri):
-        st = open_store(uri)
+    def test_structural_query(self, backend_store):
+        st = backend_store
         st.put("dense", DENSE, meta=DENSE._agent_meta, tags=["big"])
         st.put("sparse", SPARSE, meta=SPARSE._agent_meta, tags=["tiny"])
         # dense has many independent cycles; sparse has few
         big = {r.id for r in st.query(min_betti1=10)}
         assert "dense" in big and "sparse" not in big
 
-    @pytest.mark.parametrize("uri", _uris())
-    def test_tag_query(self, uri):
-        st = open_store(uri)
+    def test_tag_query(self, backend_store):
+        st = backend_store
         st.put("a", DENSE, tags=["bio", "big"])
         st.put("b", SPARSE, tags=["toy"])
         assert {r.id for r in st.query(tags_any=["bio"])} == {"a"}
         assert {r.id for r in st.query(tags_all=["bio", "big"])} == {"a"}
 
-    @pytest.mark.parametrize("uri", _uris())
-    def test_list_delete_stats(self, uri):
-        st = open_store(uri)
+    def test_list_delete_stats(self, backend_store):
+        st = backend_store
         st.put("a", DENSE)
         st.put("b", SPARSE)
         assert len(st.list()) == 2
@@ -70,10 +81,11 @@ class TestBackends:
         assert st.get("a") is None
         assert len(st.list()) == 1
 
-    def test_open_store_scheme_dispatch(self):
+    def test_open_store_scheme_dispatch(self, tmp_path):
         assert open_store("memory://").backend == "memory"
-        assert open_store("file:///tmp/x_rcdb").backend == "file"
-        assert open_store("sqlite:///" + tempfile.mktemp(suffix=".db")).backend == "sql"
+        assert open_store(f"file://{tmp_path / 'x_rcdb'}").backend == "file"
+        with closing(open_store("sqlite:///" + str(tmp_path / "scheme.db"))) as sql:
+            assert sql.backend == "sql"
 
     def test_register_custom_backend(self):
         register_backend("mymem", lambda uri: MemoryStore())
@@ -217,27 +229,27 @@ class TestSqlIndex:
 
     def test_indexed_columns_and_pushdown(self, tmp_path):
         cycle, tree = self._rexes()
-        s = SQLStore("sqlite:///" + str(tmp_path / "idx.db"))
-        s.put("cyc", cycle, tags=["a"])
-        s.put("tre", tree, tags=["b"])
-        import sqlalchemy as sa
-        cols = {c["name"] for c in sa.inspect(s.engine).get_columns("rc_complexes")}
-        assert {"betti1", "kappa_mean", "source", "nV", "nE", "chain_valid"} <= cols
-        assert len(sa.inspect(s.engine).get_indexes("rc_complexes")) >= 3
-        assert [r.id for r in s.query(min_betti1=1)] == ["cyc"]
-        assert [r.id for r in s.query(min_betti1=1, tags_any=["a"])] == ["cyc"]
-        assert s.query(min_betti1=1, tags_any=["b"]) == []
+        with closing(SQLStore("sqlite:///" + str(tmp_path / "idx.db"))) as s:
+            s.put("cyc", cycle, tags=["a"])
+            s.put("tre", tree, tags=["b"])
+            import sqlalchemy as sa
+            cols = {c["name"] for c in sa.inspect(s.engine).get_columns("rc_complexes")}
+            assert {"betti1", "kappa_mean", "source", "nV", "nE", "chain_valid"} <= cols
+            assert len(sa.inspect(s.engine).get_indexes("rc_complexes")) >= 3
+            assert [r.id for r in s.query(min_betti1=1)] == ["cyc"]
+            assert [r.id for r in s.query(min_betti1=1, tags_any=["a"])] == ["cyc"]
+            assert s.query(min_betti1=1, tags_any=["b"]) == []
 
     def test_parity_with_memory(self, tmp_path):
         cycle, tree = self._rexes()
-        s = SQLStore("sqlite:///" + str(tmp_path / "p.db"))
-        m = MemoryStore()
-        for st in (s, m):
-            st.put("cyc", cycle, tags=["a"])
-            st.put("tre", tree, tags=["b"])
-        for q in ({"min_betti1": 1}, {"max_betti1": 0}, {"tags_any": ["b"]},
-                  {"chain_valid": True}):
-            assert {r.id for r in s.query(**q)} == {r.id for r in m.query(**q)}
+        with closing(SQLStore("sqlite:///" + str(tmp_path / "p.db"))) as s:
+            m = MemoryStore()
+            for st in (s, m):
+                st.put("cyc", cycle, tags=["a"])
+                st.put("tre", tree, tags=["b"])
+            for q in ({"min_betti1": 1}, {"max_betti1": 0}, {"tags_any": ["b"]},
+                      {"chain_valid": True}):
+                assert {r.id for r in s.query(**q)} == {r.id for r in m.query(**q)}
 
     def test_migration_backfills_old_table(self, tmp_path):
         import json
@@ -253,9 +265,9 @@ class TestSqlIndex:
                     ("legacy", sig, "{}", time.time(), b"x"))
         con.commit()
         con.close()
-        s = SQLStore("sqlite:///" + dbf)
-        assert [r.id for r in s.query(min_betti1=1)] == ["legacy"]
-        assert [r.id for r in s.query(source="legacy")] == ["legacy"]
+        with closing(SQLStore("sqlite:///" + dbf)) as s:
+            assert [r.id for r in s.query(min_betti1=1)] == ["legacy"]
+            assert [r.id for r in s.query(source="legacy")] == ["legacy"]
 
 
 class TestWorkAsComplex:

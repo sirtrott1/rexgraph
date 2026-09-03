@@ -19,7 +19,8 @@ import scipy.sparse as sp
 from scipy.sparse.linalg import LinearOperator, lobpcg, splu
 
 __all__ = ["fiedler_L0", "kernel_basis", "kernel_from_boundary", "deflated_operator",
-           "solve_block_width", "leverage_diagonal", "leverage_sketch"]
+           "minimum_norm_gram_solve", "solve_block_width", "leverage_diagonal",
+           "leverage_sketch"]
 
 _TOL = 1e-10
 _DENSE_MAX = 2000          # below this an exact dense eigh is simply cheaper
@@ -124,7 +125,12 @@ def fiedler_L0(L0, k: int = 6):
     with warnings.catch_warnings():
         # Not reaching tol here is the probe's ANSWER, not a problem to report: the
         # relative-residual test below reads it and re-solves against a factorization.
-        warnings.simplefilter("ignore")
+        # Narrowed to the two non-convergence notices lobpcg raises for that, so anything
+        # else it has to say still reaches the caller.
+        warnings.filterwarnings("ignore", message=r"Exited at iteration.*",
+                                category=UserWarning)
+        warnings.filterwarnings("ignore", message=r"Exited postprocessing.*",
+                                category=UserWarning)
         lam, vecs, hist = lobpcg(L0, X0.copy(), Y=U_dense, M=Mjac, largest=False,
                                  tol=_TOL, maxiter=300, retResidualNormsHistory=True)
     lam0 = float(np.min(np.atleast_1d(np.asarray(lam, dtype=np.float64))))
@@ -159,12 +165,33 @@ def kernel_from_boundary(B1):
 
     Same object `kernel_basis` returns, reached without the product. Components come from
     the bipartite incidence, which has the same vertex partition as `L_0`'s graph, and the
-    witness check is one matrix-free apply.
+    witness check is one matrix-free apply. This component construction is exact only for
+    zero-sum pairwise C1 columns (plus arity-one witnesses, whose components are checked).
+    A branching relation can leave multiple independent directions inside one support
+    component, so it must be handled by the general minimum-norm Green action or an
+    explicitly supplied exact ``ker(B1.T)`` basis; this function refuses rather than
+    manufacture an incomplete deflation basis.
     """
     B = sp.csr_matrix(B1)
     nV = B.shape[0]
     if nV == 0:
         return sp.csr_matrix((0, 0), dtype=np.float64), 0
+    C = B.tocsc(copy=True)
+    C.sum_duplicates()
+    C.eliminate_zeros()
+    counts = np.diff(C.indptr)
+    for relation in np.flatnonzero(counts == 2):
+        lo = int(C.indptr[relation])
+        if C.data[lo] + C.data[lo + 1] != 0.0:
+            raise ValueError(
+                "component kernel deflation requires zero-sum pairwise C1 columns; "
+                "supply an exact ker(B1.T) basis or use the general Green operator"
+            )
+    if np.any(counts > 2):
+        raise ValueError(
+            "component kernel deflation is not defined for branching C1 relations; "
+            "supply an exact ker(B1.T) basis or use the general Green operator"
+        )
     big = sp.bmat([[None, B], [B.T, None]], format="csr")
     _n, labels = sp.csgraph.connected_components(big, directed=False)
     labels = labels[:nV]
@@ -195,7 +222,9 @@ def deflated_operator(B1, *, kernel=None):
     larger.
 
     So nothing is formed here. `L_0 x` is `B_1 (B_1^T x)`, `diag(L_0)` is the row sums of
-    `B_1 * B_1`, and the kernel comes from the boundary. Returns
+    `B_1 * B_1`, and the kernel comes from the boundary. Without an explicit ``kernel``
+    this is a pairwise/witness-only helper; branching C1 must use the general Green
+    action because support components do not span its full kernel. Returns
     `(apply_A, dinv, U, ncomp)` ready for `sparse_character._block_cg`.
     """
     B = sp.csr_matrix(B1)
@@ -213,6 +242,51 @@ def deflated_operator(B1, *, kernel=None):
         return out
 
     return apply_A, dinv, U, ncomp
+
+
+def minimum_norm_gram_solve(B, values, *, tol=1e-12, maxit=500):
+    """Numerical Moore--Penrose action ``(B B.T)^+ values`` for arbitrary Ck.
+
+    This is the general Green lane for a boundary whose kernel is not represented by
+    pairwise component indicators.  It never invents a partial deflation basis and
+    never forms the Gram matrix: LSMR acts on ``B @ (B.T @ x)`` and returns its
+    minimum-norm solution.  It is deliberately labelled numerical; the exact C1/C2
+    topology and rank paths remain in the integer/rational stack.
+    """
+    import scipy.sparse as sp
+    from scipy.sparse.linalg import LinearOperator, lsmr
+
+    boundary = sp.csr_matrix(B)
+    block = np.asarray(values, dtype=np.float64)
+    one = block.ndim == 1
+    if one:
+        block = block[:, None]
+    elif block.ndim != 2:
+        raise ValueError("minimum_norm_gram_solve expects a vector or a two-dimensional block")
+    if block.shape[0] != boundary.shape[0]:
+        raise ValueError(
+            f"minimum_norm_gram_solve RHS has {block.shape[0]} rows for a "
+            f"{boundary.shape[0]}-row boundary"
+        )
+
+    operator = LinearOperator(
+        (boundary.shape[0], boundary.shape[0]),
+        matvec=lambda value: boundary @ (boundary.T @ value),
+        rmatvec=lambda value: boundary @ (boundary.T @ value),
+        dtype=np.float64,
+    )
+    out = np.empty_like(block)
+    for column in range(block.shape[1]):
+        solution = lsmr(
+            operator, block[:, column], atol=tol, btol=tol, conlim=0.0, maxiter=maxit,
+        )
+        if solution[1] not in (0, 1, 2):
+            raise RuntimeError(
+                "minimum-norm Gram solve did not converge, "
+                f"istop={solution[1]}"
+            )
+        out[:, column] = solution[0]
+    return out[:, 0] if one else out
 
 
 def solve_block_width(nV, nE, *, panels=6):
@@ -270,7 +344,23 @@ def leverage_diagonal(B, *, columns=None, kernel=None, block=None,
     if cols.size == 0 or n == 0:
         return out, 0
 
-    apply_A, dinv, _U, _nc = deflated_operator(Bc, kernel=kernel)
+    try:
+        apply_A, dinv, _U, _nc = deflated_operator(Bc, kernel=kernel)
+    except ValueError:
+        if kernel is not None:
+            raise
+        # A component indicator does not span ker(B.T) at arbitrary arity.  Use
+        # the full minimum-norm Green action rather than an incomplete deflation.
+        width = int(block) if block else solve_block_width(Bc.shape[0], Bc.shape[1])
+        for lo in range(0, cols.size, width):
+            hi = min(lo + width, cols.size)
+            P = np.ascontiguousarray(
+                np.asarray(Bc[:, cols[lo:hi]].todense(), dtype=np.float64))
+            X = minimum_norm_gram_solve(Bc, P, tol=tol, maxit=maxit)
+            out[lo:hi] = np.einsum("ve,ve->e", P, X)
+        from rexgraph.graded_boundary import _exact_rank_reduction
+        exact_rank = _exact_rank_reduction(Bc)
+        return out, int(round(float(out.sum()))) if exact_rank is None else int(exact_rank)
     width = int(block) if block else solve_block_width(Bc.shape[0], Bc.shape[1])
     for lo in range(0, cols.size, width):
         hi = min(lo + width, cols.size)
@@ -324,7 +414,15 @@ def leverage_sketch(B, *, dim=None, epsilon=0.1, seed=0, tol=1e-10, maxit=500,
     Q /= np.sqrt(k)
     Y = np.ascontiguousarray(Bc @ Q)                      # nV x k, the only dense panel
 
-    apply_A, dinv, _U, _nc = deflated_operator(Bc, kernel=kernel)
+    try:
+        apply_A, dinv, _U, _nc = deflated_operator(Bc, kernel=kernel)
+    except ValueError:
+        if kernel is not None:
+            raise
+        X = minimum_norm_gram_solve(Bc, Y, tol=tol, maxit=maxit)
+        Z = Bc.T @ X
+        out = np.einsum("ek,ek->e", Z, Z)
+        return out, int(round(float(out.sum())))
     width = solve_block_width(nV, nE)
     X = np.zeros_like(Y)
     for lo in range(0, k, width):

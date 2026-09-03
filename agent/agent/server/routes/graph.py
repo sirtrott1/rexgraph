@@ -307,7 +307,7 @@ async def cell(session_id: str, body: dict = Body(default={})):
         # the right answer to the wrong question.
         from rexgraph.core._sparse import to_scipy_csr
 
-        B2 = to_scipy_csr(rex._B2_hodge_dual).tocsc()
+        B2 = to_scipy_csr(rex.B2_hodge_sparse).tocsc()
         bounding = [int(B2.indices[j])
                     for j in range(B2.indptr[index], B2.indptr[index + 1])
                     if B2.data[j] != 0]

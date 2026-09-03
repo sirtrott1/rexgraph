@@ -306,16 +306,25 @@ class TestNoPandasImport:
         import importlib
 
         import rexgraph.io.sql_bridge as sb
+
+        # Reload replaces the module's engine cache wholesale, which orphans whatever the
+        # old one was holding: the engines survive as live objects with no owner and
+        # report at collection, inside whichever test runs next. Dispose before the
+        # reload and after the work, so this test leaves nothing behind either way.
+        sb.dispose_engines()
         importlib.reload(sb)
 
-        eng = sb.get_engine("sqlite:///:memory:")
-        g = RexGraph(sources=np.array([0, 1], dtype=np.int32),
-                     targets=np.array([1, 2], dtype=np.int32))
-        sb.write_boundary_sql(g, eng, "b_boundary")
-        sb.write_edge_sql(g, eng, "b_edge")
-        r = sb.reconstruct_rex_sql(eng, boundary="b_boundary", edge="b_edge")
-        assert r.nE == g.nE
-        assert "pandas" not in sys.modules   # the SQL path never imports pandas
+        try:
+            eng = sb.get_engine("sqlite:///:memory:")
+            g = RexGraph(sources=np.array([0, 1], dtype=np.int32),
+                         targets=np.array([1, 2], dtype=np.int32))
+            sb.write_boundary_sql(g, eng, "b_boundary")
+            sb.write_edge_sql(g, eng, "b_edge")
+            r = sb.reconstruct_rex_sql(eng, boundary="b_boundary", edge="b_edge")
+            assert r.nE == g.nE
+            assert "pandas" not in sys.modules   # the SQL path never imports pandas
+        finally:
+            sb.dispose_engines()
 
 
 # Full reconstruct: boundary (+ optional face, + optional edge weights) -> RexGraph.

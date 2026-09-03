@@ -10,12 +10,13 @@ column carries the share 1/(k-1).
 
 Three properties hold here.
 
-PER ENTRY, NOT PER ACCUMULATED ENTRY. The magnitudes have to be read off the boundary
-structure, not off a dense signed B1. A self-loop lists its vertex twice with -1 and +1;
-the dense form has already summed those to 0, and |0| != |-1| + |+1|. Recovering K from
-the dense signed view is therefore impossible, which is what
+PER RELATION INCIDENCE. The magnitudes have to be read off the primary boundary
+structure, not off a dense signed B1. A deliberate self-loop lists its vertex twice with
+-1 and +1; the dense form has already summed those to 0, and |0| != |-1| + |+1|.
+Recovering K from the dense signed view is therefore impossible, which is what
 `test_self_loop_limitations_that_remain_are_pinned` records. The compiled standard-only
-kernel gets this right and is left alone here.
+kernel gets this right and is left alone here. Other repeated C0 participants are not a
+valid primary C1 carrier and are rejected at construction.
 
 DENSE AND SPARSE AGREE. They are documented as the same quantity in two shapes.
 
@@ -48,7 +49,7 @@ def _entry_gramian(rex):
         # unit magnitudes below arity 3 where the share is 1 anyway
         share = 1.0 / (k - 1) if k > 2 else 1.0
         for j in range(s, t):
-            M[e, bi[j]] += 1.0 if j == s else share   # per entry: a repeat counts twice
+            M[e, bi[j]] += 1.0 if j == s else share
     return M @ M.T
 
 
@@ -62,7 +63,6 @@ BRANCHING = {
     "two k=3 sharing a vertex": ([0, 3, 6], [0, 1, 2, 2, 3, 4]),
     "k=4 with two pairwise legs": ([0, 4, 6, 8], [0, 1, 2, 3, 3, 4, 3, 5]),
     "double-T": ([0, 3, 6], [0, 1, 2, 0, 1, 3]),
-    "repeated vertex in a boundary": ([0, 3], [0, 1, 1]),
 }
 
 
@@ -82,17 +82,9 @@ def test_dense_matches_sparse(name):
                        rex.overlap_gramian_sparse.toarray(), atol=1e-12), name
 
 
-def test_a_repeated_boundary_entry_counts_twice():
-    """Boundary [0,1,1] is arity 3, so the share is 1/2 and vertex 1 receives it twice.
-    M is [1, 1] and K is 1^2 + 1^2 = 2.
-
-    The point is that the two entries at vertex 1 are summed rather than collapsed. The
-    old builder forced every entry to 1 AND collapsed the duplicate, which reaches the
-    same 2 here by a route that does not generalise: at unit magnitudes the sum would
-    have been 2, giving 5. The parametrised test above is what pins the general case.
-    """
-    rex = _branching([0, 3], [0, 1, 1])
-    assert np.isclose(rex.overlap_gramian_sparse.toarray()[0, 0], 2.0)
+def test_a_repeated_boundary_entry_is_not_silently_collapsed_to_a_pairwise_relation():
+    with pytest.raises(ValueError, match="only an exact \\[v, v\\]"):
+        _branching([0, 3], [0, 1, 1])
 
 
 def test_reading_the_gramian_does_not_mutate_the_complex():
@@ -100,19 +92,18 @@ def test_reading_the_gramian_does_not_mutate_the_complex():
 
     `np.ascontiguousarray` does not copy an already-contiguous array and `csr_matrix`
     aliases the indptr and indices it is given, so a `sum_duplicates()` inside the
-    builder reaches the graph's own `_boundary_ptr` unless the buffers are copied first.
-    An arity-3 relation naming a vertex twice would have its pointer go [0, 3] -> [0, 2]
-    on the first read of either Gramian, permanently, and read as arity 2 thereafter.
+    builder must not reach the graph's own primary carrier. A branching arity-3
+    relation must retain its declared support after a Gramian read.
     """
     for accessor in ("overlap_gramian_sparse", "overlap_gramian"):
-        rex = _branching([0, 3], [0, 1, 1])
+        rex = _branching([0, 3], [0, 1, 2])
         before = np.asarray(rex._boundary_ptr).tolist()
         idx_before = np.asarray(rex._boundary_idx).tolist()
         getattr(rex, accessor)
         assert np.asarray(rex._boundary_ptr).tolist() == before, accessor
         assert np.asarray(rex._boundary_idx).tolist() == idx_before, accessor
     # and the arity the graph reports is still the declared one
-    rex = _branching([0, 3], [0, 1, 1])
+    rex = _branching([0, 3], [0, 1, 2])
     _ = rex.overlap_gramian_sparse
     ptr = np.asarray(rex._boundary_ptr)
     assert int(ptr[1] - ptr[0]) == 3
@@ -121,7 +112,7 @@ def test_reading_the_gramian_does_not_mutate_the_complex():
 def test_repeated_reads_are_stable():
     """A second consequence of aliasing: the first read changed what the second read
     saw, so the accessor was not idempotent."""
-    rex = _branching([0, 3], [0, 1, 1])
+    rex = _branching([0, 3], [0, 1, 2])
     first = rex.__class__.overlap_gramian_sparse.func(rex).toarray()
     second = rex.__class__.overlap_gramian_sparse.func(rex).toarray()
     assert np.array_equal(first, second)

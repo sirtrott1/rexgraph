@@ -85,7 +85,7 @@ async def explain_cell(session_id: str, dim: int, idx: int):
 
 def _edge_endpoints(rex, e: int):
     from rexgraph.core._sparse import to_scipy_csr
-    B1c = to_scipy_csr(rex._B1_dual).tocsc()
+    B1c = to_scipy_csr(rex.B1_sparse).tocsc()
     return [int(v) for v in B1c.indices[B1c.indptr[e]:B1c.indptr[e + 1]]]
 
 

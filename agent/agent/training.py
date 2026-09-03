@@ -149,7 +149,7 @@ class TrainingExporter:
                     fe = np.ones(chunk_rex.nE, dtype=np.float64)
                     ff = np.zeros(chunk_rex.nF, dtype=np.float64) if chunk_rex.nF > 0 else np.array([], dtype=np.float64)
                     dgm = persistence_diagram(fv, fe, ff,
-                        chunk_rex._boundary_ptr, chunk_rex._boundary_idx,
+                        chunk_rex.boundary_ptr, chunk_rex.boundary_idx,
                         chunk_rex._B2_col_ptr, chunk_rex._B2_row_idx)
                     ex.persistence_entropy = float(persistence_entropy(dgm['pairs']))
                 except Exception:

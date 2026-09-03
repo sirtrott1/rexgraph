@@ -146,9 +146,10 @@ class SignatureView:
     def to_arrow(self):
         """The table as Arrow, for anything downstream that speaks it (polars,
         pandas, a parquet write) without this module taking a dependency on it."""
-        # fetch_arrow_table, not .arrow(): newer duckdb returns a streaming
-        # RecordBatchReader from the latter, which is not a materialized table.
-        return self.con.execute(f"SELECT * FROM {self.TABLE}").fetch_arrow_table()
+        # to_arrow_table, not .arrow(): the latter returns a streaming RecordBatchReader,
+        # which is not a materialized table. This was fetch_arrow_table, which duckdb
+        # deprecated in favour of this name; both return the same materialized Table.
+        return self.con.execute(f"SELECT * FROM {self.TABLE}").to_arrow_table()
 
     def close(self):
         self.con.close()

@@ -110,12 +110,12 @@ def _strain_equilibrium_sparse(rex, kappa_f, born_face):
     nF = int(rex.nF_hodge)
     kappa_f = np.asarray(kappa_f, dtype=np.float64)
     born_face = np.asarray(born_face, dtype=np.float64)
-    if nF == 0 or rex._B2_hodge_dual is None:
+    if nF == 0 or rex.B2_hodge_sparse is None:
         z = np.zeros(int(rex.nE), dtype=np.float64)
         return {'alpha': 0.0, 'delta': np.zeros(0), 'sigma': z,
                 'bianchi_ok': True, 'bianchi_residual': 0.0, 'strain_norm': 0.0}
-    B2 = to_scipy_csr(rex._B2_hodge_dual).tocsr()          # nE × nF (sparse)
-    B1 = to_scipy_csr(rex._B1_dual).tocsr()                # nV × nE (sparse)
+    B2 = to_scipy_csr(rex.B2_hodge_sparse).tocsr()          # nE × nF (sparse)
+    B1 = to_scipy_csr(rex.B1_sparse).tocsr()                # nV × nE (sparse)
     B2k = np.asarray(B2 @ kappa_f).ravel()
     B2p = np.asarray(B2 @ born_face).ravel()
     denom = float(B2p @ B2p)
@@ -143,8 +143,8 @@ def _attributed_kappa_sparse(rex, w_e=None):
         return np.zeros(0, dtype=np.float64)
     w = (np.ones(nE, dtype=np.float64) if w_e is None
          else np.asarray(w_e, dtype=np.float64).ravel())
-    B1 = to_scipy_csr(rex._B1_dual).tocsr()               # nV × nE
-    B2 = to_scipy_csr(rex._B2_hodge_dual).tocsr()         # nE × nF
+    B1 = to_scipy_csr(rex.B1_sparse).tocsr()               # nV × nE
+    B2 = to_scipy_csr(rex.B2_hodge_sparse).tocsr()         # nE × nF
     R = (B1 @ (sp.diags(w) @ B2)).tocsc()                 # nV × nF (sparse)
     return np.sqrt(np.asarray(R.multiply(R).sum(axis=0)).ravel())
 
@@ -422,7 +422,13 @@ class AnalysisPipeline:
             chi = rex.structural_character
             result["nhats"] = int(rex.nhats)
             if chi is not None and chi.ndim == 2:
-                result["chi_mean"] = chi.mean(axis=0).tolist()
+                # The per-cell reading is defined at zero cells and is the empty list.
+                # The MEAN is not: numpy returns NaN for the mean of an empty slice, and
+                # NaN serialises to a bare NaN token that strict JSON readers reject, so a
+                # complex with no relations would have poisoned the whole payload rather
+                # than omitting one key. Same shape of guard as kappa_greens_mean below.
+                if chi.shape[0]:
+                    result["chi_mean"] = chi.mean(axis=0).tolist()
                 result["chi_per_edge"] = chi.tolist()
         except Exception:
             pass
@@ -511,7 +517,9 @@ class AnalysisPipeline:
             try:
                 phi = rex.vertex_character
                 if phi is not None and phi.ndim == 2:
-                    result["phi_mean"] = phi.mean(axis=0).tolist()
+                    # Undefined at zero vertices for the same reason as chi_mean above.
+                    if phi.shape[0]:
+                        result["phi_mean"] = phi.mean(axis=0).tolist()
                     result["phi_per_vertex"] = phi.tolist()
                 kg = coherence_greens(rex, budget)                   # Green's κ
                 if kg is not None and kg.size:
@@ -643,27 +651,44 @@ class AnalysisPipeline:
 
                     nh = int(rex.nhats)
                     if nh >= 3:
-                        # hat_k[e,e] = structural_character[e,k] * RL[e,e]  (O(nnz))
-                        chi = (np.asarray(rex.structural_character)
-                               * np.asarray(rex._rl4_sparse.diagonal())[:, None])
-                        T_ch, G_ch, F_ch = chi[:, 0], chi[:, 1], chi[:, 2]
+                        # The frustration and coparticipation reading is rexgraph's, not
+                        # this stage's. mesh_health.harmonic_health is the same
+                        # computation promoted to a reusable call, and it resolves the
+                        # two channels BY NAME. This stage previously read them
+                        # positionally as chi[:,0] and chi[:,1], which are L1_down and
+                        # L_O, that is topology and geometry rather than frustration and
+                        # coparticipation. Those two share a diagonal, because the
+                        # diagonal squares each incidence entry and squaring kills the
+                        # sign, so chi[:,0] == chi[:,1] exactly and health_ratio was
+                        # identically 1.0 on every complex. A channel is selected by
+                        # name here for that reason and never by index.
+                        from rexgraph.mesh_health import harmonic_health
 
-                        frustration = np.abs(harm_signal) * T_ch
-                        coparticipation = np.abs(harm_signal) * G_ch
-                        result["frustration_per_edge"] = frustration.tolist()
-                        result["coparticipation_per_edge"] = coparticipation.tolist()
-                        fsum = float(np.sum(frustration))
-                        csum = float(np.sum(coparticipation))
-                        result["frustration_total"] = round(fsum, 6)
-                        result["coparticipation_total"] = round(csum, 6)
-                        result["health_ratio"] = (round(fsum / csum, 6)
-                                                  if csum > 1e-10 else None)
+                        health = harmonic_health(rex, flow)
+                        if health.get("frustration_per_edge") is not None:
+                            result["frustration_per_edge"] = (
+                                np.asarray(health["frustration_per_edge"]).tolist())
+                            result["coparticipation_per_edge"] = (
+                                np.asarray(health["coparticipation_per_edge"]).tolist())
+                            result["frustration_total"] = health["frustration_total"]
+                            result["coparticipation_total"] = health["coparticipation_total"]
+                            result["health_ratio"] = health["health_ratio"]
 
-                        denom = T_ch + F_ch
-                        sigma = np.where(denom > 1e-10,
-                                         (T_ch - F_ch) / np.where(denom > 1e-10, denom, 1.0),
-                                         0.0)
-                        result["sigma_asymmetry_per_edge"] = sigma.tolist()
+                        # sigma is the topology/frustration asymmetry, so its two
+                        # channels are L1_down and L_SG. They are resolved by name for
+                        # the same reason, even though their positions happen to be 0
+                        # and 2 today.
+                        names = list(getattr(rex, "hat_names", None) or ())
+                        if "L1_down" in names and "L_SG" in names:
+                            chi = (np.asarray(rex.structural_character)
+                                   * np.asarray(rex._rl4_sparse.diagonal())[:, None])
+                            T_ch = chi[:, names.index("L1_down")]
+                            F_ch = chi[:, names.index("L_SG")]
+                            denom = T_ch + F_ch
+                            sigma = np.where(denom > 1e-10,
+                                             (T_ch - F_ch) / np.where(denom > 1e-10, denom, 1.0),
+                                             0.0)
+                            result["sigma_asymmetry_per_edge"] = sigma.tolist()
 
                     # Harmonic mode summary (top edges per fundamental mode)
                     Hc = H.tocsc()
@@ -976,7 +1001,7 @@ class AnalysisPipeline:
             # boundary signature (parallel edges collapse). O(nE) via hashing the
             # SPARSE B1 columns, not the dense O(nE²) pairwise `congruence_classes`.
             from rexgraph.core._sparse import to_scipy_csr
-            B1c = to_scipy_csr(rex._B1_dual).tocsc()
+            B1c = to_scipy_csr(rex.B1_sparse).tocsc()
             ip, idx, dat = B1c.indptr, B1c.indices, B1c.data
             sigs = {tuple(sorted((int(idx[k]), float(dat[k]))
                                  for k in range(ip[e], ip[e + 1])))

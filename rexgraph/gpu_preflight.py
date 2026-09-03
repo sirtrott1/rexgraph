@@ -25,6 +25,7 @@ import time
 from typing import Any
 
 import numpy as np
+from rexgraph.compute import sparse_mm
 
 
 def _probe_torch() -> dict[str, Any]:
@@ -92,12 +93,14 @@ def _check_sparse_mm(n):
     import torch
     A, B = _sparse_spd(n)
     dev = torch.device("cuda")
-    At = torch.sparse_csr_tensor(
+    from rexgraph.compute import sparse_csr_tensor
+
+    At = sparse_csr_tensor(
         torch.as_tensor(A.indptr, dtype=torch.int64),
         torch.as_tensor(A.indices, dtype=torch.int64),
         torch.as_tensor(A.data, dtype=torch.float64), size=A.shape, device=dev)
     Bt = torch.as_tensor(B, dtype=torch.float64, device=dev)
-    got = torch.sparse.mm(At, Bt).cpu().numpy()
+    got = sparse_mm(At, Bt).cpu().numpy()
     err = float(np.abs(got - (A @ B)).max())
     return {"max_abs_err": err, "matches_cpu": err < 1e-8}
 

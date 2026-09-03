@@ -31,12 +31,15 @@ def populated():
     """Function-scoped on purpose: the full GET walk touches routes that change
     corpus state, so a shared corpus makes the later checks depend on walk order."""
     from agent.server.app import app
-    c = TestClient(app)
-    for name, body in DOCS:
-        c.post("/api/v1/corpus/add",
-               files=[("file", (name, io.BytesIO(body), "text/plain"))])
-    c.post("/api/v1/corpus/build", json={"depth": "standard"})
-    return c, app
+    # Context-managed and yielded: constructing TestClient without entering it skips the
+    # app's lifespan, so the shutdown hook that disposes the SQL bridge engines never
+    # runs and this fixture's pool outlives the test.
+    with TestClient(app) as c:
+        for name, body in DOCS:
+            c.post("/api/v1/corpus/add",
+                   files=[("file", (name, io.BytesIO(body), "text/plain"))])
+        c.post("/api/v1/corpus/build", json={"depth": "standard"})
+        yield c, app
 
 
 def test_every_get_route_can_serialize_its_answer(populated):
