@@ -7,6 +7,7 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
 from rexgraph import (
+    Chain,
     Cochain,
     Field,
     GradedState,
@@ -47,6 +48,17 @@ def test_cochain_keeps_grade_basis_and_source():
     assert cochain.source == "fixture"
     assert np.array_equal(cochain.numpy(copy=True), values)
     assert cochain.with_values(values + 1).cell_keys == cochain.cell_keys
+
+
+def test_chain_keeps_the_same_basis_identity_without_becoming_a_cochain():
+    values = np.arange(6, dtype=float).reshape(3, 2)
+    chain = Chain(1, values, cell_keys=("a", "b", "c"), source="fixture")
+    assert chain.grade == 1
+    assert chain.n_cells == 3
+    assert chain.cell_keys == ("a", "b", "c")
+    assert np.array_equal(chain.numpy(copy=True), values)
+    assert isinstance(chain.with_values(values + 1), Chain)
+    assert not isinstance(chain, Cochain)
 
 
 @pytest.mark.parametrize(
@@ -100,6 +112,23 @@ def test_boundary_and_coboundary_preserve_grade_and_chain():
     assert np.array_equal(d0.as_scipy().toarray(), b1.as_scipy().T.toarray())
     with pytest.raises(ValueError, match="first axis"):
         b1.apply(np.zeros(rex.nE + 1))
+
+
+def test_top_coboundary_is_the_rectangular_zero_upper_sector():
+    """The final cochain grade has no upper cells, so its coboundary is zero.
+
+    This is deliberately rectangular: it maps the carried top cochain space into
+    the empty next grade, without pretending the complex contains another cell
+    grade.  RCQL relies on this for a total typed ``COBOUNDARY`` signature.
+    """
+    rex = _filled_triangle()
+    top = coboundary_operator(rex, 2)
+    assert (top.domain_grade, top.codomain_grade) == (2, 3)
+    assert top.shape == (0, rex.nF)
+    assert top.arithmetic == "structural"
+    assert top.as_scipy().nnz == 0
+    assert top.apply(np.ones(rex.nF)).shape == (0,)
+    assert top.apply(np.ones((rex.nF, 2))).shape == (0, 2)
 
 
 def test_boundary_operators_reach_grade_three():

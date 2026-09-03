@@ -96,11 +96,13 @@ def to_temporal_state(trex) -> TemporalState:
     checkpoints = [int(value) for value in trex._index_cp_times.tolist()]
     checkpoint_optional: dict[str, dict[str, bool]] = {}
     for time in checkpoints:
-        _, bp, bi, weights, signs, b2_ptr, b2_rows, b2_values = trex._index_checkpoints[time]
+        _, bp, bi, weights, signs, b2_ptr, b2_rows, b2_values, *identity = trex._index_checkpoints[time]
+        relation_ids = identity[0] if identity else None
         _put(tensors, f"checkpoint/{time}/boundary_ptr", bp)
         _put(tensors, f"checkpoint/{time}/boundary_idx", bi)
         _put(tensors, f"checkpoint/{time}/w_E", weights)
         _put(tensors, f"checkpoint/{time}/signs", signs)
+        _put(tensors, f"checkpoint/{time}/relation_ids", relation_ids)
         has_faces = b2_ptr is not None and len(b2_ptr) > 1
         if has_faces:
             _put(tensors, f"checkpoint/{time}/B2_col_ptr", b2_ptr)
@@ -109,6 +111,7 @@ def to_temporal_state(trex) -> TemporalState:
         checkpoint_optional[str(time)] = {
             "w_E": weights is not None,
             "signs": signs is not None,
+            "relation_ids": relation_ids is not None,
             "faces": bool(has_faces),
         }
 
@@ -125,6 +128,11 @@ def to_temporal_state(trex) -> TemporalState:
             "mod_wE",
             "mod_signs",
             "mod_heads",
+            "born_ids",
+            "died_ids",
+            "mod_ids",
+            "mod_cols",
+            "mod_offsets",
         ):
             _put(tensors, f"delta/{time}/{name}", getattr(delta, name))
 
@@ -337,6 +345,7 @@ def from_temporal_state(
             tensors.get(prefix + "B2_col_ptr"),
             tensors.get(prefix + "B2_row_idx"),
             tensors.get(prefix + "B2_vals"),
+            tensors.get(prefix + "relation_ids"),
         )
 
     edge_deltas = [None] * total
@@ -351,11 +360,15 @@ def from_temporal_state(
         "mod_wE",
         "mod_signs",
     )
+    identity_edge_names = ("born_ids", "died_ids", "mod_ids", "mod_cols", "mod_offsets")
     face_names = ("born_edge_keys", "born_offsets", "born_signs", "died_face_keys")
     for time in range(total):
         prefix = f"delta/{time}/"
         if prefix + "born_offsets" in tensors:
             _required(tensors, tuple(prefix + name for name in edge_names))
+            present_identity_names = [prefix + name for name in identity_edge_names if prefix + name in tensors]
+            if present_identity_names:
+                _required(tensors, tuple(prefix + name for name in identity_edge_names))
             edge_deltas[time] = TemporalDelta(
                 born_cols=tensors[prefix + "born_cols"],
                 born_offsets=tensors[prefix + "born_offsets"],
@@ -366,6 +379,11 @@ def from_temporal_state(
                 mod_wE=tensors[prefix + "mod_wE"],
                 mod_signs=tensors[prefix + "mod_signs"],
                 mod_heads=tensors.get(prefix + "mod_heads"),
+                born_ids=tensors.get(prefix + "born_ids"),
+                died_ids=tensors.get(prefix + "died_ids"),
+                mod_ids=tensors.get(prefix + "mod_ids"),
+                mod_cols=tensors.get(prefix + "mod_cols"),
+                mod_offsets=tensors.get(prefix + "mod_offsets"),
                 directed=directed,
             )
         prefix = f"face_delta/{time}/"

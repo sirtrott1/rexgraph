@@ -37,12 +37,18 @@ def _put(store, rid, labels=None, **kw):
 def store(request, tmp_path):
     kind = request.param
     if kind == "memory":
-        return rcdb.MemoryStore()
-    if kind == "file":
-        return rcdb.FileStore(str(tmp_path / "fs"))
-    if kind == "sql":
-        return rcdb.SQLStore(f"sqlite:///{tmp_path / 'rc.sqlite'}")
-    return rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+        st = rcdb.MemoryStore()
+    elif kind == "file":
+        st = rcdb.FileStore(str(tmp_path / "fs"))
+    elif kind == "sql":
+        st = rcdb.SQLStore(f"sqlite:///{tmp_path / 'rc.sqlite'}")
+    else:
+        st = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    # yield, not return: a SQL store holds a connection pool that stays open until the
+    # collector reaches it unless the owner closes it. Every branch goes through one
+    # yield so the teardown cannot be skipped by the backend that happens to be chosen.
+    yield st
+    st.close()
 
 
 # identity and round-trip
@@ -177,7 +183,10 @@ def test_a_persistent_store_survives_being_reopened(store, tmp_path):
         rcdb.open_store(store.uri) if hasattr(store, "uri") else None
     if reopened is None:
         reopened = rcdb.SQLStore(store.conn_str)
-    assert (reopened.get("a")._agent_meta or {})["vertex_labels"] == ["kept"] * 6
+    try:
+        assert (reopened.get("a")._agent_meta or {})["vertex_labels"] == ["kept"] * 6
+    finally:
+        reopened.close()          # the second store is owned here, not by the fixture
 
 
 def test_stats_report_something_sane(store):

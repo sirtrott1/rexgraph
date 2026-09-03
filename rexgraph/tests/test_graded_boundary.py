@@ -16,6 +16,7 @@ import scipy.sparse as sp
 import rexgraph.graded_boundary as gb
 from rexgraph.graph import RexGraph
 
+
 #### -
 # build_graded_boundaries: arity, signs, d^2 = 0
 #### -
@@ -34,12 +35,12 @@ def test_mixed_arity_edges_positional_signs():
     arities = np.diff(B1.tocsc().indptr)
     assert list(arities) == [1, 2, 3]
     B1d = B1.toarray()
-    # Witness: single +... no, positional first entry is -1.
-    assert B1d[0, 0] == -1.0
+    # Witness is the canonical +1 boundary.
+    assert B1d[0, 0] == 1.0
     # Pairwise: source -1, target +1.
     assert B1d[0, 1] == -1.0 and B1d[1, 1] == 1.0
-    # Branching: first -1, rest +1.
-    assert B1d[1, 2] == -1.0 and B1d[2, 2] == 1.0 and B1d[3, 2] == 1.0
+    # Branching: distinguished -1 and canonical equal shares.
+    assert B1d[1, 2] == -1.0 and B1d[2, 2] == 0.5 and B1d[3, 2] == 0.5
 
 
 def test_explicit_signed_cells():
@@ -52,6 +53,32 @@ def test_explicit_signed_cells():
     B1 = B[0].toarray()
     expected = np.array([[-1, 0, -1], [1, -1, 0], [0, 1, 1]], dtype=float)
     assert np.array_equal(B1, expected)
+
+
+def test_branching_c2_is_derived_from_canonical_c1_not_pairwise_signs():
+    """The direct graded builder and RexGraph import the same exact C1/C2 tower."""
+    cells = [
+        3,
+        [[0, 1, 2], [0, 1], [0, 2]],
+        [[0, 1, 2]],
+    ]
+    B1, B2 = gb.build_graded_boundaries(cells)
+
+    assert np.array_equal(B2.toarray()[:, 0], [2.0, -1.0, -1.0])
+    assert gb.verify_chain([B1, B2]) == (True, 0.0)
+    assert np.allclose((B1 @ B2).toarray(), 0.0)
+    assert gb.betti_numbers([B1, B2]) == [1, 0, 0]
+
+
+def test_branching_c2_accepts_exact_rational_syntax_and_normalizes_to_integer():
+    cells = [
+        3,
+        [[0, 1, 2], [0, 1], [0, 2]],
+        [[(0, "1/2"), (1, "-1/4"), (2, "-1/4")]],
+    ]
+    _B1, B2 = gb.build_graded_boundaries(cells)
+
+    assert np.array_equal(B2.toarray()[:, 0], [2.0, -1.0, -1.0])
 
 
 def test_mixed_ngon_faces_chain_condition():

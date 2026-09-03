@@ -45,7 +45,10 @@ def revised(request, tmp_path):
     t_mid = time.time()
     time.sleep(0.02)
     _put(st, "doc", NEW)
-    return st, t_mid
+    # yield, not return: a SQL store holds a connection pool that stays open
+    # until the collector reaches it unless the owner closes it.
+    yield st, t_mid
+    st.close()
 
 
 def test_the_fixture_really_replaced_the_vocabulary(revised):
@@ -108,13 +111,16 @@ def test_valid_at_is_honoured_by_the_collection_accessors(tmp_path):
     """tx time is when we recorded it; valid time is when it was true. They are
     different questions and both have to reach list/query."""
     st = rcdb.SQLStore(f"sqlite:///{tmp_path / 'rc.sqlite'}")
-    c = CorpusBuilder()
-    c.add_text(OLD, doc_id="doc")
-    c.build(depth="quick")
-    c.persist(st, valid_from=100.0)
+    try:
+        c = CorpusBuilder()
+        c.add_text(OLD, doc_id="doc")
+        c.build(depth="quick")
+        c.persist(st, valid_from=100.0)
 
-    assert [r.id for r in st.list(limit=10, valid_at=150.0)] == ["doc"]
-    assert st.list(limit=10, valid_at=50.0) == []
-    assert {r.id for r in st.query(labels_any=["frustration"], limit=10,
-                                   valid_at=150.0)} == {"doc"}
-    assert st.query(labels_any=["frustration"], limit=10, valid_at=50.0) == []
+        assert [r.id for r in st.list(limit=10, valid_at=150.0)] == ["doc"]
+        assert st.list(limit=10, valid_at=50.0) == []
+        assert {r.id for r in st.query(labels_any=["frustration"], limit=10,
+                                       valid_at=150.0)} == {"doc"}
+        assert st.query(labels_any=["frustration"], limit=10, valid_at=50.0) == []
+    finally:
+        st.close()

@@ -19,6 +19,16 @@ def source(name: str) -> Parameter:
     return Parameter(str(name))
 
 
+def at(source_expr, version: int) -> Call:
+    """Bind a TemporalRex source to one exact snapshot version."""
+    return call("AT", source_expr, version)
+
+
+def at_time(source_expr, when: float) -> Call:
+    """Bind a TemporalRex source to the state declared at one clock time."""
+    return call("AT_TIME", source_expr, when)
+
+
 def call(name: str, *args) -> Call:
     """Build one operator call."""
     return Call(str(name).upper(), tuple(expr(arg) for arg in args))

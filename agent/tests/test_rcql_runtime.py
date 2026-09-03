@@ -31,7 +31,7 @@ pytest.importorskip("rcql.parser")
 
 def _rex():
     from rexgraph.graph import RexGraph
-    return RexGraph.from_hypergraph([0, 2, 4], [0, 1, 1, 2, 2, 0])
+    return RexGraph.from_hypergraph([0, 2, 4], [0, 1, 1, 2])
 
 
 @pytest.fixture

@@ -35,7 +35,7 @@ __all__ = ["from_groups", "group_sections", "from_text", "precedence_field",
 
 
 def from_groups(groups, *, min_pair_count=1, owner_vertex=False,
-                pair_mode="clique", verify=True):
+                pair_mode="none", verify=True):
     """The mixed construction over `groups`, an iterable of member-id iterables.
 
     Members are any hashable labels; they are mapped to vertices in first-seen order and
@@ -126,12 +126,11 @@ def from_groups(groups, *, min_pair_count=1, owner_vertex=False,
     info = {"sections": sections, "vertex_of": vertex_of, "pair_index": pair_index,
             "n_wide": len(wide), "n_pairs": len(pairs), "members": members}
 
-    if verify:
-        # the whole point of carrying both grades is that a cycle space exists. A group
-        # of arity >= 3 whose pairs survived MUST close, so an empty cycle space here
-        # means the construction collapsed and every downstream reading would be zero.
-        # check whenever a group could close, NOT only when pairs survived: the
-        # collapse being guarded against is precisely the case where they did not.
+    if verify and pair_mode != "none":
+        # An explicitly requested pairwise section is expected to carry the
+        # corresponding closure reading.  The primary-only mode is not a
+        # failed pairwise construction: its relations are the source facts and
+        # no generated contacts were promised.
         r1 = (int(rex.rank_tower()["ranks"][0])
               if any(len(g) >= 3 for g in gs) else None)
         if r1 is not None and int(rex.nE) - r1 <= 0:
@@ -211,7 +210,7 @@ def _orient(group, grammar):
 def from_text(text, *, sentences=None, stopwords=None, token_pattern=_TOKEN,
               sentence_pattern=_SENTENCE_SPLIT, lowercase=True, min_token_len=1,
               min_terms=3, max_terms=None, min_pair_count=1, document_vertex=True,
-              pair_mode="clique", grammar=None, verify=True):
+              pair_mode="none", grammar=None, verify=True):
     """The mixed construction over text: each sentence is a group over its words.
 
     Pass `text` (split by `sentence_pattern`) or `sentences` (already split).
@@ -220,8 +219,10 @@ def from_text(text, *, sentences=None, stopwords=None, token_pattern=_TOKEN,
     group and clique expansion asserts that every word in it touched every other. On one
     61 KB book, 136 sentences gave 17,408 relations under "clique" against 1,861 under
     "spanning" (9.4x), and betti_1 16,439 against 892. rank(B1) was 969 BOTH ways: the
-    extra 15,547 cycles are the expansion's own artifact, not the text's. "clique" stays
-    the default only because it is what the existing callers already got.
+    extra 15,547 cycles are the expansion's own artifact, not the text's. ``"none"`` is
+    therefore the default: a sentence is one declared C1 relation.  Ask for ``"clique"``
+    or ``"spanning"`` only when those pairwise contacts are independently asserted as a
+    derived analysis input.
 
     `stopwords` is None by default, meaning nothing is dropped. Drop function words for a
     topical reading; keep them for anything about order, because they carry most of it.
@@ -414,13 +415,14 @@ def spans_of(tokens, delimiters, *, with_gates=False):
     return (spans, gates) if with_gates else spans
 
 
-def from_spans(spans, *, min_pair_count=1, sentence_of=None, pair_mode="clique",
+def from_spans(spans, *, min_pair_count=1, sentence_of=None, pair_mode="none",
                verify=True):
     """Spans as relations over their tokens: the edge-primary reading of a token stream.
 
     `spans` is an iterable of token lists (see `spans_of`). Each becomes one relation
-    with its first token distinguished, and the pairwise contacts inside it are carried
-    too, so the span CLOSES against them exactly as a group does in `from_groups`.
+    with its first token distinguished.  Pairwise contacts are absent by default because
+    the span did not assert them; request a named ``pair_mode`` when a derived section is
+    wanted.
 
     `sentence_of` optionally maps span index -> sentence id. When given, `info` gains
     `sentence_sections` (sentence id -> the relation ids of its spans), which is the

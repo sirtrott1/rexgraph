@@ -1112,6 +1112,11 @@ def _write_temporal_bundle(
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Write a TemporalRex to a .rex directory."""
     manifest = _build_temporal_manifest(trex)
+    relation_id_snapshots = [
+        value is not None for value in getattr(trex, "_snapshot_relation_ids", ())
+    ]
+    if relation_id_snapshots:
+        manifest["relation_id_snapshots"] = relation_id_snapshots
 
     if encryption_properties is not None:
         manifest["face_snapshot_count"] = len(trex._face_snapshots)
@@ -1124,6 +1129,9 @@ def _write_temporal_bundle(
             else:
                 tensors[f"snapshots/{t}/sources"] = snap[0]
                 tensors[f"snapshots/{t}/targets"] = snap[1]
+            relation_ids = trex._snapshot_relation_ids[t]
+            if relation_ids is not None:
+                tensors[f"snapshots/{t}/relation_ids"] = relation_ids
         for t, face_snapshot in enumerate(trex._face_snapshots):
             tensors[f"face_snapshots/{t}/B2_col_ptr"] = face_snapshot[0]
             tensors[f"face_snapshots/{t}/B2_row_idx"] = face_snapshot[1]
@@ -1154,6 +1162,9 @@ def _write_temporal_bundle(
         else:
             _save_npy(tdir, "sources", snap[0])
             _save_npy(tdir, "targets", snap[1])
+        relation_ids = trex._snapshot_relation_ids[t]
+        if relation_ids is not None:
+            _save_npy(tdir, "relation_ids", relation_ids)
 
     if trex._face_snapshots:
         fdir = root / "face_snapshots"
@@ -1187,6 +1198,14 @@ def _read_temporal_rex(
 
     snap_dir = root / "snapshots"
     snapshots = []
+    relation_ids = []
+    raw_relation_ids = manifest.get("relation_id_snapshots", [False] * T)
+    if (
+        not isinstance(raw_relation_ids, list)
+        or len(raw_relation_ids) != T
+        or any(not isinstance(value, bool) for value in raw_relation_ids)
+    ):
+        raise ValueError("TemporalRex bundle relation_id_snapshots must be boolean per step")
     for t in range(T):
         tdir = snap_dir / str(t)
         if general:
@@ -1203,6 +1222,13 @@ def _read_temporal_rex(
                 tensor_reader(f"snapshots/{t}/targets")
                 if tensor_reader else _load_npy(tdir, "targets"),
             ))
+        if raw_relation_ids[t]:
+            relation_ids.append(
+                tensor_reader(f"snapshots/{t}/relation_ids")
+                if tensor_reader else _load_npy(tdir, "relation_ids")
+            )
+        else:
+            relation_ids.append(None)
 
     face_snapshots = []
     fdir = root / "face_snapshots"
@@ -1229,6 +1255,7 @@ def _read_temporal_rex(
     trex = TemporalRex(
         snapshots,
         face_snapshots=face_snapshots or None,
+        relation_ids=relation_ids,
         directed=directed,
         general=general,
     )

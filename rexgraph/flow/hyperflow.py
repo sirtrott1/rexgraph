@@ -352,4 +352,6 @@ def flow_adjacency(rex, *, alpha=1.0):
     S = (_sp.diags(dinv) @ (A + _sp.eye(n)) @ _sp.diags(dinv)).tocoo()
     idx = _torch.tensor(np.vstack([S.row, S.col]), dtype=_torch.long)
     val = _torch.tensor(S.data, dtype=_torch.float64)
-    return _torch.sparse_coo_tensor(idx, val, (n, n)).coalesce()
+    from rexgraph.compute import sparse_coo_tensor
+
+    return sparse_coo_tensor(idx, val, (n, n)).coalesce()

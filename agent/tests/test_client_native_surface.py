@@ -53,10 +53,14 @@ def _client(monkeypatch, *, signed: bool):
     rc = RexClient("http://testserver", frame_key=KEY if signed else None)
 
     import httpx
+    # See test_courier_remote: TestClient deprecates the timeout RexClient sets.
+    def _strip(kw):
+        return {k: v for k, v in kw.items() if k != "timeout"}
+
     monkeypatch.setattr(httpx, "post", lambda url, **kw: transport.post(
-        url.replace("http://testserver", ""), **kw))
+        url.replace("http://testserver", ""), **_strip(kw)))
     monkeypatch.setattr(httpx, "get", lambda url, **kw: transport.get(
-        url.replace("http://testserver", ""), **kw))
+        url.replace("http://testserver", ""), **_strip(kw)))
     return rc
 
 

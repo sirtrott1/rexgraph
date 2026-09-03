@@ -11,6 +11,7 @@ log rather than a document rewritten on every put.
 """
 
 import time
+from contextlib import contextmanager
 
 import numpy as np
 import pytest
@@ -44,6 +45,26 @@ def _open(kind, tmp_path, tag=""):
     if kind == "sql":
         return rcdb.SQLStore(f"sqlite:///{tmp_path / f'rc{tag}.sqlite'}")
     return rcdb.open_store(f"rex://{tmp_path / f'rx{tag}'}")
+
+
+@contextmanager
+def _open_pair(src_kind, dst_kind, tmp_path):
+    """Open a source and a destination store and close both, however the test ends.
+
+    A SQL store holds a connection pool, and the migration tests open two at a time. A
+    comment saying the caller owns them closed nothing; this does, including when an
+    assertion fails partway through. The dict dedupes in case the two are ever the same
+    object, since close is idempotent but double-closing a shared handle is not a
+    property worth relying on.
+    """
+    src = _open(src_kind, tmp_path, "_a")
+    dst = _open(dst_kind, tmp_path, "_b")
+    try:
+        yield src, dst
+    finally:
+        for store in {id(src): src, id(dst): dst}.values():
+            store.close()
+
 
 
 # FileStore is no longer quadratic
@@ -119,45 +140,41 @@ def test_an_existing_filestore_still_opens(tmp_path):
 @pytest.mark.parametrize("src_kind", ALL)
 @pytest.mark.parametrize("dst_kind", ALL)
 def test_a_corpus_moves_between_any_two_backends(src_kind, dst_kind, tmp_path):
-    src = _open(src_kind, tmp_path, "_a")
-    dst = _open(dst_kind, tmp_path, "_b")
-    _put(src, "one", ["alpha", "beta", "gamma", "delta"])
-    _put(src, "two", ["epsilon", "zeta", "eta", "theta"])
+    with _open_pair(src_kind, dst_kind, tmp_path) as (src, dst):
+        _put(src, "one", ["alpha", "beta", "gamma", "delta"])
+        _put(src, "two", ["epsilon", "zeta", "eta", "theta"])
 
-    moved = rcdb.migrate(src, dst)
-    assert moved["records"] == 2
-    assert sorted(r.id for r in dst.list(limit=9)) == ["one", "two"]
-    assert (dst.get("one")._agent_meta or {})["vertex_labels"][0] == "alpha"
+        moved = rcdb.migrate(src, dst)
+        assert moved["records"] == 2
+        assert sorted(r.id for r in dst.list(limit=9)) == ["one", "two"]
+        assert (dst.get("one")._agent_meta or {})["vertex_labels"][0] == "alpha"
 
 
 def test_migration_carries_every_version_in_order(tmp_path):
-    src = _open("rex", tmp_path, "_a")
-    dst = _open("memory", tmp_path, "_b")
-    _put(src, "a", ["first", "x", "y", "z"])
-    _put(src, "a", ["second", "x", "y", "z"])
-    _put(src, "a", ["third", "x", "y", "z"])
+    with _open_pair("rex", "memory", tmp_path) as (src, dst):
+        _put(src, "a", ["first", "x", "y", "z"])
+        _put(src, "a", ["second", "x", "y", "z"])
+        _put(src, "a", ["third", "x", "y", "z"])
 
-    rcdb.migrate(src, dst)
-    assert [r.version for r in dst.history("a")] == [1, 2, 3]
-    assert (dst.get_version("a", 1)._agent_meta or {})["vertex_labels"][0] == "first"
-    assert (dst.get("a")._agent_meta or {})["vertex_labels"][0] == "third"
+        rcdb.migrate(src, dst)
+        assert [r.version for r in dst.history("a")] == [1, 2, 3]
+        assert (dst.get_version("a", 1)._agent_meta or {})["vertex_labels"][0] == "first"
+        assert (dst.get("a")._agent_meta or {})["vertex_labels"][0] == "third"
 
 
 def test_migration_preserves_what_makes_a_record_queryable(tmp_path):
-    src = _open("rex", tmp_path, "_a")
-    dst = _open("sql", tmp_path, "_b")
-    _put(src, "a", ["frustration", "x", "y", "z"])
-    rcdb.migrate(src, dst)
-    assert {r.id for r in dst.query(labels_any=["frustration"], limit=5)} == {"a"}
+    with _open_pair("rex", "sql", tmp_path) as (src, dst):
+        _put(src, "a", ["frustration", "x", "y", "z"])
+        rcdb.migrate(src, dst)
+        assert {r.id for r in dst.query(labels_any=["frustration"], limit=5)} == {"a"}
 
 
 def test_migration_into_a_populated_store_adds_rather_than_replaces(tmp_path):
-    src = _open("rex", tmp_path, "_a")
-    dst = _open("rex", tmp_path, "_b")
-    _put(src, "from_src")
-    _put(dst, "already_here")
-    rcdb.migrate(src, dst)
-    assert sorted(r.id for r in dst.list(limit=9)) == ["already_here", "from_src"]
+    with _open_pair("rex", "rex", tmp_path) as (src, dst):
+        _put(src, "from_src")
+        _put(dst, "already_here")
+        rcdb.migrate(src, dst)
+        assert sorted(r.id for r in dst.list(limit=9)) == ["already_here", "from_src"]
 
 
 # choosing a backend

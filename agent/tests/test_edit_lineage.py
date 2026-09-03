@@ -91,7 +91,7 @@ def test_a_branching_relation_survives_the_round_trip(lineage):
     _record(lineage, _edits())
     _step, rex = wr.state_at(lineage, 1002.0)
     rex._ensure_clean()
-    assert sorted(np.diff(np.asarray(rex._boundary_ptr)).tolist()) == [2, 2, 2, 3]
+    assert sorted(np.diff(np.asarray(rex.boundary_ptr)).tolist()) == [2, 2, 2, 3]
 
 
 def test_a_past_state_draws_like_any_other(lineage):

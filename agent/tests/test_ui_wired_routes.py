@@ -13,12 +13,13 @@ def client(tmp_path, monkeypatch):
     from agent.rcdb import reset_default_store
     reset_default_store()
     from agent.server.app import app
-    c = TestClient(app)
-    store = rr._store()
-    for i in range(2):
-        store.put(f"r{i}", RexGraph(sources=np.arange(3 + i, dtype=np.int32),
-                                    targets=np.arange(1, 4 + i, dtype=np.int32)))
-    return c
+    # entered and yielded, so the lifespan shutdown runs and releases the SQL engines
+    with TestClient(app) as c:
+        store = rr._store()
+        for i in range(2):
+            store.put(f"r{i}", RexGraph(sources=np.arange(3 + i, dtype=np.int32),
+                                        targets=np.arange(1, 4 + i, dtype=np.int32)))
+        yield c
 
 def test_models_status_shape(client):
     r = client.get("/api/v1/models/status")

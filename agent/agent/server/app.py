@@ -41,7 +41,19 @@ async def _lifespan(_app: FastAPI):
         activity.get_log().enable_journal(warm=True, tail=True)
     except Exception:
         pass
-    yield
+    try:
+        yield
+    finally:
+        # get_engine caches one engine per connection string for the life of the
+        # process, which is what makes it correct to call per operation. Nothing
+        # released those pools at shutdown, so a server that had served several
+        # workspaces went down still holding a pool for each. Best effort: a failure
+        # here must not turn a clean shutdown into an error.
+        try:
+            from rexgraph.io.sql_bridge import dispose_engines
+            dispose_engines()
+        except Exception:
+            pass
 
 
 class FiniteJSONResponse(_StarletteJSONResponse):

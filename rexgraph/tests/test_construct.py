@@ -1,11 +1,4 @@
-"""Groups alone are a forest of stars; the mixed construction is what makes them readable.
-
-The failure this guards against is silent: hand `from_hypergraph` a set of groups and it
-builds a perfectly valid complex in which every reading above the existence layer is zero,
-because no two relations share a cycle. These pin that the construction closes, that the
-sections it hands back are the ones the readings consume, and that the degenerate case is
-still reachable so the difference is demonstrable rather than asserted.
-"""
+"""Primary group ingestion and explicitly requested pairwise sections."""
 from __future__ import annotations
 
 import numpy as np
@@ -23,20 +16,22 @@ def _bare(groups):
     return RexGraph.from_hypergraph(np.asarray(ptr, np.int64), np.asarray(idx, np.int64))
 
 
-def test_groups_alone_carry_no_cycle_and_the_mixed_construction_does():
-    """The whole reason this module exists, as a measurement rather than a claim."""
+def test_groups_are_primary_relations_until_a_pairwise_section_is_requested():
+    """Default ingestion carries each declared group once, without manufacturing pairs."""
     groups = [[0, 1, 2], [1, 2, 3], [2, 3, 4]]
-    bare = _bare(groups)
-    rb = int(bare.rank_tower()["ranks"][0])
-    assert int(bare.nE) - rb == 0, "groups alone are a forest of stars"
+    rex, info = from_groups(groups)
+    assert rex.nE == len(groups)
+    assert info["n_wide"] == len(groups) and info["n_pairs"] == 0
+    assert [list(s) for s in rex.relation_supports()] == groups
 
-    rex, _info = from_groups([["a", "b", "c"], ["b", "c", "d"], ["c", "d", "e"]])
-    r1 = int(rex.rank_tower()["ranks"][0])
-    assert int(rex.nE) - r1 > 0, "carrying both grades opens a cycle space"
+    derived, info_derived = from_groups(groups, pair_mode="clique")
+    assert info_derived["n_pairs"] > 0
+    assert derived.nE > rex.nE
 
 
-def test_the_sections_are_the_group_plus_its_own_pairs():
-    rex, info = from_groups([["a", "b", "c"], ["b", "c", "d"]])
+def test_the_sections_are_the_group_plus_its_own_explicit_pairs():
+    rex, info = from_groups([["a", "b", "c"], ["b", "c", "d"]],
+                            pair_mode="clique")
     secs = info["sections"]
     assert set(secs) == {0, 1}
     # each section holds its own wide relation
@@ -58,7 +53,8 @@ def test_the_sections_feed_the_readings_directly():
     closure identity to a cover, which it did until this construction exercised it.
     """
     from rexgraph.partition import section_readings
-    rex, info = from_groups([["a", "b", "c"], ["b", "c", "d"], ["c", "d", "e"]])
+    rex, info = from_groups([["a", "b", "c"], ["b", "c", "d"], ["c", "d", "e"]],
+                            pair_mode="clique")
     out = section_readings(rex, {f"g{k}": v for k, v in info["sections"].items()},
                            verify=True)
     assert len(out) == 3
@@ -81,10 +77,11 @@ def test_min_pair_count_drops_pairs_and_says_so_when_nothing_closes():
     # every pair is seen once, so a threshold of 2 removes all of them and the
     # construction collapses back to the forest of stars it exists to avoid
     with pytest.raises(ValueError, match="closed no cycle"):
-        from_groups([["a", "b", "c"], ["d", "e", "f"]], min_pair_count=2)
+        from_groups([["a", "b", "c"], ["d", "e", "f"]], min_pair_count=2,
+                    pair_mode="clique")
     # the same call with verify off still builds, so a caller who means it can proceed
     rex, info = from_groups([["a", "b", "c"], ["d", "e", "f"]], min_pair_count=2,
-                            verify=False)
+                            pair_mode="clique", verify=False)
     assert info["n_pairs"] == 0
 
 
@@ -92,7 +89,7 @@ def test_a_repeated_pair_survives_a_threshold():
     # the two groups share a,b,c so those three pairs are each seen twice and survive;
     # the pairs reaching d and e are seen once and do not
     rex, info = from_groups([["a", "b", "c", "d"], ["a", "b", "c", "e"]],
-                            min_pair_count=2)
+                            min_pair_count=2, pair_mode="clique")
     vof = info["vertex_of"]
     kept = set(info["pair_index"])
     assert (min(vof["a"], vof["b"]), max(vof["a"], vof["b"])) in kept
@@ -131,7 +128,7 @@ def test_the_construction_closes_under_auto_hyperface():
     """The point of carrying the pairs is that the group can then BOUND something."""
     from rexgraph.faces import auto_hyperface
     rex, _info = from_groups([["a", "b", "c", "d"], ["b", "c", "d", "e"],
-                              ["c", "d", "e", "f"]])
+                              ["c", "d", "e", "f"]], pair_mode="clique")
     n = auto_hyperface(rex)
     assert n > 0, "a group whose pairs span its boundary must close"
     assert len(rex.graded_boundaries()) >= 2
@@ -151,8 +148,8 @@ def test_from_text_makes_each_sentence_a_group_over_its_words():
     rex, info = from_text(None, sentences=_SENTS, min_terms=3, min_pair_count=1)
     assert info["n_sentences"] == len(_SENTS)
     assert "cat" in info["vertex_of"] and "the" in info["vertex_of"]
-    r1 = int(rex.rank_tower()["ranks"][0])
-    assert int(rex.nE) - r1 > 0, "the mixed construction must open a cycle space"
+    assert rex.nE == len(_SENTS)
+    assert info["n_pairs"] == 0
     # a sentence is a THING: it gets its own vertex, distinguished
     spans = [list(map(int, s)) for s in rex.relation_supports()]
     assert spans[0][0] == 0, "sentence 0 owns vertex 0, at position 0"
@@ -179,7 +176,7 @@ def test_sequences_keep_the_order_the_group_threw_away():
 def test_precedence_is_signed_against_the_pair_orientation():
     from rexgraph.construct import from_text, precedence_field
     rex, info = from_text(None, sentences=["alpha beta gamma"] * 3,
-                          min_terms=3, min_pair_count=1)
+                          min_terms=3, min_pair_count=1, pair_mode="clique")
     f = precedence_field(info)
     assert f.shape == (int(rex.nE),)
     assert np.abs(f).sum() > 0
@@ -189,7 +186,8 @@ def test_precedence_is_signed_against_the_pair_orientation():
 
 def test_adjacent_only_counts_fewer_pairs_than_all_pairs():
     from rexgraph.construct import from_text, precedence_field
-    _rex, info = from_text(None, sentences=_SENTS, min_terms=3, min_pair_count=1)
+    _rex, info = from_text(None, sentences=_SENTS, min_terms=3, min_pair_count=1,
+                           pair_mode="clique")
     a = precedence_field(info, adjacent_only=True)
     b = precedence_field(info, adjacent_only=False)
     assert int((a != 0).sum()) < int((b != 0).sum())
@@ -212,7 +210,8 @@ def test_reducing_after_shuffling_inverts_the_control():
     from rexgraph.construct import first_occurrences, from_text, precedence_field
     rng = np.random.default_rng(3)
     sents = [" ".join(rng.choice(list("abcdefgh"), 9)) for _ in range(120)]
-    rex, info = from_text(None, sentences=sents, min_terms=3, min_pair_count=1)
+    rex, info = from_text(None, sentences=sents, min_terms=3, min_pair_count=1,
+                          pair_mode="clique")
     red = first_occurrences(info["sequences"])
 
     def grad(seqs):
@@ -332,7 +331,7 @@ def test_spans_feed_the_readings_like_any_other_section():
     from rexgraph.construct import from_spans, spans_of
     from rexgraph.partition import section_readings
     toks = ["the", "cat", "sat", "on", "the", "mat", "and", "a", "dog", "ran", "to", "the", "park"]
-    rex, info = from_spans(spans_of(toks, _D), min_pair_count=1)
+    rex, info = from_spans(spans_of(toks, _D), min_pair_count=1, pair_mode="clique")
     out = section_readings(rex, {f"s{k}": v for k, v in info["sections"].items()},
                            verify=True)
     assert len(out) == len(info["spans"])
@@ -347,7 +346,7 @@ def test_mixed_rank_is_exact_when_it_answers():
     for groups in ([["a", "b", "c"], ["b", "c", "d"]],
                    [["a", "b", "c"], ["d", "e", "f"]],
                    [sorted(rng.choice(40, 5, replace=False).tolist()) for _ in range(30)]):
-        rex, info = from_groups(groups, verify=False)
+        rex, info = from_groups(groups, pair_mode="clique", verify=False)
         fast = mixed_rank(rex, info)
         assert fast is not None
         assert fast == _sparse_rank(rex._integer_B1().tocsc())
@@ -360,14 +359,15 @@ def test_mixed_rank_refuses_a_fragmented_group():
     from rexgraph.construct import from_groups, mixed_rank
     rng = np.random.default_rng(1)
     groups = [sorted(rng.choice(50, 5, replace=False).tolist()) for _ in range(40)]
-    rex, info = from_groups(groups, min_pair_count=2, verify=False)
+    rex, info = from_groups(groups, min_pair_count=2, pair_mode="clique", verify=False)
     assert mixed_rank(rex, info) is None, "a fragmented group must refuse, not guess"
 
 
 def test_mixed_rank_refuses_a_complex_it_does_not_describe():
     from rexgraph.construct import from_groups, mixed_rank
-    rex, info = from_groups([["a", "b", "c"], ["b", "c", "d"]])
-    other, _ = from_groups([["x", "y", "z"], ["y", "z", "w"], ["z", "w", "v"]])
+    rex, info = from_groups([["a", "b", "c"], ["b", "c", "d"]], pair_mode="clique")
+    other, _ = from_groups([["x", "y", "z"], ["y", "z", "w"], ["z", "w", "v"]],
+                           pair_mode="clique")
     bad = dict(info); bad["n_wide"] = 99
     assert mixed_rank(other, bad) is None
 

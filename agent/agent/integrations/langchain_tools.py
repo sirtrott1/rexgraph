@@ -7,7 +7,7 @@ and epsilon tower. Not a probability estimate, a theorem.
 
 Usage:
 
-    from rexgraph.integrations.langchain_tools import (
+    from agent.integrations.langchain_tools import (
         RexConfidenceTool,
         RexAnalyzeTool,
         RexHodgeTool,
@@ -18,7 +18,7 @@ Usage:
     tools = [RexConfidenceTool(rex), RexAnalyzeTool(rex)]
     agent = create_tool_calling_agent(llm, tools, prompt)
 
-Requirements: pip install rexgraph[langchain]
+Requirements: pip install rexgraph-agent[langchain]
 """
 
 from __future__ import annotations
@@ -31,24 +31,29 @@ from agent.metrics import coherence_kappa
 
 try:
     from langchain_core.tools import BaseTool
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, ConfigDict, Field
     _HAS_LANGCHAIN = True
 except ImportError:
     _HAS_LANGCHAIN = False
-    # Stub so the module can be imported for inspection
+    # Stub so the module can be imported for inspection. ConfigDict belongs here as much
+    # as Field does: the class bodies below evaluate model_config at import time, so a
+    # name that only exists when pydantic does turns "importable for inspection" into a
+    # NameError on every class in the module.
     class BaseTool:
         pass
     class BaseModel:
         pass
     def Field(*a, **kw):
         return None
+    def ConfigDict(**kw):
+        return dict(kw)
 
 
 def _require_langchain():
     if not _HAS_LANGCHAIN:
         raise ImportError(
             "LangChain integration requires langchain-core.\n"
-            "Install with: pip install rexgraph[langchain]"
+            "Install with: pip install rexgraph-agent[langchain]"
         )
 
 
@@ -108,8 +113,7 @@ class RexConfidenceTool(BaseTool):
 
     rex: Any = None  # RexGraph instance
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __init__(self, rex, **kwargs):
         _require_langchain()
@@ -182,8 +186,9 @@ class RexConfidenceTool(BaseTool):
         # Coherence
         try:
             kappa = coherence_kappa(rex)
-            result["kappa_mean"] = round(float(kappa.mean()), 4)
-            result["kappa_min"] = round(float(kappa.min()), 4)
+            if kappa is not None and kappa.size:
+                result["kappa_mean"] = round(float(kappa.mean()), 4)
+                result["kappa_min"] = round(float(kappa.min()), 4)
         except Exception:
             pass
 
@@ -201,11 +206,18 @@ class RexConfidenceTool(BaseTool):
         # Confidence flag
         va = result.get("void_affinity")
         km = result.get("kappa_mean")
+        # A high void affinity is on its own enough to say LOW. Every other rung of this
+        # ladder reads the coherence, so without it there is no rank to give. MODERATE
+        # used to be the catch-all, which meant a complex with no coherence reading was
+        # told it had "some structural support": kappa_mean was NaN, every comparison
+        # against NaN was False, and the fall-through answered anyway.
         if va is not None and va > 0.5:
             result["confidence"] = "LOW - high void affinity, structural gaps present"
-        elif km is not None and km < 0.3:
+        elif km is None:
+            result["confidence"] = "UNAVAILABLE - no coherence reading for this complex"
+        elif km < 0.3:
             result["confidence"] = "LOW - low coherence, edge and vertex structure disagree"
-        elif va is not None and va < 0.2 and km is not None and km > 0.7:
+        elif va is not None and va < 0.2 and km > 0.7:
             result["confidence"] = "HIGH - strong structural support"
         else:
             result["confidence"] = "MODERATE - some structural support"
@@ -242,8 +254,7 @@ class RexAnalyzeTool(BaseTool):
 
     rex: Any = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __init__(self, rex, **kwargs):
         _require_langchain()
@@ -262,15 +273,19 @@ class RexAnalyzeTool(BaseTool):
         if aspect in ("summary", "channels"):
             try:
                 chi = rex.structural_character
-                means = chi.mean(axis=0)
-                names = ["T(Hodge)", "G(Overlap)", "F(Frustration)", "C(Copath)"]
-                for i in range(min(len(means), 4)):
-                    lines.append(f"{names[i]}: {means[i]:.3f}")
+                if chi.shape[0] > 0:
+                    means = chi.mean(axis=0)
+                    names = ["T(Hodge)", "G(Overlap)", "F(Frustration)", "C(Copath)"]
+                    for i in range(min(len(means), 4)):
+                        lines.append(f"{names[i]}: {means[i]:.3f}")
             except Exception:
                 pass
             try:
                 kappa = coherence_kappa(rex)
-                lines.append(f"Coherence κ: {kappa.mean():.4f} (range {kappa.min():.3f}-{kappa.max():.3f})")
+                if kappa is not None and kappa.size:
+                    lines.append(
+                        f"Coherence κ: {kappa.mean():.4f} "
+                        f"(range {kappa.min():.3f}-{kappa.max():.3f})")
             except Exception:
                 pass
 
@@ -325,8 +340,7 @@ class RexHodgeTool(BaseTool):
 
     rex: Any = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __init__(self, rex, **kwargs):
         _require_langchain()
@@ -374,8 +388,7 @@ class RexExplainTool(BaseTool):
 
     rex: Any = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __init__(self, rex, **kwargs):
         _require_langchain()

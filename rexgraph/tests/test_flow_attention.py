@@ -50,7 +50,7 @@ def test_fit_learns_the_compatibility():
     rex, y, f, submode = _submode_task()
     rng = np.random.RandomState(0); is_m = rng.rand(len(y)) < 0.2; obs = ~is_m
     m = CoParticipationAttention(inside_dim=f.shape[1])
-    m.fit_self_supervised(rex, f, np.where(obs, y, 0.0), mask_frac=0.2, seed=2)
+    m.fit_self_supervised(rex, f, np.where(obs, y, 0.0), obs_mask=obs, mask_frac=0.2, seed=2)
     pred = m.predict(rex, f, y, obs)
     assert _r2(pred, y, is_m) >= 0.80          # the fit (self-supervised) recovers most of the attention gain
 
@@ -114,7 +114,7 @@ def test_attention_path_is_matrix_free(monkeypatch):
     ptr, idx = coparticipation_neighbors(rex)
     coparticipation_attention(ptr, idx, f, y, obs, gamma=1.0)
     m = CoParticipationAttention(inside_dim=f.shape[1])
-    m.fit_self_supervised(rex, f, y, mask_frac=0.2, seed=0)
+    m.fit_self_supervised(rex, f, y, obs_mask=obs, mask_frac=0.2, seed=0)
     m.predict(rex, f, y, obs)
     assert calls == [], f"attention path used a dense/eigensolver: {calls}"
 

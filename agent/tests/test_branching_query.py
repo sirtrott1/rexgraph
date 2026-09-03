@@ -54,7 +54,7 @@ def test_a_branching_column_is_zero_sum_at_its_own_arity():
 
     from rexgraph.core._sparse import to_scipy_csr
     ec = TextAdapter().build(_TEXT, relation_mode="branching")
-    B = to_scipy_csr(build_rex_from_edges(ec)._B1_dual).tocsc()
+    B = to_scipy_csr(build_rex_from_edges(ec).B1_sparse).tocsc()
     assert np.allclose(np.asarray(B.sum(axis=0)).ravel(), 0.0)
     for c in range(B.shape[1]):
         col = B.data[B.indptr[c]:B.indptr[c + 1]]

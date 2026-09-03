@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._faces: Face classification, extraction, metrics, and selection.
+rexgraph.core._faces: pairwise-derived face display and selection helpers.
 
 Classifies faces into proper (2+ unique boundary vertices) and
 self-loop (1 vertex), filters B_2 to produce B2_hodge for exact
@@ -32,6 +32,12 @@ Metrics computed:
 
 Vertex deduplication within faces uses a generation counter
 (last_seen[v] = generation) to avoid per-face allocation.
+
+The selection/extraction routines take endpoint arrays and triangle assumptions.
+They are compatibility operations on an explicit pairwise section.  Exact
+arbitrary-arity face solving, orientation and chain verification are in
+``rexgraph.faces`` and must remain the authority for a primary relational
+complex.
 """
 
 from __future__ import annotations

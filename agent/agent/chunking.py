@@ -23,16 +23,27 @@ from agent.metrics import coherence_kappa
 
 def _chunk_vertices(rex, edge_indices, nV: int) -> list[int]:
     """The vertices a chunk's relations touch, read off each relation's boundary
-    column so a k-ary relation contributes all k, not its first two."""
-    out: set[int] = set()
-    try:
-        B1 = rex.B1.tocsc()
-        for e in edge_indices:
-            e = int(e)
-            if 0 <= e < B1.shape[1]:
-                out.update(int(v) for v in B1.indices[B1.indptr[e]:B1.indptr[e + 1]])
-    except Exception:
+    column so a k-ary relation contributes all k, not its first two.
+
+    Read from the stored support directly. This previously called `rex.B1.tocsc()`, but
+    B1 is the DENSE oracle and carries no `tocsc`, so every call raised AttributeError
+    into the bare except below and returned an empty list. The k-ary reading this
+    docstring describes had therefore never run, and the empty result made every chunk's
+    coherence the mean of nothing, which is NaN.
+
+    boundary_ptr and boundary_idx ARE the column structure, so there is nothing to convert
+    and no arity assumption to make.
+    """
+    ptr, idx = rex.boundary_ptr, rex.boundary_idx
+    if ptr is None or idx is None:
         return []
+    ptr = np.asarray(ptr, dtype=np.int64)
+    idx = np.asarray(idx, dtype=np.int64)
+    out: set[int] = set()
+    for e in edge_indices:
+        e = int(e)
+        if 0 <= e < ptr.size - 1:
+            out.update(int(v) for v in idx[ptr[e]:ptr[e + 1]])
     return sorted(v for v in out if 0 <= v < nV)
 
 
@@ -273,11 +284,11 @@ def _compute_chunk_properties(chunks, rex):
             kappa = coherence_kappa(rex)
             if kappa is not None:
                 verts = _chunk_vertices(rex, chunk.edge_indices, len(kappa))
-                local_kappa = np.mean([
-                    kappa[v] for v in verts
-                    if v < len(kappa)
-                ])
-                chunk.kappa = float(local_kappa)
+                local = [kappa[v] for v in verts if v < len(kappa)]
+                # A chunk carrying no relation touches no vertex, and the mean of nothing
+                # is NaN, which is not a coherence and is not valid JSON on the way out.
+                # The absence is reported as absence.
+                chunk.kappa = float(np.mean(local)) if local else None
         except Exception:
             pass
 

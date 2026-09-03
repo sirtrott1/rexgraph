@@ -46,7 +46,7 @@ def shape_of(rex) -> dict:
     and `nE` alone does not distinguish them.
     """
     rex._ensure_clean()
-    bp = rex._boundary_ptr
+    bp = rex.boundary_ptr
     widths = ([2] * int(rex.nE) if bp is None
               else [int(w) for w in np.diff(np.asarray(bp))])
     hist = Counter(widths)

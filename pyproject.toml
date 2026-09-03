@@ -25,7 +25,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.1.3"
+version = "1.1.4"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
@@ -152,7 +152,16 @@ Issues = "https://github.com/sirtrott1/rexgraph/issues"
 # Testing
 [tool.pytest.ini_options]
 testpaths = ["rexgraph/tests"]
-addopts = ["-v", "--tb=short", "-W", "ignore::pytest.PytestCollectionWarning"]
+addopts = ["-v", "--tb=short"]
+# One entry, and it names exactly one third-party message. torch/utils/mkldnn.py defines
+# MkldnnLinear and friends as torch.jit.ScriptModule with @torch.jit.script_method, which
+# torch itself has deprecated; the module is imported lazily when we move a tensor to a
+# device, so the 14 warnings are 14 of torch's own decorations and no call of ours can
+# avoid them. Narrow on purpose: a blanket DeprecationWarning ignore would also hide the
+# duckdb, scipy and datetime deprecations that were real and got fixed.
+filterwarnings = [
+    "ignore:`torch.jit.script_method` is deprecated:DeprecationWarning",
+]
 markers = [
     "slow: marks tests as slow (run with --runslow)",
     "cuda: marks tests requiring CUDA (run with --cuda)",

@@ -15,7 +15,7 @@ behavior that the agent itself can't see.
 
 Usage:
 
-    from rexgraph.integrations.langgraph_rex import RexStateGraph
+    from agent.integrations.langgraph_rex import RexStateGraph
 
     rsg = RexStateGraph()
 
@@ -37,7 +37,7 @@ Usage:
     path_hodge = rsg.decompose_path(["start", "retrieve", "reason", "retrieve", "reason", "answer"])
     # -> gradient: 60% (making progress), curl: 35% (retrieve<->reason loop), harmonic: 5%
 
-Requirements: pip install rexgraph[langgraph]
+Requirements: pip install rexgraph-agent[langgraph]
 """
 
 from __future__ import annotations
@@ -276,11 +276,27 @@ class RexStateGraph:
         }
 
         if betti[1] > 0:
-            # The harmonic component identifies cycle edges
+            # Which edges carry the independent cycles is structural, so it is read from
+            # the harmonic basis rather than from the harmonic part of some chosen flow.
+            #
+            # This previously projected the all-ones flow and kept edges where
+            # |harm| > 1e-6. That answers a different question, the harmonic content of
+            # that one flow, and it fails outright whenever the chosen flow happens to be
+            # orthogonal to the harmonic space. A plain 4-cycle with two edges reversed is
+            # enough: beta_1 is 1, the all-ones harmonic part is 2.22e-16, and the
+            # threshold returns no edges at all while the method still reports
+            # has_cycles True. The magnitude is also frame dependent, so no threshold on
+            # it is the structural answer.
+            #
+            # harmonic_basis spans ker(B1) cap ker(B2^T), which is exactly what beta_1
+            # counts, so its support is the edge set this method claims to return. The
+            # cycle basis would be wrong here: it spans ker(B1) alone, so a filled cycle
+            # would still appear even though it is no longer a hole.
             try:
-                flow = np.ones(rex.nE, dtype=np.float64)
-                _, _, harm = rex.hodge(flow)
-                cycle_edges = np.where(np.abs(harm) > 1e-6)[0]
+                from rexgraph.harmonic_sparse import harmonic_basis
+
+                H = harmonic_basis(rex).tocoo()
+                cycle_edges = np.unique(np.asarray(H.row, dtype=np.int64))
                 result["cycle_edge_indices"] = cycle_edges.tolist()
                 result["cycle_edge_labels"] = [
                     f"{self._state_order[self._transitions[e]['src' if e < len(self._transitions) else 0]]} -> ..."

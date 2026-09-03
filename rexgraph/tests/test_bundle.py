@@ -180,12 +180,12 @@ class TestManifest:
 
     def test_magic(self, k4, rex_path):
         save_rex(rex_path, k4)
-        mf = json.loads(open(os.path.join(rex_path, "MANIFEST.json")).read())
+        mf = json.loads(pathlib.Path(rex_path, "MANIFEST.json").read_text())
         assert mf["magic"] == "rex-bundle"
 
     def test_object_type(self, k4, rex_path):
         save_rex(rex_path, k4)
-        mf = json.loads(open(os.path.join(rex_path, "MANIFEST.json")).read())
+        mf = json.loads(pathlib.Path(rex_path, "MANIFEST.json").read_text())
         assert mf["object_type"] == "RexGraph"
         assert mf["nV"] == k4.nV
         assert mf["nE"] == k4.nE

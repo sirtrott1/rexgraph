@@ -31,12 +31,13 @@ The four channels (matching the dense builders exactly):
 from __future__ import annotations
 
 import numpy as np
+from rexgraph.compute import sparse_mm
 
 _f64 = np.float64
 
 
 def _b1_csr(rex):
-    """B1 (nV x nE, -1 source / +1 target) as scipy CSR."""
+    """Primary C1 boundary as scipy CSR, at its declared arity."""
     from rexgraph.core._sparse import to_scipy_csr
     return to_scipy_csr(rex._B1_dual).tocsr()
 
@@ -52,9 +53,6 @@ def build_sparse_channels(rex):
     from rexgraph.core._laplacians import build_L1_down_sparse
 
     _nV, nE = int(rex.nV), int(rex.nE)
-    src, tgt = rex._ensure_src_tgt()
-    src = np.asarray(src, dtype=np.int64)
-    tgt = np.asarray(tgt, dtype=np.int64)
 
     channels = []
 
@@ -692,8 +690,6 @@ def _compute_sparse_phi_gpu(rex, cheap, chunk, device=None):
     Jacobi preconditioner stay on-device; each vertex tile's block-CG solve, hat
     applications, and the numerator/denominator reductions all run on the GPU, and
     only the (csize x nhats) phi block comes back. Identical to the CPU path."""
-    import warnings
-
     import torch
 
     from rexgraph import scale_propagator as _spg
@@ -708,12 +704,12 @@ def _compute_sparse_phi_gpu(rex, cheap, chunk, device=None):
 
     def _to_gpu(A):
         A = A.tocsr()
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return torch.sparse_csr_tensor(
-                torch.as_tensor(A.indptr, dtype=torch.int64),
-                torch.as_tensor(A.indices, dtype=torch.int64),
-                torch.as_tensor(A.data, dtype=torch.float64), size=A.shape, device=dev)
+        from rexgraph.compute import sparse_csr_tensor
+
+        return sparse_csr_tensor(
+            torch.as_tensor(A.indptr, dtype=torch.int64),
+            torch.as_tensor(A.indices, dtype=torch.int64),
+            torch.as_tensor(A.data, dtype=torch.float64), size=A.shape, device=dev)
 
     RLt = _to_gpu(cheap['RL'])
     hats_t = [_to_gpu(h) for h in cheap['hats']]
@@ -730,7 +726,7 @@ def _compute_sparse_phi_gpu(rex, cheap, chunk, device=None):
         ok = torch.abs(s0) > 1e-15
         denom = torch.where(ok, s0, torch.ones_like(s0))
         for k in range(nhats):
-            num = (Xc * torch.sparse.mm(hats_t[k], Xc)).sum(0)
+            num = (Xc * sparse_mm(hats_t[k], Xc)).sum(0)
             vals = torch.where(ok, num / denom, torch.full_like(num, uniform))
             phi[start:stop, k] = vals.cpu().numpy()
     kappa = 1.0 - 0.5 * np.abs(phi - cheap['chi_star']).sum(axis=1)

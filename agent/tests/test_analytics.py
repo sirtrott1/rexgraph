@@ -42,7 +42,9 @@ def store(request, tmp_path):
         st.put(f"r{k:02d}", _rex(labels, 3 + k),
                meta={"doc_id": f"r{k:02d}", "vertex_labels": labels,
                      "source": "even" if k % 2 == 0 else "odd"})
-    return st
+    # yield, not return: a SQL store's pool stays open until the owner closes it
+    yield st
+    st.close()
 
 
 def test_a_view_projects_every_backend(store):

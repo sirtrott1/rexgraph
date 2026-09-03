@@ -980,14 +980,14 @@ class TrustGraphAdapter(DomainAdapter):
         result = {"entities": entity_indices}
 
         # Activate edges incident to the target entities. Use the SPARSE incidence
-        # (rex._B1_dual -> CSR, nV×nE) - a per-vertex row slice touches only that
+        # (rex.B1_sparse -> CSR, nV×nE) - a per-vertex row slice touches only that
         # vertex's incident edges (O(deg)), never materializing the dense nV×nE B1.
         signal = np.zeros(rex.nE, dtype=np.float64)
         B1 = None
-        if getattr(rex, "_B1_dual", None) is not None:
+        if getattr(rex, "B1_sparse", None) is not None:
             try:
                 from rexgraph.core._sparse import to_scipy_csr
-                B1 = to_scipy_csr(rex._B1_dual).tocsr()
+                B1 = to_scipy_csr(rex.B1_sparse).tocsr()
             except Exception:
                 B1 = None
         if B1 is not None:
@@ -2040,13 +2040,21 @@ class TrustGraphAdapter(DomainAdapter):
                 "recommendation": "No matching entities found in the graph.",
             }
 
-        # Per-entity local metrics
+        # Per-entity local metrics.
+        #
+        # The relations a participant belongs to are its star, which the complex answers
+        # directly. star_of_vertex returns (vertex_mask, edge_mask, face_mask), and the
+        # mask form is also the shape the compiled predicate family in core._query
+        # consumes, so taking it here keeps the door open to composing these selections
+        # rather than rebuilding them.
+        #
+        # This previously materialised the dense B1 and scanned every column per entity,
+        # which costs nV*nE to recover incidence the complex already holds, and reads a
+        # signed boundary purely for whether an entry is nonzero.
         per_entity = {}
-        B1 = rex.B1_dense
         for name, idx in zip(found, indices, strict=False):
-            incident_edges = [
-                e for e in range(rex.nE) if B1[idx, e] != 0
-            ]
+            _, edge_mask, _ = rex.star_of_vertex(int(idx))
+            incident_edges = np.flatnonzero(np.asarray(edge_mask)).tolist()
             n_connections = len(incident_edges)
 
             # Local harmonic fraction on incident edges

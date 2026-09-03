@@ -7,6 +7,7 @@ sentence's bytes and every proof and citation built on it would be confidently w
 """
 from __future__ import annotations
 
+import pathlib
 import re
 
 import pytest
@@ -233,7 +234,7 @@ def test_seeking_a_path_matches_slicing_the_text_on_multibyte_input(unicode_doc)
 
 def test_byte_spans_address_the_encoded_file_not_the_decoded_string(unicode_doc):
     (rex, _info), path = unicode_doc
-    raw_bytes = open(path, "rb").read()
+    raw_bytes = pathlib.Path(path).read_bytes()
     s = sectionings_of(rex)["sentence"]
     for a, n in s.spans:
         chunk = raw_bytes[int(a):int(a) + int(n)]

@@ -30,7 +30,7 @@ def optimize_expr(expr: Expr) -> tuple[Expr, list[Rewrite]]:
             inner_grade = inner.args[0]
             if (isinstance(outer_grade, Literal) and isinstance(inner_grade, Literal)
                     and int(inner_grade.value) == int(outer_grade.value) + 1):
-                after = Call("ZERO", (Literal(int(outer_grade.value) - 1),))
+                after = Call("ZERO", (Literal(int(outer_grade.value) - 1), Literal("chain")))
                 rewrites.append(Rewrite(current, after, "consecutive boundaries compose to zero"))
                 return after, rewrites
     return current, rewrites

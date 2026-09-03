@@ -192,6 +192,11 @@ def cycle_basis(rex):
     endpoint reduction unsound. See `_validated_cycle_basis`."""
     from rexgraph.core._sparse import to_scipy_csr
     nE = int(rex.nE)
+    # A primary relation at any other arity has no endpoint representation.
+    # Its kernel is the exact rational nullspace of its declared boundary, not
+    # a traversal over a chosen two-participant projection.
+    if not rex._is_standard_only:
+        return _rational_nullspace(rex, nE)
     src, tgt = rex._ensure_src_tgt()
     B1 = to_scipy_csr(rex._B1_dual).tocsr().astype(_f64)
     return _validated_cycle_basis(B1, nE, src, tgt, rex=rex)

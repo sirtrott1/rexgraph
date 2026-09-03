@@ -19,6 +19,33 @@ demand for the low-level dense kernels, and it is the exact reference the sparse
 path is tested against. The `rexgraph.compute` layer then dispatches across CPU,
 GPU, or multiple GPUs.
 
+## Reproducible biomedical demo
+
+`rexgraph.biomedical_demo` turns the local BindingDB and Complex Portal exports
+into an auditable mTOR case study. The source join is the shared UniProt accession
+`P42345`: measured compound--protein Kd records remain BindingDB assertions;
+protein-complex membership, disease annotations, and Reactome references remain
+Complex Portal assertions. The report names that boundary explicitly: a composed
+compound → protein → complex → disease path is contextual provenance, not a claim
+of clinical efficacy or causality.
+
+The core builder writes two complementary complexes. The primary one preserves a
+protein complex as a k-ary relation. The second is an affinity-panel 2-complex whose
+faces are only the reported adaptive affinity-band derivation; it is the object on
+which the Hodge signal reading is run. It has no database or application dependency.
+An upper-layer runner supplies optional RCDB persistence and Agent SVG-rendering
+callbacks, preserving the package dependency direction.
+
+After installing the Agent and RCDB distributions, run that upper-layer example
+from a source checkout:
+
+```bash
+python agent/examples/biomedical_demo_runner.py --data-root /path/to/data --output /path/to/fresh-output
+```
+
+Use a fresh output directory for every source snapshot. The generated artifacts
+carry the source checksums and derivation rule together.
+
 ---
 
 ## `graph.py`: RexGraph and TemporalRex

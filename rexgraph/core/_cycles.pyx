@@ -1,9 +1,9 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._cycles: Deterministic fundamental cycle basis.
+rexgraph.core._cycles: deterministic pairwise-derived cycle routines.
 
-Computes a fundamental cycle basis for the 1-skeleton of a rex via
+Computes a fundamental cycle basis for an explicit 1-skeleton via
 tree-cotree decomposition, yielding the face set and data needed to
 build B_2.
 
@@ -20,6 +20,10 @@ Output format matches build_B2_from_cycles in _boundary.pyx:
     cycle_edges   - concatenated edge indices
     cycle_signs   - orientation signs (+/-1.0)
     cycle_lengths - boundary length of each face
+
+Primary branching C1 relations have no endpoint representation.  Their exact
+cycle kernel is decided in ``faces.cycle_basis`` / ``harmonic_sparse`` from the
+declared boundary, without this traversal.
 """
 
 from __future__ import annotations

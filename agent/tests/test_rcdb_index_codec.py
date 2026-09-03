@@ -198,7 +198,7 @@ def test_boundary_operator_is_built_from_the_stored_arrays_not_rebuilt():
             for i in range(6)]
     index = ix.build([(r.id, r) for r in recs])
     B = ix.boundary_operator(index)
-    ref = to_scipy_csr(ix.complex_of(index)._B1_dual).tocsc()
+    ref = to_scipy_csr(ix.complex_of(index).B1_sparse).tocsc()
     assert B.shape == ref.shape
     d = (B - ref)
     assert d.nnz == 0 or float(abs(d).max()) < 1e-12, "must be the same operator"

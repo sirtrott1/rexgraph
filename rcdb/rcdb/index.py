@@ -212,7 +212,18 @@ def build(records) -> dict:
     for i, r in enumerate(recs):
         for kcode, terms in _terms_of(r):
             rel_idx.append(i)                        # distinguished: the record
-            rel_idx.extend(n + _term(t) for t in terms)
+            # One participation per vertex. Two terms of a record can carry the same
+            # string and both resolve to the one vocabulary vertex, so extending per term
+            # emitted a column naming that participant twice. Support is a set of
+            # participants and multiplicity is not incidence, so the codes are deduped
+            # here, in first-seen order, before they reach rel_idx. `_term` still runs for
+            # every term, so the vocabulary is registered exactly as before.
+            seen = set()
+            for t in terms:
+                code = n + _term(t)
+                if code not in seen:
+                    seen.add(code)
+                    rel_idx.append(code)
             rel_ptr.append(len(rel_idx))
             rel_kind.append(kcode)
 
@@ -619,16 +630,75 @@ def read(path, *, verify: bool = True) -> dict:
                       if k.startswith("extra/")}}
 
 
+REPAIR_HINT = ("This index predates the one participation per vertex contract. Call "
+               "rcdb.index.repair(index) for a repaired copy and an audit report, then "
+               "write that copy explicitly. Nothing is modified here, and read() still "
+               "loads the index exactly as stored.")
+
+
+def repair(index: dict) -> tuple[dict, dict]:
+    """A repaired COPY of an index whose relations name a participant more than once.
+
+    Indexes written before build deduped incidence can carry a column that names one
+    vocabulary vertex twice, which is not a boundary. This removes the repeats and
+    nothing else: the vocabulary, the record set, the relation COUNT and every measure
+    are untouched, and each relation keeps its participants in first seen order because
+    the head is positional.
+
+    Returns the copy and a report, rather than repairing in place, so a caller decides
+    whether to write it. Derived caches are dropped from the copy since the complex they
+    were computed against no longer applies.
+    """
+    ptr = np.asarray(index["rel_ptr"], dtype=np.int64)
+    idx = np.asarray(index["rel_idx"], dtype=np.int64)
+
+    kept: list[int] = []
+    new_ptr = [0]
+    repaired: list[int] = []
+    removed = 0
+    for e in range(ptr.size - 1):
+        support = idx[ptr[e]:ptr[e + 1]].tolist()
+        seen: set[int] = set()
+        unique = []
+        for participant in support:
+            if participant not in seen:
+                seen.add(participant)
+                unique.append(participant)
+        if len(unique) != len(support):
+            repaired.append(e)
+            removed += len(support) - len(unique)
+        kept.extend(unique)
+        new_ptr.append(len(kept))
+
+    out = {k: v for k, v in index.items() if not k.startswith("_")}
+    out["rel_ptr"] = np.asarray(new_ptr, np.int64)
+    out["rel_idx"] = _fit(kept, max(int(index.get("nV", 1)), 1))
+    report = {"relations_repaired": len(repaired),
+              "participants_removed": int(removed),
+              "relations": tuple(repaired)}
+    return out, report
+
+
 def complex_of(index: dict):
     """The index AS a RexGraph, from the CSR it already stores.
 
     No conversion: `rel_ptr` and `rel_idx` are `from_hypergraph`'s own arguments, so
     every reading in the library is one call from a stored index. Records are vertices
     [0, n) and vocabulary terms are [n, n + n_terms).
+
+    A stored index predating the incidence contract fails here rather than at read,
+    because read's job is to return what is on disk. The refusal names the repair path
+    instead of deduping quietly, which would reintroduce the silent collapse that let
+    the malformed column be written in the first place.
     """
     from rexgraph.graph import RexGraph
-    return RexGraph.from_hypergraph(np.asarray(index["rel_ptr"], np.int64),
-                                    np.asarray(index["rel_idx"], np.int64))
+    try:
+        return RexGraph.from_hypergraph(np.asarray(index["rel_ptr"], np.int64),
+                                        np.asarray(index["rel_idx"], np.int64))
+    except ValueError as exc:
+        if "repeats a C0 participant" not in str(exc):
+            raise
+        raise ValueError(f"{exc}. {REPAIR_HINT}") from exc
 
 
 def _term_codes(index: dict) -> dict:
@@ -652,7 +722,7 @@ def boundary_operator(index: dict):
         data[rel_ptr[e]+1:...]  = 1/(k-1)       its terms, sharing
 
    , which is a vectorised fill, not a build. Going through `complex_of` and
-    `to_scipy_csr(rex._B1_dual)` reconstructs a whole RexGraph to arrive at the same
+    `to_scipy_csr(rex.B1_sparse)` reconstructs a whole RexGraph to arrive at the same
     matrix and measured 40 s on the 61,353-record store, paid by the first query of every
     process. This is about a second, and nothing is cached that a restart has to earn
     back.

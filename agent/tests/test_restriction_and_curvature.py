@@ -34,7 +34,7 @@ def rex():
 def _closed(rex, v_mask, e_mask) -> bool:
     """Every relation kept has its entire boundary kept: the closure property."""
     rex._ensure_clean()
-    bp, bi = np.asarray(rex._boundary_ptr), np.asarray(rex._boundary_idx)
+    bp, bi = np.asarray(rex.boundary_ptr), np.asarray(rex.boundary_idx)
     v = np.asarray(v_mask).astype(bool)
     for e in np.flatnonzero(np.asarray(e_mask).astype(bool)):
         if not v[bi[bp[e]:bp[e + 1]]].all():

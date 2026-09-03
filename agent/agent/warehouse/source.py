@@ -142,7 +142,7 @@ def _diffused(rex, flow, t_scales):
     from rexgraph.core._sparse import to_scipy_csr
 
     import rexgraph.scale_propagator as spg
-    B1 = to_scipy_csr(rex._B1_dual).astype(np.float64)
+    B1 = to_scipy_csr(rex.B1_sparse).astype(np.float64)
     L1 = (B1.T @ B1).tocsr()
     f = np.asarray(flow, dtype=np.float64).reshape(-1, 1)
     cols, names = [], []

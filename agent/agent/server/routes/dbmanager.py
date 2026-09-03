@@ -77,10 +77,22 @@ async def test_connection(body: dict = Body(...)):
     try:
         if kind == "mongo":
             from pymongo import MongoClient
-            MongoClient(uri, serverSelectionTimeoutMS=4000).server_info()
+            client = MongoClient(uri, serverSelectionTimeoutMS=4000)
+            try:
+                client.server_info()
+            finally:
+                client.close()
         else:
             from sqlalchemy import create_engine
-            create_engine(uri).connect().close()
+            # dispose, not just close: closing the checked-out connection returns it to
+            # the pool, and the pool is what holds the socket. A probe route is called
+            # repeatedly from the UI, so leaving one behind per probe adds up.
+            engine = create_engine(uri)
+            try:
+                with engine.connect():
+                    pass
+            finally:
+                engine.dispose()
         return {"ok": True, "uri": _mask(uri)}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200], "uri": _mask(uri)}

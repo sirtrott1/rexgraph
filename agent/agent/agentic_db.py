@@ -156,6 +156,25 @@ class AgenticDB:
             sql += f" JOIN {tbl} ON {ft}.{fc} = {tt}.{tc}"
         return sql + f" LIMIT {int(limit)}"
 
+
+    def close(self) -> None:
+        """Release the engine's connection pool.
+
+        _execute closes each checked-out connection, which returns it to the pool; the
+        pool itself is what holds the sockets, and nothing disposed it. Idempotent, so a
+        caller and a context manager exit can both call it.
+        """
+        engine = getattr(self, "_engine", None)
+        if engine is not None:
+            engine.dispose()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
     def _execute(self, sql: str):
         from sqlalchemy import text
         with self._engine.connect() as conn:

@@ -97,13 +97,26 @@ def test_only_attach_faces_reaches_typed_face_selection():
     method directly is a second rule, free to drift from this one, which is how the
     platform ended up with a document rule, a query rule and a router rule that
     disagreed."""
-    import glob
+    import pathlib
     import re
+
+    # Anchored on this file, not on the working directory. The glob used to be the
+    # relative "agent/**/*.py", which matches 593 files from the repo root and NOTHING
+    # from anywhere else, so a run with any other cwd found no offenders and passed
+    # without having scanned a line. A guard that reports success by finding nothing to
+    # check is worse than no guard, so the scan asserts its own reach below.
+    root = pathlib.Path(__file__).resolve().parents[1] / "agent"
     offenders = []
-    for f in glob.glob("agent/**/*.py", recursive=True):
-        if "/tests/" in f or f.endswith("agent/auto.py"):
+    scanned = 0
+    for f in sorted(root.rglob("*.py")):
+        if "tests" in f.parts or f.name == "auto.py":
             continue                       # auto.py defines attach_faces
-        for i, line in enumerate(open(f).read().split("\n"), 1):
+        scanned += 1
+        # read_text closes the handle; the bare open() here leaked one per file and was
+        # 418 of the suite's ResourceWarnings on its own
+        for i, line in enumerate(f.read_text(encoding="utf-8").split("\n"), 1):
             if re.search(r"\.typed_face_selection\(", line):
-                offenders.append(f"{f}:{i}")
+                offenders.append(f"{f.relative_to(root.parent)}:{i}")
+
+    assert scanned > 100, f"the scan reached only {scanned} files, so it proved nothing"
     assert not offenders, "direct typed_face_selection calls: " + ", ".join(offenders)

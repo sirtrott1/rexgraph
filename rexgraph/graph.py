@@ -1,15 +1,19 @@
 """
 rexgraph.graph: Orchestration layer for relational complexes.
 
-A k-rex is a relational complex of top grade k: a finite sequence of signed
-integer boundary maps (B_1, ..., B_k) with entries in {-1, 0, +1}, satisfying
-the chain condition B_{d-1} B_d = 0. Edges are primitive and vertices are
-derived from edge boundaries via the vertex lifecycle contract: a vertex
-exists if and only if some edge contains it in its boundary.
+A k-rex is a relational complex of top grade k: a finite sequence of sparse
+boundary maps ``(B_1, ..., B_k)`` satisfying the chain condition
+``B_{d-1} B_d = 0``.  A primary C1 relation has the canonical boundary
+``(-1, 1/(k-1), ..., 1/(k-1))`` (or ``(+1)`` for a witness); its exact integer
+representative is ``(-(k-1), +1, ..., +1)``.  Higher-grade declared boundaries
+are signed integer maps.  Relations are primitive and vertices are derived
+from their boundaries via the vertex lifecycle contract: a vertex exists if
+and only if some relation contains it in its boundary.
 
-RexGraph lazily composes the Cython modules in rexgraph.core through
-@cached_property accessors. No Cython module imports another; all
-inter-module composition happens here.
+RexGraph lazily composes core kernels through @cached_property accessors.
+The target kernel topology is a one-way shared-ABI dependency graph; several
+legacy Cython modules still import one another dynamically and are quarantined
+behind pairwise or numerical-only public routes until they are migrated.
 
 Computation is organized into cached bundles that call the Cython
 builder functions in dependency order:
@@ -96,6 +100,138 @@ def _asarray(x, dtype=_i32):
     return np.ascontiguousarray(x, dtype=dtype)
 
 
+def _as_exact_i32_vector(values, *, context: str) -> NDArray:
+    """Read a structural carrier without silently changing its values.
+
+    Boundary supports and pointers are exact integer addresses.  In particular,
+    ``1.5`` is not vertex ``1`` and ``True`` is not vertex ``1``: coercing either
+    would construct a different relational complex than the caller declared.
+    """
+    raw = np.asarray(values)
+    if raw.ndim != 1:
+        raise ValueError(f"{context} must be a one-dimensional integral array")
+    # An empty Python list has NumPy's float default but carries no numerical value
+    # to reinterpret.  Preserve it as an empty structural vector so the caller gets
+    # the more useful boundary-shape error (or a valid empty complex) below.
+    if raw.size == 0:
+        return np.zeros(0, dtype=_i32)
+    if raw.dtype.kind not in "iu":
+        raise ValueError(f"{context} must be a one-dimensional integral array")
+    info = np.iinfo(_i32)
+    if raw.dtype.kind == "u":
+        if int(raw.max()) > info.max:
+            raise ValueError(f"{context} contains a value outside int32")
+    elif int(raw.min()) < info.min or int(raw.max()) > info.max:
+        raise ValueError(f"{context} contains a value outside int32")
+    return np.ascontiguousarray(raw, dtype=_i32)
+
+
+def _validate_c1_support(support: NDArray, *, context: str) -> NDArray:
+    """Validate one primary C1 carrier.
+
+    A relation needs at least one C0 participant.  Participants are distinct
+    except for the deliberate two-occurrence ``[v, v]`` self-loop: it is one
+    primary relation with zero C0 boundary, not an accidental duplicate or a
+    collapsed branching relation.
+    """
+    if support.size == 0:
+        raise ValueError(f"{context} has empty C1 boundary support")
+    if np.any(support < 0):
+        raise ValueError(f"{context} contains a negative C0 participant")
+    is_self_loop = support.size == 2 and int(support[0]) == int(support[1])
+    if not is_self_loop and np.unique(support).size != support.size:
+        raise ValueError(
+            f"{context} repeats a C0 participant; only an exact [v, v] self-loop "
+            "is a valid repeated C1 incidence"
+        )
+    return support
+
+
+def _validate_primary_boundary(boundary_ptr, boundary_idx) -> tuple[NDArray, NDArray]:
+    """Validate the sparse C1 boundary carrier before any int32 coercion."""
+    ptr = _as_exact_i32_vector(boundary_ptr, context="boundary_ptr")
+    idx = _as_exact_i32_vector(boundary_idx, context="boundary_idx")
+    if ptr.size == 0 or int(ptr[0]) != 0:
+        raise ValueError("boundary_ptr must start at zero and contain one terminal pointer")
+    if np.any(ptr < 0) or np.any(ptr[1:] < ptr[:-1]):
+        raise ValueError("boundary_ptr must be nonnegative and nondecreasing")
+    if int(ptr[-1]) != int(idx.size):
+        raise ValueError("boundary_ptr terminal value must equal boundary_idx length")
+    for relation in range(ptr.size - 1):
+        lo, hi = int(ptr[relation]), int(ptr[relation + 1])
+        _validate_c1_support(idx[lo:hi], context=f"C1 relation {relation}")
+    return ptr, idx
+
+
+def _validate_face_boundary(B2_col_ptr, B2_row_idx, B2_vals, *, n_edges: int):
+    """Validate a stored C2 sparse carrier without treating it as a closed import.
+
+    ``add_faces`` remains the explicitly permissive candidate-face API, but a
+    zero-length column is not a candidate boundary at all: it invents a C2 cell
+    with no relation support and corrupts counts before the chain filter can act.
+    """
+    ptr = _as_exact_i32_vector(B2_col_ptr, context="B2_col_ptr")
+    rows = _as_exact_i32_vector(B2_row_idx, context="B2_row_idx")
+    values = np.asarray(B2_vals)
+    if values.ndim != 1:
+        raise ValueError("B2_vals must be a one-dimensional coefficient array")
+    if ptr.size == 0 or int(ptr[0]) != 0:
+        raise ValueError("B2_col_ptr must start at zero and contain one terminal pointer")
+    if np.any(ptr < 0) or np.any(ptr[1:] < ptr[:-1]):
+        raise ValueError("B2_col_ptr must be nonnegative and nondecreasing")
+    if int(ptr[-1]) != int(rows.size) or rows.size != values.size:
+        raise ValueError("B2 sparse carrier lengths do not agree")
+    if np.any(rows < 0) or np.any(rows >= n_edges):
+        raise ValueError("B2_row_idx refers to a relation outside C1")
+    for face in range(ptr.size - 1):
+        lo, hi = int(ptr[face]), int(ptr[face + 1])
+        support = rows[lo:hi]
+        if support.size == 0:
+            raise ValueError("a grade-2 cell must have nonempty relation support")
+        if np.unique(support).size != support.size:
+            raise ValueError("a grade-2 cell cannot repeat a C1 relation in one boundary")
+    return ptr, rows, np.ascontiguousarray(values, dtype=_f64)
+
+
+def _validate_face_support(values, *, context: str, n_edges: int) -> NDArray:
+    """Validate the structural support of a permissively staged C2 candidate.
+
+    Candidate staging may defer the *chain* decision to the Hodge filter, but it
+    cannot defer whether it names real, distinct C1 cells.  That carrier is exact.
+    """
+    support = _as_exact_i32_vector(values, context=context)
+    if support.size == 0:
+        raise ValueError("a grade-2 cell must have nonempty relation support")
+    if np.any(support < 0) or np.any(support >= n_edges):
+        raise ValueError("a grade-2 cell refers to a relation outside C1")
+    if np.unique(support).size != support.size:
+        raise ValueError("a grade-2 cell cannot repeat a C1 relation in one boundary")
+    return support
+
+
+def _as_relation_ids(values, expected: int, *, context: str = "relation_ids") -> NDArray:
+    """Validate the exact int64 C1 identity carrier without coercing floats.
+
+    Relation identities are keys in a semantic temporal basis, not numerical
+    measurements.  Accepting ``1.5`` by truncating it would turn an input error into
+    a different relation lineage, so only integral dtypes are admitted.
+    """
+    raw = np.asarray(values)
+    if raw.ndim != 1 or not np.issubdtype(raw.dtype, np.integer):
+        raise ValueError(f"{context} must be a one-dimensional integral array")
+    if raw.dtype.kind == "u" and raw.size and int(raw.max()) > np.iinfo(np.int64).max:
+        raise ValueError(f"{context} contains an unsigned value outside int64")
+    ids = np.ascontiguousarray(raw, dtype=np.int64)
+    if ids.shape[0] != expected:
+        raise ValueError(
+            f"{context} must contain exactly one int64 identity per C1 relation "
+            f"(got {ids.shape[0]} for nE={expected})"
+        )
+    if np.unique(ids).shape[0] != ids.shape[0]:
+        raise ValueError(f"{context} must be unique within a RexGraph snapshot")
+    return ids
+
+
 def _serialize_hodge_dict(d: dict) -> dict:
     """Convert a Hodge result dict to JSON-safe types.
 
@@ -167,13 +303,13 @@ Remap = namedtuple("Remap", "edge_map vertex_map face_map")
 # cached_property names on RexGraph. A mutation names only the tiers it
 # actually disturbs, so unrelated caches survive instead of being blown away.
 _TIER_B1_ONLY = frozenset({
-    "_B1_dual", "B1", "_v2e", "_vertex_info", "degree", "in_degree", "out_degree",
+    "_B1_dual", "B1_sparse", "B1", "_v2e", "_vertex_info", "degree", "in_degree", "out_degree",
     "edge_types", "has_branching", "_is_standard_only", "_adjacency_bundle",
     "_overlap_bundle", "L_overlap", "overlap_gramian", "L0", "L0_sparse",
     "L1", "L1_sparse", "_sources", "_targets",
 })
 _TIER_B2_ONLY = frozenset({
-    "_B2_dual", "_B2_hodge_dual", "B2", "B2_hodge", "nF_hodge",
+    "_B2_dual", "B2_sparse", "_B2_hodge_dual", "B2_hodge_sparse", "B2", "B2_hodge", "nF_hodge",
     "self_loop_face_indices", "chain_valid", "_chain_col_maxabs",
     "L2", "L2_sparse",
 })
@@ -234,16 +370,25 @@ class _LazyL0Spectrum(dict):
 
     _LAZY = ('fiedler_val_L0', 'fiedler_vec_L0', 'evals_L0', 'evecs_L0')
 
-    def __init__(self, base, B1_dual, nV, nE):
+    def __init__(self, base, B1_dual, nV, nE, *, pairwise_c1=True):
         super().__init__(base)
         self._B1_dual = B1_dual
         self._nV = int(nV)
         self._nE = int(nE)
+        self._pairwise_c1 = bool(pairwise_c1)
         self._filled = False
 
     def _fill(self) -> None:
         if self._filled:
             return
+        if not self._pairwise_c1:
+            raise ValueError(
+                "L0 Fiedler modes are not defined through the pairwise component "
+                "kernel for a branching or witness C1 relation. Use the declared "
+                "boundary/harmonic operators, or supply an explicit pairwise section; "
+                "a general exact ker(B1.T) deflation basis is required before this "
+                "numerical mode is exposed."
+            )
         self._filled = True
         fv, fvec, evals, evecs = _laplacians._sparse_fiedler_L0(
             self._B1_dual, self._nV, self._nE)
@@ -329,6 +474,7 @@ class RexGraph:
         "_B2_col_ptr",
         "_B2_row_idx",
         "_B2_vals",
+        "_relation_ids",
         "_w_E",
         "_w_boundary",
         "_directed",
@@ -358,6 +504,7 @@ class RexGraph:
         B2_col_ptr: NDArray | None = None,
         B2_row_idx: NDArray | None = None,
         B2_vals: NDArray | None = None,
+        relation_ids: NDArray | None = None,
         w_E: NDArray | None = None,
         w_boundary: dict | None = None,
         directed: bool = False,
@@ -384,14 +531,17 @@ class RexGraph:
 
         # General boundary or src/tgt shorthand
         if boundary_ptr is not None:
-            self._boundary_ptr = _asarray(boundary_ptr, _i32)
-            self._boundary_idx = _asarray(boundary_idx, _i32)
+            self._boundary_ptr, self._boundary_idx = _validate_primary_boundary(
+                boundary_ptr, boundary_idx
+            )
             self._nE = self._boundary_ptr.shape[0] - 1
             self._sources = None
             self._targets = None
         elif sources is not None:
-            src = _asarray(sources, _i32)
-            tgt = _asarray(targets, _i32)
+            src = _as_exact_i32_vector(sources, context="sources")
+            tgt = _as_exact_i32_vector(targets, context="targets")
+            if src.shape[0] != tgt.shape[0]:
+                raise ValueError("sources and targets must have equal length")
             self._sources = src
             self._targets = tgt
             self._nE = src.shape[0]
@@ -399,8 +549,7 @@ class RexGraph:
             bi = np.empty(2 * self._nE, dtype=_i32)
             bi[0::2] = src
             bi[1::2] = tgt
-            self._boundary_ptr = bp
-            self._boundary_idx = bi
+            self._boundary_ptr, self._boundary_idx = _validate_primary_boundary(bp, bi)
         else:
             raise ValueError("Provide boundary_ptr/boundary_idx or sources/targets.")
 
@@ -412,15 +561,26 @@ class RexGraph:
 
         # Face data
         if B2_col_ptr is not None:
-            self._B2_col_ptr = _asarray(B2_col_ptr, _i32)
-            self._B2_row_idx = _asarray(B2_row_idx, _i32)
-            self._B2_vals = np.ascontiguousarray(B2_vals, dtype=_f64)
+            self._B2_col_ptr, self._B2_row_idx, self._B2_vals = _validate_face_boundary(
+                B2_col_ptr, B2_row_idx, B2_vals, n_edges=self._nE
+            )
             self._nF = self._B2_col_ptr.shape[0] - 1
         else:
             self._B2_col_ptr = np.zeros(1, dtype=_i32)
             self._B2_row_idx = np.zeros(0, dtype=_i32)
             self._B2_vals = np.zeros(0, dtype=_f64)
             self._nF = 0
+
+        # A relation ID is an exact C1 *instance* carrier, deliberately separate
+        # from a boundary-support key.  Equal-support relations are valid distinct
+        # primary cells; temporal support hashes cannot identify their independent
+        # histories.  IDs are therefore opt-in, signed int64, one per live C1 cell,
+        # and unique within a snapshot.  We do not synthesize them from support:
+        # that would recreate precisely the ambiguity this carrier exists to avoid.
+        if relation_ids is None:
+            self._relation_ids = None
+        else:
+            self._relation_ids = _as_relation_ids(relation_ids, self._nE)
 
         # Attribution
         self._w_E = w_E
@@ -458,21 +618,64 @@ class RexGraph:
                      vertex_map=np.arange(self._nV, dtype=_i32),
                      face_map=np.arange(self._nF, dtype=_i32))
 
-    def add_edges(self, sources, targets, *, w_E=None, signs=None, w_boundary=None):
+    def _stage_relation_ids(self, relation_ids, n_new: int) -> NDArray | None:
+        """Validate an appended C1 identity batch against this live carrier.
+
+        Identity is all-or-nothing within a complex.  A half-labelled basis would
+        leave a temporal query unable to distinguish exactly the cells it was meant
+        to preserve, so adding to an identified complex requires IDs and adding IDs
+        to a populated anonymous complex is refused.  An empty complex may establish
+        its carrier with its first append.
+        """
+        if self._relation_ids is None:
+            if relation_ids is None:
+                return None
+            if self._nE:
+                raise ValueError(
+                    "cannot attach relation_ids to a populated anonymous RexGraph; "
+                    "supply identities when constructing the complete C1 basis"
+                )
+            self._relation_ids = np.zeros(0, dtype=np.int64)
+        elif relation_ids is None:
+            raise ValueError(
+                "adding to a RexGraph with relation_ids requires one identity for "
+                "each new C1 relation"
+            )
+
+        ids = _as_relation_ids(relation_ids, n_new, context="appended relation_ids")
+        pending = []
+        for store in (self._pending_edges, self._pending_hyperedges):
+            if store is not None:
+                pending.extend(store.get("relation_ids", ()))
+        existing = [self._relation_ids, *pending]
+        prior = np.concatenate(existing) if existing else np.zeros(0, dtype=np.int64)
+        if prior.size and np.intersect1d(prior, ids).size:
+            raise ValueError("appended relation_ids must not repeat a live relation identity")
+        return ids
+
+    def add_edges(self, sources, targets, *, relation_ids=None, w_E=None, signs=None,
+                  w_boundary=None):
         """Stage new standard edges for O(delta) append (materialized on next read).
 
         Records the columns in the pending buffer, bumps the logical _nE/_nV, and
         stages attribution. No array copy at call time. New edges land at the end.
         """
-        ns = _asarray(sources, _i32)
-        nt = _asarray(targets, _i32)
+        ns = _as_exact_i32_vector(sources, context="sources")
+        nt = _as_exact_i32_vector(targets, context="targets")
         if ns.shape[0] != nt.shape[0]:
             raise ValueError("sources and targets must have equal length")
+        for edge, (source, target) in enumerate(zip(ns, nt, strict=True)):
+            _validate_c1_support(
+                np.asarray([source, target], dtype=_i32), context=f"C1 relation {edge}"
+            )
         n_new = int(ns.shape[0])
+        ids = self._stage_relation_ids(relation_ids, n_new)
         if self._pending_edges is None:
-            self._pending_edges = {"src": [], "tgt": [], "w_E": [], "signs": []}
+            self._pending_edges = {"src": [], "tgt": [], "relation_ids": [],
+                                   "w_E": [], "signs": []}
         self._pending_edges["src"].append(ns)
         self._pending_edges["tgt"].append(nt)
+        self._pending_edges["relation_ids"].append(ids)
         self._pending_edges["w_E"].append(
             np.zeros(n_new, _f64) if w_E is None else _asarray(w_E, _f64))
         self._pending_edges["signs"].append(
@@ -491,17 +694,23 @@ class RexGraph:
         # flush in _ensure_clean runs. The raw arrays themselves stay deferred.
         self._invalidate(_TIER_B1_ONLY, _TIER_GLOBAL)
 
-    def add_hyperedges(self, columns, *, w_E=None, signs=None):
+    def add_hyperedges(self, columns, *, relation_ids=None, w_E=None, signs=None):
         """Stage new GENERAL-ARITY boundary cells for O(delta) append (materialized on
         next read). Each entry of `columns` is an int array of the vertex ids incident
         to one new cell (arity = its length; 2 recovers a plain edge). Complements
         add_edges (the 2-arity convenience); removal/compaction are already general.
         No array copy at call time. New cells land at the end on flush."""
-        cols = [_asarray(c, _i32) for c in columns]
+        cols = []
+        for edge, column in enumerate(columns):
+            support = _as_exact_i32_vector(column, context=f"C1 relation {edge}")
+            cols.append(_validate_c1_support(support, context=f"C1 relation {edge}"))
         n_new = len(cols)
+        ids = self._stage_relation_ids(relation_ids, n_new)
         if self._pending_hyperedges is None:
-            self._pending_hyperedges = {"cols": [], "w_E": [], "signs": []}
+            self._pending_hyperedges = {"cols": [], "relation_ids": [],
+                                        "w_E": [], "signs": []}
         self._pending_hyperedges["cols"].extend(cols)
+        self._pending_hyperedges["relation_ids"].append(ids)
         self._pending_hyperedges["w_E"].append(
             np.zeros(n_new, _f64) if w_E is None else _asarray(w_E, _f64))
         self._pending_hyperedges["signs"].append(
@@ -560,8 +769,10 @@ class RexGraph:
         if face_signs is None:
             from rexgraph.faces import solve_face_basis
             solved_edges, solved_signs = [], []
-            for fe in face_edges:
-                fe = _asarray(fe, _i32)
+            for face, fe in enumerate(face_edges):
+                fe = _validate_face_support(
+                    fe, context=f"grade-2 cell {face}", n_edges=self._nE
+                )
                 for col in solve_face_basis(self, fe):
                     solved_edges.append(fe)
                     solved_signs.append(np.asarray([float(x) for x in col], dtype=_f64))
@@ -572,8 +783,10 @@ class RexGraph:
             raise ValueError("face_edges and face_signs must have equal length")
         if self._pending_faces is None:
             self._pending_faces = {"edges": [], "signs": []}
-        for fe, fs in zip(face_edges, face_signs, strict=False):
-            fe = _asarray(fe, _i32)
+        for face, (fe, fs) in enumerate(zip(face_edges, face_signs, strict=False)):
+            fe = _validate_face_support(
+                fe, context=f"grade-2 cell {face}", n_edges=self._nE
+            )
             fs = np.ascontiguousarray(fs, dtype=_f64)
             if fe.shape[0] != fs.shape[0]:
                 raise ValueError("each face's edges and signs must have equal length")
@@ -628,6 +841,11 @@ class RexGraph:
                 base = (np.ones(nE_before, dtype=_i32) if self._signs is None
                         else np.asarray(self._signs, dtype=_i32))
                 self._signs = np.concatenate([base, np.concatenate(signs_batches)])
+            if self._relation_ids is not None:
+                self._relation_ids = np.concatenate([
+                    self._relation_ids,
+                    np.concatenate(self._pending_edges["relation_ids"]),
+                ])
             self._pending_edges = None
             touched.append(_TIER_B1_ONLY)
             touched.append(_TIER_GLOBAL)
@@ -654,6 +872,11 @@ class RexGraph:
                 base = (np.ones(nE_before, dtype=_i32) if self._signs is None
                         else np.asarray(self._signs, dtype=_i32))
                 self._signs = np.concatenate([base, np.concatenate(sg_b)])
+            if self._relation_ids is not None:
+                self._relation_ids = np.concatenate([
+                    self._relation_ids,
+                    np.concatenate(self._pending_hyperedges["relation_ids"]),
+                ])
             self._pending_hyperedges = None
             touched.append(_TIER_B1_ONLY)
             touched.append(_TIER_GLOBAL)
@@ -753,6 +976,8 @@ class RexGraph:
                 self._w_E = np.asarray(self._w_E)[keep]
             if self._signs is not None:
                 self._signs = np.asarray(self._signs)[keep]
+            if self._relation_ids is not None:
+                self._relation_ids = np.asarray(self._relation_ids, dtype=np.int64)[keep]
             if self._w_boundary:
                 em = np.asarray(e_map)
                 new_wb = {}
@@ -835,7 +1060,9 @@ class RexGraph:
         targets: ArrayLike,
         *,
         directed: bool = False,
+        relation_ids: NDArray | None = None,
         w_E: NDArray | None = None,
+        signs: NDArray | None = None,
         g_channel: str = "raw",
     ) -> RexGraph:
         """Embed a simple graph as a 1-rex. ``g_channel`` selects the overlap G
@@ -845,7 +1072,9 @@ class RexGraph:
             sources=np.asarray(sources),
             targets=np.asarray(targets),
             directed=directed,
+            relation_ids=relation_ids,
             w_E=w_E,
+            signs=signs,
             g_channel=g_channel,
         )
 
@@ -855,12 +1084,27 @@ class RexGraph:
         hyperedge_ptr: ArrayLike,
         hyperedge_idx: ArrayLike,
         *,
+        relation_ids: NDArray | None = None,
+        w_E: NDArray | None = None,
+        signs: NDArray | None = None,
+        directed: bool = False,
         g_channel: str = "raw",
     ) -> RexGraph:
-        """Embed a hypergraph as a 1-rex with branching edges."""
+        """Ingest boundary spans as primary branching C1 relations.
+
+        The historical constructor name is retained for compatibility.  Each
+        ``[ptr[e], ptr[e+1])`` span becomes exactly one relation; no clique or
+        star expansion is performed.  ``w_E`` and ``signs`` are carried on that
+        same primary C1 basis, so a weighted field never has to mutate a private
+        carrier after construction.
+        """
         return cls(
             boundary_ptr=np.asarray(hyperedge_ptr),
             boundary_idx=np.asarray(hyperedge_idx),
+            relation_ids=relation_ids,
+            w_E=w_E,
+            signs=signs,
+            directed=directed,
             g_channel=g_channel,
         )
 
@@ -871,6 +1115,10 @@ class RexGraph:
         targets: ArrayLike,
         triangles: ArrayLike,
         *,
+        directed: bool = False,
+        relation_ids: NDArray | None = None,
+        w_E: NDArray | None = None,
+        signs: NDArray | None = None,
         g_channel: str = "raw",
     ) -> RexGraph:
         """Embed a simplicial 2-complex as a 2-rex.
@@ -944,6 +1192,10 @@ class RexGraph:
         return cls(
             sources=src, targets=tgt,
             B2_col_ptr=cp, B2_row_idx=ri, B2_vals=vv,
+            directed=directed,
+            relation_ids=relation_ids,
+            w_E=w_E,
+            signs=signs,
             g_channel=g_channel,
         )
 
@@ -966,17 +1218,26 @@ class RexGraph:
         )
 
     @classmethod
-    def from_cells(cls, cells_by_grade, *, g_channel: str = "raw") -> RexGraph:
+    def from_cells(cls, cells_by_grade, *, relation_ids: NDArray | None = None,
+                   w_E: NDArray | None = None, signs: NDArray | None = None,
+                   directed: bool = False, g_channel: str = "raw") -> RexGraph:
         """Build a rex of ARBITRARY top grade from a graded, mixed-arity cell list.
 
         Parameters
         ----------
         cells_by_grade : sequence
             ``cells_by_grade[0]`` is the vertex count (int); for ``d >= 1``,
-            ``cells_by_grade[d]`` is a list of d-cells, each either a plain list of
-            ``(d-1)``-cell indices (positional signs: first ``-1``, rest ``+1``) or an
-            explicit ``[(index, sign), ...]`` list. Arity is per-cell and free;
-            grade is unbounded. See :mod:`rexgraph.graded_boundary`.
+            ``cells_by_grade[d]`` is a list of d-cells.  At grade 1, a plain list
+            declares support with its first participant distinguished; an explicit
+            ``[(vertex, sign), ...]`` list must have exactly one negative participant
+            and selects that head.  It is materialized as canonical C1 shares.  At
+            grades >= 2, plain/explicit signed boundary lists follow
+            :mod:`rexgraph.graded_boundary`. Over branching or witness C1, a plain
+            C2 list declares face support and its exact coefficient column is derived
+            from the canonical C1 boundary. An explicit C2 coefficient list is
+            accepted only when it closes exactly, then normalised to its primitive
+            integer representative. Arity is per-cell and free; grade is unbounded
+            where its declared boundaries close.
 
         Notes
         -----
@@ -985,7 +1246,11 @@ class RexGraph:
         optional ``_graded_duals`` list. The full ``[B_1, B_2, B_3, ...]`` list is
         available via :meth:`graded_boundaries` (and hence the sparse Dirac).
         """
-        from rexgraph.graded_boundary import _cell_entries, build_graded_boundaries
+        from rexgraph.graded_boundary import (
+            _cell_entries,
+            build_graded_boundaries,
+            verify_chain,
+        )
 
         n_verts = int(cells_by_grade[0])
         boundaries = build_graded_boundaries(cells_by_grade)
@@ -993,14 +1258,42 @@ class RexGraph:
         if len(boundaries) == 0:
             raise ValueError("from_cells needs at least a grade-1 (edge) list")
 
-        # B1 slot: general boundary CSR straight from the grade-1 cells, using the
-        # positional sign convention (first index is the source, rest are targets),
-        # which is exactly what the CSR storage encodes.
+        # A declared graded import is a relational complex only when every
+        # consecutive pair closes.  This is deliberately stricter than the legacy
+        # candidate-face staging API: import must never expose an open tower and
+        # must apply equally to pairwise and branching C1 carriers.
+        for grade in range(2, len(boundaries) + 1):
+            closes, _residual = verify_chain(boundaries[grade - 2:grade])
+            if not closes:
+                raise ValueError(
+                    f"declared grade-{grade} boundary does not satisfy the exact "
+                    f"B{grade - 1} B{grade} = 0 chain condition"
+                )
+
+        # B1 slot: the CSR stores SUPPORT plus the distinguished participant at
+        # position zero.  It is then materialized canonically as
+        # (-1, 1/(k-1), ..., 1/(k-1)); explicit +/- input chooses the distinguished
+        # participant, it does not license a second noncanonical C1 coefficient
+        # convention that would disagree with every other constructor.
         edge_cells = cells_by_grade[1]
         counts = np.empty(len(edge_cells), dtype=_i32)
         idx_parts = []
         for e, cell in enumerate(edge_cells):
-            idx, _sgn = _cell_entries(cell)
+            idx, sgn = _cell_entries(cell)
+            if idx.size == 0:
+                raise ValueError(f"grade-1 cell {e} has empty boundary support")
+            if idx.size > 1:
+                head = np.flatnonzero(sgn < 0)
+                shares = np.flatnonzero(sgn > 0)
+                if (head.size != 1 or shares.size != idx.size - 1
+                        or not np.all(np.abs(sgn) == 1.0)):
+                    raise ValueError(
+                        f"grade-1 cell {e} must have one negative distinguished "
+                        "participant and positive shares; C1 is canonicalized from "
+                        "that orientation, not imported as arbitrary coefficients"
+                    )
+                h = int(head[0])
+                idx = np.concatenate((idx[h:h + 1], np.delete(idx, h)))
             counts[e] = idx.shape[0]
             idx_parts.append(idx.astype(_i32, copy=False))
         boundary_ptr = np.zeros(len(edge_cells) + 1, dtype=_i32)
@@ -1008,8 +1301,11 @@ class RexGraph:
         boundary_idx = (np.concatenate(idx_parts).astype(_i32)
                         if idx_parts else np.zeros(0, dtype=_i32))
 
-        #### B2 slot: CSC triplet from the grade-2 boundary map (signed, any arity).
+        # ``build_graded_boundaries`` is the sole graded importer. On branching C1 it
+        # derives/validates C2 over exact canonical shares before returning its sparse
+        # integer representative; graph.py only owns the classic storage adaptation.
         b2_kwargs = {}
+        B2 = None
         if len(boundaries) >= 2:
             B2 = boundaries[1].tocsc()
             b2_kwargs = dict(
@@ -1021,6 +1317,10 @@ class RexGraph:
         rex = cls(
             boundary_ptr=boundary_ptr,
             boundary_idx=boundary_idx,
+            relation_ids=relation_ids,
+            w_E=w_E,
+            signs=signs,
+            directed=directed,
             g_channel=g_channel,
             **b2_kwargs,
         )
@@ -1170,6 +1470,18 @@ class RexGraph:
         return self._nF
 
     @property
+    def relation_ids(self) -> NDArray | None:
+        """Exact, caller-supplied C1 instance identities, or ``None``.
+
+        These are not support hashes and are never inferred.  A non-``None``
+        vector has one unique signed int64 value per relation in stored C1 order;
+        temporal operators use it to retain parallel equal-support relations as
+        distinct lineages.
+        """
+        self._ensure_clean()
+        return self._relation_ids
+
+    @property
     def dimension(self) -> int:
         self._ensure_clean()
         if self._nE == 0:
@@ -1190,23 +1502,29 @@ class RexGraph:
 
     @property
     def sources(self) -> NDArray | None:
+        """Pairwise source cells, or ``None`` when C1 is not pairwise.
+
+        A branching relation has one distinguished boundary participant and
+        multiple shares; choosing its first share as a ``target`` would turn a
+        primary relation into an unrequested pairwise projection.  Consumers
+        that genuinely need a graph view must derive one explicitly.
+        """
         self._ensure_clean()
+        if not self._is_standard_only:
+            return None
         if self._sources is not None:
             return self._sources
-        sizes = np.diff(self._boundary_ptr)
-        if np.any(sizes < 2):
-            return None
         self._sources = self._boundary_idx[self._boundary_ptr[:-1]]
         return self._sources
 
     @property
     def targets(self) -> NDArray | None:
+        """Pairwise target cells, or ``None`` when C1 is not pairwise."""
         self._ensure_clean()
+        if not self._is_standard_only:
+            return None
         if self._targets is not None:
             return self._targets
-        sizes = np.diff(self._boundary_ptr)
-        if np.any(sizes < 2):
-            return None
         self._targets = self._boundary_idx[self._boundary_ptr[:-1] + 1]
         return self._targets
 
@@ -1329,19 +1647,38 @@ class RexGraph:
         )
 
     def _ensure_src_tgt(self) -> tuple[NDArray, NDArray]:
-        """Return (sources, targets) even for general boundary (first two vertices)."""
+        """Return the endpoint representation of an explicitly pairwise C1.
+
+        This is deliberately *not* an adapter for branching relations.  The
+        former fallback selected the first two boundary participants of each
+        relation and silently erased every remaining share.  Derive a named
+        pairwise section (for example :attr:`clique_expansion`) before using a
+        legacy endpoint algorithm.
+        """
+        self._require_pairwise_c1("an endpoint representation")
         src = self.sources
         tgt = self.targets
-        if src is not None and tgt is not None:
-            return src.astype(_i32, copy=False), tgt.astype(_i32, copy=False)
-        # General boundary fallback: extract first two boundary vertices
-        src = self._boundary_idx[self._boundary_ptr[:-1]].astype(_i32)
-        tgt_offsets = np.minimum(
-            self._boundary_ptr[:-1] + 1,
-            self._boundary_ptr[1:] - 1,
-        )
-        tgt = self._boundary_idx[tgt_offsets].astype(_i32)
-        return src, tgt
+        # _require_pairwise_c1 makes these non-None; retain the check as a
+        # defensive invariant rather than manufacturing an endpoint shadow.
+        if src is None or tgt is None:
+            raise RuntimeError("pairwise C1 invariant did not provide endpoints")
+        return src.astype(_i32, copy=False), tgt.astype(_i32, copy=False)
+
+    def _require_pairwise_c1(self, operation: str) -> None:
+        """Decline an endpoint-only operation on a primary branching C1.
+
+        Pairwise graph algorithms remain useful derived analyses.  What is
+        forbidden here is treating that derived view as the relational complex
+        itself, because it destroys arity, shares, and relation identity.
+        """
+        self._ensure_clean()
+        if not self._is_standard_only:
+            raise ValueError(
+                f"{operation} requires a pairwise C1 complex; a branching or "
+                "witness relation has no two-endpoint representation. Query its "
+                "boundary/coboundary directly or explicitly derive a pairwise "
+                "section before calling this legacy operation."
+            )
 
     # Boundary operators
 
@@ -1434,15 +1771,61 @@ class RexGraph:
 
     @cached_property
     def B1(self) -> NDArray:
-        """Signed incidence matrix B_1, shape (nV, nE)."""
+        """Dense numerical-oracle materialization of B1, shape ``(nV, nE)``.
+
+        The primary boundary is stored and computed sparsely.  Prefer
+        :attr:`B1_sparse` for every structural or scale-sensitive operation;
+        this property is retained for display, explicit numerical oracles, and
+        small-matrix compatibility.
+        """
         return _sparse.to_dense_f64(self._B1_dual)
 
     @cached_property
+    def B1_sparse(self):
+        """Native sparse primary boundary ``B1`` at the declared relation arity.
+
+        This is the public sparse carrier used by the Cython kernels.  It is a
+        ``DualCSR``: both C0-by-C1 and C1-by-C0 access are available without a
+        dense materialization.  It preserves the canonical boundary shares of
+        branching relations and is the appropriate input for structural reads;
+        use :attr:`B1` only when a dense numerical-oracle array is expressly
+        required.
+        """
+        return self._B1_dual
+
+    @cached_property
     def B2(self) -> NDArray:
-        """Face boundary matrix B_2, shape (nE, nF)."""
+        """Dense numerical-oracle materialization of declared B2, shape ``(nE, nF)``.
+
+        Structural or scale-sensitive code should use :attr:`B2_sparse`; the
+        Hodge stack should use :attr:`B2_hodge_sparse`, which excludes declared
+        cells that do not satisfy the exact chain condition.
+        """
         if self._nF == 0:
             return np.zeros((max(self._nE, 1), 0), dtype=_f64)
         return _sparse.to_dense_f64(self._B2_dual)
+
+    @cached_property
+    def B2_sparse(self):
+        """Native sparse declared C2 boundary carrier, or ``None`` when C2 is empty.
+
+        The returned ``DualCSR`` preserves every stored grade-2 declaration.  It
+        is useful for inspecting candidate faces and their exact support.  For a
+        Hodge or Dirac computation prefer :attr:`B2_hodge_sparse`, whose columns
+        have passed the exact ``B1 B2 = 0`` filter.
+        """
+        return self._B2_dual
+
+    @cached_property
+    def B2_hodge_sparse(self):
+        """Native sparse chain-valid C2 carrier used by the Hodge stack.
+
+        This is a ``DualCSR`` containing only declared C2 cells that close over
+        the primary boundary exactly; it is ``None`` when no such cells exist.
+        It is the sparse counterpart of :attr:`B2_hodge`, while the latter is a
+        dense numerical-oracle materialization retained for compatibility.
+        """
+        return self._B2_hodge_dual
 
     @cached_property
     def chain_valid(self) -> bool:
@@ -1483,7 +1866,13 @@ class RexGraph:
 
     @cached_property
     def clique_expansion(self) -> RexGraph:
-        """Clique expansion of branching edges."""
+        """An explicit, lossy pairwise-derived section of branching C1 relations.
+
+        This is an analytical projection, not an alternative storage or
+        ingestion form for the relational complex.  It deliberately creates
+        pairwise relations and therefore does not preserve primary C1 arity or
+        identity.
+        """
         self._ensure_clean()
         new_src, new_tgt, new_weights, _ = _rex.clique_expand_branching(
             self._nE, self._boundary_ptr, self._boundary_idx, self.edge_types
@@ -1498,7 +1887,11 @@ class RexGraph:
 
     @cached_property
     def _adjacency_bundle(self) -> tuple[NDArray, NDArray, NDArray]:
-        """Symmetric adjacency CSR: (adj_ptr, adj_idx, adj_edge)."""
+        """Pairwise-derived symmetric adjacency CSR.
+
+        The endpoint kernel below is intentionally available only after an
+        explicit pairwise section has been chosen.
+        """
         src, tgt = self._ensure_src_tgt()
         return _cycles.build_symmetric_adjacency(self._nV, self._nE, src, tgt)
 
@@ -1811,7 +2204,13 @@ class RexGraph:
         # bundle took on a 40652-vertex complex), and the character / coherence / void
         # / betti paths that rebuild this bundle never read it. Same policy as
         # edge_fiedler, and transparent: the keys resolve on first access.
-        return _LazyL0Spectrum(bundle, self._B1_dual, self._nV, self._nE)
+        return _LazyL0Spectrum(
+            bundle,
+            self._B1_dual,
+            self._nV,
+            self._nE,
+            pairwise_c1=self._is_standard_only,
+        )
 
     @cached_property
     def _dense_rcf_bundle(self) -> dict:
@@ -2582,6 +2981,7 @@ class RexGraph:
         """Legacy inverse-log-degree *weighted* signed-Gramian frustration - the
         geometric/approximation-tower alternate (float weights). Kept for the
         explicit integer-vs-weighted distinction; not used in the default RL4."""
+        self._require_pairwise_c1("L_frustration_weighted")
         if not _HAS_RCF:
             return np.zeros((self._nE, self._nE), dtype=_f64)
         src, tgt = self._ensure_src_tgt()
@@ -2716,7 +3116,6 @@ class RexGraph:
         rcf = self._rcf_bundle
         if 'hats' not in rcf or 'nhats' not in rcf:   # sparse-character mode has no dense hats;
             return {}                                 # callers use .get() defaults (like structural_character)
-        src, tgt = self._ensure_src_tgt()
         v2e_ptr, v2e_idx = self._v2e
         return _character.build_character_bundle(
             self.B1, self.RL, rcf['hats'], rcf['nhats'],
@@ -3140,6 +3539,7 @@ class RexGraph:
         Keys: Bvoid, Lvoid, n_voids, n_potential, eta, chi_void,
               fills_beta, void_strain
         """
+        self._require_pairwise_c1("void_complex")
         if not _HAS_RCF:
             return {'n_voids': 0, 'n_potential': 0}
         adj_ptr, adj_idx, adj_edge = self._adjacency_bundle
@@ -3476,18 +3876,22 @@ class RexGraph:
         """Single-edge (relation) diagnostic: its place in the Hodge tower plus its
         criticality - all from sparse local reads and ONE diffusion, no dense B1/B2/K1
         scans and no eigendecomposition. Matches the _query.explain_edge contract:
-          below   = boundary vertices (endpoints)            - sparse B1 column, ∂/down
+          below   = boundary participants                    - sparse B1 column, ∂/down
           above   = co-boundary faces containing the edge    - sparse B2 row, δ/up
-          lateral = sibling edges sharing an endpoint (K1)   - endpoint stars (_v2e)
+          lateral = sibling relations sharing a participant  - C0 stars (_v2e)
           chi     = channel character [T,G,F,C]              - diagonals, O(nnz)
-          effective_resistance = RL4⁺[e,e] = (RL4⁻¹ e_e)[e]  - ONE demand-driven
-                    diffusion (the edge's Green's self-response: high = bridge/critical,
-                    low = redundant). The dense kernel used a full pinv and returned
-                    NaN above its eigen limit; this is exact at every scale."""
+          effective_resistance = b_e^T (B1 B1^T)^+ b_e      - sparse Green action
+          relational_self_response = RL4^+[e,e]              - relation-space diffusion.
+
+        The first reading is the classic primary-boundary leverage (high means
+        load-bearing); the second is the relation-space response. Both preserve the
+        sparse declared carrier. Their numerical Green actions are distinct from the
+        exact integer/rational topology and rank paths.
+        """
         from rexgraph.core._sparse import to_scipy_csr
         idx = int(idx)
         nhats = int(self.nhats)
-        # below: the two boundary vertices, from the sparse B1 column
+        # below: every declared boundary participant, from the sparse B1 column
         below = []
         if self._B1_dual is not None:
             B1c = to_scipy_csr(self._B1_dual).tocsc()
@@ -3498,7 +3902,7 @@ class RexGraph:
         if self.nF_hodge > 0 and self._B2_hodge_dual is not None:
             B2 = to_scipy_csr(self._B2_hodge_dual).tocsr()      # nE × nF
             above = sorted(int(f) for f in B2.getrow(idx).indices)
-        # lateral: edges sharing an endpoint (co-incident), from the endpoints' stars
+        # lateral: relations sharing a participant, from C0 stars
         v2e_ptr, v2e_idx = self._v2e
         v2e_ptr = np.asarray(v2e_ptr); v2e_idx = np.asarray(v2e_idx)
         lateral = set()
@@ -3511,11 +3915,10 @@ class RexGraph:
         chi = (np.asarray(self.structural_character, dtype=_f64)[idx]
                if nhats else np.zeros(0, dtype=_f64))
         dominant = int(np.argmax(chi)) if nhats else 0
-        # effective_resistance = the CLASSIC bridge measure b_eᵀ L0⁺ b_e (one L0 solve;
-        # ->1 = bridge/critical, <1 = redundant). relational_self_response = RL4⁺[e,e]
-        # (the relation's Green's self-energy in the full [T,G,F,C] operator, the value
-        # the old dense kernel returned as "effective_resistance", kept but correctly
-        # named, and now exact at scale where that kernel NaN'd).
+        # effective_resistance is the primary-boundary bridge measure b_eᵀ L0⁺ b_e
+        # (->1 for a bridge, <1 when redundant). The independently computed
+        # relational_self_response is RL4⁺[e,e], the self-energy in the full [T,G,F,C]
+        # relation operator. Neither name stands in for the other.
         r_eff = self.effective_resistance(idx) if self._nE > 0 else float('nan')
         r_self = float('nan')
         if self._nE > 0:
@@ -3597,99 +4000,99 @@ class RexGraph:
             },
         }
 
-    def _effective_resistance_batch(self, edge_indices: NDArray) -> NDArray:
+    def _effective_resistance_batch(self, edge_indices: NDArray, *,
+                                    method: str = "sparse") -> NDArray:
         """Classic effective resistance R_eff(e) = b_eᵀ L0⁺ b_e for a BATCH of edges
-        (b_e = B1[:,e] = the edge's signed endpoints, L0 = the graph Laplacian) in ONE
-        block-CG solve - the bridge measure: R_eff -> 1 for a true BRIDGE (removal
-        disconnects), < 1 for a REDUNDANT edge in a cycle. L0 is singular but every b_e
-        lies in its range (∈ im(B1)=im(L0)), so preconditioned CG from 0 converges to
-        the pseudoinverse solution. Demand-driven, scale-free. Aligned to edge_indices."""
+        (``b_e = B1[:, e]`` is the declared C1 boundary, at any arity) in one sparse
+        Green/leverage action. It is the bridge measure: R_eff -> 1 for a true bridge
+        (removal disconnects), < 1 for a redundant relation in a cycle.
+
+        ``method="sparse"`` is the default semantic route: it acts on the full
+        declared primary boundary without allocating a dense matrix. It evaluates the
+        Green action numerically, while the C1 carrier, chain checks, and rank
+        constraint remain exact. The optional ``method="dense_oracle"`` is a
+        deliberately requested SVD projector for comparison. The dense allocation
+        guard may reject that oracle; it never silently changes the method selected by
+        the caller.
+        """
+        if method not in {"sparse", "dense_oracle"}:
+            raise ValueError("method must be 'sparse' or 'dense_oracle'")
         edges = np.asarray(edge_indices, dtype=int).ravel()
         if edges.size == 0 or self._nE == 0:
             return np.zeros(edges.size, dtype=_f64)
+        if np.any(edges < 0) or np.any(edges >= self._nE):
+            raise ValueError("effective resistance edge index is outside C1")
         from rexgraph.core._sparse import to_scipy_csr
         B1 = to_scipy_csr(self._B1_dual).tocsc()            # nV × nE
-        # B1 stays SPARSE here. Densifying B1[:, edges] up front cost nV x |edges|
-        # whichever branch ran below, which is 35 GB on one ordinary book; each branch
-        # now materialises only the columns it is about to consume.
-        # L0 is singular, so the solve goes through L0⁺ = (L0 + P_H)⁻¹ − P_H. A boundary
-        # column sums to zero inside its own component, so P_H b_e = 0 and
-        # R_eff = b_eᵀ (L0 + P_H)⁻¹ b_e on an SPD operator with no singular direction.
-        # A bridge has R_eff exactly 1 and is settled by one walk of the 1-skeleton, so
-        # only relations on a cycle get a column. Block CG runs until its worst column
-        # converges, so a narrower block also lowers the iteration count.
-        from rexgraph.bridges import bridge_mask
-        out = np.zeros(edges.size, dtype=_f64)
-        try:
-            span = bridge_mask(self)[edges]
-        except Exception:                                   # any doubt: solve them all
-            span = np.zeros(edges.size, dtype=bool)
-        out[span] = 1.0
-        rest = np.flatnonzero(~span)
-        if rest.size == 0:
-            return out
-        # Two exact readings, chosen by what fits. The leverage form below is a
-        # decomposition, dense in nV x nE, and its cost is set by size. The deflated CG
-        # is matrix-free and its cost is set by conditioning, which is worse. Note the
-        # component indicators span ker(L0) only for PAIRWISE relations: a k-ary
-        # relation touches k vertices and contributes rank one, so dim ker(L0) is
-        # beta_0, and deflating an incomplete basis leaves L0 + P_H singular.
-        from rexgraph.core._common import check_dense_allocation
-        try:
-            check_dense_allocation("effective_resistance leverage",
-                                   int(self._nV), int(edges.size))
-            fits = True
-        except Exception:
-            fits = False                                    # over the configured ceiling
-        # The operator, the Jacobi diagonal and the kernel all come from B1 without
-        # forming L0 = B1 B1^T. That product is 22x B1's nnz on a real complex and, since
-        # a matvec costs what it reads, applying it is 6.8x SLOWER than B1 (B1^T x). The
-        # CG here always took a callable, so the matrix was only ever built to be handed
-        # over.
-        from rexgraph.fiedler import deflated_operator, leverage_diagonal
-        _apply, _dinv, U, ncols = deflated_operator(B1)   # only the kernel is wanted here
-        # WHICH READING is decided by size, which is a PERFORMANCE call and measured:
-        # where the decomposition fits it wins, because these operators are ill
-        # conditioned (a text complex is close to an expander) and the matrix-free solve
-        # walks. On one 331 KB book the dense form took 395 s and the blocked CG did not
-        # finish in 600 s, so preferring CG on a complete kernel was strictly worse.
-        #
-        # What WAS a defect is the fallthrough: the old condition sent the
-        # incomplete-kernel case to the dense branch *even when it had just been told the
-        # dense form does not fit*, so the one branch that knew it could not allocate was
-        # the branch that allocated, and it asked for 1.59 TiB. Size now decides alone,
-        # and an incomplete deflation is caught by the Foster check at the bottom rather
-        # than by refusing to run.
-        if not fits:
-            # BLOCKED. The columns cannot all go at once: apply_A forms an nE-tall
-            # transient of the block's width, so one book's 466,489 non-bridge columns
-            # asked for 1.59 TiB here. leverage_diagonal sizes the block against nV+nE.
-            out[rest], _r = leverage_diagonal(B1, columns=edges[rest],
-                                              kernel=(U, ncols))
+        if method == "dense_oracle":
+            # The oracle forms the projector for the whole primary C1 boundary, then
+            # selects requested diagonal entries.  Slicing first changes row(B1), so a
+            # singleton query on a triangle would incorrectly report 1 instead of 2/3.
+            from rexgraph.core._common import check_dense_allocation
+
+            check_dense_allocation("effective_resistance dense oracle",
+                                   int(self._nV), int(self._nE))
+            M = np.asarray(B1.todense(), dtype=_f64)
+            _u, singular_values, vt = np.linalg.svd(M, full_matrices=False)
+            scale = singular_values[0] if singular_values.size else 0.0
+            keep = singular_values > (max(M.shape) * np.finfo(_f64).eps * scale)
+            row_basis = vt[keep]
+            all_values = np.einsum("ie,ie->e", row_basis, row_basis)
+            out = all_values[edges]
         else:
-            # The leverage reading. Writing
-            # b_e = B1 z_e turns the quadratic form into
-            #     R_eff(e) = z_e^T B1^T (B1 B1^T)^+ B1 z_e
-            # which is the e-th diagonal entry of the ORTHOGONAL PROJECTOR onto the
-            # row space of B1. So it is a leverage score, and the row space comes off
-            # one decomposition with no kernel named and no solve per relation. An
-            # iterative solve cannot do this here: at arity the kernel is most of the
-            # space (2047 of 2379 on 400 protein complexes) and CG or LSMR walks in it.
-            Bfull = to_scipy_csr(self._B1_dual).tocsc()[:, edges]
-            M = np.asarray(Bfull.todense(), dtype=_f64)
-            _u, sv, vt = np.linalg.svd(M, full_matrices=False)
-            keep = sv > (max(M.shape) * np.finfo(_f64).eps * (sv[0] if sv.size else 0.0))
-            V = vt[keep]                                    # rows span row(B1)
-            out = np.einsum('ie,ie->e', V, V)               # diag of V^T V
+            # A bridge has R_eff exactly 1 and is settled by one sparse structural
+            # walk.  Every remaining relation is evaluated against the FULL B1, never
+            # a query-induced subcomplex.
+            from rexgraph.bridges import bridge_mask
+            out = np.zeros(edges.size, dtype=_f64)
+            try:
+                span = bridge_mask(self)[edges]
+            except Exception:                               # any doubt: solve them all
+                span = np.zeros(edges.size, dtype=bool)
+            out[span] = 1.0
+            rest = np.flatnonzero(~span)
+            if rest.size == 0:
+                _check_resistance_closes(self, edges, out)
+                return out
+
+            if not self._is_standard_only:
+                # A branching C1 can have a kernel larger than its support-component
+                # count. The pairwise deflated-CG path therefore cannot be repaired by
+                # handing it component indicators. The general Green action is the
+                # minimum-norm LSMR solve on B1 B1.T itself: numerical by nature, but
+                # it acts on the full declared boundary and introduces no fabricated
+                # kernel. Block only to the configured memory ceiling.
+                from rexgraph.fiedler import solve_block_width
+                from rexgraph.green import vertex_green
+
+                green = vertex_green(self, tol=1e-12, maxiter=1000)
+                width = solve_block_width(int(self._nV), int(self._nE))
+                for lo in range(0, rest.size, width):
+                    selected = rest[lo:lo + width]
+                    columns = edges[selected]
+                    sources = np.asarray(B1[:, columns].todense(), dtype=_f64)
+                    solved = np.asarray(green.solve(sources), dtype=_f64)
+                    out[selected] = np.einsum("ve,ve->e", sources, solved)
+            else:
+                # Pairwise C1 has exactly the component-indicator kernel. The blocked
+                # route keeps B1 sparse and never forms L0 = B1 B1.T.
+                from rexgraph.fiedler import deflated_operator, leverage_diagonal
+
+                _apply, _dinv, kernel, n_kernel = deflated_operator(B1)
+                out[rest], _r = leverage_diagonal(B1, columns=edges[rest],
+                                                  kernel=(kernel, n_kernel))
         _check_resistance_closes(self, edges, out)
         return out
 
-    def effective_resistance(self, edge_idx: int) -> float:
+    def effective_resistance(self, edge_idx: int, *, method: str = "sparse") -> float:
         """Classic effective resistance R_eff(e) = b_eᵀ L0⁺ b_e for one edge (relation)
-        via a single L0 solve - the load-bearing measure: R_eff -> 1 = a BRIDGE
-        (critical/near-unique link, removal fragments the graph), lower = REDUNDANT
-        (many parallel paths)."""
-        return float(self._effective_resistance_batch(np.asarray([int(edge_idx)]))[0])
+        via a sparse numerical L0 Green solve. It is the load-bearing measure: R_eff
+        -> 1 for a bridge (critical/near-unique relation, removal fragments the graph),
+        lower for a redundant relation. ``method`` has the same explicit sparse/oracle
+        contract as :meth:`_effective_resistance_batch`."""
+        return float(self._effective_resistance_batch(
+            np.asarray([int(edge_idx)]), method=method
+        )[0])
 
     def agentic_reading(self, vertices: NDArray = None, edges: NDArray = None,
                         t: float = 1.0, max_cells: int | None = None,
@@ -3772,8 +4175,42 @@ class RexGraph:
             self._nE,
         )
 
+    def join(
+        self,
+        other: RexGraph,
+        *,
+        how: str = "inner",
+        labels_self=None,
+        labels_other=None,
+        correspondence=None,
+    ) -> tuple[RexGraph, dict]:
+        """Join primary relations through an explicit vertex correspondence.
+
+        This is the canonical join API.  It reads oriented C1 support directly,
+        so a branching relation remains one relation of its declared arity.  It
+        returns ``(joined_rex, report)``; see :func:`rexgraph.joins.join` for
+        the exact ``inner``/``left``/``outer`` contracts.
+        """
+        from rexgraph.joins import join as _join_primary
+
+        return _join_primary(
+            self,
+            other,
+            how=how,
+            labels_r=labels_self,
+            labels_s=labels_other,
+            correspondence=correspondence,
+        )
+
     def inner_join(self, other: RexGraph, shared_vertices: NDArray) -> dict:
-        """Inner join (intersection) with another RexGraph."""
+        """Legacy pairwise dense inner join.
+
+        For primary relations of any arity use :meth:`join`; this compatibility
+        method retains the historical dense-result dictionary only for an
+        explicitly pairwise C1 input.
+        """
+        self._require_pairwise_c1("inner_join")
+        other._require_pairwise_c1("inner_join")
         if not _HAS_RCF:
             raise RuntimeError("RCF modules not available.")
         return _joins.inner_join(
@@ -3783,7 +4220,9 @@ class RexGraph:
         )
 
     def left_join(self, other: RexGraph, shared_vertices: NDArray) -> dict:
-        """Left join: keep all of self, bring in other's shared edges."""
+        """Legacy pairwise dense left join; use :meth:`join` for primary C1."""
+        self._require_pairwise_c1("left_join")
+        other._require_pairwise_c1("left_join")
         if not _HAS_RCF:
             raise RuntimeError("RCF modules not available.")
         return _joins.left_join(
@@ -3793,7 +4232,9 @@ class RexGraph:
         )
 
     def outer_join(self, other: RexGraph, shared_vertices: NDArray) -> dict:
-        """Outer join (pushout) over shared vertices."""
+        """Legacy pairwise dense outer join; use :meth:`join` for primary C1."""
+        self._require_pairwise_c1("outer_join")
+        other._require_pairwise_c1("outer_join")
         if not _HAS_RCF:
             raise RuntimeError("RCF modules not available.")
         return _joins.outer_join(
@@ -3974,6 +4415,7 @@ class RexGraph:
         RexGraph with selected faces. Also stores per_context_face_count
         and per_context_void_fraction as attributes.
         """
+        self._require_pairwise_c1("context_face_selection")
         adj_ptr, adj_idx, adj_edge = self._adjacency_bundle
         result = _faces.context_face_selection(
             self.B1,
@@ -4024,6 +4466,7 @@ class RexGraph:
         RexGraph with realized faces. Also stores typed_face_result
         with void data as an attribute.
         """
+        self._require_pairwise_c1("typed_face_selection")
         adj_ptr, adj_idx, adj_edge = self._adjacency_bundle
         n_types = int(np.max(edge_type_labels)) + 1
         result = _faces.typed_face_selection(
@@ -4131,6 +4574,17 @@ class RexGraph:
         if self._nV == 0:
             return np.empty((0, 2), dtype=_f64)
 
+        if not self._is_standard_only:
+            # A primary C1 layout must not enter the endpoint/Fiedler route.
+            # These two declared-boundary observables give a deterministic,
+            # sparse structural placement for serialization and inspection:
+            # total incident boundary magnitude and oriented boundary balance.
+            # They are intentionally not presented as a spectral embedding.
+            B1 = _sparse.to_scipy_csr(self._B1_dual)
+            magnitude = np.asarray(abs(B1).sum(axis=1)).ravel()
+            balance = np.asarray(B1.sum(axis=1)).ravel()
+            return np.column_stack([magnitude, balance]).astype(_f64, copy=False)
+
         sb = self.spectral_bundle
         evecs = np.ascontiguousarray(sb['evecs_L0'], dtype=_f64)
         evals = sb['evals_L0']
@@ -4175,7 +4629,7 @@ class RexGraph:
         `clique_expansion` is still here. It is what demonstrates the loss, which is a
         reason to keep it and not a reason to compute through it.
         """
-        if self.has_branching:
+        if not self._is_standard_only:
             from rexgraph.faces import cycle_basis as _exact
             out = []
             for col in _exact(self):
@@ -4250,6 +4704,7 @@ class RexGraph:
         dict
             Contains faces, vertex_face_count, and metrics.
         """
+        self._require_pairwise_c1("face_data")
         if self._nF == 0 or self._B2_dual is None:
             return {'faces': [], 'vertex_face_count': np.zeros(self._nV, dtype=_i32), 'metrics': {}}
         src, tgt = self._ensure_src_tgt()
@@ -4449,12 +4904,11 @@ class RexGraph:
         self._ensure_clean()
         v2e_ptr, v2e_idx = self._v2e
         e2f_ptr, e2f_idx = self._e2f
-        src, tgt = self._ensure_src_tgt()
-
-        return _rex.hyperslice(
-            dim, idx,
+        # ``core._rex.hyperslice`` dispatches from the boundary CSR whenever
+        # it is supplied, so the arity-general kernel neither needs nor should
+        # receive a fabricated endpoint shadow.
+        kw = dict(
             v2e_ptr=v2e_ptr, v2e_idx=v2e_idx,
-            sources=src, targets=tgt,
             boundary_ptr=np.ascontiguousarray(self._boundary_ptr, dtype=_i32),
             boundary_idx=np.ascontiguousarray(self._boundary_idx, dtype=_i32),
             e2f_ptr=e2f_ptr, e2f_idx=e2f_idx,
@@ -4462,6 +4916,10 @@ class RexGraph:
             B2_col_ptr=self._B2_col_ptr,
             B2_row_idx=self._B2_row_idx,
         )
+        if self._is_standard_only:
+            src, tgt = self._ensure_src_tgt()
+            kw.update(sources=src, targets=tgt)
+        return _rex.hyperslice(dim, idx, **kw)
 
     def hyperslice_telescope(self, dim: int, idx: int, depth: int = 1) -> dict:
         result = {"center": (dim, idx)}
@@ -5171,11 +5629,17 @@ class RexGraph:
         trajectory = _spg.heat_trajectory(op, f_E, times)     # (T, nE), matrix-free
 
         sb = self.spectral_bundle
-        src, tgt = self._ensure_src_tgt()
         ag = self.alpha_G
         if ag != ag:
             ag = 0.0
 
+        kwargs = {}
+        if self._is_standard_only:
+            src, tgt = self._ensure_src_tgt()
+            kwargs.update(
+                edge_src=np.ascontiguousarray(src, dtype=_i32),
+                edge_tgt=np.ascontiguousarray(tgt, dtype=_i32),
+            )
         return _signal.analyze_perturbation(
             f_E, f_F,
             self.L1_down, self.L1_up,                 # kinetic=gradient, potential=curl (matches RL_1)
@@ -5185,10 +5649,9 @@ class RexGraph:
             L0=sb.get('L0'),
             L2_op=sb.get('L2'),
             RL1=self.relational_laplacian,
-            edge_src=np.ascontiguousarray(src, dtype=_i32),
-            edge_tgt=np.ascontiguousarray(tgt, dtype=_i32),
             alpha_G=ag,
             precomputed_trajectory=trajectory,
+            **kwargs,
         )
 
     def analyze_perturbation_field(
@@ -6195,7 +6658,7 @@ class RexGraph:
         bi = np.asarray(self._boundary_idx)
         return [[int(v) for v in bi[bp[e]:bp[e + 1]]] for e in range(self._nE)]
 
-    def _rebuilt(self, supports, *, B2=None, w_E=None, signs=None) -> RexGraph:
+    def _rebuilt(self, supports, *, B2=None, relation_ids=None, w_E=None, signs=None) -> RexGraph:
         """A new complex over the given relation supports, carrying this one's settings.
 
         Built from a boundary CSR rather than (sources, targets), so a k-ary relation
@@ -6213,6 +6676,8 @@ class RexGraph:
             kw["w_E"] = w_E
         if signs is not None:
             kw["signs"] = signs
+        if relation_ids is not None:
+            kw["relation_ids"] = relation_ids
         if B2 is not None:
             kw["B2_col_ptr"], kw["B2_row_idx"], kw["B2_vals"] = B2
         return RexGraph(**kw)
@@ -6249,7 +6714,15 @@ class RexGraph:
 
         e_indices = np.where(keep)[0].astype(_i32)
         if e_indices.shape[0] == 0:
-            return (self._rebuilt([]), np.zeros(0, dtype=_i32), np.zeros(0, dtype=_i32))
+            return (
+                self._rebuilt(
+                    [],
+                    relation_ids=(np.zeros(0, dtype=np.int64)
+                                  if self._relation_ids is not None else None),
+                ),
+                np.zeros(0, dtype=_i32),
+                np.zeros(0, dtype=_i32),
+            )
 
         kept = [supports[int(e)] for e in e_indices]
 
@@ -6289,6 +6762,8 @@ class RexGraph:
 
         sub = self._rebuilt(
             remapped, B2=B2,
+            relation_ids=(np.asarray(self._relation_ids, dtype=np.int64)[e_indices]
+                          if self._relation_ids is not None else None),
             w_E=(np.asarray(self._w_E)[e_indices] if self._w_E is not None else None),
             signs=(np.asarray(self._signs)[e_indices]
                    if self._signs is not None else None),
@@ -6316,6 +6791,7 @@ class RexGraph:
             Each tuple is a subgraph with its vertex and edge maps
             back to the original indices.
         """
+        self._require_pairwise_c1("partition_communities")
         if self._nE <= max_size:
             return [(self,
                      np.arange(self._nV, dtype=_i32),
@@ -6535,7 +7011,6 @@ class RexGraph:
         # Star of top-degree vertices
         deg = self.degree
         top_verts = np.argsort(-deg)[:min(max_vertex_presets, self._nV)]
-        src, tgt = self._ensure_src_tgt()
 
         for vi in top_verts:
             vi = int(vi)
@@ -6757,6 +7232,8 @@ class RexGraph:
             d["w_E"] = self._w_E.tolist()
         if self._signs is not None:
             d["signs"] = np.asarray(self._signs, dtype=_f64).tolist()
+        if self._relation_ids is not None:
+            d["relation_ids"] = np.asarray(self._relation_ids, dtype=np.int64).tolist()
         if self._w_boundary:
             # Tuple keys cannot be JSON object keys; store as [key_list, value]
             # pairs so the full (edge, boundary-point) attribution survives.
@@ -6782,6 +7259,7 @@ class RexGraph:
             "w_boundary": self._w_boundary,
             "directed": self._directed,
             "signs": self._signs,
+            "relation_ids": self._relation_ids,
         }
 
     @classmethod
@@ -6796,6 +7274,7 @@ class RexGraph:
             w_boundary=d.get("w_boundary", {}),
             directed=d.get("directed", False),
             signs=d.get("signs"),
+            relation_ids=d.get("relation_ids"),
         )
 
     # New additions: shape, metadata, signatures, operators, ontology
@@ -6933,6 +7412,7 @@ class RexGraph:
 
     def malaugh_extend(self, new_src, new_tgt, new_faces=None):
         """Extend the complex (Malaugh derivative). Returns (new_rex, edge_map)."""
+        self._require_pairwise_c1("malaugh_extend")
         old_src = np.asarray(self.sources, dtype=np.int32)
         old_tgt = np.asarray(self.targets, dtype=np.int32)
         combined_src = np.concatenate([old_src, np.asarray(new_src, dtype=np.int32)])
@@ -6978,23 +7458,120 @@ class RexGraph:
 TemporalDelta = namedtuple(
     "TemporalDelta",
     "born_cols born_offsets born_wE born_signs died_keys mod_keys mod_wE mod_signs "
-    "mod_heads directed",
-    defaults=(None, False),
+    "mod_heads born_ids died_ids mod_ids mod_cols mod_offsets directed",
+    defaults=(None, None, None, None, None, None, False),
 )
 
 
 def make_edge_delta(prev_ptr, prev_idx, prev_wE, prev_signs,
-                    curr_ptr, curr_idx, curr_wE, curr_signs, directed=False):
+                    curr_ptr, curr_idx, curr_wE, curr_signs, directed=False, *,
+                    prev_relation_ids=None, curr_relation_ids=None):
     """Build a TemporalDelta from two cell-states, stamping `directed` so the record
     faithfully carries the key-encoding scheme its keys were computed with. Always
     construct edge deltas through this helper, never `TemporalDelta(*kernel_return)`
     directly (the kernel returns 9 arrays and does not carry `directed`, so a raw
     construction would default `directed` to False and mis-key a directed delta on
     replay)."""
+    if prev_relation_ids is not None or curr_relation_ids is not None:
+        if prev_relation_ids is None or curr_relation_ids is None:
+            raise ValueError(
+                "a temporal transition must either carry relation_ids on both C1 "
+                "snapshots or on neither"
+            )
+        return _make_identity_edge_delta(
+            prev_ptr, prev_idx, prev_wE, prev_signs, prev_relation_ids,
+            curr_ptr, curr_idx, curr_wE, curr_signs, curr_relation_ids,
+            directed=directed,
+        )
+
     from rexgraph.core._temporal import encode_delta_full
     arrays = encode_delta_full(prev_ptr, prev_idx, prev_wE, prev_signs,
                                curr_ptr, curr_idx, curr_wE, curr_signs, directed)
     return TemporalDelta(*arrays, directed=directed)
+
+
+def _make_identity_edge_delta(
+    prev_ptr, prev_idx, prev_wE, prev_signs, prev_relation_ids,
+    curr_ptr, curr_idx, curr_wE, curr_signs, curr_relation_ids,
+    *, directed: bool,
+) -> TemporalDelta:
+    """Build an exact C1-instance delta without support-key projection.
+
+    A relation ID carries persistence even when two cells have identical support.
+    When one persistent relation changes its boundary support, its ID remains the
+    address and ``mod_cols/mod_offsets`` carries the new sparse boundary column.
+    Thus a physical relation can change its boundary without being invented as an
+    unrelated death plus birth; head-only changes remain the compact ``mod_heads``
+    form.
+    """
+    pp, pi = np.asarray(prev_ptr), np.asarray(prev_idx)
+    cp, ci = np.asarray(curr_ptr), np.asarray(curr_idx)
+    prev_ids = _as_relation_ids(prev_relation_ids, int(pp.size - 1),
+                                 context="previous relation_ids")
+    curr_ids = _as_relation_ids(curr_relation_ids, int(cp.size - 1),
+                                 context="current relation_ids")
+    prev_pos = {int(identity): index for index, identity in enumerate(prev_ids)}
+    curr_pos = {int(identity): index for index, identity in enumerate(curr_ids)}
+    previous_set, current_set = set(prev_pos), set(curr_pos)
+    born = np.asarray(sorted(current_set - previous_set), dtype=np.int64)
+    died = np.asarray(sorted(previous_set - current_set), dtype=np.int64)
+
+    def column(ptr, idx, position):
+        return np.asarray(idx[int(ptr[position]):int(ptr[position + 1])])
+
+    born_columns = [column(cp, ci, curr_pos[int(identity)]) for identity in born]
+    born_offsets = np.zeros(born.shape[0] + 1, dtype=np.int32)
+    if born_columns:
+        born_offsets[1:] = np.cumsum([part.size for part in born_columns], dtype=np.int32)
+        born_cols = np.concatenate(born_columns).astype(ci.dtype, copy=False)
+    else:
+        born_cols = np.zeros(0, dtype=ci.dtype)
+    born_positions = np.asarray([curr_pos[int(identity)] for identity in born], dtype=np.int64)
+
+    mod_ids, mod_wE, mod_signs, mod_heads = [], [], [], []
+    changed_columns: list[NDArray] = []
+    for identity in sorted(previous_set & current_set):
+        before_position, after_position = prev_pos[identity], curr_pos[identity]
+        before = column(pp, pi, before_position)
+        after = column(cp, ci, after_position)
+        structure_changed = not np.array_equal(before, after)
+        attrs_changed = (
+            float(prev_wE[before_position]) != float(curr_wE[after_position])
+            or int(prev_signs[before_position]) != int(curr_signs[after_position])
+        )
+        if not (structure_changed or attrs_changed):
+            continue
+        mod_ids.append(identity)
+        mod_wE.append(float(curr_wE[after_position]))
+        mod_signs.append(int(curr_signs[after_position]))
+        mod_heads.append(int(after[0]) if after.size else -1)
+        # A zero-length segment is a compact statement that the support was
+        # unchanged; the head field alone restores the canonical orientation.
+        changed_columns.append(after.copy() if structure_changed else after[:0].copy())
+
+    mod_offsets = np.zeros(len(mod_ids) + 1, dtype=np.int32)
+    if changed_columns:
+        mod_offsets[1:] = np.cumsum([part.size for part in changed_columns], dtype=np.int32)
+        mod_cols = np.concatenate(changed_columns).astype(ci.dtype, copy=False)
+    else:
+        mod_cols = np.zeros(0, dtype=ci.dtype)
+    return TemporalDelta(
+        born_cols=born_cols,
+        born_offsets=born_offsets,
+        born_wE=np.asarray(curr_wE, dtype=_f64)[born_positions],
+        born_signs=np.asarray(curr_signs, dtype=_i32)[born_positions],
+        died_keys=np.zeros(0, dtype=np.int64),
+        mod_keys=np.zeros(0, dtype=np.int64),
+        mod_wE=np.asarray(mod_wE, dtype=_f64),
+        mod_signs=np.asarray(mod_signs, dtype=_i32),
+        mod_heads=np.asarray(mod_heads, dtype=np.int64),
+        born_ids=born,
+        died_ids=died,
+        mod_ids=np.asarray(mod_ids, dtype=np.int64),
+        mod_cols=mod_cols,
+        mod_offsets=mod_offsets,
+        directed=directed,
+    )
 
 
 def _cell_state(rex):
@@ -7151,12 +7728,83 @@ def _temporal_state_needs_identity_checkpoint(face_state) -> bool:
     return _has_repeated_keys(face_keys)
 
 
+def _temporal_face_state_needs_identity_checkpoint(face_state) -> bool:
+    """Whether the legacy face-key delta is ambiguous, independent of C1 IDs.
+
+    C1 relation IDs repair parallel primary-relation identity.  A C2 delta still
+    addresses its boundary by legacy relation keys, so it needs its own face-ID
+    carrier before a duplicated C1 support can occur in a changing face state.
+    Empty C2 is unambiguous and does not force a full checkpoint.
+    """
+    b2cp, b2ri, _b2v, edge_keys = face_state
+    if len(b2cp) <= 1:
+        return False
+    if _has_repeated_keys(edge_keys):
+        return True
+    return _has_repeated_keys(face_key_of(b2cp, b2ri, edge_keys))
+
+
+def _require_temporal_kernel_identity(snapshots, *, general: bool, directed: bool,
+                                      operation: str) -> None:
+    """Prove that a support-keyed temporal kernel has an unambiguous C1 carrier.
+
+    Checkpoints preserve repeated relation supports as a multiset, so reconstruction is
+    safe without an external identity field. Index/lifecycle/delta summaries are a
+    different contract: their current Cython lanes key C1 by support and cannot tell two
+    parallel relations apart. Refuse those summaries until temporal relation IDs are
+    supplied rather than collapsing two primary relations into one history.
+
+    The branching-key lane uses a 64-bit hash for speed. It is checked against its full
+    support tuple here, so a hash alias is also refused instead of becoming a false
+    persistence event.
+    """
+    from rexgraph.core._temporal import cell_keys_of
+
+    key_support: dict[int, tuple[int, ...]] = {}
+    for step, snapshot in enumerate(snapshots):
+        if general:
+            ptr, idx = (np.asarray(snapshot[0]), np.asarray(snapshot[1]))
+        else:
+            src, tgt = (np.asarray(snapshot[0]), np.asarray(snapshot[1]))
+            if src.shape != tgt.shape:
+                raise ValueError(f"temporal snapshot {step} has mismatched C1 endpoint arrays")
+            ptr = np.arange(0, 2 * src.size + 1, 2, dtype=_i32)
+            idx = np.empty(2 * src.size, dtype=_i32)
+            idx[0::2] = src.astype(_i32, copy=False)
+            idx[1::2] = tgt.astype(_i32, copy=False)
+
+        kernel_keys = np.asarray(cell_keys_of(ptr, idx, directed), dtype=np.int64)
+        supports: set[tuple[int, ...]] = set()
+        for relation in range(int(ptr.size - 1)):
+            lo, hi = int(ptr[relation]), int(ptr[relation + 1])
+            column = tuple(int(vertex) for vertex in idx[lo:hi])
+            support = column if len(column) == 2 and directed else tuple(sorted(column))
+            if support in supports:
+                raise ValueError(
+                    f"{operation} requires stable relation IDs: snapshot {step} has "
+                    f"parallel C1 relations with boundary support {support!r}. "
+                    "Checkpoint reconstruction is exact, but a support-keyed temporal "
+                    "summary cannot represent their independent histories."
+                )
+            supports.add(support)
+            kernel_key = int(kernel_keys[relation])
+            prior = key_support.setdefault(kernel_key, support)
+            if prior != support:
+                raise ValueError(
+                    f"{operation} found a temporal support-key collision between {prior!r} "
+                    f"and {support!r}; supply stable relation IDs before using this "
+                    "key-indexed temporal analysis."
+                )
+
+
 def apply_edge_delta(rex, delta):
     """Fold a TemporalDelta onto a live RexGraph via in-place mutators (O(delta)).
 
     `delta.directed` selects the same key-encoding scheme the delta's own keys
     were built with, so the live rex's recomputed keys line up with died_keys/
     mod_keys."""
+    if delta.born_ids is not None:
+        return _apply_identity_edge_delta(rex, delta)
     from rexgraph.core._temporal import cell_keys_of
     # 1. died: mask current cells whose key is in delta.died_keys
     if delta.died_keys.shape[0]:
@@ -7204,6 +7852,97 @@ def apply_edge_delta(rex, delta):
             _set_cell_heads(rex, idx, np.asarray(delta.mod_heads))
 
 
+def _append_identity_cells(rex, columns, identities, weights, signs) -> None:
+    """Append exact C1 cells with their already-validated persistent identities."""
+    arity2 = [i for i, column in enumerate(columns) if len(column) == 2]
+    other = [i for i, column in enumerate(columns) if len(column) != 2]
+    ids = np.asarray(identities, dtype=np.int64)
+    if arity2:
+        rex.add_edges(
+            np.asarray([columns[i][0] for i in arity2], dtype=_i32),
+            np.asarray([columns[i][1] for i in arity2], dtype=_i32),
+            relation_ids=ids[arity2],
+            w_E=np.asarray(weights, dtype=_f64)[arity2],
+            signs=np.asarray(signs, dtype=_i32)[arity2],
+        )
+    if other:
+        rex.add_hyperedges(
+            [columns[i] for i in other],
+            relation_ids=ids[other],
+            w_E=np.asarray(weights, dtype=_f64)[other],
+            signs=np.asarray(signs, dtype=_i32)[other],
+        )
+
+
+def _apply_identity_edge_delta(rex, delta):
+    """Replay a relation-ID delta without reducing C1 cells to support keys."""
+    rex._ensure_clean()
+    if rex.relation_ids is None:
+        raise ValueError(
+            "apply_edge_delta received an identity-addressed delta, but the live "
+            "RexGraph has no relation_ids"
+        )
+    identities = np.asarray(rex.relation_ids, dtype=np.int64)
+    pos = {int(identity): index for index, identity in enumerate(identities)}
+
+    # Structural modifications replace one column in the ID-addressed basis.  Remove
+    # them together with deaths, materialize once, then append their replacement with
+    # the SAME ID; mere head/attribute changes stay in place below.
+    structural_mod = []
+    mod_ids = _as_relation_ids(delta.mod_ids, len(delta.mod_wE),
+                                context="modified relation_ids")
+    if delta.mod_offsets is None or len(delta.mod_offsets) != len(mod_ids) + 1:
+        raise ValueError("identity delta has malformed modified-boundary offsets")
+    for i, _identity in enumerate(mod_ids):
+        if int(delta.mod_offsets[i + 1]) > int(delta.mod_offsets[i]):
+            structural_mod.append(i)
+
+    remove_ids = set(int(identity) for identity in np.asarray(delta.died_ids, dtype=np.int64))
+    remove_ids.update(int(mod_ids[i]) for i in structural_mod)
+    if remove_ids:
+        missing = sorted(remove_ids - set(pos))
+        if missing:
+            raise ValueError(
+                "apply_edge_delta: relation IDs absent from the live complex: "
+                f"{missing[:8]!r}"
+            )
+        mask = np.zeros(rex.nE, dtype=_i32)
+        for identity in remove_ids:
+            mask[pos[identity]] = 1
+        rex.remove_edges(mask)
+        rex._ensure_clean()
+
+    born_count = int(delta.born_offsets.shape[0] - 1)
+    born_ids = _as_relation_ids(delta.born_ids, born_count, context="born relation_ids")
+    born_columns = [np.asarray(
+        delta.born_cols[delta.born_offsets[i]:delta.born_offsets[i + 1]]
+    ) for i in range(born_count)]
+    if born_count:
+        _append_identity_cells(rex, born_columns, born_ids, delta.born_wE, delta.born_signs)
+
+    if structural_mod:
+        columns = [np.asarray(delta.mod_cols[
+            delta.mod_offsets[i]:delta.mod_offsets[i + 1]
+        ]) for i in structural_mod]
+        _append_identity_cells(
+            rex, columns, mod_ids[np.asarray(structural_mod, dtype=np.int64)],
+            np.asarray(delta.mod_wE)[structural_mod], np.asarray(delta.mod_signs)[structural_mod],
+        )
+
+    rex._ensure_clean()
+    pos = {int(identity): index for index, identity in enumerate(np.asarray(rex.relation_ids))}
+    if len(mod_ids):
+        try:
+            indices = np.asarray([pos[int(identity)] for identity in mod_ids], dtype=_i32)
+        except KeyError as exc:
+            raise ValueError(
+                f"apply_edge_delta: modified relation ID {exc.args[0]} is not live after replay"
+            ) from exc
+        rex.set_cell_attrs(indices, w_E=np.asarray(delta.mod_wE), signs=np.asarray(delta.mod_signs))
+        if delta.mod_heads is not None:
+            _set_cell_heads(rex, indices, np.asarray(delta.mod_heads))
+
+
 def apply_face_delta(rex, fdelta):
     """Fold a FaceDelta onto a live RexGraph. Resolve born-face edge-keys to
     current edge indices, add_faces; build the removal mask from
@@ -7241,6 +7980,7 @@ class TemporalRex:
     __slots__ = (
         "__dict__",
         "_snapshots",
+        "_snapshot_relation_ids",
         "_face_snapshots",
         "_directed",
         "_general",
@@ -7267,6 +8007,7 @@ class TemporalRex:
         snapshots: list,
         *,
         face_snapshots: list | None = None,
+        relation_ids: list[NDArray | None] | None = None,
         directed: bool = False,
         general: bool = False,
     ):
@@ -7292,6 +8033,22 @@ class TemporalRex:
                     "and would carry no w_E or signs. To keep edge attribution, start from "
                     "TemporalRex([]) and call append_snapshot(rex) for each one.")
         self._snapshots = snapshots
+        if relation_ids is None:
+            self._snapshot_relation_ids = [None] * len(snapshots)
+        else:
+            if len(relation_ids) != len(snapshots):
+                raise ValueError("relation_ids must provide one C1 identity vector per snapshot")
+            self._snapshot_relation_ids = []
+            for step, (snapshot, ids) in enumerate(zip(snapshots, relation_ids, strict=True)):
+                if ids is None:
+                    self._snapshot_relation_ids.append(None)
+                    continue
+                n_cells = int(np.asarray(snapshot[0]).size) if not general else int(
+                    np.asarray(snapshot[0]).size - 1
+                )
+                self._snapshot_relation_ids.append(_as_relation_ids(
+                    ids, n_cells, context=f"relation_ids for temporal snapshot {step}"
+                ))
         self._face_snapshots = face_snapshots or []
         self._directed = directed
         self._general = general
@@ -7369,6 +8126,9 @@ class TemporalRex:
             src, tgt = snap
             kwargs = dict(sources=src, targets=tgt)
         kwargs["directed"] = self._directed
+        relation_ids = self._snapshot_relation_ids[t]
+        if relation_ids is not None:
+            kwargs["relation_ids"] = relation_ids
         kwargs["g_channel"] = self._channel_at("_g_channels", t, "raw")
         kwargs["c_channel"] = self._channel_at("_c_channels", t, "share")
 
@@ -7404,8 +8164,11 @@ class TemporalRex:
         (time, boundary_ptr, boundary_idx, w_E, signs, B2_col_ptr, B2_row_idx, B2_vals).
         Only the pieces actually present in the checkpoint are passed through, so
         a checkpoint with no attribution/faces seeds a bare connectivity rex."""
-        _, bp, bi, wE, signs, b2cp, b2ri, b2v = checkpoint
+        _, bp, bi, wE, signs, b2cp, b2ri, b2v, *identity = checkpoint
+        relation_ids = identity[0] if identity else None
         kw = dict(boundary_ptr=bp, boundary_idx=bi, directed=self._directed)
+        if relation_ids is not None:
+            kw["relation_ids"] = relation_ids
         if wE is not None:
             kw["w_E"] = wE
         if signs is not None:
@@ -7422,7 +8185,11 @@ class TemporalRex:
         and face state readers."""
         bp, bi, wE, signs = _cell_state(rex)
         b2cp, b2ri, b2v, _ = _face_state(rex)
-        return (t, bp.copy(), bi.copy(), wE, signs, b2cp.copy(), b2ri.copy(), b2v.copy())
+        relation_ids = rex.relation_ids
+        return (
+            t, bp.copy(), bi.copy(), wE, signs, b2cp.copy(), b2ri.copy(), b2v.copy(),
+            None if relation_ids is None else relation_ids.copy(),
+        )
 
     def _checkpoint_of(self, rex: RexGraph, t: int) -> tuple:
         """Full-state checkpoint tuple for `rex` at time `t` (thin alias over
@@ -7470,6 +8237,7 @@ class TemporalRex:
         nE = int(cp.shape[0] - 1)
         cw = np.zeros(nE, _f64) if cw is None else np.asarray(cw, _f64)
         cs = np.ones(nE, _i32) if cs is None else np.asarray(cs, _i32)
+        relation_ids = rex.relation_ids
         curr_face_state = _face_state(rex)
 
         if self._last_state is None:
@@ -7481,11 +8249,23 @@ class TemporalRex:
             self._index_face_deltas.append(None)
             self._cumulative_delta = 0
         else:
-            pp, pi, pw, ps = self._last_state
-            identity_checkpoint = (
-                _temporal_state_needs_identity_checkpoint(self._last_face_state)
-                or _temporal_state_needs_identity_checkpoint(curr_face_state)
-            )
+            pp, pi, pw, ps, previous_relation_ids = self._last_state
+            if (previous_relation_ids is None) != (relation_ids is None):
+                raise ValueError(
+                    "a TemporalRex history cannot switch between anonymous C1 cells "
+                    "and explicit relation_ids; construct every snapshot with the "
+                    "same identity policy"
+                )
+            if relation_ids is None:
+                identity_checkpoint = (
+                    _temporal_state_needs_identity_checkpoint(self._last_face_state)
+                    or _temporal_state_needs_identity_checkpoint(curr_face_state)
+                )
+            else:
+                identity_checkpoint = (
+                    _temporal_face_state_needs_identity_checkpoint(self._last_face_state)
+                    or _temporal_face_state_needs_identity_checkpoint(curr_face_state)
+                )
             if identity_checkpoint:
                 self._index_checkpoints[t] = self._checkpoint_of(rex, t)
                 self._index_cp_times = np.append(self._index_cp_times, t).astype(np.int64)
@@ -7493,18 +8273,24 @@ class TemporalRex:
                 self._index_face_deltas.append(None)
                 self._cumulative_delta = 0
             else:
-                d = make_edge_delta(pp, pi, pw, ps, cp, ci, cw, cs, self._directed)
+                d = make_edge_delta(
+                    pp, pi, pw, ps, cp, ci, cw, cs, self._directed,
+                    prev_relation_ids=previous_relation_ids,
+                    curr_relation_ids=relation_ids,
+                )
                 fd = make_face_delta(self._last_face_state, curr_face_state, self._directed) if face else None
 
                 n_born = int(d.born_offsets.shape[0] - 1)
-                n_died = int(d.died_keys.shape[0])
+                n_died = int(
+                    d.died_ids.shape[0] if d.died_ids is not None else d.died_keys.shape[0]
+                )
                 # Modifications count too. Existence and orientation are independent
                 # conditions of the composite binary, so a cell reversing orientation is
                 # a real change to replay, not a weaker form of one appearing. Counting
                 # only born+died meant a history made entirely of reversals (the normal
                 # case wherever direction carries the signal) registered zero churn,
                 # never checkpointed, and left reconstruct_at replaying the whole chain.
-                n_mod = int(d.mod_keys.shape[0])
+                n_mod = int(d.mod_ids.shape[0] if d.mod_ids is not None else d.mod_keys.shape[0])
                 self._cumulative_delta += n_born + n_died + n_mod
 
                 if nE > 0 and (self._cumulative_delta / nE) > self._checkpoint_threshold:
@@ -7518,9 +8304,31 @@ class TemporalRex:
                     self._index_face_deltas.append(fd)
 
         if record_snapshot and self._snapshots_materialized:
-            self._snapshots.append((cp, ci) if self._general else (rex.sources, rex.targets))
+            if self._general:
+                self._snapshots.append((cp, ci))
+            else:
+                if rex._is_standard_only:
+                    self._snapshots.append((rex.sources, rex.targets))
+                elif t == 0:
+                    # An empty store has no established carrier.  Promote it
+                    # to the boundary-CSR temporal representation rather than
+                    # reject a perfectly valid first primary C1 snapshot or
+                    # manufacture a pairwise shadow.  Once a standard step
+                    # exists, changing representations would make prior deltas
+                    # ambiguous and is declined below.
+                    self._general = True
+                    self._encoding = "general"
+                    self._snapshots.append((cp, ci))
+                else:
+                    rex._require_pairwise_c1(
+                        "a standard TemporalRex snapshot"
+                    )
+            self._snapshot_relation_ids.append(
+                None if relation_ids is None else relation_ids.copy()
+            )
 
-        self._last_state = (cp, ci, cw, cs)
+        self._last_state = (cp, ci, cw, cs,
+                            None if relation_ids is None else relation_ids.copy())
         self._last_face_state = curr_face_state
         self._T = t + 1
         while len(self._times) < self._T:
@@ -7636,20 +8444,29 @@ class TemporalRex:
         checkpoint = self._index_checkpoints[c]
         if c == t:
             return self._restore_channels(self._seed_rex(checkpoint), t)
-        _, bp, bi, wE, signs, b2cp, b2ri, b2v = checkpoint
+        _, bp, bi, wE, signs, b2cp, b2ri, b2v, *identity = checkpoint
+        relation_ids = identity[0] if identity else None
         directed = self._directed
 
-        # live cells: canonical key -> [column (original vertex ids), w_E, sign]
+        # Live cells are addressed by a caller-supplied relation ID when one was
+        # persisted.  The legacy branch uses a support key and remains intentionally
+        # unable to replay a parallel relation state.
         cells = {}
         seed_keys = cell_keys_of(np.asarray(bp), np.asarray(bi), directed)
-        if _has_repeated_keys(seed_keys):
+        identity_mode = relation_ids is not None
+        if not identity_mode and _has_repeated_keys(seed_keys):
             raise ValueError(
                 "reconstruct_at: a checkpoint with parallel relations precedes a "
                 "key-level delta; this legacy index lacks relation identity and "
                 "cannot be replayed without changing the complex")
+        if identity_mode:
+            relation_ids = _as_relation_ids(
+                relation_ids, len(bp) - 1, context="checkpoint relation_ids"
+            )
         for j in range(len(bp) - 1):
             col = np.asarray(bi[bp[j]:bp[j + 1]]).copy()
-            cells[int(seed_keys[j])] = [
+            key = int(relation_ids[j]) if identity_mode else int(seed_keys[j])
+            cells[key] = [
                 col,
                 float(wE[j]) if wE is not None else 0.0,
                 int(signs[j]) if signs is not None else 1,
@@ -7674,35 +8491,83 @@ class TemporalRex:
         for k in range(c + 1, t + 1):
             d = self._index_deltas[k]
             if d is not None:
-                if _has_repeated_keys(d.died_keys) or _has_repeated_keys(d.mod_keys):
-                    raise ValueError(
-                        f"reconstruct_at: step {k} contains repeated relation keys; "
-                        "this legacy delta lacks relation identity")
-                for key in d.died_keys:
-                    cells.pop(int(key), None)
-                nb = int(d.born_offsets.shape[0] - 1)
-                for i in range(nb):
-                    col = np.asarray(d.born_cols[d.born_offsets[i]:d.born_offsets[i + 1]]).copy()
-                    bk = int(cell_keys_of(np.array([0, len(col)], dtype=col.dtype),
-                                          col, d.directed)[0])
-                    if bk in cells:
+                if d.born_ids is not None:
+                    if not identity_mode:
                         raise ValueError(
-                            f"reconstruct_at: relation key {bk} collides at step {k}; "
-                            "this legacy delta cannot represent parallel relations "
-                            "without changing the complex")
-                    cells[bk] = [col, float(d.born_wE[i]), int(d.born_signs[i])]
-                for i in range(len(d.mod_keys)):
-                    mk = int(d.mod_keys[i])
-                    if mk not in cells:
+                            "reconstruct_at: an identity-addressed delta follows an "
+                            "anonymous checkpoint")
+                    for identity in np.asarray(d.died_ids, dtype=np.int64):
+                        cells.pop(int(identity), None)
+                    nb = int(d.born_offsets.shape[0] - 1)
+                    born_ids = _as_relation_ids(
+                        d.born_ids, nb, context=f"born relation_ids at step {k}"
+                    )
+                    for i, identity in enumerate(born_ids):
+                        key = int(identity)
+                        if key in cells:
+                            raise ValueError(
+                                f"reconstruct_at: born relation ID {key} is already live "
+                                f"at step {k}; an identity can name only one C1 cell")
+                        col = np.asarray(
+                            d.born_cols[d.born_offsets[i]:d.born_offsets[i + 1]]
+                        ).copy()
+                        cells[key] = [col, float(d.born_wE[i]), int(d.born_signs[i])]
+                    mod_ids = _as_relation_ids(
+                        d.mod_ids, len(d.mod_wE),
+                        context=f"modified relation_ids at step {k}",
+                    )
+                    if d.mod_offsets is None or len(d.mod_offsets) != len(mod_ids) + 1:
                         raise ValueError(
-                            "reconstruct_at: modified-cell key %d absent from the "
-                            "live cell set at step %d; a persisting cell must "
-                            "resolve, so the index was built out of order" % (mk, k))
-                    cells[mk][1] = float(d.mod_wE[i])
-                    cells[mk][2] = int(d.mod_signs[i])
-                    if d.mod_heads is not None:
-                        _head_to_front(cells[mk][0], cells[mk][0].dtype.type(
-                            d.mod_heads[i]))
+                            f"reconstruct_at: identity delta at step {k} has malformed "
+                            "modified-boundary offsets")
+                    for i, identity in enumerate(mod_ids):
+                        key = int(identity)
+                        if key not in cells:
+                            raise ValueError(
+                                f"reconstruct_at: modified relation ID {key} absent from the "
+                                f"live cell set at step {k}; a persisting cell must resolve"
+                            )
+                        lo, hi = int(d.mod_offsets[i]), int(d.mod_offsets[i + 1])
+                        if hi > lo:
+                            cells[key][0] = np.asarray(d.mod_cols[lo:hi]).copy()
+                        cells[key][1] = float(d.mod_wE[i])
+                        cells[key][2] = int(d.mod_signs[i])
+                        if d.mod_heads is not None:
+                            _head_to_front(cells[key][0], cells[key][0].dtype.type(
+                                d.mod_heads[i]))
+                else:
+                    if _has_repeated_keys(d.died_keys) or _has_repeated_keys(d.mod_keys):
+                        raise ValueError(
+                            f"reconstruct_at: step {k} contains repeated relation keys; "
+                            "this legacy delta lacks relation identity")
+                    for key in d.died_keys:
+                        cells.pop(int(key), None)
+                    nb = int(d.born_offsets.shape[0] - 1)
+                    for i in range(nb):
+                        col = np.asarray(
+                            d.born_cols[d.born_offsets[i]:d.born_offsets[i + 1]]
+                        ).copy()
+                        bk = int(cell_keys_of(np.array([0, len(col)], dtype=col.dtype),
+                                              col, d.directed)[0])
+                        if bk in cells:
+                            raise ValueError(
+                                f"reconstruct_at: relation key {bk} collides at step {k}; "
+                                "this legacy delta cannot represent parallel relations "
+                                "without changing the complex")
+                        cells[bk] = [col, float(d.born_wE[i]), int(d.born_signs[i])]
+                    for i in range(len(d.mod_keys)):
+                        mk = int(d.mod_keys[i])
+                        if mk not in cells:
+                            raise ValueError(
+                                f"reconstruct_at: modified-cell key {mk} absent from the "
+                                f"live cell set at step {k}; a persisting cell must "
+                                "resolve, so the index was built out of order"
+                            )
+                        cells[mk][1] = float(d.mod_wE[i])
+                        cells[mk][2] = int(d.mod_signs[i])
+                        if d.mod_heads is not None:
+                            _head_to_front(cells[mk][0], cells[mk][0].dtype.type(
+                                d.mod_heads[i]))
             fd = self._index_face_deltas[k] if self._index_face_deltas else None
             if fd is not None:
                 if _has_repeated_keys(fd.died_face_keys):
@@ -7727,15 +8592,26 @@ class TemporalRex:
         # build ONE RexGraph, preserving original vertex ids (no renumber)
         ordered = list(cells.items())
         key_to_pos = {key: p for p, (key, _cell) in enumerate(ordered)}
+        support_key_to_pos = {}
         ptr = [0]
         idx = []
         wl = []
         sl = []
-        for _key, (col, w, s) in ordered:
+        for position, (_key, (col, w, s)) in enumerate(ordered):
             idx.extend(int(v) for v in col)
             ptr.append(len(idx))
             wl.append(w)
             sl.append(s)
+            if identity_mode and faces:
+                support_key = int(cell_keys_of(
+                    np.array([0, len(col)], dtype=np.asarray(col).dtype), col, directed
+                )[0])
+                if support_key in support_key_to_pos:
+                    raise ValueError(
+                        "reconstruct_at: a legacy face delta would need to resolve two "
+                        "parallel relation supports; persist face IDs before mixing it "
+                        "with relation-ID deltas")
+                support_key_to_pos[support_key] = position
         idx_dtype = bi.dtype if len(bi) else _i32
         kw = dict(
             boundary_ptr=np.array(ptr, dtype=idx_dtype),
@@ -7747,10 +8623,13 @@ class TemporalRex:
             kw["w_E"] = np.array(wl, dtype=_f64)
         if any(s != 1 for s in sl):
             kw["signs"] = np.array(sl, dtype=_i32)
+        if identity_mode:
+            kw["relation_ids"] = np.asarray([key for key, _cell in ordered], dtype=np.int64)
         if faces:
             fcp = [0]
             fri = []
             fv = []
+            face_pos = support_key_to_pos if identity_mode else key_to_pos
             for _fk, (eks, fsg) in faces.items():
                 # a face whose edge died mid-replay was already popped from
                 # `faces` by died_face_keys/died_keys upstream in the normal
@@ -7758,12 +8637,13 @@ class TemporalRex:
                 # to the wrong (reused) column position.
                 for ek in eks:
                     ek_i = int(ek)
-                    if ek_i not in key_to_pos:
+                    if ek_i not in face_pos:
                         raise ValueError(
-                            "reconstruct_at: face references edge key %d not in "
+                            f"reconstruct_at: face references edge key {ek_i} not in "
                             "the live cell set; a face delta must be replayed "
-                            "AFTER its edges' delta for the same step" % ek_i)
-                    fri.append(key_to_pos[ek_i])
+                            "AFTER its edges' delta for the same step"
+                        )
+                    fri.append(face_pos[ek_i])
                 fcp.append(len(fri))
                 fv.extend(float(x) for x in fsg)
             kw.update(
@@ -7802,6 +8682,27 @@ class TemporalRex:
             return [_cell_state(snap)[:2] for snap in snaps]
         return [(snap.sources, snap.targets) for snap in snaps]
 
+    def _relation_id_snapshots(self) -> list[NDArray] | None:
+        """Return the complete temporal C1 identity carrier, or ``None``.
+
+        Mixing anonymous and identified snapshots is rejected at index-build time;
+        this defensive read catches an externally assembled delta index as well.
+        IDs are materialized from reconstructed snapshots for a delta-backed store,
+        so the result is independent of whether the history currently retains raw
+        snapshots in memory.
+        """
+        if self._T == 0:
+            return None
+        identities = [self._snapshot_at(t).relation_ids for t in range(self._T)]
+        if all(value is None for value in identities):
+            return None
+        if any(value is None for value in identities):
+            raise ValueError(
+                "temporal relation identity is partial: every snapshot must either "
+                "carry relation_ids or remain anonymous"
+            )
+        return [np.asarray(value, dtype=np.int64) for value in identities]
+
     def _face_snapshot_pairs(self) -> list:
         """`_face_snapshots` trimmed to the plain `(B2_col_ptr, B2_row_idx)`
         shape the temporal Cython kernels expect. Each stored entry may be a
@@ -7813,14 +8714,45 @@ class TemporalRex:
 
     @cached_property
     def temporal_index(self) -> tuple:
+        identity_snapshots = self._relation_id_snapshots()
+        if identity_snapshots is not None:
+            # The Cython index's external shape is support-keyed.  Returning it
+            # for parallel IDs would silently relabel the basis, so expose the
+            # already-built exact relation-ID checkpoint/delta records instead.
+            self._ensure_index()
+            checkpoints = [self._index_checkpoints[int(t)] for t in self._index_cp_times]
+            return checkpoints, list(self._index_deltas), self._index_cp_times.copy()
         snaps = self._snapshot_pairs()
+        _require_temporal_kernel_identity(
+            snaps, general=self._general, directed=self._directed, operation="temporal_index"
+        )
         if self._general:
             return _temporal.build_temporal_index_general(snaps)
         return _temporal.build_temporal_index(snaps, self._directed)
 
     @cached_property
     def edge_lifecycle(self) -> tuple:
+        identity_snapshots = self._relation_id_snapshots()
+        if identity_snapshots is not None:
+            first_seen, last_seen = {}, {}
+            for t, identities in enumerate(identity_snapshots):
+                for identity in identities:
+                    key = int(identity)
+                    first_seen.setdefault(key, t)
+                    last_seen[key] = t
+            ordered = sorted(first_seen)
+            return (
+                np.asarray(ordered, dtype=np.int64),
+                np.asarray([first_seen[key] for key in ordered], dtype=np.int32),
+                np.asarray([
+                    -1 if last_seen[key] == self._T - 1 else last_seen[key] + 1
+                    for key in ordered
+                ], dtype=np.int32),
+            )
         snaps = self._snapshot_pairs()
+        _require_temporal_kernel_identity(
+            snaps, general=self._general, directed=self._directed, operation="edge_lifecycle"
+        )
         if self._general:
             return _temporal.edge_lifecycle_general(snaps)
         return _temporal.edge_lifecycle(snaps, self._directed)
@@ -7834,7 +8766,16 @@ class TemporalRex:
         face_event_threshold: int = 1,
         min_shared: int = 1,
     ) -> tuple:
+        if self._relation_id_snapshots() is not None:
+            raise ValueError(
+                "bioes currently has a support-keyed C2 lifecycle kernel; relation IDs "
+                "make C1 exact but a face-ID carrier is required before this mixed-grade "
+                "summary can be computed without projection"
+            )
         snaps = self._snapshot_pairs()
+        _require_temporal_kernel_identity(
+            snaps, general=self._general, directed=self._directed, operation="bioes"
+        )
         face_snaps = self._face_snapshot_pairs()
         if self._general:
             return _temporal.compute_bioes_unified_general(
@@ -7870,6 +8811,7 @@ class TemporalRex:
         """
         self._ensure_index()
         d = self.delta_tensor()
+        identity_snapshots = self._relation_id_snapshots()
         if len(d["t"]) == 0:
             return {k: np.asarray([], dtype=dt) for k, dt in
                     (("t", np.int64), ("when", _f64), ("died_key", np.int64),
@@ -7884,7 +8826,11 @@ class TemporalRex:
             rex = self.reconstruct_at(t)
             rex._ensure_clean()
             bp, bi = rex._boundary_ptr, rex._boundary_idx
-            keys = np.asarray(cell_keys_of(bp, bi, self._directed), dtype=np.int64)
+            keys = (
+                np.asarray(rex.relation_ids, dtype=np.int64)
+                if identity_snapshots is not None
+                else np.asarray(cell_keys_of(bp, bi, self._directed), dtype=np.int64)
+            )
             for j, k in enumerate(keys):
                 verts[(t, int(k))] = set(np.asarray(bi[bp[j]:bp[j + 1]]).tolist())
 
@@ -7944,13 +8890,23 @@ class TemporalRex:
         from rexgraph.core._temporal import cell_keys_of
 
         self._ensure_index()
+        identity_snapshots = self._relation_id_snapshots()
+        if identity_snapshots is None:
+            _require_temporal_kernel_identity(
+                self._snapshot_pairs(), general=self._general, directed=self._directed,
+                operation="bioes_grid"
+            )
         T = self._T
         present, orient = [], []
         for t in range(T):
             rex = self.reconstruct_at(t)
             rex._ensure_clean()
-            keys = np.asarray(cell_keys_of(rex._boundary_ptr, rex._boundary_idx,
-                                           self._directed), dtype=np.int64)
+            keys = (
+                np.asarray(rex.relation_ids, dtype=np.int64)
+                if identity_snapshots is not None
+                else np.asarray(cell_keys_of(rex._boundary_ptr, rex._boundary_idx,
+                                               self._directed), dtype=np.int64)
+            )
             signs = rex._signs
             signs = (np.ones(keys.shape[0], _i32) if signs is None
                      else np.asarray(signs, _i32).ravel())
@@ -8042,14 +8998,24 @@ class TemporalRex:
         from rexgraph.core._temporal import cell_heads_of, cell_keys_of
 
         self._ensure_index()
-        t_out, k_out, e_out, o_out, s_out, h_out = [], [], [], [], [], []
+        identity_snapshots = self._relation_id_snapshots()
+        if identity_snapshots is None:
+            _require_temporal_kernel_identity(
+                self._snapshot_pairs(), general=self._general, directed=self._directed,
+                operation="delta_tensor"
+            )
+        t_out, k_out, e_out, o_out, s_out, h_out, b_out = [], [], [], [], [], [], []
         prev = {}
         for t in range(self._T):
             rex = self.reconstruct_at(t)
             rex._ensure_clean()
             bp = np.asarray(rex._boundary_ptr)
             bi = np.asarray(rex._boundary_idx)
-            keys = np.asarray(cell_keys_of(bp, bi, self._directed), dtype=np.int64)
+            keys = (
+                np.asarray(rex.relation_ids, dtype=np.int64)
+                if identity_snapshots is not None
+                else np.asarray(cell_keys_of(bp, bi, self._directed), dtype=np.int64)
+            )
             n = keys.shape[0]
             heads = np.asarray(cell_heads_of(bp, bi), dtype=np.int64)
             if n and bi.shape[0]:
@@ -8061,7 +9027,10 @@ class TemporalRex:
             # signs=None is the all-positive gauge, not an absent one
             signs = (np.ones(n, _i32) if signs is None
                      else np.asarray(signs, _i32).ravel())
-            curr = {int(k): (int(heads[i]), int(pol[i]), int(signs[i]))
+            curr = {int(k): (
+                int(heads[i]), int(pol[i]), int(signs[i]),
+                tuple(int(vertex) for vertex in bi[int(bp[i]):int(bp[i + 1])]),
+            )
                     for i, k in enumerate(keys)}
             if t:
                 for key, now in curr.items():
@@ -8069,7 +9038,7 @@ class TemporalRex:
                     if was is None:
                         t_out.append(t); k_out.append(key)
                         e_out.append(1); o_out.append(0); s_out.append(0)
-                        h_out.append(now[0])
+                        h_out.append(now[0]); b_out.append(0)
                     elif was != now:
                         # {-2, +2} halved: each channel is a delta of its condition,
                         # on the same {-1, 0, +1} scale as existence.
@@ -8078,11 +9047,12 @@ class TemporalRex:
                         o_out.append((now[1] - was[1]) // 2)
                         s_out.append((now[2] - was[2]) // 2)
                         h_out.append(now[0])
+                        b_out.append(int(now[3] != was[3]))
                 for key in prev:
                     if key not in curr:
                         t_out.append(t); k_out.append(key)
                         e_out.append(-1); o_out.append(0); s_out.append(0)
-                        h_out.append(-1)
+                        h_out.append(-1); b_out.append(0)
             prev = curr
 
         out = {
@@ -8093,6 +9063,7 @@ class TemporalRex:
             "orientation": np.asarray(o_out, dtype=np.int8),
             "signing": np.asarray(s_out, dtype=np.int8),
             "head": np.asarray(h_out, dtype=np.int64),
+            "boundary_changed": np.asarray(b_out, dtype=np.int8),
         }
         if not dense:
             return out
@@ -8107,7 +9078,17 @@ class TemporalRex:
 
     def temporal_persistence(self, final_rex: RexGraph | None = None) -> dict:
         R = final_rex or self._snapshot_at(self._T - 1)
+        if self._relation_id_snapshots() is not None:
+            raise ValueError(
+                "temporal_persistence currently uses a support-keyed filtration; "
+                "relation IDs require the forthcoming grade-aware filtration carrier "
+                "rather than a silent support projection"
+            )
         snaps = self._snapshot_pairs()
+        _require_temporal_kernel_identity(
+            snaps, general=self._general, directed=self._directed,
+            operation="temporal_persistence"
+        )
         if self._general:
             filt = _persistence.filtration_temporal_general(
                 snaps, R.nV, R.nE,
@@ -8132,7 +9113,21 @@ class TemporalRex:
 
         Returns (edge_counts, edge_born, edge_died) each int32[T].
         """
+        identity_snapshots = self._relation_id_snapshots()
+        if identity_snapshots is not None:
+            counts = np.asarray([ids.shape[0] for ids in identity_snapshots], dtype=np.int32)
+            born = np.zeros(self._T, dtype=np.int32)
+            died = np.zeros(self._T, dtype=np.int32)
+            for t in range(1, self._T):
+                previous = set(int(identity) for identity in identity_snapshots[t - 1])
+                current = set(int(identity) for identity in identity_snapshots[t])
+                born[t] = len(current - previous)
+                died[t] = len(previous - current)
+            return counts, born, died
         snaps = self._snapshot_pairs()
+        _require_temporal_kernel_identity(
+            snaps, general=self._general, directed=self._directed, operation="edge_metrics"
+        )
         if self._general:
             return _temporal.compute_edge_metrics_general(snaps)
         return _temporal.compute_edge_metrics(snaps, self._directed)
@@ -8145,6 +9140,10 @@ class TemporalRex:
         """
         if not self._face_snapshots or len(self._face_snapshots) != self._T:
             return None
+        _require_temporal_kernel_identity(
+            self._snapshot_pairs(), general=self._general, directed=self._directed,
+            operation="face_lifecycle_data"
+        )
         if self._general:
             return None  # general face lifecycle not yet supported
         return _temporal.face_lifecycle(

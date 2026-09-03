@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rexgraph-rcdb"
-version = "1.1.3"
+version = "1.1.4"
 description = "RCDB: a database of relational complexes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ license-files = ["LICENSE"]
 # serialize_complex, which writes safetensors bytes, and index.py reads and writes the
 # tensor index with it. Without it a store imports fine and fails on its first put, which
 # is the worst place to learn about a missing dependency.
-dependencies = ["rexgraph>=1.1.3", "numpy>=1.24", "safetensors>=0.3", "scipy>=1.10"]
+dependencies = ["rexgraph>=1.1.4", "numpy>=1.24", "safetensors>=0.3", "scipy>=1.10"]
 
 [project.optional-dependencies]
 sql = ["sqlalchemy>=2.0"]

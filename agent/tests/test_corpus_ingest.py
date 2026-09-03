@@ -8,6 +8,7 @@ addresses its own prose.
 from __future__ import annotations
 
 import os
+import pathlib
 
 import pytest
 
@@ -244,7 +245,7 @@ def _write_legacy_blobs(store):
     for id_ in list(store._idx):
         for rec in store.history(id_):
             p = store._blob_path(rec.id, rec.version)
-            raw = open(p, "rb").read()
+            raw = pathlib.Path(p).read_bytes()
             with open(p, "wb") as fh:
                 fh.write(decompress_blob(raw))
             n += 1
@@ -288,7 +289,7 @@ def test_a_blob_that_cannot_be_read_is_left_alone(tmp_path, corpus):
 
     out = store.recompress()
     assert out["failed"] == 1 and out["rewritten"] == 2
-    assert open(victim, "rb").read() == b"not a complex at all"
+    assert pathlib.Path(victim).read_bytes() == b"not a complex at all"
     assert not os.path.exists(f"{victim}.tmp")
 
 

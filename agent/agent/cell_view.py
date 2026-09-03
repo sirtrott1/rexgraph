@@ -47,7 +47,7 @@ def _named(values, names) -> dict:
 def _boundaries(rex) -> list:
     """Each relation's boundary vertices, whatever its arity."""
     rex._ensure_clean()
-    bp, bi = rex._boundary_ptr, rex._boundary_idx
+    bp, bi = rex.boundary_ptr, rex.boundary_idx
     if bp is None:
         src, tgt = rex._ensure_src_tgt()
         return [[int(s), int(t)] for s, t in zip(src, tgt, strict=True)]

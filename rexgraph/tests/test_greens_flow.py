@@ -149,4 +149,4 @@ def test_the_operator_follows_the_parameter_dtype(closed, dtype):
     (z - 1).pow(2).sum().backward()
     opt.step()
     assert opt.param_groups[0]["green_adj"].dtype == dtype
-    assert float(z.abs().sum()) > 0
+    assert float(z.abs().sum().detach()) > 0

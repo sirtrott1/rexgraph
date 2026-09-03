@@ -119,7 +119,21 @@ def hierarchy_from_knowledge(knowledge) -> TermHierarchy:
 
 
 def _weights(h: TermHierarchy, term: str, weight) -> dict:
-    """The weight each ancestor of `term` carries, as exact Fractions."""
+    """The weight each ancestor of `term` carries, as Fractions.
+
+    Exact only when the caller's weights are. A Fraction is kept as it is and the default
+    is Fraction(1), so an exact input stays exact all the way through. A float is lifted
+    with limit_denominator, and that is not exactness recovered: the float had already lost
+    whichever rational produced it, and limit_denominator returns the nearest rational
+    under the bound rather than the one the caller meant. It happens to return 1/10 for
+    0.1, which is the source of the illusion, and it will equally return a plausible ratio
+    for a float that never came from one.
+
+    The bound exists because the alternative is worse for a caller who is going to do
+    exact arithmetic downstream: Fraction(0.1) is 3602879701896397/36028797018963968, and
+    denominators like that compound through every subsequent operation. Supply Fractions
+    if the weights are meant to be exact.
+    """
     anc = h.ancestors(term)
     if weight is None:
         return {c: Fraction(1) for c in anc}

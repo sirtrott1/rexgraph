@@ -18,7 +18,16 @@ def test_no_shared_values_all_outliers():
     rows = [{"id": "a", "k": 1}, {"id": "b", "k": 2}]
     r = analyze_rows(rows, link_on="k", id_col="id")
     assert r["n_clusters"] == 2 and set(r["outliers"]) == {"a", "b"}
-    assert rows_to_complex(rows, link_on="k")[0] is None     # no edges -> no complex
+    # Records with no shared value are still declared participants, so the complex exists
+    # with two grade-zero cells and no relation. This previously asserted None, on the rule
+    # that no edges meant no complex; that rule dropped every unlinked record and made the
+    # complex an incomplete picture of the record set. An unlinked record is a participant
+    # in nothing, which is a fact the complex can hold, and not a reason for it to be absent.
+    rex, meta = rows_to_complex(rows, link_on="k")
+    assert int(rex.nV) == 2 and int(rex.nE) == 0
+    assert int(rex.betti[0]) == 2
+    # no id_col on this call, so participants are labelled by row index
+    assert meta["unattached_participants"] == ["0", "1"]
 
 
 def test_agentic_db_data_complex(tmp_path):
@@ -29,9 +38,10 @@ def test_agentic_db_data_complex(tmp_path):
         INSERT INTO orders VALUES (1,10),(2,10),(3,10),(4,20),(5,30);
     """)
     con.commit(); con.close()
-    db = AgenticDB(f"sqlite:///{path}")
-    r = db.data_complex("orders", link_on="customer_id", id_col="id")
-    assert r["n_rows"] == 5
-    assert len(r["clusters"][0]) == 3                        # customer 10's three orders
-    assert {"4", "5"} <= set(r["outliers"])                 # customers 20 and 30: one order each
-    assert r["source"] == "orders"
+    # AgenticDB owns a connection pool, so the test that opens it closes it
+    with AgenticDB(f"sqlite:///{path}") as db:
+        r = db.data_complex("orders", link_on="customer_id", id_col="id")
+        assert r["n_rows"] == 5
+        assert len(r["clusters"][0]) == 3                        # customer 10's three orders
+        assert {"4", "5"} <= set(r["outliers"])                 # customers 20 and 30: one order each
+        assert r["source"] == "orders"

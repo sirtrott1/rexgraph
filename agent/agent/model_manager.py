@@ -711,10 +711,12 @@ class ModelManager:
         local_path.mkdir(parents=True, exist_ok=True)
 
         logger.info("Downloading model: %s", model_id)
+        # No local_dir_use_symlinks: the Hub removed it from the signature, a validator
+        # absorbs it with a warning, and downloading to a local dir no longer symlinks
+        # anyway, so the argument asked for what is now the default.
         snapshot_download(
             model_id,
             local_dir=str(local_path),
-            local_dir_use_symlinks=False,
         )
 
         # Update registry

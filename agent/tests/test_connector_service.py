@@ -60,8 +60,11 @@ def test_read_validate_ingest_roundtrip(tmp_path):
     out = svc.ingest(uri, "shop", store_uri=store, tags=["demo"])
     assert out["stored_as"] == "shop"
     # persisted structure is retrievable from a freshly opened store
+    from contextlib import closing
+
     from agent.rcdb import open_store
-    got = open_store(store).get("shop")
+    with closing(open_store(store)) as reopened:      # the test opens it, the test closes it
+        got = reopened.get("shop")
     assert got is not None and got.nV == 3 and got.nE == 2
 
 
@@ -93,8 +96,11 @@ def test_cli_ingest(tmp_path):
     store = "sqlite:///" + str(tmp_path / "rcdb.sqlite")
     assert cli.main(["ingest", "sqlite:///" + dbf, "--store", store,
                      "--id", "shop", "--tags", "a,b"]) == 0
+    from contextlib import closing
+
     from agent.rcdb import open_store
-    assert open_store(store).get("shop") is not None
+    with closing(open_store(store)) as reopened:
+        assert reopened.get("shop") is not None
 
 
 def test_cli_resolves_saved_connection(tmp_path, monkeypatch):

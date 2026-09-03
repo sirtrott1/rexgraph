@@ -920,7 +920,8 @@ def temporal_rex_to_safetensors(
     checkpoint_times = [int(c) for c in trex._index_cp_times.tolist()]
     checkpoint_optional: dict[str, dict[str, bool]] = {}
     for c in checkpoint_times:
-        _, bp, bi, wE, signs, b2cp, b2ri, b2v = trex._index_checkpoints[c]
+        _, bp, bi, wE, signs, b2cp, b2ri, b2v, *identity = trex._index_checkpoints[c]
+        relation_ids = identity[0] if identity else None
         tensors[f"checkpoint/{c}/boundary_ptr"] = _as_storable(bp)
         tensors[f"checkpoint/{c}/boundary_idx"] = _as_storable(bi)
         has_wE = wE is not None
@@ -930,12 +931,15 @@ def temporal_rex_to_safetensors(
             tensors[f"checkpoint/{c}/w_E"] = _as_storable(wE)
         if has_signs:
             tensors[f"checkpoint/{c}/signs"] = _as_storable(signs)
+        if relation_ids is not None:
+            tensors[f"checkpoint/{c}/relation_ids"] = _as_storable(relation_ids)
         if has_faces_cp:
             tensors[f"checkpoint/{c}/B2_col_ptr"] = _as_storable(b2cp)
             tensors[f"checkpoint/{c}/B2_row_idx"] = _as_storable(b2ri)
             tensors[f"checkpoint/{c}/B2_vals"] = _as_storable(b2v)
         checkpoint_optional[str(c)] = {
-            "w_E": has_wE, "signs": has_signs, "faces": has_faces_cp,
+            "w_E": has_wE, "signs": has_signs, "relation_ids": relation_ids is not None,
+            "faces": has_faces_cp,
         }
 
     has_faces_any = any(v["faces"] for v in checkpoint_optional.values())
@@ -952,6 +956,10 @@ def temporal_rex_to_safetensors(
             tensors[f"delta/{t}/mod_signs"] = _as_storable(d.mod_signs)
             if d.mod_heads is not None:
                 tensors[f"delta/{t}/mod_heads"] = _as_storable(d.mod_heads)
+            for name in ("born_ids", "died_ids", "mod_ids", "mod_cols", "mod_offsets"):
+                value = getattr(d, name)
+                if value is not None:
+                    tensors[f"delta/{t}/{name}"] = _as_storable(value)
         fd = trex._index_face_deltas[t]
         if fd is not None:
             has_faces_any = True
@@ -1155,7 +1163,8 @@ def _temporal_from_loaded_delta(tensors: dict[str, NDArray], meta: dict[str, Any
         b2cp = tensors.get(f"checkpoint/{c}/B2_col_ptr")
         b2ri = tensors.get(f"checkpoint/{c}/B2_row_idx")
         b2v = tensors.get(f"checkpoint/{c}/B2_vals")
-        index_checkpoints[c] = (c, bp, bi, wE, signs, b2cp, b2ri, b2v)
+        relation_ids = tensors.get(f"checkpoint/{c}/relation_ids")
+        index_checkpoints[c] = (c, bp, bi, wE, signs, b2cp, b2ri, b2v, relation_ids)
 
     index_deltas: list[Any | None] = [None] * T
     index_face_deltas: list[Any | None] = [None] * T
@@ -1171,6 +1180,11 @@ def _temporal_from_loaded_delta(tensors: dict[str, NDArray], meta: dict[str, Any
                 mod_wE=tensors[f"delta/{t}/mod_wE"],
                 mod_signs=tensors[f"delta/{t}/mod_signs"],
                 mod_heads=tensors.get(f"delta/{t}/mod_heads"),
+                born_ids=tensors.get(f"delta/{t}/born_ids"),
+                died_ids=tensors.get(f"delta/{t}/died_ids"),
+                mod_ids=tensors.get(f"delta/{t}/mod_ids"),
+                mod_cols=tensors.get(f"delta/{t}/mod_cols"),
+                mod_offsets=tensors.get(f"delta/{t}/mod_offsets"),
                 directed=directed,
             )
         if f"face_delta/{t}/born_offsets" in tensors:

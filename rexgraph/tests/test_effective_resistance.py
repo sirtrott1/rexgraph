@@ -208,25 +208,58 @@ def test_arity_needs_the_leverage_reading_not_a_deflated_solve():
     assert float(got.sum()) == pytest.approx(int(rex.nV) - int(rex.betti[0]), abs=1e-9)
 
 
-def test_the_two_readings_agree_and_the_gate_picks_one():
-    """Leverage and deflated CG compute the same thing; the routing is on whether the
-    dense nV x nE fits, not on arity, because a decomposition is exact and its cost is
-    not set by conditioning while CG's iteration count is."""
-    from rexgraph.core._common import check_dense_allocation, configure_memory
+def test_branching_memory_bounded_resistance_uses_the_full_boundary_green_action():
+    """The constrained-memory route cannot substitute component indicators for ker(B1.T)."""
+    from rexgraph.core._common import configure_memory
+
+    ptr = np.array([0, 3, 5, 7], dtype=np.int32)
+    idx = np.array([0, 1, 2, 0, 1, 0, 2], dtype=np.int32)
+    rex = RexGraph.from_hypergraph(ptr, idx)
+    B1 = np.asarray(rex.B1)
+    truth = np.einsum("ve,vw,we->e", B1, np.linalg.pinv(B1 @ B1.T), B1)
+    try:
+        configure_memory(max_dense_allocation=1)
+        got = _reff(rex)
+    finally:
+        configure_memory(max_dense_allocation=8_000_000_000)
+
+    assert np.allclose(got, truth, atol=1e-9)
+
+
+def test_sparse_is_default_and_dense_is_an_explicit_full_boundary_oracle():
+    """A query selection chooses output entries, never a smaller complex.
+
+    The old allocation gate sliced B1 before its SVD.  A singleton query on a
+    triangle therefore changed its resistance from 2/3 to 1.  Sparse is now the
+    default, while the dense projector is an opt-in oracle over the full B1.
+    """
+    from rexgraph.core._common import CoreMemoryLimitError, configure_memory
     s = np.array([0, 1, 2, 0, 4, 5, 6, 4, 8, 9], dtype=np.int32)
     t = np.array([1, 2, 0, 2, 5, 6, 4, 6, 9, 8], dtype=np.int32)
     rex = RexGraph(sources=s, targets=t)
     rex._ensure_clean()
     B1 = np.asarray(rex.B1)
     truth = np.einsum("ve,vw,we->e", B1, np.linalg.pinv(B1 @ B1.T), B1)
-    leverage = _reff(rex)                                # fits, so takes the leverage
-    assert np.allclose(leverage, truth, atol=1e-9)
-    try:                                                 # force the matrix-free path
+    sparse_all = _reff(rex)
+    sparse_subset = rex._effective_resistance_batch(np.array([0, 2]))
+    dense_all = rex._effective_resistance_batch(np.arange(rex.nE), method="dense_oracle")
+    dense_subset = rex._effective_resistance_batch(np.array([0, 2]), method="dense_oracle")
+    assert np.allclose(sparse_all, truth, atol=1e-9)
+    assert np.allclose(dense_all, truth, atol=1e-9)
+    assert np.allclose(sparse_subset, truth[[0, 2]], atol=1e-9)
+    assert np.allclose(dense_subset, truth[[0, 2]], atol=1e-9)
+    try:
         configure_memory(max_dense_allocation=1)
-        with pytest.raises(Exception):
-            check_dense_allocation("t", int(rex.nV), int(rex.nE))
-        cg = _reff(rex)
-        assert np.allclose(cg, truth, atol=1e-9)
-        assert np.allclose(cg, leverage, atol=1e-9)
+        # Allocation policy cannot reroute a semantic request.  Sparse continues;
+        # the explicitly requested dense oracle reports that it cannot allocate.
+        assert np.allclose(_reff(rex), truth, atol=1e-9)
+        with pytest.raises(CoreMemoryLimitError):
+            rex._effective_resistance_batch(np.array([0]), method="dense_oracle")
     finally:
         configure_memory(max_dense_allocation=8_000_000_000)
+
+
+def test_selected_relation_keeps_the_global_resistance_in_agentic_reading():
+    rex = _triangle()
+    reading = rex.agentic_reading(edges=np.array([0]), t=0.0, max_cells=1)
+    assert reading["load_bearing"] == [{"edge": 0, "effective_resistance": 0.6667}]

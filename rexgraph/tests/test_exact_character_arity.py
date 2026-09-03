@@ -39,11 +39,11 @@ CASES = {
 
 
 def _weighted(offsets, vertices, weights):
-    """`from_hypergraph` takes no w_E, so every fixture above is unweighted and nothing
-    here saw the metric. That is how the G channel kept its weight missing."""
-    rex = RexGraph(boundary_ptr=np.array(offsets, dtype=np.int32),
-                   boundary_idx=np.array(vertices, dtype=np.int32),
-                   w_E=np.array(weights, dtype=float))
+    """The primary factory carries its metric on the declared C1 basis."""
+    rex = RexGraph.from_hypergraph(
+        np.array(offsets, dtype=np.int32), np.array(vertices, dtype=np.int32),
+        w_E=np.array(weights, dtype=float),
+    )
     rex._ensure_clean()
     return rex
 

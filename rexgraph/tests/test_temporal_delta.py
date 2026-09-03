@@ -506,7 +506,7 @@ def test_general_mode_roundtrips_as_general(tmp_path):
         safetensors_to_temporal_rex,
         temporal_rex_to_safetensors,
     )
-    snaps = [(np.array([0, 2, 4], np.int32), np.array([0, 1, 2, 0, 1, 3], np.int32))]  # general CSR
+    snaps = [(np.array([0, 3, 6], np.int32), np.array([0, 1, 2, 0, 1, 3], np.int32))]  # general CSR
     trex = TemporalRex(snaps, general=True)
     p = tmp_path / "g.safetensors"
     temporal_rex_to_safetensors(trex, str(p))
@@ -601,6 +601,29 @@ def test_branching_arity_reconstruct():
     b = branch[0]
     assert arities[b] == 4
     assert set(idx[ptr[b]:ptr[b + 1]].tolist()) == {2, 3, 4, 5}
+
+
+def test_parallel_supports_checkpoint_for_reconstruction_but_refuse_keyed_summaries():
+    """A support key is not a relation ID, so analytics must not merge parallels."""
+    from rexgraph.graph import TemporalRex
+
+    ptr = np.array([0, 3, 6], np.int32)
+    idx = np.array([0, 1, 2, 0, 1, 2], np.int32)
+    temporal = TemporalRex([(ptr, idx), (ptr, idx)], general=True)
+
+    # The checkpoint route still preserves the full C1 multiset exactly.
+    restored = temporal.reconstruct_at(1)
+    assert restored.nE == 2
+    assert np.array_equal(np.diff(restored.boundary_ptr), [3, 3])
+
+    for operation in (
+        lambda: temporal.temporal_index,
+        lambda: temporal.edge_lifecycle,
+        lambda: temporal.edge_metrics,
+        lambda: temporal.delta_tensor(),
+    ):
+        with pytest.raises(ValueError, match="stable relation IDs"):
+            operation()
 
 
 def test_faces_resolve_by_key_after_edge_renumbering():

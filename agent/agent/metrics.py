@@ -82,8 +82,12 @@ def token_metrics(logprobs) -> dict:
     lp = np.asarray(logprobs, dtype=float).ravel()
     lp = lp[np.isfinite(lp)]
     if lp.size == 0:
-        return {"perplexity": float("nan"), "mean_surprisal": float("nan"),
-                "varentropy": float("nan"), "n_tokens": 0}
+        # None, not NaN. These reach a JSON response through chat_model, the response
+        # helpers below and the model SSE route, and a bare NaN token is not valid JSON:
+        # a strict reader rejects the whole payload over three fields that simply have no
+        # value. n_tokens stays 0, which is the fact that makes them undefined.
+        return {"perplexity": None, "mean_surprisal": None,
+                "varentropy": None, "n_tokens": 0}
     surprisal = -lp
     mean_s = float(surprisal.mean())
     return {

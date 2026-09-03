@@ -31,10 +31,17 @@ def rc(tmp_path, monkeypatch):
     reset_default_store()
     from agent.server.app import app
 
-    tc = TestClient(app, raise_server_exceptions=False)
-    monkeypatch.setattr(httpx, "get", lambda url, **kw: tc.get(url, **kw))
-    monkeypatch.setattr(httpx, "post", lambda url, **kw: tc.post(url, **kw))
-    yield RexClient(url="http://testserver")
+    # See test_courier_remote: TestClient deprecates the timeout RexClient sets.
+    def _strip(kw):
+        return {k: v for k, v in kw.items() if k != "timeout"}
+
+    # Context-managed so the app's lifespan actually runs. Constructing TestClient
+    # without entering it skips startup AND shutdown, which meant the engine disposal
+    # in the lifespan never fired and the cached pool outlived the test.
+    with TestClient(app, raise_server_exceptions=False) as tc:
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: tc.get(url, **_strip(kw)))
+        monkeypatch.setattr(httpx, "post", lambda url, **kw: tc.post(url, **_strip(kw)))
+        yield RexClient(url="http://testserver")
     reset_default_store()
 
 

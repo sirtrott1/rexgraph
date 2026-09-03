@@ -1,11 +1,18 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._boundary: Relational complex construction for the 2-rex.
+rexgraph.core._boundary: legacy pairwise and numerical boundary helpers.
 
-Assembles the boundary operators B_1 (nV x nE) and B_2 (nE x nF)
-that define the relational complex, and computes Betti numbers from
-Laplacian eigenvalues.
+``build_B1*`` takes two endpoint arrays and is therefore correct only for an
+explicit pairwise-derived C1 section.  The primary arity-general C1 boundary
+is assembled from boundary CSR in :meth:`RexGraph._b1_general_coo`, with its
+exact integer representative in :meth:`RexGraph._integer_B1`.
+
+``build_B2_from_dense``, tolerance chain checks, SVD/eigen rank and spectral
+Betti helpers are numerical-oracle utilities.  Exact structural rank/Betti
+live in ``graded_boundary.py``; exact arbitrary-arity face columns live in
+``faces.py``.  Retain this module for pairwise compatibility and oracle tests,
+not as the authority for primary relational complex topology.
 
 Provides:
     build_B1 - signed vertex-edge incidence matrix

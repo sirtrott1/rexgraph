@@ -47,8 +47,9 @@ from rexgraph.core._common import (
     get_parallelization_config,
     raise_on_error,
     suggest_threads_for_memory,
-    # Diagnostics
-    test_parallel_execution,
+    # Diagnostics. Aliased on import: it is an OpenMP benchmark, not a test, and the
+    # test_ prefix in THIS module's namespace made pytest try to collect it as one.
+    test_parallel_execution as run_parallel_execution,
     validate_array_size,
     # Validation
     validate_csr_arrays,
@@ -443,16 +444,16 @@ class TestParallelExecution:
 
     def test_parallel_result_correct(self):
         """Parallel sum of 1.0 over N iterations should equal N."""
-        result = test_parallel_execution(100_000)
+        result = run_parallel_execution(100_000)
         assert result["result_correct"] is True
 
     def test_parallel_threads_reported(self):
-        result = test_parallel_execution(100_000)
+        result = run_parallel_execution(100_000)
         assert result["threads_used"] >= 1
         assert result["threads_used"] == get_max_threads()
 
     def test_parallel_openmp_consistent(self):
-        result = test_parallel_execution(100_000)
+        result = run_parallel_execution(100_000)
         assert result["openmp_enabled"] == get_openmp_enabled()
 
 

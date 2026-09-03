@@ -994,10 +994,10 @@ class CorpusBuilder:
             filt_f_b = np.zeros(rb.nF, dtype=np.float64) if rb.nF > 0 else np.array([], dtype=np.float64)
 
             dgm_a = persistence_diagram(filt_v_a, filt_e_a, filt_f_a,
-                                        ra._boundary_ptr, ra._boundary_idx,
+                                        ra.boundary_ptr, ra.boundary_idx,
                                         ra._B2_col_ptr, ra._B2_row_idx)
             dgm_b = persistence_diagram(filt_v_b, filt_e_b, filt_f_b,
-                                        rb._boundary_ptr, rb._boundary_idx,
+                                        rb.boundary_ptr, rb.boundary_idx,
                                         rb._B2_col_ptr, rb._B2_row_idx)
 
             pairs_a = dgm_a['pairs'] if isinstance(dgm_a, dict) else dgm_a

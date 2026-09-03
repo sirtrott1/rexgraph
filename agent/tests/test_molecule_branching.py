@@ -62,7 +62,7 @@ def benzene(tmp_path):
 
 
 def _arities(rex):
-    return np.diff(np.asarray(rex._boundary_ptr)).tolist()
+    return np.diff(np.asarray(rex.boundary_ptr)).tolist()
 
 
 def test_the_ring_becomes_one_relation(benzene):

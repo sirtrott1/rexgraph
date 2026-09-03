@@ -123,13 +123,16 @@ def validate_connector(connector: Any, source: Any = None,
 
     # 5. RCDB round-trip (put -> get -> structure preserved)
     try:
+        from contextlib import closing
+
         from agent.rcdb import open_store
-        st = open_store(store_uri)
-        st.put("_validate", g, meta=getattr(g, "_agent_meta", None), tags=["_v"])
-        got = st.get("_validate")
-        ok = (got is not None and got.nV == g.nV and got.nE == g.nE
-              and (betti is None or tuple(int(b) for b in got.betti) == betti))
-        st.delete("_validate")
+        # this check opens the store, so this check closes it
+        with closing(open_store(store_uri)) as st:
+            st.put("_validate", g, meta=getattr(g, "_agent_meta", None), tags=["_v"])
+            got = st.get("_validate")
+            ok = (got is not None and got.nV == g.nV and got.nE == g.nE
+                  and (betti is None or tuple(int(b) for b in got.betti) == betti))
+            st.delete("_validate")
         rep.add("RCDB round-trip", ok,
                 f"put->get preserved nV/nE/betti ({got.nV},{got.nE})"
                 if ok else "structure changed across put->get")

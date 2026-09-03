@@ -21,7 +21,7 @@ KEYS = StaticKeyProvider({"records": b"k" * 32})
 
 def _rex():
     from rexgraph.graph import RexGraph
-    return RexGraph.from_hypergraph([0, 2, 4], [0, 1, 1, 2, 2, 0])
+    return RexGraph.from_hypergraph([0, 2, 4], [0, 1, 1, 2])
 
 
 def _sealed(uri):

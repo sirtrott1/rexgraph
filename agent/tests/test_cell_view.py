@@ -57,8 +57,8 @@ def test_a_k_ary_relation_reports_all_k_boundary_cells(k):
 def test_the_boundary_matches_the_complex(branching):
     rows = edge_rows(branching, positions=False)
     branching._ensure_clean()
-    bp = np.asarray(branching._boundary_ptr)
-    bi = np.asarray(branching._boundary_idx)
+    bp = np.asarray(branching.boundary_ptr)
+    bi = np.asarray(branching.boundary_idx)
     for e, row in enumerate(rows):
         assert row["boundary_index"] == [int(v) for v in bi[bp[e]:bp[e + 1]]]
 

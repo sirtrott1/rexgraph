@@ -124,6 +124,7 @@ def save_hodge_trajectory(report: dict[str, list[float]], path: str, *,
 try:
     import torch as _torch
     _HAS_TORCH = True
+    from rexgraph.compute import sparse_mm as _sparse_mm
 except Exception:                                    # torch is an optional dep
     _HAS_TORCH = False
 
@@ -174,7 +175,7 @@ if _HAS_TORCH:
             if channel not in cache:
                 op = adj
                 for _ in range(power - 1):
-                    op = _torch.sparse.mm(adj, op).coalesce()      # sparse A_hat**k, stays sparse
+                    op = _sparse_mm(adj, op).coalesce()      # sparse A_hat**k, stays sparse
                 cache[channel] = op
             return cache[channel], (channel != "high")
 
@@ -182,7 +183,7 @@ if _HAS_TORCH:
         def _greens(op, g, t, low, iters):
             g2 = g if g.dim() >= 2 else g.unsqueeze(1)
             def mv(X):
-                return (1.0 + t) * X - t * _torch.sparse.mm(op, X)
+                return (1.0 + t) * X - t * _sparse_mm(op, X)
             X = _torch.zeros_like(g2); R = g2 - mv(X); P = R.clone()
             rs = (R * R).sum(0, keepdim=True)
             for _ in range(iters):

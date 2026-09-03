@@ -66,7 +66,7 @@ from .rexstore import (
 
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 
 __all__ = [
     "ComplexRecord",

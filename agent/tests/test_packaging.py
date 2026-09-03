@@ -37,7 +37,7 @@ def _resolve(extras: dict[str, list[str]], name: str, _seen=None) -> set[str]:
             for sub in m.group(1).split(","):
                 out |= _resolve(extras, sub.strip(), _seen)
         else:
-            out.add(re.split(r"[<>=!\[ ]", req.strip(), 1)[0].lower())
+            out.add(re.split(r"[<>=!\[ ]", req.strip(), maxsplit=1)[0].lower())
     return out
 
 
@@ -46,7 +46,8 @@ def test_object_storage_is_installable(meta):
     declared = set()
     for name in _extras(meta):
         declared |= _resolve(_extras(meta), name)
-    declared |= {re.split(r"[<>=!\[ ]", d, 1)[0].lower() for d in meta["project"]["dependencies"]}
+    declared |= {re.split(r"[<>=!\[ ]", d, maxsplit=1)[0].lower()
+                 for d in meta["project"]["dependencies"]}
     assert "fsspec" in declared, "objectstore.py needs fsspec and no extra installs it"
 
 

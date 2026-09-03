@@ -14,7 +14,7 @@ High void affinity -> refuse or flag uncertainty
 
 Usage:
 
-    from rexgraph.integrations.vllm_router import RexRouter
+    from agent.integrations.vllm_router import RexRouter
 
     router = RexRouter(models={
         "reasoning": "mistralai/Mistral-7B-v0.1",
