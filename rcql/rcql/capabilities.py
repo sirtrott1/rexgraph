@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .types import SourceRef, TemporalRef
+
 
 @dataclass(frozen=True)
 class SourcePolicy:
@@ -18,6 +20,32 @@ class SourcePolicy:
 
     def permits(self, permission: str) -> bool:
         return "*" in self.permissions or str(permission).lower() in self.permissions
+
+    @classmethod
+    def intersection(cls, *policies: SourcePolicy) -> SourcePolicy:
+        """Return the policy safe for a value jointly derived from every input.
+
+        A multi-stalk phrase may read each stalk under its own policy, but a result that
+        contains information from all stalks can be exposed only under permissions every
+        contributor grants.  This is intentionally not a source-policy merge: union
+        would escalate one stalk through another, while applying this intersection to
+        source reads would incorrectly deny legal independent reads.
+        """
+        if not policies:
+            return cls.allow()
+        if all("*" in policy.permissions for policy in policies):
+            permissions = frozenset({"*"})
+        else:
+            candidates = set().union(*(policy.permissions for policy in policies))
+            candidates.discard("*")
+            permissions = frozenset(
+                permission for permission in candidates
+                if all(policy.permits(permission) for policy in policies)
+            )
+        bounded_fields = [policy.record_fields for policy in policies
+                          if policy.record_fields is not None]
+        fields = None if not bounded_fields else frozenset.intersection(*bounded_fields)
+        return cls(permissions, fields)
 
     def project_record(self, value):
         """Project a bounded RCDB record view without granting hidden identity."""
@@ -53,6 +81,8 @@ class BoundSource:
 
     value: object
     policy: SourcePolicy
+    ref: SourceRef | None = None
+    temporal: TemporalRef | None = None
 
     def require(self, permission: str):
         if not self.policy.permits(permission):

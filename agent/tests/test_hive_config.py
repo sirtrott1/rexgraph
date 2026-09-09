@@ -109,10 +109,10 @@ def test_user_rules_file_overrides_the_builtins(tmp_path, monkeypatch):
     """A new model family must be teachable without editing hive.py."""
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     (tmp_path / "specialty_rules.json").write_text(
-        '[{"match": ["myco"], "base": "mycology", "specialties": ["fungi", "spore"]}]')
+        '[{"match": ["myco"], "base": "mycology", "specialties": ["fungi", "hyphae"]}]')
     rules = hive_config.load_specialty_rules()
     assert [r.base for r in rules] == ["mycology"]
-    assert hive._specialty_of("MycoLLM-7B", rules=rules) == ("mycology", ["fungi", "spore"])
+    assert hive._specialty_of("MycoLLM-7B", rules=rules) == ("mycology", ["fungi", "hyphae"])
 
 
 def test_a_rule_can_exclude_a_family_member(tmp_path, monkeypatch):

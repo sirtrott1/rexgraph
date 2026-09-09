@@ -120,7 +120,7 @@ class CacheLayoutMixin:
         """Serialize a RexGraph to an HDF5 group via the canonical rex state.
 
         Every tensor goes through the one rex-state encoder (`to_state`), so the on-disk
-        reconstruction contract cannot drift from `.rex`, arrow, and safetensors. Dataset names
+        reconstruction contract cannot drift from `.rcbd`, arrow, and safetensors. Dataset names
         are `fname_encode`d because h5py treats '/' as a group separator, and nested-rex tensor
         names legitimately contain '/'.
         """

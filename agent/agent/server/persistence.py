@@ -2,15 +2,15 @@
 agent.server.persistence: workspace state persistence using rexgraph/io.
 
 Uses the existing I/O layer directly:
-    save_rex / load_rex     for RexGraph bundles (.rex)
+    save_rcbd / load_rcbd     for RexGraph bundles (.rcbd; legacy .rex read)
     get_engine + write_*_sql  for analysis tables (SQLite)
 
 Each workspace gets:
     ~/.config/rexgraph/workspaces/{name}/
     ├── state.db              SQLite: activity, queries, sessions
     ├── documents/
-    │   ├── doc_0.rex         RexGraph bundle per document
-    │   └── doc_1.rex
+    │   ├── doc_0.rcbd        RexGraph bundle per document
+    │   └── doc_1.rcbd
     └── conversations/
         └── {session_id}.json
 """
@@ -23,6 +23,8 @@ import logging
 import os
 import time
 from pathlib import Path
+
+from ..formats import BUNDLE_SUFFIX, BUNDLE_SUFFIXES, is_bundle_suffix
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +166,7 @@ def staging_dir(workspace: str) -> Path:
     return d
 
 
-def doc_path(workspace: str, doc_id: str, suffix: str = ".rex") -> Path:
+def doc_path(workspace: str, doc_id: str, suffix: str = BUNDLE_SUFFIX) -> Path:
     """The path of one document, with the id held inside its own workspace.
 
     Validating the workspace name settled which directory this is; it said nothing about
@@ -185,30 +187,45 @@ def doc_path(workspace: str, doc_id: str, suffix: str = ".rex") -> Path:
     return p
 
 
+def existing_doc_path(workspace: str, doc_id: str) -> Path | None:
+    """Where a document actually is, canonical suffix first and legacy after.
+
+    Writes go to `BUNDLE_SUFFIX` alone, so a document saved before the rename is only
+    reachable by asking for its old suffix too. Ordering is not cosmetic: while both
+    exist for one id, the canonical one is the newer and must win.
+    """
+    for suffix in BUNDLE_SUFFIXES:
+        candidate = doc_path(workspace, doc_id, suffix)
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def save_document_rex(workspace: str, doc_id: str, rex, cache="all"):
-    """Save a document's RexGraph as a .rex bundle."""
-    from rexgraph.io import save_rex
+    """Save a document's RexGraph as an RCBD bundle."""
+    from rexgraph.io import save_rcbd
     path = str(doc_path(workspace, doc_id))
-    save_rex(path, rex, cache=cache)
+    save_rcbd(path, rex, cache=cache)
     return path
 
 
 def load_document_rex(workspace: str, doc_id: str):
-    """Load a document's RexGraph from its .rex bundle."""
-    from rexgraph.io import load_rex
-    path = str(doc_path(workspace, doc_id))
-    if not os.path.exists(path):
+    """Load a document's RexGraph from its bundle, canonical or legacy."""
+    from rexgraph.io import load_rcbd
+    path = existing_doc_path(workspace, doc_id)
+    if path is None:
         return None
-    return load_rex(path)
+    return load_rcbd(str(path))
 
 
 def list_document_bundles(workspace: str) -> list[str]:
     """List all saved document IDs in a workspace."""
     d = _docs_dir(workspace)
-    return sorted(
+    # A stem can appear under both suffixes mid-migration; it is still one document.
+    return sorted({
         p.stem for p in d.iterdir()
-        if p.suffix == ".rex" or p.is_dir()
-    )
+        if is_bundle_suffix(p.suffix) or p.is_dir()
+    })
 
 
 # Analysis persistence (uses rexgraph/io/sql_bridge.py directly)
@@ -427,7 +444,9 @@ def list_workspace_files(workspace: str) -> list:
         info = {"name": entry.name, "doc_id": entry.stem}
 
         if entry.is_dir() and (entry / "MANIFEST.json").exists():
-            # .rex bundle
+            # A directory bundle, RCBD or legacy: the manifest identifies it, not the
+            # suffix, so this branch is already correct for both. "rex" here is the
+            # export FORMAT KEY, which is deliberately unchanged by the rename.
             info["format"] = "rex"
             try:
                 manifest = json.loads((entry / "MANIFEST.json").read_text())
@@ -440,7 +459,7 @@ def list_workspace_files(workspace: str) -> list:
                 f.stat().st_size for f in entry.rglob("*") if f.is_file()
             )
             info["modified"] = entry.stat().st_mtime
-        elif entry.suffix == ".rex":
+        elif is_bundle_suffix(entry.suffix):
             info["format"] = "rex"
             info["size_bytes"] = entry.stat().st_size
             info["modified"] = entry.stat().st_mtime

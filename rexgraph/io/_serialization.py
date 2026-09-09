@@ -218,7 +218,7 @@ class HDF5Adapter(StorageAdapter):
                            chunks=self._chunks)
 
 
-# Npy directory adapter (for .rex bundles)
+# Npy directory adapter (for .rcbd bundles)
 
 class NpyAdapter(StorageAdapter):
     """Adapter wrapping a directory of .npy files and a JSON sidecar."""

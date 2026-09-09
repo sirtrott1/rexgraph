@@ -132,6 +132,21 @@ class Executor:
                 from .capabilities import BoundSource
                 return BoundSource(value, policy)
             return value
+        if isinstance(expr, Call) and expr.name == "PHRASE":
+            if len(expr.args) != 1:
+                raise TypeError(
+                    f"PHRASE in FROM takes one local-section argument, got {len(expr.args)}"
+                )
+            section = self._eval(expr.args[0], None)
+            from .phrase import PhraseSheaf
+
+            if not isinstance(section, PhraseSheaf):
+                raise TypeError("PHRASE in FROM expects a policy-aware PhraseSheaf")
+            return section.as_bound_source()
+        if isinstance(expr, Call) and expr.name in {
+            "RCDB_GET", "RCDB_VERSION", "RCDB_AS_OF", "RCDB_VALID_AT",
+        }:
+            return self._eval_rcdb_source(expr)
         if isinstance(expr, Call) and expr.name == "AT" and len(expr.args) == 2:
             parent = self._eval_source(expr.args[0])
             from .capabilities import BoundSource
@@ -147,7 +162,11 @@ class Executor:
                     f"AT version must lie in [0, {int(temporal.T) - 1}], got {version}"
                 )
             snapshot = temporal.reconstruct_at(version)
-            return BoundSource(snapshot, parent.policy) if isinstance(parent, BoundSource) else snapshot
+            if isinstance(parent, BoundSource):
+                from .types import TemporalRef
+                return BoundSource(snapshot, parent.policy, ref=parent.ref,
+                                   temporal=TemporalRef(version=version))
+            return snapshot
         if isinstance(expr, Call) and expr.name == "AT_TIME" and len(expr.args) == 2:
             parent = self._eval_source(expr.args[0])
             from .capabilities import BoundSource
@@ -163,10 +182,104 @@ class Executor:
             snapshot = temporal.reconstruct_at_time(float(when))
             if snapshot is None:
                 raise ValueError(f"AT_TIME has no declared TemporalRex state at {when}")
-            return BoundSource(snapshot, parent.policy) if isinstance(parent, BoundSource) else snapshot
+            if isinstance(parent, BoundSource):
+                from .types import TemporalRef
+                return BoundSource(snapshot, parent.policy, ref=parent.ref,
+                                   temporal=TemporalRef(as_of=float(when)))
+            return snapshot
         raise TypeError("FROM expects a source parameter, REX(name), CATALOG(name), "
-                        "FILE(catalog, name), AT(temporal_source, version), or "
+                        "FILE(catalog, name), RCDB_GET(store, id), RCDB_VERSION(store, id, "
+                        "version), RCDB_AS_OF(store, id, time), RCDB_VALID_AT(store, id, time), "
+                        "PHRASE(section), AT(temporal_source, version), or "
                         "AT_TIME(temporal_source, time)")
+
+    def _eval_rcdb_source(self, expr: Call):
+        """Resolve one selected RCDB state before planning its structural phrase.
+
+        ``RCDB_GET`` keeps its existing one-argument return expression. In FROM position
+        it is instead a source transform: it consumes an explicit store source and an
+        identity, then carries the decoded Rex and the same capability policy onward.
+        ``RCDB_VERSION`` makes a persisted version selection explicit rather than
+        overloading a scalar whose meaning could be a clock time. ``RCDB_AS_OF`` and
+        ``RCDB_VALID_AT`` expose the store's bitemporal selectors with equally explicit
+        transaction-time and valid-time meanings.
+        """
+        from .binding import bind, classify, resolve
+        from .capabilities import BoundSource, SourcePolicy
+        from .types import SourceRef, ValueKind
+
+        expected = 2 if expr.name == "RCDB_GET" else 3
+        if len(expr.args) != expected:
+            raise TypeError(f"{expr.name} in FROM takes {expected} arguments, got {len(expr.args)}")
+        parent_expr, record_expr = expr.args[:2]
+        parent = self._eval_source(parent_expr)
+        record_id = self._eval(record_expr, None)
+        if not isinstance(record_id, str):
+            raise TypeError(f"{expr.name} expects a string RCDB record id")
+
+        parent_policy = parent.policy if isinstance(parent, BoundSource) else SourcePolicy.allow("*")
+        parent_ref = parent.ref if isinstance(parent, BoundSource) else None
+        parent_binding = bind(self._source_label(parent_expr),
+                              parent.value if isinstance(parent, BoundSource) else parent,
+                              parent_policy, source_ref=parent_ref)
+        # Use the declared return-form contract to check store kind and identity before a
+        # storage adapter is reached. The source form has its own arity, but the surface
+        # it reads is exactly RCDB_GET's one-record identity lookup.
+        resolve(parent_binding, "RCDB_GET", (record_id,))
+        raw, _policy = self._unwrap(parent, "identity")
+        if not hasattr(raw, "get_record") or not hasattr(raw, "get_version"):
+            raise TypeError(
+                f"{expr.name} in FROM expects a versioned RCDB store with get_record and get_version"
+            )
+
+        version = None
+        as_of = valid_at = None
+        if expr.name == "RCDB_VERSION":
+            version = self._eval(expr.args[2], None)
+            if isinstance(version, bool) or not isinstance(version, int):
+                raise TypeError("RCDB_VERSION expects an exact integer record version")
+        elif expr.name in {"RCDB_AS_OF", "RCDB_VALID_AT"}:
+            when = self._eval(expr.args[2], None)
+            if isinstance(when, bool) or not isinstance(when, (int, float)):
+                raise TypeError(f"{expr.name} expects a numeric RCDB time")
+            if not isfinite(float(when)):
+                raise ValueError(f"{expr.name} expects a finite RCDB time")
+            if expr.name == "RCDB_AS_OF":
+                as_of = float(when)
+            else:
+                valid_at = float(when)
+        if expr.name != "RCDB_VERSION":
+            # Pin the selected version before decoding it. Reading ``get`` and then asking
+            # which version was selected leaves a write-sized race: the value could be an
+            # older state while the provenance names its successor. The version lookup
+            # below instead makes the selected record state exact across that interval.
+            record = raw.get_record(record_id, as_of=as_of, valid_at=valid_at)
+            version = None if record is None else int(record.version)
+
+        if version is None:
+            state = f" version {version}" if version is not None else ""
+            raise KeyError(f"RCDB record {record_id!r}{state} is not present")
+        value = raw.get_version(record_id, version)
+        if value is None:
+            raise KeyError(f"RCDB record {record_id!r} version {version} is not present")
+        kind = classify(value)
+        if kind not in {ValueKind.REX, ValueKind.TEMPORAL_REX}:
+            raise TypeError(f"{expr.name} record {record_id!r} is not a Rex or TemporalRex source")
+        # The record id and version name the selected store entry. The canonical object
+        # digest names the exact decoded state that structural operators will read, so an
+        # EXPLAIN account cannot claim one state while the store returned another.
+        from rexgraph.io.catalog import object_digest
+
+        ref = SourceRef(
+            name=f"{parent_binding.ref.name}/{record_id}@{version}",
+            state_digest=object_digest(value),
+            policy_digest=parent_policy.digest,
+            record_id=record_id,
+            record_version=version,
+            record_as_of=as_of,
+            record_valid_at=valid_at,
+        )
+        return BoundSource(value, parent_policy, ref=ref)
 
     @staticmethod
     def _source_label(expr: Expr) -> str:
@@ -179,6 +292,12 @@ class Executor:
             return expr.name.lower()
         if isinstance(expr, Call) and expr.name in {"AT", "AT_TIME"} and expr.args:
             return Executor._source_label(expr.args[0])
+        if isinstance(expr, Call) and expr.name in {
+            "RCDB_GET", "RCDB_VERSION", "RCDB_AS_OF", "RCDB_VALID_AT",
+        } and expr.args:
+            return Executor._source_label(expr.args[0])
+        if isinstance(expr, Call) and expr.name == "PHRASE":
+            return "phrase"
         if isinstance(expr, Call) and expr.name == "FILE":
             return "file"
         return "source"
@@ -207,7 +326,8 @@ class Executor:
 
         if isinstance(source, BoundSource):
             return bind(self._source_label(source_expr), source.value, source.policy,
-                        temporal=self._source_temporal(source_expr))
+                        temporal=source.temporal or self._source_temporal(source_expr),
+                        source_ref=source.ref)
         return bind(self._source_label(source_expr), source, SourcePolicy.allow("*"),
                     temporal=self._source_temporal(source_expr))
 
@@ -318,9 +438,10 @@ def value_exactness(value: Any) -> Exactness:
     from rexgraph.cochain import Chain, Cochain, Field
     from rexgraph.linear_operator import RexOperator
     from rexgraph.metric_field import MetricCurvature
+    from rexgraph.sheaf import ExactGlueResult
     from rexgraph.temporal_signal import TemporalSignal, TemporalSignalFlow
 
-    if isinstance(value, (bool, RexOperator)):
+    if isinstance(value, (bool, RexOperator, ExactGlueResult)):
         return Exactness.STRUCTURAL
     if isinstance(value, int):
         return Exactness.INTEGER

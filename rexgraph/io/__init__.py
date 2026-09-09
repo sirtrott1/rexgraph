@@ -2,7 +2,7 @@
 """
 Serialization and storage for relational complexes.
 
-Backends: Zarr (.zarr), HDF5 (.h5), bundle (.rex), Arrow IPC,
+Backends: Zarr (.zarr), HDF5 (.h5), RCBD (.rcbd), RCBF (.rcbf), Arrow IPC,
 Parquet, SQL (via SQLAlchemy).
 
     from rexgraph.io import save, load
@@ -142,9 +142,19 @@ if HAS_HDF5:
     from .hdf5_format import RexHDF5Format, load_hdf5, save_hdf5
     __all__ += ["RexHDF5Format", "save_hdf5", "load_hdf5"]
 
-from .bundle import RexBundle, load_rex, save_rex
+from .bundle import RCBDBundle, RexBundle, load_rcbd, load_rex, save_rcbd, save_rex
+from .rcbf import RCBFFormatError, load_rcbf
 
-__all__ += ["RexBundle", "save_rex", "load_rex"]
+__all__ += [
+    "RCBDBundle",
+    "RexBundle",
+    "save_rcbd",
+    "load_rcbd",
+    "save_rex",
+    "load_rex",
+    "RCBFFormatError",
+    "load_rcbf",
+]
 
 try:
     from .arrow_bridge import (
@@ -339,7 +349,7 @@ def register_format(name, *, save=None, load=None, extensions=()):
 
     `save(path, obj, **kwargs)` and `load(path, **kwargs)` are the handlers; either may
     be None for a read-only or write-only format, in which case the corresponding entry
-    point raises. `extensions` are lowercase suffixes (".rex") mapped to this format by
+    point raises. `extensions` are lowercase suffixes (".rcbd") mapped to this format by
     `_detect_format`.
     """
     fmt = _Format(name, save, load, extensions)
@@ -396,11 +406,19 @@ def _detect_format(path, override=None):
         return override.lower()
     exts = format_extensions()
     _, ext = os.path.splitext(path)
+    # `.rex` was used for two distinct historical containers: RexGraph's
+    # directory bundle and a sequential RCBF stream. Preserve both
+    # readers by checking the stream magic before the legacy extension route.
+    if ext.lower() == ".rex" and os.path.isfile(path):
+        from .rcbf import is_rcbf_file
+
+        if is_rcbf_file(path):
+            return "rcbf"
     if ext.lower() in exts:
         return exts[ext.lower()]
     if os.path.isdir(path):
         if os.path.exists(os.path.join(path, "MANIFEST.json")):
-            return "rex"
+            return "rcbd"
         return "zarr"
     if os.path.isfile(path):
         return "hdf5"
@@ -455,7 +473,15 @@ def _needs(pkg, extra):
     return _raise
 
 
-register_format("rex", save=save_rex, load=load_rex, extensions=[".rex"])
+register_format("rcbd", save=save_rcbd, load=load_rcbd, extensions=[".rcbd"])
+# Source-level format alias for callers that previously passed ``format="rex"``.
+# It writes RCBD and has no extension mapping, so it cannot create new `.rex` paths.
+register_format("rex", save=save_rcbd, load=load_rcbd)
+# Legacy `.rex` directories remain readable and an explicit legacy path remains
+# writable for source compatibility. Suffix-less and documented new writes use
+# `.rcbd`; this route never silently relocates a caller's explicit path.
+register_format("rex-legacy", save=save_rcbd, load=load_rcbd, extensions=[".rex"])
+register_format("rcbf", load=load_rcbf, extensions=[".rcbf"])
 register_format("json", save=_save_json, load=load_json, extensions=[".json"])
 register_format(
     "zarr",

@@ -117,7 +117,7 @@ def test_a_declared_temporal_mismatch_is_not_a_shared_space():
 
 def test_sources_are_classified_by_surface_not_by_import(store, catalog, rex):
     """RCQL must not import rcdb or the catalog module to decide what it was handed."""
-    assert classify(store) is ValueKind.REX
+    assert classify(store) is ValueKind.RCDB_STORE
     assert classify(catalog) is ValueKind.CATALOG_ENTRY_SET
     assert classify(rex) is ValueKind.REX
     assert classify(object()) is ValueKind.UNKNOWN
@@ -134,7 +134,7 @@ def test_an_unreachable_operator_is_refused_without_touching_the_source():
 
 def test_a_wrong_source_kind_is_refused_without_touching_the_source(catalog):
     binding = bind("cat", catalog, SourcePolicy.allow("*"))
-    with pytest.raises(SourceKindError, match="reads a Rex source"):
+    with pytest.raises(SourceKindError, match="reads a RCDBStore source"):
         infer(binding, "RCDB_GET", ("r1",))
 
 
@@ -161,6 +161,166 @@ def test_state_hash_cannot_be_handed_the_catalog_it_is_filed_beside(catalog):
     binding = bind("cat", catalog, SourcePolicy.allow("*"))
     with pytest.raises(SourceKindError):
         infer(binding, "STATE_HASH")
+
+
+def test_a_store_cannot_be_used_as_its_decoded_complex(store):
+    """A storage surface is not a Rex carrier until RCDB_GET decodes one."""
+    binding = bind("db", store, SourcePolicy.allow("*"))
+
+    with pytest.raises(SourceKindError, match="reads a Rex source"):
+        infer(binding, "CELL", (1, 0))
+
+
+def test_a_rex_cannot_be_used_as_a_store(rex):
+    """A Rex has C1 cells, not record identities or history."""
+    binding = bind("complex", rex, SourcePolicy.allow("*"))
+
+    with pytest.raises(SourceKindError, match="reads a RCDBStore source"):
+        infer(binding, "RCDB_GET", ("r1",))
+
+
+@pytest.mark.parametrize("expression", ("CELL(1, 0)", "BETTI(1)"))
+def test_a_whole_phrase_refuses_a_store_before_a_structural_adapter_runs(store, expression):
+    """Planning catches a store/complex mismatch before a Rex adapter runs."""
+    from rcql import Executor, parse
+
+    with pytest.raises(SourceKindError, match="reads a Rex source"):
+        Executor(sources={"db": store}).execute(
+            parse(f"FROM $db RETURN {expression}")
+        )
+
+
+def test_a_store_record_becomes_the_source_of_one_structural_phrase(store):
+    """Retrieval, planning and exact C1 analysis compose without an out-of-band bind."""
+    from rexgraph.io.catalog import object_digest
+
+    from rcql import Executor, parse
+
+    executor = Executor(sources={"db": store})
+    result = executor.execute(parse(
+        'FROM RCDB_GET($db, "r1") RETURN BETTI(0), BETTI(1), ARITY(CELL(1, 0))'
+    ))
+
+    assert result.values == (1, 1, 2)
+    explained = executor.execute(parse(
+        'EXPLAIN FROM RCDB_GET($db, "r1") RETURN BETTI(1)'
+    )).values[0]
+    assert explained["source"] == "db/r1@1"
+    assert explained["source_kind"] == "Rex"
+    assert explained["source_state"] == {
+        "name": "db/r1@1", "state_digest": object_digest(store.get_version("r1", 1)),
+        "record_id": "r1", "record_version": 1,
+        "record_as_of": None, "record_valid_at": None,
+    }
+
+
+def test_a_store_record_version_becomes_the_source_of_one_structural_phrase(store):
+    """A persisted version is an exact selected state, not a clock-time guess."""
+    from rexgraph.graph import RexGraph
+
+    from rcql import Executor, parse
+
+    store.put("r1", RexGraph.from_graph(sources=[0], targets=[1]))
+    executor = Executor(sources={"db": store})
+
+    old = executor.execute(parse(
+        'FROM RCDB_VERSION($db, "r1", 1) RETURN BETTI(1), ARITY(CELL(1, 0))'
+    ))
+    current = executor.execute(parse(
+        'FROM RCDB_VERSION($db, "r1", 2) RETURN BETTI(1), ARITY(CELL(1, 0))'
+    ))
+
+    assert old.values == (1, 2)
+    assert current.values == (0, 2)
+
+
+def test_a_stored_temporal_rex_composes_with_snapshot_source_forms(store):
+    """Store selection and temporal selection retain both state contracts in one phrase."""
+    from rexgraph.graph import RexGraph, TemporalRex
+
+    from rcql import Executor, parse
+
+    timeline = TemporalRex([])
+    timeline.append_snapshot(RexGraph.from_graph(sources=[0], targets=[1]), at=1.0)
+    timeline.append_snapshot(
+        RexGraph.from_graph(sources=[0, 1, 2], targets=[1, 2, 0]), at=4.0,
+    )
+    store.put("timeline", timeline)
+    executor = Executor(sources={"db": store})
+
+    snapshot = executor.execute(parse(
+        'FROM AT(RCDB_GET($db, "timeline"), 1) RETURN BETTI(0), BETTI(1)'
+    ))
+    clocked = executor.execute(parse(
+        'FROM AT_TIME(RCDB_GET($db, "timeline"), 4.0) RETURN BETTI(0), BETTI(1)'
+    ))
+
+    assert snapshot.values == (1, 1)
+    assert clocked.values == (1, 1)
+    explained = executor.execute(parse(
+        'EXPLAIN FROM AT(RCDB_GET($db, "timeline"), 1) RETURN BETTI(1)'
+    )).values[0]
+    assert explained["source_state"]["record_id"] == "timeline"
+    assert explained["source_state"]["record_version"] == 1
+    assert explained["returns"][0]["result"]["temporal"] == {
+        "version": 1, "as_of": None, "valid_at": None,
+    }
+
+
+def test_bitemporal_store_source_forms_select_one_exact_record_state(store, rex):
+    """Transaction and valid time select persisted states before Rex math runs."""
+    from rexgraph.graph import RexGraph
+
+    from rcql import Executor, parse
+
+    replacement = RexGraph.from_graph(sources=[0], targets=[1])
+    store.put("transaction", rex)
+    first_transaction = store.history("transaction")[0]
+    store.put("transaction", replacement)
+    store.put("valid", rex, valid_from=10.0, valid_to=20.0)
+    store.put("valid", replacement, valid_from=20.0)
+    executor = Executor(sources={"db": store})
+
+    transaction = executor.execute(parse(
+        f'FROM RCDB_AS_OF($db, "transaction", {first_transaction.tx_from}) RETURN BETTI(1)'
+    ))
+    early_valid = executor.execute(parse(
+        'FROM RCDB_VALID_AT($db, "valid", 12.0) RETURN BETTI(1)'
+    ))
+    late_valid = executor.execute(parse(
+        'FROM RCDB_VALID_AT($db, "valid", 20.0) RETURN BETTI(1)'
+    ))
+
+    assert transaction.values == (1,)
+    assert early_valid.values == (1,)
+    assert late_valid.values == (0,)
+    explained = executor.execute(parse(
+        'EXPLAIN FROM RCDB_VALID_AT($db, "valid", 12.0) RETURN BETTI(1)'
+    )).values[0]
+    assert explained["source_state"]["record_valid_at"] == 12.0
+    assert explained["source_state"]["record_version"] == 1
+
+
+def test_a_composed_store_source_preserves_the_identity_capability(store):
+    """A source transform cannot turn record lookup into an implicit privilege grant."""
+    from rcql import BoundSource, Executor, parse
+
+    executor = Executor(sources={"db": BoundSource(store, SourcePolicy.allow("records"))})
+    with pytest.raises(PermissionError, match="identity"):
+        executor.execute(parse('FROM RCDB_GET($db, "r1") RETURN BETTI(1)'))
+
+
+def test_identity_resolves_a_record_but_does_not_widen_to_structural_read(store):
+    """Identity names a record; a separate read grant permits its Rex computation."""
+    from rcql import BoundSource, Executor, parse
+
+    executor = Executor(sources={"db": BoundSource(store, SourcePolicy.allow("identity"))})
+    explained = executor.execute(parse(
+        'EXPLAIN FROM RCDB_GET($db, "r1") RETURN BETTI(1)'
+    )).values[0]
+    assert explained["source_state"]["record_id"] == "r1"
+    with pytest.raises(PermissionError, match="read"):
+        executor.execute(parse('FROM RCDB_GET($db, "r1") RETURN BETTI(1)'))
 
 
 # ------------------------------------------------------------------ typing and explain
@@ -218,6 +378,15 @@ def test_every_storage_operator_has_a_signature():
         "RCDB_STATE_HASH", "RCDB_SECURITY",
     }
     assert storage <= catalogued()
+
+
+def test_every_rcdb_operator_declares_the_store_surface_it_reads():
+    """Only RCDB_GET turns a store reading into a Rex carrier for later phrases."""
+    rcdb_operators = {
+        "RCDB_LIST", "RCDB_SEARCH", "RCDB_GET", "RCDB_HISTORY", "RCDB_STATS",
+        "RCDB_HASH", "RCDB_COMMITS", "RCDB_VERIFY", "RCDB_STATE_HASH", "RCDB_SECURITY",
+    }
+    assert {lookup(name).source_kind for name in rcdb_operators} == {ValueKind.RCDB_STORE}
 
 
 def test_every_runtime_operator_except_source_syntax_has_a_static_signature():

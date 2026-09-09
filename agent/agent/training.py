@@ -32,6 +32,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .formats import BUNDLE_SUFFIX
+
 logger = logging.getLogger(__name__)
 
 
@@ -312,14 +314,14 @@ class TrainingExporter:
         return Dataset.from_list(records)
 
     def export_rex_bundles(self, output_dir: str):
-        """Export each document as a .rex bundle using rexgraph.io.save_rex."""
-        from rexgraph.io import save_rex
+        """Export each document as an RCBD bundle using rexgraph.io.save_rcbd."""
+        from rexgraph.io import save_rcbd
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         paths = []
         for doc in self.corpus.documents:
             if doc.rex is not None:
-                p = str(Path(output_dir) / (f"{doc.doc_id}.rex"))
-                save_rex(p, doc.rex, cache="all")
+                p = str(Path(output_dir) / f"{doc.doc_id}{BUNDLE_SUFFIX}")
+                save_rcbd(p, doc.rex, cache="all")
                 paths.append(p)
         return paths
 

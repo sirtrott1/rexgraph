@@ -20,6 +20,7 @@ py.install_sources(
         'partition_state.py',
         'privacy.py',
         'replication.py',
+        'rcbf.py',
         'rex_state.py',
         'safetensors_bridge.py',
         'security.py',

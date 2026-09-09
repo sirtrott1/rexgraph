@@ -29,6 +29,31 @@ def at_time(source_expr, when: float) -> Call:
     return call("AT_TIME", source_expr, when)
 
 
+def rcdb_get(source_expr, record_id) -> Call:
+    """Bind one current RCDB record as the source for a structural phrase."""
+    return call("RCDB_GET", source_expr, record_id)
+
+
+def rcdb_version(source_expr, record_id, version: int) -> Call:
+    """Bind one exact persisted RCDB version as the source for a structural phrase."""
+    return call("RCDB_VERSION", source_expr, record_id, version)
+
+
+def rcdb_as_of(source_expr, record_id, when: float) -> Call:
+    """Bind the record state current at one exact RCDB transaction time."""
+    return call("RCDB_AS_OF", source_expr, record_id, when)
+
+
+def rcdb_valid_at(source_expr, record_id, when: float) -> Call:
+    """Bind the record state valid at one exact RCDB valid time."""
+    return call("RCDB_VALID_AT", source_expr, record_id, when)
+
+
+def phrase(section) -> Call:
+    """Bind one policy-aware explicit phrase section as the source of a RCQL query."""
+    return call("PHRASE", section)
+
+
 def call(name: str, *args) -> Call:
     """Build one operator call."""
     return Call(str(name).upper(), tuple(expr(arg) for arg in args))

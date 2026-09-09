@@ -2,7 +2,7 @@
 agent.server.artifacts: what a route hands back when the answer is not a number.
 
 The library has a complete binary I/O stack and there is no reason for a route to
-summarize a complex into JSON and drop the object. A complex goes out as `.rex`,
+summarize a complex into JSON and drop the object. A complex goes out as `.rcbd`,
 safetensors, HDF5 or Zarr; a feature matrix goes out as the labeled vector container;
 a per-cell table goes out through the canonical table writers, which every other
 consumer of this data already reads.
@@ -30,9 +30,13 @@ import numpy as np
 from fastapi import HTTPException
 from fastapi.responses import Response
 
-#: complex containers, by the extension each is written under
+from ..formats import BUNDLE_SUFFIX
+
+#: complex containers, by the extension each is written under. The KEY is the
+#: export format name in the HTTP surface and does not change with the file
+#: rename: it identifies the contract, not the filename.
 COMPLEX_FORMATS = {
-    "rex": ".rex",
+    "rex": BUNDLE_SUFFIX,
     "safetensors": ".safetensors",
     "hdf5": ".h5",
     "h5": ".h5",
@@ -70,7 +74,7 @@ def _write_and_read(writer, suffix: str) -> bytes:
     """Run a writer against a fresh scratch path and return the bytes.
 
     The path is handed over NOT EXISTING, because the containers disagree about what
-    they are: `.rex` and `.zarr` are directories the writer creates, and safetensors,
+    they are: `.rcbd` and `.zarr` are directories the writer creates, and safetensors,
     HDF5 and parquet are single files. Pre-creating with `mkstemp` broke the bundle
     writers, which found a file where they wanted to make a directory.
 
@@ -125,7 +129,7 @@ def complex_file(rex, name: str, fmt: str = "rex") -> Response:
     `rex_to_safetensors` is not, so a temporal series handed to the latter fails on a
     `RexGraph` attribute it does not have.
 
-    `.rex` and `.zarr` are directories, so they come back zipped; the rest are single
+    `.rcbd` and `.zarr` are directories, so they come back zipped; the rest are single
     files.
     """
     fmt = str(fmt).strip().lower()
@@ -137,8 +141,8 @@ def complex_file(rex, name: str, fmt: str = "rex") -> Response:
 
     def write(path):
         if fmt == "rex":
-            from rexgraph.io import save_rex
-            save_rex(path, rex)
+            from rexgraph.io import save_rcbd
+            save_rcbd(path, rex)
         elif fmt == "safetensors":
             from rexgraph.io.safetensors_bridge import save_safetensors
             save_safetensors(path, rex)

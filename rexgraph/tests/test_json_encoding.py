@@ -76,13 +76,13 @@ def test_numpy_dict_keys_survive():
 
 
 def test_a_bundle_manifest_is_always_strict_json(tmp_path):
-    """A .rex bundle carrying a NaN metric wrote a MANIFEST.json that JSON.parse
+    """A .rcbd bundle carrying a NaN metric wrote a MANIFEST.json that JSON.parse
     rejects: the GUI and every external consumer choke on it."""
-    from rexgraph.io.bundle import save_rex
+    from rexgraph.io.bundle import save_rcbd
 
     g = _rex()
     g._agent_meta = {"score": np.float64("nan"), "ratio": float("inf")}
-    save_rex(str(tmp_path / "g.rex"), g)
+    save_rcbd(str(tmp_path / "g.rcbd"), g)
 
     seen = 0
     for root, _, files in os.walk(tmp_path):

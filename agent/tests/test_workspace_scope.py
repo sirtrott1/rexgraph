@@ -456,8 +456,12 @@ def test_a_document_id_cannot_escape_its_workspace(two_tenants, tmp_path):
         "doc_id": "../../alpha/documents/planted",
     })
     assert r.status_code != 200, r.text
+    from agent.formats import BUNDLE_SUFFIXES
     from agent.server.persistence import _docs_dir
-    assert not (_docs_dir("alpha") / "planted.rex").exists(), "bob planted into alpha"
+    # Every suffix a bundle can land under, so the rename cannot quietly retire this
+    # check: asserting one literal suffix would pass vacuously once writes moved.
+    planted = [_docs_dir("alpha") / f"planted{suffix}" for suffix in BUNDLE_SUFFIXES]
+    assert not any(path.exists() for path in planted), "bob planted into alpha"
 
 
 def test_an_ordinary_document_id_still_works(two_tenants):

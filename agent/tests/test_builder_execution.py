@@ -155,7 +155,7 @@ def test_a_required_step_that_fails_stops_the_run(doc):
     res = AgentBuilder({"name": "x", "steps": [
         {"type": "corpus"},
         {"type": "export", "required": True,
-         "params": {"output": "/proc/nonexistent/out.rex"}},
+         "params": {"output": "/proc/nonexistent/out.rcbd"}},
         {"type": "chunk"}]}).run(files=[doc], query="q")
     assert [x.step_type for x in res.steps] == ["corpus", "export"], \
         "a failed required step did not stop the run"
@@ -192,7 +192,7 @@ def test_a_step_runs_after_a_corpus(doc, step, tmp_path):
     """Each remaining step, executed once with a corpus in front of it. These all
     complete here; a step that needs a backend has to say so as a step error with a
     message, never as an exception escaping `run`."""
-    params = {"output": str(tmp_path / f"{step}.rex")} if step == "export" else {}
+    params = {"output": str(tmp_path / f"{step}.rcbd")} if step == "export" else {}
     res = AgentBuilder({"name": "x", "steps": [
         {"type": "corpus"},
         {"type": step, "required": False, "params": params}]}).run(

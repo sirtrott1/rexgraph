@@ -1,7 +1,8 @@
 """
 Server-side session store.
 
-Manages active sessions in memory with disk persistence via .rex bundles.
+Manages active sessions in memory with disk persistence via .rcbd bundles
+(legacy .rex bundles are still read).
 Sessions are created on upload and persist across server restarts.
 """
 

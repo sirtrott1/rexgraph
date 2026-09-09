@@ -118,6 +118,8 @@ class ValueKind(str, Enum):
     OPERATOR = "Operator"
     GRAM = "Gram"
     METRIC = "Metric"
+    EXACT_SHEAF = "ExactSheaf"
+    EXACT_GLUE = "ExactGlueResult"
 
     # structure
     REX = "Rex"
@@ -140,6 +142,7 @@ class ValueKind(str, Enum):
     # persistence and transport
     RECORD = "Record"
     RECORD_SET = "RecordSet"
+    RCDB_STORE = "RCDBStore"
     COMMIT = "Commit"
     COMMIT_LINK = "CommitLink"
     HISTORY = "History"
@@ -182,6 +185,11 @@ class SourceRef:
     name: str
     state_digest: str | None = None
     policy_digest: str | None = None
+    record_id: str | None = None
+    record_version: int | None = None
+    record_as_of: float | None = None
+    record_valid_at: float | None = None
+    contributors: tuple[SourceRef, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -264,58 +264,58 @@ register(OperatorSignature(
 # ------------------------------------------------------------------ RCDB readings
 
 register(OperatorSignature(
-    name="RCDB_LIST", source_kind=ValueKind.REX, inputs=(_LIMIT, _OFFSET),
+    name="RCDB_LIST", source_kind=ValueKind.RCDB_STORE, inputs=(_LIMIT, _OFFSET),
     result=_t("RecordSet", ValueKind.RECORD_SET, domain=Domain.METADATA,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.list",
     preconditions=("returns projected summaries; it does not decode a stored complex",),
 ))
 register(OperatorSignature(
-    name="RCDB_SEARCH", source_kind=ValueKind.REX,
+    name="RCDB_SEARCH", source_kind=ValueKind.RCDB_STORE,
     inputs=(TypePattern("text", literal=str), _LIMIT),
     result=_t("RecordSet", ValueKind.RECORD_SET, domain=Domain.METADATA,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.search", requires=frozenset({SEARCH}),
 ))
 register(OperatorSignature(
-    name="RCDB_GET", source_kind=ValueKind.REX, inputs=(_STR,),
+    name="RCDB_GET", source_kind=ValueKind.RCDB_STORE, inputs=(_STR,),
     result=_t("Rex", ValueKind.REX, domain=Domain.METADATA),
     implementation_key="rcdb.get", requires=frozenset({IDENTITY}),
     preconditions=("decodes a stored complex, so it resolves an identity",),
 ))
 register(OperatorSignature(
-    name="RCDB_HISTORY", source_kind=ValueKind.REX, inputs=(_STR,),
+    name="RCDB_HISTORY", source_kind=ValueKind.RCDB_STORE, inputs=(_STR,),
     result=_t("History", ValueKind.HISTORY, domain=Domain.METADATA,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.history", requires=frozenset({HISTORY}),
 ))
 register(OperatorSignature(
-    name="RCDB_STATS", source_kind=ValueKind.REX, inputs=(),
+    name="RCDB_STATS", source_kind=ValueKind.RCDB_STORE, inputs=(),
     result=_t("StoreStats", ValueKind.STORE_STATS, domain=Domain.METADATA,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.stats",
 ))
 register(OperatorSignature(
-    name="RCDB_HASH", source_kind=ValueKind.REX, inputs=(_STR,),
+    name="RCDB_HASH", source_kind=ValueKind.RCDB_STORE, inputs=(_STR,),
     result=_t("Digest", ValueKind.DIGEST, domain=Domain.BYTES,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.record_digest", requires=frozenset({IDENTITY}),
 ))
 register(OperatorSignature(
-    name="RCDB_COMMITS", source_kind=ValueKind.REX, inputs=(_STR,),
+    name="RCDB_COMMITS", source_kind=ValueKind.RCDB_STORE, inputs=(_STR,),
     result=_t("CommitLink", ValueKind.COMMIT_LINK, domain=Domain.METADATA,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.commit_history", requires=frozenset({HISTORY}),
     preconditions=("a plain put contributes no commit link; only a governed transition does",),
 ))
 register(OperatorSignature(
-    name="RCDB_VERIFY", source_kind=ValueKind.REX, inputs=(_STR,),
+    name="RCDB_VERIFY", source_kind=ValueKind.RCDB_STORE, inputs=(_STR,),
     result=_t("Boolean", ValueKind.BOOLEAN, domain=Domain.METADATA,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.verify_commits", requires=frozenset({HISTORY}),
 ))
 register(OperatorSignature(
-    name="RCDB_SECURITY", source_kind=ValueKind.REX, inputs=(),
+    name="RCDB_SECURITY", source_kind=ValueKind.RCDB_STORE, inputs=(),
     result=_t("SecurityStatus", ValueKind.SECURITY_STATUS, domain=Domain.METADATA,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.security_status", requires=frozenset({SECURITY}),
@@ -690,6 +690,10 @@ _ACCUMULATABLE = TypePattern(
     "aligned chain or cochain", kind=(ValueKind.CHAIN, ValueKind.COCHAIN),
     source_bound=True, basis_bound=True,
 )
+_EXACT_SHEAF = TypePattern(
+    "exact local-section sheaf", kind=ValueKind.EXACT_SHEAF,
+    source_bound=True, basis_bound=True,
+)
 
 
 def _coefficient_carrier(value: RCType) -> RCType:
@@ -809,6 +813,13 @@ def _zero_result(args: tuple[object, ...]) -> RCType:
               domain=Domain.INTEGER, exactness=Exactness.INTEGER)
 
 
+def _exact_glue_result(args: tuple[object, ...]) -> RCType:
+    section = args[0]
+    assert isinstance(section, RCType)
+    return _t("ExactGlueResult", ValueKind.EXACT_GLUE, grade=section.grade,
+              domain=Domain.RATIONAL, exactness=Exactness.STRUCTURAL)
+
+
 register(OperatorSignature(
     name="GRADE", source_kind=ValueKind.REX, inputs=(_ANY_VALUE,),
     result=_exact_integer(), implementation_key="rex.grade",
@@ -913,6 +924,15 @@ register(OperatorSignature(
     inputs=(_GRADE, TypePattern("kind", literal=str, optional=True)),
     result=_zero_result, implementation_key="rex.zero",
 ))
+register(OperatorSignature(
+    name="GLUE", source_kind=ValueKind.REX, inputs=(_EXACT_SHEAF,),
+    result=_exact_glue_result, implementation_key="rex.exact_sheaf.glue",
+    preconditions=(
+        "the local-section stalks and incidence restrictions are exact integer/rational values",
+        "every restriction is evaluated at every shared mediator; failures retain exact residuals",
+        "cross-state gluing requires an explicit chain-preserving correspondence map",
+    ),
+))
 
 # Registered, catalogued, and impossible. RCDB_STATE_HASH calls source.state_digest(),
 # which no RCStore defines and none of the nine registered backends provides, so it raises
@@ -920,7 +940,7 @@ register(OperatorSignature(
 # the binder refuse it with a reason instead of letting an adapter raise a TypeError that
 # reads like a caller error.
 register(OperatorSignature(
-    name="RCDB_STATE_HASH", source_kind=ValueKind.REX, inputs=(),
+    name="RCDB_STATE_HASH", source_kind=ValueKind.RCDB_STORE, inputs=(),
     result=_t("Digest", ValueKind.DIGEST, domain=Domain.BYTES,
               exactness=Exactness.STRUCTURAL),
     implementation_key="rcdb.state_digest",

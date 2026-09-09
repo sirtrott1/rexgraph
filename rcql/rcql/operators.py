@@ -46,6 +46,7 @@ from rexgraph.rational_trig import (
 from rexgraph.rational_trig import (
     spread as rational_spread,
 )
+from rexgraph.sheaf import ExactSheaf
 from rexgraph.temporal_signal import (
     TemporalSignal,
     TemporalSignalFlow,
@@ -389,6 +390,23 @@ def graded_star(source, value):
 def graded_enclosure(source, value):
     """Return the full source-bound graded enclosure of a cell pattern."""
     return enclosure(_typed_cells(source, value, operator="ENCLOSURE"))
+
+
+@register("GLUE")
+def glue(source, section):
+    """Evaluate a declared exact local section over this phrase's relational complex.
+
+    The sheaf already contains the selected stalks and their incidence restrictions.
+    This adapter only establishes that they are sections of the phrase source, then
+    performs exact local-to-global gluing.  It does not infer a correspondence between
+    distinct Rex states: cross-state gluing needs an explicit restriction map that
+    preserves the graded boundary, rather than a convenience match by shape or name.
+    """
+    if not isinstance(section, ExactSheaf):
+        raise TypeError("GLUE expects an ExactSheaf local-section carrier")
+    if section.rex is not source:
+        raise ValueError("GLUE requires an ExactSheaf bound to its phrase source Rex")
+    return section.glue()
 
 
 @register("HODGE_OPERATOR")

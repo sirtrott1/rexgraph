@@ -43,14 +43,14 @@ class RexState:
 
 #### the one name codec
 #
-# Containers reserve different characters: a hierarchy backend (.rex, hdf5, zarr) cannot
+# Containers reserve different characters: a hierarchy backend (.rcbd, hdf5, zarr) cannot
 # hold '/' in a name, a filesystem path additionally cannot hold '\@:*?"<>|', and
 # safetensors reserves nothing (its keys are arbitrary strings, so '/' is stored
 # verbatim). One reversible codec parameterized by the reserved set covers all of them;
 # encoding '%' first is what keeps it collision-free, since '%2F' must not decode to '/'
 # unless it was encoded as such.
 
-#: hierarchy backends: .rex bundles, hdf5 groups, zarr groups
+#: hierarchy backends: .rcbd bundles, hdf5 groups, zarr groups
 RESERVED_HIERARCHY = "/"
 #: a single filesystem path component, plus '@' which the RCDB uses as its version separator
 RESERVED_PATH = "/\\@:*?\"<>|"
@@ -72,7 +72,7 @@ def decode_name(name: str, reserved: str = RESERVED_HIERARCHY) -> str:
 
 
 def fname_encode(name: str) -> str:
-    """The hierarchy case of :func:`encode_name` (used by .rex, hdf5, zarr)."""
+    """The hierarchy case of :func:`encode_name` (used by .rcbd, hdf5, zarr)."""
     return encode_name(name, RESERVED_HIERARCHY)
 
 
@@ -338,7 +338,7 @@ def state_digest(tensors: dict, names=None, *, algo: int = DIGEST_ALGO) -> str:
     """A sha256 over the tensor payload, order-independent.
 
     Here rather than in one container because every format delegates to `to_state`, so
-    a digest computed at this seam covers `.rex`, hdf5, zarr, safetensors and the wire
+    a digest computed at this seam covers `.rcbd`, hdf5, zarr, safetensors and the wire
     with one rule instead of five. What it answers is narrow and worth stating: whether
     these are the bytes that were written. It is NOT the structural check, which is the
     chain condition and lives on the complex; the two catch different failures and
@@ -374,7 +374,7 @@ def verify_state(state: RexState) -> bool:
     """Whether a state's tensors still match the digest recorded with them.
 
     A missing digest fails: without a recorded value there is nothing to compare the
-    stored bytes against. The ``.rex`` loader owns the one explicit migration path for
+    stored bytes against. The ``.rcbd`` loader owns the one explicit migration path for
     trusted bundles written before the content seal existed.
 
     A name the digest covered that is no longer present is a failure, not an absence:
@@ -478,11 +478,11 @@ def from_state(
 
     Format precedes integrity so a pre-canonical bundle gets the actionable diagnosis
     that it is old, not a suggestion to enable a migration flag that cannot decode it.
-    Integrity is checked here rather than in each reader, so `.rex`, hdf5, zarr,
+    Integrity is checked here rather than in each reader, so `.rcbd`, hdf5, zarr,
     safetensors and the wire all refuse a payload whose tensors no longer match what
     was written. A state carrying no digest is refused.
     ``_allow_unsealed`` is private plumbing for the explicit legacy option on the
-    ``.rex`` loader and must not be exposed by a network or general container reader.
+    ``.rcbd`` loader and must not be exposed by a network or general container reader.
 
     `verify=False` is for a caller that assembled the tensors itself and never wrote a
     digest to check against.

@@ -118,10 +118,10 @@ def test_an_unreadable_snapshot_is_reported_not_a_crash(client, tmp_path):
 def test_a_legacy_bundle_says_it_is_legacy(tmp_path):
     """The old manifest carried its version under `version`; the reader looks for
     `format_version` and reported None, which reads as corruption rather than age."""
-    from rexgraph.io import load_rex
+    from rexgraph.io import load_rcbd
     b = tmp_path / "old.rex"
     b.mkdir()
     (b / "MANIFEST.json").write_text(
         '{"magic":"rex-bundle","version":1,"object_type":"RexGraph","nV":3,"nE":3}')
     with pytest.raises(ValueError, match="older version"):
-        load_rex(str(b))
+        load_rcbd(str(b))

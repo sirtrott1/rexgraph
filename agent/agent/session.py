@@ -3,7 +3,8 @@ Session state as a temporal trajectory of analysis states.
 
 Each user interaction (upload, query, parameter change) creates a new
 timestep. Returning to a previous state is loading that snapshot.
-Sessions persist as .rex bundles on disk.
+Sessions persist as .rcbd bundles on disk. Bundles written before the rename
+carry a .rex suffix and are still read.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from .formats import BUNDLE_SUFFIX
 
 
 class SnapshotUnreadable(RuntimeError):
@@ -31,7 +34,7 @@ class Snapshot:
     timestamp: float
     action: str                    # 'upload', 'analyze', 'reconfig', 'explore'
     params: dict[str, Any]         # parameters used at this step
-    rex_path: str | None        # path to serialized .rex bundle (if saved)
+    rex_path: str | None        # path to serialized bundle (if saved)
     results: dict | None        # cached analysis results (in memory)
     summary: str = ""              # one-line summary of this step
 
@@ -41,7 +44,7 @@ class Session:
 
     Each interaction creates a new snapshot. The RexGraph at each
     snapshot is the complete analysis state. Previous states are
-    recoverable by loading the corresponding .rex bundle.
+    recoverable by loading the corresponding .rcbd bundle.
     """
 
     def __init__(self, session_id: str, storage_dir: str):
@@ -93,11 +96,11 @@ class Session:
         step = len(self.snapshots)
 
         # Serialize the rex to disk
-        rex_filename = f"snapshot_{step:04d}.rex"
+        rex_filename = f"snapshot_{step:04d}{BUNDLE_SUFFIX}"
         rex_path = str(self.session_dir / rex_filename)
         try:
-            from rexgraph.io import save_rex
-            save_rex(rex_path, rex)
+            from rexgraph.io import save_rcbd
+            save_rcbd(rex_path, rex)
         except Exception:
             rex_path = None
 
@@ -127,9 +130,9 @@ class Session:
         if snapshot.rex_path is None:
             raise ValueError(f"No serialized rex at step {step}")
 
-        from rexgraph.io import load_rex
+        from rexgraph.io import load_rcbd
         try:
-            rex = load_rex(snapshot.rex_path)
+            rex = load_rcbd(snapshot.rex_path)
         except Exception as e:
             # A snapshot that will not load is this session's problem, not a fault
             # in whatever is asking for it. Naming the session and step turns an

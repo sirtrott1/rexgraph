@@ -52,15 +52,15 @@ def test_all_formats_agree_on_a_rich_complex(tmp_path):
     from rexgraph.io import load as zload
     from rexgraph.io import save as zsave
     from rexgraph.io.arrow_bridge import arrow_to_rex, rex_to_arrow
-    from rexgraph.io.bundle import load_rex, save_rex
+    from rexgraph.io.bundle import load_rcbd, save_rcbd
     from rexgraph.io.hdf5_format import RexHDF5Format
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
     g = _rich()
-    rex_p = str(tmp_path / "g.rex"); save_rex(rex_p, g)
+    rex_p = str(tmp_path / "g.rcbd"); save_rcbd(rex_p, g)
     st_p = str(tmp_path / "g.safetensors"); rex_to_safetensors(g, st_p)
     h5_p = str(tmp_path / "g.h5"); RexHDF5Format().write(h5_p, g)
     z_p = str(tmp_path / "g.zarr"); zsave(z_p, g)
-    for r in (load_rex(rex_p), safetensors_to_rex(st_p), arrow_to_rex(rex_to_arrow(g)),
+    for r in (load_rcbd(rex_p), safetensors_to_rex(st_p), arrow_to_rex(rex_to_arrow(g)),
               RexHDF5Format().read(h5_p), zload(z_p)):
         _assert_full_roundtrip(g, r)
         assert list(r.betti) == list(g.betti)
@@ -94,7 +94,7 @@ def test_generic_save_load_round_trips_every_dependency_free_format(tmp_path):
 
     rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
                    targets=np.array([1, 2, 0], np.int32))
-    for name in ("g.rex", "g.safetensors", "g.json"):
+    for name in ("g.rcbd", "g.safetensors", "g.json"):
         p = tmp_path / name
         io.save(str(p), rex)
         back = io.load(str(p))
@@ -121,7 +121,7 @@ def test_unknown_extension_is_an_error_not_a_silent_zarr_write(tmp_path):
 
 
 def test_directory_and_extensionless_heuristics_still_work(tmp_path):
-    """The legitimate heuristics stay: an existing .rex bundle dir, an existing Zarr
+    """The legitimate heuristics stay: an existing .rcbd bundle dir, an existing Zarr
     dir, and an explicit format override."""
     import numpy as np
 
@@ -130,12 +130,12 @@ def test_directory_and_extensionless_heuristics_still_work(tmp_path):
 
     rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
                    targets=np.array([1, 2, 0], np.int32))
-    # explicit override needs no extension at all (save_rex appends .rex itself)
+    # explicit override needs no extension at all (save_rcbd appends .rcbd itself)
     p = tmp_path / "explicit"
     io.save(str(p), rex, format="rex")
     assert io.load(str(p), format="rex") is not None
     # and the resulting bundle directory is detected without an override
-    assert io.load(str(p) + ".rex") is not None
+    assert io.load(str(p) + ".rcbd") is not None
 
 
 def test_a_format_can_be_registered_from_outside(tmp_path):

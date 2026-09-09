@@ -224,7 +224,7 @@ def decode(data: bytes, *, max_frame: int = DEFAULT_MAX_FRAME,
     frame = Frame(header=header, tensors=tensors, n_bytes=len(data))
 
     # the content digest `to_state` recorded, checked on the unpacked tensors. This is
-    # the same value a `.rex`, hdf5, zarr or safetensors reader checks, so a payload
+    # the same value an `.rcbd`, hdf5, zarr or safetensors reader checks, so a payload
     # that survived the wire and a payload that survived a disk are held to one rule.
     from rexgraph.io.rex_state import RexState, verify_state
     if not verify_state(RexState(tensors=tensors, header=header)):

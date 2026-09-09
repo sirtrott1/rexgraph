@@ -126,8 +126,8 @@ def test_the_bundle_groups_write_something(group):
 
     rex = _fixture()
     with tempfile.TemporaryDirectory() as d:
-        path = f"{d}/x.rex"
-        bundle.save_rex(path, rex, cache=group)
+        path = f"{d}/x.rcbd"
+        bundle.save_rcbd(path, rex, cache=group)
         import json
         manifest = json.loads(Path(path, "MANIFEST.json").read_text())
         wrote = set(manifest.get("cached_arrays") or [])

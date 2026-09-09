@@ -21,7 +21,7 @@ def r(g):
 
 
 #### meets
-def test_meets_count_matches_spore_at_grade_1():
+def test_meets_count_at_grade_1():
     assert len(Sheaf(path4()).meets()) == 2
     assert len(Sheaf(cycle4()).meets()) == 4
     both = RexGraph(sources=np.array([0, 1, 2, 4, 5, 6, 7], np.int32),
@@ -53,7 +53,7 @@ def test_grade_0_mediates_through_the_edge_containing_both():
 
 
 #### glue
-def test_path_gluing_matches_spore():
+def test_path_gluing():
     sh = Sheaf(path4(), stalk_dim=2)
     for e in range(3):
         sh.assign(e, [1, 0])
@@ -62,7 +62,7 @@ def test_path_gluing_matches_spore():
     assert r(sh.glue()) == (0.0, 3, 2, 2, 0)
 
 
-def test_cycle_gluing_matches_spore():
+def test_cycle_gluing():
     sh = Sheaf(cycle4(), stalk_dim=2)
     for e in range(4):
         sh.assign(e, [1, 0])
@@ -121,7 +121,7 @@ def fan5_with_hyperface():
     ([0, 1, 1, 1, 1], -4.0),         # every leg
     ([4, -1, -1, -1, -1], 20.0),     # the face column itself: <c, c>
 ])
-def test_holonomy_matches_spore_on_a_hyperface(theta, want):
+def test_holonomy_on_a_hyperface(theta, want):
     sh = Sheaf(fan5_with_hyperface(), stalk_dim=2)
     assert float(sh.holonomy(theta)[0]) == pytest.approx(want)
 
@@ -241,7 +241,7 @@ def test_a_grade_with_no_meets_glues_vacuously_and_says_so():
     assert g["gluable"] == 0 and g["ratio"] == 1.0 and g["H1"] == 0
 
 
-def test_assign_is_grade_aware_which_sporeS_LANGUAGE_layer_is_not():
+def test_assign_is_grade_aware():
     rex = two_triangles()
     sh = Sheaf(rex, stalk_dim=2, grade=0)
     assert sh.n_cells == int(rex.nV)

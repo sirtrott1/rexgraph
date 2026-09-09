@@ -107,18 +107,18 @@ class EngineResult:
         and enrichment as JSON sidecars.
 
         Supported formats:
-            .rex    NumPy bundle (zero dependencies)
+            .rcbd    NumPy bundle (zero dependencies)
             .zarr   Chunked compressed (requires zarr)
             .h5     Single HDF5 file (requires h5py)
 
         The sidecar files are always JSON, stored alongside the
-        complex in the same directory (.rex, .zarr) or as a
+        complex in the same directory (.rcbd, .zarr) or as a
         companion file (.h5).
 
         Parameters
         ----------
         path : str
-            Output path (e.g., 'results.rex', 'results.zarr').
+            Output path (e.g., 'results.rcbd', 'results.zarr').
         format : str, optional
             Override format detection.
         cache : str

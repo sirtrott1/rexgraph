@@ -116,7 +116,7 @@ _INTERNAL_ATTRS = frozenset({
 # parquet, arrow, sql, the dashboard and three server routes, with four different
 # answers for a non-finite float, and none of them worked, because np.float64
 # subclasses Python float and so is serialized directly without ever reaching
-# JSONEncoder.default. A NaN metric therefore wrote a bare `NaN` token into a .rex
+# JSONEncoder.default. A NaN metric therefore wrote a bare `NaN` token into an .rcbd
 # MANIFEST.json, which is not JSON and JSON.parse rejects. The policy has to be
 # applied to the object BEFORE dumps, which is what json_sanitize does.
 

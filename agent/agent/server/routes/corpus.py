@@ -20,11 +20,11 @@ async def add_text_json(
     token: TokenEntry = Depends(require_auth),
     ws: WorkspaceState = Depends(require_workspace),
 ):
-    """Add text as a relational complex and keep it as a .rex document.
+    """Add text as a relational complex and keep it as a .rcbd document.
 
     Body: {text, doc_id?, date?, persist?}. The text is built into a complex the
     same way an uploaded .txt is (words as vertices, sentence co-occurrence as
-    relations) and written as a .rex bundle. The bundle carries the source text in
+    relations) and written as a .rcbd bundle. The bundle carries the source text in
     its own metadata, so the document is one file and the text is not a sidecar.
 
     `persist: false` adds it to the corpus without writing the bundle.

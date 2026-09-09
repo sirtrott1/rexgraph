@@ -684,19 +684,21 @@ oscillation (retrying without progress).
 
 ## I/O
 
-Eight storage formats with automatic format detection on load.
-Bundle (.rex) requires zero dependencies beyond numpy.
+Nine storage formats with automatic format detection on load.
+Bundle (.rcbd) requires zero dependencies beyond numpy. Bundles written before the
+rename carry a `.rex` suffix and are still read.
 
 ```python
-from rexgraph.io import save_rex, load_rex, save_zarr, load_zarr, save_hdf5, load_hdf5
+from rexgraph.io import load_rcbf, save_rcbd, load_rcbd, save_zarr, load_zarr, save_hdf5, load_hdf5
 from rexgraph.io.json_loader import load_json
 from rexgraph.io.csv_loader import load_edge_csv
 
-save_rex("graph.rex", rex)                    # portable bundle
+save_rcbd("graph.rcbd", rex)                  # portable bundle
 save_zarr("graph.zarr", rex, cache="all")     # chunked, compressed
 save_hdf5("graph.h5", rex, cache="all")       # single file
 
-rex = load_rex("graph.rex")
+rex = load_rcbd("graph.rcbd")
+rex = load_rcbf("relations.rcbf")               # validated binary relation stream
 rex = load_zarr("graph.zarr")
 rex = load_hdf5("graph.h5")
 rex = load_json("graph.json")                 # auto-detects format
@@ -705,7 +707,8 @@ rex = load_edge_csv("edges.csv")              # column classification
 
 | Format | Extension | Dependencies | Notes |
 |--------|-----------|-------------|-------|
-| Bundle | .rex | none | portable, memory-mappable, zero-dep |
+| Bundle | .rcbd | none | portable, memory-mappable, zero-dep (legacy `.rex` still read) |
+| RCBF stream | .rcbf | none | sequential relational complex stream, read-only import |
 | Zarr | .zarr | zarr | chunked, compressed, cloud-ready |
 | HDF5 | .h5 | h5py | single file, HDF5 filters |
 | Arrow IPC | .arrow | pyarrow | zero-copy interop with Polars/DuckDB |
@@ -837,7 +840,7 @@ rexgraph/                     the relational complex library
         operators; the dense kernel path also serves as the exact reference for the eigen-free layer.
 
     io/                       storage and serialization
-        bundle (.rex), Zarr, HDF5, Arrow/IPC, Parquet, SQL, JSON, CSV, SafeTensors; format auto-detection
+        bundle (.rcbd), Zarr, HDF5, Arrow/IPC, Parquet, SQL, JSON, CSV, SafeTensors; format auto-detection
 
 
 agent/

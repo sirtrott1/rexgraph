@@ -61,12 +61,12 @@ def test_a_complex_saved_straight_after_add_faces_keeps_them():
 
 
 def test_the_cold_save_round_trips_through_every_container(tmp_path):
-    from rexgraph.io import load_rex, save_rex
+    from rexgraph.io import load_rcbd, save_rcbd
     from rexgraph.io.safetensors_bridge import load_safetensors, rex_to_safetensors
 
-    path = str(tmp_path / "cold.rex")
-    save_rex(path, _filled())
-    back = load_rex(path)
+    path = str(tmp_path / "cold.rcbd")
+    save_rcbd(path, _filled())
+    back = load_rcbd(path)
     assert int(back.nF) == 2
     assert tuple(back.betti) == (1, 0, 0), "the faces did not survive the save"
 

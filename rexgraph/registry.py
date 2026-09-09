@@ -9,7 +9,7 @@ one of them meant first working out which one you were in, and three of them cou
 take a registration but never give it back.
 
     FORMATS = Registry("format")
-    FORMATS.register("rex", handler, extensions=[".rex"])
+    FORMATS.register("rcbd", handler, extensions=[".rcbd"])
     FORMATS.require("rex")          # raises naming what IS registered
 """
 

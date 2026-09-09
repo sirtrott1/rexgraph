@@ -20,9 +20,9 @@ The canonical form weights per relation, not per square root:
 so a rational weight keeps the channels rational. It is sqrt(w), which appears in the
 normalized G and nowhere here, that forces a float.
 
-The expected values below are spore's, from test/channel_probe.c, computed independently
-of this library. An external oracle is the point: agreeing with our own reimplementation
-of the formula would prove nothing.
+The expected values below come from an independent reference calculation. A separate
+oracle is the point: agreeing with our own reimplementation of the formula would prove
+nothing.
 """
 
 import numpy as np
@@ -37,15 +37,15 @@ def _triangle(w_e1):
                     w_E=np.array([w_e1, 1.0, 1.0]))
 
 
-# (weight on e1, chi_T, chi_G, chi_F, chi_C) from spore channel_probe.c
-SPORE = [
+# (weight on e1, chi_T, chi_G, chi_F, chi_C) from the independent reference calculation
+REFERENCE = [
     (1.0,   0.250000, 0.250000, 0.250000, 0.250000),
     (5.0,   0.350765, 0.350765, 0.172194, 0.126276),
     (100.0, 0.353231, 0.353231, 0.175772, 0.117767),
 ]
 
 
-@pytest.mark.parametrize("w,T,G,F,C", SPORE)
+@pytest.mark.parametrize("w,T,G,F,C", REFERENCE)
 def test_chi_matches_the_external_oracle(w, T, G, F, C):
     chi = np.asarray(_triangle(w).structural_character)[0]
     assert np.allclose(chi, [T, G, F, C], atol=1e-6), (w, chi)

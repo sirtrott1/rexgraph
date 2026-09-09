@@ -102,10 +102,10 @@ def test_relation_ids_round_trip_through_bundle_hdf5_zarr_and_safetensors(tmp_pa
         relation_ids=[np.asarray([31, 32], dtype=np.int64), np.asarray([32, 33], dtype=np.int64)],
     )
 
-    from rexgraph.io.bundle import load_rex, save_rex
-    bundle = tmp_path / "identity.rex"
-    save_rex(str(bundle), history)
-    assert load_rex(str(bundle)).at(1).relation_ids.tolist() == [32, 33]
+    from rexgraph.io.bundle import load_rcbd, save_rcbd
+    bundle = tmp_path / "identity.rcbd"
+    save_rcbd(str(bundle), history)
+    assert load_rcbd(str(bundle)).at(1).relation_ids.tolist() == [32, 33]
 
     from rexgraph.io.safetensors_bridge import (
         safetensors_to_temporal_rex,

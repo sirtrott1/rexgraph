@@ -411,7 +411,7 @@ def _primes(k):
 
 
 def _sigma_deformed(k, sigma):
-    """spore's sigma-weighted boundary: B1w = W0^{1/2} B1 W1^{-1/2} on K_k over the
+    """The sigma-weighted boundary: B1w = W0^{1/2} B1 W1^{-1/2} on K_k over the
     first k primes, with W0[v] = ln(p_v) p_v^-sigma and W1[e] = W0[s] + W0[t]."""
     p = np.array(_primes(k), float)
     W0 = np.maximum(np.log(p) * p ** (-sigma), 1e-15)

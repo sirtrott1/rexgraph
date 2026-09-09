@@ -1,7 +1,7 @@
 """Text enters the system the way every other document does: as a complex.
 
 `add-text` used to be a JSON convenience that only touched the corpus, so text was
-the one input with no .rex behind it. It now builds the complex and writes the
+the one input with no .rcbd behind it. It now builds the complex and writes the
 bundle, and the bundle carries the source text, so a text document is one file.
 """
 from __future__ import annotations
@@ -22,7 +22,9 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def test_add_text_builds_a_complex_and_writes_a_rex(client):
+def test_add_text_builds_a_complex_and_writes_a_bundle(client):
+    from agent.formats import BUNDLE_SUFFIX
+
     r = client.post("/api/v1/corpus/add-text", json={"text": TEXT, "doc_id": "note1"})
     assert r.status_code == 200, r.text
     d = r.json()
@@ -30,7 +32,9 @@ def test_add_text_builds_a_complex_and_writes_a_rex(client):
     assert d["nV"] > 0 and d["nE"] > 0, d
     assert d["vertex_labels"], "the complex has no labelled vertices"
     assert pathlib.Path(d["path"]).exists(), d["path"]
-    assert d["path"].endswith(".rex")
+    # Canonical on write. Reads still accept the legacy suffix, which is covered in
+    # test_bundle_suffix_migration.py; nothing should still be emitting it.
+    assert d["path"].endswith(BUNDLE_SUFFIX), d["path"]
 
 
 def test_the_bundle_carries_the_text_so_there_is_no_sidecar(client):

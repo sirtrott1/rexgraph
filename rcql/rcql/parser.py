@@ -45,6 +45,13 @@ class _Parser:
             return Literal(bytes(value[1:-1], "utf8").decode("unicode_escape"))
         if kind != "name":
             raise SyntaxError(f"expected expression, got {value}")
+        # TRUE and FALSE are literals, not nullary calls. Several signatures take an
+        # `exact: bool`, and without this a bare name falls through to Call below and
+        # fails as a missing operator, which left the exact path reachable only by
+        # binding a parameter. Guarded on the absence of a call parenthesis so a future
+        # operator of either name still parses as one.
+        if value.upper() in ("TRUE", "FALSE") and self.peek()[1] != "(":
+            return Literal(value.upper() == "TRUE")
         if self.peek()[1] != "(":
             return Call(value.upper(), ())
         self.take("(")

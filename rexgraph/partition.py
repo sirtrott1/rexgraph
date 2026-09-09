@@ -335,9 +335,9 @@ def candidate_readings(rex, candidates, *, shares=True):
                   support already is: near 0 means the complex already ties those
                   vertices tightly and the relation would say almost nothing new.
 
-    That is the generation predicate. `frustration_delta` measures a candidate the same
-    way in spore; here the same decision falls out of the rank tower, so it costs a
-    projection rather than a rebuild.
+    That is the generation predicate. `frustration_delta` measures a candidate by the
+    same structural question; the rank tower answers it with a projection rather than a
+    rebuild.
 
     `candidates` is an iterable of vertex supports. With `shares=True` each becomes the
     zero-sum column `(-1, 1/(k-1), ...)` the model uses at any arity; pass explicit

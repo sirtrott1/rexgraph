@@ -185,9 +185,9 @@ def test_a_signal_is_decomposed_when_one_is_given():
 #### result round-trip
 
 
-@pytest.mark.parametrize("suffix", [".rex", ".h5", ".zarr"])
+@pytest.mark.parametrize("suffix", [".rcbd", ".h5", ".zarr"])
 def test_a_result_round_trips_through_a_file(tmp_path, suffix):
-    pytest.importorskip({".rex": "numpy", ".h5": "h5py", ".zarr": "zarr"}[suffix])
+    pytest.importorskip({".rcbd": "numpy", ".h5": "h5py", ".zarr": "zarr"}[suffix])
     res = DecisionEngine().run(TEXT)
     path = str(tmp_path / f"result{suffix}")
     res.save(path)
@@ -199,7 +199,7 @@ def test_a_result_round_trips_through_a_file(tmp_path, suffix):
 
 def test_a_reloaded_result_keeps_its_plan(tmp_path):
     res = DecisionEngine().run(TEXT)
-    path = str(tmp_path / "result.rex")
+    path = str(tmp_path / "result.rcbd")
     res.save(path)
     back = EngineResult.load(path)
     assert back.plan is not None, "the plan did not survive the save"
@@ -210,7 +210,7 @@ def test_a_reloaded_result_keeps_its_plan(tmp_path):
 def test_a_reloaded_result_keeps_its_decision_log(tmp_path):
     """The rationale is the reason to save the plan at all."""
     res = DecisionEngine().run(TEXT)
-    path = str(tmp_path / "result.rex")
+    path = str(tmp_path / "result.rcbd")
     res.save(path)
     back = EngineResult.load(path)
     assert back.plan.decisions, "the decision log did not survive the save"
@@ -220,7 +220,7 @@ def test_a_reloaded_result_keeps_its_decision_log(tmp_path):
 
 def test_a_reloaded_result_keeps_its_analysis(tmp_path):
     res = DecisionEngine().run(TEXT)
-    path = str(tmp_path / "result.rex")
+    path = str(tmp_path / "result.rcbd")
     res.save(path)
     back = EngineResult.load(path)
     assert back.analysis, "the analysis did not survive the save"
@@ -229,7 +229,7 @@ def test_a_reloaded_result_keeps_its_analysis(tmp_path):
 
 def test_a_reloaded_result_keeps_its_interpretation(tmp_path):
     res = DecisionEngine().run(TEXT)
-    path = str(tmp_path / "result.rex")
+    path = str(tmp_path / "result.rcbd")
     res.save(path)
     back = EngineResult.load(path)
     if res.interpretation:

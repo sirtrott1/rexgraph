@@ -110,7 +110,7 @@ def channel_colour(shares, *, dLT: float = 1.0, eps: float = 1.0) -> str:
     read as wavelengths against the Balmer limit and integrated through the CIE
     colour-matching functions, so the colour is a physical consequence of the character
     and two cells the same colour have the same character. `dLT` positions the picture on
-    the spectrum and `eps` scales the intensity; both are the caller's, as in spore.
+    the spectrum and `eps` scales the intensity; both are the caller's.
     """
     from rexgraph.color import hex_color, spectral_color
 
@@ -346,7 +346,7 @@ def _resolve_exposure(payload, dLT, eps):
     """Settle `dLT` and `eps` for this payload, and say what was settled and why.
 
     The K7 colour is a physical consequence of the character, and it is also a photograph:
-    it has an exposure, and at spore's fixed `dLT = 1` most complexes fall off the end of
+    it has an exposure, and at a fixed `dLT = 1` most complexes fall off the end of
     the visible band and come back black. Measured on a real binding panel, all eight
     relations did. So the default here is `"auto"`, which asks `rexgraph.color.exposure`
     to solve for the setting rather than pick one, and reports it in the caption. A caller

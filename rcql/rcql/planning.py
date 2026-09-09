@@ -48,6 +48,21 @@ def _plain_type(value: RCType) -> dict[str, object]:
     }
 
 
+def _plain_source(ref: SourceRef) -> dict[str, object]:
+    """Render source provenance without exposing its live store or carrier."""
+    rendered = {
+        "name": ref.name,
+        "state_digest": ref.state_digest,
+        "record_id": ref.record_id,
+        "record_version": ref.record_version,
+        "record_as_of": ref.record_as_of,
+        "record_valid_at": ref.record_valid_at,
+    }
+    if ref.contributors:
+        rendered["contributors"] = [_plain_source(item) for item in ref.contributors]
+    return rendered
+
+
 def _plain_literal(value: object) -> object:
     """Keep a plan renderable without leaking a live Python object."""
     if isinstance(value, RCType):
@@ -107,6 +122,24 @@ def _carrier_literal(binding: Binding, value: object) -> RCType | None:
     the same source/basis checks that protect nested phrase results.
     """
     from rexgraph.cochain import Chain, Cochain, Field
+
+    # The value can only exist after its module has been loaded by the caller.  Match
+    # that public carrier by its canonical defining type instead of importing sheaf.py
+    # on every plan: EXPLAIN must remain able to type unrelated phrases without pulling
+    # in another numerical implementation.
+    if (type(value).__module__, type(value).__qualname__) in {
+        ("rexgraph.sheaf", "ExactSheaf"),
+        ("rcql.phrase", "PhraseSheaf"),
+    }:
+        # A phrase sheaf is a local-section carrier, not an untyped Python object.
+        # Its source and grade are part of the restriction contract: an identically
+        # shaped sheaf over a different Rex cannot silently glue into this phrase.
+        source = binding.ref if value.rex is binding.value else SourceRef("foreign")
+        return RCType(
+            "ExactSheaf", grade=value.grade, kind=ValueKind.EXACT_SHEAF,
+            domain=Domain.RATIONAL, exactness=Exactness.STRUCTURAL,
+            source=source, basis=BasisRef(source.name, value.grade),
+        )
 
     field = isinstance(value, Field)
     carrier = value.cochain if field else value
@@ -173,6 +206,7 @@ class QueryPlan:
         return {
             "source": self.binding.ref.name,
             "source_kind": self.binding.schema.kind.value,
+            "source_state": _plain_source(self.binding.ref),
             "policy_digest": self.binding.ref.policy_digest,
             "effects": sorted(effect.value for effect in self.effects),
             "returns": [item.explain() for item in self.returns],
@@ -187,7 +221,11 @@ def _plan_expression(binding: Binding, expr: Expr, parameters: Mapping[str, obje
             value = parameters[expr.name]
         except KeyError as exc:
             raise KeyError(f"no static value declared for parameter ${expr.name}") from exc
-        return PlannedExpression(expr, value)
+        # Programmatic parameters are as capable of carrying a source-bound native
+        # value as literal builder inputs.  Leaving them raw would let an ExactSheaf,
+        # Chain, or Cochain bypass the same source/basis proof merely because it was
+        # named with ``$`` instead of embedded in an AST.
+        return PlannedExpression(expr, _carrier_literal(binding, value) or value)
     if isinstance(expr, Call):
         children = tuple(_plan_expression(binding, item, parameters) for item in expr.args)
         typed = infer(binding, expr.name, tuple(item.result for item in children))
