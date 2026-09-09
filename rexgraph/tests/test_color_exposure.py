@@ -19,7 +19,7 @@ def _panel():
 
 
 def test_the_fixed_exposure_is_untouched():
-    """dLT=1, eps=1 is spore's setting and must give exactly what it always gave."""
+    """dLT=1, eps=1 is the fixed default and must give exactly what it always gave."""
     assert spectral_color([0.25] * 4) == pytest.approx(
         (0.0, 0.007361, 0.105192), abs=1e-5)
     assert spectral_color([4 / 13, 4 / 13, 5 / 26, 5 / 26]) == pytest.approx(
@@ -29,7 +29,7 @@ def test_the_fixed_exposure_is_untouched():
 def test_a_real_character_can_fall_off_the_end_of_the_band():
     """The motivation, stated as a test.
 
-    Six of this fixture's eight relations are black at spore's dLT = 1, and every one of
+    Six of this fixture's eight relations are black at the fixed dLT = 1, and every one of
     the eight on the real BindingDB panel that prompted this was. The failure mode is the
     same either way: the picture goes dark and the darkness is not saying anything about
     the characters, only that their spectra left the band.

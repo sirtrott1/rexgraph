@@ -177,7 +177,7 @@ class FileCatalog:
         loader = self._loaders.get(kind)
         if loader is not None:
             return loader(path)
-        if kind in {"rex", "safetensors"}:
+        if kind in {"rcbd", "rex-legacy", "rcbf", "safetensors"}:
             from rexgraph.io import load
 
             return load(str(path))
@@ -318,7 +318,7 @@ def _walk(root: Path):
         directories[:] = sorted(
             name for name in directories if not (current_path / name).is_symlink()
         )
-        if _kind(current_path) in {"rex", "rcdb"}:
+        if _kind(current_path) in {"rcbd", "rex-legacy", "rcdb"}:
             yield current_path
             directories[:] = []
             continue
@@ -336,8 +336,10 @@ def _kind(path: Path) -> str | None:
                 data = _read_json(manifest)
             except Exception:  # noqa: BLE001 - malformed candidates are not entries
                 data = {}
+            if isinstance(data, dict) and data.get("magic") == "rcbd-bundle":
+                return "rcbd"
             if isinstance(data, dict) and data.get("magic") == "rex-bundle":
-                return "rex"
+                return "rex-legacy"
             if isinstance(data, dict) and data.get("format") in {"rcdb-file", "rexstore"}:
                 return "rcdb"
         if all((path / name).exists() for name in ("records.log", "blobs.pack")):
@@ -349,6 +351,11 @@ def _kind(path: Path) -> str | None:
             return "rcdb"
         return None
     suffix = path.suffix.lower()
+    if suffix in {".rcbf", ".rex"}:
+        from .rcbf import is_rcbf_file
+
+        if is_rcbf_file(path):
+            return "rcbf"
     if suffix == ".safetensors":
         return "safetensors"
     if suffix in {".rexenc", ".rexpkg"}:
@@ -416,7 +423,7 @@ def _path_size(path: Path, kind: str) -> int:
 
 
 def _metadata(path: Path, kind: str) -> dict[str, Any]:
-    if kind == "rex":
+    if kind in {"rcbd", "rex-legacy"}:
         try:
             data = _read_json(path / "MANIFEST.json")
             if not isinstance(data, dict):
@@ -428,6 +435,8 @@ def _metadata(path: Path, kind: str) -> dict[str, Any]:
             }
         except Exception:  # noqa: BLE001 - metadata is optional catalog detail
             return {}
+    if kind == "rcbf":
+        return {"object_type": "RCBF"}
     if kind == "safetensors":
         try:
             from safetensors import safe_open

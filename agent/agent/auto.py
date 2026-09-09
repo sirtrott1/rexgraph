@@ -21,6 +21,7 @@ from .adapters import EdgeConstruction
 from .adapters.correlation import AdjacencyAdapter, CorrelationAdapter
 from .adapters.edge_list import EdgeListAdapter
 from .adapters.feature_matrix import FeatureMatrixAdapter
+from .formats import BUNDLE_SUFFIXES
 
 # CSV cell tokens treated as missing (mirrors pandas.read_csv default na_values, lowercased)
 _NA_TOKENS = frozenset({"", "na", "n/a", "null", "none", "#n/a", "nan"})
@@ -112,7 +113,7 @@ def detect_input_type(data: Any) -> str:
     """Inspect data and classify it for adapter dispatch.
 
     Returns one of:
-        'rex_file'         - loadable rexgraph format (.rex, .zarr, .h5, .arrow)
+        'rex_file'         - loadable rexgraph format (.rcbd, .zarr, .h5, .arrow)
         'edge_csv'         - CSV/TSV with source/target columns
         'feature_csv'      - CSV with many numeric columns (samples × features)
         'json'             - JSON (auto-detected by rexgraph.io)
@@ -144,7 +145,8 @@ def detect_input_type(data: Any) -> str:
                 return "science_file"
         except Exception:
             pass
-        if suffix in (".rex", ".zarr", ".h5", ".hdf5", ".arrow", ".parquet", ".safetensors"):
+        if suffix in (*BUNDLE_SUFFIXES, ".zarr", ".h5", ".hdf5", ".arrow",
+                      ".parquet", ".safetensors"):
             return "rex_file"
         if suffix == ".json":
             return "json"

@@ -459,10 +459,10 @@ def test_the_reason_route_hands_back_the_signed_complex(client, tmp_path):
 
     import io
     import zipfile
-    out = str(tmp_path / "reasoning.rex")
+    out = str(tmp_path / "reasoning.rcbd")
     zipfile.ZipFile(io.BytesIO(r.content)).extractall(out)
-    from rexgraph.io import load_rex
-    rex = load_rex(out)
+    from rexgraph.io import load_rcbd
+    rex = load_rcbd(out)
     assert int(rex.nE) == len(INCONSISTENT)
 
 
@@ -475,10 +475,10 @@ def test_the_downloaded_complex_carries_the_disjointness_as_a_sign(client, tmp_p
     r = client.post("/api/v1/ontology/reason",
                     data={"text": _triples_text(INCONSISTENT), "format": "triples",
                           "download": "rex"})
-    out = str(tmp_path / "reasoning.rex")
+    out = str(tmp_path / "reasoning.rcbd")
     zipfile.ZipFile(io.BytesIO(r.content)).extractall(out)
-    from rexgraph.io import load_rex
-    signs = np.asarray(load_rex(out)._edge_signs)
+    from rexgraph.io import load_rcbd
+    signs = np.asarray(load_rcbd(out)._edge_signs)
     assert (signs < 0).sum() == 1, "the disjointness axiom lost its sign in transit"
 
 

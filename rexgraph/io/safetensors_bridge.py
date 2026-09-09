@@ -3,7 +3,7 @@
 Safetensors bridge for RexGraph and TemporalRex.
 
 Exports the same cell-complex reconstruction data and optional cache
-groups that `bundle.py` writes to `.rex` directories, but packed into a
+groups that `bundle.py` writes to `.rcbd` directories, but packed into a
 single `.safetensors` file. The goals are:
 
 - Cross-ecosystem transport: safetensors is the idiomatic format for
@@ -17,7 +17,7 @@ single `.safetensors` file. The goals are:
   user code.
 
 This bridge is parallel to `arrow_bridge.py` and `parquet_bridge.py`.
-It is not the primary storage for RexGraphs; use `bundle.py` (`.rex`)
+It is not the primary storage for RexGraphs; use `bundle.py` (`.rcbd`)
 or `zarr_format.py` (`.zarr`) for that. Use this bridge when shipping
 a rex to an ML environment or when you want the ML-ecosystem loader
 path.
@@ -54,12 +54,12 @@ grouping mirrors `bundle.py` cache groups:
 Metadata
 ~~~~~~~~
 For a RexGraph, the reconstruction contract is the canonical rex-state
-serializer (`rex_state.to_state`/`from_state`, the same one `.rex`
+serializer (`rex_state.to_state`/`from_state`, the same one `.rcbd`
 bundles delegate to). Its tensors (boundary, B2, w_E, signs,
 edge_types, w_boundary, labels, nested rexes, and so on) are stored
 here VERBATIM: safetensors keys are arbitrary strings, so a nested-rex
 name like `nested/cm_1_sub/0/boundary_ptr` keeps its `/` and needs no
-encoding (unlike .rex, hdf5 and zarr, which reserve `/` as a hierarchy
+encoding (unlike .rcbd, hdf5 and zarr, which reserve `/` as a hierarchy
 separator and go through `rex_state.encode_name`). The json-safe header
 is stored under the single metadata key `rex_state_header`.
 A `rex_meta` key is also written, holding the same header plus any
@@ -564,7 +564,7 @@ def rex_to_safetensors(
         Output file. `.safetensors` suffix appended if missing.
     cache : None, str, or list of str
         Precomputed property groups to include. Same vocabulary as
-        `bundle.save_rex`:
+        `bundle.save_rcbd`:
 
           - `None` (default) -> no cache, only the reconstruction contract
           - `"all"` -> every property in `_ALL_CACHEABLE`
@@ -589,7 +589,7 @@ def rex_to_safetensors(
     out = _coerce_path(path)
 
     # The graph itself is encoded through the one canonical rex-state serializer, so this
-    # bridge cannot drift from `.rex` (signs, w_boundary, g_channel, nested rexes all round-trip
+    # bridge cannot drift from `.rcbd` (signs, w_boundary, g_channel, nested rexes all round-trip
     # the same way here as they do through bundle.py).
     from ._compat import dumps as _dumps
     from .rex_state import to_state
@@ -763,7 +763,7 @@ def save_safetensors(
 ) -> pathlib.Path:
     """Save a RexGraph or TemporalRex to `.safetensors`.
 
-    Argument order is `(path, obj)`, matching `save_rex`, `save_zarr` and `save_hdf5`,
+    Argument order is `(path, obj)`, matching `save_rcbd`, `save_zarr` and `save_hdf5`,
     which lets the format registry hold this function directly.
 
     `(obj, path)` is also accepted and warns. The two parameters have disjoint types, so
@@ -774,7 +774,7 @@ def save_safetensors(
     from ..graph import RexGraph, TemporalRex
     if isinstance(path, (RexGraph, TemporalRex)):
         warnings.warn(
-            "save_safetensors takes (path, obj), matching save_rex/save_zarr/save_hdf5. "
+            "save_safetensors takes (path, obj), matching save_rcbd/save_zarr/save_hdf5. "
             "The (obj, path) order still works and will be removed in a later release.",
             DeprecationWarning,
             stacklevel=2,

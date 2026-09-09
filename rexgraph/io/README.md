@@ -165,7 +165,7 @@ Abstract base with methods:
 
 - `NpyAdapter(directory)`: wraps a directory of `.npy` files with a
   `_meta.json` sidecar for scalars, strings, and JSON data. Used by the
-  `.rex` bundle format.
+  `.rcbd` bundle format.
 
 ---
 
@@ -413,7 +413,7 @@ column key even when that column's pages are not read. DuckDB 1.5.5 cannot open
 that distinct-key PyArrow shape; its Arrow interoperability currently requires
 one uniform key for the footer and every column. Treat Parquet column projection
 as an I/O optimization, not as independent per-column authorization. The native
-safetensors and `.rex` paths do not have this first-column coupling.
+safetensors and `.rcbd` paths do not have this first-column coupling.
 
 Every typed table writer/reader accepts the matching opaque encryption/decryption
 property as a keyword argument, including character, vertex-character, and void
@@ -842,7 +842,7 @@ properties.
 
 
 
-## `bundle`: RexGraph Bundle (.rex)
+## `bundle`: Relational Complex Binary Directory (.rcbd)
 
 **File:** `bundle.py`
 
@@ -853,7 +853,7 @@ optional precomputed cache. Memory-mappable for lazy/partial reads.
 
 On-disk layout:
 
-    my_graph.rex/
+    my_graph.rcbd/
     +-- MANIFEST.json
     +-- boundary_ptr.npy, boundary_idx.npy
     +-- B2_col_ptr.npy, B2_row_idx.npy, B2_vals.npy
@@ -863,18 +863,18 @@ On-disk layout:
 
 ---
 
-### RexBundle Class
+### RCBDBundle Class
 
-`RexBundle(root, manifest)`
+`RCBDBundle(root, manifest)`
 
 - `manifest` -> dict: parsed MANIFEST.json
 - `object_type` -> str: "RexGraph" or "TemporalRex"
 - `path` -> Path
 
 Construction:
-- `RexBundle.from_graph(graph, cache=None)`: creates in-memory bundle spec (does not write to disk). Call `.save()` to persist.
-- `RexBundle.load(path, mmap=False, decryption_properties=None)`: loads from a
-  .rex directory and authenticates its complete encrypted inventory when present.
+- `RCBDBundle.from_graph(graph, cache=None)`: creates an in-memory bundle spec (does not write to disk). Call `.save()` to persist.
+- `RCBDBundle.load(path, mmap=False, decryption_properties=None)`: loads from an
+  `.rcbd` directory and authenticates its complete encrypted inventory when present.
   `mmap=True` remains lazy for plaintext arrays.
 
 Persistence:
@@ -911,7 +911,7 @@ Array access:
 ### Authenticated Encrypted Bundles
 
 The same opaque `ContainerEncryptionConfig` and property contract used by the
-safetensors bridge applies to `.rex` directories. With
+safetensors bridge applies to `.rcbd` directories. With
 `encryption_properties=None`, the existing named `.npy` layout is unchanged.
 With a property, `MANIFEST.json` contains a small public envelope and the logical
 manifest is encrypted by `footer_key` unless `plaintext_manifest=True` is
@@ -927,7 +927,7 @@ snapshot, and every face snapshot. Members omitted from an exact caller policy
 use `footer_key`; they never silently become public. `allow_unsealed=True` is a
 legacy plaintext migration flag and cannot downgrade this check.
 
-Cold `RexBundle.load` streams SHA-256 over every stored member, so it rejects a
+Cold `RCBDBundle.load` streams SHA-256 over every stored member, so it rejects a
 same-length substitution before the member is requested. That eager validation
 is O(total ciphertext bytes). After validation, logical-name lookup is O(1), and
 `read_slice` decrypts only the selected member chunks. Deferring the hashes would
@@ -936,7 +936,7 @@ make initial open cheaper but could not detect an unrequested same-size swap.
 Per-chunk query statistics use the same fixed-length format as safetensors. Facts
 for a protected member are sealed under that member's key, so opening the footer
 does not disclose value ranges for unauthorized grades. `where` and `select`
-prune, verify, and gather through the already-open `RexBundle`; a legacy bundle
+prune, verify, and gather through the already-open `RCBDBundle`; a legacy bundle
 without statistics falls back to scanning its predicate member.
 
 An explicitly public `.npy` remains memory-mappable. A protected member cannot
@@ -962,21 +962,45 @@ Hodge percentages) are stored in MANIFEST.json under "cache_scalars".
 
 Snapshots stored as numbered subdirectories:
 
-    temporal.rex/snapshots/0/sources.npy, targets.npy
-    temporal.rex/snapshots/1/...
-    temporal.rex/face_snapshots/0/B2_col_ptr.npy, B2_row_idx.npy (optional)
+    temporal.rcbd/snapshots/0/sources.npy, targets.npy
+    temporal.rcbd/snapshots/1/...
+    temporal.rcbd/face_snapshots/0/B2_col_ptr.npy, B2_row_idx.npy (optional)
 
 ---
 
 ### Convenience Functions
 
-- `save_rex(path, obj, cache=None, encryption_properties=None)`: saves RexGraph
-  or TemporalRex to a `.rex` bundle
-- `load_rex(path, allow_unsealed=False, decryption_properties=None)` -> RexGraph
-  or TemporalRex: loads from a
-  sealed .rex bundle by default. Set `allow_unsealed=True` only while migrating a
+- `save_rcbd(path, obj, cache=None, encryption_properties=None)`: saves RexGraph
+  or TemporalRex to an `.rcbd` directory
+- `load_rcbd(path, allow_unsealed=False, decryption_properties=None)` -> RexGraph
+  or TemporalRex: loads from a sealed `.rcbd` directory by default. Set
+  `allow_unsealed=True` only while migrating a
   trusted pre-digest RexGraph bundle; wire and other container readers never expose
   this downgrade.
+
+`RexBundle`, `save_rex`, and `load_rex` remain source-compatibility aliases.
+Omitting a suffix writes `.rcbd`; an explicit legacy `.rex` path is honored so
+existing save/load pairs remain valid. Existing `.rex` directories with legacy
+`rex-bundle` manifests remain readable.
+
+---
+
+## `rcbf`: Relational Complex Binary File (.rcbf)
+
+`load_rcbf(path)` imports an RCBF stream into a RexGraph, then it can be
+stored in RCDB or queried through RCQL like any other RexGraph source. The bridge
+preserves C0 labels, primary C1 boundary spans (including branching relations),
+C1 weights and signs, and C2 boundaries only when their coefficients and chain
+condition are exact. It never applies a clique or star expansion.
+
+RCBF is a sequential file container, whereas RCBD is RexGraph's addressable
+directory container. The importer intentionally does not treat derived
+numeric products or stored temporal tails as RexGraph canonical state. A stream
+with temporal states therefore refuses by default; `allow_current_snapshot=True`
+is an explicit opt-in to import only its current C0--C2 state. This prevents a
+reader from silently replacing a recorded computation with a different one.
+Unsupported, mixed per-relation directedness and non-exact C2 data refuse
+explicitly rather than flattening or thresholding them.
 
 ---
 

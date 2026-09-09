@@ -92,7 +92,7 @@ def generate_slurm_ocr_batch(
     """Batch OCR: process a directory of PDFs with GPU OCR.
 
     Starts a GPU OCR server, processes every PDF in input_dir,
-    saves each document's RexGraph as a .rex bundle.
+    saves each document's RexGraph as a .rcbd bundle.
     """
     return _header("rexgraph-ocr", partition, time_limit, mem, 4, account, gpus) + "\n" + _activate(conda_env) + textwrap.dedent(f"""\
 

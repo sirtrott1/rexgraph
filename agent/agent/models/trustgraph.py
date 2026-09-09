@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..formats import BUNDLE_SUFFIX
 from . import data as D
 from . import store as _store
 
@@ -76,9 +77,14 @@ def core_to_rcdb(triples=None, *, url=None, flow=None, uri="memory://", name="kn
     return name
 
 
-def core_to_rex_file(triples=None, *, url=None, flow=None, path="core.rex"):
-    """Ingest a knowledge core and persist its complex as a .rex bundle (rexgraph.io)."""
+def core_to_rex_file(triples=None, *, url=None, flow=None, path=None):
+    """Ingest a knowledge core and persist its complex as an RCBD bundle.
+
+    The function name is part of the API surface and is deliberately unchanged;
+    only what it writes moved.
+    """
+    path = f"core{BUNDLE_SUFFIX}" if path is None else path
     import rexgraph.io as rio
     rex, _ = core_to_rex(triples, url=url, flow=flow)
-    rio.save_rex(str(path), rex)
+    rio.save_rcbd(str(path), rex)
     return str(path)

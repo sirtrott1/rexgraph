@@ -1,6 +1,6 @@
 """Routes hand back artifacts, not summaries of artifacts.
 
-The library has a complete binary I/O stack: `.rex` bundles, safetensors, HDF5, Zarr,
+The library has a complete binary I/O stack: `.rcbd` bundles, safetensors, HDF5, Zarr,
 the labeled vector container and the canonical per-cell table writers. A route that
 computes a complex and returns only a JSON description of it has thrown the object
 away.
@@ -56,8 +56,8 @@ def _materialise(tmp_path, content: bytes, fmt: str, stem: str) -> str:
 
 def _load(path: str, fmt: str):
     if fmt == "rex":
-        from rexgraph.io import load_rex
-        return load_rex(path)
+        from rexgraph.io import load_rcbd
+        return load_rcbd(path)
     if fmt == "safetensors":
         from rexgraph.io.safetensors_bridge import load_safetensors
         return load_safetensors(path)["object"]

@@ -252,7 +252,7 @@ def _serve(ctx: RunContext) -> dict:
 
 @register_phase("train", "Build + train a model archetype (mlp/cnn/lm/hgnn) with your optimizer.")
 def _train(ctx: RunContext) -> dict:
-    """Build and train any model archetype on your data (file/parquet/.rex/synthetic), with the
+    """Build and train any model archetype on your data (file/parquet/.rcbd/synthetic), with the
     active setup's optimizer (auto by default: GreensCochain for cochain-native models, else Adam).
     mode ∈ {single, multistep, fusion}. Streams the
     loss into the run log and can checkpoint through the rexgraph IO layer (`save_to`)."""

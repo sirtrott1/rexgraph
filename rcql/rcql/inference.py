@@ -19,6 +19,21 @@ from .signatures import OperatorSignature
 from .types import BasisRef, RCType
 
 
+def _plain_source(ref):
+    """Render complete source provenance, including all phrase contributors."""
+    rendered = {
+        "name": ref.name,
+        "state_digest": ref.state_digest,
+        "record_id": ref.record_id,
+        "record_version": ref.record_version,
+        "record_as_of": ref.record_as_of,
+        "record_valid_at": ref.record_valid_at,
+    }
+    if ref.contributors:
+        rendered["contributors"] = [_plain_source(item) for item in ref.contributors]
+    return rendered
+
+
 @dataclass(frozen=True)
 class TypedCall:
     """A call that has been checked and typed, but not run.
@@ -44,6 +59,7 @@ class TypedCall:
             "operator": self.operator,
             "source": self.binding.ref.name,
             "source_kind": self.binding.schema.kind.value,
+            "source_state": _plain_source(self.binding.ref),
             "policy_digest": self.binding.ref.policy_digest,
             "requires": sorted(self.signature.requires),
             "effects": sorted(effect.value for effect in self.signature.effects),

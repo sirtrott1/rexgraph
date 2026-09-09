@@ -120,7 +120,7 @@ async def db_get(rec_id: str):
 async def db_export(rec_id: str, format: str = "safetensors"):
     """Download the stored complex in any container the library writes.
 
-    safetensors (the storage form), .rex, hdf5 or zarr. The complex itself, not a
+    safetensors (the storage form), .rcbd, hdf5 or zarr. The complex itself, not a
     summary of it.
     """
     rex = _store().get(rec_id)

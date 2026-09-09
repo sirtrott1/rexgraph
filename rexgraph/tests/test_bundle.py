@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.io.bundle: .rex bundle format.
+Tests for rexgraph.io.bundle: .rcbd bundle format.
 
 No heavy dependencies (only numpy and json). Uses temporary directories.
 
@@ -10,7 +10,7 @@ Verifies:
     - Cache: written to cache/ subdirectory, readable
     - Weighted graph: w_E preserved
     - TemporalRex roundtrip
-    - RexBundle.from_graph / .save / .load / .to_object
+    - RCBDBundle.from_graph / .save / .load / .to_object
     - Memory-map mode
 """
 import json
@@ -29,8 +29,10 @@ from rexgraph.graph import RexGraph
 from rexgraph.io import ContainerEncryptionConfig, load, save
 from rexgraph.io._container_crypto import ContainerEncryptionError
 from rexgraph.io.bundle import (
-    RexBundle,
+    RCBDBundle,
+    load_rcbd,
     load_rex,
+    save_rcbd,
     save_rex,
 )
 
@@ -118,7 +120,7 @@ def _process_bundle_writer(path, barrier, keys, edge_count):
     sources = np.arange(edge_count, dtype=np.int32)
     targets = np.roll(sources, -1)
     barrier.wait()
-    save_rex(path, RexGraph.from_graph(sources, targets),
+    save_rcbd(path, RexGraph.from_graph(sources, targets),
              encryption_properties=properties)
 
 # Fixtures
@@ -139,7 +141,7 @@ def triangle():
 
 @pytest.fixture
 def rex_path(tmp_path):
-    return str(tmp_path / "test.rex")
+    return str(tmp_path / "test.rcbd")
 
 
 # Basic Roundtrip
@@ -147,31 +149,46 @@ def rex_path(tmp_path):
 class TestRoundtrip:
 
     def test_basic(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        loaded = load_rex(rex_path)
+        save_rcbd(rex_path, k4)
+        loaded = load_rcbd(rex_path)
         assert isinstance(loaded, RexGraph)
         assert loaded.nV == k4.nV
         assert loaded.nE == k4.nE
         assert loaded.nF == k4.nF
 
     def test_betti_preserved(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        loaded = load_rex(rex_path)
+        save_rcbd(rex_path, k4)
+        loaded = load_rcbd(rex_path)
         assert loaded.betti == k4.betti
 
     def test_weighted(self, tmp_path):
         w = np.array([1.0, 2.0, 3.0], dtype=np.float64)
         rex = RexGraph.from_graph([0, 1, 0], [1, 2, 2], w_E=w)
-        path = str(tmp_path / "weighted.rex")
-        save_rex(path, rex)
-        loaded = load_rex(path)
+        path = str(tmp_path / "weighted.rcbd")
+        save_rcbd(path, rex)
+        loaded = load_rcbd(path)
         assert np.allclose(loaded._w_E, w)
 
     def test_suffix_added(self, k4, tmp_path):
-        """Saves with .rex suffix even if not provided."""
+        """Saves with .rcbd suffix even if not provided."""
         path = str(tmp_path / "nosuffix")
-        save_rex(path, k4)
-        assert os.path.isdir(path + ".rex")
+        save_rcbd(path, k4)
+        assert os.path.isdir(path + ".rcbd")
+
+    @pytest.mark.parametrize(
+        ("save_fn", "load_fn"),
+        ((save_rcbd, load_rcbd), (save_rex, load_rex)),
+    )
+    def test_explicit_legacy_suffix_is_never_silently_relocated(
+        self, k4, tmp_path, save_fn, load_fn
+    ):
+        """Compatibility callers retain the exact path they supplied."""
+        path = tmp_path / "archive.rex"
+        save_fn(path, k4)
+
+        assert path.is_dir()
+        assert not (tmp_path / "archive.rcbd").exists()
+        assert load_fn(path).relation_supports() == k4.relation_supports()
 
 
 # MANIFEST.json
@@ -179,16 +196,29 @@ class TestRoundtrip:
 class TestManifest:
 
     def test_magic(self, k4, rex_path):
-        save_rex(rex_path, k4)
+        save_rcbd(rex_path, k4)
         mf = json.loads(pathlib.Path(rex_path, "MANIFEST.json").read_text())
-        assert mf["magic"] == "rex-bundle"
+        assert mf["magic"] == "rcbd-bundle"
 
     def test_object_type(self, k4, rex_path):
-        save_rex(rex_path, k4)
+        save_rcbd(rex_path, k4)
         mf = json.loads(pathlib.Path(rex_path, "MANIFEST.json").read_text())
         assert mf["object_type"] == "RexGraph"
         assert mf["nV"] == k4.nV
         assert mf["nE"] == k4.nE
+
+    def test_legacy_rex_directory_remains_readable(self, k4, tmp_path):
+        canonical = tmp_path / "written.rcbd"
+        legacy = tmp_path / "existing.rex"
+        save_rcbd(canonical, k4)
+        manifest_path = canonical / "MANIFEST.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["magic"] = "rex-bundle"
+        manifest_path.write_text(json.dumps(manifest))
+        canonical.rename(legacy)
+
+        assert load_rcbd(legacy).relation_supports() == k4.relation_supports()
+        assert load(legacy).relation_supports() == k4.relation_supports()
 
 
 # Array Access
@@ -196,27 +226,27 @@ class TestManifest:
 class TestArrayAccess:
 
     def test_getitem(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        bundle = RexBundle.load(rex_path)
+        save_rcbd(rex_path, k4)
+        bundle = RCBDBundle.load(rex_path)
         bp = bundle["boundary_ptr"]
         assert bp.shape == (k4.nE + 1,)
 
     def test_contains(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        bundle = RexBundle.load(rex_path)
+        save_rcbd(rex_path, k4)
+        bundle = RCBDBundle.load(rex_path)
         assert "boundary_ptr" in bundle
         assert "nonexistent" not in bundle
 
     def test_list_arrays(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        bundle = RexBundle.load(rex_path)
+        save_rcbd(rex_path, k4)
+        bundle = RCBDBundle.load(rex_path)
         names = bundle.list_arrays()
         assert "boundary_ptr" in names
         assert "boundary_idx" in names
 
     def test_missing_raises(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        bundle = RexBundle.load(rex_path)
+        save_rcbd(rex_path, k4)
+        bundle = RCBDBundle.load(rex_path)
         with pytest.raises(KeyError):
             bundle["nonexistent_array"]
 
@@ -226,19 +256,19 @@ class TestArrayAccess:
 class TestCache:
 
     def test_topology_cache(self, k4, rex_path):
-        save_rex(rex_path, k4, cache=["topology"])
-        bundle = RexBundle.load(rex_path)
+        save_rcbd(rex_path, k4, cache=["topology"])
+        bundle = RCBDBundle.load(rex_path)
         cache = bundle.read_cache()
         # Betti should be in scalar cache
         assert "betti" in cache or "edge_types" in bundle
 
     def test_cache_arrays_in_subdir(self, k4, rex_path):
-        save_rex(rex_path, k4, cache=["algebra"])
+        save_rcbd(rex_path, k4, cache=["algebra"])
         assert os.path.isdir(os.path.join(rex_path, "cache"))
 
     def test_all_cache(self, triangle, rex_path):
-        save_rex(rex_path, triangle, cache="all")
-        loaded = load_rex(rex_path)
+        save_rcbd(rex_path, triangle, cache="all")
+        loaded = load_rcbd(rex_path)
         assert loaded.nE == triangle.nE
 
 
@@ -255,9 +285,9 @@ class TestTemporalRex:
              np.array([1, 2, 2, 3], dtype=np.int32)),
         ]
         trex = TemporalRex(snaps)
-        path = str(tmp_path / "temporal.rex")
-        save_rex(path, trex)
-        loaded = load_rex(path)
+        path = str(tmp_path / "temporal.rcbd")
+        save_rcbd(path, trex)
+        loaded = load_rcbd(path)
         assert isinstance(loaded, TemporalRex)
         assert loaded.T == 2
 
@@ -268,38 +298,38 @@ class TestTemporalRex:
              np.array([1, 2], dtype=np.int32)),
         ]
         trex = TemporalRex(snaps)
-        path = str(tmp_path / "temporal.rex")
-        save_rex(path, trex)
+        path = str(tmp_path / "temporal.rcbd")
+        save_rcbd(path, trex)
         assert os.path.isdir(os.path.join(path, "snapshots", "0"))
 
 
-# RexBundle API
+# RCBDBundle API
 
-class TestRexBundleAPI:
+class TestRCBDBundleAPI:
 
     def test_from_graph_and_save(self, k4, rex_path):
-        bundle = RexBundle.from_graph(k4)
+        bundle = RCBDBundle.from_graph(k4)
         assert bundle.object_type == "RexGraph"
         bundle.save(rex_path)
         assert os.path.exists(rex_path)
 
     def test_load_and_to_object(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        bundle = RexBundle.load(rex_path)
+        save_rcbd(rex_path, k4)
+        bundle = RCBDBundle.load(rex_path)
         rex = bundle.to_object()
         assert isinstance(rex, RexGraph)
         assert rex.nV == k4.nV
 
     def test_repr(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        bundle = RexBundle.load(rex_path)
+        save_rcbd(rex_path, k4)
+        bundle = RCBDBundle.load(rex_path)
         r = repr(bundle)
-        assert "RexBundle" in r
+        assert "RCBDBundle" in r
         assert "RexGraph" in r
 
     def test_mmap_mode(self, k4, rex_path):
-        save_rex(rex_path, k4)
-        bundle = RexBundle.load(rex_path, mmap=True)
+        save_rcbd(rex_path, k4)
+        bundle = RCBDBundle.load(rex_path, mmap=True)
         bp = bundle["boundary_ptr"]
         assert bp.shape == (k4.nE + 1,)
 
@@ -338,8 +368,8 @@ class TestSignedBundleRoundtrip:
 
     def test_rex_bundle_roundtrip(self, rex_path):
         rex = _signed_directed_faced_graph()
-        save_rex(rex_path, rex)
-        rex2 = load_rex(rex_path)
+        save_rcbd(rex_path, rex)
+        rex2 = load_rcbd(rex_path)
         self._assert_same(rex, rex2)
 
     def test_to_dict_from_dict_roundtrip(self):
@@ -357,8 +387,8 @@ class TestEncryptedBundle:
                 "face": ["B2_col_ptr", "B2_row_idx", "B2_vals"],
             }
         )
-        path = tmp_path / "encrypted.rex"
-        save_rex(path, k4, encryption_properties=properties)
+        path = tmp_path / "encrypted.rcbd"
+        save_rcbd(path, k4, encryption_properties=properties)
 
         public = json.loads((path / "MANIFEST.json").read_text())
         assert public["encrypted"] is True
@@ -373,28 +403,28 @@ class TestEncryptedBundle:
             {"footer": keys["footer"]},
         )
         with pytest.raises(PermissionError, match="authentication"):
-            load_rex(path, decryption_properties=footer_only)
+            load_rcbd(path, decryption_properties=footer_only)
         edge_only = _BundleAeadProperties(
             properties.configuration,
             {"footer": keys["footer"], "edge": keys["edge"]},
         )
         with pytest.raises(PermissionError, match="authentication"):
-            load_rex(path, decryption_properties=edge_only)
+            load_rcbd(path, decryption_properties=edge_only)
         wrong, _ = _bundle_properties(
             tensor_keys=properties.configuration.tensor_keys,
         )
         with pytest.raises(PermissionError, match="authentication"):
-            RexBundle.load(path, decryption_properties=wrong)
+            RCBDBundle.load(path, decryption_properties=wrong)
 
-        loaded = load_rex(path, decryption_properties=properties)
+        loaded = load_rcbd(path, decryption_properties=properties)
         assert (loaded.nV, loaded.nE, loaded.nF) == (k4.nV, k4.nE, k4.nF)
 
     def test_random_bundle_id_and_allow_unsealed_cannot_bypass_auth(self, k4, tmp_path):
         properties, _ = _bundle_properties()
-        first = tmp_path / "first.rex"
-        second = tmp_path / "second.rex"
-        save_rex(first, k4, encryption_properties=properties)
-        save_rex(second, k4, encryption_properties=properties)
+        first = tmp_path / "first.rcbd"
+        second = tmp_path / "second.rcbd"
+        save_rcbd(first, k4, encryption_properties=properties)
+        save_rcbd(second, k4, encryption_properties=properties)
         first_descriptor = json.loads(
             json.loads((first / "MANIFEST.json").read_text())["rex_encryption"]
         )
@@ -403,16 +433,16 @@ class TestEncryptedBundle:
         )
         assert first_descriptor["bundle_id"] != second_descriptor["bundle_id"]
         with pytest.raises(PermissionError, match="decryption properties"):
-            load_rex(first, allow_unsealed=True)
+            load_rcbd(first, allow_unsealed=True)
 
     def test_cache_plaintext_mmap_and_protected_selective_read(self, k4, tmp_path):
         properties, _ = _bundle_properties(
             tensor_keys={"edge": ["boundary_ptr"]},
             plaintext_tensors=["cache/B1"],
         )
-        path = tmp_path / "cache.rex"
-        save_rex(path, k4, cache=["B1"], encryption_properties=properties)
-        bundle = RexBundle.load(
+        path = tmp_path / "cache.rcbd"
+        save_rcbd(path, k4, cache=["B1"], encryption_properties=properties)
+        bundle = RCBDBundle.load(
             path,
             mmap=True,
             decryption_properties=properties,
@@ -441,11 +471,11 @@ class TestEncryptedBundle:
         properties, _ = _bundle_properties(
             tensor_keys={"edge": ["w_E"]},
         )
-        path = tmp_path / "query.rex"
-        save_rex(path, rex, encryption_properties=properties)
+        path = tmp_path / "query.rcbd"
+        save_rcbd(path, rex, encryption_properties=properties)
 
         properties.open_calls.clear()
-        bundle = RexBundle.load(path, decryption_properties=properties)
+        bundle = RCBDBundle.load(path, decryption_properties=properties)
         selected = bundle.select(
             "w_E",
             where=("w_E", ">=", 1792),
@@ -463,9 +493,9 @@ class TestEncryptedBundle:
 
     def test_plain_bundle_query_matches_encrypted_api(self, tmp_path):
         rex = RexGraph.from_graph([0, 2, 4], [1, 3, 0])
-        path = tmp_path / "plain-query.rex"
-        save_rex(path, rex)
-        bundle = RexBundle.load(path)
+        path = tmp_path / "plain-query.rcbd"
+        save_rcbd(path, rex)
+        bundle = RCBDBundle.load(path)
         boundary = np.asarray(bundle["boundary_idx"])
         selected = bundle.select(
             "boundary_idx",
@@ -477,49 +507,49 @@ class TestEncryptedBundle:
 
     def test_tamper_drop_extra_and_cross_bundle_swap_fail(self, k4, tmp_path):
         properties, _ = _bundle_properties()
-        first = tmp_path / "first.rex"
-        second = tmp_path / "second.rex"
-        save_rex(first, k4, encryption_properties=properties)
-        save_rex(second, k4, encryption_properties=properties)
+        first = tmp_path / "first.rcbd"
+        second = tmp_path / "second.rcbd"
+        save_rcbd(first, k4, encryption_properties=properties)
+        save_rcbd(second, k4, encryption_properties=properties)
         member_name = _storage_files(first, ".rexenc")[0].name
 
-        tampered = tmp_path / "tampered.rex"
+        tampered = tmp_path / "tampered.rcbd"
         shutil.copytree(first, tampered)
         member = tampered / "__rex_encrypted_storage__" / member_name
         payload = bytearray(member.read_bytes())
         payload[0] ^= 1
         member.write_bytes(payload)
         with pytest.raises(ContainerEncryptionError, match="storage digest"):
-            RexBundle.load(tampered, decryption_properties=properties)
+            RCBDBundle.load(tampered, decryption_properties=properties)
 
-        dropped = tmp_path / "dropped.rex"
+        dropped = tmp_path / "dropped.rcbd"
         shutil.copytree(first, dropped)
         (dropped / "__rex_encrypted_storage__" / member_name).unlink()
         with pytest.raises(ContainerEncryptionError, match="inventory"):
-            RexBundle.load(dropped, decryption_properties=properties)
+            RCBDBundle.load(dropped, decryption_properties=properties)
 
-        extra = tmp_path / "extra.rex"
+        extra = tmp_path / "extra.rcbd"
         shutil.copytree(first, extra)
         (extra / "unlisted.bin").write_bytes(b"unlisted")
         with pytest.raises(ContainerEncryptionError, match="inventory"):
-            RexBundle.load(extra, decryption_properties=properties)
+            RCBDBundle.load(extra, decryption_properties=properties)
 
-        swapped = tmp_path / "swapped.rex"
+        swapped = tmp_path / "swapped.rcbd"
         shutil.copytree(first, swapped)
         shutil.copyfile(
             second / "__rex_encrypted_storage__" / member_name,
             swapped / "__rex_encrypted_storage__" / member_name,
         )
         with pytest.raises(ContainerEncryptionError, match="storage digest"):
-            RexBundle.load(swapped, decryption_properties=properties)
+            RCBDBundle.load(swapped, decryption_properties=properties)
 
     def test_signed_manifest_and_plaintext_member_are_authenticated(self, k4, tmp_path):
         properties, _ = _bundle_properties(
             plaintext_manifest=True,
             plaintext_tensors=["boundary_ptr"],
         )
-        path = tmp_path / "signed.rex"
-        save_rex(path, k4, encryption_properties=properties)
+        path = tmp_path / "signed.rcbd"
+        save_rcbd(path, k4, encryption_properties=properties)
         public = json.loads((path / "MANIFEST.json").read_text())
         descriptor = json.loads(public["rex_encryption"])
         assert descriptor["manifest_mode"] == "signed_plaintext"
@@ -533,7 +563,7 @@ class TestEncryptedBundle:
         array.flat[0] += 1
         np.save(plaintext_file, array)
         with pytest.raises(ContainerEncryptionError, match="storage digest"):
-            RexBundle.load(path, decryption_properties=properties)
+            RCBDBundle.load(path, decryption_properties=properties)
 
     def test_temporal_generic_registry_and_same_path_copy(self, tmp_path):
         from rexgraph.graph import TemporalRex
@@ -554,37 +584,37 @@ class TestEncryptedBundle:
             ),
         ])
         properties, _ = _bundle_properties()
-        path = tmp_path / "temporal.rex"
+        path = tmp_path / "temporal.rcbd"
         save(path, temporal, encryption_properties=properties)
         loaded = load(path, decryption_properties=properties)
         assert loaded.T == temporal.T
         assert loaded.reconstruct_at(1).nE == temporal.reconstruct_at(1).nE
         assert np.any(loaded.reconstruct_at(1)._B2_vals < 0)
 
-        bundle = RexBundle.load(path, decryption_properties=properties)
+        bundle = RCBDBundle.load(path, decryption_properties=properties)
         bundle.save(path)
-        assert load_rex(path, decryption_properties=properties).T == temporal.T
+        assert load_rcbd(path, decryption_properties=properties).T == temporal.T
 
     def test_concurrent_publication_leaves_one_complete_bundle(self, tmp_path):
         properties, _ = _bundle_properties()
-        path = tmp_path / "race.rex"
+        path = tmp_path / "race.rcbd"
         first = RexGraph.from_graph([0, 1, 2], [1, 2, 0])
         second = RexGraph.from_graph([0, 1, 2, 3], [1, 2, 3, 0])
         barrier = Barrier(2)
 
         def write(rex):
             barrier.wait()
-            save_rex(path, rex, encryption_properties=properties)
+            save_rcbd(path, rex, encryption_properties=properties)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(write, rex) for rex in (first, second)]
             for future in futures:
                 future.result()
 
-        assert load_rex(path, decryption_properties=properties).nE in {3, 4}
+        assert load_rcbd(path, decryption_properties=properties).nE in {3, 4}
         leftovers = [
             item.name for item in tmp_path.iterdir()
-            if item.name.startswith(".race.rex.")
+            if item.name.startswith(".race.rcbd.")
         ]
         assert leftovers == []
 
@@ -594,26 +624,26 @@ class TestEncryptedBundle:
         monkeypatch,
     ):
         properties, _ = _bundle_properties()
-        path = tmp_path / "rollback.rex"
+        path = tmp_path / "rollback.rcbd"
         original = RexGraph.from_graph([0, 1, 2], [1, 2, 0])
         replacement = RexGraph.from_graph([0, 1, 2, 3], [1, 2, 3, 0])
-        save_rex(path, original, encryption_properties=properties)
+        save_rcbd(path, original, encryption_properties=properties)
 
         replace = bundle_module.os.replace
 
         def fail_staging_publish(source, destination):
             source = os.fspath(source)
-            if pathlib.Path(source).name.startswith(".rollback.rex.tmp-"):
+            if pathlib.Path(source).name.startswith(".rollback.rcbd.tmp-"):
                 raise OSError("simulated publication failure")
             return replace(source, destination)
 
         monkeypatch.setattr(bundle_module.os, "replace", fail_staging_publish)
         with pytest.raises(OSError, match="simulated publication failure"):
-            save_rex(path, replacement, encryption_properties=properties)
+            save_rcbd(path, replacement, encryption_properties=properties)
 
-        assert load_rex(path, decryption_properties=properties).nE == original.nE
+        assert load_rcbd(path, decryption_properties=properties).nE == original.nE
         assert not any(
-            item.name.startswith(".rollback.rex.")
+            item.name.startswith(".rollback.rcbd.")
             for item in tmp_path.iterdir()
         )
 
@@ -625,7 +655,7 @@ class TestEncryptedBundle:
         context = multiprocessing.get_context("fork")
         barrier = context.Barrier(2)
         keys = _bundle_keys("footer")
-        path = tmp_path / "process-race.rex"
+        path = tmp_path / "process-race.rcbd"
         processes = [
             context.Process(
                 target=_process_bundle_writer,
@@ -644,8 +674,8 @@ class TestEncryptedBundle:
             assert process.exitcode == 0
 
         properties, _ = _bundle_properties(keys=keys)
-        assert load_rex(path, decryption_properties=properties).nE in {25, 40}
+        assert load_rcbd(path, decryption_properties=properties).nE in {25, 40}
         assert not any(
-            item.name.startswith(".process-race.rex.")
+            item.name.startswith(".process-race.rcbd.")
             for item in tmp_path.iterdir()
         )

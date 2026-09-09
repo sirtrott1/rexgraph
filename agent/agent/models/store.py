@@ -3,15 +3,15 @@ store: bridge the model framework to the rexgraph IO layer.
 
 All flows go through `rexgraph.io` (plus RCDB where a complex is involved):
 
-  load_bundle(src)    reads parquet / vector-corpus(safetensors) / .rex / SQL / csv/jsonl/npz/txt
+  load_bundle(src)    reads parquet / vector-corpus(safetensors) / .rcbd / SQL / csv/jsonl/npz/txt
                       into a DataBundle.
   save_checkpoint()   writes weights to safetensors, config+meta to json, and the training
                       trajectory through save_vectors (the labeled-vector format used for embeddings
                       and hodge trajectories, so it lands in the RCDB vector store).
-  save_complex_rex()  writes a hypergraph's relational complex as a .rex bundle.
+  save_complex_rex()  writes a hypergraph's relational complex as a .rcbd bundle.
   to_rcdb()           catalogues that complex in the RCDB (queryable by Betti/coherence).
 
-A saved model is safetensors weights, a rexgraph.io vector trajectory, and (for hgnn) a .rex/RCDB
+A saved model is safetensors weights, a rexgraph.io vector trajectory, and (for hgnn) a .rcbd/RCDB
 complex, all on one IO stack. Changing the URI moves it from a laptop file store to Postgres.
 """
 from __future__ import annotations
@@ -24,6 +24,7 @@ import numpy as np
 
 import rexgraph.io as rio
 
+from ..formats import BUNDLE_SUFFIXES
 from . import archetypes as A
 from . import data as D
 
@@ -33,7 +34,7 @@ def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None) -
     """Load training data from any rexgraph.io-supported source into a DataBundle.
       .parquet          -> vector bundle (feature columns + `y_col`)
       .safetensors      -> vector corpus written by save_vectors, or an embedding corpus
-      .rex              -> relational complex (hypergraph bundle for hgnn)
+      .rcbd              -> relational complex (hypergraph bundle for hgnn)
       sqlalchemy URI    -> pass `table=`; reads a numeric table
       .csv/.jsonl/.npz  -> table;  .txt -> byte sequence (for lm)
     """
@@ -49,8 +50,8 @@ def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None) -
         y = (labels.astype("int64") if labels is not None
              else np.zeros(len(X), "int64"))
         return D._vector_bundle(np.asarray(X, "float32"), y)
-    if s.endswith(".rex"):
-        return _bundle_from_rex(rio.load_rex(s))
+    if s.endswith(BUNDLE_SUFFIXES):
+        return _bundle_from_rex(rio.load_rcbd(s))
     if table is not None:                                   # a database URI + table
         eng = rio.get_engine(s)
         # The ENGINE is cached for the life of the process, which is what makes asking
@@ -146,14 +147,14 @@ def load_checkpoint(path, *, device=None):
     return model, conf
 
 
-# complex: a hypergraph's relational complex -> .rex / RCDB
+# complex: a hypergraph's relational complex -> .rcbd / RCDB
 
 def save_complex_rex(bundle, path) -> str:
-    """Serialize a hypergraph bundle's relational complex as a .rex bundle (rexgraph.io)."""
+    """Serialize a hypergraph bundle's relational complex as a .rcbd bundle (rexgraph.io)."""
     from rexgraph.graph import RexGraph
     g = RexGraph.from_hypergraph(np.asarray(bundle.extra["he_ptr"], "int32"),
                                  np.asarray(bundle.extra["he_idx"], "int32"))
-    rio.save_rex(str(os.path.expanduser(path)), g)
+    rio.save_rcbd(str(os.path.expanduser(path)), g)
     return str(path)
 
 

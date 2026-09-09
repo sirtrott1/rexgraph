@@ -3,7 +3,7 @@ Cross-document corpus analysis: orchestration over rexgraph Cython kernels.
 
 Takes multiple documents of any supported format, builds per-document
 relational complexes via ``auto_rex`` (CSV, JSON, DataFrames, Parquet,
-Arrow, HDF5, Zarr, .rex bundles, raw text, images, PDFs), resolves
+Arrow, HDF5, Zarr, .rcbd bundles, raw text, images, PDFs), resolves
 shared entities, constructs cross-document complexes via the existing
 ``_joins`` and ``_cross_complex`` kernels, runs BIOES temporal tagging
 via ``_temporal``, and provides propagator-based query matching via
@@ -43,6 +43,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
 import numpy as np
+
+from ..formats import BUNDLE_SUFFIXES
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +166,7 @@ class CorpusBuilder:
 
     Accepts any input type that auto_rex handles: CSV edge lists,
     feature matrices, DataFrames, JSON, Parquet, Arrow IPC, HDF5,
-    Zarr, .rex bundles, raw text, images, and PDFs.
+    Zarr, .rcbd bundles, raw text, images, and PDFs.
 
     All mathematical operations delegate to compiled rexgraph code:
     - ``_cross_complex``: entity alignment, kappa comparison, void comparison
@@ -208,7 +210,7 @@ class CorpusBuilder:
         Parameters
         ----------
         source : str
-            File path (CSV, JSON, PDF, image, Parquet, HDF5, .rex, etc.)
+            File path (CSV, JSON, PDF, image, Parquet, HDF5, .rcbd, etc.)
             or raw text.  Type is auto-detected by ``auto_rex``.
         doc_id : str, optional
             Unique document identifier.  Auto-generated if None.
@@ -327,7 +329,7 @@ class CorpusBuilder:
 
         supported = {
             ".csv", ".tsv", ".json", ".parquet", ".arrow",
-            ".h5", ".hdf5", ".zarr", ".rex",
+            ".h5", ".hdf5", ".zarr", *BUNDLE_SUFFIXES,
             ".pdf",
             ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif",
             ".txt", ".md",
@@ -381,7 +383,7 @@ class CorpusBuilder:
         """Build per-document complexes and cross-document structure.
 
         Accepts any input that auto_rex handles: CSV, JSON, DataFrames,
-        Parquet, Arrow, HDF5, Zarr, .rex bundles, raw text, images, and
+        Parquet, Arrow, HDF5, Zarr, .rcbd bundles, raw text, images, and
         PDFs.  Each document becomes a RexGraph; cross-document analysis
         uses the existing Cython kernels.
 

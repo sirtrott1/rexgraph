@@ -78,7 +78,7 @@ def test_a_bundle_written_before_the_fix_still_verifies(rex):
 
 
 def test_an_unsealed_state_is_not_successful_verification(rex):
-    """The .rex loader owns legacy migration; the general verifier fails closed."""
+    """The .rcbd loader owns legacy migration; the general verifier fails closed."""
     st = to_state(rex)
     unsealed = RexState(
         dict(st.tensors),
@@ -156,10 +156,10 @@ def test_a_rex_bundle_cannot_downgrade_integrity_by_deleting_the_seal(rex, tmp_p
     be migrated only through the explicit opt-in."""
     import json
 
-    from rexgraph.io import load_rex, save_rex
+    from rexgraph.io import load_rcbd, save_rcbd
 
-    path = tmp_path / "unsealed.rex"
-    save_rex(str(path), rex)
+    path = tmp_path / "unsealed.rcbd"
+    save_rcbd(str(path), rex)
     manifest_path = path / "MANIFEST.json"
     manifest = json.loads(manifest_path.read_text())
     for name in ("digest", "digest_names", "digest_algo"):
@@ -167,12 +167,12 @@ def test_a_rex_bundle_cannot_downgrade_integrity_by_deleting_the_seal(rex, tmp_p
     manifest_path.write_text(json.dumps(manifest))
 
     with pytest.raises(ValueError, match="no content digest"):
-        load_rex(str(path))
-    assert load_rex(str(path), allow_unsealed=True).nE == rex.nE
+        load_rcbd(str(path))
+    assert load_rcbd(str(path), allow_unsealed=True).nE == rex.nE
 
     boundary_path = path / "boundary_idx.npy"
     boundary = np.load(boundary_path)
     boundary[0] = (int(boundary[0]) + 1) % rex.nV
     np.save(boundary_path, boundary)
     with pytest.raises(ValueError, match="no content digest"):
-        load_rex(str(path))
+        load_rcbd(str(path))

@@ -50,7 +50,7 @@ def list_archetypes() -> list:
 
 
 def _load(archetype, source, params, seed):
-    """Return a DataBundle from a rexgraph.io source (parquet / vectors / .rex / sql / csv/jsonl/txt),
+    """Return a DataBundle from a rexgraph.io source (parquet / vectors / .rcbd / sql / csv/jsonl/txt),
     an already-built DataBundle, or the archetype's synthetic generator (source=None)."""
     if source is None:
         return get(archetype)["synth"](merged_cfg(archetype, params), seed)
@@ -96,7 +96,7 @@ def run(archetype, *, params=None, data=None, mode="single", optimizer="auto", s
 def predict(checkpoint, data=None, *, split=None, device="cpu", save_to=None) -> dict:
     """Run a trained model on new data. `checkpoint` is a saved-checkpoint path (or a
     (model, config) pair from load_checkpoint). `data` is a DataBundle, any rexgraph.io
-    source (parquet / .rex / sql / csv / jsonl / safetensors), or None for the archetype's
+    source (parquet / .rcbd / sql / csv / jsonl / safetensors), or None for the archetype's
     synthetic data. Returns {archetype, n, predictions, metric, split}. When `save_to` is a
     .safetensors path, the predictions are written through rexgraph.io.save_vectors."""
     from . import train

@@ -1,7 +1,7 @@
 """
 agent.server.routes.ml: route surface for model building.
 
-Select an archetype, set its parameters, point it at data (files, parquet, .rex,
+Select an archetype, set its parameters, point it at data (files, parquet, .rcbd,
 or a TrustGraph knowledge core), and train it in single, multistep, or fusion
 mode with any rexgraph.nn optimizer. Results persist through the rexgraph IO
 layer and RCDB. Archetypes and optimizers come from the registries, so the UI

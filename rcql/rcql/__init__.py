@@ -1,7 +1,7 @@
 """Relational Complex Query Language."""
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.1.4"
+__version__ = "1.1.5"
 
 from .ast import Call, Literal, MutationQuery, Parameter, Query
 from .binding import (
@@ -12,7 +12,20 @@ from .binding import (
     bind,
     classify,
 )
-from .builder import at, at_time, call, mutation, param, query, source
+from .builder import (
+    at,
+    at_time,
+    call,
+    mutation,
+    param,
+    phrase,
+    query,
+    rcdb_as_of,
+    rcdb_get,
+    rcdb_valid_at,
+    rcdb_version,
+    source,
+)
 from .capabilities import BoundSource, SourcePolicy
 from .inference import TypedCall, infer
 from .parser import parse
@@ -38,9 +51,11 @@ __all__ = [
     "BasisRef", "Binding", "BoundSource", "Call", "Domain", "Effect", "Exactness",
     "Executor", "Literal", "MutationQuery", "OperatorSignature", "Parameter", "Query",
     "PlannedExpression", "QueryPlan", "RCType", "Result", "ShapeRef", "SourceKindError", "SourcePolicy", "SourceRef",
-    "SourceSchema", "TemporalRef", "TypePattern", "TypedCall", "UnreachableOperator",
+    "SourceSchema", "TemporalRef", "TypePattern", "TypedCall", "UndeclaredRestrictionError", "UnreachableOperator",
     "ValueKind", "Variance", "at", "at_time", "bind", "call", "catalogued", "classify", "infer",
-    "lookup", "mutation", "param", "parse", "plan_query", "query", "source",
+    "lookup", "mutation", "param", "parse", "phrase", "plan_query", "query", "rcdb_as_of", "rcdb_get",
+    "rcdb_valid_at", "rcdb_version", "source", "PhraseCorrespondence", "PhraseGlueResult",
+    "PhraseGluingObstruction", "PhraseMapError", "PhraseSheaf", "PhraseStalk",
 ]
 
 
@@ -53,4 +68,26 @@ def __getattr__(name):
     if name in ("Executor", "Result"):
         from .executor import Executor, Result
         return {"Executor": Executor, "Result": Result}[name]
+    if name in {
+        "PhraseCorrespondence", "PhraseGlueResult", "PhraseGluingObstruction", "PhraseMapError", "PhraseSheaf", "PhraseStalk",
+        "UndeclaredRestrictionError",
+    }:
+        from .phrase import (
+            PhraseCorrespondence,
+            PhraseGlueResult,
+            PhraseGluingObstruction,
+            PhraseMapError,
+            PhraseSheaf,
+            PhraseStalk,
+            UndeclaredRestrictionError,
+        )
+        return {
+            "PhraseCorrespondence": PhraseCorrespondence,
+            "PhraseGlueResult": PhraseGlueResult,
+            "PhraseGluingObstruction": PhraseGluingObstruction,
+            "PhraseMapError": PhraseMapError,
+            "PhraseSheaf": PhraseSheaf,
+            "PhraseStalk": PhraseStalk,
+            "UndeclaredRestrictionError": UndeclaredRestrictionError,
+        }[name]
     raise AttributeError(name)

@@ -1,8 +1,7 @@
-"""The k-ary fan and chain-condition fulfilment, checked against spore.
+"""The k-ary fan and exact chain-condition fulfilment.
 
-Every expected value here was produced by running `spore-probes/04_kary_fan_and_chain.spore`
-against the real engine. rexgraph and spore agree on every row at every arity, which is
-what makes them usable together rather than merely similar.
+The fixtures exercise the primary C1 column and its exact C2 closure at every tested
+arity.
 """
 import numpy as np
 import pytest
@@ -25,7 +24,7 @@ def fan(k, *, legs=True):
 
 
 def chain_residual(rex):
-    """|B1 B2|, the quantity spore's `verify hodge` prints."""
+    """|B1 B2|, the exact chain-condition residual."""
     b2 = getattr(rex, "_B2_hodge_dual", None)
     if b2 is None or int(rex.nF_hodge) == 0:
         return None
@@ -36,7 +35,7 @@ def chain_residual(rex):
 
 @pytest.mark.parametrize("k", [3, 4, 5, 6])
 def test_the_fan_opens_a_hole_and_the_hyperface_closes_it(k):
-    """spore, every k: H alone cycles=0 dim_H=0; + legs cycles=1 dim_H=1;
+    """For every k: H alone cycles=0 dim_H=0; + legs cycles=1 dim_H=1;
     + hyperface nF=1 cycles=1 dim_H=0 curl=1. The cycle SURVIVES: it stops
     being a hole and starts bounding, which is curl_dim = cycles - dim_H."""
     lone = fan(k, legs=False)
@@ -55,7 +54,7 @@ def test_the_fan_opens_a_hole_and_the_hyperface_closes_it(k):
 
 @pytest.mark.parametrize("k", [3, 4, 5, 6])
 def test_the_chain_condition_is_fulfilled_exactly(k):
-    """|B1 B2| = 0.00e+00 in spore. Exactly zero, not merely small."""
+    """|B1 B2| = 0. Exactly zero, not merely small."""
     rex = fan(k)
     auto_hyperface(rex)
     rex._ensure_clean()
@@ -64,8 +63,7 @@ def test_the_chain_condition_is_fulfilled_exactly(k):
 
 @pytest.mark.parametrize("k", [3, 4, 5, 6, 7])
 def test_the_solved_face_coefficient_is_minus_one_over_k_minus_one(k):
-    """spore solves dH + sum c_i d(e_i) = 0 and recovers c_i = -1/(k-1) for the fan.
-    rexgraph solves the same column and gets the same number."""
+    """The fan solves dH + sum c_i d(e_i) = 0 with c_i = -1/(k-1)."""
     rex = fan(k)
     auto_hyperface(rex)
     rex._ensure_clean()

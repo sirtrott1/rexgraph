@@ -1362,8 +1362,8 @@ class RexGraph:
         be handed this and never see a fraction. The share is kept in the stored B1
         because the CHANNELS are not scale-free: T and G weight a wide relation less per
         leg than a narrow one, which is what the share carries there. The two readings
-        agree wherever scale is free, the same reason spore clears denominators in its
-        cycle basis.
+        agree wherever scale is free, which is why the integral representative clears
+        denominators before exact rank and cycle calculations.
         """
         import scipy.sparse as _sp
         self._ensure_clean()
@@ -1988,8 +1988,8 @@ class RexGraph:
         ONE construction, so the sparse character, the dense bundle and anything else
         reading C cannot answer different questions from the same process. RexGraph had
         three places that could build it and only one was live; passing this into the
-        dense kernel keeps the dormant one from waking with the old reading, which is
-        exactly what left spore's trC and RL4 disagreeing from a single process.
+        dense kernel keeps the dormant one from waking with the old reading, which would
+        leave trC and RL4 disagreeing from one process.
 
         `D_L - K_off` over the selected overlap: the off-diagonal is the co-participation
         between two relations and the diagonal is its row sum, so the row sums vanish and
@@ -2014,8 +2014,8 @@ class RexGraph:
                     because propagating a signal through a branching vertex has to divide
                     rather than multiply.
             count   how MANY vertices they meet at. Structural and integer, independent of
-                    how a relation apportions itself. spore's default, because a language
-                    reasons about the structure as declared.
+                    how a relation apportions itself. It is the structural reading of
+                    the declared relation.
 
         Selecting here changes the CHARACTER's C channel and nothing else. The flow layer
         pins the share explicitly whatever this is set to, because moving signal is a
@@ -2230,8 +2230,8 @@ class RexGraph:
             L_SG = _ensure_dense(self.frustration_exact)
         # L_C is PASSED rather than left to the kernel, which derives it from K1 and so
         # always answers the share whatever the character selected. That is the exact trap
-        # the spore side hit: two paths in one process, trC answering the old channel while
-        # RL4 answered the new one. One helper builds it for both now.
+        # two paths in one process could answer different channels. One helper builds
+        # it for both now.
         return _laplacians.build_all_laplacians(
             self._B1_dual,
             self._B2_hodge_dual,

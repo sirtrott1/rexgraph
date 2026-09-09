@@ -7,7 +7,7 @@ colour-matching functions into sRGB. So the colour of a cell is a physical conse
 its character rather than a lookup, two cells the same colour have the same character, and
 nothing here has a range to normalise or a legend that could lie.
 
-The construction, from `spore.c:3086`::
+The construction is::
 
     B1        K7's boundary operator, 7 x 21, entries -1 and +1
     T         B1^T B1              the signed Gram
@@ -129,7 +129,7 @@ def spectral_color(chi, *, dLT: float = 1.0, eps: float = 1.0) -> tuple:
 
     `chi` is the four channel shares in CHANNEL_ORDER. `dLT` scales the wavelength, so it
     moves the whole picture along the spectrum; `eps` scales the intensity. Both default
-    to 1, which is what `spore.c` uses when the caller does not say.
+    to 1, the declared defaults when the caller does not say.
 
     A character whose spectrum falls entirely outside 360-830 nm returns black, because
     there is no visible colour for it, and reporting one would invent a reading.
@@ -181,7 +181,7 @@ def _spectrum(chi) -> np.ndarray:
 def exposure(chi_rows) -> dict:
     """The `dLT` that puts the most of THIS complex inside the visible band.
 
-    `dLT = 1` is spore's value and it is right there, but it is an exposure, not a
+    `dLT = 1` is the fixed default, but it is an exposure, not a
     reading, and at a fixed one most complexes come out black. Measured on a real binding
     panel: every one of eight relations returned `(0, 0, 0)` at `dLT = 1`, so the picture
     was grey throughout and the grey was not saying anything about the characters. It was

@@ -73,7 +73,7 @@ from agent.models import run, load_bundle, save_checkpoint, load_checkpoint, sav
 # data in: any rexgraph.io source to a DataBundle
 load_bundle("train.parquet")            # parquet table (feature cols + label)
 load_bundle("vecs.safetensors")         # a save_vectors / embedding corpus
-load_bundle("graph.rex")                # a .rex bundle to hypergraph (signed complex)
+load_bundle("graph.rcbd")               # a .rcbd bundle to hypergraph (signed complex)
 load_bundle("postgresql://...", table="samples")   # a database table
 # run() takes any of these directly:
 run("mlp", data="train.parquet", save_to="ckpt")
@@ -84,13 +84,13 @@ run("mlp", data="train.parquet", save_to="ckpt")
 save_checkpoint("ckpt", model, "mlp", cfg, bundle=bundle, result=r)
 model, conf = load_checkpoint("ckpt")
 
-# complex: a hypergraph's relational complex to .rex, or catalogued in the RCDB
-save_complex_rex(bundle, "hg.rex")
+# complex: a hypergraph's relational complex to .rcbd, or catalogued in the RCDB
+save_complex_rex(bundle, "hg.rcbd")
 to_rcdb(bundle, "sqlite:///rcdb.sqlite", name="my_hg", tags=["hgnn"])   # stored by Betti/coherence signature
 ```
 
-The flow: data (parquet / vectors / .rex / SQL) to DataBundle to model (weights to safetensors,
-config to json, training trajectory to `save_vectors`). For `hgnn` the complex goes to a `.rex`
+The flow: data (parquet / vectors / .rcbd / SQL) to DataBundle to model (weights to safetensors,
+config to json, training trajectory to `save_vectors`). For `hgnn` the complex goes to a `.rcbd`
 bundle or the RCDB, where it is queryable by its topology, not just id. The optimizer's own
 coordinated-vs-rotational trajectory (`rexgraph.nn.save_hodge_trajectory`) uses the same vector path.
 

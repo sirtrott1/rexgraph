@@ -437,24 +437,24 @@ class TestMatrixCSV:
 # Bundle save/load
 
 class TestBundle:
-    """Test .rex bundle round-trip."""
+    """Test .rcbd bundle round-trip."""
 
     def test_roundtrip_triangle(self, tmp_path):
-        path = str(tmp_path / "test.rex")
+        path = str(tmp_path / "test.rcbd")
         rex = _make_triangle()
-        from rexgraph.io.bundle import load_rex, save_rex
-        save_rex(path, rex)
-        rex2 = load_rex(path)
+        from rexgraph.io.bundle import load_rcbd, save_rcbd
+        save_rcbd(path, rex)
+        rex2 = load_rcbd(path)
         assert rex2.nV == rex.nV
         assert rex2.nE == rex.nE
         assert np.allclose(rex2.B1, rex.B1)
 
     def test_roundtrip_k4(self, tmp_path):
-        path = str(tmp_path / "k4.rex")
+        path = str(tmp_path / "k4.rcbd")
         rex = _make_k4()
-        from rexgraph.io.bundle import load_rex, save_rex
-        save_rex(path, rex)
-        rex2 = load_rex(path)
+        from rexgraph.io.bundle import load_rcbd, save_rcbd
+        save_rcbd(path, rex)
+        rex2 = load_rcbd(path)
         assert rex2.nV == 4
         assert rex2.nE == 6
         assert rex2.nF > 0
@@ -462,22 +462,22 @@ class TestBundle:
 
     def test_cache_all(self, tmp_path):
         """Saving with cache='all' stores spectral properties."""
-        path = str(tmp_path / "cached.rex")
+        path = str(tmp_path / "cached.rcbd")
         rex = _make_k4()
         # Force spectral computation
         _ = rex.betti
-        from rexgraph.io.bundle import save_rex
-        save_rex(path, rex, cache="all")
+        from rexgraph.io.bundle import save_rcbd
+        save_rcbd(path, rex, cache="all")
         # Verify cache directory exists
         import pathlib
         cache_dir = pathlib.Path(path) / "cache"
         assert cache_dir.exists()
 
     def test_manifest_json(self, tmp_path):
-        path = str(tmp_path / "test.rex")
+        path = str(tmp_path / "test.rcbd")
         rex = _make_triangle()
-        from rexgraph.io.bundle import save_rex
-        save_rex(path, rex)
+        from rexgraph.io.bundle import save_rcbd
+        save_rcbd(path, rex)
         import pathlib
         manifest = json.loads((pathlib.Path(path) / "MANIFEST.json").read_text())
         assert manifest["object_type"] == "RexGraph"
@@ -490,13 +490,23 @@ class TestBundle:
 class TestFormatDispatch:
     """Test save/load auto-detection by extension."""
 
-    def test_rex_extension(self, tmp_path):
-        path = str(tmp_path / "graph.rex")
+    def test_rcbd_extension(self, tmp_path):
+        path = str(tmp_path / "graph.rcbd")
         rex = _make_triangle()
         from rexgraph.io import load, save
         save(path, rex)
         rex2 = load(path)
         assert rex2.nV == rex.nV
+
+    def test_explicit_legacy_extension_remains_a_generic_io_roundtrip(self, tmp_path):
+        """Existing generic save/load callers retain the path they supplied."""
+        path = tmp_path / "graph.rex"
+        rex = _make_triangle()
+        from rexgraph.io import load, save
+
+        save(path, rex)
+        assert path.is_dir()
+        assert load(path).relation_supports() == rex.relation_supports()
 
     def test_json_extension(self, tmp_path):
         path = str(tmp_path / "graph.json")
@@ -540,7 +550,7 @@ class TestIOPipeline:
              ["P53", "MDM2", "inhibition", "0.85"],
              ["MDM2", "P53", "inhibition", "0.80"]],
         )
-        from rexgraph.io.bundle import load_rex, save_rex
+        from rexgraph.io.bundle import load_rcbd, save_rcbd
         from rexgraph.io.csv_loader import load_edge_csv
 
         gd = load_edge_csv(csv_path)
@@ -553,9 +563,9 @@ class TestIOPipeline:
         _ = rex.RL
 
         # Save and reload
-        bundle_path = str(tmp_path / "pathway.rex")
-        save_rex(bundle_path, rex)
-        rex2 = load_rex(bundle_path)
+        bundle_path = str(tmp_path / "pathway.rcbd")
+        save_rcbd(bundle_path, rex)
+        rex2 = load_rcbd(bundle_path)
         assert rex2.nV == rex.nV
         assert rex2.nE == rex.nE
 
@@ -574,16 +584,16 @@ class TestIOPipeline:
                 ],
             }
         })
-        from rexgraph.io.bundle import load_rex, save_rex
+        from rexgraph.io.bundle import load_rcbd, save_rcbd
         from rexgraph.io.json_loader import load_json
 
         rex = load_json(json_path)
         assert rex.nV == 5
         assert rex.nE == 5
 
-        bundle_path = str(tmp_path / "network.rex")
-        save_rex(bundle_path, rex)
-        rex2 = load_rex(bundle_path)
+        bundle_path = str(tmp_path / "network.rcbd")
+        save_rcbd(bundle_path, rex)
+        rex2 = load_rcbd(bundle_path)
         assert rex2.nV == 5
         assert rex2.nE == 5
 
@@ -606,7 +616,7 @@ def test_name_codec_is_reversible_for_any_reserved_set():
 
 
 def test_fname_encode_is_the_codec_and_stays_byte_compatible():
-    """fname_encode is the '/'-reserved case. Existing .rex, hdf5 and zarr names on disk
+    """fname_encode is the '/'-reserved case. Existing .rcbd, hdf5 and zarr names on disk
     must keep decoding, so the encoding cannot shift."""
     from rexgraph.io.rex_state import encode_name, fname_decode, fname_encode
 

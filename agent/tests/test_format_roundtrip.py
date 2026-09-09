@@ -105,19 +105,19 @@ def _shape(rex):
 
 @pytest.mark.parametrize("name", ["prose.txt", "edges.csv", "feat.csv", "s.fasta", "v.vcf"])
 def test_a_complex_survives_every_serializer(samples, tmp_path, name):
-    """.rex, safetensors, zarr, hdf5 and the RCDB's own encoder all have to return
+    """.rcbd, safetensors, zarr, hdf5 and the RCDB's own encoder all have to return
     the complex that went in. `load_safetensors` returns a dict by design, with the
     complex under "object"."""
     from agent.auto import auto_rex
     from agent.rcdb import deserialize_complex, serialize_complex
-    from rexgraph.io import (load_hdf5, load_rex, load_safetensors, load_zarr,
-                             save_hdf5, save_rex, save_safetensors, save_zarr)
+    from rexgraph.io import (load_hdf5, load_rcbd, load_safetensors, load_zarr,
+                             save_hdf5, save_rcbd, save_safetensors, save_zarr)
     rex = auto_rex(samples[name])
     want = _shape(rex)
     stem = str(tmp_path / name.replace(".", "_"))
 
-    save_rex(stem + ".rex", rex)
-    assert _shape(load_rex(stem + ".rex")) == want, ".rex"
+    save_rcbd(stem + ".rcbd", rex)
+    assert _shape(load_rcbd(stem + ".rcbd")) == want, ".rcbd"
 
     save_safetensors(stem + ".safetensors", rex)
     assert _shape(load_safetensors(stem + ".safetensors")["object"]) == want, "safetensors"
@@ -480,20 +480,20 @@ def test_an_isolated_vertex_survives_a_save(tmp_path):
     import numpy as np
     from agent.rcdb import deserialize_complex, serialize_complex
     from rexgraph.graph import RexGraph
-    from rexgraph.io import (load_hdf5, load_rex, load_safetensors, load_zarr,
-                             save_hdf5, save_rex, save_safetensors, save_zarr)
+    from rexgraph.io import (load_hdf5, load_rcbd, load_safetensors, load_zarr,
+                             save_hdf5, save_rcbd, save_safetensors, save_zarr)
 
     rex = RexGraph(sources=np.array([0, 1], np.int32), targets=np.array([1, 2], np.int32))
     rex._nV = 6                                   # three isolated 0-cells
     assert (rex.nV, int(rex.betti[0])) == (6, 4)
 
     stem = str(tmp_path / "iso")
-    save_rex(stem + ".rex", rex)
+    save_rcbd(stem + ".rcbd", rex)
     save_zarr(stem + ".zarr", rex)
     save_hdf5(stem + ".h5", rex)
     save_safetensors(stem + ".st", rex)
     got = {
-        ".rex": load_rex(stem + ".rex").nV,
+        ".rcbd": load_rcbd(stem + ".rcbd").nV,
         ".zarr": load_zarr(stem + ".zarr").nV,
         ".h5": load_hdf5(stem + ".h5").nV,
         ".safetensors": load_safetensors(stem + ".st")["object"].nV,
@@ -506,15 +506,15 @@ def test_a_bed_file_with_isolated_intervals_round_trips(tmp_path):
     """The case the roundtrip matrix caught: four intervals, two of which overlap
     nothing, stored and read back."""
     from agent.auto import auto_rex
-    from rexgraph.io import load_rex, save_rex
+    from rexgraph.io import load_rcbd, save_rcbd
     p = tmp_path / "r.bed"
     p.write_text("chr1\t100\t200\tA\nchr1\t150\t250\tB\n"
                  "chr1\t900\t950\tC\nchr2\t100\t200\tD\n")
     rex = auto_rex(str(p))
     assert rex.nV == 4, rex.nV
-    out = str(tmp_path / "r.rex")
-    save_rex(out, rex)
-    assert load_rex(out).nV == 4
+    out = str(tmp_path / "r.rcbd")
+    save_rcbd(out, rex)
+    assert load_rcbd(out).nV == 4
 
 
 def test_face_selection_rejects_a_value_it_cannot_honour():

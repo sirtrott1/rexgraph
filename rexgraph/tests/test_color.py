@@ -1,13 +1,13 @@
-"""K7 spectral colour, against the C it was ported from.
+"""K7 spectral colour, against independent reference values.
 
-`spore.c:3086` builds K7's channel operators from its own boundary operator, mixes a
-character into them, reads the spectrum as wavelengths against the Balmer limit and
-integrates those through the CIE colour-matching functions. So a colour is a physical
-consequence of a character rather than a palette decision.
+K7's channel operators come from its boundary operator, mix a character into them, read
+the spectrum as wavelengths against the Balmer limit and integrate those through the CIE
+colour-matching functions. So a colour is a physical consequence of a character rather
+than a palette decision.
 
-These pin the port against reference values taken from the C directly, and the properties
-that make the map usable: it is a function of the character alone, the hats are exact, and
-a character with no visible spectrum says so instead of returning a default.
+These pin the implementation against independent reference values and the properties that
+make the map usable: it is a function of the character alone, the hats are exact, and a
+character with no visible spectrum says so instead of returning a default.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from rexgraph.color import (
     spectral_colors,
 )
 
-#: taken from the C, compiled from spore.c's own k7_color_forward
+#: independent K7 colour reference values
 _REFERENCE = [
     ((0.25, 0.25, 0.25, 0.25), 1.0, 1.0,
      (0.0, 0.007361278773337589, 0.1051920260434398)),
@@ -42,9 +42,8 @@ _REFERENCE = [
 
 
 @pytest.mark.parametrize("chi,dLT,eps,expected", _REFERENCE)
-def test_the_port_matches_the_c(chi, dLT, eps, expected):
-    """Compiled from spore.c and run, not reasoned about. The residual is the Jacobi
-    sweep against LAPACK, nothing structural."""
+def test_the_implementation_matches_the_reference(chi, dLT, eps, expected):
+    """The residual is the Jacobi sweep against LAPACK, nothing structural."""
     assert spectral_color(chi, dLT=dLT, eps=eps) == pytest.approx(expected, abs=1e-13)
 
 
@@ -67,7 +66,7 @@ def test_the_two_gram_diagonals_coincide():
 
 
 def test_the_coparticipation_hat_is_the_overlap_one():
-    """They coincide on a complete graph, which is why spore stores C as G."""
+    """They coincide on a complete graph, so C is the overlap channel there."""
     _T, G, _F, C = k7_hats()
     assert G == C
 
@@ -75,7 +74,7 @@ def test_the_coparticipation_hat_is_the_overlap_one():
 def test_the_frustration_hat_carries_no_trace():
     """A quirk kept deliberately: diag(T) = diag(G) puts zero on F's diagonal, and
     G - T >= 0 everywhere on a complete graph so the PSD shift never fires. So trace(F)
-    is zero, spore divides by its 1.0 guard, and hat_F is the only unnormalised one.
+    is zero, the 1.0 guard applies, and hat_F is the only unnormalised one.
     Changing that would change every colour the system has produced."""
     _T, _G, F, _C = k7_hats()
     assert sum(F[i][i] for i in range(K7_NE)) == 0

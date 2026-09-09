@@ -14,7 +14,7 @@ the layering rule the distributions exist to hold.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .capabilities import BoundSource, SourcePolicy
 from .signatures import OperatorSignature, lookup
@@ -53,7 +53,7 @@ def classify(value: object) -> ValueKind:
     store would classify as a catalog.
     """
     if hasattr(value, "get") and hasattr(value, "history"):
-        return ValueKind.REX  # an RCDB store, addressed as the complex source it serves
+        return ValueKind.RCDB_STORE
     if hasattr(value, "hash_all") and hasattr(value, "list"):
         return ValueKind.CATALOG_ENTRY_SET
     if hasattr(value, "reconstruct_at") and hasattr(value, "T"):
@@ -83,7 +83,8 @@ class Binding:
 
 
 def bind(name: str, value: object, policy: SourcePolicy, *,
-         temporal: TemporalRef | None = None) -> Binding:
+         temporal: TemporalRef | None = None,
+         source_ref: SourceRef | None = None) -> Binding:
     """Resolve one named source into a Binding, classifying it from its surface."""
     bound = BoundSource(value, policy)
     kind = classify(value)
@@ -96,9 +97,12 @@ def bind(name: str, value: object, policy: SourcePolicy, *,
     )
     schema = SourceSchema(kind=kind, capabilities=frozenset(policy.permissions),
                           surface=surface)
+    ref = source_ref or SourceRef(name=name, policy_digest=policy.digest)
+    if ref.policy_digest != policy.digest:
+        ref = replace(ref, policy_digest=policy.digest)
     return Binding(
         name=name, source=bound, schema=schema,
-        ref=SourceRef(name=name, policy_digest=policy.digest),
+        ref=ref,
         temporal=temporal,
     )
 

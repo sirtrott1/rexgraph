@@ -6,17 +6,15 @@ answers::
     count   |supp(i) INTERSECT supp(j)|      how MANY vertices they meet at
     share   sum_v |c_i(v)| |c_j(v)|          how MUCH of each one meets
 
-They coincide exactly at arity 2, where every share is 1, which is why RexGraph and spore
-agreed to the last digit on every pairwise complex and only ever diverged on branching
-ones.
+They coincide exactly at arity 2, where every share is 1. The distinction only appears
+for branching relations.
 
-The primaries differ because the systems do. RexGraph defaults to the SHARE because it
+RexGraph defaults to the SHARE because it
 propagates: a relation spread over k vertices must carry proportionally less at each, or
-signal through a branching vertex multiplies instead of dividing. spore defaults to the
-COUNT because a language reasons about the structure as declared, where the question is
-how crowded a neighbourhood is.
+signal through a branching vertex multiplies instead of dividing. COUNT remains available
+for the structural question of how crowded a neighbourhood is.
 
-Numbers below are spore's, so agreement is a real cross-implementation check.
+The reference values below pin both readings independently.
 """
 from __future__ import annotations
 
@@ -92,20 +90,19 @@ def test_they_are_independent_in_both_directions():
 
 
 def test_they_coincide_on_a_pairwise_complex():
-    """Every share is 1 at arity 2, which is why the two implementations only ever
-    diverged on branching complexes."""
+    """Every share is 1 at arity 2, so both readings coincide."""
     rex = _rex(offsets=np.array([0, 2, 4, 6], dtype=np.int32),
                vertices=np.array([0, 1, 1, 2, 2, 0], dtype=np.int32))
     assert np.allclose(np.asarray(rex.overlap_share_sparse.todense()),
                        np.asarray(rex.overlap_count_sparse.todense()))
 
 
-#### the selector, against spore's numbers
+#### the selector
 
 
 @pytest.mark.parametrize("c_channel,trace", [("share", 22 / 3), ("count", 10.0)])
 def test_the_character_answers_the_selected_reading(c_channel, trace):
-    """spore's numbers on the same fixture, so this is a cross-implementation check."""
+    """The reference value for the selected reading on this fixture."""
     channels = dict(build_sparse_channels(_rex(c_channel)))
     assert float(channels["L_C"].diagonal().sum()) == pytest.approx(trace)
 
@@ -126,9 +123,7 @@ def test_an_unknown_reading_is_refused():
 
 @pytest.mark.parametrize("c_channel,trace", [("share", 22 / 3), ("count", 10.0)])
 def test_every_path_answers_the_same_reading(c_channel, trace):
-    """The trap: spore had three constructions and after changing two, trC answered the
-    old channel while RL4 answered the new one from one process. The dense kernel derives
-    L_C from K1, which is the share, so it would always have answered the share."""
+    """Every construction must answer the selected reading from one process."""
     rex = _rex(c_channel)
     assert float(rex.L_coparticipation.diagonal().sum()) == pytest.approx(trace)
     assert float(dict(build_sparse_channels(rex))["L_C"].diagonal().sum()

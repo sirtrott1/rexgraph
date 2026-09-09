@@ -51,7 +51,8 @@ def test_detect_input_type():
     print("  ✓ adjacency matrix -> adjacency")
 
     # File paths
-    assert detect_input_type("data.rex") == "rex_file"
+    assert detect_input_type("data.rcbd") == "rex_file"
+    assert detect_input_type("data.rex") == "rex_file", "a legacy bundle still classifies"
     assert detect_input_type("data.zarr") == "rex_file"
     assert detect_input_type("graph.json") == "json"
     print("  ✓ file extensions classified correctly")

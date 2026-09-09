@@ -21,7 +21,7 @@ BP = np.array([0, 3, 5, 7, 9], np.int32)
 BI = np.array([0, 1, 2, 0, 1, 1, 2, 2, 3], np.int32)
 
 SAVERS = [
-    (".rex", "save_rex", "load_rex"),
+    (".rcbd", "save_rcbd", "load_rcbd"),
     (".zarr", "save_zarr", "load_zarr"),
     (".h5", "save_hdf5", "load_hdf5"),
 ]
@@ -66,7 +66,7 @@ def test_the_registry_holds_the_saver_directly():
     assert not hasattr(rio, "_save_safetensors")
 
 
-@pytest.mark.parametrize("ext", [".rex", ".json", ".zarr", ".h5", ".safetensors"])
+@pytest.mark.parametrize("ext", [".rcbd", ".json", ".zarr", ".h5", ".safetensors"])
 def test_generic_save_load_round_trips_every_format(tmp_path, ext):
     r = _rex()
     p = str(tmp_path / ("g" + ext))

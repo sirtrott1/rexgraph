@@ -5,7 +5,7 @@ stores but cannot be searched, or is searchable but produces no features, is not
 usable; and which of those it fails at is not obvious from the parser passing.
 
 So every ontology format and every scientific container is taken through the same
-eight stations: join, complex, RCDB store, RCDB search, `.rex` archive, corpus
+eight stations: join, complex, RCDB store, RCDB search, `.rcbd` archive, corpus
 document, analysis pipeline, structural features, and triples out.
 
 The join itself is checked on the case that matters: a genome annotation, a GO
@@ -226,12 +226,12 @@ def test_a_stored_file_is_searchable_by_its_source_kind(tmp_path, store, name):
 
 @pytest.mark.parametrize("name", list(ALL_FILES))
 def test_a_file_archives_to_rex_and_back(tmp_path, name):
-    from rexgraph.io import load_rex, save_rex
+    from rexgraph.io import load_rcbd, save_rcbd
     k = join(_write(tmp_path, name, ALL_FILES[name]))
     rex = k.rex()
-    path = str(tmp_path / "archive.rex")
-    save_rex(path, rex)
-    back = load_rex(path)
+    path = str(tmp_path / "archive.rcbd")
+    save_rcbd(path, rex)
+    back = load_rcbd(path)
     assert (back.nV, back.nE) == (rex.nV, rex.nE)
     assert tuple(back.betti) == tuple(rex.betti)
     labels = (getattr(back, "_agent_meta", {}) or {}).get("vertex_labels")

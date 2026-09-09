@@ -1302,12 +1302,12 @@ class AnalysisPipeline:
     def _stage_ricci_flow(self) -> dict:
         """Discrete Ricci-flow analysis (optional, capability-gated).
 
-        The manual workflow ran Ricci flow through Spore.  That external
-        solver is not part of this package, so this stage checks for a
-        Ricci-curvature capability on the complex and, when present,
-        reports the attributed (relational) curvature as the t=0 state of
-        the flow.  When no curvature kernel is available it returns a
-        clean "unavailable" marker instead of fabricating a trajectory.
+        Evolving the flow past t=0 needs a flow solver, which is not part
+        of this package, so this stage checks for a Ricci-curvature
+        capability on the complex and, when present, reports the attributed
+        (relational) curvature as the t=0 state of the flow.  When no
+        curvature kernel is available it returns a clean "unavailable"
+        marker instead of fabricating a trajectory.
         """
         rex = self.rex
         if getattr(rex, "nF_hodge", 0) == 0:
@@ -1321,9 +1321,9 @@ class AnalysisPipeline:
             "available": True,
             "method": "attributed_curvature (t=0 state)",
             "note": (
-                "Full multi-step Ricci flow was run externally (Spore) in "
-                "the reference workflow; this reports the initial curvature "
-                "field. Wire a flow solver here to extend to t>0."
+                "This is the initial curvature field, the t=0 state of the "
+                "flow. Extending it to t>0 requires a flow solver wired in "
+                "here; none is bundled."
             ),
             "curvature_norm": round(float(np.linalg.norm(kappa_f)), 6),
             "curvature_mean": round(float(np.mean(kappa_f)), 6),

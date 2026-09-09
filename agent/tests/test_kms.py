@@ -106,19 +106,19 @@ def test_it_seals_a_real_rex_bundle_end_to_end(scoped, tmp_path):
     import numpy as np
 
     from rexgraph.graph import RexGraph
-    from rexgraph.io import ContainerEncryptionConfig, load_rex, save_rex
+    from rexgraph.io import ContainerEncryptionConfig, load_rcbd, save_rcbd
 
     ring, token = _in_workspace(scoped, "alpha")
     try:
         ring.configuration = ContainerEncryptionConfig(footer_key="grade0", tensor_keys={})
         rex = RexGraph.from_hypergraph([0, 2, 4], [0, 1, 1, 2])
-        out = str(tmp_path / "sealed.rex")
-        save_rex(out, rex, encryption_properties=ring)
+        out = str(tmp_path / "sealed.rcbd")
+        save_rcbd(out, rex, encryption_properties=ring)
 
         with pytest.raises(PermissionError):
-            load_rex(out)                            # no keys, no complex
+            load_rcbd(out)                            # no keys, no complex
 
-        back = load_rex(out, decryption_properties=ring)
+        back = load_rcbd(out, decryption_properties=ring)
         assert (back.nV, back.nE) == (rex.nV, rex.nE)
         b1 = np.asarray(back.B1.todense() if hasattr(back.B1, "todense") else back.B1)
         assert np.allclose(b1, np.asarray(

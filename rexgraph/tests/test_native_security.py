@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from rexgraph.graph import RexGraph, TemporalRex
-from rexgraph.io.bundle import load_rex, save_rex
+from rexgraph.io.bundle import load_rcbd, save_rcbd
 from rexgraph.io.catalog import FileCatalog, object_digest
 from rexgraph.io.commit import CommitLink
 from rexgraph.io.export import export_parquet, verify_export
@@ -665,9 +665,9 @@ def test_genesis_mutation_requires_explicit_absent_previous():
 
 def test_temporal_containers_preserve_clock_and_channel_semantics(tmp_path):
     history = _temporal_history()
-    bundle_path = tmp_path / "history.rex"
-    save_rex(bundle_path, history)
-    bundle_restored = load_rex(bundle_path)
+    bundle_path = tmp_path / "history.rcbd"
+    save_rcbd(bundle_path, history)
+    bundle_restored = load_rcbd(bundle_path)
     assert bundle_restored.times.tolist() == [10.0, 20.0]
     assert bundle_restored.at(0).g_channel == "normalized"
     assert bundle_restored.at(1).c_channel == "count"
