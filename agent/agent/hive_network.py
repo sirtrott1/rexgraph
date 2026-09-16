@@ -1,8 +1,8 @@
 """agent.hive_network: a network of hives as a relational complex one grade up.
 
-A single hive is agents-as-cells (agent_complex). A network is the same structure lifted a grade:
-hives are the cells, inter-hive channels are the signals, and the network's health is the same RCFE
-field / Hodge / drift read on inter-hive traffic - which hive is load-bearing, deviating (curvature),
+A single hive is agents as cells (agent_complex). A network is the same structure lifted a grade:
+hives are the cells, inter hive channels are the signals, and the network's health is the same RCFE
+field / Hodge / drift read on inter hive traffic - which hive is load bearing, deviating (curvature),
 or drifting. Routing and monitoring reuse the hive and agent_complex machinery at the network grade.
 """
 from __future__ import annotations
@@ -14,17 +14,17 @@ from agent.hive import Hive, _tokens
 
 
 class HiveNetwork:
-    """A set of hives enrolled as cells of one inter-hive complex. Route picks a hive then delegates
-    to its own routing; monitor runs the relational-complex monitor on inter-hive traffic."""
+    """A set of hives enrolled as cells of one inter hive complex. Route picks a hive then delegates
+    to its own routing; monitor runs the relational complex monitor on inter hive traffic."""
 
     def __init__(self):
         self._hives: dict[str, Hive] = {}
         self._specialties: dict[str, list] = {}
-        self._net = agent_complex.AgentComplex()          # the inter-hive complex (hives = cells)
-        self._drift = agent_complex.DriftTracker()        # network-grade drift, separate from hives
+        self._net = agent_complex.AgentComplex()          # the inter hive complex (hives = cells)
+        self._drift = agent_complex.DriftTracker()        # network grade drift, separate from hives
 
     def add_hive(self, name: str, hive: Hive, *, specialties=None) -> None:
-        """Enroll a hive as a cell in the network, with concept keywords for inter-hive routing."""
+        """Enroll a hive as a cell in the network, with concept keywords for inter hive routing."""
         self._hives[name] = hive
         self._specialties[name] = list(specialties or [])
 
@@ -33,7 +33,7 @@ class HiveNetwork:
 
     #### registry: create / address / remove named hives
     def hive(self, name: str = "default"):
-        """Get-or-create a named hive (a cell of the network). This is how the 'default' hive and
+        """Get or create a named hive (a cell of the network). This is how the 'default' hive and
         every named hive come into being; creation is logged at network scope."""
         h = self._hives.get(name)
         if h is None:
@@ -73,7 +73,7 @@ class HiveNetwork:
             self.remove(n)
 
     def status(self) -> dict:
-        """Per-hive rosters + network totals (the registry view; monitor() is the inter-hive field)."""
+        """Per hive rosters + network totals (the registry view; monitor() is the inter hive field)."""
         hives, total = [], 0
         for n in self.names():
             st = self._hives[n].status()
@@ -83,12 +83,12 @@ class HiveNetwork:
         return {"n_hives": len(hives), "n_bees": total, "hives": hives}
 
     def relay(self, sender: str, recipient: str, text: str, **meta):
-        """Record one inter-hive message into the network complex (the grade-up analog of Hive.relay)."""
+        """Record one inter hive message into the network complex (the grade up analog of Hive.relay)."""
         self._net.add_message(sender, recipient, text, **meta)
 
     def route(self, query: str, top_k: int = 3) -> list[dict]:
-        """Rank hives for a query, blending inter-hive interaction history with declared specialty -
-        the same query-reweighting as Hive.route, one grade up."""
+        """Rank hives for a query, blending inter hive interaction history with declared specialty -
+        the same query reweighting as Hive.route, one grade up."""
         qt = set(_tokens(query))
         hist = {r["agent"]: r["relevance"]
                 for r in self._net.route(query, top_k=max(len(self._hives), 1))}
@@ -102,7 +102,7 @@ class HiveNetwork:
         return ranked[:top_k]
 
     def dispatch(self, query: str, **kw) -> dict:
-        """Route to the best hive, delegate to its dispatch, and record the inter-hive hop into the
+        """Route to the best hive, delegate to its dispatch, and record the inter hive hop into the
         network complex. Returns {hive, result}."""
         r = self.route(query, top_k=1)
         if not r:
@@ -116,7 +116,7 @@ class HiveNetwork:
 
     def dispatch_capability(self, capability: str, data, *, hint: str = None) -> dict:
         """Route a structured task across the network: pick a hive that has a provider of the
-        capability (by inter-hive routing on `hint`), then dispatch within it. Returns
+        capability (by inter hive routing on `hint`), then dispatch within it. Returns
         {hive, worker, capability, result}."""
         candidates = [n for n, h in self._hives.items() if h.providers(capability)]
         if not candidates:
@@ -132,8 +132,8 @@ class HiveNetwork:
         return {"hive": name, **out}
 
     def monitor(self, *, track: bool = False) -> dict:
-        """The network-grade field: the same relational-complex monitor on inter-hive traffic, so
-        hives are the cells - which hive is load-bearing, deviating (curvature/strain), or (with
+        """The network grade field: the same relational complex monitor on inter hive traffic, so
+        hives are the cells - which hive is load bearing, deviating (curvature/strain), or (with
         track=True) drifting over time."""
         out = self._net.monitor()
         out["hives"] = self.hives()
@@ -145,16 +145,16 @@ class HiveNetwork:
 
     def snapshot(self) -> dict:
         """The whole network as one nested structure: each hive's snapshot (workers + type complex),
-        the inter-hive monitor, and the network field. Network = ambient complex, hive = subcomplex,
+        the inter hive monitor, and the network field. Network = ambient complex, hive = subcomplex,
         worker = cell - one relational structure across grades."""
         return {"hives": {name: h.snapshot() for name, h in self._hives.items()},
                 "network_monitor": self.monitor()}
 
     def persist(self, store="memory://", *, name: str = "network") -> str | None:
-        """Catalogue the inter-hive complex in the RCDB by structural signature, and each member
+        """Catalogue the inter hive complex in the RCDB by structural signature, and each member
         hive alongside it (network = ambient complex, hives = subcomplexes). `store` is an open
         RCStore or an RCDB uri (pass a shared store or a persistent uri to retrieve later). Returns
-        the network record id, or None when there is no inter-hive structure yet."""
+        the network record id, or None when there is no inter hive structure yet."""
         from agent.rcdb import open_store
         st = open_store(store) if isinstance(store, str) else store
         rex, ags, idx, we, edges = self._net.interaction_complex()
@@ -174,7 +174,7 @@ _NETWORKS: dict[str, HiveNetwork] = {}
 def get_network(workspace: str | None = None) -> HiveNetwork:
     """The hive network for one workspace: its registry of named hives.
 
-    Keyed by workspace rather than process-wide. `hive(name)` is get-or-create, and
+    Keyed by workspace rather than process wide. `hive(name)` is get or create, and
     /agents/command reaches it with `scope: "hive:<name>"`, so any tenant could bring a
     named hive into being, and every tenant then shared that one object: the same worker
     bees, and the same coordination complex they each write through `chat` and read

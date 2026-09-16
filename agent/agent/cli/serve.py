@@ -29,9 +29,9 @@ from .config import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 10000
-# A first run downloads a multi-GB model AND loads it onto the GPU via vLLM; 120s reported a false
-# TIMEOUT while the server was still legitimately loading. Env-configurable; 15 min covers a cold
-# download. (A genuinely broken model still fails fast via the process-died check below.)
+# A first run downloads a multi GB model AND loads it onto the GPU via vLLM; 120s reported a false
+# TIMEOUT while the server was still legitimately loading. Env configurable; 15 min covers a cold
+# download. (A genuinely broken model still fails fast via the process died check below.)
 HEALTH_TIMEOUT = int(os.environ.get("REXGRAPH_OCR_HEALTH_TIMEOUT", "900"))
 HEALTH_INTERVAL = 2      # seconds between health checks
 
@@ -62,7 +62,7 @@ def serve(
     if model is None:
         model = cfg.gpu_model_path or cfg.gpu_model
     if not model:
-        # Default to DeepSeek-OCR-2 if no model configured
+        # Default to DeepSeek OCR-2 if no model configured
         model = "deepseek-ai/DeepSeek-OCR-2"
         print(f"No model configured - defaulting to {model}")
         print("First run downloads the model (several GB) and loads it onto the GPU - this can take")
@@ -205,7 +205,7 @@ def find_running_server() -> str | None:
 
 
 def _log_tail(log_file, n=8):
-    """The last n non-empty lines of the server log (for visibility during/after startup)."""
+    """The last n non empty lines of the server log (for visibility during/after startup)."""
     if not log_file:
         return []
     try:
@@ -304,7 +304,7 @@ def server_status() -> dict:
 
 
 def main(argv=None) -> int:
-    """CLI entry: rexgraph-serve start|stop|status."""
+    """CLI entry: rexgraph serve start|stop|status."""
     import argparse
     import json as _json
 

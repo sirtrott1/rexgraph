@@ -171,6 +171,7 @@ cdef int get_reserved_threads() noexcept nogil
 cdef Py_ssize_t get_eigen_dense_limit() noexcept nogil
 cdef Py_ssize_t get_default_k() noexcept nogil
 cdef double     get_fill_ratio_dense_threshold() noexcept nogil
+cdef Py_ssize_t get_exact_field_limit() noexcept nogil
 
 
 # Thread helpers
@@ -271,7 +272,7 @@ cdef inline bint should_use_dense_matmul(Py_ssize_t n_out) noexcept nogil:
 # Memory helpers
 
 cdef inline void safe_free(void* ptr) noexcept nogil:
-    """Free wrapper - free(NULL) is a no-op per C standard."""
+    """Free wrapper - free(NULL) is a no op per C standard."""
     if ptr != NULL:
         free(ptr)
 
@@ -428,7 +429,7 @@ cdef inline int64_t csr_row_length_i64(const int64_t* indptr, idx_t row) noexcep
     return indptr[row + 1] - indptr[row]
 
 
-# Union-find (disjoint set union)
+# Union find (disjoint set union)
 
 cdef struct UnionFind:
     i32* parent
@@ -438,7 +439,7 @@ cdef struct UnionFind:
 
 
 cdef inline int uf_init(UnionFind* uf, idx_t n) noexcept nogil:
-    """Initialize union-find for n elements.
+    """Initialize union find for n elements.
 
     Returns ERR_SUCCESS or ERR_MEMORY.
     """
@@ -463,7 +464,7 @@ cdef inline int uf_init(UnionFind* uf, idx_t n) noexcept nogil:
 
 
 cdef inline void uf_free(UnionFind* uf) noexcept nogil:
-    """Free union-find memory."""
+    """Free union find memory."""
     if uf.parent != NULL:
         free(uf.parent)
         uf.parent = NULL
@@ -528,7 +529,7 @@ cdef struct UnionFind64:
 
 
 cdef inline int uf64_init(UnionFind64* uf, idx_t n) noexcept nogil:
-    """Initialize int64 union-find for n elements."""
+    """Initialize int64 union find for n elements."""
     cdef idx_t i
     uf.n = n
     uf.n_components = n
@@ -550,7 +551,7 @@ cdef inline int uf64_init(UnionFind64* uf, idx_t n) noexcept nogil:
 
 
 cdef inline void uf64_free(UnionFind64* uf) noexcept nogil:
-    """Free int64 union-find memory."""
+    """Free int64 union find memory."""
     if uf.parent != NULL:
         free(uf.parent)
         uf.parent = NULL
@@ -639,28 +640,67 @@ cdef inline idx_t sorted_union_count_i32(
     return count
 
 
+cdef inline idx_t _advance_run_i32(const i32* arr, idx_t i, idx_t n) noexcept nogil:
+    """Index of the next value after the run of equals starting at `i`."""
+    cdef i32 value = arr[i]
+    while i < n and arr[i] == value:
+        i += 1
+    return i
+
+
+cdef inline void sorted_jaccard_exact_i32(
+    const i32* a, idx_t len_a,
+    const i32* b, idx_t len_b,
+    idx_t* out_intersection, idx_t* out_union
+) noexcept nogil:
+    """Jaccard as the exact pair of COUNTS, not as a double.
+
+    `|A and B|` and `|A or B|` are both integers, so their ratio is a rational and the
+    caller can carry it as one. Dividing them here would round at the kernel boundary:
+    1/3 becomes the nearest double and a later comparison is against a number nobody
+    wrote. `_sparse.support_jaccard` is the Python entry point and returns a Fraction.
+
+    Both arrays must be sorted. Repeated values are counted once, so these are set
+    cardinalities whether or not the caller deduplicated.
+    """
+    cdef idx_t i = 0, j = 0
+    cdef idx_t intersection = 0
+    cdef idx_t union_size = 0
+
+    while i < len_a and j < len_b:
+        if a[i] < b[j]:
+            i = _advance_run_i32(a, i, len_a)
+        elif a[i] > b[j]:
+            j = _advance_run_i32(b, j, len_b)
+        else:
+            i = _advance_run_i32(a, i, len_a)
+            j = _advance_run_i32(b, j, len_b)
+            intersection += 1
+        union_size += 1
+
+    while i < len_a:
+        i = _advance_run_i32(a, i, len_a)
+        union_size += 1
+    while j < len_b:
+        j = _advance_run_i32(b, j, len_b)
+        union_size += 1
+
+    out_intersection[0] = intersection
+    out_union[0] = union_size
+
+
 cdef inline double sorted_jaccard_i32(
     const i32* a, idx_t len_a,
     const i32* b, idx_t len_b
 ) noexcept nogil:
-    """Compute Jaccard similarity between two sorted int32 arrays."""
+    """Jaccard similarity between two sorted int32 arrays, as a double.
+
+    The float reading of `sorted_jaccard_exact_i32`. Prefer the exact counts when the
+    result feeds a comparison or another exact quantity.
+    """
     cdef idx_t intersection = 0
     cdef idx_t union_size = 0
-    cdef idx_t i = 0, j = 0
-
-    while i < len_a and j < len_b:
-        if a[i] < b[j]:
-            i += 1
-        elif a[i] > b[j]:
-            j += 1
-        else:
-            intersection += 1
-            i += 1
-            j += 1
-        union_size += 1
-
-    union_size += (len_a - i) + (len_b - j)
-
+    sorted_jaccard_exact_i32(a, len_a, b, len_b, &intersection, &union_size)
     if union_size == 0:
         return 0.0
     return <double>intersection / <double>union_size

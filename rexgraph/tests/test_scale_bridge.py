@@ -1,8 +1,8 @@
-"""Scale-free moments and the varentropy self-diagnostic - the eigen-free scale engine.
+"""Scale free moments and the varentropy self diagnostic - the eigen free scale engine.
 
-The scale profile is closed-k-walk moments; the varentropy gap is the Renyi-2 minus
-Renyi-3 harmonic log. These guard the scale/character self-diagnostics behaviorally
-and against their closed-form oracles.
+The scale profile is closed-k-walk moments; the varentropy gap is the Renyi 2 minus
+Renyi 3 harmonic log. These guard the scale/character self diagnostics behaviorally
+and against their closed form oracles.
 """
 import numpy as np
 import pytest
@@ -24,11 +24,11 @@ def test_vertex_scale_profile_separates_clustered_from_path():
     clustered, path = vsp[0], vsp[4]
     # the k=0,1 moments can coincide; the higher moments must separate them
     assert not np.allclose(clustered[2:], path[2:])
-    assert clustered[2] > path[2]                          # more length-2 closed walks in the triangle
+    assert clustered[2] > path[2]                          # more length 2 closed walks in the triangle
 
 
 def test_harmonic_entropy_is_renyi2_of_rl4():
-    """harmonic_entropy = -log(tr(RL4^2)/tr(RL4)^2), the eigen-free Renyi-2."""
+    """harmonic_entropy = -log(tr(RL4^2)/tr(RL4)^2), the eigen free Renyi 2."""
     rex = _rex([(0, 1), (1, 2), (2, 3), (0, 3), (1, 4), (4, 5), (2, 5)])
     RL = np.asarray(rex.RL, dtype=float)
     want = -np.log(np.trace(RL @ RL) / np.trace(RL) ** 2)
@@ -36,7 +36,7 @@ def test_harmonic_entropy_is_renyi2_of_rl4():
 
 
 def test_character_varentropy_gap_ties_to_harmonic_entropy():
-    """varentropy gap = H2 - H3 >= 0, and H2 is the harmonic (Renyi-2) entropy."""
+    """varentropy gap = H2 - H3 >= 0, and H2 is the harmonic (Renyi 2) entropy."""
     rex = _rex([(0, 1), (1, 2), (2, 3), (0, 3), (1, 4), (4, 5), (2, 5)])
     v = rex.character_varentropy
     assert v["gap"] == pytest.approx(v["H2"] - v["H3"], abs=1e-9)

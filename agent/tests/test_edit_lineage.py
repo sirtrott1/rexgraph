@@ -31,7 +31,7 @@ def lineage():
 
 
 def _edits():
-    """Three states of one complex: a path, the cycle it closes, a 3-ary relation."""
+    """Three states of one complex: a path, the cycle it closes, a 3 ary relation."""
     first = RexGraph(sources=np.array([0, 1], dtype=np.int32),
                      targets=np.array([1, 2], dtype=np.int32))
     second = first.insert_edges(np.array([2], dtype=np.int32),
@@ -86,8 +86,8 @@ def test_the_topology_of_each_state_is_its_own(lineage):
 
 
 def test_a_branching_relation_survives_the_round_trip(lineage):
-    """Through append_snapshot, the checkpoint/delta index and the store. A 3-ary
-    relation that came back 2-ary would make the history a record of a different graph."""
+    """Through append_snapshot, the checkpoint/delta index and the store. A 3 ary
+    relation that came back 2 ary would make the history a record of a different graph."""
     _record(lineage, _edits())
     _step, rex = wr.state_at(lineage, 1002.0)
     rex._ensure_clean()
@@ -122,7 +122,7 @@ def test_nothing_is_recorded_without_a_complex(lineage):
 
 
 def test_repeated_states_are_still_separate_edits(lineage):
-    """Unlike `record`, which de-duplicates. Two edits producing the same complex are
+    """Unlike `record`, which de duplicates. Two edits producing the same complex are
     still two edits, and a history that drops one is not a history."""
     first = _edits()[0]
     infos = _record(lineage, [first, first])
@@ -132,8 +132,10 @@ def test_repeated_states_are_still_separate_edits(lineage):
 def test_the_clock_may_not_run_backwards(lineage):
     """`step_at` would be ambiguous, so the store refuses rather than guessing."""
     _record(lineage, _edits())
-    with pytest.raises(ValueError, match="precedes step"):
+    before = wr.history(lineage)
+    with pytest.raises(ValueError, match="precedes.*step"):
         wr.record_complex("edit", _edits()[0], lineage_id=lineage, force=True, when=999.0)
+    assert wr.history(lineage) == before
 
 
 def test_the_meta_carries_the_shape_of_each_state(lineage):

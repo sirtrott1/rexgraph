@@ -1,9 +1,9 @@
 """Adapter: turn hive tasks into coordinator work units by mapping the hive's task `kind` onto a
-coordinator TYPE. Keeps the relational coordinator (rexgraph) domain-agnostic; this is the agent glue."""
+coordinator TYPE. Keeps the relational coordinator (rexgraph) domain agnostic; this is the agent glue."""
 from __future__ import annotations
 
-# io_llm == I/O-bound, GIL-light work that runs IN-PROCESS on the thread lane: LLM calls, and also
-# subprocess spawns / live-server attaches (they block on model load AND mutate hive state in place,
+# io_llm == I/O-bound, GIL light work that runs IN PROCESS on the thread lane: LLM calls, and also
+# subprocess spawns / live server attaches (they block on model load AND mutate hive state in place,
 # so they MUST NOT run in a forkserver child where the mutation would be lost).
 _IO = ("llm", "chat", "generate", "ask", "complete", "spawn", "attach")
 _GPU = ("kernel", "heat", "greens", "block_cg", "matvec", "dirac")

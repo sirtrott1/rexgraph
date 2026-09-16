@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._recordlog: the append-only record log's frame codec.
+rexgraph.core._recordlog: the append only record log's frame codec.
 
 One frame is an op, an id, the fixed scalar row, a packed string table, the residual
 leaf descriptors, and optionally a backend's own int64 row. The layout is written by

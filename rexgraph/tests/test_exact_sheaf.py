@@ -1,4 +1,4 @@
-"""Exact incidence-level gluing over the primary relational boundaries."""
+"""Exact incidence level gluing over the primary relational boundaries."""
 from fractions import Fraction
 
 import numpy as np
@@ -9,7 +9,7 @@ from rexgraph.sheaf import ExactSheaf, Sheaf, UndeclaredRestrictionError
 
 
 def two_branching_relations():
-    """Two C1 relations meeting at two vertices, with a non-binary share."""
+    """Two C1 relations meeting at two vertices, with a non binary share."""
     return RexGraph.from_hypergraph(
         np.array([0, 4, 8], dtype=np.int64),
         np.array([0, 1, 2, 3, 0, 1, 4, 5], dtype=np.int64),
@@ -36,7 +36,7 @@ def test_exact_gluing_retains_each_failed_mediator_and_its_residual():
 
     result = sheaf.glue()
 
-    # The relations meet at 0 and 1.  A one-pair failure must not erase either
+    # The relations meet at 0 and 1.  A one pair failure must not erase either
     # incidence's evidence or relabel a count as a cohomology class.
     assert result.gluable == 1
     assert result.glued == 0

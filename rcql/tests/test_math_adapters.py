@@ -1,9 +1,9 @@
-"""Direct contracts for RCQL's current relational-complex math adapters.
+"""Direct contracts for RCQL's current relational complex math adapters.
 
 These tests intentionally call the operator functions rather than going through
 the parser/executor.  They fix the behaviour the Phase 1 signature catalogue
-must describe: source-bound variance, exact rational geometry, total upper
-co-boundary, and unapplied Green actions.
+must describe: source bound variance, exact rational geometry, total upper
+co boundary, and unapplied Green actions.
 """
 from __future__ import annotations
 
@@ -198,7 +198,7 @@ def test_executor_applies_a_declared_hodge_operator_to_an_explicit_c1_seed(trian
 def test_hodge_and_closure_refuse_unsupported_semantics(triangle):
     with pytest.raises(ValueError, match="grade 1"):
         hodge(triangle, Cochain(0, np.ones(triangle.nV), source=triangle))
-    with pytest.raises(NotImplementedError, match="only grade-0"):
+    with pytest.raises(NotImplementedError, match="C0 seed"):
         closure(triangle, 0, grade=1)
     with pytest.raises(ValueError, match="not present"):
         closure(triangle, triangle.nV)

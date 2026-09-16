@@ -3,7 +3,7 @@ agent.server.routes.courier: route surface for carrying stored complexes between
 
 The courier itself is an ordinary hive worker; this is the door that lets something other
 than a Python import reach it. Trips still land in the network complex, so what moves
-between two stores is visible to `/api/v1/agents/monitor` as inter-hive traffic rather
+between two stores is visible to `/api/v1/agents/monitor` as inter hive traffic rather
 than as a side channel beside it.
 
 Admin, not user, for everything that binds a destination or moves a record. The rule is
@@ -41,7 +41,7 @@ async def courier_status(_t: TokenEntry = Depends(require_admin)):
     """Which stores and peers this courier routes for, and what it has carried.
 
     Binding a store or a peer is already an admin operation, so reading which ones are
-    bound is too: the courier is a process-wide singleton holding store views bound by
+    bound is too: the courier is a process wide singleton holding store views bound by
     whoever bound them, and a survey lists records through those views rather than
     through the caller's own.
     """
@@ -73,7 +73,7 @@ async def courier_route(body: dict = Body(...), _t: TokenEntry = Depends(require
 async def courier_peer(body: dict = Body(...), _t: TokenEntry = Depends(require_admin)):
     """Register a remote server as a destination. body: {name, url, api_key_ref?, confirm?}.
 
-    `api_key_ref` names an env var or secret-store entry holding the peer's bearer token.
+    `api_key_ref` names an env var or secret store entry holding the peer's bearer token.
     The API never accepts or returns the token itself.
     """
     name, url = (body.get("name") or "").strip(), (body.get("url") or "").strip()

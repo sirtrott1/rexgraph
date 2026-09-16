@@ -1,7 +1,7 @@
 """
 agent.server.auth: authentication and workspace management.
 
-Bearer token auth with workspace-scoped isolation aligned with
+Bearer token auth with workspace scoped isolation aligned with
 TrustGraph's model. Each workspace is a namespace containing
 its own corpus, sessions, conversations, and activity complex.
 
@@ -35,7 +35,7 @@ _bearer = HTTPBearer(auto_error=False)
 _CONFIG_DIR = Path(os.environ.get("REXGRAPH_CONFIG_DIR",
     Path.home() / ".config" / "rexgraph"))
 
-# Canonical roles for the shared multi-user model. A workspace has admin(s) who manage members,
+# Canonical roles for the shared multi user model. A workspace has admin(s) who manage members,
 # configuration, and consequential actions, and users who read and run build verbs. Legacy tokens
 # stored with the older "write"/"read" roles are treated as users (only "admin" grants admin).
 ROLE_ADMIN = "admin"
@@ -43,23 +43,23 @@ ROLE_USER = "user"
 
 
 def _norm_role(role: str) -> str:
-    """Canonicalize any role string to the two-role model ('write'/'read'/anything -> 'user')."""
+    """Canonicalize any role string to the two role model ('write'/'read'/anything -> 'user')."""
     return ROLE_ADMIN if (role or "").strip().lower() == ROLE_ADMIN else ROLE_USER
 
 
 def is_admin(entry: TokenEntry | None, workspace: str = "default") -> bool:
-    """True if the token holds the admin role IN `workspace`. Roles are per-workspace; the root
-    workspace 'default' is the instance, so admin-of-default is the instance administrator."""
+    """True if the token holds the admin role IN `workspace`. Roles are per workspace; the root
+    workspace 'default' is the instance, so admin of default is the instance administrator."""
     return entry is not None and entry.is_admin_in(workspace)
 
 
 @dataclass
 class TokenEntry:
-    """A registered API token, with a per-workspace role map.
+    """A registered API token, with a per workspace role map.
 
     `roles` maps a workspace name to 'admin' or 'user'; the key '*' grants that role in EVERY
-    workspace (used only by the auth-disabled local identity). `workspaces` (the access list) and the
-    legacy scalar `role` are kept as derived, back-compatible views so older callers and older
+    workspace (used only by the auth disabled local identity). `workspaces` (the access list) and the
+    legacy scalar `role` are kept as derived, back compatible views so older callers and older
     persisted tokens keep working: a token loaded with only (role, workspaces) synthesizes `roles`.
     """
     token_hash: str
@@ -96,7 +96,7 @@ class TokenEntry:
 
 @dataclass
 class WorkspaceState:
-    """Per-workspace isolated state."""
+    """Per workspace isolated state."""
     name: str
     corpus: object = None           # CorpusBuilder instance
     sessions: dict = field(default_factory=dict)
@@ -250,7 +250,7 @@ class AuthManager:
 
     def __init__(self):
         self._tokens: dict[str, TokenEntry] = {}
-        #: presented-token sha256 -> the entry it verified as, or False for a known-bad
+        #: presented token sha256 -> the entry it verified as, or False for a known bad
         #: one. Holds no secret and is cleared whenever the token set changes.
         self._verify_cache: dict[str, object] = {}
         self._workspaces: dict[str, WorkspaceState] = {}
@@ -297,7 +297,7 @@ class AuthManager:
                     "user_id": te.user_id,
                     "workspaces": te.workspaces,   # derived view, kept for older readers
                     "role": te.role,               # derived scalar, kept for older readers
-                    "roles": te.roles,             # authoritative per-workspace map
+                    "roles": te.roles,             # authoritative per workspace map
                     "created": te.created,
                 }
                 for te in self._tokens.values()
@@ -332,7 +332,7 @@ class AuthManager:
         return self._mint(user_id, {ws: role for ws in (workspaces or ["default"])})
 
     def _mint(self, user_id: str, roles: dict[str, str]) -> str:
-        """Mint a fresh token for `user_id` with a per-workspace roles map. Returns the raw token."""
+        """Mint a fresh token for `user_id` with a per workspace roles map. Returns the raw token."""
         import secrets
         raw = secrets.token_urlsafe(32)
         h = self._hash(raw)
@@ -343,12 +343,12 @@ class AuthManager:
         self._save_config()
         return raw
 
-    #### member management (the shared-workspace roster, per workspace)
+    #### member management (the shared workspace roster, per workspace)
     def _tokens_of(self, user_id: str) -> list[TokenEntry]:
         return [te for te in self._tokens.values() if te.user_id == user_id]
 
     def _roles_of(self, user_id: str) -> dict[str, str]:
-        """The member's merged per-workspace roles across any tokens they hold."""
+        """The member's merged per workspace roles across any tokens they hold."""
         merged: dict[str, str] = {}
         for te in self._tokens_of(user_id):
             merged.update(te.roles)
@@ -500,7 +500,7 @@ class AuthManager:
         """Turn auth off.
 
         Disabling is the UNSAFE direction and this used to persist unconditionally, so
-        any in-process caller wrote `enabled: false` into the host's own auth.json. Six
+        any in process caller wrote `enabled: false` into the host's own auth.json. Six
         test fixtures did exactly that, which is how a test suite turned auth off on a
         live install and left it off. Two guards now, and they are separate on purpose:
 
@@ -529,9 +529,9 @@ class AuthManager:
                        _CONFIG_DIR / "auth.json")
         self._save_config()
 
-    # Step-up secret for turning auth OFF. A leaked or cached API token is
+    # Step up secret for turning auth OFF. A leaked or cached API token is
     # not enough to disable auth: the caller must also present this passphrase,
-    # which is bcrypt-hashed here and never stored client-side.
+    # which is bcrypt hashed here and never stored client side.
 
     def set_disable_passphrase(self, passphrase: str):
         """Set or rotate the passphrase required to disable auth."""
@@ -579,7 +579,7 @@ class AuthManager:
         """Create a recovery key. Returns the raw key (shown once).
 
         The recovery key is the only way to regain access when all API
-        tokens are lost.  It is bcrypt-hashed and stored in auth.json
+        tokens are lost.  It is bcrypt hashed and stored in auth.json
         alongside the token hashes, so reading the config file does not
         reveal it.
         """
@@ -657,7 +657,7 @@ class AuthManager:
     def verify_oidc_token(self, token: str) -> TokenEntry | None:
         """Verify a JWT token from the OIDC provider.
 
-        Requires: pip install python-jose[cryptography] requests
+        Requires: pip install python jose[cryptography] requests
         """
         if not self._oidc_config:
             return None
@@ -750,7 +750,7 @@ def identity_and_workspace(request) -> tuple[str, str]:
     them needed it, so it lives here once rather than as three token parsers that can
     disagree about what counts as a bearer header.
 
-    Returns `("local", "default")` when auth is off, which is the single-operator case
+    Returns `("local", "default")` when auth is off, which is the single operator case
     and is not being distinguished from itself. An unverifiable token yields an empty
     identity: the auth middleware is what rejects it, and answering "anonymous" here
     would let it share one bucket with every other anonymous caller.
@@ -808,8 +808,8 @@ async def require_auth(
 async def require_admin(token: TokenEntry = Depends(require_auth)) -> TokenEntry:
     """FastAPI dependency: require INSTANCE admin (admin of the root workspace 'default').
 
-    Instance-level operations - enabling/disabling auth, recovery keys, the legacy token routes -
-    are gated here. Per-workspace member management uses :func:`require_workspace_admin` instead.
+    Instance level operations - enabling/disabling auth, recovery keys, the legacy token routes -
+    are gated here. Per workspace member management uses :func:`require_workspace_admin` instead.
     When auth is disabled, ``require_auth`` returns the local admin identity, so solo/local use is
     unaffected.
     """

@@ -293,7 +293,7 @@ select.input{appearance:none;padding-right:26px;background-image:url("data:image
 
 /* #### frame
    The app owns the viewport. Only regions scroll. Every region is explicitly
-   placed: a region without a grid-column takes a neighbour's track when a
+   placed: a region without a grid column takes a neighbour's track when a
    sibling is hidden. */
 html,body,#root{height:100%;overflow:hidden}
 .shell{display:grid;height:100%;
@@ -617,7 +617,7 @@ h2 .help,h3 .help,.card-header .help,.f-vals .help{margin-left:6px}
   text-transform:uppercase;letter-spacing:.08em;flex:none}
 .phase-d{font-size:11.5px;line-height:1.5;color:var(--fg2);white-space:normal}
 
-/* export column list. read-only by default; a picker when the target is custom. */
+/* export column list. read only by default; a picker when the target is custom. */
 .col-row{display:flex;align-items:center;gap:9px;padding:6px 0;
   border-bottom:1px solid var(--border2);font-size:12.5px}
 .col-row:last-of-type{border-bottom:none}
@@ -649,7 +649,7 @@ h2 .help,h3 .help,.card-header .help,.f-vals .help{margin-left:6px}
 .setup-row.on .setup-chip{background:var(--bg);border-color:var(--gold-border)}
 .setup-sep{margin-top:var(--sp2);border-top:1px solid var(--border);padding-top:var(--sp2)}
 
-/* #### responsive. the existing narrow-viewport support, preserved. */
+/* #### responsive. the existing narrow viewport support, preserved. */
 @media(max-width:1199px){ .grid-4{grid-template-columns:repeat(2,1fr)} }
 @media(max-width:899px){  .grid-3{grid-template-columns:1fr} }
 @media(max-width:768px){

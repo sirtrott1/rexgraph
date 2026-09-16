@@ -4,22 +4,22 @@
 rexgraph.core._temporal: Temporal bundle storage, BIOES phase detection,
 and lifecycle tracking for temporal rexgraphs.
 
-Delta-encoded snapshot storage with adaptive checkpoints. Sorted-merge
+Delta encoded snapshot storage with adaptive checkpoints. Sorted merge
 edge and face diffing between consecutive snapshots. BIOES phase
 tagging on Betti timeseries (B=begin, I=inside, O=outside, E=end,
 S=single). Face tracking via exact boundary match and Jaccard overlap.
 
-Energy-ratio BIOES tagging detects phases from the E_kin/E_pot ratio
+Energy ratio BIOES tagging detects phases from the E_kin/E_pot ratio
 under the Relational Laplacian RL_1 = L_1 + alpha_G * L_O. Phases
-correspond to kinetic-dominated (topological), crossover, and
-potential-dominated (geometric) regimes.
+correspond to kinetic dominated (topological), crossover, and
+potential dominated (geometric) regimes.
 
 Cascade event tracking records edge activation order during signal
 propagation, enabling analysis of perturbation spread through the
 relational complex.
 
-General boundary variants handle branching edges, self-loops, and
-witness edges alongside standard 2-endpoint edges.
+General boundary variants handle branching edges, self loops, and
+witness edges alongside standard 2 endpoint edges.
 """
 
 from __future__ import annotations
@@ -83,10 +83,10 @@ def encode_snapshot_delta_i32(np.ndarray[i32, ndim=1] prev_src,
     """
     Compute delta from previous snapshot to current.
 
-    Encodes edges as canonical ints, sorts, does merge-diff.
+    Encodes edges as canonical ints, sorts, does merge diff.
 
     Returns
-    -------
+
     born_src, born_tgt : int32[n_born]
     died_src, died_tgt : int32[n_died]
     """
@@ -175,13 +175,13 @@ def encode_snapshot_delta_i64(np.ndarray[i64, ndim=1] prev_src,
 
 
 def encode_snapshot_delta(prev_src, prev_tgt, curr_src, curr_tgt, directed=False):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if prev_src.dtype == np.int64:
         return encode_snapshot_delta_i64(prev_src, prev_tgt, curr_src, curr_tgt, directed)
     return encode_snapshot_delta_i32(prev_src, prev_tgt, curr_src, curr_tgt, directed)
 
 
-# Full-fidelity edge delta: general boundary CSR + w_E/sign attribution
+# Full fidelity edge delta: general boundary CSR + w_E/sign attribution
 
 cdef int _cmp_i32(const void* a, const void* b) noexcept nogil:
     cdef i32 av = (<i32*>a)[0]
@@ -201,7 +201,7 @@ cdef inline i64 _cell_key_i32(i32[::1] idx, Py_ssize_t start, Py_ssize_t end,
                                bint directed) except? -1:
     """Canonical int64 key for one boundary column (a cell = idx[start:end]).
     Arity 2 reuses the standard edge encoding; arity != 2 (witness/branching
-    cells, self-loops) uses an order-independent FNV-1a hash of the sorted
+    cells, self loops) uses an order independent FNV-1a hash of the sorted
     vertices."""
     cdef Py_ssize_t arity = end - start
     cdef i32 s, t
@@ -297,11 +297,11 @@ def cell_heads_of(boundary_ptr, boundary_idx):
     idx = np.asarray(boundary_idx)
     if ptr.shape[0] < 2:
         return np.empty(0, dtype=np.int64)
-    return idx[ptr[:-1]].astype(np.int64, copy=False)
+    return idx[ptr[:ptr.shape[0] - 1]].astype(np.int64, copy=False)
 
 
 def cell_keys_of(boundary_ptr, boundary_idx, directed=False):
-    """Auto-dispatch by dtype (mirrors encode_delta_full)."""
+    """Auto dispatch by dtype (mirrors encode_delta_full)."""
     if boundary_ptr.dtype == np.int64:
         return cell_keys_of_i64(boundary_ptr, boundary_idx, directed)
     return cell_keys_of_i32(boundary_ptr, boundary_idx, directed)
@@ -317,12 +317,12 @@ def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
                            np.ndarray[i32, ndim=1] curr_signs,
                            bint directed=False):
     """
-    Full-fidelity delta between two general-boundary snapshots, carrying
+    Full fidelity delta between two general boundary snapshots, carrying
     w_E/sign attribution. A cell is one CSR column idx[ptr[j]:ptr[j+1]];
     arity 2 (standard edges) and arity != 2 (witness/branching cells) are
     both handled uniformly.
 
-    Sort-merge diff over canonical int64 cell keys:
+    Sort merge diff over canonical int64 cell keys:
       key only in prev  -> DIED     (emit the key)
       key only in curr  -> BORN     (emit the cell's vertices in original
                                       order, plus its w_E/sign)
@@ -337,7 +337,7 @@ def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
     MODIFIED record on a persisting cell, not a death and a birth.
 
     Returns
-    -------
+
     born_cols : int32[sum of born arities]
     born_offsets : int32[n_born + 1]
     born_wE : f64[n_born]
@@ -368,7 +368,7 @@ def encode_delta_full_i32(np.ndarray[i32, ndim=1] prev_ptr,
     cdef np.ndarray[np.intp_t, ndim=1] corder_arr = np.argsort(curr_keys)
     cdef np.intp_t[::1] porder = porder_arr, corder = corder_arr
 
-    # Pass 1: merge-diff into preallocated upper-bound buffers (died <= nP,
+    # Pass 1: merge diff into preallocated upper bound buffers (died <= nP,
     # modified <= min(nP, nC) <= nC, born cell indices <= nC).
     cdef np.ndarray[i64, ndim=1] died_keys = np.empty(nP, dtype=np.int64)
     cdef np.ndarray[i64, ndim=1] mod_keys = np.empty(nC, dtype=np.int64)
@@ -532,7 +532,7 @@ def encode_delta_full_i64(np.ndarray[i64, ndim=1] prev_ptr,
 
 def encode_delta_full(prev_ptr, prev_idx, prev_wE, prev_signs,
                        curr_ptr, curr_idx, curr_wE, curr_signs, directed=False):
-    """Auto-dispatch by dtype (mirrors encode_snapshot_delta)."""
+    """Auto dispatch by dtype (mirrors encode_snapshot_delta)."""
     if prev_ptr.dtype == np.int64:
         return encode_delta_full_i64(prev_ptr, prev_idx, prev_wE, prev_signs,
                                       curr_ptr, curr_idx, curr_wE, curr_signs, directed)
@@ -552,7 +552,7 @@ def build_temporal_index_i32(list snapshots, bint directed=False,
     checkpoint_threshold * current_edge_count.
 
     Returns
-    -------
+
     checkpoints : list of (time, sources, targets)
     deltas : list of (time, born_src, born_tgt, died_src, died_tgt)
     checkpoint_times : int32[n_checkpoints]
@@ -635,7 +635,7 @@ def build_temporal_index_i64(list snapshots, bint directed=False,
 
 
 def build_temporal_index(snapshots, directed=False, checkpoint_threshold=0.5):
-    """Auto-dispatch by dtype of first snapshot."""
+    """Auto dispatch by dtype of first snapshot."""
     if len(snapshots) == 0:
         return [], [], np.array([], dtype=np.int32)
     if snapshots[0][0].dtype == np.int64:
@@ -647,10 +647,10 @@ def build_temporal_index(snapshots, directed=False, checkpoint_threshold=0.5):
 
 def edge_lifecycle_i32(list snapshots, bint directed=False):
     """
-    Compute per-edge birth and death times across all snapshots.
+    Compute per edge birth and death times across all snapshots.
 
     Returns
-    -------
+
     edge_ids : int64[n_unique]
     birth    : int32[n_unique]
     death    : int32[n_unique]
@@ -691,7 +691,7 @@ def edge_lifecycle_i32(list snapshots, bint directed=False):
 
 
 def edge_lifecycle_i64(list snapshots, bint directed=False):
-    """Per-edge birth/death times. int64 variant."""
+    """Per edge birth/death times. int64 variant."""
     cdef Py_ssize_t T = len(snapshots), t, j, nE
     cdef dict first_seen = {}
     cdef dict last_seen = {}
@@ -725,7 +725,7 @@ def edge_lifecycle_i64(list snapshots, bint directed=False):
 
 
 def edge_intervals(snapshots, directed=False):
-    """Per-cell CONTIGUOUS presence intervals, one row per interval.
+    """Per cell CONTIGUOUS presence intervals, one row per interval.
 
     edge_lifecycle reports first_seen and last_seen, so a cell present at t=0, absent
     at t=1 and back at t=2 is reported as one unbroken life. That reads intermittency
@@ -767,7 +767,7 @@ def edge_intervals(snapshots, directed=False):
 
 
 def edge_lifecycle(snapshots, directed=False):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if len(snapshots) == 0:
         return np.array([], dtype=np.int64), np.array([], dtype=np.int32), np.array([], dtype=np.int32)
     if snapshots[0][0].dtype == np.int64:
@@ -779,10 +779,10 @@ def edge_lifecycle(snapshots, directed=False):
 
 def compute_edge_metrics(list snapshots, bint directed=False):
     """
-    Compute per-timestep edge metrics for BIOES tagging.
+    Compute per timestep edge metrics for BIOES tagging.
 
     Returns
-    -------
+
     edge_counts : int32[T]
     born_counts : int32[T]
     died_counts : int32[T]
@@ -817,7 +817,7 @@ def detect_phases(np.ndarray[i64, ndim=1] beta0,
     beta_0 and beta_1 remain constant (within tol).
 
     Returns
-    -------
+
     phase_start : int32[n_phases]
     phase_end   : int32[n_phases]  (inclusive)
     phase_b0    : int64[n_phases]  (beta_0 value during phase)
@@ -863,12 +863,12 @@ def assign_bioes_tags(Py_ssize_t T,
     """
     Assign BIOES tags to each timestep from detected phases.
 
-    Phases shorter than min_phase_len are outside-tagged unless
-    they span exactly 1 step (S-tagged).  Multi-step phases get
+    Phases shorter than min_phase_len are outside tagged unless
+    they span exactly 1 step (S-tagged).  Multi step phases get
     B at start, E at end, I in between.
 
     Returns
-    -------
+
     tags : int32[T]
         0=B, 1=I, 2=O, 3=E, 4=S.
     """
@@ -903,7 +903,7 @@ def compute_bioes_full(list snapshots,
     Full BIOES pipeline: edge metrics + phase detection + tagging.
 
     Parameters
-    ----------
+
     snapshots : list of (sources, targets) per timestep
     beta0, beta1 : int64[T] precomputed Betti numbers
     directed : bool
@@ -911,7 +911,7 @@ def compute_bioes_full(list snapshots,
     min_phase_len : int
 
     Returns
-    -------
+
     tags : int32[T]
     edge_counts : int32[T]
     born_counts : int32[T]
@@ -933,19 +933,19 @@ def compute_bioes_full(list snapshots,
 def detect_phases_kd(np.ndarray[i64, ndim=2] betti_matrix,
                      double tol=0.0):
     """
-    Detect structural phases from multi-dimensional Betti sequences.
+    Detect structural phases from multi dimensional Betti sequences.
 
     A phase breaks when ANY tracked Betti number shifts beyond tol.
-    This unifies edge-level (beta_0, beta_1) and face-level (beta_2)
+    This unifies edge level (beta_0, beta_1) and face level (beta_2)
     regime detection into a single pass.
 
     Parameters
-    ----------
+
     betti_matrix : int64[T, K]
         Row t holds [beta_0(t), beta_1(t), ..., beta_{K-1}(t)].
 
     Returns
-    -------
+
     phase_start : int32[n_phases]
     phase_end   : int32[n_phases]
     phase_betti : int64[n_phases, K]  (Betti values during each phase)
@@ -1018,13 +1018,13 @@ def detect_phases_with_events(np.ndarray[i64, ndim=2] betti_matrix,
 
 
     Parameters
-    ----------
+
     betti_matrix : int64[T, K]
     face_born, face_died, face_split, face_merge : int32[T]
     event_threshold : int
 
     Returns
-    -------
+
     phase_start, phase_end : int32[n_phases]
     phase_betti : int64[n_phases, K]
     break_reasons : int32[n_phases]
@@ -1103,14 +1103,14 @@ def assign_bioes_per_dimension(Py_ssize_t T,
     Each Betti number gets its own phase detection and tagging.
 
     Parameters
-    ----------
+
     T : int
     betti_matrix : int64[T, K]
     tol : float
     min_phase_len : int
 
     Returns
-    -------
+
     tags : int32[T, K]
     """
     cdef Py_ssize_t K = betti_matrix.shape[1], k
@@ -1139,14 +1139,14 @@ def compute_bioes_unified(list edge_snapshots,
 
 
     Parameters
-    ----------
+
     edge_snapshots : list of (sources, targets) per timestep
     face_snapshots : list of (B2_col_ptr, B2_row_idx) per timestep
         Empty list if no faces at any timestep.
-    betti_matrix : int64[T, K]  (K=2 for 1-rex, K=3 for 2-rex)
+    betti_matrix : int64[T, K]  (K=2 for 1 rex, K=3 for 2 rex)
 
     Returns
-    -------
+
     unified_tags    : int32[T]
     per_dim_tags    : int32[T, K]
     edge_counts     : int32[T]
@@ -1260,7 +1260,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
     Exact match is PERSIST. Jaccard >= threshold is SPLIT/MERGE.
 
     Returns
-    -------
+
     events : int32[max(nF_prev, nF_curr)]
     prev_to_curr : int32[nF_prev]
         -1 if died.
@@ -1321,7 +1321,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
             inter_size = len(curr_set & prev_set)
             # A shared boundary cell is an exact structural fact. The old test was
             # |A n B| / |A u B| >= 0.5, a similarity score with an untunable cutoff
-            # that also cannot see orientation at all, and it re-derived, badly,
+            # that also cannot see orientation at all, and it re derived, badly,
             # something B2 and the canonical cell keys already state exactly.
             if inter_size >= min_shared:
                 matched.append(fp)
@@ -1363,7 +1363,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
             ecv[fc] = FACE_MUTATE
         for fp in fps:
             # record the lineage BOTH ways. p2c used to be written only by the
-            # exact-match pass, so every approximate correspondence left its
+            # exact match pass, so every approximate correspondence left its
             # predecessor reported dead and the ancestry unrecoverable.
             if p2cv[fp] < 0:
                 p2cv[fp] = <i32>fc
@@ -1424,7 +1424,7 @@ def track_faces_i64(np.ndarray[i64, ndim=1] B2_cp_prev,
 
     # see track_faces_i32: keep every predecessor above threshold, so a merge is
     # distinguishable from its parents being annihilated, and record the lineage
-    # both ways rather than only on the exact-match pass.
+    # both ways rather than only on the exact match pass.
     cdef f64 best_j, j_score
     cdef Py_ssize_t best_fp, inter_size, union_size
     cdef dict parents = dict(exact)
@@ -1477,7 +1477,7 @@ def track_faces_i64(np.ndarray[i64, ndim=1] B2_cp_prev,
 def track_faces(B2_cp_prev, B2_ri_prev, src_prev, tgt_prev,
                 B2_cp_curr, B2_ri_curr, src_curr, tgt_curr,
                 directed=False, min_shared=1):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if B2_cp_prev.dtype == np.int64:
         return track_faces_i64(B2_cp_prev, B2_ri_prev, src_prev, tgt_prev,
                                B2_cp_curr, B2_ri_curr, src_curr, tgt_curr,
@@ -1496,7 +1496,7 @@ def face_lifecycle_i32(list face_snapshots, list edge_snapshots,
     edge_snapshots[t] = (sources, targets) at time t
 
     Returns
-    -------
+
     events_per_step : list of (events_prev, events_curr, p2c, c2p, shared)
     face_counts     : int32[T]
     persist_counts  : int32[T]
@@ -1595,7 +1595,7 @@ def face_lifecycle_i64(list face_snapshots, list edge_snapshots,
 
 def face_lifecycle(face_snapshots, edge_snapshots,
                    directed=False, min_shared=1):
-    """Auto-dispatch by dtype of first edge snapshot."""
+    """Auto dispatch by dtype of first edge snapshot."""
     if len(edge_snapshots) == 0:
         return [], np.array([], dtype=np.int32), np.array([], dtype=np.int32), \
                np.array([], dtype=np.int32), np.array([], dtype=np.int32), \
@@ -1607,20 +1607,20 @@ def face_lifecycle(face_snapshots, edge_snapshots,
                               directed, min_shared)
 
 
-# Face delta encoding: faces identified by their constituent edge-keys
+# Face delta encoding: faces identified by their constituent edge keys
 #
 # Distinct from track_faces/face_lifecycle above (which identify a face by
-# the exact/Jaccard overlap of its raw boundary-vertex encoding). Here a
-# face's identity is the order-independent hash of the *canonical edge
+# the exact/Jaccard overlap of its raw boundary vertex encoding). Here a
+# face's identity is the order independent hash of the *canonical edge
 # keys* of its constituent edges (via cell_keys_of), so face identity stays
-# stable under edge-key relabeling the same way encode_delta_full's cell
+# stable under edge key relabeling the same way encode_delta_full's cell
 # identity does for edges.
 
 cdef inline i64 _face_key_from_buf(i64* buf, Py_ssize_t arity) noexcept nogil:
-    """Order-independent int64 hash of a sorted i64 array (FNV-1a). Mirrors
+    """Order independent int64 hash of a sorted i64 array (FNV-1a). Mirrors
     the arity != 2 branch of _cell_key_i32/_cell_key_i64 so a face's identity
     is computed with the same scheme as a cell's identity, just over
-    already-resolved edge keys instead of raw vertex ids."""
+    already resolved edge keys instead of raw vertex ids."""
     cdef Py_ssize_t k
     cdef unsigned long long h
     qsort(buf, <size_t>arity, sizeof(i64), _cmp_i64)
@@ -1642,7 +1642,7 @@ def encode_face_delta_i32(np.ndarray[i32, ndim=1] prev_cp,
                            bint directed=False):
     """
     Face delta between two general B2 (face) snapshots, a face identified by
-    the order-independent hash of its constituent edges' canonical keys (via
+    the order independent hash of its constituent edges' canonical keys (via
     cell_keys_of / _face_state), not by boundary column position.
 
     `directed` is accepted for interface symmetry with encode_delta_full;
@@ -1650,7 +1650,7 @@ def encode_face_delta_i32(np.ndarray[i32, ndim=1] prev_cp,
     (they come from cell_keys_of(..., directed)), so it is not needed again
     here.
 
-    Sort-merge diff over canonical face keys:
+    Sort merge diff over canonical face keys:
       key only in prev -> DIED   (emit the face key)
       key only in curr -> BORN   (emit the face's constituent edge keys, in
                                    column order, plus their B2 sign values)
@@ -1659,7 +1659,7 @@ def encode_face_delta_i32(np.ndarray[i32, ndim=1] prev_cp,
                                    persist/split/merge classification)
 
     Returns
-    -------
+
     born_edge_keys : int64[sum of born face arities]
     born_offsets   : int32[n_born + 1]
     born_signs     : f64[sum of born face arities]
@@ -1706,7 +1706,7 @@ def encode_face_delta_i32(np.ndarray[i32, ndim=1] prev_cp,
     cdef np.ndarray[np.intp_t, ndim=1] corder_arr = np.argsort(curr_fkeys)
     cdef np.intp_t[::1] porder = porder_arr, corder = corder_arr
 
-    # Pass 1: sort-merge diff into preallocated upper-bound buffers
+    # Pass 1: sort merge diff into preallocated upper bound buffers
     # (died <= nFp, born face indices <= nFc).
     cdef np.ndarray[i64, ndim=1] died_fkeys = np.empty(nFp, dtype=np.int64)
     cdef np.ndarray[i64, ndim=1] born_fj = np.empty(nFc, dtype=np.int64)
@@ -1861,7 +1861,7 @@ def encode_face_delta_i64(np.ndarray[i64, ndim=1] prev_cp,
 
 
 def encode_face_delta(prev_face_state, curr_face_state, directed=False):
-    """Auto-dispatch by dtype of B2_col_ptr (mirrors encode_delta_full).
+    """Auto dispatch by dtype of B2_col_ptr (mirrors encode_delta_full).
 
     prev_face_state / curr_face_state : (B2_col_ptr, B2_row_idx, B2_vals,
     edge_keys) as produced by rexgraph.graph._face_state.
@@ -1875,7 +1875,7 @@ def encode_face_delta(prev_face_state, curr_face_state, directed=False):
                                   curr_cp, curr_ri, curr_vals, curr_ekeys, directed)
 
 
-# Energy-ratio BIOES tagging
+# Energy ratio BIOES tagging
 
 cdef enum:
     ENERGY_KINETIC   = 0
@@ -1899,14 +1899,14 @@ def detect_phases_energy_ratio(np.ndarray[f64, ndim=1] E_kin,
     where regimes are defined by log(r) crossing +/-ratio_tol around 0.
 
     Parameters
-    ----------
+
     E_kin : f64[T] - topological energy <f|L_1|f> per timestep
     E_pot : f64[T] - geometric energy <f|L_O|f> per timestep
-    ratio_tol : float - log-ratio threshold for crossover band
+    ratio_tol : float - log ratio threshold for crossover band
     floor : float - minimum energy to avoid division by zero
 
     Returns
-    -------
+
     phase_start : int32[n_phases]
     phase_end : int32[n_phases] (inclusive)
     phase_regime : int32[n_phases] (ENERGY_KINETIC/CROSSOVER/POTENTIAL)
@@ -1971,12 +1971,12 @@ def compute_bioes_energy(np.ndarray[f64, ndim=1] E_kin,
                          double floor=1e-12):
     """Full BIOES pipeline from energy ratio timeseries.
 
-    Combines energy-ratio phase detection with BIOES tag assignment.
-    This is the energy-domain counterpart to the Betti-based
+    Combines energy ratio phase detection with BIOES tag assignment.
+    This is the energy domain counterpart to the Betti based
     compute_bioes_full.
 
     Parameters
-    ----------
+
     E_kin : f64[T]
     E_pot : f64[T]
     ratio_tol : float
@@ -1984,7 +1984,7 @@ def compute_bioes_energy(np.ndarray[f64, ndim=1] E_kin,
     floor : float
 
     Returns
-    -------
+
     tags : int32[T] - BIOES tags (0=B, 1=I, 2=O, 3=E, 4=S)
     phase_start : int32[n_phases]
     phase_end : int32[n_phases]
@@ -1999,7 +1999,7 @@ def compute_bioes_energy(np.ndarray[f64, ndim=1] E_kin,
         E_kin, E_pot, ratio_tol, floor)
     tags = assign_bioes_tags(T, p_start, p_end, min_phase_len)
 
-    # Find zero-crossings of log ratio
+    # Find zero crossings of log ratio
     cdef f64[::1] lrv = log_ratios
     cdef list crossings = []
     cdef Py_ssize_t t
@@ -2027,14 +2027,14 @@ def detect_phases_joint(np.ndarray[i64, ndim=2] betti_matrix,
     invariant changes with continuous energy dynamics.
 
     Parameters
-    ----------
+
     betti_matrix : int64[T, K]
     E_kin, E_pot : f64[T]
     betti_tol : float
     ratio_tol : float
 
     Returns
-    -------
+
     phase_start, phase_end : int32[n_phases]
     phase_betti : int64[n_phases, K]
     phase_regime : int32[n_phases]
@@ -2140,7 +2140,7 @@ def cascade_edge_activation(np.ndarray[f64, ndim=2] edge_signals,
     via B_1 projection.
 
     Parameters
-    ----------
+
     edge_signals : f64[T, nE]
         Edge signal magnitude at each timestep. For complex signals,
         pass np.abs(psi_E) or born_probabilities.
@@ -2148,7 +2148,7 @@ def cascade_edge_activation(np.ndarray[f64, ndim=2] edge_signals,
         Minimum signal magnitude to count as activated.
 
     Returns
-    -------
+
     activation_time : int32[nE]
         First timestep edge exceeds threshold. -1 if never activated.
     activation_order : int32[n_activated]
@@ -2207,13 +2207,13 @@ def cascade_wavefront(np.ndarray[f64, ndim=2] edge_signals,
     wavefront of signal spread.
 
     Parameters
-    ----------
+
     edge_signals : f64[T, nE]
     edge_src, edge_tgt : int32[nE] - edge endpoints for vertex projection
     activation_threshold : float
 
     Returns
-    -------
+
     wavefront : list of int32[] per timestep
         Edge indices newly activated at each step.
     cumulative : int32[T]
@@ -2288,7 +2288,7 @@ def _edge_key_set(np.ndarray[i32, ndim=1] boundary_ptr,
     Build set of canonical edge keys from general boundary.
 
     Returns
-    -------
+
     keys : list of tuples
     key_set : set of tuples
     """
@@ -2316,12 +2316,12 @@ def encode_snapshot_delta_general(np.ndarray[i32, ndim=1] prev_bp,
     Edge identity = sorted tuple of boundary vertices.
 
     Parameters
-    ----------
+
     prev_bp, prev_bi : boundary_ptr, boundary_idx for previous snapshot
     curr_bp, curr_bi : boundary_ptr, boundary_idx for current snapshot
 
     Returns
-    -------
+
     born_keys : list of tuples
     died_keys : list of tuples
     n_born : int
@@ -2345,7 +2345,7 @@ def build_temporal_index_general(list snapshots,
     Checkpoints store full (bp, bi) arrays.
 
     Returns
-    -------
+
     checkpoints : list of (time, boundary_ptr, boundary_idx)
     deltas : list of (time, born_keys, died_keys)
     checkpoint_times : int32[n_checkpoints]
@@ -2387,16 +2387,16 @@ def build_temporal_index_general(list snapshots,
 
 def edge_lifecycle_general(list snapshots):
     """
-    Compute per-edge birth and death times using general boundary.
+    Compute per edge birth and death times using general boundary.
 
     Edge identity = sorted tuple of all boundary vertices.
 
     Parameters
-    ----------
+
     snapshots : list of (boundary_ptr, boundary_idx) per timestep
 
     Returns
-    -------
+
     edge_keys  : list of tuples
     birth      : int32[n_unique]
     death      : int32[n_unique]
@@ -2433,10 +2433,10 @@ def edge_lifecycle_general(list snapshots):
 
 def compute_edge_metrics_general(list snapshots):
     """
-    Per-timestep edge counts and birth/death counts using general boundary.
+    Per timestep edge counts and birth/death counts using general boundary.
 
     Returns
-    -------
+
     edge_counts : int32[T]
     born_counts : int32[T]
     died_counts : int32[T]
@@ -2470,12 +2470,12 @@ def compute_bioes_general(list snapshots,
     Full BIOES pipeline for general boundary snapshots.
 
     Parameters
-    ----------
+
     snapshots : list of (boundary_ptr, boundary_idx) per timestep
     beta0, beta1 : int64[T] precomputed Betti numbers
 
     Returns
-    -------
+
     Same as compute_bioes_full.
     """
     cdef Py_ssize_t T = len(snapshots)
@@ -2533,7 +2533,7 @@ def track_faces_general(np.ndarray[i32, ndim=1] B2_cp_prev,
     Detects: persist, born, died, split, merge.
 
     Returns
-    -------
+
     events : list of (event_type, prev_face_idx_or_-1, curr_face_idx_or_-1)
     n_persist, n_born, n_died, n_split, n_merge : int
     """
@@ -2635,13 +2635,13 @@ def compute_bioes_unified_general(list edge_snapshots,
     Unified BIOES pipeline for general boundary snapshots.
 
     Parameters
-    ----------
+
     edge_snapshots : list of (boundary_ptr, boundary_idx) per timestep
     face_snapshots : list of (B2_col_ptr, B2_row_idx) per timestep
     betti_matrix : int64[T, K]
 
     Returns
-    -------
+
     Same as compute_bioes_unified.
     """
     cdef Py_ssize_t T = len(edge_snapshots)

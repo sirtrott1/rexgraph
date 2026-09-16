@@ -1,12 +1,12 @@
 """
 Tests for the model/embedding IO seam:
 
-  * rexgraph.io vector front-door (save_vectors/load_vectors + load() object_type routing)
+  * rexgraph.io vector front door (save_vectors/load_vectors + load() object_type routing)
   * agent.model_io header parsers (GGUF native + safetensors) and model_summary
-  * the ONE shared embedding-corpus persist path (model_io <-> rexgraph.io)
-  * model_introspect re-analysing a cached corpus without re-embedding
+  * the ONE shared embedding corpus persist path (model_io <-> rexgraph.io)
+  * model_introspect re analysing a cached corpus without re embedding
 
-The corpus round-trip and the front-door need the compiled rexgraph.io.safetensors bridge;
+The corpus round trip and the front door need the compiled rexgraph.io.safetensors bridge;
 they skip cleanly if safetensors is absent. The GGUF/safetensors HEADER parsers are pure
 Python and always run.
 """
@@ -116,7 +116,7 @@ def test_safetensors_header_and_summary(tmp_path):
     assert s["quant"] == "F32"
 
 
-# shared embedding-corpus round-trip (needs rexgraph.io)
+# shared embedding corpus round trip (needs rexgraph.io)
 
 def _have_vectors():
     try:
@@ -159,7 +159,7 @@ def test_embedding_corpus_shared_path(tmp_path):
 
 @pytest.mark.skipif(not _have_vectors(), reason="rexgraph.io safetensors bridge unavailable")
 def test_embedding_complex_from_corpus(tmp_path):
-    """Re-analysis of a cached corpus runs the RCF math with no server call."""
+    """Re analysis of a cached corpus runs the RCF math with no server call."""
     from agent import model_introspect, model_io
     rng = np.random.RandomState(2)
     centers = rng.randn(3, 16) * 3

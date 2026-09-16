@@ -1,4 +1,4 @@
-"""The agent beehive (agent.hive): membership, routing, the message-to-complex seam, monitor.
+"""The agent beehive (agent.hive): membership, routing, the message to complex seam, monitor.
 
 Uses attached bees and a stubbed chat call so the orchestration runs without spawning
 llama.cpp subprocesses."""
@@ -101,7 +101,7 @@ def test_history_reweights_routing(monkeypatch):
 
 
 def _disk(*specs):
-    # specs: (name, size_gb) -> discover-shaped gguf entries
+    # specs: (name, size_gb) -> discover shaped gguf entries
     return [{"name": n, "path": f"/m/{n}.gguf", "size_gb": s, "format": "gguf",
              "loadable": "llama.cpp", "source": "dir"} for n, s in specs]
 
@@ -145,8 +145,8 @@ def test_plan_no_spawnable_models():
 
 
 def test_plan_flags_when_embedder_pushes_past_budget():
-    # queen alone fits the usable budget, but the always-included embedder tips it over -
-    # the plan must say so honestly rather than silently over-committing memory.
+    # queen alone fits the usable budget, but the always included embedder tips it over -
+    # the plan must say so honestly rather than silently over committing memory.
     models = _disk(("big-chat-23b", 23.0), ("nomic-embed-text", 1.0))
     plan = hive.plan_hive(models, budget_gb=32.0)
     assert plan["planned_gb"] > plan["usable_gb"]          # the embedder does overflow it
@@ -178,7 +178,7 @@ def test_attach_live_infers_roles(monkeypatch):
     ])
     added = h.attach_live()
     by = {b.url: b for b in added}
-    assert by["http://127.0.0.1:8000"].role == "queen"        # first non-embed -> queen
+    assert by["http://127.0.0.1:8000"].role == "queen"        # first non embed -> queen
     assert by["http://127.0.0.1:11434"].role == "embedder"    # embed name -> embedder
     # idempotent: attaching again adds nothing new
     assert h.attach_live() == []
@@ -234,7 +234,7 @@ def test_hive_monitor_track_exposes_drift():
 
 
 def test_hive_persist_to_rcdb_by_signature():
-    """The hive's worker-type structure is catalogued in the RCDB by structural signature."""
+    """The hive's worker type structure is catalogued in the RCDB by structural signature."""
     from agent.rcdb import open_store
     store = open_store("memory://")
     h = hive.get_hive()
@@ -267,7 +267,7 @@ def _scripted(script):
 
 
 def test_collaborate_breaks_circular_deadlock(monkeypatch):
-    # planner -> coder -> reviewer -> planner: b1 of the hand-off complex hits 1
+    # planner -> coder -> reviewer -> planner: b1 of the hand off complex hits 1
     monkeypatch.setattr(hive, "_chat", _scripted({
         "m-planner": "HANDOFF coder: need the code first",
         "m-coder": "HANDOFF reviewer: need the review first",
@@ -276,8 +276,8 @@ def test_collaborate_breaks_circular_deadlock(monkeypatch):
     }))
     res = _team_hive().collaborate("Design and build the feature.")
     assert res["deadlock_broken"] is True
-    assert res["cycle_at_hop"] == 3                     # the hand-off that closes the loop
-    assert res["bee"] == "lead"                         # re-routed to a bee outside the cycle
+    assert res["cycle_at_hop"] == 3                     # the hand off that closes the loop
+    assert res["bee"] == "lead"                         # re routed to a bee outside the cycle
     assert {"planner", "coder", "reviewer"} <= set(res["cycle_bees"])
     assert res["answer"] == "resolved in one pass"
 
@@ -328,7 +328,7 @@ def test_consensus_reports_structural_reliability(monkeypatch):
                                  workers=["planner", "coder", "reviewer"])
     # each worker carries its own structural reliability read (varentropy gap), independent of agreement
     assert all("varentropy_gap" in r and "reliable" in r for r in res["responders"])
-    assert "reviewer" in res["flagged"]                       # off-topic -> shares no content -> flagged
+    assert "reviewer" in res["flagged"]                       # off topic -> shares no content -> flagged
 
 
 def test_consensus_all_agree_no_flags(monkeypatch):
@@ -344,8 +344,8 @@ def test_consensus_all_agree_no_flags(monkeypatch):
 
 
 def test_consensus_uses_an_attached_embedder(monkeypatch):
-    """consensus(embed=True) separates a hallucination from a topically-distinct specialist only
-    on the semantic signal, so it must reach an ATTACHED embedder bee - not just a locally-managed
+    """consensus(embed=True) separates a hallucination from a topically distinct specialist only
+    on the semantic signal, so it must reach an ATTACHED embedder bee - not just a locally managed
     server. Same wiring gap as monitor(embed=True)."""
     import numpy as np
     from agent import model_introspect

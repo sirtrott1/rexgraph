@@ -1,7 +1,7 @@
 """The enrichment statistic, against an independent implementation.
 
 What this checks and what it does not. `goatools` is not installed here and adding it
-as a dependency to run a test would be the wrong trade, so this is NOT an end-to-end
+as a dependency to run a test would be the wrong trade, so this is NOT an end to end
 comparison of two tools. It is a comparison of the STATISTIC, which is where a
 numerical disagreement would live: goatools reports the hypergeometric survival
 function, and so does `scipy.stats.hypergeom`, so agreeing with scipy to machine
@@ -12,8 +12,8 @@ OBO parsing, its handling of the GO relation set beyond is_a/part_of, and its
 propagation edge cases. Those are tool differences, not statistical ones, and settling
 them needs the tool.
 
-The multiple-testing correction is checked the same way: against an independent
-Benjamini-Hochberg written from the definition rather than from the implementation
+The multiple testing correction is checked the same way: against an independent
+Benjamini Hochberg written from the definition rather than from the implementation
 under test.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 from agent.enrichment import benjamini_hochberg, enrich, hypergeometric_sf
 from agent.knowledge import join
-from tests.test_ontology_reasoning import IMMUNE, OBO, REPAIR, _gaf
+from _rexgraph_agent_tests.test_ontology_reasoning import IMMUNE, OBO, REPAIR, _gaf
 
 hypergeom = pytest.importorskip("scipy.stats").hypergeom
 
@@ -48,7 +48,7 @@ def test_the_tail_matches_scipy_exactly(k, N, K, n):
 
 
 def test_the_tail_matches_scipy_across_a_sweep():
-    """A sweep rather than a handful, because a log-space sum can be right on small
+    """A sweep rather than a handful, because a log space sum can be right on small
     inputs and lose precision on large ones."""
     worst = 0.0
     for N in (20, 200, 2000):
@@ -74,7 +74,7 @@ def test_the_whole_tail_is_one_in_both():
 
 
 def _bh_reference(pvalues):
-    """Benjamini-Hochberg written from the definition, independent of the code under
+    """Benjamini Hochberg written from the definition, independent of the code under
     test: sort, scale by m/rank, enforce monotonicity from the largest down."""
     m = len(pvalues)
     order = sorted(range(m), key=lambda i: pvalues[i])
@@ -120,7 +120,7 @@ def study(tmp_path):
 
 
 def test_every_reported_p_matches_scipy_on_its_own_counts(study):
-    """The end-to-end check: whatever counts the pipeline arrived at, the p it reports
+    """The end to end check: whatever counts the pipeline arrived at, the p it reports
     for them is the hypergeometric tail for those counts."""
     out = enrich(study, ["BRCA1", "BRCA2", "ATM", "RAD51"])
     N, n = out["n_universe"], out["n_study"]

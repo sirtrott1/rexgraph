@@ -22,7 +22,7 @@ def wik():
     return LinkageAnswerer.wiktionary()
 
 
-#### what each source can be asked #########################################
+# what each source can be asked
 @has_roget
 def test_roget_answers_thematic_grouping_with_the_category_name(rog):
     r = rog.answer("what is related to harpoon")
@@ -35,7 +35,7 @@ def test_roget_answers_thematic_grouping_with_the_category_name(rog):
 
 @has_roget
 def test_roget_declines_a_kind_it_does_not_record(rog):
-    # a category asserts co-membership and no direction, so it has no antonyms and
+    # a category asserts co membership and no direction, so it has no antonyms and
     # must say so rather than returning its category as if it were one.
     r = rog.answer("what is the opposite of joy")
     assert not r["answered"] and r["reason"] == "roget records no antonyms"
@@ -52,7 +52,7 @@ def test_wiktionary_answers_in_its_own_kind_names(wik):
         assert any(g["kind"] == kind for g in r["groups"])
 
 
-#### the two bugs this had ##################################################
+# the two bugs this had
 @has_wik
 def test_the_direct_reading_comes_before_the_converse(wik):
     r = wik.answer("what are synonyms of grief")
@@ -78,7 +78,7 @@ def test_a_relation_naming_word_is_never_the_subject(wik):
     assert r["answered"] and r["subject"] == "harpoon"
 
 
-#### declining ##############################################################
+# declining
 @has_wik
 def test_a_term_the_source_lacks_is_declined(wik):
     r = wik.answer("what is related to zzzznotaword")

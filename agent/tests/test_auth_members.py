@@ -1,9 +1,9 @@
-"""Shared multi-user auth: per-workspace admin/user roles, member management, and enforcement.
+"""Shared multi user auth: per workspace admin/user roles, member management, and enforcement.
 
 The workspace is shared; roles are PER WORKSPACE. A member can be admin of one workspace and a plain
-user of another. The root workspace 'default' is the instance - admin-of-default is the instance
+user of another. The root workspace 'default' is the instance - admin of default is the instance
 administrator (enables auth, removes members entirely). A stored role that nothing checks is not a
-role, so these cover the route-level gating too.
+role, so these cover the route level gating too.
 """
 import pytest
 from agent.server import auth

@@ -1,4 +1,4 @@
-"""Whole RCQL phrases type-check before their numerical adapters are resolved."""
+"""Whole RCQL phrases type check before their numerical adapters are resolved."""
 
 from __future__ import annotations
 
@@ -214,7 +214,7 @@ def test_direct_kary_boundary_keeps_one_relation_column_for_exact_functionals():
         call("QUADRANCE", call("BOUNDARY", call("CELL", 1, 0)), True),
     ))
 
-    # One arity-three C1 relation has boundary (-1, 1/2, 1/2), so its
+    # One arity three C1 relation has boundary (-1, 1/2, 1/2), so its
     # quadrance is 3/2. No star or clique columns were introduced to ask it.
     assert result.values == (3, Fraction(3, 2))
     assert result.exactness == (Exactness.INTEGER, Exactness.RATIONAL)

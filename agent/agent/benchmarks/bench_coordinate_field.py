@@ -105,7 +105,7 @@ def softmax_fit(Xtr, ytr, Xte, yte, k, seed, hidden=0):
 
 
 def pca(Xtr, Xte, d):
-    """The ordinary embed-then-reduce route, fitted on the training set only."""
+    """The ordinary embed then reduce route, fitted on the training set only."""
     mu = Xtr.mean(0)
     _, _, Vt = np.linalg.svd(Xtr - mu, full_matrices=False)
     return (Xtr - mu) @ Vt[:d].T, (Xte - mu) @ Vt[:d].T

@@ -3,7 +3,7 @@
 `client.py` is the public surface a notebook imports, and it was 0% executed: 117
 statements, 19 requests, and nothing checking that any of them names a route the
 server actually serves. An SDK method whose path drifted from its route fails only
-for the user, at import-time-plus-one-call.
+for the user, at import time plus one call.
 
 The client talks httpx, so the transport is redirected onto the ASGI TestClient here
 rather than binding a port. That keeps the real client code in the path: its URLs, its
@@ -25,7 +25,7 @@ DOC = ("Alpha connects beta. Beta connects gamma. Gamma connects alpha. "
 
 @pytest.fixture
 def rc(tmp_path, monkeypatch):
-    """A RexClient whose httpx calls land on the in-process app."""
+    """A RexClient whose httpx calls land on the in process app."""
     monkeypatch.setenv("REXGRAPH_RCDB_URI", "sqlite:///" + str(tmp_path / "r.sqlite"))
     from agent.rcdb import reset_default_store
     reset_default_store()
@@ -35,7 +35,7 @@ def rc(tmp_path, monkeypatch):
     def _strip(kw):
         return {k: v for k, v in kw.items() if k != "timeout"}
 
-    # Context-managed so the app's lifespan actually runs. Constructing TestClient
+    # Context managed so the app's lifespan actually runs. Constructing TestClient
     # without entering it skips startup AND shutdown, which meant the engine disposal
     # in the lifespan never fired and the cached pool outlived the test.
     with TestClient(app, raise_server_exceptions=False) as tc:
@@ -80,7 +80,7 @@ def test_a_trailing_slash_is_stripped_from_the_url():
     assert RexClient(url="http://x:8000/").url == "http://x:8000"
 
 
-#: every read-only SDK method, called with arguments that are valid on their face.
+#: every read only SDK method, called with arguments that are valid on their face.
 #: The assertion is about routing, not about the answer.
 READ_CALLS = [
     ("health", lambda c: c.health()),
@@ -148,7 +148,7 @@ def test_session_scoped_methods_name_routes_that_exist(rc):
         assert code != 405, f"RexClient.{name}() got HTTP 405: wrong method for its route"
 
 
-#### the corpus round-trip, through the SDK only
+#### the corpus round trip, through the SDK only
 
 
 def test_text_added_through_the_sdk_can_be_queried_back(rc):

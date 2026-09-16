@@ -40,7 +40,7 @@ def _two_components():
 
 
 def _square():
-    """Square (4-cycle): 4V, 4E, beta_1 = 1."""
+    """Square (4 cycle): 4V, 4E, beta_1 = 1."""
     return 4, 4, np.array([0, 1, 2, 0], dtype=np.int32), np.array([1, 2, 3, 3], dtype=np.int32)
 
 

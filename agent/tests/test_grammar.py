@@ -17,7 +17,7 @@ def grammar():
     )
 
 
-#### the head rule ##############################################################
+# the head rule
 
 def test_the_token_subcategorising_for_the_arity_heads_it(grammar):
     assert grammar.head_of(["dog", "sleep"]) == (1, "via")
@@ -48,7 +48,7 @@ def test_arity_is_read_off_the_frame(grammar):
     assert grammar.arity_of("nonexistent") == 0
 
 
-#### orientation is reordering, because position carries it #####################
+# orientation is reordering, because position carries it
 
 def test_orienting_moves_the_head_to_position_zero(grammar):
     from rexgraph.construct import _orient
@@ -69,7 +69,7 @@ def test_no_grammar_is_the_positional_reading(grammar):
     assert g == ["dog", "chase", "cat"] and fid is None
 
 
-#### the frame reaches the boundary column ######################################
+# the frame reaches the boundary column
 
 def test_the_frame_is_attached_to_the_relation_it_oriented(grammar):
     from rexgraph.corpus_profile import ENGLISH_GUTENBERG
@@ -92,7 +92,7 @@ def test_a_relation_no_frame_governed_carries_no_frame_attribute(grammar):
     assert rex.get_metadata(1, 0, "frame") is None
 
 
-#### what the lexicon actually supplies #########################################
+# what the lexicon actually supplies
 
 def test_recorded_inflections_are_reachable():
     g = FrameGrammar(frames={"via": ("Somebody ----s", 2)},

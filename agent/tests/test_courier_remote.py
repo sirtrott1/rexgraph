@@ -117,6 +117,23 @@ def test_a_changed_record_crosses_again(isolated, monkeypatch, local_store):
     assert rcdb.default_store().get(rid).nV == 7
 
 
+def test_changed_weights_cross_and_confirm_even_with_identical_shape(isolated, monkeypatch, local_store):
+    from agent.courier import structure_of
+
+    from rexgraph.io.catalog import object_digest
+    peer = Peer("gpu-box", _client(monkeypatch), confirm=True)
+    c = _courier(local_store, peer)
+    assert c.deliver("alpha", "gpu-box")["carried"] == 2
+    before = local_store.get_record("alpha-work")
+    v = np.arange(5, dtype=np.int32)
+    changed = RexGraph(sources=v, targets=np.roll(v, -1), w_E=np.arange(1., 6.))
+    after = local_store.put("alpha-work", changed)
+    assert structure_of(before.signature) == structure_of(after.signature)
+    trip = c.deliver("alpha", "gpu-box")
+    assert trip["carried"] == 1 and trip["held"] == 1
+    assert object_digest(peer.retrieve("alpha-work")) == object_digest(changed)
+
+
 def test_forgetting_an_entry_ships_it_again(isolated, monkeypatch, local_store):
     peer = Peer("gpu-box", _client(monkeypatch))
     c = _courier(local_store, peer)
@@ -198,6 +215,49 @@ def test_a_peer_returning_a_different_complex_is_refused(isolated, local_store):
     bad = trip["shipments"][0]
     assert bad["reason"] == "refused" and "different complex" in bad["detail"]
     assert bad["remote_id"] == "rx_stub1", "the id is reported even though it is not trusted"
+
+
+def test_confirmation_refuses_equal_fingerprints_with_different_weights(isolated, local_store):
+    from rexgraph.protocol import fingerprint
+    v = np.arange(4, dtype=np.int32)
+    changed = RexGraph(sources=v, targets=np.roll(v, -1), w_E=np.full(4, 2.))
+    assert fingerprint(changed) == fingerprint(local_store.get("alpha-schema"))
+    peer = Peer("wrong-state", _Stub("ok", rex=changed), confirm=True)
+    trip = _courier(local_store, peer).deliver("alpha", "wrong-state",
+                                              carry=CarrySpec(ids=["alpha-schema"]))
+    assert trip["refused"] == 1 and trip["carried"] == 0
+    assert peer.ledger.entries() == []
+
+
+def test_legacy_shape_ledger_is_upgraded_after_one_shipment(isolated, local_store):
+    from agent.courier import structure_of
+    peer = Peer("old", _Stub("ok"))
+    peer.ledger.note("old", "alpha-schema", "rx_old",
+                     structure_of(local_store.get_record("alpha-schema").signature))
+    c = _courier(local_store, peer)
+    carry = CarrySpec(ids=["alpha-schema"])
+    assert c.deliver("alpha", "old", carry=carry)["carried"] == 1
+    assert set(peer.ledger.structure("old", "alpha-schema")) == {"state_digest"}
+    assert c.deliver("alpha", "old", carry=carry)["held"] == 1
+
+
+def test_shipping_pins_the_selected_metadata_version(isolated, local_store):
+    sent = []
+    class Capture(_Stub):
+        def rex_store(self, rex, **meta):
+            sent.append((rex, meta))
+            return super().rex_store(rex, **meta)
+    class AdvanceAfterSelection(CarrySpec):
+        def select(self, store):
+            selected = super().select(store)
+            store.put("alpha-schema", _rex(8))
+            return selected
+    peer = Peer("capture", Capture("ok"))
+    trip = _courier(local_store, peer).deliver("alpha", "capture",
+                carry=AdvanceAfterSelection(ids=["alpha-schema"]))
+    assert trip["carried"] == 1
+    assert sent[0][0].nV == 4 and sent[0][1]["source_version"] == 1
+    assert local_store.get("alpha-schema").nV == 8
 
 
 def test_retrieve_addresses_by_the_local_id(isolated, monkeypatch, local_store):

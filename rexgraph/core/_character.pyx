@@ -3,7 +3,7 @@
 """
 rexgraph.core._character: Structural character decomposition.
 
-chi, phi, chi_star, kappa, per-channel mixing times, face-void dipole.
+chi, phi, chi_star, kappa, per channel mixing times, face void dipole.
 All LAPACK/BLAS, zero Python in hot paths.
 """
 
@@ -63,8 +63,8 @@ cdef void _compute_phi_core(const f64* B1, const f64* B1_RLp,
                              f64* phi_out, f64* tmp_buf,
                              int nV, int nE, int nhats) noexcept nogil:
     """phi(v,k) = diag(B1_RLp @ hat_k @ B1_RLp^T)[v] / diag(B1_RLp @ B1^T)[v],
-    given B1_RLp = B1 @ RL^+ (nV x nE). Shared by the dense-pinv and SPD-solve
-    paths - only the way B1_RLp is obtained differs. tmp_buf: pre-alloc nV x nE."""
+    given B1_RLp = B1 @ RL^+ (nV x nE). Shared by the dense pinv and SPD solve
+    paths - only the way B1_RLp is obtained differs. tmp_buf: pre alloc nV x nE."""
     cdef int v, e, k
     cdef f64 s0_vv, phi_vk
     cdef f64 uniform = 1.0 / nhats if nhats > 0 else 0.0
@@ -91,7 +91,7 @@ cdef void _compute_phi_dense(const f64* B1, const f64* RLp,
                               const f64* const* hat_data,
                               f64* phi_out, f64* B1_RLp_buf, f64* tmp_buf,
                               int nV, int nE, int nhats) noexcept nogil:
-    """Dense-pinv path: form B1_RLp = B1 @ RLp, then the shared core."""
+    """Dense pinv path: form B1_RLp = B1 @ RLp, then the shared core."""
     bl_gemm_nn(B1, RLp, B1_RLp_buf, nV, nE, nE)
     _compute_phi_core(B1, B1_RLp_buf, hat_data, phi_out, tmp_buf, nV, nE, nhats)
 
@@ -116,19 +116,31 @@ def compute_phi_dense(np.ndarray[f64, ndim=2] B1,
     return phi
 
 
-# Phi: sparse path (per-vertex LAPACK lstsq)
+# Phi: sparse path (per vertex LAPACK lstsq)
 
 def compute_phi_sparse_single(np.ndarray[f64, ndim=2] RL,
                                 list hats, int nhats,
                                 np.ndarray[f64, ndim=2] B1,
                                 int vertex_idx, int nV, int nE):
-    """phi(v) for a single vertex via lstsq solve."""
+    """phi(v) for a single vertex: `x = RL^-1 B1^T e_v`, then the per hat quadratic.
+
+    RL is positive definite, so this is a Cholesky solve; the SVD least squares below
+    stays for a degenerate RL. Either way it factors RL per vertex, so `compute_phi`
+    solves the whole block once and reaches here only when that is unavailable.
+    """
     # rhs = B1[v, :] (row of B1 = B1^T @ e_v for dense B1)
     cdef np.ndarray[f64, ndim=1] rhs = B1[vertex_idx, :].copy()
-    cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(RL.copy())
-    cdef np.ndarray[f64, ndim=1] S = np.empty(nE, dtype=np.float64)
+    cdef np.ndarray[f64, ndim=2] A_F
+    cdef np.ndarray[f64, ndim=1] S
     cdef int rank = 0
-    lp_lstsq(&A_F[0, 0], &rhs[0], nE, nE, 1, &S[0], &rank)
+    from rexgraph.core._linalg import spd_solve
+    solved = spd_solve(RL, rhs)
+    if solved is not None:
+        rhs = np.ascontiguousarray(solved, dtype=np.float64)
+    else:
+        A_F = np.asfortranarray(RL.copy())
+        S = np.empty(nE, dtype=np.float64)
+        lp_lstsq(&A_F[0, 0], &rhs[0], nE, nE, 1, &S[0], &rank)
     # rhs is now x = RL^+ @ B1^T e_v
 
     cdef np.ndarray[f64, ndim=1] x = rhs
@@ -169,8 +181,8 @@ def compute_phi_sparse_single(np.ndarray[f64, ndim=2] RL,
 def compute_phi_from_b1rlp(np.ndarray[f64, ndim=2] B1,
                             np.ndarray[f64, ndim=2] B1_RLp,
                             list hats, int nhats, int nV, int nE):
-    """Vertex character from a precomputed B1_RLp = B1 @ RL^-1 (SPD-solve path).
-    Skips the pinv formation entirely; only the per-hat diagonal core runs."""
+    """Vertex character from a precomputed B1_RLp = B1 @ RL^-1 (SPD solve path).
+    Skips the pinv formation entirely; only the per hat diagonal core runs."""
     cdef np.ndarray[f64, ndim=2] phi = np.zeros((nV, nhats), dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] tmp_buf = np.empty((nV, nE), dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] B1_RLp_c = np.ascontiguousarray(B1_RLp)
@@ -190,19 +202,25 @@ def compute_phi(np.ndarray[f64, ndim=2] B1,
                 np.ndarray[f64, ndim=2] RL,
                 list hats, int nhats, int nV, int nE,
                 green_cache=None):
-    """Vertex character. Dispatches SPD-solve (B1_RLp), dense-pinv, or lstsq."""
+    """Vertex character. Dispatches SPD solve (B1_RLp), dense pinv, or lstsq."""
     if green_cache is not None and green_cache.get('spd_solve', False):
         return compute_phi_from_b1rlp(B1, green_cache['B1_RLp'], hats, nhats, nV, nE)
     if green_cache is not None and green_cache.get('dense', False):
         return compute_phi_dense(B1, green_cache['RL_pinv'], hats, nhats, nV, nE)
-    else:
-        phi = np.zeros((nV, nhats), dtype=np.float64)
-        for v in range(nV):
-            phi[v, :] = compute_phi_sparse_single(RL, hats, nhats, B1, v, nV, nE)
-        return phi
+    # No cache. RL is positive definite, so one Cholesky and one block solve give every
+    # vertex's column at once: `RL^-1 B1^T` is nE x nV in a single `dpotrs_`.
+    from rexgraph.core._linalg import spd_solve
+    block = spd_solve(RL, np.ascontiguousarray(np.asarray(B1, dtype=np.float64).T))
+    if block is not None:
+        return compute_phi_from_b1rlp(
+            B1, np.ascontiguousarray(np.asarray(block).T), hats, nhats, nV, nE)
+    phi = np.zeros((nV, nhats), dtype=np.float64)
+    for v in range(nV):
+        phi[v, :] = compute_phi_sparse_single(RL, hats, nhats, B1, v, nV, nE)
+    return phi
 
 
-# Chi-star (C-level)
+# Chi star (C-level)
 
 cdef void _compute_chi_star(const f64* chi, const i32* v2e_ptr, const i32* v2e_idx,
                              f64* chi_star, int nV, int nhats) noexcept nogil:
@@ -271,7 +289,7 @@ def build_character_bundle(np.ndarray[f64, ndim=2] B1,
     return {'chi': chi, 'phi': phi, 'chi_star': chi_star, 'kappa': kappa}
 
 
-# Per-vertex curvature
+# Per vertex curvature
 
 cdef void _per_vertex_curvature(const f64* phi, const f64* chi_star,
                                  const f64* kappa, f64* curv,
@@ -375,7 +393,7 @@ def per_vertex_weighted_curvature(np.ndarray[f64, ndim=2] chi,
                                     np.ndarray[i32, ndim=1] sources,
                                     np.ndarray[i32, ndim=1] targets,
                                     int nV, int nE, int nhats):
-    """Per-vertex weighted curvature from character deviation.
+    """Per vertex weighted curvature from character deviation.
 
     C(v) = (1/deg(v)) * sum_{e in star(v)} w(e) * ||chi(e) - 1/nhats||_1
     Measures how far incident edges deviate from uniform character.
@@ -405,9 +423,9 @@ def per_vertex_weighted_curvature(np.ndarray[f64, ndim=2] chi,
 
 
 def self_response(np.ndarray[f64, ndim=2] RLp, int nE):
-    """Self-response (effective resistance) per edge: R_self(e) = RL^+[e,e].
+    """Self response (effective resistance) per edge: R_self(e) = RL^+[e,e].
 
-    Higher self-response = edge is more structurally isolated.
+    Higher self response = edge is more structurally isolated.
     """
     cdef np.ndarray[f64, ndim=1] rs = np.empty(nE, dtype=np.float64)
     cdef f64[::1] rv = rs
@@ -478,7 +496,7 @@ def derived_constants(int nV):
     }
 
 
-# Per-channel mixing time
+# Per channel mixing time
 
 
 cdef f64 _lambda2_from_evals(const f64* evals, int n) noexcept nogil:
@@ -494,13 +512,13 @@ def hat_eigen(np.ndarray[f64, ndim=2] hat, int nE):
     """Eigendecompose a single hat operator via LAPACK dsyev_.
 
     Parameters
-    ----------
+
     hat : f64[nE, nE]
         Trace-normalized typed Laplacian.
     nE : int
 
     Returns
-    -------
+
     evals : f64[nE], ascending
     evecs : f64[nE, nE], columns are eigenvectors
     """
@@ -528,13 +546,13 @@ def hat_eigen_all(list hats, int nhats, int nE):
     """Eigendecompose all hat operators. Returns list of (evals, evecs).
 
     Parameters
-    ----------
+
     hats : list of f64[nE, nE]
     nhats : int
     nE : int
 
     Returns
-    -------
+
     list of (evals f64[nE], evecs f64[nE, nE]) per hat.
     """
     result = []
@@ -544,18 +562,18 @@ def hat_eigen_all(list hats, int nhats, int nE):
 
 
 def per_channel_mixing_time(np.ndarray[f64, ndim=1] hat_evals, int nE):
-    """Per-channel mixing time from pre-computed hat eigenvalues.
+    """Per channel mixing time from pre computed hat eigenvalues.
 
     mu_X = ln(nE) / lambda_2(hat_L_X).
 
     Parameters
-    ----------
+
     hat_evals : f64[nE]
         Eigenvalues of a single hat operator (ascending).
     nE : int
 
     Returns
-    -------
+
     float
         Mixing time for this channel. inf if no spectral gap.
     """
@@ -577,17 +595,17 @@ def per_channel_mixing_time(np.ndarray[f64, ndim=1] hat_evals, int nE):
 
 
 def per_channel_mixing_times_from_evals(list hat_evals_list, int nhats, int nE):
-    """Per-channel mixing times from pre-computed hat eigenvalues.
+    """Per channel mixing times from pre computed hat eigenvalues.
 
     Parameters
-    ----------
+
     hat_evals_list : list of f64[nE]
         Eigenvalues per hat from hat_eigen_all.
     nhats : int
     nE : int
 
     Returns
-    -------
+
     f64[nhats]
     """
     cdef np.ndarray[f64, ndim=1] times = np.empty(nhats, dtype=np.float64)
@@ -598,18 +616,18 @@ def per_channel_mixing_times_from_evals(list hat_evals_list, int nhats, int nE):
 
 
 def per_channel_mixing_times(list hats, int nhats, int nE):
-    """Per-channel mixing times, eigendecomposing each hat internally.
+    """Per channel mixing times, eigendecomposing each hat internally.
 
     Convenience wrapper when hat eigendata is not already cached.
 
     Parameters
-    ----------
+
     hats : list of f64[nE, nE]
     nhats : int
     nE : int
 
     Returns
-    -------
+
     f64[nhats]
     """
     cdef np.ndarray[f64, ndim=1] times = np.empty(nhats, dtype=np.float64)
@@ -622,20 +640,20 @@ def per_channel_mixing_times(list hats, int nhats, int nE):
 
 def mixing_time_anisotropy(np.ndarray[f64, ndim=1] channel_times,
                             int nhats):
-    """Ratios between per-channel mixing times.
+    """Ratios between per channel mixing times.
 
-    Computes pairwise ratios tau_i / tau_j, finds the fastest-mixing
+    Computes pairwise ratios tau_i / tau_j, finds the fastest mixing
     and slowest channels, and returns the anisotropy ratio.
 
     Parameters
-    ----------
+
     channel_times : f64[nhats]
         Per-channel mixing times from per_channel_mixing_times.
     nhats : int
         Number of channels.
 
     Returns
-    -------
+
     dict
         ratios : f64[nhats, nhats] pairwise tau_i / tau_j
         dominant_channel : int  (fastest, smallest finite tau)
@@ -686,7 +704,7 @@ def mixing_time_anisotropy(np.ndarray[f64, ndim=1] channel_times,
     }
 
 
-# Face-void dipole
+# Face void dipole
 
 
 cdef void _face_void_dipole(const f64* psi, const f64* B2,
@@ -728,20 +746,20 @@ def face_void_dipole(np.ndarray[f64, ndim=1] psi,
                       np.ndarray[f64, ndim=2] B2,
                       Bvoid_in,
                       int nE, int nF):
-    """Face-void dipole of an edge signal.
+    """Face void dipole of an edge signal.
 
     Projects an edge signal onto the realized face basis (B2 columns)
     and the void basis (Bvoid columns), measuring how much signal
     energy flows through each. The dipole ratio separates signals
-    that operate through existing higher-order structure (face-mediated)
-    from those that operate through structural gaps (void-mediated).
+    that operate through existing higher order structure (face mediated)
+    from those that operate through structural gaps (void mediated).
 
     face_affinity = sum_f |psi^T B2[:,f]|^2 / ||psi||^2
     void_affinity = sum_v |psi^T Bvoid[:,v]|^2 / ||psi||^2
     dipole_ratio  = (face - void) / (face + void)
 
     Parameters
-    ----------
+
     psi : f64[nE]
         Edge signal.
     B2 : f64[nE, nF]
@@ -754,7 +772,7 @@ def face_void_dipole(np.ndarray[f64, ndim=1] psi,
         Number of realized faces.
 
     Returns
-    -------
+
     dict
         face_affinity : float >= 0
         void_affinity : float >= 0

@@ -1,4 +1,4 @@
-"""agent.activity: the activity log + model-usage registry, and its wiring into the hive/foundry."""
+"""agent.activity: the activity log + model usage registry, and its wiring into the hive/foundry."""
 import json
 import time
 
@@ -25,32 +25,36 @@ def test_journal_tailer_folds_peer_events(tmp_path):
     log.subscribe(lambda ev: got.append(ev))
     log.enable_journal(str(jp), warm=False, tail=True)
     peer = {"ts": time.time(), "entity": "hive:peer", "scope": "hive", "action": "create",
-            "detail": {"via": "cli"}, "src": "peerabcd"}
+            "detail": {"via": "cli"}, "on": "worker:coder", "flow": "write",
+            "src": "peerabcd"}
     with open(jp, "a") as f:
         f.write(json.dumps(peer) + "\n")
     assert _wait(lambda: any(e["entity"] == "hive:peer" for e in log.events()))
+    folded = next(e for e in log.events() if e["entity"] == "hive:peer")
+    assert folded["on"] == "worker:coder" and folded["flow"] == "write"
     assert any(e["entity"] == "hive:peer" for e in got)       # pushed live, not just stored
     log.close()
 
 
 def test_journal_own_writes_not_doubled(tmp_path):
-    # the server records AND tails the same file; its own line must not be re-folded (own-src skip)
+    # the server records AND tails the same file; its own line must not be re folded (own src skip)
     jp = tmp_path / "activity.jsonl"
     activity.reset()
     log = activity.get_log()
     log.enable_journal(str(jp), warm=False, tail=True)
     log.record("worker:coder", "deploy")
-    time.sleep(0.25)                                          # give the tailer time to (wrongly) re-add
+    time.sleep(0.25)                                          # give the tailer time to (wrongly) re add
     assert sum(1 for e in log.events() if e["entity"] == "worker:coder") == 1
     log.close()
 
 
 def test_journal_warm_load_restores_history(tmp_path):
-    # a prior session's journal on disk -> a fresh log warm-loads its history (persistence across restarts)
+    # a prior session's journal on disk -> a fresh log warm loads its history (persistence across restarts)
     jp = tmp_path / "activity.jsonl"
     with open(jp, "w") as f:
         f.write(json.dumps({"ts": 1.0, "entity": "hive:old", "scope": "hive", "action": "create",
-                            "detail": {}, "src": "prev1"}) + "\n")
+                            "detail": {}, "on": "worker:old", "flow": "write",
+                            "src": "prev1"}) + "\n")
         f.write(json.dumps({"ts": 2.0, "entity": "model:qwen", "scope": "model", "action": "use.open",
                             "detail": {"purpose": "x", "by": "y", "handle": 1}, "src": "prev1"}) + "\n")
     activity.reset()
@@ -58,6 +62,8 @@ def test_journal_warm_load_restores_history(tmp_path):
     log.enable_journal(str(jp), warm=True, tail=False)
     ents = {e["entity"] for e in log.events()}
     assert "hive:old" in ents and "model:qwen" in ents        # history restored
+    old = next(e for e in log.events() if e["entity"] == "hive:old")
+    assert old["on"] == "worker:old" and old["flow"] == "write"
     u = log.usage()["qwen"]
     assert u["total_uses"] == 1 and u["concurrent"] == 0      # a dead process's open use is not "active"
     log.close()
@@ -69,7 +75,7 @@ def test_log_records_and_filters_by_scope_and_prefix():
     log.record("hive:alpha", "compose", detail={"n": 3})
     log.record("worker:coder", "dispatch", detail={"q": "x"})
     log.record("worker:reviewer", "deploy")
-    assert len(log.events()) == 3                              # newest-first
+    assert len(log.events()) == 3                              # newest first
     assert log.events()[0]["entity"] == "worker:reviewer"
     assert len(log.events(scope="worker")) == 2
     assert len(log.events(action="deploy")) == 1

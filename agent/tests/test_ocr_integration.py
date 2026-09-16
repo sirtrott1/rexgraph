@@ -1,12 +1,12 @@
 """
-Tests for the Unlimited-OCR integration and OCR adapter.
+Tests for the Unlimited OCR integration and OCR adapter.
 
 Covers: input type detection for images/PDFs, OCR client utilities,
 layout parsing, section classification, layout graph construction,
-text-strategy and layout-strategy edge construction, offline
-fallback, and end-to-end pipeline integration.
+text strategy and layout strategy edge construction, offline
+fallback, and end to end pipeline integration.
 
-Does NOT require a running Unlimited-OCR server or GPU.
+Does NOT require a running Unlimited OCR server or GPU.
 """
 
 import os
@@ -259,7 +259,7 @@ def test_layout_graph_thematic_edges():
     thematic = [e for e in edges if e[3] == 2]
     print(f"  ✓ {len(thematic)} thematic edges found")
     # The invoice document has repeated terms; should find some overlap
-    # (this is content-dependent, so we just check the mechanism works)
+    # (this is content dependent, so we just check the mechanism works)
     print()
 
 
@@ -288,7 +288,7 @@ def test_ocr_adapter_text_strategy():
     print(f"  ✓ Text strategy: {edges.nV} vertices, {edges.nE} edges")
     print(f"    Types: {edges.type_names}")
 
-    # Check that domain-specific words appear as vertices
+    # Check that domain specific words appear as vertices
     vlabels_lower = [v.lower() for v in edges.vertex_labels]
     assert "relational" in vlabels_lower or "complex" in vlabels_lower
     print(f"  ✓ Domain vocabulary preserved: {edges.vertex_labels[:8]}")
@@ -350,11 +350,11 @@ def test_ocr_adapter_pdf():
 def test_ocr_adapter_empty_result():
     """OCRAdapter.build should fail loudly when OCR yields no text.
 
-    Backend-agnostic: a mock client stands in for whatever OCR model is
-    installed, so this does not depend on PaddleOCR / GOT-OCR / Tesseract
+    Backend agnostic: a mock client stands in for whatever OCR model is
+    installed, so this does not depend on PaddleOCR / GOT OCR / Tesseract
     or on CUDA vs ROCm. The contract is that empty OCR raises a clear
     RuntimeError (the pipeline layers catch it and skip the document)
-    rather than silently producing a 0-vertex complex.
+    rather than silently producing a 0 vertex complex.
     """
     print("── OCR adapter: empty result ──")
 
@@ -372,7 +372,7 @@ def test_ocr_adapter_empty_result():
             raised = True
         else:
             # A graceful empty construction is also acceptable; a
-            # non-empty complex from empty OCR is not.
+            # non empty complex from empty OCR is not.
             assert isinstance(edges, EdgeConstruction)
             assert edges.nV == 0 and edges.nE == 0
     os.unlink(f.name)
@@ -383,25 +383,25 @@ def test_ocr_adapter_empty_result():
 
 
 def test_ocr_adapter_interpret():
-    """OCRAdapter.interpret should add domain-specific context."""
+    """OCRAdapter.interpret should add domain specific context."""
     print("── OCR adapter: interpretation ──")
 
     adapter = OCRAdapter()
 
-    # Gradient-dominant document
+    # Gradient dominant document
     results = {"hodge": {"pct_gradient": 0.75, "pct_curl": 0.15, "pct_harmonic": 0.10}}
     interp = adapter.interpret(results)
     assert interp["domain"] == "document_ocr"
     assert "Hierarchical" in interp.get("structure_assessment", "")
     print("  ✓ Gradient-dominant -> hierarchical assessment")
 
-    # Curl-heavy document
+    # Curl heavy document
     results = {"hodge": {"pct_gradient": 0.30, "pct_curl": 0.45, "pct_harmonic": 0.25}}
     interp = adapter.interpret(results)
     assert "Cross-referenced" in interp.get("structure_assessment", "")
     print("  ✓ Curl-heavy -> cross-referenced assessment")
 
-    # Harmonic-heavy document
+    # Harmonic heavy document
     results = {"hodge": {"pct_gradient": 0.40, "pct_curl": 0.15, "pct_harmonic": 0.45}}
     interp = adapter.interpret(results)
     assert "unresolved" in interp.get("structure_assessment", "").lower()
@@ -489,7 +489,7 @@ def test_client_page_splitting():
 
 
 def test_edge_construction_invariants():
-    """All OCR-produced EdgeConstructions should satisfy core invariants."""
+    """All OCR produced EdgeConstructions should satisfy core invariants."""
     print("── Edge construction invariants ──")
 
     mock_client = MagicMock()
@@ -512,7 +512,7 @@ def test_edge_construction_invariants():
         assert len(edges.signs) == edges.nE
         assert len(edges.type_labels) == edges.nE
 
-        # Weight non-negativity
+        # Weight non negativity
         assert np.all(edges.weights >= 0)
 
         # Signs are ±1
@@ -530,7 +530,7 @@ def test_edge_construction_invariants():
             assert np.all(edges.targets >= 0)
             assert np.all(edges.targets < edges.nV)
 
-        # No self-loops (layout strategy only - text strategy may
+        # No self loops (layout strategy only - text strategy may
         # produce them from repeated words in the same sentence)
         if strategy == "layout" and edges.nE > 0:
             assert np.all(edges.sources != edges.targets)
@@ -542,7 +542,7 @@ def test_edge_construction_invariants():
 
 
 def test_edge_construction_summary():
-    """EdgeConstruction.summary() should work for OCR-produced edges."""
+    """EdgeConstruction.summary() should work for OCR produced edges."""
     print("── Edge construction summary ──")
 
     mock_client = MagicMock()
@@ -595,7 +595,7 @@ def test_deepseek_ocr_preset():
 
 
 def test_unlimited_ocr_backend_name():
-    """Default UnlimitedOCRClient should have backend_name='unlimited-ocr'."""
+    """Default UnlimitedOCRClient should have backend_name='unlimited ocr'."""
     print("── Backend names ──")
 
     client = UnlimitedOCRClient()
@@ -687,7 +687,7 @@ def test_mistral_client_extract_text():
 
 
 def test_mistral_client_ocr_with_mock():
-    """MistralOCRClient should work end-to-end with a mocked API."""
+    """MistralOCRClient should work end to end with a mocked API."""
     print("── Mistral OCR: mocked E2E ──")
 
     mock_page = MagicMock()
@@ -748,7 +748,7 @@ def test_factory_offline_fallback():
 
     This must not assume any specific backend is installed. On CUDA hosts
     PaddleOCR may be selected; on ROCm hosts paddle is skipped (it needs
-    CUDA) and the factory falls through to GOT-OCR or the Tesseract
+    CUDA) and the factory falls through to GOT OCR or the Tesseract
     offline client. Any of the known client types is a valid result, so
     we check the returned object honours the OCR client interface rather
     than pinning a concrete class.
@@ -769,7 +769,7 @@ def test_factory_offline_fallback():
 
     old_key = os.environ.pop("MISTRAL_API_KEY", None)
     try:
-        # Point the server probe at a dead port so auto-detect skips the
+        # Point the server probe at a dead port so auto detect skips the
         # server backend and picks a local one.
         client = create_ocr_client(
             server_url="http://127.0.0.1:99999",

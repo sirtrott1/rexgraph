@@ -11,12 +11,12 @@ relational complex where:
       is zero, follows from the chain condition).
     - Cross-type triangles map to voids (structural gaps).
 
-The structural analysis enriches the knowledge graph with per-entity
-coherence kappa, per-edge structural character (T/G/F/C channel
+The structural analysis enriches the knowledge graph with per entity
+coherence kappa, per edge structural character (T/G/F/C channel
 decomposition), void maps (where the structural gaps are), and
 confidence scores for RAG subgraph trust.
 
-Compatible with TrustGraph 2.4+ (trustgraph-base >= 2.4.0).
+Compatible with TrustGraph 2.4+ (trustgraph base >= 2.4.0).
 
 Standalone mode (no running TrustGraph needed):
 
@@ -98,7 +98,7 @@ def _extract_predicate_type(predicate: str) -> str:
     if "#" in pred:
         return pred.rsplit("#", 1)[-1]
 
-    # Path-based URI: local name after last /
+    # Path based URI: local name after last /
     if "/" in pred:
         return pred.rsplit("/", 1)[-1]
 
@@ -151,7 +151,7 @@ def _resolve_entity(name: str, entity_to_idx: dict[str, int]):
 
     `from_triples` returns `vertex_labels` normalized (`alpha`), while the triples
     still carry `http://ex.org/alpha`. Matching on one form only meant that feeding
-    the adapter's own labels back into a context builder produced an all-zero matrix
+    the adapter's own labels back into a context builder produced an all zero matrix
     and no error, so context selection silently selected nothing.
     """
     if name in entity_to_idx:
@@ -165,7 +165,7 @@ def build_context_matrix_from_documents(
     entity_to_idx: dict[str, int],
     n_entities: int,
 ) -> tuple[np.ndarray, list[str]]:
-    """Build a binary context matrix from document-grouped triples.
+    """Build a binary context matrix from document grouped triples.
 
     Each group of triples sharing the same metadata.id (or chunk_id,
     or graph name) defines a context.  The matrix C has shape
@@ -173,7 +173,7 @@ def build_context_matrix_from_documents(
     context c.
 
     Parameters
-    ----------
+
     triples : list
         Triples with provenance.  Each triple should have a ``g``
         attribute (named graph) or be accompanied by a document_id.
@@ -186,7 +186,7 @@ def build_context_matrix_from_documents(
         Number of entities (vertices).
 
     Returns
-    -------
+
     (context_matrix, context_labels)
         context_matrix : uint8[n_contexts, n_entities]
         context_labels : list of str, one per context
@@ -243,7 +243,7 @@ def build_context_matrix_explicit(
     """Build a context matrix from an explicit mapping.
 
     Parameters
-    ----------
+
     contexts : dict
         Mapping from context label to list of entity strings
         that appear in that context.
@@ -253,7 +253,7 @@ def build_context_matrix_explicit(
         Number of entities.
 
     Returns
-    -------
+
     (context_matrix, context_labels)
     """
     context_labels = sorted(contexts.keys())
@@ -282,7 +282,7 @@ class TrustGraphAdapter(DomainAdapter):
        ``write_enrichment_triples()``.
 
     Parameters
-    ----------
+
     url : str, optional
         TrustGraph API URL (e.g., ``"http://localhost:8088/"``).
         If None, only standalone mode is available.
@@ -313,7 +313,7 @@ class TrustGraphAdapter(DomainAdapter):
 
     @property
     def api(self):
-        """Lazy-initialize the TrustGraph REST API client."""
+        """Lazy initialize the TrustGraph REST API client."""
         if self._api is None:
             if self.url is None:
                 raise RuntimeError(
@@ -337,7 +337,7 @@ class TrustGraphAdapter(DomainAdapter):
 
     @property
     def bulk(self):
-        """Lazy-initialize the TrustGraph bulk client (WebSocket)."""
+        """Lazy initialize the TrustGraph bulk client (WebSocket)."""
         if self._bulk is None:
             if self.url is None:
                 raise RuntimeError(
@@ -366,7 +366,7 @@ class TrustGraphAdapter(DomainAdapter):
         Implements the DomainAdapter interface.
 
         Parameters
-        ----------
+
         triples : list of Triple, SimpleTriple, or (s, p, o) tuples
             The knowledge graph triples.
         """
@@ -382,7 +382,7 @@ class TrustGraphAdapter(DomainAdapter):
         """Build a RexGraph from raw triples (standalone mode).
 
         Parameters
-        ----------
+
         triples : list of Triple, SimpleTriple, or (s, p, o) tuples
         face_selection : str
             ``'all'`` (default): build all available complexes from
@@ -410,7 +410,7 @@ class TrustGraphAdapter(DomainAdapter):
             If provided, ``contexts`` is ignored.
 
         Returns
-        -------
+
         (RexGraph, metadata_dict)
         """
         edges = self._triples_to_edges(triples)
@@ -436,7 +436,7 @@ class TrustGraphAdapter(DomainAdapter):
                 contexts, entity_to_idx_edges, len(edges.vertex_labels)
             )
 
-        # Auto-detect context from triple provenance if no explicit
+        # Auto detect context from triple provenance if no explicit
         # context was given and face_selection is 'all' or 'context'
         if ctx_mat is None and face_selection in ("all", "context"):
             entity_to_idx_edges = {
@@ -479,7 +479,7 @@ class TrustGraphAdapter(DomainAdapter):
         Requires a running TrustGraph instance.
 
         Parameters
-        ----------
+
         flow : str
             Flow identifier in TrustGraph (default ``"default"``).
         face_selection : str
@@ -487,7 +487,7 @@ class TrustGraphAdapter(DomainAdapter):
             See ``from_triples`` for details.
 
         Returns
-        -------
+
         (RexGraph, metadata_dict)
         """
         triples = list(self.bulk.export_triples(flow=flow))
@@ -515,7 +515,7 @@ class TrustGraphAdapter(DomainAdapter):
             flow identifier.
 
         Parameters
-        ----------
+
         collection : str
             Treated as the flow identifier.
         user : str
@@ -526,7 +526,7 @@ class TrustGraphAdapter(DomainAdapter):
             ``'typed'``, ``'promote'``, or ``'none'``.
 
         Returns
-        -------
+
         (RexGraph, metadata_dict)
         """
         import warnings
@@ -556,7 +556,7 @@ class TrustGraphAdapter(DomainAdapter):
         # Normalize all triple formats to (s, p, o) strings
         normalized = [_triple_to_strings(t) for t in triples]
 
-        # Filter: keep only entity-to-entity edges
+        # Filter: keep only entity to entity edges
         if filter_literals:
             entity_triples = []
             for s, p, o in normalized:
@@ -565,7 +565,7 @@ class TrustGraphAdapter(DomainAdapter):
                 if s_is_uri and o_is_uri:
                     entity_triples.append((s, p, o))
             # If filtering removed everything, keep all triples
-            # (handles the common case of plain-string entities
+            # (handles the common case of plain string entities
             #  like "Alice", "Bob" in standalone mode)
             if entity_triples:
                 normalized = entity_triples
@@ -589,7 +589,7 @@ class TrustGraphAdapter(DomainAdapter):
             si = entity_to_idx[s]
             oi = entity_to_idx[o]
             if si == oi:
-                continue  # skip self-loops
+                continue  # skip self loops
             # Canonical undirected edge
             canon = (min(si, oi), max(si, oi))
             if canon in seen_edges:
@@ -727,7 +727,7 @@ class TrustGraphAdapter(DomainAdapter):
         context, voids are triangles that span context boundaries.
 
         Parameters
-        ----------
+
         edges : EdgeConstruction
         context_matrix : uint8[n_contexts, n_entities]
         context_labels : list of str, optional
@@ -753,7 +753,7 @@ class TrustGraphAdapter(DomainAdapter):
         # Apply context face selection
         rex = rex_base.context_face_selection(context_matrix)
 
-        # Extract per-context face counts and void fractions
+        # Extract per context face counts and void fractions
         ctx_result = getattr(rex, "_context_face_result", {})
 
         rex._agent_meta = {
@@ -794,16 +794,16 @@ class TrustGraphAdapter(DomainAdapter):
         When the complex was built with ``face_selection='all'``,
         this runs the pipeline on all attached complexes and merges
         the results.  The primary analysis comes from whichever
-        complex is primary (context-selected if a context matrix was
+        complex is primary (context selected if a context matrix was
         provided, typed otherwise).
 
         Parameters
-        ----------
+
         rex : RexGraph
         depth : 'quick', 'standard', or 'full'
 
         Returns
-        -------
+
         dict
             Complete analysis results.
         """
@@ -847,7 +847,7 @@ class TrustGraphAdapter(DomainAdapter):
         the signal is decomposed on all attached complexes.
 
         Parameters
-        ----------
+
         rex : RexGraph
         signal : f64[nE]
             Edge signal to decompose.
@@ -855,7 +855,7 @@ class TrustGraphAdapter(DomainAdapter):
             Label for the output.
 
         Returns
-        -------
+
         dict
             Hodge decomposition, channel character, face/void dipole,
             and per-edge components.  If alternate complexes are
@@ -891,13 +891,13 @@ class TrustGraphAdapter(DomainAdapter):
         skeleton views, plus a combined verdict.
 
         Parameters
-        ----------
+
         rex : RexGraph
         entity_indices : list of int
             Vertex indices of the entities in the RAG context.
 
         Returns
-        -------
+
         dict
             Contains ``confidence`` ('HIGH', 'MODERATE', 'LOW', 'NONE'),
             ``reason``, per-view scores, and detailed structural metrics.
@@ -909,13 +909,13 @@ class TrustGraphAdapter(DomainAdapter):
         alt_none = getattr(rex, "_alt_none", None)
 
         if alt_promote is None and alt_none is None and alt_typed is None:
-            # Single-strategy mode: return the score directly
+            # Single strategy mode: return the score directly
             return typed_score
 
-        # Multi-view mode: score each available view
+        # Multi view mode: score each available view
         view_scores = {}
 
-        # If the primary complex is context-selected, label it as such
+        # If the primary complex is context selected, label it as such
         primary_meta = getattr(rex, "_agent_meta", {})
         primary_label = primary_meta.get("face_selection", "primary")
         if primary_label == "all":
@@ -980,7 +980,7 @@ class TrustGraphAdapter(DomainAdapter):
         result = {"entities": entity_indices}
 
         # Activate edges incident to the target entities. Use the SPARSE incidence
-        # (rex.B1_sparse -> CSR, nV×nE) - a per-vertex row slice touches only that
+        # (rex.B1_sparse -> CSR, nV×nE) - a per vertex row slice touches only that
         # vertex's incident edges (O(deg)), never materializing the dense nV×nE B1.
         signal = np.zeros(rex.nE, dtype=np.float64)
         B1 = None
@@ -1010,7 +1010,7 @@ class TrustGraphAdapter(DomainAdapter):
             return result
 
         # Topological data: faces and Betti numbers are
-        # view-dependent (typed vs promote vs none)
+        # view dependent (typed vs promote vs none)
         result["nF"] = rex.nF
         betti = rex.betti
         result["betti"] = list(betti) if betti else [1, n_active, 0]
@@ -1064,7 +1064,7 @@ class TrustGraphAdapter(DomainAdapter):
             pass
 
         # Confidence decision.
-        # Uses void affinity, coherence, Betti-1 (independent cycles),
+        # Uses void affinity, coherence, Betti 1 (independent cycles),
         # face coverage, and harmonic fraction.
         va = result.get("void_affinity")
         km = result.get("kappa_mean")
@@ -1147,7 +1147,7 @@ class TrustGraphAdapter(DomainAdapter):
             (collection_uri, rex:chainValid, "true")
 
         Parameters
-        ----------
+
         rex : RexGraph
         analysis : dict
             Output of ``self.analyze(rex)``.
@@ -1155,7 +1155,7 @@ class TrustGraphAdapter(DomainAdapter):
             RDF namespace prefix for structural predicates.
 
         Returns
-        -------
+
         list of SimpleTriple
         """
         meta = getattr(rex, "_agent_meta", {})
@@ -1166,7 +1166,7 @@ class TrustGraphAdapter(DomainAdapter):
         triples = []
         ns = namespace
 
-        # Per-vertex enrichments
+        # Per vertex enrichments
         try:
             kappa = coherence_kappa(rex)
             phi = rex.vertex_character
@@ -1199,7 +1199,7 @@ class TrustGraphAdapter(DomainAdapter):
         except Exception:
             pass
 
-        # Collection-level enrichments
+        # Collection level enrichments
         collection_uri = f"{ns}collection"
         con = analysis.get("construction", {})
         topo = analysis.get("topology", {})
@@ -1285,7 +1285,7 @@ class TrustGraphAdapter(DomainAdapter):
                     str(n_nontrivial),
                 ))
 
-            # Fills-beta count
+            # Fills beta count
             fbc = void_d.get("fills_beta_count")
             if fbc is not None:
                 triples.append(SimpleTriple(
@@ -1328,7 +1328,7 @@ class TrustGraphAdapter(DomainAdapter):
         structural annotations alongside the original knowledge graph.
 
         Parameters
-        ----------
+
         rex : RexGraph
         analysis : dict
             Output of ``self.analyze(rex)``.
@@ -1340,7 +1340,7 @@ class TrustGraphAdapter(DomainAdapter):
             RDF namespace for structural predicates.
 
         Returns
-        -------
+
         int
             Number of enrichment triples written.
         """
@@ -1387,7 +1387,7 @@ class TrustGraphAdapter(DomainAdapter):
         RexGraph structural analysis of the underlying subgraph.
 
         Parameters
-        ----------
+
         session_uri : str
             URI of the TrustGraph session to explain.
         graph : str, optional
@@ -1396,7 +1396,7 @@ class TrustGraphAdapter(DomainAdapter):
             Collection to query.
 
         Returns
-        -------
+
         dict
             Contains the TrustGraph trace plus structural annotations.
         """
@@ -1449,7 +1449,7 @@ class TrustGraphAdapter(DomainAdapter):
         """List available knowledge graph cores in the workspace.
 
         Returns
-        -------
+
         list of str
             KG core identifiers.
         """
@@ -1464,7 +1464,7 @@ class TrustGraphAdapter(DomainAdapter):
         """Load a knowledge graph core into a flow.
 
         Parameters
-        ----------
+
         core_id : str
             KG core identifier.
         flow : str
@@ -1493,7 +1493,7 @@ class TrustGraphAdapter(DomainAdapter):
         graph but also its structural coherence metrics.
 
         Parameters
-        ----------
+
         core_id : str
             KG core identifier.
         flow : str
@@ -1504,7 +1504,7 @@ class TrustGraphAdapter(DomainAdapter):
             Analysis depth (``'minimal'``, ``'standard'``, ``'deep'``).
 
         Returns
-        -------
+
         dict with keys:
             ``'core_id'``: the core identifier.
             ``'rex'``: the constructed RexGraph.
@@ -1553,7 +1553,7 @@ class TrustGraphAdapter(DomainAdapter):
             "health_summary": summary,
         }
 
-    # Multi-flow comparison (TrustGraph 2.5+)
+    # Multi flow comparison (TrustGraph 2.5+)
 
     def compare_flows(
         self,
@@ -1569,14 +1569,14 @@ class TrustGraphAdapter(DomainAdapter):
         unresolved tensions.
 
         Parameters
-        ----------
+
         flows : list of str
             Flow identifiers to compare.
         depth : str
             Analysis depth.
 
         Returns
-        -------
+
         dict with keys:
             ``'per_flow'``: dict mapping flow name to its analysis.
             ``'comparison'``: comparative metrics (which flow has
@@ -1643,24 +1643,24 @@ class TrustGraphAdapter(DomainAdapter):
 
         return {"per_flow": per_flow, "comparison": comparison}
 
-    # Ontology-aware faces (TrustGraph 2.5+)
+    # Ontology aware faces (TrustGraph 2.5+)
 
     def from_flow_with_ontology(
         self,
         flow: str = "default",
         ontology_triples: list = None,
     ) -> tuple[Any, dict]:
-        """Build a relational complex using ontology-defined valid
+        """Build a relational complex using ontology defined valid
         triangles for face construction.
 
-        Standard ``from_flow()`` infers faces from same-predicate-type
+        Standard ``from_flow()`` infers faces from same predicate type
         triangles observed in the data. This method uses the ontology
         to determine which type combinations form valid faces,
         producing a more accurate Hodge decomposition because the face
         structure reflects the domain's intended relationships.
 
         Parameters
-        ----------
+
         flow : str
             Flow identifier.
         ontology_triples : list, optional
@@ -1670,7 +1670,7 @@ class TrustGraphAdapter(DomainAdapter):
             If None, attempts to load from TrustGraph's config.
 
         Returns
-        -------
+
         (RexGraph, metadata_dict)
             The metadata includes ``'ontology_faces'``: the number
             of faces constructed from ontology constraints.
@@ -1701,8 +1701,8 @@ class TrustGraphAdapter(DomainAdapter):
         # Build complex, using ontology pairs for face selection
         rex, meta = self._build_rex_all(edges)
 
-        # Add ontology-derived faces: for each triangle in the
-        # 1-skeleton, check if the three edge types form a valid
+        # Add ontology derived faces: for each triangle in the
+        # 1 skeleton, check if the three edge types form a valid
         # combination according to the ontology.
         if valid_type_pairs and rex.nE > 0:
 
@@ -1734,7 +1734,7 @@ class TrustGraphAdapter(DomainAdapter):
         decreasing) or fragmenting (dim_H increasing).
 
         Parameters
-        ----------
+
         flow : str
             Flow identifier.
         snapshots : list of str, optional
@@ -1743,7 +1743,7 @@ class TrustGraphAdapter(DomainAdapter):
             uses them in order.
 
         Returns
-        -------
+
         dict with keys:
             ``'steps'``: list of per-step analyses.
             ``'trajectory'``: summary of how dim_H, health_ratio,
@@ -1837,7 +1837,7 @@ class TrustGraphAdapter(DomainAdapter):
         * harmonic_fraction).
 
         Parameters
-        ----------
+
         rex : RexGraph
             The relational complex.
         entity_indices : list of int
@@ -1850,7 +1850,7 @@ class TrustGraphAdapter(DomainAdapter):
             by a factor of 3.5.
 
         Returns
-        -------
+
         dict with keys:
             ``'base_tokens'``: cost without structural adjustment.
             ``'adjusted_tokens'``: cost with harmonic adjustment.
@@ -1860,9 +1860,9 @@ class TrustGraphAdapter(DomainAdapter):
         """
         confidence = self.subgraph_confidence(rex, entity_indices)
 
-        # The real token driver is the BOUNDED relevant sub-complex the query
+        # The real token driver is the BOUNDED relevant sub complex the query
         # activates (the relations a correct answer must reconcile) obtained by one
-        # demand-driven diffusion, not an O(nE) dense B1 scan of the whole graph.
+        # demand driven diffusion, not an O(nE) dense B1 scan of the whole graph.
         n_bridges = 0
         context_size = 0
         try:
@@ -1870,7 +1870,7 @@ class TrustGraphAdapter(DomainAdapter):
             subgraph_edges = len(reading["neighborhood"]["edges"])
             context_size = int(reading["context_size"])
             # exact, not a cutoff: R_eff(e) = 1 precisely when removing e disconnects
-            # its endpoints, and bridge_mask decides that by one walk of the 1-skeleton.
+            # its endpoints, and bridge_mask decides that by one walk of the 1 skeleton.
             from rexgraph.bridges import bridge_mask
             _mask = bridge_mask(rex)
             n_bridges = sum(1 for lb in reading["load_bearing"]
@@ -1910,7 +1910,7 @@ class TrustGraphAdapter(DomainAdapter):
             "recommendation": recommendation,
         }
 
-    # High-level convenience methods
+    # High level convenience methods
 
     def _resolve_entities(
         self,
@@ -1957,10 +1957,10 @@ class TrustGraphAdapter(DomainAdapter):
         Accepts entity names as strings. Loads the knowledge graph from
         the specified flow or context core if rex is not provided.
         Returns the full structural assessment including health ratio,
-        token cost prediction, and a per-entity confidence breakdown.
+        token cost prediction, and a per entity confidence breakdown.
 
         Parameters
-        ----------
+
         entities : list of str
             Entity names in the query (e.g., ["Metformin", "mTOR"]).
         flow : str, optional
@@ -1977,7 +1977,7 @@ class TrustGraphAdapter(DomainAdapter):
             Cost multiplier from harmonic content.
 
         Returns
-        -------
+
         dict with keys:
             ``'entities_found'``: entity names that were resolved.
             ``'entities_missing'``: entity names not found in the graph.
@@ -2040,7 +2040,7 @@ class TrustGraphAdapter(DomainAdapter):
                 "recommendation": "No matching entities found in the graph.",
             }
 
-        # Per-entity local metrics.
+        # Per entity local metrics.
         #
         # The relations a participant belongs to are its star, which the complex answers
         # directly. star_of_vertex returns (vertex_mask, edge_mask, face_mask), and the
@@ -2113,7 +2113,7 @@ class TrustGraphAdapter(DomainAdapter):
         need on average.
 
         Parameters
-        ----------
+
         flow : str, optional
             TrustGraph flow (connected mode).
         core_id : str, optional
@@ -2124,7 +2124,7 @@ class TrustGraphAdapter(DomainAdapter):
             Construction metadata.
 
         Returns
-        -------
+
         dict with keys:
             ``'nV'``, ``'nE'``, ``'nF'``: graph size.
             ``'dim_H'``: oscillatory modes.
@@ -2174,7 +2174,7 @@ class TrustGraphAdapter(DomainAdapter):
     # MCP tool definitions (TrustGraph 2.5+)
 
     def as_mcp_tool_definitions(self) -> list[dict]:
-        """Return MCP-compatible tool definitions for the RexGraph
+        """Return MCP compatible tool definitions for the RexGraph
         structural analysis capabilities.
 
         These definitions can be registered with TrustGraph's MCP
@@ -2182,7 +2182,7 @@ class TrustGraphAdapter(DomainAdapter):
         during their reasoning.
 
         Returns
-        -------
+
         list of dict
             MCP tool definitions with name, description, and
             input_schema for each tool.
@@ -2291,10 +2291,10 @@ class TrustGraphAdapter(DomainAdapter):
         """Render a structural confidence visualization.
 
         Shows the knowledge graph with void regions highlighted,
-        channel-colored edges, and confidence metrics.
+        channel colored edges, and confidence metrics.
 
         Parameters
-        ----------
+
         rex : RexGraph
         analysis : dict
         entity_indices : list of int, optional
@@ -2303,7 +2303,7 @@ class TrustGraphAdapter(DomainAdapter):
             Visualization theme name.
 
         Returns
-        -------
+
         str
             Rendered visualization (format depends on VizEngine).
         """

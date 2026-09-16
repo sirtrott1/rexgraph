@@ -54,7 +54,7 @@ def test_change_source_idempotent_on_duplicate():
     pub = {"action": "rcdb.put", "scope": "network",
            "detail": {"id": "svc", "version": rec.version, "tags": []}}
     assert src._event_from_pub(pub) is not None
-    assert src._event_from_pub(pub) is None          # same (id, version) not re-delivered
+    assert src._event_from_pub(pub) is None          # same (id, version) not re delivered
 
 
 def test_change_source_emits_delete_as_removal():
@@ -144,18 +144,18 @@ def test_save_and_reload_field_and_trex(tmp_path):
 
     tp, fp = loop.save(str(tmp_path / "state"))
     back_trex = safetensors_to_temporal_rex(tp)
-    assert back_trex.T == loop.trex.T                 # running TemporalRex round-trips via Slice B
+    assert back_trex.T == loop.trex.T                 # running TemporalRex round trips via Slice B
 
     loop2 = OnlineLoop(store)
     loop2.load_field(fp)
-    assert loop2.learner.phi == loop.learner.phi      # the field round-trips by canonical key
+    assert loop2.learner.phi == loop.learner.phi      # the field round trips by canonical key
 
 
 def test_poll_replays_oldest_first_and_skips_derived():
     store = open_store("memory://")
     r1 = store.put("svc", _rex([0, 1], [1, 2]))
     r2 = store.put("svc", _rex([0, 1, 2], [1, 2, 3]))
-    # a derived-tagged put must not surface through poll
+    # a derived tagged put must not surface through poll
     store.put("svc::online", _rex([0, 1], [1, 2]), tags=[DERIVED_TAG])
 
     src = ChangeSource(store)
@@ -164,10 +164,10 @@ def test_poll_replays_oldest_first_and_skips_derived():
     assert ("svc", r1.version) in ids_versions
     assert ("svc", r2.version) in ids_versions
     assert all(e.id != "svc::online" for e in evs)    # derived events are guarded out
-    # oldest-first: version 1 of svc appears before version 2
+    # oldest first: version 1 of svc appears before version 2
     order = [v for (i, v) in ids_versions if i == "svc"]
     assert order == sorted(order)
-    # idempotent: a second poll re-delivers nothing already seen
+    # idempotent: a second poll re delivers nothing already seen
     assert src.poll() == []
 
 
@@ -183,7 +183,7 @@ def _drive_dogfood(store):
             store.put("svc", _rex(s, t))             # external put -> feed drives on_change synchronously
 
         processed = [r for r in loop.history() if r.t >= 0]
-        # the guard: exactly the external puts were processed, no derived re-entry (no runaway)
+        # the guard: exactly the external puts were processed, no derived re entry (no runaway)
         assert len(processed) == len(seqs)
 
         # stable ids across the intervening deletion: edge (0,1)'s canonical key survives
@@ -193,7 +193,7 @@ def _drive_dogfood(store):
         kN = set(cell_keys_of(rN.boundary_ptr, rN.boundary_idx, rN._directed).tolist())
         assert int(k0[0]) in kN
 
-        # derived lineage: one version per cycle, every cycle time-travelable
+        # derived lineage: one version per cycle, every cycle time travelable
         for v in range(1, len(seqs) + 1):
             assert store.get_version("svc::online", v) is not None
     finally:

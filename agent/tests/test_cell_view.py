@@ -1,10 +1,10 @@
 """One row per cell, carrying what that cell actually is.
 
-The per-cell table was the useful half of the old dashboard: a cell with its readings
+The per cell table was the useful half of the old dashboard: a cell with its readings
 attached, so a question about one cell has one place to look. Two things about its shape
 were wrong.
 
-An edge row named a `source` and a `target`, which is the arity-2 coordinate of a
+An edge row named a `source` and a `target`, which is the arity 2 coordinate of a
 relation rather than the relation. A branching column of arity k had k-2 of its boundary
 nowhere in the row. And channels were positional, so `L1_down` and `L_O` came back as
 "channel 0" and "channel 1", two numbers that are equal on an unweighted complex for a
@@ -30,7 +30,7 @@ def rex():
 
 @pytest.fixture
 def branching():
-    """One 4-ary relation and one 2-ary, so arity is visible in the rows."""
+    """One 4 ary relation and one 2 ary, so arity is visible in the rows."""
     return RexGraph.from_hypergraph(np.array([0, 4, 6], dtype=np.int32),
                                     np.array([0, 1, 2, 3, 0, 1], dtype=np.int32))
 
@@ -95,7 +95,7 @@ def test_the_shares_of_a_cell_sum_to_one(rex):
 
 
 def test_a_vertex_carries_both_coherences(rex):
-    """The exact per-vertex kappa against the global Green's function, and the O(nnz)
+    """The exact per vertex kappa against the global Green's function, and the O(nnz)
     local companion. Disagreement is a fact about the vertex, not an error."""
     row = vertex_rows(rex, positions=False, limit=1)[0]
     assert row["coherence"] is not None
@@ -137,7 +137,7 @@ def test_no_signal_means_no_signal_columns(rex):
                                   "clustering", "community", "source", "target"])
 def test_the_retired_columns_are_not_here(rex, gone):
     """Fiedler and its partitions report where a cut fell; the standard baselines are
-    the comparison column; source/target is the arity-2 assumption."""
+    the comparison column; source/target is the arity 2 assumption."""
     out = cells(rex, positions=False, limit=1)
     assert gone not in out["vertices"][0]
     assert gone not in out["relations"][0]

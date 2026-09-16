@@ -1,8 +1,8 @@
-"""Which relations are load-bearing, by walking the complex rather than solving it.
+"""Which relations are load bearing, by walking the complex rather than solving it.
 
 R_eff(e) = 1 exactly when removing e disconnects its endpoints, so the BINARY
-load-bearing question is the combinatorial bridge and needs no linear algebra. The
-graded value (how corroborated a non-bridge is) still needs the solve; this decides
+load bearing question is the combinatorial bridge and needs no linear algebra. The
+graded value (how corroborated a non bridge is) still needs the solve; this decides
 which relations to spend it on.
 
 Measured against the solve on the same complexes: identical sets every time, 520/520
@@ -10,7 +10,7 @@ and 1315/1315 on Gene Ontology slices, at 1513x and 19233x.
 
 The general statement is one grade up as well: R_eff_k(c) = 1 iff c is outside the
 support of ker(B_k). At grade 1 that support is reachable by a walk on the
-1-skeleton, which is what this module does. At grade 2 and above the boundary
+1 skeleton, which is what this module does. At grade 2 and above the boundary
 operator is no longer an incidence between points, there is no graph to walk, and the
 question returns to the kernel of B_k.
 """
@@ -57,14 +57,14 @@ def cycle_support_mask(rex) -> np.ndarray:
 def bridge_mask(rex) -> np.ndarray:
     """Boolean over relations outside the support of the C1 cycle kernel.
 
-    Vectorised throughout: one traversal for the forest, one depth-lifting pass for
-    every non-tree relation's meeting point at once, and one accumulation per depth
+    Vectorised throughout: one traversal for the forest, one depth lifting pass for
+    every non tree relation's meeting point at once, and one accumulation per depth
     level. Nothing iterates over relations in Python.
 
     On a pairwise C1 this is the usual bridge predicate and the traversal below
-    is its linear-time implementation.  On primary branching or witness C1,
+    is its linear time implementation.  On primary branching or witness C1,
     endpoint reachability is not the definition: the exact statement is that a
-    load-bearing relation lies outside the support of ``ker(B1)``.  That support
+    load bearing relation lies outside the support of ``ker(B1)``.  That support
     is read from the exact rational cycle basis, without creating a graph
     projection.
     """
@@ -82,11 +82,11 @@ def bridge_mask(rex) -> np.ndarray:
         return ~supported
     src = np.asarray(rex.sources, dtype=np.int64)
     tgt = np.asarray(rex.targets, dtype=np.int64)
-    binary = src != tgt                                # a self-loop is never a bridge
+    binary = src != tgt                                # a self loop is never a bridge
     parent, depth = _forest(nV, src[binary], tgt[binary])
 
     # tree relations: the one realising each vertex's parent link. Ties among parallel
-    # relations are broken by taking the first, which makes the rest non-tree and so
+    # relations are broken by taking the first, which makes the rest non tree and so
     # covering, which is correct: parallel relations are not bridges.
     is_tree = np.zeros(nE, dtype=bool)
     child_of = np.full(nE, -1, dtype=np.int64)
@@ -109,7 +109,7 @@ def bridge_mask(rex) -> np.ndarray:
         is_tree[sel] = True
         child_of[sel] = c[pick]
 
-    # every non-tree relation covers the tree path between its endpoints. Mark +1 at
+    # every non tree relation covers the tree path between its endpoints. Mark +1 at
     # each endpoint and -2 at their meeting point; a tree relation is covered exactly
     # when the subtree below it carries a positive total.
     nt = np.flatnonzero(binary & ~is_tree)

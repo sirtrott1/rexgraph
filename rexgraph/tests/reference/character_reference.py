@@ -1,8 +1,8 @@
 """
-Character bundle: χ (per-edge), φ (per-vertex), χ* (averaged), κ (coherence).
+Character bundle: χ (per edge), φ (per vertex), χ* (averaged), κ (coherence).
 
-Pure-NumPy reference implementations matching the corrected definitions
-from `rexgraph.core._character`. Builds on the trace-normalized hat
+Pure NumPy reference implementations matching the corrected definitions
+from `rexgraph.core._character`. Builds on the trace normalized hat
 operators from `channels.py`.
 
 The framework's algebraic identities (these are debug oracles):
@@ -33,18 +33,18 @@ from __future__ import annotations
 
 import numpy as np
 
-# χ (per-edge structural character)
+# χ (per edge structural character)
 
 
 def compute_chi(RL: np.ndarray, hats: list[np.ndarray]) -> np.ndarray:
-    """Per-edge structural character: χ(e, k) = hat_k[e, e] / RL[e, e].
+    """Per edge structural character: χ(e, k) = hat_k[e, e] / RL[e, e].
 
     Returns an (n_E, 4) array where each row is a probability distribution
     over the four channels (T, G, F, C).
 
     When RL[e, e] ≈ 0 (degenerate edge), defaults to uniform 0.25.
 
-    Sum over k MUST equal 1 for every edge when hats are trace-normalized
+    Sum over k MUST equal 1 for every edge when hats are trace normalized
     and RL = sum_k hat_k. If sums differ from 1 by more than 1e-10, the
     upstream channel construction is broken.
     """
@@ -63,7 +63,7 @@ def compute_chi(RL: np.ndarray, hats: list[np.ndarray]) -> np.ndarray:
     return chi
 
 
-# φ (per-vertex structural character via pseudoinverse)
+# φ (per vertex structural character via pseudoinverse)
 
 
 def compute_phi_pseudoinverse(
@@ -71,14 +71,14 @@ def compute_phi_pseudoinverse(
     RL: np.ndarray,
     hats: list[np.ndarray],
 ) -> np.ndarray:
-    """Per-vertex structural character via pseudoinverse.
+    """Per vertex structural character via pseudoinverse.
 
     For each vertex v:
         x = RL^+ B_1[v, :]
         s_vv = B_1[v, :]^T x
         φ(v, k) = x^T hat_k x / s_vv
 
-    Returns (n_V, 4). Defaults to uniform 0.25 for non-structural vertices
+    Returns (n_V, 4). Defaults to uniform 0.25 for non structural vertices
     (vertices with no incident edges) and degenerate cases.
 
     NOTE: With proper trace normalization of hats and RL = sum_k hat_k,
@@ -95,7 +95,7 @@ def compute_phi_pseudoinverse(
     for v in range(n_V):
         b = B_1[v, :]
         if np.max(np.abs(b)) < 1e-15:
-            # Non-structural vertex (no incident edges)
+            # Non structural vertex (no incident edges)
             phi[v, :] = 0.25
             continue
         x = RL_pinv @ b
@@ -109,15 +109,15 @@ def compute_phi_pseudoinverse(
     return phi
 
 
-# χ* (mean χ over incident edges, naive per-vertex character)
+# χ* (mean χ over incident edges, naive per vertex character)
 
 
 def compute_chi_star(B_1: np.ndarray, chi: np.ndarray) -> np.ndarray:
-    """Mean structural character over incident edges (naive per-vertex view).
+    """Mean structural character over incident edges (naive per vertex view).
 
     χ*(v, k) = mean over edges incident to v of χ(e, k).
 
-    Defaults to uniform 0.25 for non-structural vertices. Compared against
+    Defaults to uniform 0.25 for non structural vertices. Compared against
     the rigorous φ to compute coherence κ.
 
     Returns (n_V, 4).
@@ -148,12 +148,12 @@ def compute_chi_star(B_1: np.ndarray, chi: np.ndarray) -> np.ndarray:
 
 
 def compute_kappa(phi: np.ndarray, chi_star: np.ndarray) -> np.ndarray:
-    """Per-vertex coherence: κ(v) = 1 - 0.5 * L1(φ(v) - χ*(v)).
+    """Per vertex coherence: κ(v) = 1 - 0.5 * L1(φ(v) - χ*(v)).
 
     Range [0, 1]. High κ means the rigorous pseudoinverse character
-    agrees with the naive averaged-edge character (the vertex sits in
+    agrees with the naive averaged edge character (the vertex sits in
     a structurally coherent neighborhood). Low κ flags structural noise,
-    OCR damage, mixed-register content, or other incoherence.
+    OCR damage, mixed register content, or other incoherence.
 
     The 0.5 factor turns L1 distance on the simplex into the total
     variation metric, which lives in [0, 1] for two probability vectors.
@@ -187,7 +187,7 @@ def hodge_decompose(
         - harmonic: depends on global topology (Betti number content)
 
     Returns
-    -------
+
     (pct_grad, pct_curl, pct_harm) : tuple of three floats summing to 1
     """
     n_V, n_E = B_1.shape
@@ -232,7 +232,7 @@ def verify_character_identities(
     structural_vertex_mask: np.ndarray = None,
     tol: float = 1e-8,
 ) -> dict:
-    """Verify the framework's character-bundle identities.
+    """Verify the framework's character bundle identities.
 
     These are debug oracles. If they fail, the channel construction is wrong.
 

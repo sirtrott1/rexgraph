@@ -35,7 +35,7 @@ def sections():
 def test_only_passages_that_contain_a_query_term_are_reported():
     r = PassageAnswerer().answer("where is the harpoon", sections())
     assert r["answered"]
-    assert [p["section"] for p in r["passages"]] == ["ch-12"]   # ch-3 holds no term
+    assert [p["section"] for p in r["passages"]] == ["ch-12"]   # ch 3 holds no term
 
 
 def test_what_a_passage_contains_is_the_exact_intersection():
@@ -106,7 +106,7 @@ def test_the_worker_interface_matches_the_hive_primitive():
 
 
 def test_a_span_is_rendered_as_offset_and_length():
-    # 10657+394 is a 394-byte section at offset 10657. Printed as a range it reads
+    # 10657+394 is a 394 byte section at offset 10657. Printed as a range it reads
     # "10657-394", an interval running backwards.
     r = PassageAnswerer().answer("where is the harpoon", [
         {"section_id": "s124", "layer": "sentence", "span": (10657, 394),

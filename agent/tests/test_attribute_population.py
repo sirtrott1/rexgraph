@@ -73,7 +73,7 @@ def _built(construction):
 
 
 def test_the_construction_shape_matches_the_store(tmp_path):
-    """Same `{grade: {index: {key: value}}}`, so it is a hand-off not a translation."""
+    """Same `{grade: {index: {key: value}}}`, so it is a hand off not a translation."""
     attributes = load_sdf(_write(tmp_path, "b.sdf", _BENZENE)).attributes
     assert set(attributes) <= {0, 1, 2}
     assert all(isinstance(k, int) for cells in attributes.values() for k in cells)
@@ -106,7 +106,7 @@ def test_sdf_carries_the_element_and_the_bond_order(tmp_path):
 
 def test_a_delocalised_relation_says_so_rather_than_borrowing_an_order(tmp_path):
     """It is not a bond, so it has no order. Putting a sentinel under `bond_order` also
-    made that column mixed-type, and `_pack_cell_metadata` packs a mixed column as
+    made that column mixed type, and `_pack_cell_metadata` packs a mixed column as
     strings, so every bond order came back as "4" after a round trip."""
     rex = _built(load_sdf(_write(tmp_path, "b.sdf", _BENZENE)))
     wide = rex.nE - 1

@@ -1,12 +1,12 @@
 """What a corpus contributes, separated from what the math does.
 
 (The module is `corpus_profile`, not `profile`: the stdlib has a `profile` module and
-`cProfile` imports it by name, so a top-level `profile.py` anywhere on `sys.path`
+`cProfile` imports it by name, so a top level `profile.py` anywhere on `sys.path`
 shadows it. torch._dynamo imports cProfile, so 17 torch tests failed with
 `module 'profile' has no attribute 'run'`, and only in the full suite, because that is
 when pytest puts the package directory on the path.)
 
-The relational construction is corpus-independent and always was: delimiters gate
+The relational construction is corpus independent and always was: delimiters gate
 existence, arity classes the result into witness / pairwise / branching, the share is
 `1/(k-1)`, the head carries the `-1`, layers partition one field, and the lookup is
 diffusion over that partition. None of that changes for Chinese, for Rust, or for an
@@ -50,7 +50,7 @@ __all__ = [
            "is_scriptio_continua"]
 
 #: Scripts written without word separators, so their natural unit is the CHARACTER
-#: rather than the space-delimited run. This is a property of the script recorded by
+#: rather than the space delimited run. This is a property of the script recorded by
 #: Unicode, not a judgement: a `\\w+` rule returns one token for a whole Chinese
 #: sentence, which is a single vertex where there should be many.
 _CONTINUA = (
@@ -68,9 +68,9 @@ def is_scriptio_continua(ch: str) -> bool:
     return any(lo <= cp <= hi for lo, hi in _CONTINUA)
 
 
-#: a word in a space-separated script: letters and marks of ANY script, plus the
-#: joiners that sit inside words. `\\w` is Unicode-aware in Python 3, which is the whole
-#: fix: the old `[a-z']+` was ASCII-only and silently produced nothing elsewhere.
+#: a word in a space separated script: letters and marks of ANY script, plus the
+#: joiners that sit inside words. `\\w` is Unicode aware in Python 3, which is the whole
+#: fix: the old `[a-z']+` was ASCII only and silently produced nothing elsewhere.
 _WORD = re.compile(r"[^\W\d_][\w'’­-]*", re.UNICODE)
 #: characters that sit INSIDE a word without being letters: the apostrophes English
 #: needs, the hyphen, and the joiners Indic and Arabic shaping use.
@@ -104,9 +104,9 @@ class CorpusProfile:
 
     name: str
     encoding: str = "utf-8"
-    #: "script" (natural language, script-aware) or "identifier" (source code)
+    #: "script" (natural language, script aware) or "identifier" (source code)
     token_rule: str = "script"
-    #: fold case when tokenising. TRUE for prose, where a sentence-initial capital is
+    #: fold case when tokenising. TRUE for prose, where a sentence initial capital is
     #: noise and `The` and `the` are the same word; FALSE for source, where `Foo` and
     #: `foo` are different identifiers and folding them merges two vertices that the
     #: language keeps apart.
@@ -125,7 +125,7 @@ class CorpusProfile:
     #: parser for a programming language. None means orientation stays positional, which
     #: is the approximation the grammar exists to replace.
     grammar: object = None
-    #: free-form, for anything a reader needs and the math does not
+    #: free form, for anything a reader needs and the math does not
     extra: dict = field(default_factory=dict)
 
 
@@ -146,11 +146,11 @@ def tokenize(text, profile: CorpusProfile):
     """`[(token, start, end)]` with CHARACTER offsets, so spans stay addressable.
 
     Positions are returned because every layer above this addresses the source by span;
-    a tokenizer that returns only strings forces the caller to re-find them, which is the
-    re-parse the heap design exists to avoid.
+    a tokenizer that returns only strings forces the caller to re find them, which is the
+    re parse the heap design exists to avoid.
 
-    Under `"script"`, a run of a space-separated script is one token and a character of a
-    scriptio-continua script is one token. That is a property of the script rather than a
+    Under `"script"`, a run of a space separated script is one token and a character of a
+    scriptio continua script is one token. That is a property of the script rather than a
     segmentation decision: Chinese has no spaces, so a `\\w+` rule would make one vertex
     of a whole sentence.
 
@@ -184,8 +184,8 @@ def tokenize(text, profile: CorpusProfile):
         if is_scriptio_continua(ch):
             # the unit is a GRAPHEME CLUSTER, not a codepoint: a base character plus the
             # marks that belong to it. Thai and Khmer write vowels and tones as combining
-            # marks, so a per-codepoint rule tore `นั่ง` into four vertices where there
-            # are two graphemes. CJK carries no marks, so this is a no-op there.
+            # marks, so a per codepoint rule tore `นั่ง` into four vertices where there
+            # are two graphemes. CJK carries no marks, so this is a no op there.
             j = i + 1
             while j < n and unicodedata.category(s[j])[0] == "M":
                 j += 1
@@ -236,7 +236,7 @@ def tokenize(text, profile: CorpusProfile):
 TEXT = CorpusProfile(name="text")
 
 #: English prose as Project Gutenberg distributes it. The abbreviations, the heading
-#: conventions and the inserted markers are ENGLISH-AND-GUTENBERG facts, which is why
+#: conventions and the inserted markers are ENGLISH AND GUTENBERG facts, which is why
 #: they belong here and not in the segmenter.
 ENGLISH_GUTENBERG = CorpusProfile(
     name="english-gutenberg",

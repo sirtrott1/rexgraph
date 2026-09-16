@@ -58,9 +58,9 @@ def _require_langchain():
 
 
 def _resolve_query_seeds(query: str, rex) -> list:
-    """Resolve a natural-language query to the vertex indices of the entities it
+    """Resolve a natural language query to the vertex indices of the entities it
     names, by matching query tokens against the complex's vertex_labels. Returns the
-    seed indices for a demand-driven, topic-scoped reading (empty if none match)."""
+    seed indices for a demand driven, topic scoped reading (empty if none match)."""
     meta = getattr(rex, "_agent_meta", {}) or {}
     labels = list(meta.get("vertex_labels", []) or [])
     if not labels or not query:
@@ -91,9 +91,9 @@ class RexConfidenceTool(BaseTool):
     - void_affinity: how much of the signal falls in structural gaps
     - dipole_ratio: face vs void balance (-1 = all void, +1 = all face)
     - eps1: chain condition violation (should be ~0)
-    - kappa_mean: cross-dimensional coherence
+    - kappa_mean: cross dimensional coherence
 
-    The verdict is computed from EXACT invariants and returned; do not re-derive it
+    The verdict is computed from EXACT invariants and returned; do not re derive it
     from cutoffs. `chain_valid` false means the complex is malformed. `void_affinity`
     lives in [-1, 1], so a POSITIVE value means the signal leans toward structure that
     is not realised. Coherence is reported as a magnitude, not judged.
@@ -123,9 +123,9 @@ class RexConfidenceTool(BaseTool):
         rex = self.rex
         nE = rex.nE
 
-        # TOPIC-SCOPED path: if the query names entities in the complex, give a
-        # demand-driven reading of the sub-complex the topic actually activates -
-        # not a whole-graph mean (which the void/κ globals below would dilute).
+        # TOPIC SCOPED path: if the query names entities in the complex, give a
+        # demand driven reading of the sub complex the topic actually activates -
+        # not a whole graph mean (which the void/κ globals below would dilute).
         seeds = _resolve_query_seeds(query, rex)
         if seeds:
             try:
@@ -164,7 +164,7 @@ class RexConfidenceTool(BaseTool):
             except Exception:
                 pass  # fall through to the global reading
 
-        # GLOBAL path (no resolvable topic): whole-complex signal reading.
+        # GLOBAL path (no resolvable topic): whole complex signal reading.
         if signal == "uniform":
             f_E = np.ones(nE, dtype=np.float64)
         else:
@@ -208,9 +208,9 @@ class RexConfidenceTool(BaseTool):
         km = result.get("kappa_mean")
         # A high void affinity is on its own enough to say LOW. Every other rung of this
         # ladder reads the coherence, so without it there is no rank to give. MODERATE
-        # used to be the catch-all, which meant a complex with no coherence reading was
+        # used to be the catch all, which meant a complex with no coherence reading was
         # told it had "some structural support": kappa_mean was NaN, every comparison
-        # against NaN was False, and the fall-through answered anyway.
+        # against NaN was False, and the fall through answered anyway.
         if va is not None and va > 0.5:
             result["confidence"] = "LOW - high void affinity, structural gaps present"
         elif km is None:
@@ -326,8 +326,8 @@ class RexHodgeTool(BaseTool):
     Curl = circulating through triangles.
     Harmonic = topological, persists through cycles.
 
-    For an LLM agent: gradient-dominated answers come from local context,
-    curl-dominated answers require relational reasoning, harmonic-dominated
+    For an LLM agent: gradient dominated answers come from local context,
+    curl dominated answers require relational reasoning, harmonic dominated
     answers depend on global structure.
     """
 

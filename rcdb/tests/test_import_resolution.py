@@ -24,7 +24,7 @@ def test_no_sibling_distribution_resolved_to_a_shim():
     """Any sibling this suite pulled in must be real, not only the package under test.
 
     This is the case that actually escaped. A test added an rcdb dependency to the rcql
-    suite, the conftest at the time de-shadowed only rcql, and pytest.importorskip('rcdb')
+    suite, the conftest at the time de shadowed only rcql, and pytest.importorskip('rcdb')
     PASSED against the namespace shim, so the guard read as satisfied and six tests failed
     on a missing attribute instead. Checking every sibling that was imported catches that
     without anyone remembering to update a list.

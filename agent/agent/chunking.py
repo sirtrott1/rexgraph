@@ -1,5 +1,5 @@
 """
-agent.chunking: Hodge-based text chunking.
+agent.chunking: Hodge based text chunking.
 
 Splits text at gradient peaks of the Hodge decomposition.
 Gradient energy concentrates at topic boundaries. Each
@@ -79,7 +79,7 @@ def hodge_chunk(
     The gradient component of the Hodge decomposition measures
     hierarchical flow. Its energy concentrates at topic boundaries
     where information transitions from one subject to another.
-    Local maxima of per-sentence gradient energy are natural
+    Local maxima of per sentence gradient energy are natural
     split points.
     """
     if not edge_spans or not sentence_spans:
@@ -130,7 +130,7 @@ def hodge_chunk(
     # Merge small chunks, split large ones
     chunks = _enforce_size_limits(chunks, source_text, min_chunk_chars, max_chunk_chars)
 
-    # Compute per-chunk structural properties
+    # Compute per chunk structural properties
     _compute_chunk_properties(chunks, rex)
 
     return chunks
@@ -154,12 +154,12 @@ def _gradient_energy_per_sentence(rex, edge_spans, n_sents):
     except Exception:
         return grad_per_sent
 
-    # Per-edge gradient energy
+    # Per edge gradient energy
     grad_sq = np.asarray(grad) ** 2
 
-    # Add diffusion dissipation as a second boundary signal. EIGEN-FREE / GPU-capable:
-    # e^{-t·RL} flow via matrix-free Chebyshev on the SPARSE relational Laplacian (no
-    # dense eigendecomposition of RL through spectral_bundle) - a per-chunk hot loop.
+    # Add diffusion dissipation as a second boundary signal. EIGEN FREE / GPU capable:
+    # e^{-t·RL} flow via matrix free Chebyshev on the SPARSE relational Laplacian (no
+    # dense eigendecomposition of RL through spectral_bundle) - a per chunk hot loop.
     try:
         from rexgraph import scale_propagator as _spg
         RL = rex.relational_laplacian
@@ -172,7 +172,7 @@ def _gradient_energy_per_sentence(rex, edge_spans, n_sents):
             dissipation = np.abs(diffused[0] - diffused[-1])
             grad_sq = grad_sq + dissipation  # combine both signals
     except Exception:
-        pass  # fall back to gradient-only
+        pass  # fall back to gradient only
 
     # Map to sentences
     count_per_sent = np.zeros(n_sents, dtype=np.float64)
@@ -191,7 +191,7 @@ def _find_gradient_peaks(energy, n_sents, min_gap=3):
     """Find local maxima of gradient energy.
 
     Only keeps peaks separated by at least min_gap sentences
-    to avoid over-splitting.
+    to avoid over splitting.
     """
     if n_sents < min_gap * 2:
         return []
@@ -205,7 +205,7 @@ def _find_gradient_peaks(energy, n_sents, min_gap=3):
     peaks = []
     for i in range(1, n_sents - 1):
         if energy[i] > energy[i - 1] and energy[i] > energy[i + 1]:
-            if energy[i] > np.mean(energy) * 0.5:  # above half-mean threshold
+            if energy[i] > np.mean(energy) * 0.5:  # above half mean threshold
                 peaks.append((i, energy[i]))
 
     # Filter by minimum gap

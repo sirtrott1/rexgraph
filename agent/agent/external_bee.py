@@ -1,5 +1,5 @@
 """
-agent.external_bee: an OpenAI-compatible endpoint whose replies come from a caller that polls.
+agent.external_bee: an OpenAI compatible endpoint whose replies come from a caller that polls.
 
 `Hive.attach` takes any endpoint speaking `/v1/chat/completions`, and `_chat_full` is the only
 way a chat bee is ever invoked. That contract assumes the responder holds a listening socket,
@@ -18,10 +18,10 @@ the swarm keeps the property of running without the server layer present.
 
 An unanswered request is a timeout rather than a hang. `reply_timeout` is set below the hive's
 own 120s call timeout so the broker is the one that gives up first, returning 504; `_chat_full`
-reads that as None and the hive routes elsewhere, which is the same fail-soft path an unreachable
+reads that as None and the hive routes elsewhere, which is the same fail soft path an unreachable
 bee already takes.
 
-`token_ref` names an environment variable or secret-store entry, never a credential. It is
+`token_ref` names an environment variable or secret store entry, never a credential. It is
 resolved per request through `agent.secrets.resolve_ref` and guards both faces of the broker, so
 the reference a `Bee.api_key_ref` carries is the one the responder presents back.
 
@@ -78,7 +78,7 @@ class Broker:
     """The queue behind the endpoint: completions in from the hive, answers in from a responder.
 
     One lock guards `_pending`; the handoff itself rides on a `queue.Queue` for the claim side
-    and a per-request `Event` for the answer side, so a request thread blocks on exactly the one
+    and a per request `Event` for the answer side, so a request thread blocks on exactly the one
     event that will be set for it and no thread scans the table."""
 
     def __init__(self, *, name: str = "external", model: str = "external",
@@ -212,7 +212,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     @property
     def broker(self) -> Broker:
-        return self.server.broker            # type: ignore[attr-defined]
+        return self.server.broker            # type: ignore[attr defined]
 
     def log_message(self, fmt, *args):
         logger.debug("%s %s", self.address_string(), fmt % args)
@@ -242,7 +242,7 @@ class _Handler(BaseHTTPRequestHandler):
             return None
 
     def _drain(self) -> None:
-        """Consume the request body without using it. Keep-alive frames one request after the
+        """Consume the request body without using it. Keep alive frames one request after the
         next on the same socket, so a body left unread is parsed as the next request line."""
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -310,7 +310,7 @@ class _Handler(BaseHTTPRequestHandler):
                                                   "type": "invalid_request_error"}})
             ok = self.broker.answer(rid, body)
             # A late answer is not an error the responder can act on, so it reads as
-            # accepted-but-dropped rather than as a failure to retry.
+            # accepted but dropped rather than as a failure to retry.
             return self._send(200 if ok else 409, {"ok": ok, "id": rid})
         return self._send(404, {"error": {"message": "no such route", "type": "not_found"}})
 
@@ -332,7 +332,7 @@ class _Handler(BaseHTTPRequestHandler):
 def render_prompt(messages: list) -> str:
     """A completion request as one piece of text for a command that reads stdin.
 
-    A tool-calling harness wants the structured messages and gets them from
+    A tool calling harness wants the structured messages and gets them from
     `/agent/next` untouched; a command line wants a transcript. Roles are kept as labels
     rather than dropped, because a system turn that arrives indistinguishable from the
     user's is a different request from the one the hive sent."""
@@ -426,7 +426,7 @@ def serve(*, host: str = "127.0.0.1", port: int = 0, broker: Broker | None = Non
     b = broker or Broker(**kw)
     httpd = ThreadingHTTPServer((host, port), _Handler)
     httpd.daemon_threads = True
-    httpd.broker = b                                 # type: ignore[attr-defined]
+    httpd.broker = b                                 # type: ignore[attr defined]
     t = threading.Thread(target=httpd.serve_forever, name="external-bee", daemon=True)
     t.start()
     _record(b.name, "serve", {"url": f"http://{host}:{httpd.server_address[1]}"})

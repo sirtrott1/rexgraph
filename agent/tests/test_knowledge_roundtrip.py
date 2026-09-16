@@ -10,15 +10,15 @@ document, analysis pipeline, structural features, and triples out.
 
 The join itself is checked on the case that matters: a genome annotation, a GO
 annotation set and the ontology, which name the same gene three different ways and
-have no join key in common until each file's own cross-references are followed.
+have no join key in common until each file's own cross references are followed.
 """
 from __future__ import annotations
 
 import numpy as np
 import pytest
 from agent.knowledge import Knowledge, join
-from tests.test_ontology_formats import GAF, NT, OBO, OBOGRAPH, OWL, TTL
-from tests.test_science_formats import BED, FASTA, GFF, PDB, SDF, VCF
+from _rexgraph_agent_tests.test_ontology_formats import GAF, NT, OBO, OBOGRAPH, OWL, TTL
+from _rexgraph_agent_tests.test_science_formats import BED, FASTA, GFF, PDB, SDF, VCF
 
 #: a GTF, a GAF and an OBO that describe the same genes with no shared spelling
 GTF = (
@@ -98,7 +98,7 @@ def _write(tmp_path, name, text):
 
 @pytest.fixture
 def study(tmp_path):
-    """The three-file case: genome annotation, GO annotation, ontology."""
+    """The three file case: genome annotation, GO annotation, ontology."""
     return [_write(tmp_path, "genes.gtf", GTF),
             _write(tmp_path, "goa.gaf", BRCA_GAF),
             _write(tmp_path, "go.obo", BRCA_OBO)]
@@ -110,7 +110,7 @@ def study(tmp_path):
 def test_three_files_that_share_no_spelling_still_join(study):
     """The GTF calls it `ENSG00000012048` and `BRCA1`; the GAF calls it `P38398`,
     `BRCA1` and `RNF53`; the OBO calls the term `GO:0006281`. Nothing matches across
-    files until each file's own cross-references are followed."""
+    files until each file's own cross references are followed."""
     k = join(*study)
     joined = {j["entity"] for j in k.report["joined"]}
     assert "BRCA1" in joined, f"the gene did not join across files: {joined}"
@@ -135,7 +135,7 @@ def test_a_bare_accession_resolves_to_the_name_the_ontology_gives_it(study):
 def test_a_transcript_does_not_merge_into_its_own_gene(study):
     """`gene_name` on a transcript row names the transcript's GENE. Treating it as an
     alias collapses the two into one vertex and turns their relation into a
-    self-loop, which is a silent loss of resolution."""
+    self loop, which is a silent loss of resolution."""
     k = join(*study)
     assert "ENST00000357654" in k.entities, "the transcript lost its identity"
     assert ("ENST00000357654", "part_of", "BRCA1") in set(k.triples())
@@ -387,7 +387,7 @@ def test_the_four_channels_are_always_present(tmp_path):
 
 def test_an_inactive_channel_is_zero_not_absent(tmp_path):
     """Two overlapping pairs on different sequences give two relations that share no
-    entity, so co-participation carries nothing. The column stays and reads zero."""
+    entity, so co participation carries nothing. The column stays and reads zero."""
     bed = ("chr1\t0\t10\ta\nchr1\t5\t15\tb\n"
            "chr2\t0\t10\tc\nchr2\t5\t15\td\n")
     k = join(_write(tmp_path, "d.bed", bed))
@@ -499,7 +499,7 @@ def test_files_that_relate_nothing_are_refused_with_a_reason(client):
 
 
 def test_the_route_sends_only_numbers(client):
-    """The join report reaches the browser, so nothing in it may be non-finite."""
+    """The join report reaches the browser, so nothing in it may be non finite."""
     import json
     r = _post(client, ("genes.gtf", GTF), ("goa.gaf", BRCA_GAF))
     assert r.status_code == 200
@@ -685,9 +685,9 @@ def test_the_route_carries_the_recommendations(client):
 def test_the_join_is_not_quadratic():
     """A regression guard with a lot of headroom.
 
-    The join was O(groups x identifier-sets): it scanned every identifier set once
+    The join was O(groups x identifier sets): it scanned every identifier set once
     per group. At 20k terms that was 322 seconds, and at real GO scale it did not
-    finish. Attributing each set to its group in one pass makes it near-linear, and
+    finish. Attributing each set to its group in one pass makes it near linear, and
     45k terms with 400k annotations now joins in under three seconds.
 
     The bound below is ~30x the linear time and ~1/10th the quadratic time, so it
@@ -856,13 +856,13 @@ def test_the_sparse_join_agrees_with_the_dense_kernel(tmp_path):
     """`_joins.outer_join` is the oracle, not the path.
 
     The kernel takes DENSE `B1`/`B2`, which at 65k x 490k is 255 GB, so the assembly
-    in `agent.knowledge` stays sparse and union-find based. That is only defensible if
+    in `agent.knowledge` stays sparse and union find based. That is only defensible if
     the two agree where the dense one can run, so this pins them on a size it can.
 
     The input is two fragments that overlap on NAMED terms, because the kernel aligns
     by exact label match and nothing else. That is a second reason it cannot be the
     path: a GAF calls a term `GO:0006281` where the OBO calls it `DNA repair`, and
-    resolving that is what the cross-reference join does and what the kernel does not.
+    resolving that is what the cross reference join does and what the kernel does not.
     """
     from rexgraph.core import _joins
 
@@ -905,7 +905,7 @@ def test_the_dense_kernel_cannot_resolve_cross_references(tmp_path):
     """The other reason it is an oracle and not the path.
 
     A GAF names a term by accession and an OBO names it by label. `build_shared_vertex_map`
-    matches labels exactly, so it aligns nothing; the cross-reference join aligns them
+    matches labels exactly, so it aligns nothing; the cross reference join aligns them
     because the files declare the correspondence themselves.
     """
     from rexgraph.core import _joins

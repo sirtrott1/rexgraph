@@ -10,7 +10,7 @@ derives the MCP payload from that object rather than from a parallel list, and
 `call()` dispatches through the same registry. A name that resolves to nothing cannot
 be advertised, because there is nowhere to write it down.
 
-Every handler takes JSON-shaped arguments and returns a JSON-shaped result, so the
+Every handler takes JSON shaped arguments and returns a JSON shaped result, so the
 same registry serves an MCP server, an HTTP route and a Python caller unchanged.
 """
 

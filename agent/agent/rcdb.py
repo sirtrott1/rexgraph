@@ -2,10 +2,10 @@
 agent.rcdb: compatibility surface for the sibling rcdb package.
 
 The implementation moved out of the agent so a store can be installed and reasoned about
-without the application. Everything public is re-exported here, so the thirty-odd modules
-and sixty-odd test files that import `agent.rcdb` keep working unchanged.
+without the application. Everything public is re exported here, so the thirty odd modules
+and sixty odd test files that import `agent.rcdb` keep working unchanged.
 
-Re-exported dynamically rather than by name because the surface is large and a hand
+Re exported dynamically rather than by name because the surface is large and a hand
 written list is a second place to forget something: a name added to the package and not
 to the list would simply stop existing here.
 """

@@ -2,9 +2,9 @@
 """
 HDF5-based storage for the rex framework.
 
-Single-file counterpart to zarr_format. Same serialization surface
+Single file counterpart to zarr_format. Same serialization surface
 (RexGraph, TemporalRex, cache groups, NamedTuples) stored in a
-single .h5 file. On-disk layout mirrors the Zarr format.
+single .h5 file. On disk layout mirrors the Zarr format.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ _ALL_CACHEABLE.update(_CACHE_GROUPS.keys())
 
 def _ensure_h5(path: str) -> str:
     """Append .h5 if not already present."""
-    return path if path.endswith(".h5") else path + ".h5"
+    return path if path.endswith((".h5", ".hdf5")) else path + ".h5"
 
 
 # Simple array save/load
@@ -85,10 +85,10 @@ def load_hdf5_array(path: str) -> np.ndarray:
 # RexHDF5Format
 
 class RexHDF5Format(CacheLayoutMixin):
-    """HDF5-based on-disk format for the rex framework.
+    """HDF5-based on disk format for the rex framework.
 
     Parameters
-    ----------
+
     compression : str or None
         HDF5 compression filter: "lzf" (fast, default), "gzip"
         (portable), or None.
@@ -139,7 +139,7 @@ class RexHDF5Format(CacheLayoutMixin):
     def _store_chunked(
         self, group, name: str, arr: NDArray, chunk_rows: int = 10_000
     ) -> None:
-        """Store a large array with explicit row-based chunking."""
+        """Store a large array with explicit row based chunking."""
         arr = np.asarray(arr)
         kw: dict = {}
         if self.compression:
@@ -198,7 +198,7 @@ class RexHDF5Format(CacheLayoutMixin):
         """Write a RexGraph, TemporalRex, or ndarray to an .h5 file.
 
         Parameters
-        ----------
+
         path : str
             Output path (.h5 suffix added if missing).
         obj : RexGraph, TemporalRex, or ndarray
@@ -284,7 +284,7 @@ class RexHDF5Format(CacheLayoutMixin):
             raise TypeError(f"Unknown object_type in group '{name}': {t}")
 
     def list_groups(self, path: str) -> list[str]:
-        """List sub-object names in a container file."""
+        """List sub object names in a container file."""
         path = _ensure_h5(path)
         if not os.path.exists(path):
             return []
@@ -301,7 +301,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
 
     def _write_temporal_cache(self, g, trex, cache) -> None:
-        """Write TemporalRex-specific cached data."""
+        """Write TemporalRex specific cached data."""
         names = self._resolve_cache_names(cache)
         if not names:
             return
@@ -366,6 +366,9 @@ class RexHDF5Format(CacheLayoutMixin):
     def _read_temporal_rex(self, g) -> TemporalRex:
         """Reconstruct a TemporalRex from an HDF5 group."""
         from ..graph import TemporalRex
+
+        if "temporal_state_header" in g.attrs:
+            return self._read_temporal_state(g)
 
         T = int(g.attrs["T"])
         directed = bool(g.attrs.get("directed", False))
@@ -829,7 +832,7 @@ class RexHDF5Format(CacheLayoutMixin):
             return result
 
 
-# Module-level convenience functions
+# Module level convenience functions
 
 _default_fmt: RexHDF5Format | None = None
 
@@ -851,7 +854,7 @@ def save_hdf5(
     """Save a RexGraph, TemporalRex, or array to HDF5 format.
 
     Parameters
-    ----------
+
     path : str
         Output path (.h5 appended automatically).
     obj : RexGraph, TemporalRex, or ndarray

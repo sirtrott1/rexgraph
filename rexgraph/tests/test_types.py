@@ -174,7 +174,7 @@ class TestSpectralBundle:
         assert "alpha_T" in SpectralBundle._fields
 
     def test_has_legacy_rl1(self):
-        """RL_1 = L1 + alpha_G * L_O is still present as legacy 2-term version."""
+        """RL_1 = L1 + alpha_G * L_O is still present as legacy 2 term version."""
         assert "RL_1" in SpectralBundle._fields
         assert "evals_RL_1" in SpectralBundle._fields
         assert "evecs_RL_1" in SpectralBundle._fields

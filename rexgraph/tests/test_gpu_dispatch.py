@@ -1,10 +1,10 @@
-"""GPU-resident Chebyshev == CPU (the parallel/GPU wiring).
+"""GPU resident Chebyshev == CPU (the parallel/GPU wiring).
 
-Every eigen-free propagator in the tower is a Chebyshev polynomial of a sparse
+Every eigen free propagator in the tower is a Chebyshev polynomial of a sparse
 operator applied to a state, so the SAME computation runs on CPU (scipy) or, when a
-GPU backend is active, entirely on-device (operator + Chebyshev vectors stay on the
+GPU backend is active, entirely on device (operator + Chebyshev vectors stay on the
 GPU across the whole recurrence). These tests pin GPU == CPU to machine precision.
-They skip cleanly on a CPU-only host, so the suite passes everywhere.
+They skip cleanly on a CPU only host, so the suite passes everywhere.
 """
 import numpy as np
 import pytest
@@ -65,7 +65,7 @@ def test_gpu_handles_1d_and_block_shapes(big_L):
 @gpu_only
 def test_compute_default_backend_routes_to_gpu(big_L):
     """Setting the compute default backend to a GPU one makes heat_apply(backend=None)
-    run on-device automatically - the dispatch seam callers rely on."""
+    run on device automatically - the dispatch seam callers rely on."""
     from rexgraph import compute
     rng = np.random.default_rng(3)
     F = rng.standard_normal((big_L.shape[0], 8))
@@ -91,14 +91,14 @@ def test_cpu_only_fallback_never_breaks(big_L):
 
 @gpu_only
 def test_greens_diagonal_gpu_matches_cpu(monkeypatch):
-    """diag(RL4^{-1}) via GPU-resident block-CG equals the CPU tiling (and the exact
+    """diag(RL4^{-1}) via GPU resident block CG equals the CPU tiling (and the exact
     dense diag(inv)). The gate is forced low so the GPU path actually runs."""
     import scipy.sparse as sp
     monkeypatch.setattr(spg, "_GPU_MIN_WORK", 0)
     n = 512
     A = sp.random(n, n, density=0.02, format="csr", random_state=0)
     A = (A + A.T)
-    A = (A + sp.diags(np.abs(A).sum(1).A1 + 1.0)).tocsr()   # SPD, well-conditioned
+    A = (A + sp.diags(np.abs(A).sum(1).A1 + 1.0)).tocsr()   # SPD, well conditioned
     cpu = spg.greens_diagonal(A, backend="cpu")
     gpu = spg.greens_diagonal(A, backend="gpu")
     exact = np.diag(np.linalg.inv(A.toarray()))
@@ -108,8 +108,8 @@ def test_greens_diagonal_gpu_matches_cpu(monkeypatch):
 
 @gpu_only
 def test_sparse_phi_gpu_matches_cpu(monkeypatch):
-    """The agent's coherence/character hot path (per-vertex block-CG Green's phi) runs
-    GPU-resident and equals the CPU tiling. Gate forced low so the GPU path runs."""
+    """The agent's coherence/character hot path (per vertex block CG Green's phi) runs
+    GPU resident and equals the CPU tiling. Gate forced low so the GPU path runs."""
     from rexgraph import sparse_character as sc
     from rexgraph.graph import RexGraph
     monkeypatch.setattr(spg, "_GPU_MIN_WORK", 0)

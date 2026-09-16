@@ -1,8 +1,9 @@
 """Exact geometry of a relational complex: lengths and angles without irrationals.
 
 Rendering a complex needs lengths and angles. Taken the usual way those are a square
-root and an arccosine, both transcendental, both approximate, and neither a reading of
-the boundary tensor. Rational trigonometry gives the same geometry one step earlier,
+root and an arccosine. A square root of a rational is algebraic but may be irrational;
+the usual floating evaluations are approximations. Rational trigonometry reads the
+boundary tensor one step earlier,
 where it is still rational:
 
     quadrance   Q(v) = <v, v>              the squared length
@@ -20,7 +21,7 @@ the T channel, so a relation's length IS its boundary concentration and arity is
 from it. Verified exact at k = 2..7.
 
 The columns are rebuilt from the boundary structure, NOT read off the assembled float
-`B1`. The share 1/(k-1) is not binary-exact for most arities, so converting the stored
+`B1`. The share 1/(k-1) is not binary exact for most arities, so converting the stored
 double to a Fraction gives the exact value of the double instead of the value: at k=4 it
 returns 432691404877902290367942354447019/324518553658426726783156020576256 where the
 answer is 4/3. Exactness needs an exact source, not an exact reading of an inexact one.
@@ -200,7 +201,7 @@ def embedded_geometry_of(rex, positions, *, limit: int = 0, exact: bool = True) 
 
 
 def _supports(rex) -> list:
-    """Each relation's vertex set, arity-general."""
+    """Each relation's vertex set, arity general."""
     rex._ensure_clean()
     bp, bi = np.asarray(rex._boundary_ptr), np.asarray(rex._boundary_idx)
     return [{int(v) for v in bi[bp[e]:bp[e + 1]]} for e in range(int(rex.nE))]

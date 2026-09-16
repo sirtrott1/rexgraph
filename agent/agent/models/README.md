@@ -1,21 +1,21 @@
-# models: the model-builder framework (on rexgraph.nn)
+# models: the model builder framework (on rexgraph.nn)
 
 Pick an archetype, override its parameters, point it at data, and train it as a single run, a staged
-multistep run, or a multi-model fusion. These are the assembled example models. They live outside
+multistep run, or a multi model fusion. These are the assembled example models. They live outside
 the `rexgraph` repo, which ships only `rexgraph.nn` (the parts to build them).
 
 ## Archetypes (the selector)
 
-| name | use-case | data kind | key params |
+| name | use case | data kind | key params |
 |---|---|---|---|
 | `mlp`  | tabular / vector: classification or regression | vector | `d_hid`, `n_layers`, `task` |
-| `cnn`  | image classification (`norm=False` drops the batch norm that fixes conditioning: the ill-conditioned setting for an optimizer A/B) | image | `depth`, `width`, `norm` |
-| `lm`   | sequence / language modeling (next-token) | sequence | `d`, `n_head`, `n_layer`, `attention` (`relational`/`standard`) |
-| `hgnn` | node classification on hypergraphs / higher-order relational data (advection+diffusion, uses signed orientation) | hypergraph | `d_hid`, `n_layers`, `flow`, `oriented` |
+| `cnn`  | image classification (`norm=False` drops the batch norm that fixes conditioning: the ill conditioned setting for an optimizer A/B) | image | `depth`, `width`, `norm` |
+| `lm`   | sequence / language modeling (next token) | sequence | `d`, `n_head`, `n_layer`, `attention` (`relational`/`standard`) |
+| `hgnn` | node classification on hypergraphs / higher order relational data (advection+diffusion, uses signed orientation) | hypergraph | `d_hid`, `n_layers`, `flow`, `oriented` |
 
 Every archetype is built from `rexgraph.nn` components (PropagatorAttention, `build_attention`, the
 rcf_torch propagators). No archetype builds an optimizer: training routes through
-`make_optimizer("auto")`, and since all four are feature-space models that resolves to plain Adam.
+`make_optimizer("auto")`, and since all four are feature space models that resolves to plain Adam.
 Register a new one with `register_archetype(...)`.
 
 ## Use it (Python)
@@ -92,7 +92,7 @@ to_rcdb(bundle, "sqlite:///rcdb.sqlite", name="my_hg", tags=["hgnn"])   # stored
 The flow: data (parquet / vectors / .rcbd / SQL) to DataBundle to model (weights to safetensors,
 config to json, training trajectory to `save_vectors`). For `hgnn` the complex goes to a `.rcbd`
 bundle or the RCDB, where it is queryable by its topology, not just id. The optimizer's own
-coordinated-vs-rotational trajectory (`rexgraph.nn.save_hodge_trajectory`) uses the same vector path.
+coordinated vs rotational trajectory (`rexgraph.nn.save_hodge_trajectory`) uses the same vector path.
 
 ## Notes
 
@@ -100,4 +100,4 @@ coordinated-vs-rotational trajectory (`rexgraph.nn.save_hodge_trajectory`) uses 
   stays on cpu because this box's ROCm build has no working conv kernel (matmul/LoRA do run on GPU).
 - **Data**: `vector` (csv/jsonl/npz) and `sequence` (text) load from files; for `image`/`hypergraph`,
   pass a `DataBundle` (see `data.py`) or use the synthetic generators.
-- **Optimizer**: `auto` (default; routes per model type: GreensCochain for cochain-native models, else Adam), or any `rexgraph.nn` optimizer by name: `greens`, `adam`, `adamw`, `sgd`, `hodge`/`hodge-arch` (deprecated, back-compat).
+- **Optimizer**: `auto` (default; routes per model type: GreensCochain for cochain native models, else Adam), or any `rexgraph.nn` optimizer by name: `greens`, `adam`, `adamw`, `sgd`, `hodge`/`hodge-arch` (deprecated, back compat).

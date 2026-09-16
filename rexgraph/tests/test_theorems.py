@@ -22,10 +22,10 @@ from rexgraph.sparse_character import build_sparse_channels
 
 
 def _zoo(seed=0, n=60):
-    """Simple, weighted, branching and parallel-edge complexes, random orientation.
+    """Simple, weighted, branching and parallel edge complexes, random orientation.
 
     Weighted and branching are both here on purpose: they are the two axes that
-    unweighted-simple fixtures cannot distinguish.
+    unweighted simple fixtures cannot distinguish.
     """
     rng = np.random.default_rng(seed)
     out = []
@@ -90,7 +90,7 @@ def test_lt_plus_ls_is_the_relational_mass():
 
 def test_the_speed_squared_is_fixed_by_the_character_alone():
     """c^2 = Ls/Lt = (1 - chi_T)/chi_T, since chi_k = hat_k/RL[e,e] divides the
-    common factor out. So arg f(e) = arctan(c^2) is scale-free: the modulus of the
+    common factor out. So arg f(e) = arctan(c^2) is scale free: the modulus of the
     complex Lagrangian carries the mass and its argument carries the character."""
     def p(r):
         f = r.lagrangian_fields()
@@ -113,7 +113,7 @@ def test_the_chain_condition_forces_the_graded_operators_to_commute():
         L_up L_down = B_{d+1} (B_d B_{d+1})^T B_d = 0
 
     both vanishing because B_d B_{d+1} = 0. The commutator is not small, it is
-    identically zero, which is why a Cauchy-Riemann condition on the GRADED
+    identically zero, which is why a Cauchy Riemann condition on the GRADED
     operators is a tautology and the interesting version is on the channels."""
     from rexgraph.graded_boundary import build_graded_boundaries, truncated_icosahedron_3rex
     Bs = [np.asarray(b.todense(), float)
@@ -138,7 +138,7 @@ def test_the_chain_condition_forces_the_graded_operators_to_commute():
 def test_the_signed_and_unsigned_grams_share_a_diagonal():
     """PROVED. The diagonal squares each incidence entry and squaring kills the
     sign, so diag(T) = diag(G) whatever the metric. That is why F's content is
-    entirely off-diagonal and why F has to manufacture a diagonal from it."""
+    entirely off diagonal and why F has to manufacture a diagonal from it."""
     def p(r):
         chan = dict(build_sparse_channels(r))
         dT = np.asarray(chan["L1_down"].todense()).diagonal()
@@ -213,7 +213,7 @@ def test_the_three_spaces_span_the_edge_space():
 
 
 def test_the_gram_determinant_counts_spanning_trees():
-    """Matrix-Tree, in scope for a connected 2-ary face-free complex. Checked
+    """Matrix Tree, in scope for a connected 2 ary face free complex. Checked
     against an independent cofactor of L0, sharing no code with the frame."""
     checked = 0
     for _, r in ZOO:
@@ -232,7 +232,7 @@ def test_the_gram_determinant_counts_spanning_trees():
 #### L_gb
 def test_the_graded_delta_spectrum_is_plus_minus_root_spread():
     """PROVED. L_gb = alpha P_a - beta P_b on the two grades' spectra, a difference
-    of rank-1 projectors, so on their span trace = alpha - beta and determinant =
+    of rank 1 projectors, so on their span trace = alpha - beta and determinant =
     -alpha beta sin^2, giving the eigenvalues in closed form."""
     from rexgraph.core._l_gb import l_gb_scalar
     rng = np.random.default_rng(5)
@@ -245,12 +245,12 @@ def test_the_graded_delta_spectrum_is_plus_minus_root_spread():
         assert np.isclose(l_gb_scalar(a, b), np.sqrt(2.0 * s2), atol=1e-12)
 
 
-#### the complete-graph closure law: MEASURED, not proved
+#### the complete graph closure law: MEASURED, not proved
 @pytest.mark.parametrize("n", [4, 5, 6, 7, 8])
 def test_the_closure_law_on_complete_graphs(n):
     """MEASURED. Read off n = 4..7 and held as a prediction at 8 and 9. Stated for
     the fundamental cycle basis of K_n, whose axes are all triangles; no proof here
-    and no basis-free form."""
+    and no basis free form."""
     from rexgraph.hodge_coords import harmonic_closure
     e = list(itertools.combinations(range(n), 2))
     r = RexGraph(sources=np.array([a for a, b in e], np.int32),
@@ -316,7 +316,7 @@ def _masses(r):
 
 def test_both_masses_are_constant_over_the_gauge_action():
     """PROVED. Both masses sum SQUARED entries, and squaring kills the sign, so
-    neither can see a gauge transformation, an arbitrary re-signing, or a
+    neither can see a gauge transformation, an arbitrary re signing, or a
     reorientation. Mass is the pure existence reading: what survives forgetting
     both the sign and the direction.
 
@@ -387,9 +387,9 @@ def _commutator(A, B):
 
 
 def _deformed_TG(B1, sigma=0.5):
-    """T and G on the sigma-deformed boundary, the one point of the family every
+    """T and G on the sigma deformed boundary, the one point of the family every
     reading here is taken at. Reading one operator deformed against another raw was
-    a real slip: it reported an alignment of +0.246 on a 2-ary ring, where taking
+    a real slip: it reported an alignment of +0.246 on a 2 ary ring, where taking
     both at the same point leaves [T,G] identically zero and no alignment to read.
     """
     p = np.array(_primes(B1.shape[0]), float)
@@ -411,7 +411,7 @@ def _primes(k):
 
 
 def _sigma_deformed(k, sigma):
-    """The sigma-weighted boundary: B1w = W0^{1/2} B1 W1^{-1/2} on K_k over the
+    """The sigma weighted boundary: B1w = W0^{1/2} B1 W1^{-1/2} on K_k over the
     first k primes, with W0[v] = ln(p_v) p_v^-sigma and W1[e] = W0[s] + W0[t]."""
     p = np.array(_primes(k), float)
     W0 = np.maximum(np.log(p) * p ** (-sigma), 1e-15)
@@ -452,7 +452,7 @@ def test_the_sigma_deformation_normalises_every_boundary_column(k, sigma):
 
 @pytest.mark.parametrize("k", [5, 6, 7])
 def test_co_participation_is_exactly_sigma_invariant(k):
-    """C reads the UNWEIGHTED shared-vertex count, so it is topological and the
+    """C reads the UNWEIGHTED shared vertex count, so it is topological and the
     spectral parameter cannot move it. This is the half of the force hierarchy that
     holds exactly rather than approximately."""
     ref = None
@@ -467,7 +467,7 @@ def test_co_participation_is_exactly_sigma_invariant(k):
 @pytest.mark.parametrize("k", [5, 6, 7])
 def test_the_t_g_coupling_runs_with_sigma_and_f_c_barely_moves(k):
     """MEASURED. The reference states a force hierarchy: 'T-G coupling runs with
-    sigma (strong), F-C is sigma-invariant (weak)'. Couplings are channel-tensor
+    sigma (strong), F-C is sigma invariant (weak)'. Couplings are channel tensor
     entries, which is what channel_delta computes.
 
     F-C is not invariant to machine precision, but it moves far less, and the
@@ -494,7 +494,7 @@ def test_the_t_g_coupling_runs_with_sigma_and_f_c_barely_moves(k):
 
 
 def test_the_t_g_peak_does_not_settle_on_the_critical_line():
-    """MEASURED, and a NEGATIVE result worth keeping so it is not re-derived.
+    """MEASURED, and a NEGATIVE result worth keeping so it is not re derived.
 
     The T-G coupling has a peak in sigma that drifts down as k grows, and the
     s <-> 1-s asymmetry falls with it, which looks like a critical line forming at
@@ -503,8 +503,8 @@ def test_the_t_g_peak_does_not_settle_on_the_critical_line():
     k = 10..24), and the asymmetry bottoms out near k = 14 and then grows again.
 
     This says nothing about Equation IV, which is a statement about
-    ||A([RL4(s), RL4(1-s)])|| on the full four-channel tower WITH faces. K_k here
-    is face-free, so that quantity is not what is being measured.
+    ||A([RL4(s), RL4(1-s)])|| on the full four channel tower WITH faces. K_k here
+    is face free, so that quantity is not what is being measured.
     """
     from rexgraph.core._l_gb import l_gb_channel_tensor
 
@@ -525,7 +525,7 @@ def test_the_t_g_peak_does_not_settle_on_the_critical_line():
     assert peaks[0] > 0.5 > peaks[-1] - 1e-3, "and crosses 1/2 rather than settling"
 
 
-#### Equation IV: the critical line as inter-tower information exchange
+#### Equation IV: the critical line as inter tower information exchange
 def _primes_complex(k, sigma):
     """K_k over the first k primes with every triangle filled, BOTH grades deformed.
 
@@ -588,7 +588,7 @@ def test_deforming_both_grades_preserves_the_chain_condition(sigma):
 
 @pytest.mark.parametrize("sigma", [0.2, 0.5, 0.9])
 def test_the_two_grades_commute_at_every_sigma(sigma):
-    """So the critical line cannot be found in the edge-vs-face interaction: that
+    """So the critical line cannot be found in the edge vs face interaction: that
     commutator is zero identically, by the chain condition, at every sigma. It is
     the same statement as [L_down, L_up] = 0 proved above."""
     B1, B2 = _primes_complex(6, sigma)
@@ -630,7 +630,7 @@ def test_the_exchange_is_linear_in_the_distance_from_the_line():
 
 def test_filling_the_faces_damps_the_exchange():
     """The point of doing this WITH faces. Carrying the face channel roughly halves
-    the inter-picture exchange, and the effect weakens as k grows:
+    the inter picture exchange, and the effect weakens as k grows:
     49.6% at k=5, 42.7% at k=6, 36.4% at k=7, 31.7% at k=8."""
     for k, lo, hi in ((5, 0.45, 0.55), (6, 0.45, 0.55), (7, 0.45, 0.55)):
         a, b = _rl(k, hi, False), _rl(k, lo, False)
@@ -661,7 +661,7 @@ def _deform_tower(Bs, W0):
     """B_d^w = W_{d-1}^{1/2} B_d W_d^{-1/2}, with W_d[cell] the sum of W_{d-1} over
     its boundary support.
 
-    PROVED, and arity-blind. W_d[cell] is exactly the squared norm of that column
+    PROVED, and arity blind. W_d[cell] is exactly the squared norm of that column
     before dividing, whatever its arity, so every column of every B_d^w is a unit
     vector. And W_d^{-1/2} leaving grade d meets W_d^{1/2} entering grade d+1, so
     the chain condition survives at every junction. Nothing in the construction
@@ -758,7 +758,7 @@ def _slope(cells, d, es=(0.02, 0.08, 0.20)):
 @pytest.mark.parametrize("d", [1, 2])
 def test_equation_iv_holds_at_every_arity_and_grade(n, d):
     """Zero on the critical line and linear off it, whatever the face size and
-    whichever grade is read. The triangle was never load-bearing."""
+    whichever grade is read. The triangle was never load bearing."""
     cells = _prism(n)
     A = _rl_graded(cells, 0.5, d)
     assert np.abs(A @ A - A @ A).max() == 0.0
@@ -801,7 +801,7 @@ def _slope_raw(cells, d, normalize):
 def test_the_apparent_grade_migration_is_the_trace_normalisation():
     """RETRACTED FINDING, kept as the control that overturned it.
 
-    Reported first: on n-gonal prisms the grade-1 exchange falls while grade-2
+    Reported first: on n-gonal prisms the grade 1 exchange falls while grade 2
     rises, so widening a face 'moves where the information exchange lives'. The
     ratio ran 7.9x, 12.8x, 22.7x, 33.9x, 47.8x over n = 3, 4, 6, 8, 10, which
     looked like a clean structural trend.
@@ -815,9 +815,9 @@ def test_the_apparent_grade_migration_is_the_trace_normalisation():
         raw grade 2    2.08    2.59    3.36    4.10    4.84
         raw ratio       0.3     0.2     0.2     0.2     0.2
 
-    The whole effect comes from the normalisation: grade-1 traces scale with
-    nE = 3n and grade-2 traces with nF = n + 2, so the same raw growth is divided
-    by faster and slower growing numbers. The trace-normalised hats are the
+    The whole effect comes from the normalisation: grade 1 traces scale with
+    nE = 3n and grade 2 traces with nF = n + 2, so the same raw growth is divided
+    by faster and slower growing numbers. The trace normalised hats are the
     canonical object, so the normalised numbers are not wrong; what is wrong is
     reading them as a fact about where exchange lives in the complex.
 
@@ -881,16 +881,16 @@ def test_the_lattice_condition_is_universal_and_only_the_rate_is_not():
 
     What is universal is the CONDITION, not any curve. Across every family below,
     at grade 1 and grade 2, with the trace normalisation ON and OFF, the exchange
-    is EXACTLY zero on the critical line and runs linearly off it. Sixty-four
+    is EXACTLY zero on the critical line and runs linearly off it. Sixty four
     configurations, worst linearity deviation 6.2% and most inside 2%.
 
-    That it holds normalised AND raw is the load-bearing part: the normalisation
-    is precisely what manufactured the grade-migration artefact, and the condition
+    That it holds normalised AND raw is the load bearing part: the normalisation
+    is precisely what manufactured the grade migration artefact, and the condition
     does not notice it.
 
     The RATE is not universal and should not be expected to be. raw2/raw1 spans
     0.039 to 0.272 across these families, a factor of seven, and it tracks face
-    arity: all-triangle solids sit near 0.05 to 0.14, the cube at 0.23, C60 at
+    arity: all triangle solids sit near 0.05 to 0.14, the cube at 0.23, C60 at
     0.27. So the geometry sets how fast, and nothing sets whether.
 
     A criterion independent of arity, grade and convention is intrinsic. A curve
@@ -923,7 +923,7 @@ def test_the_rate_is_structure_dependent_and_that_is_the_honest_half():
         ratios[name] = r2 / r1
     vals = list(ratios.values())
     assert max(vals) / min(vals) > 4.0, ratios
-    # all-triangle solids sit low, wider faces higher
+    # all triangle solids sit low, wider faces higher
     assert ratios["octahedron"] < ratios["cube"] < ratios["C60"]
 
 
@@ -935,7 +935,7 @@ def _deform_tower_sq(Bs, W0):
     The earlier form summed |c[v]| instead, which is the same thing only while the
     entries are ternary. A branching column is (-1, 1/(k-1), ..., 1/(k-1)), so
     |c| and c^2 part company at arity 3 and only the squared one is the norm.
-    Measured: the |c| form leaves non-unit columns at every arity above 2.
+    Measured: the |c| form leaves non unit columns at every arity above 2.
     """
     out, Wprev = [], np.asarray(W0, float)
     for B in Bs:
@@ -1009,7 +1009,7 @@ def test_the_critical_line_condition_holds_for_branching_relations(name, normali
     """Arity at GRADE 1, where every earlier test varied it at the faces. The
     condition does not notice: exactly zero on the line and linear off it at
     arities 2, 3, 4, 5, 8 and mixed, normalised and raw, to within 0.7%. That is
-    tighter than the 2-ary faced cases managed."""
+    tighter than the 2 ary faced cases managed."""
     cells, nV = BRANCHING[name]
     B1 = np.asarray(_hyper(cells, nV).B1_dense, float)
     A0 = _rl_branch(B1, None, 0.5, normalize)
@@ -1149,8 +1149,8 @@ def test_the_topology_geometry_commutator_is_antisymmetric():
     assert np.abs(Gn - Gn.T).max() == 0.0      # is symmetric to the last bit
     C = _commutator(Tn, Gn)
     assert np.abs(C + C.T).max() == 0.0
-    # and the construction is the commutator: the two-matmul form agrees to backward
-    # error, which is the platform-dependent quantity the exact claim cannot be about.
+    # and the construction is the commutator: the two matmul form agrees to backward
+    # error, which is the platform dependent quantity the exact claim cannot be about.
     naive = Tn @ Gn - Gn @ Tn
     fence = np.finfo(float).eps * Tn.shape[0] * np.abs(Tn).max() * np.abs(Gn).max()
     assert np.abs(C - naive).max() <= fence, (np.abs(C - naive).max(), fence)
@@ -1158,11 +1158,11 @@ def test_the_topology_geometry_commutator_is_antisymmetric():
 
 def test_the_rank_one_bound_is_the_weakest_case_of_the_annihilation():
     """This started as the reason the harmonic exchange vanishes at dim_H <= 1: for
-    antisymmetric A and a rank-1 projector P = q q^T, P A P = q (q^T A q) q^T and
+    antisymmetric A and a rank 1 projector P = q q^T, P A P = q (q^T A q) q^T and
     q^T A q = 0. The identity is true and still does work, but it is not why.
 
     The harmonic exchange is zero at EVERY dim_H, not only at one, because T = B^T B
-    annihilates the whole sector. The rank-1 bound is the general statement about
+    annihilates the whole sector. The rank 1 bound is the general statement about
     antisymmetric forms; the annihilation is the specific one about this operator,
     and it is strictly stronger. Both are checked here so the weaker one is not
     mistaken for an explanation again.
@@ -1197,7 +1197,7 @@ def test_only_independent_faces_move_the_topology_geometry_exchange():
         curl exchange       0    0    1.9e-7   1.7e-5   4.9e-4   1.1e-3
 
     monotone in the number of INDEPENDENT faces, and exactly zero at one face
-    because a rank-1 projector kills any antisymmetric form. A dependent face adds
+    because a rank 1 projector kills any antisymmetric form. A dependent face adds
     no curl direction and so moves nothing.
     """
     B1 = np.asarray(_k5().B1_dense, float)
@@ -1261,7 +1261,7 @@ def test_the_exchange_is_face_invariant_and_sigma_dependent():
 def test_the_exchange_supplies_the_complex_unit_on_a_gradient_plane():
     """The result the rest was building toward, at its correct address.
 
-    [T,G] is antisymmetric, and an antisymmetric operator on a two-dimensional
+    [T,G] is antisymmetric, and an antisymmetric operator on a two dimensional
     space is a rotation generator: normalise one 2x2 Schur block of it and
 
         J = [[0, 1], [-1, 0]],   J^2 = -I   exactly.
@@ -1280,10 +1280,10 @@ def test_the_exchange_supplies_the_complex_unit_on_a_gradient_plane():
 
 def test_a_direction_with_no_exchange_is_a_real_line():
     """The other half, and it is proved rather than measured. For antisymmetric A
-    and a rank-1 projector P = q q^T, P A P = q (q^T A q) q^T with q^T A q = 0. So
-    a one-dimensional sector carries no rotation at all: it is a real line. The
+    and a rank 1 projector P = q q^T, P A P = q (q^T A q) q^T with q^T A q = 0. So
+    a one dimensional sector carries no rotation at all: it is a real line. The
     kernel of the exchange inside a larger sector is real for the same reason, and
-    on an odd-dimensional gradient sector there is always at least one."""
+    on an odd dimensional gradient sector there is always at least one."""
     A = _sector_J(np.asarray(_k5().B1_dense, float), "gradient")
     q = np.linalg.qr(np.random.default_rng(0).normal(size=(A.shape[0], 1)))[0]
     assert abs((q.T @ A @ q).item()) < 1e-15, "any rank-1 projector kills it"
@@ -1309,7 +1309,7 @@ def test_three_complex_planes_and_only_one_has_a_derived_unit():
     bookkeeping to pair two real readings.
 
     The GRADIENT plane is the only one whose complex structure is derived. Its i is
-    J = [T,G] normalised on a two-dimensional block, and it is exactly zero on any
+    J = [T,G] normalised on a two dimensional block, and it is exactly zero on any
     direction the exchange cannot reach, which is why a lone one stays real.
     """
     from scipy.linalg import schur
@@ -1328,7 +1328,7 @@ def test_three_complex_planes_and_only_one_has_a_derived_unit():
     assert abs((q.T @ A @ q).item()) < 1e-15
 
 
-#### is the Hodge split the same split as real-versus-complex?
+#### is the Hodge split the same split as real versus complex?
 def _hodge_bases(B1, B2):
     """Orthonormal bases of gradient im(B1^T), curl im(B2), harmonic ker(L1)."""
     from scipy.linalg import null_space
@@ -1380,7 +1380,7 @@ def test_the_gradient_sector_is_not_the_real_line():
 def test_the_real_directions_cut_across_the_hodge_sectors():
     """So the two splits are different structures on one space, not one split under
     two names. The kernel of [T,G] is the real part of the edge space, and it does
-    not sit inside any Hodge sector: on K5 face-free it distributes 0.21 gradient,
+    not sit inside any Hodge sector: on K5 face free it distributes 0.21 gradient,
     0.00 curl, 0.79 harmonic by energy.
 
     Adding faces MOVES it, and moves it exactly the way the Hodge decomposition
@@ -1420,7 +1420,7 @@ def test_the_complex_structure_survives_branching(cells, nV, tag):
     """Everything above holds with branching relations at grade 1: [T,G] stays
     exactly antisymmetric, its rank stays even, and the gradient sector still
     carries the complex structure rather than being real. The real directions are
-    even more gradient-weighted there, 0.85 and 1.00 on these two."""
+    even more gradient weighted there, 0.85 and 1.00 on these two."""
     from scipy.linalg import null_space
     B1 = np.asarray(_hyper(cells, nV).B1_dense, float)
     C = _tg_deformed(B1)
@@ -1465,7 +1465,7 @@ def _tg_deformed(B1, sigma=0.5):
     """[T_hat, G_hat] on the SAME deformed boundary the flow generator uses, so the
     two structures are compared at one point of the family rather than one deformed
     against one raw. Reading them at different points was a real slip: the alignment
-    came out +0.246 for a 2-ary ring against +0.014 measured properly."""
+    came out +0.246 for a 2 ary ring against +0.014 measured properly."""
     T, G = _deformed_TG(B1, sigma)
     return _commutator(T / np.trace(T), G / np.trace(G))
 
@@ -1478,7 +1478,7 @@ def test_the_linearity_of_equation_iv_is_taylors_theorem():
         [R + eR', R - eR'] = -2e [R, R'] + O(e^3)
 
     The exchange being linear in the distance from the critical line is therefore
-    not a measurement, it is the first-order term, and the 'slope' quoted for it is
+    not a measurement, it is the first order term, and the 'slope' quoted for it is
     ||2[R, R']||: the NORM of a tensor that was available directly. Verified below,
     with the relative error falling as e^2.
     """
@@ -1544,7 +1544,7 @@ def test_branching_couples_the_two_structures_where_two_ary_does_not():
         arity      3       4       6
         alignment -0.555  -0.307  -0.555
 
-    Arity 2 carries no alignment at all, and that is the stronger half: on a 2-ary
+    Arity 2 carries no alignment at all, and that is the stronger half: on a 2 ary
     ring T and G COMMUTE, so [T,G] is the zero operator and there is no plane for
     the flow generator to be turned against. That is the same vanishing
     test_a_cycle_has_no_topology_geometry_exchange_at_all asserts directly, reached
@@ -1559,8 +1559,8 @@ def test_branching_couples_the_two_structures_where_two_ary_does_not():
     Two operators of equal norm can be orthogonal or identical, and no magnitude
     distinguishes those, which is the whole reason to compare the tensors.
 
-    Stated for the RING family, not for 2-ary complexes in general: K4, K5, a
-    degree-3 tree and a theta graph are every one of them 2-ary, and every one has
+    Stated for the RING family, not for 2 ary complexes in general: K4, K5, a
+    degree 3 tree and a theta graph are every one of them 2 ary, and every one has
     ||[T,G]|| between 0.15 and 0.24 of the scale it lives on. What commutes here is
     the ring, whose adjacent relations all meet with the same sign.
 
@@ -1586,7 +1586,7 @@ def test_branching_couples_the_two_structures_where_two_ary_does_not():
     assert got2 <= np.finfo(float).eps * Tn.shape[0], got2
 
     # the branching arities, pinned to the measured values: they are stable to 4e-11
-    # under a one-ulp perturbation, so they are quantities and not roundoff.
+    # under a one ulp perturbation, so they are quantities and not roundoff.
     want = {3: -0.555054, 4: -0.306760, 6: -0.554548}
     got = {}
     for ar in (3, 4, 6):
@@ -1600,7 +1600,7 @@ def test_branching_couples_the_two_structures_where_two_ary_does_not():
 #### is there a calculus here, and on what
 def test_the_discrete_invariants_are_conserved_along_the_flow():
     """The question worth asking, since Taylor holding is not itself news: RL(sigma)
-    is built from p^-sigma plus rational operations, so it is real-analytic for
+    is built from p^-sigma plus rational operations, so it is real analytic for
     inherited reasons and smoothness is free.
 
     What is NOT free is that the DISCRETE structure survives the flow. Over sigma
@@ -1629,7 +1629,7 @@ def test_the_discrete_invariants_are_conserved_along_the_flow():
 
 def test_jacobis_formula_holds_on_the_flow():
     """d/dsigma log det RL = tr(RL^-1 dRL/dsigma). So the determinant has a
-    well-defined logarithmic derivative and it is a trace of the flow generator,
+    well defined logarithmic derivative and it is a trace of the flow generator,
     which is what connects the determinant tower to the calculus rather than
     leaving it a separate reading."""
     r = _k5()
@@ -1679,7 +1679,7 @@ def test_the_determinant_is_stationary_somewhere_and_it_does_not_settle():
     the critical line.
 
     det RL also collapses fast with k, 4.7e-02 down to 1.3e-52 by k = 10, so the
-    bisection runs on the log-derivative, which is a trace and stays conditioned.
+    bisection runs on the log derivative, which is a trace and stays conditioned.
     """
     h = 1e-5
 
@@ -1759,7 +1759,7 @@ def _kk(k):
 
 
 def test_the_sigma_drifts_belong_to_the_weighting_and_not_the_complex():
-    """The decisive test, and it settles three near-misses at once.
+    """The decisive test, and it settles three near misses at once.
 
     Hold the complex FIXED at K7 and swap the vertex weight family. If the drifting
     extrema said anything about the relational structure they could not move. They
@@ -1820,8 +1820,8 @@ def test_rescaling_by_the_weight_scale_collapses_the_drift():
     remains is a real but much smaller k dependence.
 
     The point is the separation it makes. Everything that drifts belongs to the
-    weighting; everything that does not - the conserved rank, the complex-pair
-    count, tr(RL) = 4, and the vanishing-and-linear condition itself - belongs to
+    weighting; everything that does not - the conserved rank, the complex pair
+    count, tr(RL) = 4, and the vanishing and linear condition itself - belongs to
     the complex.
     """
     ks = (4, 5, 6, 7, 8, 9)
@@ -1862,7 +1862,7 @@ def _deformed_pair(B1, B2, sigma=0.5):
     chain condition does not survive: B1w B2w = W0^(1/2) (B1 B2) W2^(-1/2) = 0 only
     when the middle weights cancel. Taking a curl basis from the RAW B2 against a
     deformed commutator is the same mismatch as taking a raw kernel, and it produced
-    a face-independence reading that is actually zero."""
+    a face independence reading that is actually zero."""
     p = np.array(_primes(B1.shape[0]), float)
     W0 = np.log(p) * p ** (-sigma)
     Wd = np.maximum(((B1 * B1).T * W0).sum(1), 1e-300)
@@ -1882,7 +1882,7 @@ def _weighted_boundary(B1, sigma=0.5):
 
 @pytest.mark.parametrize("name", ["K5", "prism", "petersen", "house", "C6"])
 def test_the_harmonic_sector_is_annihilated_by_both_generators(name):
-    """The harmonic sector carries NO dynamics at all, and it is a one-line theorem
+    """The harmonic sector carries NO dynamics at all, and it is a one line theorem
     rather than a measurement: T = B^T B, so T Q = B^T (B Q) = 0 for a harmonic Q,
     and T is symmetric, hence
 
@@ -1908,7 +1908,7 @@ def test_the_exchange_carries_the_harmonic_sector_into_the_gradient(name):
     in im(T) = im(B^T) = the GRADIENT sector. Measured: 100.000000% of the image,
     exactly, on every structure.
 
-    So the harmonic sector is not inert under the exchange, it is a one-way SOURCE
+    So the harmonic sector is not inert under the exchange, it is a one way SOURCE
     for the gradient. It carries no rotation of its own for the same reason nothing
     returns to it: a rotation needs the plane mapped to itself. And the flow out is
     the larger quantity, 0.0411 on K5 against 0.0051 for the gradient's internal
@@ -1930,13 +1930,13 @@ def test_a_cycle_has_no_topology_geometry_exchange_at_all(n):
     """The degenerate case, and it has a reason rather than being an exception.
 
     On a consistently oriented cycle every edge meets its neighbour with opposite
-    sign, so G = |T| entrywise and the two differ only off-diagonal by that sign.
+    sign, so G = |T| entrywise and the two differ only off diagonal by that sign.
     Column normalisation sets diag(T) = diag(G) = 1, which makes G = 2I - T, and
     [T, 2I - T] = 0 identically. A cycle is the structure where topology and
-    geometry have nothing to exchange: it is 2-regular, so there is no variation in
+    geometry have nothing to exchange: it is 2 regular, so there is no variation in
     concentration for the unsigned reading to disagree about.
 
-    This is why C6 is excluded from the sector-flow tests: there is no flow to
+    This is why C6 is excluded from the sector flow tests: there is no flow to
     place, not because the placement fails.
     """
     e = [(i, (i + 1) % n) for i in range(n)]
@@ -2046,7 +2046,7 @@ def test_angular_averaging_projects_onto_the_complex_scalars():
 
 #### space and time: what each sector is, and what kind
 def test_the_gradient_is_the_only_sector_that_decays(_none=None):
-    """Under e^{-tL1} the gradient and curl both have finite half-lives ln2/lambda
+    """Under e^{-tL1} the gradient and curl both have finite half lives ln2/lambda
     and the harmonic sector is fixed exactly. That is an ARROW: the flow is a strict
     contraction that never returns to the identity at any t > 0, checked out to 100.
     """
@@ -2097,7 +2097,7 @@ def test_only_the_harmonic_coordinate_is_visible_to_a_cycle(name):
 
     Pair a cochain against an integer harmonic cycle z:
 
-      gradient  <B1^T phi, z> = <phi, B1 z> = 0   path-INdependent, a potential
+      gradient  <B1^T phi, z> = <phi, B1 z> = 0   path INdependent, a potential
       curl      <B2 psi,   z> = <psi, B2^T z> = 0 it bounds, z cannot see it
       harmonic  nonzero                           HOLONOMY, the only visible part
 
@@ -2137,7 +2137,7 @@ def test_only_the_harmonic_coordinate_is_visible_to_a_cycle(name):
 @pytest.mark.parametrize("name", ["K5", "prism", "petersen", "house", "C6"])
 def test_the_harmonic_sector_is_what_the_flow_cannot_destroy(name):
     """So the harmonic sector is not the carrier of time; it is the invariant of it.
-    Under e^{-t L1} every gradient direction has a finite half-life ln2/lambda with
+    Under e^{-t L1} every gradient direction has a finite half life ln2/lambda with
     lambda > 0, while the harmonic sector is fixed exactly, for all t. It is the
     t -> infinity limit of the flow: the only part with unbounded duration."""
     from scipy.linalg import expm
@@ -2199,7 +2199,7 @@ def test_every_rational_rotation_carries_its_own_prime_clock(a, b, c):
 
 
 def test_continuous_duration_is_a_projection_the_way_distance_is():
-    """The boundary of the exactness, stated rather than glossed. A half-life
+    """The boundary of the exactness, stated rather than glossed. A half life
     ln(2)/lambda is transcendental in the same way an arc length is: the algebraic
     content is lambda, an eigenvalue of an integer matrix, and the logarithm is the
     projection into a measurable unit. Counted time is exact; measured time is not.
@@ -2344,7 +2344,7 @@ def test_faces_repartition_a_conserved_outflow(name, total):
     whole cycle space and faces do not change it, they only refine its orthogonal
     splitting into curl + harmonic. The total out of a fixed space cannot move.
 
-    Verified with quadrilateral faces as well as triangles, so it is arity-general
+    Verified with quadrilateral faces as well as triangles, so it is arity general
     at grade 2 and not a simplicial accident.
     """
     rex, faces = _FACED[name]
@@ -2465,7 +2465,7 @@ def test_the_spread_of_a_rotation_is_a_ratio_of_integers():
 def test_the_generator_is_an_integer_matrix_before_normalising():
     """And it starts exact. On the raw integer boundary of K5, T and G are integer
     matrices and so is [T,G], entries in {-4,-2,0,2,4}. The rationals appear only
-    when the hats are trace-normalised, and pi only when the circle is given an arc
+    when the hats are trace normalised, and pi only when the circle is given an arc
     length. The object is algebraic at every step before that."""
     r = _k5()
     B1 = np.asarray(r.B1_dense, float)

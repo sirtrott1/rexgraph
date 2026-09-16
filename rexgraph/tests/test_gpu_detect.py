@@ -2,7 +2,7 @@
 
 `detect_hardware` returned {"vendor":"amd","vram_gb":None,"unified":None} on a machine
 whose sysfs answers all three, so these read the nodes rather than trusting a summary.
-A carve-out is not a dedicated pool and the difference decides bus topology, which is
+A carve out is not a dedicated pool and the difference decides bus topology, which is
 why an inconclusive read returns None instead of a guess.
 
 These moved here with the probe: it is core code now, because the coordinator needs
@@ -35,7 +35,7 @@ def test_a_carveout_with_full_gtt_reads_as_unified(vram_gb):
 @pytest.mark.parametrize("vram_gb,ram_gb", [(24, 64), (20, 64), (8, 32)])
 def test_a_dedicated_pool_reads_as_split(vram_gb, ram_gb):
     """The discrete shape at the AMD cards in this fleet: 7900XTX 24/64 and 7900XT 20/64.
-    The 8/32 case is the 3070's ratio, though an NVIDIA card takes the nvidia-smi path
+    The 8/32 case is the 3070's ratio, though an NVIDIA card takes the nvidia smi path
     rather than this one. REASONED from the sysfs contract, not measured: there is no dGPU
     on this host, so this is the branch to check first if a desktop reads wrong."""
     ram = ram_gb * 1024 ** 3
@@ -46,7 +46,7 @@ def test_a_dedicated_pool_reads_as_split(vram_gb, ram_gb):
 
 
 def test_an_inconclusive_read_is_none_and_says_why():
-    """A guess here silently mis-prices every bandwidth decision; a None only asks the
+    """A guess here silently mis prices every bandwidth decision; a None only asks the
     caller to declare."""
     for dev, ram in (({"vram_bytes": None, "gtt_bytes": None}, RAM),
                      # too big to be a carveout, yet still addressing all of RAM: the

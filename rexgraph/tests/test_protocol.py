@@ -2,7 +2,7 @@
 
 A frame is checked before it is trusted: the chain condition is exact over the
 integers, so a payload whose boundary data was altered fails it. What the structure
-does NOT give is identity (a well-formed complex can be built by anyone), so nothing
+does NOT give is identity (a well formed complex can be built by anyone), so nothing
 here is treated as authentication.
 """
 from __future__ import annotations
@@ -180,7 +180,7 @@ def test_a_tampered_boundary_fails_verification():
     frame = P.decode(P.encode(rex))
     vals = frame.tensors["B2_vals"]
     vals[0] = vals[0] + 1.0
-    # Re-seal the changed payload to isolate the independent structural check. An
+    # Re seal the changed payload to isolate the independent structural check. An
     # unkeyed digest is corruption detection, so an active writer can recompute it.
     from rexgraph.io.rex_state import state_digest
     frame.header["digest"] = state_digest(

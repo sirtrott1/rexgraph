@@ -3,7 +3,7 @@
 Run:  python -m agent.benchmarks.bench_device_partition
 
 The first measurement gave the CPU bee -t 16 with no pinning while the iGPU bee also
-needs host threads for sampling and the CPU-side ops. A 38% collapse looks like
+needs host threads for sampling and the CPU side ops. A 38% collapse looks like
 oversubscription, not a bus limit. So sweep the partition instead of concluding from one
 point: CPU thread count, and whether the two are pinned to disjoint cores.
 """
@@ -93,4 +93,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

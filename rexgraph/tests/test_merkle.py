@@ -136,7 +136,7 @@ def test_a_proof_still_travels_carrying_its_own_leaf(doc):
 
 
 def test_the_leaf_commits_to_orientation_not_only_to_support(doc):
-    """Re-signing a column leaves the support alone, so a digest over the support would
+    """Re signing a column leaves the support alone, so a digest over the support would
     miss it. Orientation is the content of the boundary, so the leaf carries the data."""
     before = build_merkle(doc).leaves[0]
     doc._B1_dual = None                      # force a rebuild from the flipped edge
@@ -150,11 +150,11 @@ def test_the_leaf_commits_to_orientation_not_only_to_support(doc):
     assert build_merkle(r).leaves[0] != before
 
 
-#### the loader actually checks, rather than saying it does ####################
+# the loader actually checks, rather than saying it does
 
 def test_a_rewritten_boundary_column_is_caught_at_load(doc):
     """This is what deriving the leaves buys. The check is now 'does this complex make
-    this root', so re-signing a column (which leaves the support untouched and passes
+    this root', so re signing a column (which leaves the support untouched and passes
     a refreshed container digest) fails it. Comparing stored leaves to a stored root
     could not see this at all."""
     from rexgraph.io.rex_state import state_digest
@@ -213,7 +213,7 @@ def _layered_rex(n_base=64):
     return r
 
 
-#### the header carries structure, not digests ##################################
+# the header carries structure, not digests
 
 def test_interior_nodes_are_not_written_into_the_json_header():
     """`pack_merkle` says it stores the leaves and the root because the interior is a

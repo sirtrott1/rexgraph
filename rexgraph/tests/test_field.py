@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._field: cross-dimensional field dynamics on (E, F).
+Tests for rexgraph.core._field: cross dimensional field dynamics on (E, F).
 
 Verifies:
     - Field operator: symmetric, correct shape, PSD for auto coupling
@@ -71,7 +71,7 @@ class TestBuildFieldOperator:
         assert is_psd
 
     def test_block_structure(self, filled_triangle):
-        """Top-left is RL, bottom-right is L2."""
+        """Top left is RL, bottom right is L2."""
         RL = np.asarray(filled_triangle.RL, dtype=np.float64)
         L2 = np.asarray(filled_triangle.L2, dtype=np.float64)
         B2 = np.asarray(filled_triangle.B2_hodge, dtype=np.float64)

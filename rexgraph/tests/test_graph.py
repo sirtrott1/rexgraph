@@ -81,7 +81,7 @@ class TestConstructors:
         assert filled_triangle.nF == 1
 
     def test_from_hypergraph(self):
-        # Hyperedge: one 3-endpoint edge, one 2-endpoint edge
+        # Hyperedge: one 3 endpoint edge, one 2 endpoint edge
         bp = np.array([0, 3, 5], dtype=np.int32)
         bi = np.array([0, 1, 2, 1, 3], dtype=np.int32)
         rex = RexGraph.from_hypergraph(bp, bi)
@@ -158,13 +158,13 @@ class TestChainComplex:
     def test_betti_k4(self, k4):
         b0, b1, b2 = k4.betti
         assert b0 == 1  # connected
-        assert b1 == 0  # no 1-holes
+        assert b1 == 0  # no 1 holes
         assert b2 == 1  # one void (sphere)
 
     def test_betti_triangle_unfilled(self, triangle):
         b0, b1, b2 = triangle.betti
         assert b0 == 1
-        assert b1 == 1  # one 1-hole
+        assert b1 == 1  # one 1 hole
         assert b2 == 0
 
     def test_euler_characteristic(self, k4):
@@ -367,9 +367,21 @@ class TestTopological:
         assert promoted.nF >= 1
 
     def test_fill_cycle(self, triangle):
-        edges = np.array([0, 1, 2], dtype=np.int32)
-        filled = triangle.fill_cycle(edges)
-        assert filled.nF == 1
+        cycle = np.array([1, 1, -1], dtype=np.int32)
+        filled = triangle.fill_cycle(cycle)
+        from rexgraph.io.partition_state import partition_tower
+        _, columns = partition_tower(filled)
+        assert columns[1] == [{0: 1, 1: 1, 2: -1}]
+        assert filled.nF == filled.nF_hodge == 1
+        assert triangle.nF == 0 and triangle.betti[1] == 1
+        assert filled.betti[1] == 0
+
+    def test_fill_cycle_refuses_indices_used_as_coefficients(self, triangle):
+        # This was the previous test input. B1 [0,1,2] = [-2,-1,3],
+        # so storing it as a face does not fill the triangle's cycle.
+        with pytest.raises(ValueError, match="exact chain condition"):
+            triangle.fill_cycle(np.array([0, 1, 2], dtype=np.int32))
+        assert triangle.nF == 0
 
 
 # Persistence

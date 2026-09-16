@@ -3,12 +3,12 @@
 This pins the WIRING, not a method. The question is whether a supervised task can
 be run end to end off the RCDB: ingest, persist across a process boundary, project
 signatures into a feature matrix, fit, and read the store as it stood at a time,
-without anything being smuggled in from the in-memory objects that produced it.
+without anything being smuggled in from the in memory objects that produced it.
 
 Run against real binding data (651 protein complexes, sqlite on a local file) the
 same path gives dummy -0.003, ridge -0.000, randomforest 0.032, lightgbm 0.114,
 xgboost -0.084. That LightGBM number is not evidence of anything chemical: the
-features are seven structural scalars of a protein-ligand incidence, which carries
+features are seven structural scalars of a protein ligand incidence, which carries
 how many ligands were measured and almost nothing about binding. It is reported
 here so nobody later mistakes a passing pipeline for a result.
 """

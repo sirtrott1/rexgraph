@@ -9,12 +9,15 @@ This module answers that question once, at binding time, from the object's own s
 rather than from its class name. A store is anything that can answer ``get`` and
 ``history``; a catalog is anything that can ``list`` and ``hash``. Classifying by surface
 keeps RCQL from importing rcdb or the catalog module to do an isinstance check, which is
-the layering rule the distributions exist to hold.
+the layering rule the distributions exist to hold. TurnField is a nominal Core
+source because its snapshot and preview methods carry a specific conversation
+contract; arbitrary objects with those common method names do not qualify.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from inspect import getattr_static
 
 from .capabilities import BoundSource, SourcePolicy
 from .signatures import OperatorSignature, lookup
@@ -27,6 +30,13 @@ class SourceKindError(TypeError):
 
 class UnreachableOperator(TypeError):
     """The operator is registered but cannot execute against any available source."""
+
+
+def _has_method(value, name):
+    member = getattr_static(value, name, None)
+    if isinstance(member, (staticmethod, classmethod)):
+        member = member.__func__
+    return callable(member)
 
 
 @dataclass(frozen=True)
@@ -52,13 +62,19 @@ def classify(value: object) -> ValueKind:
     Order matters: a store answers ``list`` too, so the store test has to come first or a
     store would classify as a catalog.
     """
-    if hasattr(value, "get") and hasattr(value, "history"):
+    def has(name):
+        return getattr_static(value, name, None) is not None
+
+    if any((cls.__module__, cls.__name__) == ("rexgraph.flow.turn_field", "TurnField")
+           for cls in type(value).__mro__):
+        return ValueKind.TURN_FIELD
+    if has("get") and has("history"):
         return ValueKind.RCDB_STORE
-    if hasattr(value, "hash_all") and hasattr(value, "list"):
+    if has("hash_all") and has("list"):
         return ValueKind.CATALOG_ENTRY_SET
-    if hasattr(value, "reconstruct_at") and hasattr(value, "T"):
+    if has("reconstruct_at") and has("T"):
         return ValueKind.TEMPORAL_REX
-    if hasattr(value, "betti") and hasattr(value, "nV"):
+    if has("betti") and has("nV"):
         return ValueKind.REX
     return ValueKind.UNKNOWN
 
@@ -90,16 +106,23 @@ def bind(name: str, value: object, policy: SourcePolicy, *,
     kind = classify(value)
     surface = frozenset(
         attribute for attribute in
-        ("get", "history", "stats", "list", "search", "hash", "hash_all", "info",
+        ("get", "history", "stats", "list", "search", "query", "hash", "hash_all", "info",
          "tensors", "search_tensors", "commit_history", "verify_commits",
-         "security_status", "state_digest")
-        if hasattr(value, attribute)
+         "security_status", "state_digest", "read_record", "commit_mutation", "corpus_snapshot")
+        if _has_method(value, attribute)
     )
     schema = SourceSchema(kind=kind, capabilities=frozenset(policy.permissions),
                           surface=surface)
     ref = source_ref or SourceRef(name=name, policy_digest=policy.digest)
     if ref.policy_digest != policy.digest:
         ref = replace(ref, policy_digest=policy.digest)
+    # Native state identity is canonical input serialization, not an analytic read.
+    # Never reconstruct a whole temporal history or inspect a denied source here.
+    if (ref.state_digest is None and policy.permits("read")
+            and any((cls.__module__, cls.__name__) == ("rexgraph.graph", "RexGraph")
+                    for cls in type(value).__mro__)):
+        from rexgraph.io.catalog import object_digest
+        ref = replace(ref, state_digest=object_digest(value))
     return Binding(
         name=name, source=bound, schema=schema,
         ref=ref,
@@ -139,4 +162,10 @@ def resolve(binding: Binding, operator: str, args: tuple[object, ...] = ()) -> O
         )
 
     signature.check_inputs(args, source=binding.ref)
+    missing_methods = signature.source_methods - binding.schema.surface
+    if missing_methods:
+        raise SourceKindError(
+            f"{signature.name} requires source methods {sorted(missing_methods)}; "
+            f"{binding.name!r} does not implement the RCDB data contract"
+        )
     return signature

@@ -98,12 +98,12 @@ def test_extract_reads_one_table(db_url, make_db):
 
 
 def test_modify_is_guarded(db_url, make_db):
-    ro = make_db(db_url)                               # read-only by default
+    ro = make_db(db_url)                               # read only by default
     assert ro.modify("INSERT INTO suppliers VALUES (2, 'Beta')")["ok"] is False
 
     rw = make_db(db_url, writable=True)
     assert rw.modify("DROP TABLE suppliers")["ok"] is False           # DDL blocked
-    assert rw.modify("UPDATE x; DELETE y")["ok"] is False             # multi-statement blocked
+    assert rw.modify("UPDATE x; DELETE y")["ok"] is False             # multi statement blocked
     ok = rw.modify("INSERT INTO suppliers VALUES (2, 'Beta')")
     assert ok["ok"] is True and ok["rowcount"] == 1
     assert rw.extract("suppliers")["n"] == 2                          # the write landed
@@ -114,7 +114,7 @@ def test_attach_to_hive_and_invoke(db_url, make_db):
     h = hive.get_hive()
     db = make_db(db_url)
     names = db.attach_to_hive(h, prefix="shop")
-    assert "shop.search" in names and "shop.modify" not in names     # read-only: no write bee
+    assert "shop.search" in names and "shop.modify" not in names     # read only: no write bee
     # an agent operates the database through the swarm
     out = h.invoke("shop.search", "orders from customers")
     assert out["n"] == 1

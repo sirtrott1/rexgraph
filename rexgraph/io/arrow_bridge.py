@@ -2,8 +2,8 @@
 """
 Arrow/IPC bridge for RexGraph arrays and analysis results.
 
-Provides zero-copy columnar export of RexGraph data through Apache Arrow,
-suitable for interop with Polars, DuckDB, Spark, and any Arrow-compatible
+Provides zero copy columnar export of RexGraph data through Apache Arrow,
+suitable for interop with Polars, DuckDB, Spark, and any Arrow compatible
 tool.
 
 Core API:

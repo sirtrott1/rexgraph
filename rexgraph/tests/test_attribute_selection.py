@@ -5,7 +5,7 @@ quantities the complex computes rather than over stored attributes". The stored 
 missing. `select_by_attribute` returns the same uint8 mask, so the two compose through
 `select_and`/`select_or`/`select_not` without either knowing about the other.
 
-`subcomplex_by_criteria` read `_cell_metadata[1]` directly and was relation-only, so a
+`subcomplex_by_criteria` read `_cell_metadata[1]` directly and was relation only, so a
 vertex attribute could be stored and never filtered on. Both now go through one criteria
 evaluator, so the mask form and the subcomplex form cannot drift.
 """
@@ -56,7 +56,7 @@ def test_presence(rex):
 
 
 def test_a_missing_key_never_matches(rex):
-    """Absence and a non-matching value are different, and a filter treating them alike
+    """Absence and a non matching value are different, and a filter treating them alike
     would select the cells nobody has said anything about."""
     assert rex.select_by_attribute({"element": "C"}, dim=1).tolist() == [0, 0, 0]
 

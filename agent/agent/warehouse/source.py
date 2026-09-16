@@ -1,7 +1,7 @@
-"""Edge-primal generic source: any weighted edge list -> relational complex -> per-edge tensor-field
-features -> a co-participation hypergraph bundle for HGNN. Pandas-free; all IO via rexgraph.io. The
+"""Edge primal generic source: any weighted edge list -> relational complex -> per edge tensor field
+features -> a co participation hypergraph bundle for HGNN. Pandas free; all IO via rexgraph.io. The
 original edge complex stays PRIMARY (for tensor fields, the RCDB record, and the future new model
-type); the hypergraph is an HGNN-specific view where each EDGE is a node."""
+type); the hypergraph is an HGNN specific view where each EDGE is a node."""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -21,17 +21,17 @@ class EdgeData:
 
 
 def load_edges(path, *, source=None, target=None, weight=None, usecols=None) -> EdgeData:
-    """Load a weighted edge list (any tabular schema) as an edge-primal dataset. `source`/`target`
-    name the two node-id columns; `weight` names a numeric weight column; `usecols` optionally
+    """Load a weighted edge list (any tabular schema) as an edge primal dataset. `source`/`target`
+    name the two node id columns; `weight` names a numeric weight column; `usecols` optionally
     restricts which columns are read (for wide files with many unrelated columns). When a name is
     omitted, the csv_loader name/position heuristic is used. Dedups (source,target) keeping the
-    first row, indexes source-column node ids first (0..n_src-1) then target-column node ids
-    (n_src..n_src+n_dst-1), so an edge runs source-node -> destination-node. Pandas-free."""
+    first row, indexes source column node ids first (0..n_src-1) then target column node ids
+    (n_src..n_src+n_dst-1), so an edge runs source node -> destination node. Pandas free."""
     from rexgraph.io.csv_loader import load_edge_csv
     gd = load_edge_csv(path, source=source, target=target, weight=weight, usecols=usecols)
     w = np.asarray(gd.w_E, dtype=np.float64)
-    su = np.asarray(gd.sources)      # source-column node names
-    dv = np.asarray(gd.targets)      # target-column node names
+    su = np.asarray(gd.sources)      # source column node names
+    dv = np.asarray(gd.targets)      # target column node names
     ok = np.isfinite(w)
     su, dv, w = su[ok], dv[ok], w[ok]
     # dedup (source, destination), first occurrence
@@ -55,9 +55,9 @@ def load_edges(path, *, source=None, target=None, weight=None, usecols=None) -> 
 def edge_data_from_knowledge(knowledge, *, weight_by: str = "uniform") -> EdgeData:
     """A joined complex as an `EdgeData`, so the warehouse pipeline takes it unchanged.
 
-    `load_edges` reads a two-column table and indexes the source column and the target
-    column into disjoint ranges, which is what makes an edge run source-node ->
-    destination-node. A joined complex has one entity space, so an entity appearing on
+    `load_edges` reads a two column table and indexes the source column and the target
+    column into disjoint ranges, which is what makes an edge run source node ->
+    destination node. A joined complex has one entity space, so an entity appearing on
     both sides would otherwise be two nodes; the same range is used for both and the
     entity keeps one identity.
 
@@ -95,14 +95,14 @@ def edge_data_from_knowledge(knowledge, *, weight_by: str = "uniform") -> EdgeDa
 
 
 def edge_complex(ed: EdgeData):
-    """The PRIMARY source-destination complex: one edge per record (source node -> destination node)."""
+    """The PRIMARY source destination complex: one edge per record (source node -> destination node)."""
     from rexgraph.graph import RexGraph
     return RexGraph(sources=ed.src_idx.astype(np.int32), targets=ed.dst_idx.astype(np.int32))
 
 
 def tier_split(ed: EdgeData, n_tiers: int = 3):
     """Partition source nodes into tiers by mean incident edge weight; an edge belongs to its source
-    node's tier. Returns a list of edge-index arrays."""
+    node's tier. Returns a list of edge index arrays."""
     tmean = np.zeros(ed.n_src, dtype=np.float64)
     cnt = np.zeros(ed.n_src, dtype=np.float64)
     np.add.at(tmean, ed.src_idx, ed.weight)
@@ -120,7 +120,7 @@ def labels(ed: EdgeData, mask: np.ndarray) -> np.ndarray:
 
 
 def _hodge_energies(rex, flow):
-    """Per-edge gradient / curl / harmonic ENERGY (abs value) of an edge flow via rex.hodge."""
+    """Per edge gradient / curl / harmonic ENERGY (abs value) of an edge flow via rex.hodge."""
     grad, curl, harm = None, None, None
     try:
         parts = rex.hodge(np.asarray(flow, dtype=np.float64))
@@ -137,8 +137,8 @@ def _hodge_energies(rex, flow):
 
 
 def _diffused(rex, flow, t_scales):
-    """Signal diffusion in the tensor field: heat_apply on L1 at each t, plus the graded-Dirac heat
-    (cross-grade). Returns a (nE, len(t_scales)+1) array of per-edge diffused values, plus names."""
+    """Signal diffusion in the tensor field: heat_apply on L1 at each t, plus the graded Dirac heat
+    (cross grade). Returns a (nE, len(t_scales)+1) array of per edge diffused values, plus names."""
     from rexgraph.core._sparse import to_scipy_csr
 
     import rexgraph.scale_propagator as spg
@@ -149,7 +149,7 @@ def _diffused(rex, flow, t_scales):
     for t in t_scales:
         hv = np.asarray(spg.heat_apply(L1, f, float(t))).reshape(-1)
         cols.append(hv); names.append(f"heat_diffus_t{t}")
-    # graded Dirac cross-grade heat on a graded state seeded on the edge grade
+    # graded Dirac cross grade heat on a graded state seeded on the edge grade
     try:
         psi0 = np.zeros(rex.nV + rex.nE + rex.nF, dtype=np.float64)
         psi0[rex.nV:rex.nV + rex.nE] = np.asarray(flow, dtype=np.float64)
@@ -165,7 +165,7 @@ CHANNELS = ("L1_down", "L_O", "L_SG", "L_C")
 
 
 def _chi_canonical(rex):
-    """Per-edge character in a FIXED four-column layout.
+    """Per edge character in a FIXED four column layout.
 
     `nhats` is adaptive: a channel that is identically zero for a complex is not
     carried, so two disjoint edges report two channels and a complex with shared
@@ -184,7 +184,7 @@ def _chi_canonical(rex):
 
 
 def edge_features(rex, ed, mask: np.ndarray, t_scales=(0.5, 2.0)):
-    """Per-edge tensor-field feature matrix for the edges in `mask`, with channel names. The
+    """Per edge tensor field feature matrix for the edges in `mask`, with channel names. The
     complex is PRIMARY; each edge reads its slice of the tensor fields, Hodge energies, and the
     diffused edge weight signal.
 
@@ -207,16 +207,16 @@ def edge_features(rex, ed, mask: np.ndarray, t_scales=(0.5, 2.0)):
 
 
 def hypergraph_bundle(ed: EdgeData, mask: np.ndarray, X, y):
-    """Co-participation hypergraph over the edges in `mask`: each edge is a NODE; a hyperedge
+    """Co participation hypergraph over the edges in `mask`: each edge is a NODE; a hyperedge
     groups edges that share a source node, and another groups edges that share a destination node.
-    This is the HGNN-specific edge-primal view; the original complex remains primary elsewhere."""
+    This is the HGNN specific edge primal view; the original complex remains primary elsewhere."""
     from ..models.data import DataBundle
     local = {int(b): i for i, b in enumerate(mask)}         # edge index -> node id
     groups = defaultdict(list)
     for b in mask:
         groups[("s", int(ed.src_idx[b]))].append(local[int(b)])
         groups[("d", int(ed.dst_idx[b]))].append(local[int(b)])
-    he = [nodes for nodes in groups.values() if len(nodes) >= 2]        # non-trivial hyperedges only
+    he = [nodes for nodes in groups.values() if len(nodes) >= 2]        # non trivial hyperedges only
     he_ptr = np.zeros(len(he) + 1, dtype=np.int32)
     idx = []
     for i, nodes in enumerate(he):
@@ -238,8 +238,8 @@ def knowledge_bundle(knowledge, *, weight_by: str = "degree", target: str = "rel
 
     The chain a knowledge complex takes to a model: entities and relations become an
     `EdgeData`, the complex reads its own tensor fields for the feature matrix, and the
-    co-participation hypergraph over the relations is the structure an HGNN consumes.
-    Relations are the nodes of that hypergraph, which is the edge-primal view: a
+    co participation hypergraph over the relations is the structure an HGNN consumes.
+    Relations are the nodes of that hypergraph, which is the edge primal view: a
     hyperedge groups the relations sharing an endpoint.
 
     `target` chooses what is learned:

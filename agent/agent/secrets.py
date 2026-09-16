@@ -2,8 +2,8 @@
 agent.secrets: pluggable secret storage for database connections.
 
 Connection URIs carry credentials. This module puts them behind one interface
-so the file-backed default can be swapped for a real secrets manager
-(Vault/KMS) without touching call sites. The env-reference backend models the
+so the file backed default can be swapped for a real secrets manager
+(Vault/KMS) without touching call sites. The env reference backend models the
 production pattern: config stores a *reference* (an env var / secret path), and
 the real secret is fetched at resolve time and never persisted by us.
 
@@ -67,7 +67,7 @@ class FileSecretStore(SecretStore):
 
     def _save(self, data: dict) -> None:
         # This file holds connection URIs WITH embedded credentials in plaintext.
-        # Create it owner-only (0o600) and lock down the parent dir (0o700) so
+        # Create it owner only (0o600) and lock down the parent dir (0o700) so
         # other local users can't read stored secrets. For production, prefer the
         # env:// backend (REXGRAPH_SECRETS_URI=env://) over a file.
         parent = os.path.dirname(self.path)
@@ -75,7 +75,7 @@ class FileSecretStore(SecretStore):
         with contextlib.suppress(OSError):
             os.chmod(parent, 0o700)
         tmp = self.path + ".tmp"
-        # Open with 0o600 from the start so the secrets never briefly exist world-readable.
+        # Open with 0o600 from the start so the secrets never briefly exist world readable.
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             json.dump(data, f)
@@ -106,7 +106,7 @@ class FileSecretStore(SecretStore):
 
 
 class EnvSecretStore(SecretStore):
-    """Reference-based store modeling a real secrets manager: config holds a
+    """Reference based store modeling a real secrets manager: config holds a
     *reference* (an env var name); the secret is fetched from the environment
     at resolve time and never persisted here. The same shape a Vault/KMS
     backend takes: swap ``os.environ`` for the vault client.
@@ -155,7 +155,7 @@ class EnvSecretStore(SecretStore):
         return existed
 
 
-#: Which references a REQUEST may name, as a comma-separated allow-list. Empty or
+#: Which references a REQUEST may name, as a comma separated allow list. Empty or
 #: unset denies every one, which is the safe default: a reference arriving in a request
 #: is chosen by the caller, and `resolve_ref` reads any environment variable, so without
 #: this a caller names AWS_SECRET_ACCESS_KEY and the credential leaves as a bearer
@@ -197,7 +197,7 @@ def resolve_ref(ref: str) -> str:
     never the secret itself. Config (a hive profile, a bee) holds only the reference, so a
     credential is fetched at call time and is never written to disk or serialized by us.
 
-    Environment first (the cheap, container-native case), then the secret store. Missing is
+    Environment first (the cheap, container native case), then the secret store. Missing is
     not an error: callers degrade to an unauthenticated request rather than crashing, and an
     unresolved reference must never be sent as if it were a key.
     """

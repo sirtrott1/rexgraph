@@ -3,7 +3,7 @@ agent.server.routes.hive: route surface for the agent swarm (hive).
 
 Endpoints to bring bees up (spawn managed llama.cpp servers or attach live
 endpoints), inspect the swarm, route or dispatch a query to a bee, and read the
-relational-complex monitor over swarm traffic. Every bee interaction is recorded
+relational complex monitor over swarm traffic. Every bee interaction is recorded
 into the live complex, so this monitor and `/api/v1/agents/monitor` read the same
 flow.
 """
@@ -14,7 +14,7 @@ from ..auth import require_admin
 router = APIRouter(prefix="/v1")
 
 # Reading what the instance is running is ordinary use. Everything that MOVES it is not:
-# the runtime is process-wide, so these start and stop subprocesses, spend disk and VRAM,
+# the runtime is process wide, so these start and stop subprocesses, spend disk and VRAM,
 # and take a model or a profile out from under whoever else is using it. Those are
 # instance operations rather than workspace ones, and they are gated on instance admin.
 _admin = [Depends(require_admin)]
@@ -23,28 +23,28 @@ _admin = [Depends(require_admin)]
 
 @router.get("/hive/status")
 async def hive_status(health: bool = False):
-    """Return every bee (role/url/model/specialties), the queen and embedder; ?health=true adds a per-bee reachability probe."""
+    """Return every bee (role/url/model/specialties), the queen and embedder; ?health=true adds a per bee reachability probe."""
     from agent import hive
     return hive.get_hive().status(check_health=health)
 
 
 @router.get("/hive/monitor")
 async def hive_monitor(embed: bool = False):
-    """Return the relational-complex monitor over swarm traffic: load-bearing bees, Hodge disagreement, deadlock cycles, alignment, divergence. ?embed=true uses the embedder bee."""
+    """Return the relational complex monitor over swarm traffic: load bearing bees, Hodge disagreement, deadlock cycles, alignment, divergence. ?embed=true uses the embedder bee."""
     from agent import hive
     return hive.get_hive().monitor(embed=embed)
 
 
 @router.post("/hive/attach", dependencies=_admin)
 async def hive_attach(body: dict = Body(...)):
-    """Attach an already-running endpoint as a bee.
+    """Attach an already running endpoint as a bee.
 
     body: {name, url, role?, model?, specialties?, api_key_ref?}. `api_key_ref` names an env var /
-    secret-store entry holding the endpoint's credential - the API never accepts or returns a raw
+    secret store entry holding the endpoint's credential - the API never accepts or returns a raw
     key, so a credential cannot arrive over the wire or be echoed back.
 
     Admin, because this points the hive at a url the CALLER chose and can hand that url a
-    credential. The reference is checked against the operator's allow-list first: without
+    credential. The reference is checked against the operator's allow list first: without
     that check a caller names any environment variable and the value leaves as a bearer
     header on the first request routed to their endpoint.
     """
@@ -78,7 +78,7 @@ async def hive_attach_live():
 
 @router.get("/hive/plan")
 async def hive_plan(budget: float = None):
-    """Dry-run auto-composition: from the models on disk and the memory budget, return the queen, workers, and embedder that would fit. Spawns nothing. ?budget overrides the GB budget."""
+    """Dry run auto composition: from the models on disk and the memory budget, return the queen, workers, and embedder that would fit. Spawns nothing. ?budget overrides the GB budget."""
     from agent import hive
     return hive.get_hive().auto_plan(budget)
 
@@ -119,7 +119,7 @@ async def hive_remove(body: dict = Body(...)):
 
 @router.post("/hive/route")
 async def hive_route(body: dict = Body(...)):
-    """Rank bees for a query by specialty and interaction-history reweighting. body: {query, top_k?}."""
+    """Rank bees for a query by specialty and interaction history reweighting. body: {query, top_k?}."""
     from agent import hive
     q = body.get("query")
     if not q:
@@ -164,7 +164,7 @@ async def hive_down():
 
 @router.get("/hive/profiles")
 async def hive_profiles():
-    """List all hive setups (built-in presets and saved profiles) and which one is active."""
+    """List all hive setups (built in presets and saved profiles) and which one is active."""
     from agent import hive_config
     s = hive_config.get_store()
     return {"profiles": [p.to_dict() for p in s.list()], "active": s.active_id()}
@@ -181,7 +181,7 @@ async def hive_profile_get(pid: str):
 
 @router.post("/hive/profiles", dependencies=_admin)
 async def hive_profile_save(body: dict = Body(...)):
-    """Create or update a user profile. body: a profile dict, or {name, base?, ...overrides} to clone an existing preset. Built-ins are not mutated in place; this shadows them."""
+    """Create or update a user profile. body: a profile dict, or {name, base?, ...overrides} to clone an existing preset. Built ins are not mutated in place; this shadows them."""
     from agent import hive_config
     s = hive_config.get_store()
     if body.get("base") is not None or ("id" not in body and "name" in body and not body.get("compose")):

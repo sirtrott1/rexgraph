@@ -18,7 +18,7 @@ from rexgraph.core import _linalg
 # Helpers
 
 def _random_psd(n, seed=42):
-    """Random positive semi-definite matrix."""
+    """Random positive semi definite matrix."""
     rng = np.random.RandomState(seed)
     A = rng.randn(n, n)
     return (A @ A.T) / n

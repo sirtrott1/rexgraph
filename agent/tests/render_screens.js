@@ -1,4 +1,4 @@
-/* Shallow-render every screen and every component it reaches.
+/* Shallow render every screen and every component it reaches.
 
    app.jsx ships without a build step or a test renderer, so a screen that throws on
    mount only shows up in a browser. This calls each component function with stub
@@ -111,9 +111,9 @@ const screens = ctx.TAB_MAP || {};
 const names = Object.keys(screens);
 if (!names.length) { console.log("LOAD_FAIL TAB_MAP is empty"); process.exit(1); }
 
-/* Screens read their opening sub-tab through takeSub, which routeSub fills. That is
-   the only handle on sub-tab state here, since useState is stubbed to its initial
-   value, and it means every sub-tab gets rendered rather than only the default. */
+/* Screens read their opening sub tab through takeSub, which routeSub fills. That is
+   the only handle on sub tab state here, since useState is stubbed to its initial
+   value, and it means every sub tab gets rendered rather than only the default. */
 const SUBTABS = ctx.SUBTABS || {};
 let rendered = 0;
 

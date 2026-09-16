@@ -14,8 +14,8 @@ back a view filtered by it. A route keeps calling `default_store()` and gets a s
 that does not contain other people's records, so there is no check to forget.
 
 Unset context means unrestricted, which is what the CLI, the test suite and any
-in-process caller want: they are not serving a request and are not being scoped. The
-filter also only engages when auth is on, so single-operator local use is untouched.
+in process caller want: they are not serving a request and are not being scoped. The
+filter also only engages when auth is on, so single operator local use is untouched.
 
 A record with no workspace recorded is treated as belonging to everyone. Those are the
 ones written before this existed, and hiding them would make an upgrade look like data
@@ -24,6 +24,7 @@ loss. New records get stamped on the way in.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from contextvars import ContextVar
 
 #: the workspace serving the current request, or None outside one
@@ -90,8 +91,8 @@ class ScopedStore:
 
     Wraps rather than subclasses, because the store has several backends and this has
     to apply to all of them identically. Anything not named here passes through, so a
-    backend-specific method still works; the five that reach records by id or return
-    them in bulk are the ones that need an opinion.
+    backend specific method still works. Every record bearing RCDB read/write
+    contract below is explicit so a new runtime method cannot widen the view.
     """
 
     def __init__(self, inner, workspace: str | None, caller: str | None = None):
@@ -113,9 +114,62 @@ class ScopedStore:
     def get(self, id, **kw):
         # asked through get_record first, so a record belonging to someone else reads
         # as absent rather than as a permission error that confirms it exists
-        if self.get_record(id) is None:
-            return None
-        return self._inner.get(id, **kw)
+        selectors = {k: v for k, v in kw.items() if k in {"as_of", "valid_at"}}
+        with getattr(self._inner, "_transaction_lock", nullcontext()):
+            if self.get_record(id, **selectors) is None:
+                return None
+            return self._inner.get(id, **kw)
+
+    def history(self, id):
+        return [r for r in self._inner.history(id) if self._visible(r)]
+
+    def get_version(self, id, version):
+        with self._inner._transaction_lock:
+            if not any(r.version == version for r in self.history(id)):
+                return None
+            return self._inner.get_version(id, version)
+
+    def read_record(self, id, **kw):
+        # Reuse the RCDB algorithm, but bind it to THIS view's history/get_version.
+        # Delegating the bound inner method would skip the workspace filter.
+        from rcdb.core import RCStore
+        return RCStore.read_record(self, id, **kw)
+
+    def _read_published_record(self, record):
+        from rcdb.core import RCStore
+        return RCStore._read_published_record(self, record)
+
+    def state_manifest(self):
+        from rcdb.core import RCStore
+        return RCStore.state_manifest(self)
+
+    def state_digest(self):
+        from rcdb.core import RCStore
+        return RCStore.state_digest(self)
+
+    def stats(self):
+        from rcdb.core import RCStore
+        return RCStore.stats(self)
+
+    def security_status(self):
+        return self._inner.security_status()
+
+    def commit_history(self, id):
+        with self._inner._transaction_lock:
+            history = self._inner.history(id)
+            if not any(self._visible(r) for r in history):
+                return []
+            if not all(self._visible(r) for r in history):
+                # Packages contain predecessor states, not just harmless links.
+                raise PermissionError("record lineage crosses workspace ownership")
+            return self._inner.commit_history(id)
+
+    def verify_commits(self, id):
+        with self._inner._transaction_lock:
+            history = self._inner.history(id)
+            if not history or not all(self._visible(r) for r in history):
+                return False
+            return self._inner.verify_commits(id)
 
     def list(self, *a, **kw):
         return [r for r in self._inner.list(*a, **kw) if self._visible(r)]
@@ -136,10 +190,12 @@ class ScopedStore:
         writable exactly as it stays visible. Those predate ownership and refusing them
         would strand data nobody can claim.
         """
-        try:
+        # Writes address literal identities, not the read only id@version alias.
+        if callable(getattr(self._inner, "history", None)):
+            from rcdb.core import RCStore
+            existing = RCStore._select_version(self._inner.history(id), None, None)
+        else:
             existing = self._inner.get_record(id)
-        except Exception:
-            return                                  # a store that cannot say is not a denial
         if existing is None or self._visible(existing):
             return
         self._record("db.put", id, outcome="refused",
@@ -158,10 +214,11 @@ class ScopedStore:
                      target=str(target), outcome=outcome, detail=detail)
 
     def delete(self, id, **kw):
-        if self.get_record(id) is None:
-            self._record("db.delete", id, outcome="not_found")
-            return False
-        out = self._inner.delete(id, **kw)
+        with getattr(self._inner, "_transaction_lock", nullcontext()):
+            if self.get_record(id) is None:
+                self._record("db.delete", id, outcome="not_found")
+                return False
+            out = self._inner.delete(id, **kw)
         self._record("db.delete", id)
         return out
 
@@ -180,13 +237,33 @@ class ScopedStore:
         better is one running outside a request, and outside a request this wrapper does
         not exist.
         """
-        self._refuse_if_owned_elsewhere(id)
+        with getattr(self._inner, "_transaction_lock", nullcontext()):
+            self._refuse_if_owned_elsewhere(id)
+            meta = self._stamp(meta)
+            out = self._inner.put(id, rex, meta=meta, tags=tags, **kw)
+        self._record("db.put", id, nE=int(getattr(rex, "nE", 0) or 0))
+        return out
+
+    def _stamp(self, meta):
         meta = dict(meta or {})
         meta["workspace"] = self._workspace
         if self._caller:
             meta["stored_by"] = self._caller
-        out = self._inner.put(id, rex, meta=meta, tags=tags, **kw)
-        self._record("db.put", id, nE=int(getattr(rex, "nE", 0) or 0))
+        return meta
+
+    def put_prepared(self, id, blob, sig, meta=None, tags=None, **kw):
+        with self._inner._transaction_lock:
+            self._refuse_if_owned_elsewhere(id)
+            out = self._inner.put_prepared(id, blob, sig, meta=self._stamp(meta), tags=tags, **kw)
+        self._record("db.put", id, prepared=True)
+        return out
+
+    def commit_mutation(self, id, rex, meta=None, tags=None, **kw):
+        with self._inner._transaction_lock:
+            self._refuse_if_owned_elsewhere(id)
+            kw["actor"] = self._caller or kw.get("actor", "")
+            out = self._inner.commit_mutation(id, rex, meta=self._stamp(meta), tags=tags, **kw)
+        self._record("db.commit", id, version=out.version)
         return out
 
 
@@ -203,7 +280,7 @@ class ScopedSecrets:
     Wraps rather than subclasses, for the reason `ScopedStore` does: there are three
     backends and this has to apply to all of them identically. The workspace goes into
     the KEY rather than onto the record, because `SecretStore.put` carries no metadata
-    field to stamp and adding one would change all three backends and their on-disk
+    field to stamp and adding one would change all three backends and their on disk
     formats.
 
     A workspace name cannot contain "/" (`handles.WORKSPACE_RE`), so the first "/"
@@ -306,7 +383,7 @@ def secret_store():
 
 
 def reset_secret_store() -> None:
-    """Drop the opened backend so the next call re-reads the configuration. For tests."""
+    """Drop the opened backend so the next call re reads the configuration. For tests."""
     global _SECRET_STORE
     _SECRET_STORE = None
 
@@ -319,7 +396,7 @@ def add_workspace_scope(app) -> None:
     `auth.require_workspace`'s decision, and the routes that never declared that are
     exactly the ones that were reaching the shared store unfiltered.
 
-    Starlette runs the LAST-registered middleware first, so this is registered AFTER
+    Starlette runs the LAST registered middleware first, so this is registered AFTER
     the auth enforcement it must run behind. A caller that sends no `X-Workspace` still
     gets scoped to what their token grants, rather than to everything.
     """

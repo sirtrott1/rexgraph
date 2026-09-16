@@ -1,7 +1,7 @@
 """A query must be the same KIND of object as the document it is scored against.
 
 `interfacing_score` compares a query complex's vocabulary and a document's field. If the
-query is a windowed co-occurrence graph and the document is a field of branching
+query is a windowed co occurrence graph and the document is a field of branching
 relations, the comparison is between two constructions rather than two texts, and no
 score function repairs that.
 """
@@ -18,7 +18,7 @@ _TEXT = ("The cat sat quietly on the woven mat. "
          "Nothing else of interest happened afterwards.")
 
 
-#### the branching construction #################################################
+# the branching construction
 
 def test_branching_mode_carries_sentences_as_relations_not_pairs():
     ec = TextAdapter().build(_TEXT, relation_mode="branching")
@@ -67,7 +67,7 @@ def test_an_unknown_relation_mode_is_refused():
         TextAdapter().build(_TEXT, relation_mode="clique")
 
 
-#### the query path #############################################################
+# the query path
 
 def test_build_query_rex_is_branching_by_default():
     rex, ec = build_query_rex("the cat chased the dog around the garden")
@@ -98,7 +98,7 @@ def test_the_query_and_the_document_tokenise_identically():
 
 
 def test_a_one_word_query_is_a_witness_not_an_absence():
-    """A one-word query is a true reading of the input, and the reading is a witness:
+    """A one word query is a true reading of the input, and the reading is a witness:
     `(+1)`, sum one, exists and bounds nothing."""
     rex, ec = build_query_rex("cat")
     assert ec is not None and ec.vertex_labels == ["cat"]

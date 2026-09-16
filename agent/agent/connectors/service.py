@@ -13,9 +13,9 @@ to build on. Pure Python: no argparse, no FastAPI, no printing.
     validate(uri, source=None)             -> run the harness, return the report
     ingest(uri, store_uri, record_id, …)   -> build + persist structure into an RCStore
 
-For URI-addressed live sources (SQL, warehouses, Mongo) the connection URI *is*
-the source, so ``source`` defaults to ``uri``. For in-memory shapes (ontologies,
-edge lists, graph/stream stand-ins) pass a scheme as ``uri`` and the structure as
+For URI addressed live sources (SQL, warehouses, Mongo) the connection URI *is*
+the source, so ``source`` defaults to ``uri``. For in memory shapes (ontologies,
+edge lists, graph/stream stand ins) pass a scheme as ``uri`` and the structure as
 ``source``.
 """
 
@@ -26,12 +26,12 @@ from typing import Any
 from . import _SCHEME_MAP, open_connector, to_rexgraph
 from .validate import ValidationReport, validate_connector
 
-# Per-scheme driver probe: (module to import, pip hint). None => no driver needed
+# Per scheme driver probe: (module to import, pip hint). None => no driver needed
 # (the in-memory/structure path). This powers the app's "not configured" UX so a
 # missing warehouse driver shows an install hint instead of a dead button.
 _WAREHOUSE_HINT = "pip install 'rexgraph-agent[warehouse]'"
 
-# Schemes for which a cardinality-weight pull is meaningful (SQL + warehouses).
+# Schemes for which a cardinality weight pull is meaningful (SQL + warehouses).
 # Shared by the CLI and the HTTP route so "weights" means one thing everywhere.
 WEIGHTABLE_SCHEMES = frozenset({
     "sqlite", "postgresql", "postgres", "mysql", "mariadb", "oracle", "mssql",
@@ -41,7 +41,7 @@ WEIGHTABLE_SCHEMES = frozenset({
 
 def weight_kwargs(uri: str, want_weights: bool) -> dict[str, Any]:
     """`{'with_weights': True}` only when weights are requested *and* the scheme
-    supports them; otherwise empty (so non-SQL connectors aren't handed an
+    supports them; otherwise empty (so non SQL connectors aren't handed an
     argument their constructor doesn't accept)."""
     return ({"with_weights": True}
             if want_weights and _scheme_of(uri) in WEIGHTABLE_SCHEMES else {})
@@ -77,10 +77,10 @@ def _scheme_of(uri: str) -> str:
 
 def driver_status(scheme: str) -> dict[str, Any]:
     """Whether the driver for ``scheme`` is importable, plus a pip hint if not.
-    In-memory shapes report available=True (no driver needed)."""
+    In memory shapes report available=True (no driver needed)."""
     scheme = scheme.lower()
     probe, hint = _DRIVER_PROBE.get(scheme, ("", ""))
-    if probe is None:                       # in-memory shape, no driver
+    if probe is None:                       # in memory shape, no driver
         return {"available": True, "hint": ""}
     if not probe:                           # unknown scheme
         return {"available": False, "hint": ""}
@@ -130,7 +130,7 @@ def _summary(g: Any, meta: dict[str, Any]) -> dict[str, Any]:
 
 
 def read(uri: str, source: Any = None, **kwargs) -> dict[str, Any]:
-    """Build the complex read-only and return a summary (no storage). For live
+    """Build the complex read only and return a summary (no storage). For live
     URI sources, ``source`` defaults to the URI itself."""
     connector = open_connector(uri, **kwargs)
     rex, meta = connector.read(uri if source is None else source)
@@ -151,7 +151,7 @@ def ingest(uri: str, record_id: str, *, store: Any = None,
            tags: list[str] | None = None, **kwargs) -> dict[str, Any]:
     """Build the complex and persist its *structure* into an RCStore. The only
     writing operation, and it writes solely to the host's own store - either a
-    pre-opened ``store`` (e.g. the app's singleton) or one opened from
+    pre opened ``store`` (e.g. the app's singleton) or one opened from
     ``store_uri``."""
     from agent.rcdb import open_store
 

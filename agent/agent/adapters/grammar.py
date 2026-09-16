@@ -7,7 +7,7 @@ document has neither senses nor sense ids (it has words) so the usable form is
 A frame IS an oriented relation and that is what makes it the orientation source: the
 verb heads it and the argument slots share. "Somebody ----s somebody something" is arity
 4, so the verb carries the `-1` and agent, recipient and theme each carry `1/3` because
-the boundary column says so. Part-of-speech tagging and dependency parsing approximate
+the boundary column says so. Part of speech tagging and dependency parsing approximate
 exactly this, statistically, from labelled corpora; here it is read.
 
 `head_of` is deliberately narrow. A relation of arity k is headed by the token admitting

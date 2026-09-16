@@ -38,7 +38,7 @@ def bundle_from_core(triples=None, *, url=None, flow=None, labels=None, feat_dim
     """Convert a knowledge core into a hypergraph DataBundle for the archetypes. Entities are nodes;
     the core's relations are the (signed) complex structure. `labels` is an optional
     {entity_name: class} map for node classification; without it the bundle is unlabeled (structure
-    only, for link-pred / unsupervised). Node features are placeholder random projections; replace
+    only, for link pred / unsupervised). Node features are placeholder random projections; replace
     them with real entity embeddings."""
     rex, meta = core_to_rex(triples, url=url, flow=flow)
     b = _store._bundle_from_rex(rex)                     # he_ptr/he_idx from the complex
@@ -65,8 +65,8 @@ def core_to_rcdb(triples=None, *, url=None, flow=None, uri="memory://", name="kn
                  tags=None, store=None):
     """Ingest a knowledge core and catalogue its complex in the RCDB (queryable by Betti/coherence).
 
-    `store` takes an already-opened store and `uri` is then ignored. A route passes the
-    workspace-scoped store that way, because opening a caller-named URI here writes
+    `store` takes an already opened store and `uri` is then ignored. A route passes the
+    workspace scoped store that way, because opening a caller named URI here writes
     outside the scoped view entirely.
     """
     rex, _ = core_to_rex(triples, url=url, flow=flow)

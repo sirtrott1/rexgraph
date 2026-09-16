@@ -1,23 +1,23 @@
 """
 agent.courier: a worker that carries stored complexes between hives.
 
-A hive's learning is not its chat log, it is what it has catalogued: its worker-type
+A hive's learning is not its chat log, it is what it has catalogued: its worker type
 structure, its schema lineage, the complexes its work produced. All of that already lives in
-an RCStore keyed by structural signature, so distributing learning between hives is a
+an RCStore with native payloads and structural signatures, so distributing learning is a
 transfer between stores, and the thing that performs it is an ordinary member. A courier
 declares capability `transform`, so it is routed to, invoked, typed and monitored exactly
 like any other worker rather than sitting beside the hive as machinery.
 
-Two properties of the RCDB are what keep this small. A record carries its structural
-signature, so "does the destination already know this" is a comparison of signatures and
-never of bytes, and a repeat trip costs one lookup per record and writes nothing. And a
-store versions a lineage natively, so a delivery that DOES carry something appends a version
+Two properties of RCDB keep this small. Version snapshots carry framework state digests,
+so "does the destination already know this" compares full payload identity, not cell counts
+or Betti numbers. A repeat trip reads and hashes the selected payloads but writes nothing.
+A store versions a lineage natively, so a delivery that DOES carry something appends a version
 at the destination instead of overwriting, leaving the receiving hive a history of what
 arrived and when.
 
 A trip is recorded through `HiveNetwork.relay`, which is the network's own `add_message`.
 Courier traffic is therefore an edge at the network grade, and `HiveNetwork.monitor()` reads
-routes that carry the most as load-bearing without being told a courier exists.
+routes that carry the most as load bearing without being told a courier exists.
 
     courier = Courier("mule", network=net)
     courier.attach_store("alpha", alpha_store)
@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 # provenance (tags, source) AND analytics whose presence depends on how the complex reached
 # the store, so a memory store that keeps the object and a file store that serialises it
 # disagree on labels_sample, n_labels and n_voids for the very same complex. Comparing
-# everything-but-provenance therefore reported a record as changed the moment it crossed a
-# backend boundary, which is every real store, and a courier silently re-carried on every
+# everything but provenance therefore reported a record as changed the moment it crossed a
+# backend boundary, which is every real store, and a courier silently re carried on every
 # trip. These six survive any round trip because they are read off the boundary data itself.
 STRUCTURE_FIELDS = ("object_type", "nV", "nE", "nF", "betti", "chain_valid")
 
@@ -55,10 +55,9 @@ DEFAULT_LIMIT = 100
 def structure_of(signature: dict) -> dict:
     """The part of a signature that says what shape a complex is.
 
-    The identity a delivery compares on, so re-tagging a record on arrival does not make
-    it look new, and neither does carrying it from one backend into another. Absent fields
-    are left out rather than defaulted, so two signatures that recorded different amounts
-    still compare on what they both actually state."""
+    A survey summary, not a complete state identity: different boundaries and weights
+    can share these invariants. Delivery uses the framework payload digest instead.
+    Absent fields are left out rather than defaulted."""
     sig = signature or {}
     return {k: sig[k] for k in STRUCTURE_FIELDS if k in sig}
 
@@ -96,7 +95,7 @@ class Delivery:
     """One record's fate on one trip.
 
     `reason` is `carried` when the destination gained a version, `held` when it already had
-    this structure under this id, and `unreadable` when the source could not produce the
+    this native state under this id, and `unreadable` when the store could not produce the
     complex. An unreadable record is reported rather than raised: one bad blob must not
     strand the rest of the trip."""
     record_id: str
@@ -163,7 +162,7 @@ class Courier:
     #### what is available to carry, without carrying it
     def survey(self, hive: str, *, carry: CarrySpec | None = None) -> list[dict]:
         """What a trip out of this hive would consider, and the shape of each record. This is
-        the read-only half of `deliver`, so a caller can decide whether a trip is worth it."""
+        the read only half of `deliver`, so a caller can decide whether a trip is worth it."""
         m = carry or self.carry
         return [{"record_id": r.id, "version": r.version, "tags": r.signature.get("tags") or [],
                  "kind": (r.meta or {}).get("kind", ""), "structure": structure_of(r.signature)}
@@ -172,7 +171,7 @@ class Courier:
     #### the trip
     def deliver(self, source: str, dest: str, *, carry: CarrySpec | None = None) -> dict:
         """Carry everything the spec selects from source to dest, skipping what dest
-        already holds. Returns the trip: per-record deliveries and the counts.
+        already holds. Returns the trip: per record deliveries and the counts.
 
         Delivering to a store that is already the source's is not an error and is not a
         special case: every record compares equal to itself and the whole trip reads `held`.
@@ -202,7 +201,7 @@ class Courier:
                   carry: CarrySpec | None = None) -> dict:
         """One trip per destination, defaulting to every other hive the courier routes for.
 
-        This is a fan-out of `deliver` and not a cheaper path: each destination is compared
+        This is a fan out of `deliver` and not a cheaper path: each destination is compared
         against separately, because two destinations do not hold the same thing and a record
         one already has is a record the other may still need."""
         targets = [d for d in (dests if dests is not None else self.destinations())
@@ -212,24 +211,27 @@ class Courier:
                 "carried": sum(t["carried"] for t in trips), "trips": trips}
 
     def _one(self, src, dst, rec, source: str) -> Delivery:
-        """One record's trip. The destination is compared on structure alone, so a record that
-        arrived on an earlier trip and was re-tagged there still reads as held.
+        """One record's trip. The destination is compared on payload identity, so a record that
+        arrived on an earlier trip and was re tagged there still reads as held.
 
         The write goes through `rcdb.copy_record`, the one place a record crosses between
         stores, so a delivery keeps the valid time the record was true for rather than
         being stamped with the time it was carried at."""
-        try:
-            have = dst.get_record(rec.id)
-        except Exception:
-            have = None
-        if have is not None and structure_of(have.signature) == structure_of(rec.signature):
-            return Delivery(rec.id, "held", version=have.version)
         from .rcdb import copy_record
-        meta = dict(rec.meta or {})
-        meta["courier"] = {"by": self.name, "from": source, "at": time.time(),
-                           "source_version": rec.version}
-        tags = sorted({*(rec.signature.get("tags") or []), "courier", f"from:{source}"})
         try:
+            snapshot = src.read_record(rec.id, version=rec.version)
+            if snapshot is None:
+                return Delivery(rec.id, "unreadable")
+            rec = snapshot.record
+            have = dst.read_record(rec.id)
+            # A display alias does not establish existence of a literal copy target.
+            if (have is not None and have.record.id == rec.id
+                    and have.state_digest == snapshot.state_digest):
+                return Delivery(rec.id, "held", version=have.record.version)
+            meta = dict(rec.meta or {})
+            meta["courier"] = {"by": self.name, "from": source, "at": time.time(),
+                               "source_version": rec.version}
+            tags = sorted({*(rec.signature.get("tags") or []), "courier", f"from:{source}"})
             out = copy_record(src, dst, rec, meta=meta, tags=tags)
         except Exception:
             logger.debug("courier %s could not read %s", self.name, rec.id, exc_info=True)
@@ -247,12 +249,13 @@ class Courier:
         shipments = []
         for rec in carry.select(src):
             try:
-                rex = src.get(rec.id)
+                snapshot = src.read_record(rec.id, version=rec.version)
             except Exception:
                 logger.debug("courier %s could not read %s", self.name, rec.id, exc_info=True)
-                rex = None
-            shipments.append(Shipment(rec.id, "unreadable") if rex is None else
-                             peer.ship(rec, rex, source=source, courier=self.name))
+                snapshot = None
+            shipments.append(Shipment(rec.id, "unreadable") if snapshot is None else
+                             peer.ship(snapshot.record, snapshot.value,
+                                       source=source, courier=self.name))
 
         shipped = [x for x in shipments if x.shipped]
         self._trips += 1
@@ -267,7 +270,7 @@ class Courier:
         return trip
 
     def _relay(self, source: str, dest: str, trip: dict) -> None:
-        """Record the trip as inter-hive traffic. A trip that carried nothing is still a trip,
+        """Record the trip as inter hive traffic. A trip that carried nothing is still a trip,
         so the edge is recorded either way and the network complex sees the route."""
         if self.network is None:
             return
@@ -333,7 +336,7 @@ def _record_trip(name: str, action: str, trip: dict, source: str, dest: str,
     """A trip as the two oriented acts it is: read the source, write the destination.
 
     One event per end rather than one per record. The journal already shows what a log of
-    40k single-record events looks like: 39.5k objects of degree one, which adds vertices
+    40k single record events looks like: 39.5k objects of degree one, which adds vertices
     and no cycles, so the topology it carries is the same one the two ends carry and it
     costs 20,000 times the volume to say it."""
     keep = {k: trip[k] for k in ("considered", "carried", "held") if k in trip}
@@ -344,13 +347,13 @@ def _record_trip(name: str, action: str, trip: dict, source: str, dest: str,
     _record(name, action, dict(keep, end="dest", trip=tid), on="hive:" + dest, flow="write")
 
 
-# process-wide courier
+# process wide courier
 
 _COURIER: Courier | None = None
 
 
 def get_courier() -> Courier:
-    """The courier this process routes through, wired to the process-wide hive network so
+    """The courier this process routes through, wired to the process wide hive network so
     its trips land as edges of the same complex the hives are cells of."""
     global _COURIER
     if _COURIER is None:
@@ -373,7 +376,7 @@ def main(argv=None):
     """CLI: `python -m agent.courier deliver <source-uri> <dest-uri>`.
 
     Stores are named by RCDB uri rather than by hive, because a command that ends when it
-    returns has no hive to belong to. The library keeps the hive-addressed form, where a
+    returns has no hive to belong to. The library keeps the hive addressed form, where a
     trip is also an edge in the network complex."""
     import argparse
     import json
@@ -403,7 +406,7 @@ def main(argv=None):
     sh.add_argument("--ledger", default="",
                     help="file to keep the shipped-ledger in, so repeat trips stay idempotent")
     sh.add_argument("--confirm", action="store_true",
-                    help="fetch each shipment back and compare fingerprints")
+                    help="fetch each shipment back and compare native state digests")
     _carry(sh)
 
     a = ap.parse_args(argv)

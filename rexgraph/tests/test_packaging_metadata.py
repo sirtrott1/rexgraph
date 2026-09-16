@@ -11,10 +11,14 @@ with the hyphen. Nothing local ever checks it, because nothing local ever upload
 
 from __future__ import annotations
 
-import tomllib
+import ast
+import re
+import runpy
+import sys
 from pathlib import Path
 
 import pytest
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFESTS = ("pyproject.toml", "agent/pyproject.toml")
@@ -43,7 +47,7 @@ def test_the_license_is_an_spdx_expression(manifest):
     """The identifier, not the license's prose name.
 
     `{text = "Apache License 2.0"}` is the deprecated table form AND not an SPDX id, so
-    it lands in metadata as an opaque string rather than a License-Expression.
+    it lands in metadata as an opaque string rather than a License Expression.
     """
     licence = _project(manifest).get("license")
     assert isinstance(licence, str), (
@@ -75,3 +79,33 @@ def test_the_project_says_where_it_lives(manifest):
     urls = _project(manifest).get("urls", {})
     assert urls, f"{manifest} declares no project URLs"
     assert any("github.com" in v for v in urls.values()), urls
+
+
+def test_all_top_level_runtime_modules_are_installed_by_meson():
+    """Source imports must not mask omitted files in the built wheel.
+
+    Keep the explicit Meson list, but require a decision for every runtime module.
+    Tests live in a separate subdirectory and are not runtime modules.
+    """
+    package = ROOT / "rexgraph"
+    manifest = (package / "meson.build").read_text()
+    match = re.search(r"py\.install_sources\(\s*(\[.*?\])\s*,", manifest, re.S)
+    assert match, "expected an explicit top-level py.install_sources list"
+    declared = ast.literal_eval(match.group(1))
+    assert len(declared) == len(set(declared)), "duplicate installed source entries"
+    actual = {path.name for path in package.glob("*.py")}
+    assert set(declared) == actual, {
+        "missing_from_wheel": sorted(actual - set(declared)),
+        "nonexistent_source": sorted(set(declared) - actual),
+    }
+
+
+@pytest.mark.parametrize("conftest", ["conftest.py", "rcql/conftest.py", "rexgraph/tests/conftest.py"])
+def test_installed_test_mode_never_adds_source_fallbacks(conftest, monkeypatch, tmp_path):
+    import rexgraph
+    monkeypatch.setattr(rexgraph, "__path__", [str(tmp_path)])
+    monkeypatch.setenv("REXGRAPH_TEST_INSTALLED", "1")
+    before = tuple(sys.path)
+    runpy.run_path(str(ROOT / conftest))
+    assert tuple(sys.path) == before
+    assert rexgraph.__path__ == [str(tmp_path)]

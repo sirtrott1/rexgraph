@@ -2,7 +2,7 @@
 agent.connectors.template: copy this file to start a new connector.
 
 A connector teaches the engine one system. The whole job is: read your source
-read-only, and emit its relationships as edges. Everything else (the math, the
+read only, and emit its relationships as edges. Everything else (the math, the
 store, the analyses) follows from that. Fill in the two TODOs below.
 
     cp agent/connectors/template.py agent/connectors/my_system.py
@@ -13,7 +13,7 @@ Then validate it turns your integration into a pass/fail known quantity:
     from agent.connectors.my_system import MyConnector
     print(validate_connector(MyConnector(), my_source))
 
-Run this file directly to see the worked example execute end-to-end:
+Run this file directly to see the worked example execute end to end:
 
     python -m agent.connectors.template
 """
@@ -27,7 +27,7 @@ from . import BaseConnector, Capabilities
 # the skeleton to copy
 
 class MyConnector(BaseConnector):
-    """Rename me. Read a source read-only and return ``(rex, meta)``."""
+    """Rename me. Read a source read only and return ``(rex, meta)``."""
 
     # Advertise what you can supply. topology is always True; flip the others
     # on only if you actually emit them below. ``schemes`` are the URI schemes
@@ -40,7 +40,7 @@ class MyConnector(BaseConnector):
     )
 
     def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
-        # TODO 1: READ YOUR SOURCE (read-only)
+        # TODO 1: READ YOUR SOURCE (read only)
         # Pull the *structure* only - the entities and how they relate. Never
         # read cell/row values; the engine persists structure, not data.
         # Produce, from your source:
@@ -54,7 +54,7 @@ class MyConnector(BaseConnector):
         # you from these index pairs (source = -1, target = +1). Optionally:
         #   weights  : list[float]   per edge - cardinality/magnitude -> strain
         #   modality : list[dict]    per edge - {"nullable":..,"identifying":..}
-        #   faces    : np.ndarray    dense B₂ (nE×nF) if some edges co-close
+        #   faces    : np.ndarray    dense B₂ (nE×nF) if some edges co close
         idx = {name: i for i, name in enumerate(labels)}
         sources = [idx[a] for a, _ in links]
         targets = [idx[b] for _, b in links]
@@ -73,7 +73,7 @@ class MyConnector(BaseConnector):
 # a worked example that runs immediately
 
 class ExampleEdgesConnector(BaseConnector):
-    """A trivial connector over an in-memory edge list, a stand-in for "any
+    """A trivial connector over an in memory edge list, a stand in for "any
     system that can enumerate its relationships." Weighted so strain is
     available. Runs with no external service."""
 
@@ -81,7 +81,7 @@ class ExampleEdgesConnector(BaseConnector):
 
     def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         # ``source`` here is a list of (parent, child, cardinality) triples -
-        # e.g. a hand-written schema. A real connector reads this from the
+        # e.g. a hand written schema. A real connector reads this from the
         # system instead of taking it as an argument.
         rows = source or [
             ("orders", "customers", 1000),

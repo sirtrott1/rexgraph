@@ -67,7 +67,7 @@ class TestPageRank:
         assert np.all(pr >= 0)
 
     def test_symmetric_graph_uniform(self, k4):
-        """K4 is vertex-transitive, so PageRank should be uniform."""
+        """K4 is vertex transitive, so PageRank should be uniform."""
         adj_ptr, adj_idx, _, adj_wt = _get_adj(k4)
         pr = _standard.pagerank(adj_ptr, adj_idx, adj_wt, k4.nV, k4.nE)
         assert np.std(pr) < 1e-6
@@ -229,7 +229,7 @@ class TestRexGraphIntegration:
 
 
 class TestClusteringValues:
-    """Value-level regression for the triangle-counting fix (each triangle must be
+    """Value level regression for the triangle counting fix (each triangle must be
     counted once, not once per edge). Previously every vertex's count was 3x."""
 
     def test_triangle_is_one(self):
@@ -240,7 +240,7 @@ class TestClusteringValues:
         assert np.allclose(cc, 1.0), f"K3 clustering must be 1.0, got {cc}"
 
     def test_k4_is_one(self):
-        # K4: every vertex has 3 mutually-connected neighbors -> cc = 1.0
+        # K4: every vertex has 3 mutually connected neighbors -> cc = 1.0
         adj_ptr = np.array([0, 3, 6, 9, 12], dtype=np.int32)
         adj_idx = np.array([1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2], dtype=np.int32)
         cc = _standard.clustering(adj_ptr, adj_idx, 4)

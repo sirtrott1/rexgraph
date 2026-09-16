@@ -3,13 +3,13 @@
 """
 rexgraph.core._quotient: quotient complexes and relative homology on rex.
 
-Given a 2-rex R = (E, F, d_1, d_2) with d_1 d_2 = 0 and derived vertex
+Given a 2 rex R = (E, F, d_1, d_2) with d_1 d_2 = 0 and derived vertex
 set V = union_e supp(d_1(e)), and a subcomplex I specified by masks on
 edges and faces with induced vertex set V_I, this module builds the
 quotient complex R/I and computes relative homological invariants.
 
 Mathematics
------------
+
 A subcomplex I of a relational complex R is a subcomplex: collections
 of cells at each dimension that are closed under the boundary maps. The
 quotient R/I identifies all cells in I with zero, which yields boundary
@@ -18,15 +18,15 @@ The homology of R/I is the relative homology H_k(R, I), related to
 H_k(R) and H_k(I) by the long exact sequence of the pair.
 
 Relational complex features
----------------------------
-- Edge-primary subcomplex selection: edges are the primitive cells,
+
+- Edge primary subcomplex selection: edges are the primitive cells,
   vertices are derived via boundary closure. Subcomplexes are specified
   by edge masks; vertex masks are computed, not independent inputs.
 - Quotient boundary operators built from B1 (signed incidence) and B2
-  (face-edge incidence) in the edge-primary basis.
+  (face edge incidence) in the edge primary basis.
 - Relational Laplacian on the quotient: RL_1^quot = L_1^quot + alpha_G * L_O^quot,
-  preserving the topological-geometric energy decomposition.
-- Energy-based subcomplex selection by E_kin/E_pot ratio regime.
+  preserving the topological geometric energy decomposition.
+- Energy based subcomplex selection by E_kin/E_pot ratio regime.
 - Congruence testing for edge and face chains modulo a chosen subcomplex.
 - Signal restriction (R to R/I) and lifting (R/I to R) for real signals,
   complex amplitudes, and (E, F) field states.
@@ -64,7 +64,7 @@ def validate_subcomplex(np.ndarray[np.uint8_t, ndim=1] v_mask,
                         np.ndarray[i32, ndim=1] B2_col_ptr,
                         np.ndarray[i32, ndim=1] B2_row_idx):
     """
-    Check that (v_mask, e_mask, f_mask) defines a subcomplex of a 2-rex.
+    Check that (v_mask, e_mask, f_mask) defines a subcomplex of a 2 rex.
 
     Closure conditions in the derived vertex set:
       1. For every edge selected by e_mask, all boundary vertices given by
@@ -73,7 +73,7 @@ def validate_subcomplex(np.ndarray[np.uint8_t, ndim=1] v_mask,
          selected by e_mask.
 
     Parameters
-    ----------
+
     v_mask, e_mask, f_mask : uint8[n], uint8[m], uint8[f]
         Masks with 1 for cells in the subcomplex and 0 otherwise.
     boundary_ptr : i32[nE+1]
@@ -86,7 +86,7 @@ def validate_subcomplex(np.ndarray[np.uint8_t, ndim=1] v_mask,
         CSC representation of B2, with faces as columns and edges as rows.
 
     Returns
-    -------
+
     valid : bool
         True when the closure conditions hold.
     violations : list
@@ -124,11 +124,11 @@ def closure_of_edges(np.ndarray[np.uint8_t, ndim=1] e_mask,
     """
     Compute the closure of an edge set by adding boundary vertices.
 
-    Uses the general boundary representation so standard, self-loop,
+    Uses the general boundary representation so standard, self loop,
     branching, and witness edges are handled in a uniform way.
 
     Returns
-    -------
+
     v_mask : uint8[nV]
         Mask for boundary vertices of selected edges.
     e_mask_out : uint8[nE]
@@ -164,7 +164,7 @@ def closure_of_faces(np.ndarray[np.uint8_t, ndim=1] f_mask,
     boundary vertices through the general boundary representation.
 
     Returns
-    -------
+
     v_mask : uint8[nV]
         Mask for vertices in the closure.
     e_mask : uint8[nE]
@@ -203,13 +203,13 @@ def closure_of_faces_and_edges(np.ndarray[np.uint8_t, ndim=1] v_mask,
                                np.ndarray[i32, ndim=1] B2_col_ptr,
                                np.ndarray[i32, ndim=1] B2_row_idx):
     """
-    Close masks downward to form a subcomplex in a 2-rex.
+    Close masks downward to form a subcomplex in a 2 rex.
 
     Faces add their boundary edges, and edges add their boundary vertices
     through the general boundary representation.
 
     Returns
-    -------
+
     v_mask_out, e_mask_out, f_mask_out : uint8 arrays
         Closed masks for vertices, edges, and faces.
     """
@@ -244,11 +244,11 @@ def subcomplex_by_edge_type(np.ndarray[np.uint8_t, ndim=1] edge_types,
     Build a subcomplex from edges with a single type code.
 
     Type codes follow classifyedgesgeneral in the rex core:
-    0 for standard, 1 for self-loop, 2 for branching, and 3 for witness.
+    0 for standard, 1 for self loop, 2 for branching, and 3 for witness.
     The closure adds all boundary vertices of selected edges.
 
     Returns
-    -------
+
     v_mask, e_mask, f_mask : uint8 arrays
         Masks for the closed subcomplex.
     """
@@ -279,7 +279,7 @@ def subcomplex_by_threshold(np.ndarray[f64, ndim=1] signal,
     are selected. The closure adds all boundary vertices.
 
     Returns
-    -------
+
     v_mask, e_mask, f_mask : uint8 arrays
         Masks for the closed subcomplex.
     """
@@ -310,14 +310,14 @@ def star_of_vertex(i32 v, Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF,
                    np.ndarray[i32, ndim=1] B2_col_ptr,
                    np.ndarray[i32, ndim=1] B2_row_idx):
     """
-    Build the star of a vertex as a subcomplex of a 2-rex.
+    Build the star of a vertex as a subcomplex of a 2 rex.
 
     The star contains the vertex, edges incident to it, and faces incident
     to those edges, and is then closed downward by adding boundary edges
     of faces and boundary vertices of edges.
 
     Returns
-    -------
+
     v_mask, e_mask, f_mask : uint8 arrays
         Masks for the star subcomplex.
     """
@@ -353,16 +353,16 @@ def star_of_edge(i32 edge_idx, Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF,
                  np.ndarray[i32, ndim=1] e2f_idx,
                  np.ndarray[i32, ndim=1] B2_col_ptr,
                  np.ndarray[i32, ndim=1] B2_row_idx):
-    """Build the star of an edge as a subcomplex of a 2-rex.
+    """Build the star of an edge as a subcomplex of a 2 rex.
 
     The edge star contains the edge itself, all edges sharing a boundary
     vertex with it, all faces incident to those edges, and is then closed
-    downward. This is the natural local neighborhood in the edge-primary
+    downward. This is the natural local neighborhood in the edge primary
     framework: edges are the primitive cells, so their stars define the
     local geometry.
 
     Returns
-    -------
+
     v_mask, e_mask, f_mask : uint8 arrays
         Masks for the star subcomplex.
     """
@@ -410,23 +410,23 @@ def subcomplex_by_energy_regime(np.ndarray[f64, ndim=1] E_kin_per_edge,
     """Build a subcomplex from edges in a specific energy regime.
 
     Each edge contributes to the total E_kin = <f|L_1|f> and E_pot = <f|L_O|f>
-    via its per-edge energy components. The log ratio log(E_kin_e / E_pot_e)
+    via its per edge energy components. The log ratio log(E_kin_e / E_pot_e)
     classifies each edge:
         regime 0: kinetic-dominated (log ratio > ratio_tol)
         regime 1: crossover (|log ratio| <= ratio_tol)
         regime 2: potential-dominated (log ratio < -ratio_tol)
 
     Parameters
-    ----------
-    E_kin_per_edge : f64[nE] - per-edge topological energy
-    E_pot_per_edge : f64[nE] - per-edge geometric energy
+
+    E_kin_per_edge : f64[nE] - per edge topological energy
+    E_pot_per_edge : f64[nE] - per edge geometric energy
     regime : int (0=kinetic, 1=crossover, 2=potential)
     ratio_tol : float
     nV : int - vertex count (for closure)
     boundary_ptr, boundary_idx : boundary representation (for closure)
 
     Returns
-    -------
+
     v_mask, e_mask, f_mask : uint8 arrays
     """
     cdef Py_ssize_t nE = E_kin_per_edge.shape[0], e
@@ -468,7 +468,7 @@ def quotient_maps(np.ndarray[np.uint8_t, ndim=1] v_mask,
     and survivors are reindexed.
 
     Returns
-    -------
+
     v_reindex : i32[nV]
         Old vertex index to new index, or -1 when collapsed to the basepoint.
     v_star : int
@@ -539,7 +539,7 @@ def quotient_B1(np.ndarray[f64, ndim=2] B1,
     through v_reindex.
 
     Parameters
-    ----------
+
     B1 : f64[nV, nE]
         Signed incidence matrix on edges.
     v_mask, e_mask : uint8 arrays
@@ -554,7 +554,7 @@ def quotient_B1(np.ndarray[f64, ndim=2] B1,
         Dimensions of the quotient.
 
     Returns
-    -------
+
     B1_quot : f64[nV_quot, nE_quot]
         Dense quotient vertex-edge boundary operator.
     """
@@ -578,7 +578,10 @@ def quotient_B1(np.ndarray[f64, ndim=2] B1,
 
         for v in range(nV):
             val = Bsrc[v, e]
-            if fabs(val) < get_EPSILON_NORM():
+            if val == 0.0:
+                # Exact zero, because this is the SUPPORT of the quotient boundary. A
+                # tolerance here would drop a small share or weight and change the
+                # quotient's arity and degree rather than tidy its storage.
                 continue
 
             if vm[v]:
@@ -608,7 +611,7 @@ def quotient_B2(np.ndarray[i32, ndim=1] B2_col_ptr,
     remapped by e_reindex and f_reindex.
 
     Parameters
-    ----------
+
     B2_col_ptr, B2_row_idx, B2_vals : arrays
         CSC representation of B2 with edges as rows and faces as columns.
     e_mask, f_mask : uint8 arrays
@@ -619,7 +622,7 @@ def quotient_B2(np.ndarray[i32, ndim=1] B2_col_ptr,
         Dimensions of the quotient.
 
     Returns
-    -------
+
     B2_quot : f64[nE_quot, nF_quot]
         Dense quotient edge-face boundary operator.
     """
@@ -660,7 +663,7 @@ def quotient_verify_chain(np.ndarray[f64, ndim=2] B1_quot,
     Check the chain condition B1_quot B2_quot = 0.
 
     Returns
-    -------
+
     valid : bool
         True when the maximum absolute entry is below tol.
     max_abs_entry : float
@@ -694,7 +697,7 @@ def relative_betti(np.ndarray[f64, ndim=2] B1_quot,
     C_0(R/I), with C_0(R/I) indexed by derived vertices.
 
     Returns
-    -------
+
     beta0_rel, beta1_rel, beta2_rel : int
         Relative Betti numbers for k = 0, 1, 2.
     """
@@ -706,10 +709,10 @@ def relative_betti(np.ndarray[f64, ndim=2] B1_quot,
 
     import scipy.sparse as sp
     from rexgraph.graded_boundary import _sparse_rank
-    # Betti from RANKS (canon Part III), computed EXACTLY and eigen-free from the
+    # Betti from RANKS (canon Part III), computed EXACTLY and eigen free from the
     # INTEGER quotient boundary maps via rational column reduction - no dense SVD,
-    # no spectrum-Betti. rank(B1) also gives beta0 = nV_quot - rank(B1) (component
-    # count), matching a union-find over the quotient 1-skeleton.
+    # no spectrum Betti. rank(B1) also gives beta0 = nV_quot - rank(B1) (component
+    # count), matching a union find over the quotient 1 skeleton.
     if nV_quot > 0 and nE_quot > 0:
         rank_B1 = _sparse_rank(sp.csc_matrix(np.asarray(B1_quot, dtype=np.float64)))
 
@@ -727,7 +730,7 @@ def relative_cycle_basis(np.ndarray[f64, ndim=2] B1_quot,
                          np.ndarray[f64, ndim=2] B2_quot,
                          f64 tol=1e-10):
     """
-    Compute a basis for relative 1-cycles in the edge-primary setting.
+    Compute a basis for relative 1 cycles in the edge primary setting.
 
     The basis spans the harmonic subspace of the quotient edge Laplacian
     L1_quot = B1_quot.T B1_quot + B2_quot B2_quot.T, and its columns are
@@ -735,7 +738,7 @@ def relative_cycle_basis(np.ndarray[f64, ndim=2] B1_quot,
     derived from d_1.
 
     Returns
-    -------
+
     basis : f64[nE_quot, beta1_rel]
         Orthonormal harmonic edge signals for the quotient.
     """
@@ -749,7 +752,7 @@ def relative_cycle_basis(np.ndarray[f64, ndim=2] B1_quot,
     B2q = np.asarray(B2_quot, dtype=np.float64)
     has_faces = B2q.shape[0] > 0 and B2q.shape[1] > 0
 
-    # Eigen-free: the harmonic plane ker(L1q) = ker(B1q) ∩ ker(B2qᵀ) is the
+    # Eigen free: the harmonic plane ker(L1q) = ker(B1q) ∩ ker(B2qᵀ) is the
     # combinatorial cycle basis projected off im(B2q) (harmonic_basis_from_boundaries),
     # orthonormalized by a thin QR - no dense eigendecomposition of L1q. The quotient
     # B1q is a signed graph incidence (subcomplex vertices collapse to the basepoint),
@@ -783,6 +786,27 @@ def relative_cycle_basis(np.ndarray[f64, ndim=2] B1_quot,
     return evecs[:, harmonic_idx].copy()
 
 
+cdef _span_residual(basis, d):
+    """`||d - Pi_basis d||`: how far `d` is from the subcomplex's column span.
+
+    `Pi_F x = F solve(F* F, F* x)` when the restricted columns are independent. A
+    subcomplex's columns need not be, and there is no projector onto a redundant frame,
+    so the SVD least squares answers that case.
+
+    Shared by the edge and face congruence tests.
+    """
+    from rexgraph.core._linalg import frame_projector
+    basis = np.asarray(basis, dtype=np.float64)
+    d = np.asarray(d, dtype=np.float64)
+    try:
+        project = frame_projector(basis)
+    except ValueError:
+        from rexgraph.core._linalg import lstsq as _lp_lstsq
+        sol, _rank = _lp_lstsq(basis, d)
+        return float(np.linalg.norm(d - basis @ sol))
+    return float(np.linalg.norm(d - project(d)))
+
+
 def connecting_homomorphism(np.ndarray[f64, ndim=2] B1_full,
                             np.ndarray[np.uint8_t, ndim=1] v_mask,
                             np.ndarray[np.uint8_t, ndim=1] e_mask,
@@ -791,12 +815,12 @@ def connecting_homomorphism(np.ndarray[f64, ndim=2] B1_full,
     """
     Apply the connecting homomorphism from H_1(R, I) to H_0(I).
 
-    A relative 1-cycle on quotient edges is lifted to the full edge
+    A relative 1 cycle on quotient edges is lifted to the full edge
     space, B1_full is applied, and the result is restricted to vertices
     in the subcomplex.
 
     Parameters
-    ----------
+
     B1_full : f64[nV, nE]
         Signed incidence matrix for the full complex.
     v_mask, e_mask : uint8 arrays
@@ -807,7 +831,7 @@ def connecting_homomorphism(np.ndarray[f64, ndim=2] B1_full,
         Edge reindexing array.
 
     Returns
-    -------
+
     boundary_in_I : f64[nV_I]
         Boundary values on vertices in the subcomplex.
     """
@@ -859,7 +883,7 @@ def congruent_edges(Py_ssize_t a, Py_ssize_t b,
     residual indicates congruence modulo those edges.
 
     Parameters
-    ----------
+
     a, b : int
         Indices of edges in the full complex.
     B1 : f64[nV, nE]
@@ -870,7 +894,7 @@ def congruent_edges(Py_ssize_t a, Py_ssize_t b,
         Tolerance on the residual norm.
 
     Returns
-    -------
+
     is_congruent : bool
         True when the residual norm is below tol.
     residual : float
@@ -887,10 +911,7 @@ def congruent_edges(Py_ssize_t a, Py_ssize_t b,
 
     cdef np.ndarray[f64, ndim=2] basis = B1[:, idx_I]
 
-    from rexgraph.core._linalg import lstsq as _lp_lstsq
-    sol, _rank = _lp_lstsq(np.asarray(basis, dtype=np.float64), np.asarray(d, dtype=np.float64))
-    residual_vec = d - basis @ sol
-    r = float(np.linalg.norm(residual_vec))
+    r = _span_residual(basis, d)
 
     return r < tol, r
 
@@ -906,7 +927,7 @@ def congruent_faces(Py_ssize_t a, Py_ssize_t b,
     the column span of B2 restricted to faces in the subcomplex.
 
     Returns
-    -------
+
     is_congruent : bool
         True when the residual norm is below tol.
     residual : float
@@ -923,10 +944,7 @@ def congruent_faces(Py_ssize_t a, Py_ssize_t b,
 
     cdef np.ndarray[f64, ndim=2] basis = B2[:, idx_I]
 
-    from rexgraph.core._linalg import lstsq as _lp_lstsq
-    sol, _rank = _lp_lstsq(np.asarray(basis, dtype=np.float64), np.asarray(d, dtype=np.float64))
-    residual_vec = d - basis @ sol
-    r = float(np.linalg.norm(residual_vec))
+    r = _span_residual(basis, d)
 
     return r < tol, r
 
@@ -936,12 +954,12 @@ cdef _congruence_partition(M, mask, f64 tol):
     classes: columns a, b are congruent iff (M[:,a] - M[:,b]) lies in colspan(M[:,I]),
     I = {mask==1}. Equivalently their residuals off colspan(M[:,I]) are equal.
 
-    FACTOR-ONCE: reduce the subcomplex basis a single time (thin QR), project ALL
+    FACTOR ONCE: reduce the subcomplex basis a single time (thin QR), project ALL
     survivor columns onto its orthogonal complement as one block matmul, then group by
     equal residual columns - O(n_surv^2) cheap vector compares plus one factorization,
-    replacing the previous O(n_surv^2) that re-ran a full lstsq (re-factoring the basis)
-    for EVERY pair. Labels are assigned in first-encounter survivor order, so the output
-    partition AND label numbering are identical to the per-pair version."""
+    replacing the previous O(n_surv^2) that re ran a full lstsq (re factoring the basis)
+    for EVERY pair. Labels are assigned in first encounter survivor order, so the output
+    partition AND label numbering are identical to the per pair version."""
     M = np.asarray(M, dtype=np.float64)
     cdef Py_ssize_t ncol = M.shape[1]
     labels = np.full(ncol, -1, dtype=np.int32)
@@ -987,10 +1005,10 @@ def congruence_classes_edges(np.ndarray[f64, ndim=2] B1,
     the column span of edges in the subcomplex up to the given tolerance. The
     subcomplex basis is factored ONCE and applied to the whole survivor block (see
     :func:`_congruence_partition`) - identical partition and labels to the historical
-    per-pair lstsq, without re-factoring per pair.
+    per pair lstsq, without re factoring per pair.
 
     Returns
-    -------
+
     labels : i32[nE]
         Class label for each edge, or -1 for edges in the subcomplex.
     n_classes : int
@@ -1006,12 +1024,12 @@ def congruence_classes_faces(np.ndarray[f64, ndim=2] B2,
     Partition faces outside the subcomplex into congruence classes.
 
     Two surviving faces share a class when their signed boundary difference lies in the
-    column span of faces in the subcomplex up to the given tolerance. Factor-once over
+    column span of faces in the subcomplex up to the given tolerance. Factor once over
     the subcomplex basis (see :func:`_congruence_partition`) - identical partition and
-    labels to the historical per-pair lstsq.
+    labels to the historical per pair lstsq.
 
     Returns
-    -------
+
     labels : i32[nF]
         Class label for each face, or -1 for faces in the subcomplex.
     n_classes : int
@@ -1032,14 +1050,14 @@ def restrict_signal(np.ndarray[f64, ndim=1] signal,
     compacted into a new array.
 
     Parameters
-    ----------
+
     signal : f64[n]
         Signal on k-cells of the full complex.
     mask : uint8[n]
         Subcomplex mask with 1 for cells in I.
 
     Returns
-    -------
+
     signal_quot : f64[n_quot]
         Signal restricted to surviving cells.
     """
@@ -1099,7 +1117,7 @@ def lift_signal(np.ndarray[f64, ndim=1] signal_quot,
     and surviving entries are copied from signal_quot.
 
     Parameters
-    ----------
+
     signal_quot : f64[n_quot]
         Signal on surviving cells.
     mask : uint8[n]
@@ -1108,7 +1126,7 @@ def lift_signal(np.ndarray[f64, ndim=1] signal_quot,
         Value to assign at cells in I.
 
     Returns
-    -------
+
     signal_full : f64[n]
         Signal on the full complex.
     """
@@ -1157,7 +1175,7 @@ def quotient_energy(np.ndarray[f64, ndim=1] signal_quot,
     is below the global norm tolerance.
 
     Returns
-    -------
+
     energy : float
         Rayleigh quotient for the given signal and operator.
     """
@@ -1177,18 +1195,18 @@ def quotient_RL1(np.ndarray[f64, ndim=2] B1_quot,
     RL_1^quot = L_1^quot + alpha_G * L_O^quot
 
     where L_1^quot = B1_quot^T B1_quot + B2_quot B2_quot^T is the
-    Hodge Laplacian of the quotient, preserving the topological-geometric
+    Hodge Laplacian of the quotient, preserving the topological geometric
     decomposition from the full complex.
 
     Parameters
-    ----------
+
     B1_quot : f64[nV_q, nE_q]
     B2_quot : f64[nE_q, nF_q]
     LO_quot : f64[nE_q, nE_q] - overlap Laplacian on quotient edges
     alpha_G : float - coupling constant
 
     Returns
-    -------
+
     RL1_quot : f64[nE_q, nE_q]
     L1_quot : f64[nE_q, nE_q]
     """
@@ -1215,7 +1233,7 @@ def quotient_energy_kin_pot(np.ndarray[f64, ndim=1] signal_quot,
     in the quotient setting.
 
     Returns
-    -------
+
     E_kin : float
     E_pot : float
     ratio : float (E_kin / E_pot)
@@ -1253,13 +1271,13 @@ def restrict_field_state(np.ndarray[f64, ndim=1] f_E,
     don't need independent restriction.
 
     Parameters
-    ----------
+
     f_E : f64[nE] - edge signal
     f_F : f64[nF] - face signal
     e_mask, f_mask : uint8 - subcomplex masks (1 = in subcomplex)
 
     Returns
-    -------
+
     f_E_quot : f64[nE_quot]
     f_F_quot : f64[nF_quot]
     """
@@ -1303,7 +1321,7 @@ def lift_field_state(np.ndarray[f64, ndim=1] f_E_quot,
     Surviving entries are copied from the quotient signals.
 
     Returns
-    -------
+
     f_E : f64[nE]
     f_F : f64[nF]
     """
@@ -1330,7 +1348,7 @@ def lift_field_state(np.ndarray[f64, ndim=1] f_E_quot,
 
 
 def per_edge_energy(np.ndarray[f64, ndim=1] f_E, object L1, object LO):
-    """Compute per-edge contribution to E_kin and E_pot.
+    """Compute per edge contribution to E_kin and E_pot.
 
     For each edge e, the energy contribution is:
         E_kin_e = f_E[e] * (L_1 f_E)[e]
@@ -1339,12 +1357,12 @@ def per_edge_energy(np.ndarray[f64, ndim=1] f_E, object L1, object LO):
     These sum to the total: sum(E_kin_e) = <f|L_1|f>.
 
     Parameters
-    ----------
+
     f_E : f64[nE] - edge signal
     L1, LO : (nE, nE) - Hodge and overlap Laplacians
 
     Returns
-    -------
+
     E_kin_per_edge : f64[nE]
     E_pot_per_edge : f64[nE]
     """
@@ -1362,7 +1380,7 @@ def per_edge_energy(np.ndarray[f64, ndim=1] f_E, object L1, object LO):
     return ek, ep
 
 
-# Section 6: Hyperslice, edge-type, and temporal integration
+# Section 6: Hyperslice, edge type, and temporal integration
 
 
 def hyperslice_quotient(Py_ssize_t dim, Py_ssize_t cell_idx,
@@ -1385,14 +1403,14 @@ def hyperslice_quotient(Py_ssize_t dim, Py_ssize_t cell_idx,
     edges. The result is closed downward.
 
     Parameters
-    ----------
+
     dim : int
         Cell dimension (0 for vertex, 1 for edge, 2 for face).
     cell_idx : int
         Index of the cell.
 
     Returns
-    -------
+
     v_mask, e_mask, f_mask : uint8 arrays
         Masks for the hyperslice subcomplex.
     """
@@ -1454,7 +1472,7 @@ def edge_type_quotient(np.ndarray[np.uint8_t, ndim=1] edge_types,
     boundary vertices.
 
     Returns
-    -------
+
     v_mask, e_mask, f_mask : uint8 arrays
         Masks for the closed subcomplex.
     """
@@ -1485,7 +1503,7 @@ def temporal_quotient(Py_ssize_t n_snapshots,
     union.
 
     Parameters
-    ----------
+
     n_snapshots : int
         Number of temporal snapshots.
     time_mask : uint8[n_snapshots]
@@ -1496,7 +1514,7 @@ def temporal_quotient(Py_ssize_t n_snapshots,
         Vertex count across all snapshots.
 
     Returns
-    -------
+
     v_mask : uint8[nV]
         Mask for vertices in the union subcomplex.
     e_mask_union : uint8[nE_union]
@@ -1544,7 +1562,7 @@ def build_quotient(np.ndarray[f64, ndim=2] B1,
     optionally builds L1_quot and RL_1^quot.
 
     Parameters
-    ----------
+
     B1 : f64[nV, nE]
         Signed incidence matrix for edges.
     v_mask, e_mask, f_mask : uint8 arrays
@@ -1557,7 +1575,7 @@ def build_quotient(np.ndarray[f64, ndim=2] B1,
         Coupling constant for RL_1 = L_1 + alpha_G * L_O.
 
     Returns
-    -------
+
     info : dict
         Dictionary with keys:
         - 'B1_quot', 'B2_quot' : quotient boundary operators
@@ -1631,14 +1649,14 @@ def build_quotient_from_sparse(B1_scipy, B2_scipy,
     densified at the nE x nE scale.
 
     Parameters
-    ----------
+
     B1_scipy : scipy.sparse.csr_matrix, shape (nV, nE)
     B2_scipy : scipy.sparse.csr_matrix or None, shape (nE, nF)
     v_mask, e_mask, f_mask : uint8 arrays (1 = in subcomplex)
     nV, nE, nF : int
 
     Returns
-    -------
+
     dict with same keys as build_quotient, plus spectral_bundle_quot
     containing the full dense spectral analysis on the small quotient.
     """
@@ -1764,7 +1782,7 @@ def build_quotient_from_sparse(B1_scipy, B2_scipy,
     return result
 
 
-# Character-based quotient filtration
+# Character based quotient filtration
 
 
 def quotient_filtration_by_character(np.ndarray[f64, ndim=2] chi,
@@ -1782,7 +1800,7 @@ def quotient_filtration_by_character(np.ndarray[f64, ndim=2] chi,
     drops most sharply marks the backbone threshold for this channel.
 
     Parameters
-    ----------
+
     chi : f64[nE, nhats]
         Structural character per edge.
     channel : int
@@ -1797,7 +1815,7 @@ def quotient_filtration_by_character(np.ndarray[f64, ndim=2] chi,
     nV, nE, nF : int
 
     Returns
-    -------
+
     dict
         thresholds : f64[n_steps]
             chi value at each filtration step.
@@ -1860,7 +1878,7 @@ def quotient_filtration_by_character(np.ndarray[f64, ndim=2] chi,
             beta2_arr[step] = 0
             continue
 
-        # Sub-boundary operators for surviving edges
+        # Sub boundary operators for surviving edges
         B1_sub = np.ascontiguousarray(B1[:, surv_e], dtype=np.float64)
 
         # Surviving faces: keep only faces whose boundary edges all survive
@@ -1891,13 +1909,13 @@ def quotient_filtration_by_character(np.ndarray[f64, ndim=2] chi,
             B2_sub = np.zeros((max(nE_sub, 1), 0), dtype=np.float64)
 
         # Betti from EXACT integer rank on the subcomplex operators (relative_betti
-        # now uses rational column reduction, not SVD) - eigen-free per filtration step.
+        # now uses rational column reduction, not SVD) - eigen free per filtration step.
         b0, b1, b2 = relative_betti(B1_sub, B2_sub)
         beta0_arr[step] = b0
         beta1_arr[step] = b1
         beta2_arr[step] = b2
 
-    # Transition: largest single-step drop in beta_1
+    # Transition: largest single step drop in beta_1
     cdef int trans_idx = -1
     cdef i32 max_drop = 0
     cdef i32 drop
@@ -1936,7 +1954,7 @@ def congruence_residual(np.ndarray[f64, ndim=2] B1,
     Smaller values indicate closer congruence.
 
     Parameters
-    ----------
+
     B1 : (nV, nE) float64
         Grade-1 boundary operator.
     edge_a, edge_b : int
@@ -1945,7 +1963,7 @@ def congruence_residual(np.ndarray[f64, ndim=2] B1,
         Indices of edges forming the basis subspace.
 
     Returns
-    -------
+
     float
         L2 residual norm. Zero means exactly congruent mod basis.
     """

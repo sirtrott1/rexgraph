@@ -1,6 +1,6 @@
 """Turning auth OFF is the unsafe direction, and it used to be the easy one.
 
-`disable_auth()` persisted unconditionally, so any in-process caller wrote
+`disable_auth()` persisted unconditionally, so any in process caller wrote
 `enabled: false` into the host's own `~/.config/rexgraph/auth.json`. Six test fixtures
 did exactly that, which is how a test suite turned auth off on a live install and left it
 off. Enabling needs no ceremony: the worst an accidental enable does is ask for a token
@@ -13,7 +13,7 @@ the caller already has. Disabling needs two, and they are separate on purpose:
                     because that is someone's live install. Missing it raises rather
                     than writing, so an accident is loud instead of silent.
 
-The network path is stricter and unchanged: host-local, admin token, disable passphrase.
+The network path is stricter and unchanged: host local, admin token, disable passphrase.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def test_a_naive_disable_is_refused_when_tokens_exist(manager):
 
 
 def test_the_refusal_leaves_auth_on(manager):
-    """A guard that half-applied would be worse than none."""
+    """A guard that half applied would be worse than none."""
     mgr, path = manager
     with pytest.raises(PermissionError):
         mgr.disable_auth()
@@ -85,7 +85,7 @@ def test_confirm_true_writes(manager):
 
 
 def test_a_fresh_config_needs_no_confirmation(manager, tmp_path, monkeypatch):
-    """Nothing is at stake before there are tokens, and a first-run install should not
+    """Nothing is at stake before there are tokens, and a first run install should not
     have to argue with the library."""
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path / "fresh"))
     import agent.server.auth as auth

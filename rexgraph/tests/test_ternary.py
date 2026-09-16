@@ -20,7 +20,7 @@ def _rand(nr, nc, seed=0):
 
 @pytest.mark.parametrize("nc", [1, 63, 64, 65, 500])
 def test_packing_is_lossless_at_and_across_the_word_boundary(nc):
-    """64 is where a word ends, so it is where an off-by-one would live."""
+    """64 is where a word ends, so it is where an off by one would live."""
     a = _rand(7, nc, seed=nc)
     assert np.array_equal(tn.pack(a).dense(), a)
 

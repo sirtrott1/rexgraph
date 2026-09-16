@@ -1,4 +1,4 @@
-"""agent.reactive_hive: the monitor -> schema loop that makes the hive self-organizing.
+"""agent.reactive_hive: the monitor -> schema loop that makes the hive self organizing.
 
 The hive observes the field on its own coordination complex and mutates its own
 schema in response, versioning each change with its cause. This closes the loop:
@@ -10,15 +10,15 @@ binary {0,1} (incidence) with {+,-} (orientation), whose entries are {0,+1,-1}.
 The detection signals are field quantities read off B with no eigensolve and no
 dense solve - the Hodge decomposition (gradient/curl/harmonic of the interaction
 flow), the first Betti number (harmonic dimension = coordination deadlocks), and
-the effective-resistance / RCFE-curvature fields that localize which worker is
-load-bearing or divergent. Because the coordination complex, the database schema,
+the effective resistance / RCFE curvature fields that localize which worker is
+load bearing or divergent. Because the coordination complex, the database schema,
 and the hive's own schema are all B-structured, the same field machinery flows
 through all of them.
 
 Default rules:
   * a coordination deadlock (beta_1 > 0, or persistent/harmonic flow)  ->  deploy a
     mediator worker so the hive can route around the stuck cycle.
-  * a divergent worker (its curvature/alignment field flags it as off-topic or
+  * a divergent worker (its curvature/alignment field flags it as off topic or
     hallucinating)  ->  deploy a guard worker to check its output.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ from typing import Any
 from .hive_schema import HiveSchema
 
 # a NEED -> (worker name, worker_type, specialties). Filling a gap deploys the matching worker.
-# Extensible: pass `provisioners=` to add or override. These cover the common code-team roles and
+# Extensible: pass `provisioners=` to add or override. These cover the common code team roles and
 # the coordination fixes, so a minimal team grows the exact specialists a task demands.
 _PROVISIONERS = {
     "plan":     ("planner", "coordinator:planner", ["plan", "design", "outline"]),
@@ -43,7 +43,7 @@ _PROVISIONERS = {
 class ReactiveHive:
     """Reads structural signals (the coordination field, a consensus result, a query's schema
     footprint) and mutates the hive's own schema in response (deploying a specialist, attaching a
-    database), versioning each change with its cause. Every trigger is exact-structural (a Betti
+    database), versioning each change with its cause. Every trigger is exact structural (a Betti
     number, a set difference, a flag), never a tuned threshold."""
 
     def __init__(self, hive, schema: HiveSchema | None = None, *, store=None, provisioners=None):
@@ -67,7 +67,7 @@ class ReactiveHive:
 
     def _satisfied(self, need: str) -> bool:
         """A need is met when some bee already provides it (its type, specialties, or capability
-        mention it). Exact set-membership, no scoring cutoff."""
+        mention it). Exact set membership, no scoring cutoff."""
         n = need.lower()
         for b in self.hive.bees():
             hay = " ".join([b.worker_type or "", b.capability or "", *(b.specialties or [])]).lower()
@@ -76,7 +76,7 @@ class ReactiveHive:
         return False
 
     def observe(self) -> dict[str, Any]:
-        """Read the field signals off the coordination complex (all eigen-free).
+        """Read the field signals off the coordination complex (all eigen free).
 
         Beyond the monitor summary, this reads the EXACT harmonic localization and the
         frustration/coparticipation character of the coordination circulation via
@@ -89,7 +89,7 @@ class ReactiveHive:
         m = self.hive.monitor(embed=True)
         hodge = m.get("interaction_hodge") or {}
         agents = m.get("agents", [])
-        # load-bearing = effective-resistance field; a fallback locus if the harmonic read is absent
+        # load bearing = effective resistance field; a fallback locus if the harmonic read is absent
         load_locus = [a["agent"] for a in sorted(agents, key=lambda x: -(x.get("load_bearing") or 0.0))[:3]]
 
         health_ratio, harm_locus = None, []
@@ -122,7 +122,7 @@ class ReactiveHive:
         }
 
     def react(self) -> list[dict[str, Any]]:
-        """Field-driven rules from the coordination complex; each fix versions the schema."""
+        """Field driven rules from the coordination complex; each fix versions the schema."""
         obs = self.observe()
         actions: list[dict[str, Any]] = []
 
@@ -141,7 +141,7 @@ class ReactiveHive:
 
         # rule 2: a divergent (likely hallucinating) worker -> deploy a guard on it. Only on the
         # RELIABLE semantic signal (embedding alignment); lexical alignment can't separate a
-        # coordinator from a hallucinator, so it would false-flag a healthy hub.
+        # coordinator from a hallucinator, so it would false flag a healthy hub.
         divergent = obs["divergent"] if obs["alignment_mode"] == "embedding" else []
         for name in divergent:
             a = self._deploy(f"guard.{name}", worker_type="analyzer:guard",
@@ -155,7 +155,7 @@ class ReactiveHive:
     def require(self, *needs: str, cause: str | None = None) -> list[dict[str, Any]]:
         """Capability gap: for each need NOT already provided by some bee, deploy a specialist for
         it. That is what a code team needs: a minimal hive declares `require('review','test')` and
-        grows the exact roles it lacks. Trigger is exact set-membership (a need is met or it isn't).
+        grows the exact roles it lacks. Trigger is exact set membership (a need is met or it isn't).
         """
         actions = []
         for need in needs:
@@ -175,7 +175,7 @@ class ReactiveHive:
     def on_consensus(self, result: dict[str, Any]) -> list[dict[str, Any]]:
         """Reliability gap: a consensus that flagged a divergent worker, or returned a structurally
         unreliable answer (the library's varentropy `reliable` flag == False), -> deploy a verifier.
-        Both triggers are structural facts (a non-empty flag list, a boolean), not a score cutoff."""
+        Both triggers are structural facts (a non empty flag list, a boolean), not a score cutoff."""
         flagged = result.get("flagged") or []
         unreliable = any(r.get("reliable") is False for r in result.get("responders", []))
         if not (flagged or unreliable):
@@ -240,9 +240,9 @@ class ReactiveHive:
         """Run a task through the team with the reactive layer live: the team reshapes itself while
         it works. In order: fill the capability gaps the task implies (or `needs`, if given); bind
         any missing data (`on_query`); do the work with `collaborate`; if it deadlocked, `react`
-        (deploy a mediator); then cross-check with `consensus` and, on a reliability gap, deploy a
+        (deploy a mediator); then cross check with `consensus` and, on a reliability gap, deploy a
         verifier. Returns the answer, the verification, and every reaction taken (each versioned in
-        the self-schema)."""
+        the self schema)."""
         reactions: list[dict[str, Any]] = []
 
         # 1. capability gaps: the team grows the roles the task needs
@@ -252,7 +252,7 @@ class ReactiveHive:
         if query_state is not None:
             reactions += self.on_query(query_state, available=available)
 
-        # 3. the work: dynamic delegation with the deadlock-breaker
+        # 3. the work: dynamic delegation with the deadlock breaker
         work = self.hive.collaborate(task)
 
         # 4. if a circular wait formed, react so the structure improves (deploy a mediator)

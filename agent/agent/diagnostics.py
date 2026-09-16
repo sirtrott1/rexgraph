@@ -1,10 +1,10 @@
 """
-agent.diagnostics: verify the compiled-kernel surface.
+agent.diagnostics: verify the compiled kernel surface.
 
 The pipeline is meant to dispatch heavy linear algebra (boundary maps,
 Hodge decomposition, spectral bundles, RCFE strain) into the compiled
 Cython extensions in ``rexgraph.core``.  If those extensions are not
-built, there is no pure-Python fallback: the module is simply absent, so
+built, there is no pure Python fallback: the module is simply absent, so
 construction (e.g. ``RexGraph(...)``) still succeeds while the paths that reach
 the missing kernel surface an AttributeError on a None module, or fail to import
 a dependent module. core/__init__.py says as much where it records the failure.
@@ -43,7 +43,7 @@ def core_module_report() -> dict[str, dict]:
 
     # rexgraph.core loads submodules into its namespace; probe each.
     from rexgraph.core import __init__ as _  # noqa: F401
-    # Re-read the declared module list if present, else use critical set.
+    # Re read the declared module list if present, else use critical set.
     names = getattr(core, "_MODULES", None) or PIPELINE_CRITICAL
     for name in names:
         entry = {"loaded": False, "compiled": False, "file": ""}
@@ -84,8 +84,8 @@ def method_dispatch_report() -> dict[str, bool]:
         "structural_character": lambda: rex.structural_character,
         "coherence": lambda: rex.coherence,
         "to_dict": lambda: rex.to_dict(),
-        # demand-driven agentic-reading kernels - the higher-level health/context
-        # layers depend on these; smoke-test them so a missing kernel is reported
+        # demand driven agentic reading kernels - the higher level health/context
+        # layers depend on these; smoke test them so a missing kernel is reported
         # rather than silently degrading the reading.
         "coherence_response": lambda: rex.coherence_response([0]),
         "effective_resistance": lambda: rex.effective_resistance(0),
@@ -123,7 +123,7 @@ def summary() -> dict:
 
 
 def format_report() -> str:
-    """Human-readable one-screen summary."""
+    """Human readable one screen summary."""
     s = summary()
     lines = [
         "RexGraph kernel diagnostics",

@@ -1,4 +1,4 @@
-"""Tests for agent.connectors.service and the rexgraph-connect CLI."""
+"""Tests for agent.connectors.service and the rexgraph connect CLI."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def test_list_connectors_groups_and_reports_capabilities():
     schemes = {s["scheme"] for s in sql["schemes"]}
     assert {"sqlite", "postgresql", "mysql"} <= schemes
     assert sql["supports"]["modality"] and sql["supports"]["faces"]
-    # sqlite driver is present in-env; every scheme carries a driver flag
+    # sqlite driver is present in env; every scheme carries a driver flag
     assert all("driver_available" in s for s in sql["schemes"])
     assert next(s for s in sql["schemes"] if s["scheme"] == "sqlite")["driver_available"]
 
@@ -104,7 +104,7 @@ def test_cli_ingest(tmp_path):
 
 
 def test_cli_resolves_saved_connection(tmp_path, monkeypatch):
-    # a saved-connection name resolves to its URI via the SecretStore
+    # a saved connection name resolves to its URI via the SecretStore
     secrets_file = tmp_path / "conns.json"
     monkeypatch.setenv("REXGRAPH_SECRETS_URI", "file://" + str(secrets_file))
     from agent.secrets import open_secret_store

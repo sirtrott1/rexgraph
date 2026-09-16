@@ -1,4 +1,4 @@
-"""The threshold-free context boundary against top_k."""
+"""The threshold free context boundary against top_k."""
 import os
 
 import numpy as np

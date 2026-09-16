@@ -3,7 +3,7 @@
 `insert_edges`, `delete_edges` and `subgraph` all read `(sources, targets)` and rebuilt
 from it. That form holds two vertices per relation, so every mutation of a branching
 complex flattened its wide relations to their first two vertices and orphaned every
-vertex past them: a 4-ary relation came back 2-ary and indistinguishable from a leg, and
+vertex past them: a 4 ary relation came back 2 ary and indistinguishable from a leg, and
 the complex silently lost cells it was never asked to lose.
 
 They now go through the boundary CSR, which carries the whole column. These hold that,
@@ -18,7 +18,7 @@ import pytest
 from rexgraph.faces import autoface
 from rexgraph.graph import RexGraph
 
-#: a 4-ary relation over {0,1,2,3} with legs 0-1, 1-2, 2-4
+#: a 4 ary relation over {0,1,2,3} with legs 0-1, 1-2, 2-4
 _OFFSETS = np.array([0, 4, 6, 8, 10], dtype=np.int32)
 _VERTICES = np.array([0, 1, 2, 3, 0, 1, 1, 2, 2, 4], dtype=np.int32)
 
@@ -36,7 +36,7 @@ def rex():
 
 @pytest.fixture
 def filled():
-    """A filled triangle with a 4-ary relation hanging off it."""
+    """A filled triangle with a 4 ary relation hanging off it."""
     r = RexGraph.from_hypergraph(
         np.array([0, 2, 4, 6, 10], dtype=np.int32),
         np.array([0, 1, 1, 2, 2, 0, 2, 3, 4, 5], dtype=np.int32))
@@ -66,7 +66,7 @@ def test_a_subcomplex_keeps_the_whole_boundary_column(rex):
 
 
 def test_the_orphaned_vertex_keeps_its_share(rex):
-    """Vertex 3 is only in the 4-ary relation. After a mutation its whole B1 row was
+    """Vertex 3 is only in the 4 ary relation. After a mutation its whole B1 row was
     zero: not narrowed, removed from the complex."""
     out = rex.insert_edges(np.array([0], np.int32), np.array([4], np.int32))
     column = np.asarray(out.B1)[:, 0]

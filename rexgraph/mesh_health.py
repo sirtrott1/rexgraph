@@ -10,9 +10,9 @@ flow splits it into two physically meaningful parts:
                     (a retry storm, a circular dependency, a distributed deadlock)
 
 `mesh_health(edges, flow)` returns that split plus the loops the stuck load lives
-on and the structural bottlenecks: a JSON-friendly report an adapter can emit as
+on and the structural bottlenecks: a JSON friendly report an adapter can emit as
 SLIs on top of existing telemetry (OpenTelemetry spans, a service map, or the
-live agent complex). Unlike DFS cycle detection it is load-weighted (ranks
+live agent complex). Unlike DFS cycle detection it is load weighted (ranks
 severity, ignores benign cycles), localizing, and an early signal: the
 circulating fraction rises before absolute traffic saturates.
 """
@@ -27,13 +27,13 @@ from .graph import RexGraph
 
 __all__ = ["mesh_health", "harmonic_health"]
 
-# a machine-precision "is this quantity nonzero" test: reads the SUPPORT of the harmonic
+# a machine precision "is this quantity nonzero" test: reads the SUPPORT of the harmonic
 # field (which edges actually carry circulation), not as a tunable policy threshold.
 _ZERO = 1e-9
 
 
 def harmonic_health(rex, flow=None) -> dict:
-    """The exact structural character of a complex's circulation, eigen-free.
+    """The exact structural character of a complex's circulation, eigen free.
 
     The harmonic (oscillatory) part of ``flow`` is the circulation no potential can
     explain; this decomposes it, via the structural character, into the topological
@@ -43,8 +43,8 @@ def harmonic_health(rex, flow=None) -> dict:
 
     ``> 1`` means the circulation is irreducible topological tension (a genuine
     deadlock no face can fill); ``< 1`` means it is geometric overlap that a
-    co-participation could close. All quantities are exact-structural: dim_H is the
-    integer beta_1, the per-edge harmonic magnitude is the support of the stuck
+    co participation could close. All quantities are exact structural: dim_H is the
+    integer beta_1, the per edge harmonic magnitude is the support of the stuck
     loops, and the channel split comes from the character. (The same computation the
     AnalysisPipeline's hodge stage runs, promoted to a reusable call.)
     """
@@ -69,8 +69,10 @@ def harmonic_health(rex, flow=None) -> dict:
         # ratio degenerates to exactly 1.0 on every unweighted complex.
         names = list(getattr(rex, "hat_names", None) or ())
         if "L_SG" in names and "L_C" in names:
+            # The diagonal comes from the incidence passes; assembling RL to read it
+            # would cost the hub blocks the diagonal never needs.
             chi = (np.asarray(rex.structural_character)
-                   * np.asarray(rex._rl4_sparse.diagonal())[:, None])
+                   * np.asarray(rex._sparse_character['rl_diag'])[:, None])
             frustration = np.abs(harm) * chi[:, names.index("L_SG")]
             coparticipation = np.abs(harm) * chi[:, names.index("L_C")]
             fsum, csum = float(frustration.sum()), float(coparticipation.sum())
@@ -85,7 +87,7 @@ def harmonic_health(rex, flow=None) -> dict:
 
 
 def _normalize(edges, flow):
-    """Map arbitrary node labels to ids, drop self-loops, aggregate duplicate
+    """Map arbitrary node labels to ids, drop self loops, aggregate duplicate
     directed edges (summing flow). Returns (labels, src, tgt, w, id_of)."""
     ids: dict = {}
 
@@ -104,7 +106,7 @@ def _normalize(edges, flow):
         raise ValueError(f"flow has {flow.shape[0]} entries but there are {len(edges)} edges")
     for (a, b), f in zip(edges, flow, strict=False):
         if a == b:
-            continue                                   # self-loop carries no coordination
+            continue                                   # self loop carries no coordination
         key = (nid(a), nid(b))
         if key not in agg:
             agg[key] = 0.0
@@ -121,7 +123,7 @@ def _normalize(edges, flow):
 
 def _align_to_graph(rex, src, tgt, w):
     """Reorder the flow to the graph's stored edge orientation, flipping sign where the
-    stored edge runs opposite to ours. A no-op when from_graph preserves input order."""
+    stored edge runs opposite to ours. A no op when from_graph preserves input order."""
     gs, gt = getattr(rex, "sources", None), getattr(rex, "targets", None)
     if gs is None or gt is None:
         return w
@@ -169,7 +171,7 @@ def _void_groups(rex, labels, gs, gt):
 
 
 def _components(nodes, adj):
-    """Union-find connected components over a set of nodes and an adjacency dict."""
+    """Union find connected components over a set of nodes and an adjacency dict."""
     parent = {n: n for n in nodes}
 
     def find(a):
@@ -193,7 +195,7 @@ def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> 
     """Topological health of a coordination graph.
 
     Parameters
-    ----------
+
     edges : iterable of (source, target)
         Directed calls/messages. Node labels may be any hashable value.
     flow : sequence of float, optional
@@ -201,7 +203,7 @@ def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> 
         ``edges``. Defaults to uniform 1.0 (pure structure).
 
     Returns
-    -------
+
     dict with: n_nodes, n_edges, n_cycles (beta_1), draining, circulating,
     status, stuck_loops (each: services, circulating, edges), bottlenecks
     (each: node, criticality).
@@ -210,7 +212,7 @@ def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> 
     cycle can trap load), ``draining`` when cycles exist but the harmonic field
     vanishes on this flow, ``circulating`` when the harmonic field is nonzero. The
     ``circulating`` fraction is the reported magnitude; the caller applies its own
-    policy to it. The only tolerance used is a machine-precision numerical zero
+    policy to it. The only tolerance used is a machine precision numerical zero
     (is the harmonic component nonzero here), not a policy threshold.
     """
     labels, src, tgt, w, _ = _normalize(edges, flow)
@@ -229,13 +231,13 @@ def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> 
 
     n_cycles = int(rex.betti[1])                        # exact integer invariant
     grad, curl, harm = rex.hodge(flow_g)
-    circ_edge = curl + harm                             # the non-gradient (circulating) part
+    circ_edge = curl + harm                             # the non gradient (circulating) part
     fn = float(np.linalg.norm(flow_g))
     circulating = float(np.linalg.norm(circ_edge) / fn) if fn > 0 else 0.0
     draining = max(0.0, 1.0 - circulating)
     # status from structure: no cycles -> nothing can circulate; cycles but the harmonic field is
     # (numerically) zero -> draining; a nonzero harmonic field -> circulating. _ZERO is a
-    # machine-precision "is it nonzero" test, not a tuned severity band.
+    # machine precision "is it nonzero" test, not a tuned severity band.
     if n_cycles == 0:
         status = "acyclic"
     elif circulating <= _ZERO:
@@ -253,8 +255,8 @@ def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> 
     # localize: an edge is part of a stuck loop iff its circulating component is nonzero (in the
     # support of the harmonic field), measured against the peak by the same numerical zero.
     # Only localize when the flow actually circulates: a draining or acyclic flow has no stuck
-    # loops by definition. This also keeps the localization from tripping on the tiny per-edge
-    # residual an iterative (matrix-free) solver leaves behind while the global circulating
+    # loops by definition. This also keeps the localization from tripping on the tiny per edge
+    # residual an iterative (matrix free) solver leaves behind while the global circulating
     # fraction is still (correctly) negligible.
     stuck_loops = []
     if status == "circulating":
@@ -287,7 +289,7 @@ def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> 
             })
         stuck_loops.sort(key=lambda d: -d["circulating"])
 
-    # structural bottlenecks: effective-resistance centrality (a failure here
+    # structural bottlenecks: effective resistance centrality (a failure here
     # fragments the graph the most)
     bottlenecks = []
     try:
@@ -301,8 +303,8 @@ def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> 
     except Exception:
         pass
 
-    # per-node structural coherence kappa: how integrated each node is in the complex (a node with
-    # low kappa is structurally peripheral / fragile). Sorted least-coherent first.
+    # per node structural coherence kappa: how integrated each node is in the complex (a node with
+    # low kappa is structurally peripheral / fragile). Sorted least coherent first.
     coherence = []
     try:
         kap = np.asarray(rex.coherence, dtype=np.float64)
@@ -327,6 +329,6 @@ def mesh_health(edges: Iterable[tuple], flow: Sequence[float] | None = None) -> 
         "coparticipation": hh.get("coparticipation_total"),
         "stuck_loops": stuck_loops,
         "bottlenecks": bottlenecks,
-        "coherence": coherence,                          # per-node kappa (structural centrality)
-        "implied_groups": implied_groups,                # void-complex completion candidates
+        "coherence": coherence,                          # per node kappa (structural centrality)
+        "implied_groups": implied_groups,                # void complex completion candidates
     }

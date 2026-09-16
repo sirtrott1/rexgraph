@@ -1,6 +1,6 @@
 """One registry primitive, five call sites.
 
-The tree grew five near-registries with five different surfaces: io had
+The tree grew five near registries with five different surfaces: io had
 register/unregister/available, compute had register plus available, rcdb and
 _serialization had register alone, connectors was a bare dict, and the temporal
 rerank policies were a hardcoded tuple. Same pattern, five shapes, so extending any
@@ -119,8 +119,8 @@ def test_serialization_types_are_listable():
 
 
 def test_temporal_policies_are_a_registry_not_a_tuple():
-    """The holdout. Rerank policies were a fixed tuple, so a domain-specific one
-    (pseudotime order, a batch-corrected recency) meant editing the module."""
+    """The holdout. Rerank policies were a fixed tuple, so a domain specific one
+    (pseudotime order, a batch corrected recency) meant editing the module."""
     temporal = pytest.importorskip(
         "agent.temporal",
         reason="requires the optional rexgraph-agent package",

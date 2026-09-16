@@ -1,4 +1,4 @@
-"""Restriction as a first-class query, and curvature as a located reading.
+"""Restriction as a first class query, and curvature as a located reading.
 
 A row filter returns rows. A restriction returns a COMPLEX: the selection is closed, so
 every relation kept has its whole boundary kept with it, and the boundary operators of
@@ -112,13 +112,13 @@ def test_a_selection_matching_neither_grade_is_refused(rex):
 
 
 def test_a_branching_relation_needs_its_whole_boundary(tmp_path):
-    """Arity-general: a k-ary relation joins the restriction only when every vertex it
+    """Arity general: a k-ary relation joins the restriction only when every vertex it
     touches was selected, read off the boundary rather than a pair of endpoints."""
     from agent.mcp_tools import _edges_of
     g = RexGraph.from_hypergraph(np.array([0, 4, 6], dtype=np.int32),
                                  np.array([0, 1, 2, 3, 0, 1], dtype=np.int32))
     partial = np.zeros(g.nV, dtype=bool)
-    partial[[0, 1]] = True                       # covers the 2-ary, not the 4-ary
+    partial[[0, 1]] = True                       # covers the 2 ary, not the 4 ary
     e_mask, grade = _edges_of(g, partial)
     assert grade == "vertex"
     assert int(e_mask.sum()) == 1, "the branching relation was included on a partial boundary"
@@ -135,7 +135,7 @@ def test_curvature_reports_zero_on_a_complex_that_bounds(tmp_path):
 
 
 def test_curvature_is_reported_per_face_not_per_complex():
-    """A number for the whole object says something is wrong; a per-face field says
+    """A number for the whole object says something is wrong; a per face field says
     where, which is the difference between a flag and a diagnosis."""
     g = RexGraph(sources=np.array([0, 1, 2, 3], dtype=np.int32),
                  targets=np.array([1, 2, 0, 0], dtype=np.int32))

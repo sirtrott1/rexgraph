@@ -1,7 +1,7 @@
 """
 Tests for rexgraph.io._compat: Zarr/HDF5 compatibility layer.
 
-Tests only the pure-Python helpers and backend detection. Zarr and HDF5
+Tests only the pure Python helpers and backend detection. Zarr and HDF5
 storage helpers are tested via their respective format modules.
 
 Verifies:

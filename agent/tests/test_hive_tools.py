@@ -5,7 +5,7 @@ means a bee can compute one: the same registry a model driving MCP reads, so a n
 resolves for one resolves for the other and there is no second dispatcher to drift.
 
 The half worth testing hardest is the boundary. A bee is a caller like any other, not a
-trusted one, so an admin-only tool is not advertised to a non-admin context and a file
+trusted one, so an admin only tool is not advertised to a non admin context and a file
 is a handle in that workspace or it is nothing. "No dangerous agents" is that sentence
 being true rather than a policy written somewhere.
 """
@@ -129,7 +129,7 @@ def test_selecting_a_subset_registers_only_that_subset(obo):
 
 
 def test_a_second_caller_cannot_rebind_the_first_callers_bee(obo):
-    """Registration is keyed by tool name, and `get_hive()` hands out one process-wide
+    """Registration is keyed by tool name, and `get_hive()` hands out one process wide
     hive, so two callers that each scope themselves correctly still meet on one roster.
     Replacing the first caller's bee would leave its tool running under the second
     caller's workspace and admin flag with neither told, which is the boundary this
@@ -148,8 +148,8 @@ def test_a_second_caller_cannot_rebind_the_first_callers_bee(obo):
 
 
 def test_the_same_caller_may_register_again(obo):
-    """Re-registration is not the hazard; a DIFFERENT caller is. An idempotent
-    re-register has to keep working or a caller cannot refresh its own tools."""
+    """Re registration is not the hazard; a DIFFERENT caller is. An idempotent
+    re register has to keep working or a caller cannot refresh its own tools."""
     from agent.hive import Hive
     from agent.mcp_tools import Context
 

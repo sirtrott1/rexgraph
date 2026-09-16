@@ -25,8 +25,8 @@ def test_bench_lifecycle_phase():
 
 
 def test_relational_model_gate_and_differentiable():
-    """The edge-primary ComplexNet: the ∂²=0/sparse-vs-dense gate holds, it's differentiable end to
-    end, and the faces-ablation + pairwise baseline build (the Track-1 comparison harness)."""
+    """The edge primary ComplexNet: the ∂²=0/sparse-vs-dense gate holds, it's differentiable end to
+    end, and the faces ablation + pairwise baseline build (the Track 1 comparison harness)."""
     import numpy as np
     import torch
     from agent.benchmarks import bench_relational_model as B
@@ -35,12 +35,12 @@ def test_relational_model_gate_and_differentiable():
     b, y = B.make_batch(16, np.random.default_rng(0), "cpu", target="triangles")
     torch.nn.functional.mse_loss(m(b), y).backward()
     assert any(p.grad is not None for p in m.parameters())   # differentiable through B1/B2 scatter
-    assert B.ComplexNet(24, 2, use_faces=False) is not None  # faces-off ablation
+    assert B.ComplexNet(24, 2, use_faces=False) is not None  # faces off ablation
     assert B.PairwiseGNN(24, 2) is not None                  # matched pairwise baseline
 
 
 def test_intrinsic_2x2_and_associative_recall_run():
-    """The 2x2 organ ablation and the associative-recall bench run end to end (tiny)."""
+    """The 2x2 organ ablation and the associative recall bench run end to end (tiny)."""
     from agent.benchmarks import bench_associative_recall as A
     from agent.benchmarks import bench_intrinsic_model as I
     acc, dt = I.run("standard", "adam", seed=0, steps=2, device="cpu")   # one cell of the 2x2

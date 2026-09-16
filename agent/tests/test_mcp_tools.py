@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 from agent.mcp_tools import TOOLS, call, definitions
-from tests.test_knowledge_roundtrip import BRCA_GAF, BRCA_OBO, GTF
+from _rexgraph_agent_tests.test_knowledge_roundtrip import BRCA_GAF, BRCA_OBO, GTF
 
 
 @pytest.fixture

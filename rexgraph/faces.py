@@ -1,14 +1,14 @@
 """Face columns, solved from the chain condition.
 
-A grade-1 column is DECLARED: Definition 2.1 fixes its shape, -1 at the distinguished
-vertex and 1/(k-1) on the rest, so arity is legible from two entries. A grade-2 column is
+A grade 1 column is DECLARED: Definition 2.1 fixes its shape, -1 at the distinguished
+vertex and 1/(k-1) on the rest, so arity is legible from two entries. A grade 2 column is
 not declared. Nothing imposes a shape on it. It is whatever satisfies
 
     B1 c_f = 0
 
 on the edges it spans, and what the solution owes is cancellation, which is exactly the
 chain condition. The consequences of that asymmetry are visible in the answers: a cycle
-face comes back with uniform moduli (so the grade-0 arity ratio returns 2 at every k_f,
+face comes back with uniform moduli (so the grade 0 arity ratio returns 2 at every k_f,
 and the gon is |supp(c_f)| instead), while a branching fan comes back with the shape that
 cancels the fan.
 
@@ -32,7 +32,58 @@ __all__ = ["solve_face_column", "solve_face_basis", "face_reading",
            "orientation_holonomy", "face_support", "cycle_basis", "cycle_supports",
            "cycle_gons",
            "find_cycles",
-           "find_hyperface_groups", "autoface", "auto_hyperface"]
+           "find_hyperface_groups", "autoface", "auto_hyperface", "fill_cycle"]
+
+
+def filling_column(rex, values):
+    """Validate one stored integral attaching column against the original Q map."""
+    from numbers import Integral, Real
+    from rexgraph.io.partition_state import partition_tower
+    _, columns = partition_tower(rex)
+    values = np.asarray(values, dtype=object)
+    if values.shape != (int(rex.nE),):
+        raise ValueError("filling requires one coefficient per C1 cell")
+    column, residual = {}, {}
+    for edge, raw in enumerate(values):
+        if isinstance(raw, (bool, np.bool_)) or not isinstance(raw, (Integral, Real, Fraction)):
+            raise TypeError("filling coefficients must be real integers")
+        value = (Fraction(int(raw)) if isinstance(raw, Integral) else
+                 raw if isinstance(raw, Fraction) else Fraction(float(raw)))
+        if value.denominator != 1:
+            raise ValueError("filling coefficients must be integral; no rescaling is inferred")
+        if not value:
+            continue
+        number = float(value)
+        if not _math.isfinite(number) or Fraction(number) != value:
+            raise ValueError("filling coefficient is not exactly representable in stored B2")
+        column[edge] = int(value)
+        for vertex, share in columns[0][edge].items():
+            residual[vertex] = residual.get(vertex, Fraction(0)) + share * value
+    if not column:
+        raise ValueError("filling requires a nonzero cycle")
+    if any(residual.values()):
+        raise ValueError("filling column does not satisfy the exact chain condition")
+    return column
+
+
+def fill_cycle(rex, values):
+    """Attach one declared cycle through native state and face append operations."""
+    from copy import deepcopy
+    from rexgraph.io.partition_state import partition_tower
+    from rexgraph.io.rex_state import from_state, to_state
+    from rexgraph.native_sparse import csr_carrier, sparse_arrays
+    column = filling_column(rex, values)
+    result = from_state(deepcopy(to_state(rex)))
+    result.add_faces([list(column)], [list(column.values())])
+    result._ensure_clean()
+    if result._graded_duals:
+        # B3 gets a zero row for the appended C2 cell. All old coefficients,
+        # C3 identities and maps above B3 remain unchanged.
+        ptr, indices, data, shape = sparse_arrays(result._graded_duals[0])
+        result._graded_duals[0] = csr_carrier(
+            np.append(ptr, ptr[-1]), indices, data, (shape[0] + 1, shape[1]))
+    partition_tower(result)
+    return result
 
 
 def _exact_b1_block(rex, edge_ids):
@@ -45,7 +96,7 @@ def _exact_b1_block(rex, edge_ids):
     rex._ensure_clean()
     bp, bi = rex._boundary_ptr, rex._boundary_idx
     cols = []
-    if bp is None:                                   # standard-only: every column is (-1,+1)
+    if bp is None:                                   # standard only: every column is (-1,+1)
         src, tgt = rex._ensure_src_tgt()
         for e in edge_ids:
             s, t = int(src[e]), int(tgt[e])
@@ -67,136 +118,32 @@ def _exact_b1_block(rex, edge_ids):
 
 
 def solve_face_column(rex, edge_ids):
-    """Solve ``B1[:, edge_ids] c = 0`` for a face column over the rationals.
+    """First exact face on this support, or None when the kernel is trivial.
 
-    Returns a list of ``Fraction`` of the same length as ``edge_ids``, normalised so the
-    first nonzero entry is +1 and the entries clear to integers where they can. Returns
-    ``None`` when the only solution is the trivial one, which is the honest answer for a
-    set of edges that bounds nothing.
-
-    The nullspace is taken by exact fraction-free elimination on the (vertices x edges)
-    block, so the cost is set by the block, not by the complex, and the result is exact.
-    When the nullspace has dimension > 1 the first basis vector is returned; that happens
-    when the given edges already contain more than one independent cycle, and the caller
-    is expected to pass one face's worth of edges.
+    Sparse Q-column reduction determines the kernel. Only the returned vector
+    is expanded to the caller's requested coordinate list; primitive integer
+    coefficients have positive first nonzero entry, not necessarily unit entry.
     """
     edge_ids = np.asarray(edge_ids, dtype=np.int64).ravel()
-    m = int(edge_ids.shape[0])
-    if m == 0:
+    from rexgraph.graded_boundary import _exact_kernel_columns, _primitive_kernel_vector
+    columns = _exact_b1_block(rex, edge_ids)
+    vector = next(_exact_kernel_columns(columns), None)
+    if vector is None:
         return None
-    cols = _exact_b1_block(rex, edge_ids)
-    verts = sorted({v for col in cols for v in col})
-    if not verts:
-        return None
-    row_of = {v: i for i, v in enumerate(verts)}
-    A = [[Fraction(0)] * m for _ in verts]
-    for j, col in enumerate(cols):
-        for v, c in col.items():
-            A[row_of[v]][j] = c
-
-    # Gauss-Jordan over Q, tracking which columns are pivots.
-    n_rows = len(verts)
-    pivot_col_of_row: list[int] = []
-    r = 0
-    for c in range(m):
-        piv = next((i for i in range(r, n_rows) if A[i][c] != 0), None)
-        if piv is None:
-            continue
-        A[r], A[piv] = A[piv], A[r]
-        inv = Fraction(1) / A[r][c]
-        A[r] = [x * inv for x in A[r]]
-        for i in range(n_rows):
-            if i != r and A[i][c] != 0:
-                f = A[i][c]
-                A[i] = [a - f * b for a, b in zip(A[i], A[r], strict=True)]
-        pivot_col_of_row.append(c)
-        r += 1
-        if r == n_rows:
-            break
-
-    pivots = set(pivot_col_of_row)
-    free = [c for c in range(m) if c not in pivots]
-    if not free:
-        return None                                  # trivial nullspace: nothing is bounded
-
-    f0 = free[0]
-    x = [Fraction(0)] * m
-    x[f0] = Fraction(1)
-    for i, pc in enumerate(pivot_col_of_row):
-        x[pc] = -A[i][f0]
-
-    lead = next((v for v in x if v != 0), None)
-    if lead is None:
-        return None
-    x = [v / lead for v in x]
-    # clear denominators so a cycle face comes back as +/-1 rather than a scaled copy
-    den = 1
-    for v in x:
-        den = den * v.denominator // _math.gcd(den, v.denominator)
-    return [v * den for v in x]
+    vector = _primitive_kernel_vector(vector)
+    return [Fraction(vector.get(i, 0)) for i in range(len(edge_ids))]
 
 
 def solve_face_basis(rex, edge_ids) -> list:
-    """Every independent face the given relations bound, as exact columns.
-
-    `solve_face_column` returns the first basis vector, which is the whole answer when the
-    nullspace is one-dimensional and an arbitrary choice when it is not. A group carrying
-    two independent cycles bounds a two-dimensional space of faces, and picking one vector
-    out of it attaches a cell that depends on the elimination order rather than on the
-    complex: on a 4-ary relation with its induced 4-cycle the pick came back
-    `[3, -3, -2, -1, 0]`, a face that claims five relations and uses four.
-
-    Returns a list of columns, one per independent cycle, so a caller can attach all of
-    them and leave nothing half-filled. Empty when the relations bound nothing.
-    """
+    """All independent exact faces on the support, as primitive coordinate lists."""
+    from rexgraph.graded_boundary import _exact_kernel_columns, _primitive_kernel_vector
     edge_ids = np.asarray(edge_ids, dtype=np.int64).ravel()
-    m = int(edge_ids.shape[0])
-    if m == 0:
-        return []
-    cols = _exact_b1_block(rex, edge_ids)
-    verts = sorted({v for col in cols for v in col})
-    if not verts:
-        return []
-    row_of = {v: i for i, v in enumerate(verts)}
-    A = [[Fraction(0)] * m for _ in verts]
-    for j, col in enumerate(cols):
-        for v, c in col.items():
-            A[row_of[v]][j] = c
-
-    pivot_col_of_row: list[int] = []
-    r = 0
-    for c in range(m):
-        piv = next((i for i in range(r, len(verts)) if A[i][c] != 0), None)
-        if piv is None:
-            continue
-        A[r], A[piv] = A[piv], A[r]
-        inv = Fraction(1) / A[r][c]
-        A[r] = [x * inv for x in A[r]]
-        for i in range(len(verts)):
-            if i != r and A[i][c] != 0:
-                f = A[i][c]
-                A[i] = [a - f * b for a, b in zip(A[i], A[r], strict=True)]
-        pivot_col_of_row.append(c)
-        r += 1
-        if r == len(verts):
-            break
-
-    pivots = set(pivot_col_of_row)
-    basis = []
-    for fc in (c for c in range(m) if c not in pivots):
-        x = [Fraction(0)] * m
-        x[fc] = Fraction(1)
-        for i, pc in enumerate(pivot_col_of_row):
-            x[pc] = -A[i][fc]
-        lead = next((v for v in x if v != 0), None)
-        if lead is None:
-            continue
-        x = [v / lead for v in x]
-        den = 1
-        for v in x:
-            den = den * v.denominator // _math.gcd(den, v.denominator)
-        basis.append([v * den for v in x])
-    return basis
+    columns = _exact_b1_block(rex, edge_ids)
+    out = []
+    for vector in _exact_kernel_columns(columns):
+        vector = _primitive_kernel_vector(vector)
+        out.append([Fraction(vector.get(i, 0)) for i in range(len(edge_ids))])
+    return out
 
 
 def face_reading(rex, edge_ids, column=None) -> dict:
@@ -216,11 +163,11 @@ def face_reading(rex, edge_ids, column=None) -> dict:
     traversed with, so `reversed_relations` is the ones running against their stored
     orientation and `holonomy` is the product of the signs around the cycle. Two complexes
     with the same support and different orientations are the same cell to homology and
-    different cells here, which is the whole content of the grade-2 boundary: existence
+    different cells here, which is the whole content of the grade 2 boundary: existence
     says there is a cycle, the sign says how it closes.
 
     Pass `column` to check signs the caller already has instead of solving for them. A
-    wrong column is otherwise invisible: `_B2_hodge_dual` filters chain-invalid faces
+    wrong column is otherwise invisible: `_B2_hodge_dual` filters chain invalid faces
     silently, so nF_hodge stays 0, the cycle stays open, and nothing says why. Here it
     comes back as `chain_valid: False` with the exact residual and the column that would
     have worked.
@@ -308,12 +255,12 @@ def _chain_residual(cols, verts, column) -> list:
 
 
 def orientation_holonomy(rex, *, grade: int = 2) -> dict:
-    """Whether the cells at a grade can be coherently oriented, gauge-invariantly.
+    """Whether the cells at a grade can be coherently oriented, gauge invariantly.
 
     A solved face column is determined only up to an overall sign: a face and its reverse
-    are the same cell, and `solve_face_column` returns the leading-positive representative
-    because something has to be returned. So any per-cell sign reading measures the
-    REPRESENTATIVE, not the complex. Negating one column of a two-triangle complex moves a
+    are the same cell, and `solve_face_column` returns the leading positive representative
+    because something has to be returned. So any per cell sign reading measures the
+    REPRESENTATIVE, not the complex. Negating one column of a two triangle complex moves a
     raw sign product from +1 to -1 without changing a single cell.
 
     The invariant is the holonomy, exactly as at grade 1, where frustration is the product
@@ -323,13 +270,13 @@ def orientation_holonomy(rex, *, grade: int = 2) -> dict:
     agreement is `-sign(c_a[e] c_b[e])` and the holonomy is its product around a closed
     loop of faces. Each face appears exactly twice in a closed loop, so its sign cancels
     and the product is invariant. Measured: a tetrahedron boundary reads +1 on every loop
-    under any subset of flips, a five-triangle Moebius band reads -1 under any.
+    under any subset of flips, a five triangle Moebius band reads -1 under any.
 
     Balanced (+1 everywhere) is exactly coherent orientability, so this MEASURES what
-    orienting face-by-face attempts, and does not need the attempt to succeed in order to
+    orienting face by face attempts, and does not need the attempt to succeed in order to
     report the obstruction.
 
-    Returns the per-loop holonomies, the frustrated fraction, and `orientable`.
+    Returns the per loop holonomies, the frustrated fraction, and `orientable`.
     """
     grade = int(grade)
     if grade < 2:
@@ -361,7 +308,7 @@ def orientation_holonomy(rex, *, grade: int = 2) -> dict:
             agreement[(a, b)] = agreement[(b, a)] = (
                 -1 if support[a][e] * support[b][e] > 0 else 1)
 
-    # a spanning forest fixes a gauge; every non-tree edge closes one independent loop,
+    # a spanning forest fixes a gauge; every non tree edge closes one independent loop,
     # and the cycle space is spanned by those, so no eigensolver and no enumeration
     parent, orient, seen = {}, {}, set()
     order = []
@@ -421,7 +368,7 @@ def face_support(column) -> int:
 # Detection: find candidate faces, then solve them
 ####
 def _edge_supports(rex):
-    """supp(e) as a frozenset of vertices, per relation. Arity-general: reads the whole
+    """supp(e) as a frozenset of vertices, per relation. Arity general: reads the whole
     boundary, not {src, tgt}."""
     rex._ensure_clean()
     bp, bi = rex._boundary_ptr, rex._boundary_idx
@@ -438,8 +385,8 @@ def _cycle_supports_traversal(rex, sup, *, traversal="bfs"):
 
     Deliberately the SAME walk, not a different one. A traversal picks WHICH
     fundamental cycles come back, and two valid bases of the same cycle space fill
-    different faces, so swapping the walk here would silently change which 2-cells a
-    complex gets. The only thing removed is the length-nE expansion.
+    different faces, so swapping the walk here would silently change which 2 cells a
+    complex gets. The only thing removed is the length nE expansion.
     """
     from collections import deque
 
@@ -492,7 +439,7 @@ def _cycle_supports_traversal(rex, sup, *, traversal="bfs"):
         # The traversal finds a CANDIDATE set; the solve decides the support. Where the
         # two tree paths share a prefix those relations cancel and come back with
         # coefficient zero, so the cycle is narrower than the walk that found it. Taking
-        # the candidate set as the support reports a 4-gon where the complex has a
+        # the candidate set as the support reports a 4 gon where the complex has a
         # triangle, and then fills the wrong cell.
         col = solve_face_column(rex, np.asarray(candidate, dtype=np.int64))
         if col is None:
@@ -504,11 +451,11 @@ def _cycle_supports_traversal(rex, sup, *, traversal="bfs"):
 
 def _cycle_supports_kernel(rex):
     """Supports of the exact kernel basis, for any arity above two."""
-    return [[e for e, v in enumerate(c) if v != 0] for c in _cycle_basis_kernel(rex)]
+    return [sorted(column) for column in _cycle_kernel_sparse(rex)]
 
 
 def _spanning_forest(rex, sup):
-    """One BFS forest over the pairwise relations: parent, parent-edge, depth, tree mask.
+    """One BFS forest over the pairwise relations: parent, parent edge, depth, tree mask.
 
     Shared by `cycle_gons` and `_cycle_supports_traversal` so both read the same forest.
     Two walks would be two bases, and a basis choice decides WHICH cycles come back.
@@ -551,9 +498,9 @@ def _spanning_forest(rex, sup):
 
 
 def cycle_gons(rex):
-    """The gon of every cycle-space basis vector, WITHOUT solving any of them.
+    """The gon of every cycle space basis vector, WITHOUT solving any of them.
 
-    A fundamental cycle is one non-tree relation closed by the tree path between its
+    A fundamental cycle is one non tree relation closed by the tree path between its
     endpoints, so its gon is `1 + tree_distance(a, b)`, and the tree distance is
     `depth(a) + depth(b) - 2*depth(lca(a,b))`. The shared prefix from the LCA up to the
     root appears in both paths and cancels, which is the same cancellation that makes a
@@ -561,7 +508,7 @@ def cycle_gons(rex):
     than discovered.
 
     So "which gons does this complex contain" costs a forest walk and an LCA per
-    non-tree relation. It does not cost a cycle basis, and it does not cost the exact
+    non tree relation. It does not cost a cycle basis, and it does not cost the exact
     solve per cycle that reading |supp(c)| off the basis was paying for.
 
     Returns a sorted list, one entry per basis vector, so `sorted(set(cycle_gons(rex)))`
@@ -599,10 +546,10 @@ def cycle_gons(rex):
 
 
 def cycle_supports(rex):
-    """The SUPPORT of each cycle-space basis vector: a list of edge-index arrays.
+    """The SUPPORT of each cycle space basis vector: a list of edge index arrays.
 
     This is what face detection needs and all it needs. `find_cycles` reads the gon off
-    the support and `add_faces` re-solves the coefficients, so expanding a basis to
+    the support and `add_faces` re solves the coefficients, so expanding a basis to
     dense coefficient vectors on that path computes something exact and then throws it
     away.
 
@@ -614,7 +561,7 @@ def cycle_supports(rex):
 
     Sparse throughout, because a fundamental cycle touches a path's worth of relations
     and nothing else. On the Gene Ontology joined with its human annotations that is
-    603819 nonzeros over a 34039-dimensional cycle space; the same basis as dense
+    603819 nonzeros over a 34039 dimensional cycle space; the same basis as dense
     coefficient vectors is 2.46 billion entries, which is why this exists.
     """
     rex._ensure_clean()
@@ -630,7 +577,7 @@ def cycle_supports(rex):
 
 
 def cycle_basis(rex, *, traversal="bfs"):
-    """A basis of ker(B1), the cycle space, exact over the rationals. Arity-general.
+    """A basis of ker(B1), the cycle space, exact over the rationals. Arity general.
 
     Dispatches, the way the definition demands rather than the way a graph library would.
 
@@ -648,7 +595,7 @@ def cycle_basis(rex, *, traversal="bfs"):
     the absence of, and a traversal cannot see it: the double-T has no cycle, but a walk
     meets the shared pair twice and reports one.
 
-    Returns a list of exact-rational vectors of length nE, of length nE - rank(B1).
+    Returns a list of exact rational vectors of length nE, of length nE - rank(B1).
     """
     rex._ensure_clean()
     nE = int(rex.nE)
@@ -660,53 +607,23 @@ def cycle_basis(rex, *, traversal="bfs"):
     return _cycle_basis_traversal(rex, sup, traversal=traversal)
 
 
+def _cycle_kernel_sparse(rex):
+    """Primitive kernel columns on the primary C1 basis, sparsely represented."""
+    from rexgraph.graded_boundary import _exact_kernel_columns, _primitive_kernel_vector
+    columns = _exact_b1_block(rex, range(int(rex.nE)))
+    return [_primitive_kernel_vector(v) for v in _exact_kernel_columns(columns)]
+
+
 def _cycle_basis_kernel(rex):
-    """ker(B1) by exact elimination. The definition, so arity cannot be assumed."""
-    nE = int(rex.nE)
-    cols = _exact_b1_block(rex, np.arange(nE, dtype=np.int64))
-    verts = sorted({v for col in cols for v in col})
-    if not verts:
-        return []
-    row_of = {v: i for i, v in enumerate(verts)}
-    A = [[Fraction(0)] * nE for _ in verts]
-    for j, col in enumerate(cols):
-        for v, c in col.items():
-            A[row_of[v]][j] = c
-
-    n_rows = len(verts)
-    pivot_col_of_row: list[int] = []
-    r = 0
-    for c in range(nE):
-        piv = next((i for i in range(r, n_rows) if A[i][c] != 0), None)
-        if piv is None:
-            continue
-        A[r], A[piv] = A[piv], A[r]
-        inv = Fraction(1) / A[r][c]
-        A[r] = [x * inv for x in A[r]]
-        for i in range(n_rows):
-            if i != r and A[i][c] != 0:
-                f = A[i][c]
-                A[i] = [a - f * b for a, b in zip(A[i], A[r], strict=True)]
-        pivot_col_of_row.append(c)
-        r += 1
-        if r == n_rows:
-            break
-
-    pivots = set(pivot_col_of_row)
-    out = []
-    for f in (c for c in range(nE) if c not in pivots):
-        x = [Fraction(0)] * nE
-        x[f] = Fraction(1)
-        for i, pc in enumerate(pivot_col_of_row):
-            x[pc] = -A[i][f]
-        out.append(_clear_denominators(x))
-    return out
+    """Coordinate list view of the sparse exact kernel, for the public list API."""
+    return [[Fraction(vector.get(i, 0)) for i in range(int(rex.nE))]
+            for vector in _cycle_kernel_sparse(rex)]
 
 
 def _cycle_basis_traversal(rex, sup, *, traversal="bfs"):
-    """Fundamental cycles of a spanning forest, valid where every relation is 2-ary.
+    """Fundamental cycles of a spanning forest, valid where every relation is 2 ary.
 
-    The traversal's job is to find the SUPPORT of each fundamental cycle: one non-tree
+    The traversal's job is to find the SUPPORT of each fundamental cycle: one non tree
     relation plus the tree path closing it. The coefficients are then solved on that
     support by `solve_face_column`, which is the same exact primitive faces use. Deriving
     path signs by hand here would be a second implementation of the one thing that is
@@ -786,16 +703,16 @@ def _clear_denominators(x):
 
 
 def find_cycles(rex, k, *, supports=None):
-    """Candidate k-gons: cycle-space basis vectors whose SUPPORT has size k.
+    """Candidate k-gons: cycle space basis vectors whose SUPPORT has size k.
 
     The gon is |supp(c)|, and that is the only place it lives, so this reads it off the
-    basis rather than walking vertices. Arity-general as a result: a branching relation
+    basis rather than walking vertices. Arity general as a result: a branching relation
     participates in a cycle exactly when the kernel says it does, and a relation that IS
     the mean of two others forms one.
 
-    `supports` accepts an already-computed `cycle_supports(rex)`. Pass it when asking
+    `supports` accepts an already computed `cycle_supports(rex)`. Pass it when asking
     for more than one gon: the basis does not depend on k, this only filters it, and
-    recomputing per k was costing a full cycle-space solve per distinct gon size.
+    recomputing per k was costing a full cycle space solve per distinct gon size.
     """
     sup = cycle_supports(rex) if supports is None else supports
     return [np.asarray(c, dtype=np.int32) for c in sup if len(c) == k]

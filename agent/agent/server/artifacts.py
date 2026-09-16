@@ -4,7 +4,7 @@ agent.server.artifacts: what a route hands back when the answer is not a number.
 The library has a complete binary I/O stack and there is no reason for a route to
 summarize a complex into JSON and drop the object. A complex goes out as `.rcbd`,
 safetensors, HDF5 or Zarr; a feature matrix goes out as the labeled vector container;
-a per-cell table goes out through the canonical table writers, which every other
+a per cell table goes out through the canonical table writers, which every other
 consumer of this data already reads.
 
 JSON stays for what JSON is for: a summary a browser renders. It is not the transport
@@ -43,7 +43,7 @@ COMPLEX_FORMATS = {
     "zarr": ".zarr",
 }
 
-#: per-cell table containers
+#: per cell table containers
 TABLE_FORMATS = {"parquet": ".parquet"}
 
 
@@ -75,7 +75,7 @@ def _write_and_read(writer, suffix: str) -> bytes:
 
     The path is handed over NOT EXISTING, because the containers disagree about what
     they are: `.rcbd` and `.zarr` are directories the writer creates, and safetensors,
-    HDF5 and parquet are single files. Pre-creating with `mkstemp` broke the bundle
+    HDF5 and parquet are single files. Pre creating with `mkstemp` broke the bundle
     writers, which found a file where they wanted to make a directory.
 
     A directory container comes back zipped. Reading the bytes here rather than
@@ -110,7 +110,7 @@ def download(writer, suffix: str, filename: str) -> Response:
     The two routes that hand back an export wrote to `mkstemp` and streamed that path
     with no cleanup at all, so every download left a file in the shared temp directory
     permanently, readable by any tenant who names that directory, since /corpus/add and
-    /ocr both accept one and walk it. This is the same write-then-read the typed helpers
+    /ocr both accept one and walk it. This is the same write then read the typed helpers
     below already use, exposed for callers that produce their own file.
     """
     return _download(_write_and_read(writer, suffix), filename)
@@ -182,10 +182,10 @@ def vectors_file(matrix, labels, name: str, *, feature_names=None,
 
 def metrics_file(columns: dict, name: str, *, index_name: str = "cell_idx"
                  ) -> Response:
-    """Per-cell metrics through the canonical table writer.
+    """Per cell metrics through the canonical table writer.
 
-    `columns` maps a column name to an equal-length array. Anything that is already
-    per-cell belongs here rather than in a JSON list, because the parquet table is
+    `columns` maps a column name to an equal length array. Anything that is already
+    per cell belongs here rather than in a JSON list, because the parquet table is
     what the SQL bridge and the warehouse already read.
     """
     from rexgraph.io import write_metrics_table
@@ -208,7 +208,7 @@ def metrics_file(columns: dict, name: str, *, index_name: str = "cell_idx"
 
 
 def character_file(rex, name: str) -> Response:
-    """The per-edge structural character through its own table writer."""
+    """The per edge structural character through its own table writer."""
     from rexgraph.io import write_character_table
 
     def write(path):

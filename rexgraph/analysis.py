@@ -83,7 +83,7 @@ _i32 = np.int32
 
 
 def _dirac_low_spectrum(rex, k: int):
-    """The k eigenvalues of D closest to zero, matrix-free.
+    """The k eigenvalues of D closest to zero, matrix free.
 
     D is indefinite and its interesting end is the middle, so this asks for smallest
     magnitude rather than smallest algebraic. Built off the sparse graded boundaries,
@@ -315,7 +315,7 @@ def analyze(
     rex_dashboard_template.jsx expects.
 
     Parameters
-    ----------
+
     rex : RexGraph
         Relational complex to analyze.
     vertex_labels : sequence of str, optional
@@ -334,7 +334,7 @@ def analyze(
         Timepoints and max time for field diffusion trajectories.
 
     Returns
-    -------
+
     dict
         Complete data contract for the dashboard template.
     """
@@ -391,7 +391,7 @@ def analyze(
 
     # A Fiedler value is an approximate slice: it reports where a linear cut fell
     # rather than what the cells are, and finding it here cost 9.4s of a 38s call at
-    # nE=2400 through ARPACK's smallest-magnitude mode. Off by default. The structural
+    # nE=2400 through ARPACK's smallest magnitude mode. Off by default. The structural
     # coordinates that replace it are the channel character (see agent.graph_view).
     fiedler_L1 = float(rex.fiedler_val_L1) if spectral_extras else 0.0
 
@@ -440,8 +440,8 @@ def analyze(
     pct_curl = hodge_result['pct_curl']
     pct_harm = hodge_result['pct_harm']
 
-    # When harmonic energy is negligible, self-normalization amplifies
-    # floating-point noise to +/-1. Zero it out.
+    # When harmonic energy is negligible, self normalization amplifies
+    # floating point noise to +/-1. Zero it out.
     if pct_harm < 1e-4:
         harm_norm = np.zeros_like(harm_norm)
         rho = np.zeros_like(rho)
@@ -468,7 +468,7 @@ def analyze(
     else:
         fiedler_RL1 = 0.0
 
-    # Field operator (coupled edge-face dynamics)
+    # Field operator (coupled edge face dynamics)
     nF_hodge = rex.nF_hodge
     has_field = nF_hodge > 0
 
@@ -493,7 +493,7 @@ def analyze(
             g_field = field_coupling(rex)
             field_data = {
                 "coupling_g": _round(g_field),
-                # symmetric PSD by construction (the graded Hodge-coupled operator), so
+                # symmetric PSD by construction (the graded Hodge coupled operator), so
                 # this is a property of how M is built and not a spectral finding
                 "is_psd": True,
                 "dim_E": nE,
@@ -519,7 +519,7 @@ def analyze(
     perturbation_data = {}
     if run_perturbation and nE > 0:
         try:
-            # Perturb from highest-energy edge
+            # Perturb from highest energy edge
             total_per_edge = E_kin_per + E_pot_per
             probe_edge = int(np.argmax(total_per_edge))
             f_E, f_F = rex.edge_perturbation(probe_edge)
@@ -561,7 +561,7 @@ def analyze(
                 "hodge_final_harm_pct": _round(hodge_final.get('pct_harm', 0) * 100, 1),
             }
 
-            # Per-edge cascade activation for top activated edges
+            # Per edge cascade activation for top activated edges
             if cascade_act is not None and n_activated > 0:
                 sorted_by_act = np.argsort(act_time)
                 first_activated = [
@@ -626,7 +626,7 @@ def analyze(
     # Vertex partition induced by L_O edge partition
     # Majority vote of each vertex's incident relations, read off the stored
     # incidence. Scanning all nE relations per vertex to find them is O(nV*nE), which
-    # on a 40652-vertex ontology with 151331 relations is 6.2 billion comparisons for
+    # on a 40652 vertex ontology with 151331 relations is 6.2 billion comparisons for
     # a quantity the complex already carries.
     v2e_ptr, v2e_idx = rex._v2e
     v2e_ptr = np.asarray(v2e_ptr)
@@ -751,7 +751,7 @@ def analyze(
         )}
     )
 
-    # Cross-metric correlations
+    # Cross metric correlations
     v_deg_f64 = v_degree.astype(_f64)
     v_fc_f64 = v_face_count.astype(_f64)
 
@@ -1062,8 +1062,8 @@ def analyze(
             "RL": [_round(v, 6) for v in evals_RL_full],
             "field_M": [_round(v, 6) for v in field_evals],
             # NOT eL0[argsort(eL0)[1]]: that is the second smallest eigenvalue, which
-            # is the Fiedler value only when the kernel is one-dimensional. On a
-            # two-component complex it is the second ZERO. The bundle's value has the
+            # is the Fiedler value only when the kernel is one dimensional. On a
+            # two component complex it is the second ZERO. The bundle's value has the
             # known kernel deflated out, so it is the Fiedler at any beta0.
             "fiedler_L0": _round(sb['fiedler_val_L0']) if nV > 1 else 0,
             "fiedler_LO": _round(fiedler_LO_val),
@@ -1101,8 +1101,8 @@ def analyze(
     try:
         from rexgraph.core import _character, _rcfe, _void  # noqa: F401
 
-        # Structural character (hybrid-aware: chi/phi/kappa/nhats/hat_names all
-        # resolve through the scale-free sparse path when nE > eigen_dense_limit,
+        # Structural character (hybrid aware: chi/phi/kappa/nhats/hat_names all
+        # resolve through the scale free sparse path when nE > eigen_dense_limit,
         # so the character block populates at any scale, not just the dense path).
         chi = rex.structural_character
         phi = rex.vertex_character
@@ -1132,7 +1132,7 @@ def analyze(
             for k, v in summary.items()
         }
 
-        # Per-channel mixing times
+        # Per channel mixing times
         try:
             ch_mix = rex.per_channel_mixing_times
             if ch_mix is not None and len(ch_mix) > 0:
@@ -1161,7 +1161,7 @@ def analyze(
 
         export["structural_character"] = chi_section
 
-        # Character moments (scale_propagator): eigen-free, O(nnz)/matrix-free, so
+        # Character moments (scale_propagator): eigen free, O(nnz)/matrix free, so
         # these populate at ANY scale (unlike the dense spectra/field blocks).
         try:
             rel = rex.character_reliability
@@ -1238,7 +1238,7 @@ def analyze(
                     ],
                 }
 
-                # Face-void dipole of the flow
+                # Face void dipole of the flow
                 try:
                     fvd = rex.face_void_dipole(flow)
                     export["channels"]["face_void_dipole"] = {
@@ -1257,7 +1257,7 @@ def analyze(
             total_dim = nV + nE + nF
             # The dense eigendecomposition of D was 26s of a 38s call at nE=2400, to
             # report twenty eigenvalues and a kernel count. Twenty eigenvalues need
-            # twenty, taken matrix-free off the sparse Dirac. The kernel count is
+            # twenty, taken matrix free off the sparse Dirac. The kernel count is
             # dim ker(D) = sum of the Betti numbers, an integer the rank tower already
             # has, so counting |eval| < 1e-8 was deciding topology by magnitude.
             d_evals = (rex.dirac_eigenvalues if spectral_extras
@@ -1368,13 +1368,13 @@ def analyze_signal(
 ) -> dict:
     """Compute the full data contract for the signal dashboard.
 
-    Calls analyze() for base structural data, then appends signal-specific
+    Calls analyze() for base structural data, then appends signal specific
     data from rex.signal_dashboard_data(): perturbation trajectories,
     field diffusion, mode classification, BIOES tags, and cascade
     activation - all precomputed in Python/Cython with zero JS math.
 
     Parameters
-    ----------
+
     rex : RexGraph
         Relational complex to analyze.
     vertex_labels : sequence of str, optional
@@ -1393,7 +1393,7 @@ def analyze_signal(
         Canvas dimensions.
 
     Returns
-    -------
+
     dict
         Combined graph + signal dashboard data contract.
     """
@@ -1413,7 +1413,7 @@ def analyze_signal(
     # Signal dashboard data
     times = np.linspace(0, t_max, n_steps, dtype=np.float64)
 
-    # If no explicit probes, pick the highest-energy edge based on flow
+    # If no explicit probes, pick the highest energy edge based on flow
     if probe_edges is None and flow is not None:
         try:
             E_kin_per, E_pot_per = rex.per_edge_energy(flow)
@@ -1450,14 +1450,14 @@ def analyze_quotient(
 ) -> dict:
     """Compute the full data contract for the quotient dashboard.
 
-    Calls analyze() for base structural data, then appends quotient-specific
+    Calls analyze() for base structural data, then appends quotient specific
     data from rex.quotient_dashboard_data(): precomputed quotient analyses
     for vertex stars, edge type subcomplexes, and energy regime subcomplexes
     - all with Hodge decomposition, congruence classes, relative Betti
     numbers, and spectral comparisons computed in Python/Cython.
 
     Parameters
-    ----------
+
     rex : RexGraph
         Relational complex to analyze.
     vertex_labels : sequence of str, optional
@@ -1472,7 +1472,7 @@ def analyze_quotient(
         Canvas dimensions.
 
     Returns
-    -------
+
     dict
         Combined graph + quotient dashboard data contract.
     """
@@ -1527,7 +1527,7 @@ def analyze_all(
     separately because the base analysis is shared.
 
     Parameters
-    ----------
+
     rex : RexGraph
         Relational complex to analyze.
     vertex_labels, edge_attrs, negative_types : optional
@@ -1542,7 +1542,7 @@ def analyze_all(
         Canvas dimensions.
 
     Returns
-    -------
+
     dict
         Combined data contract with keys for all three dashboards:
         - All standard analyze() keys (graph dashboard)

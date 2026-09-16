@@ -1,6 +1,6 @@
 """
 Tests for agent_complex - the agentic relational complex + monitor. Asserts the stable signals
-(load-bearing centrality, cross-agent alignment ordering, query routing), not the binary flag.
+(load bearing centrality, cross agent alignment ordering, query routing), not the binary flag.
 Needs the compiled rexgraph core (RexGraph); skips cleanly if unavailable.
 """
 import pytest
@@ -31,7 +31,7 @@ def test_monitor_shapes_and_router_is_load_bearing():
     agents_by_load = m["agents"]  # already sorted by load_bearing desc
     top2 = {agents_by_load[0]["agent"], agents_by_load[1]["agent"]}
     assert "router" in top2
-    assert agents_by_load[-1]["agent"] != "router"       # the coordinator is never least load-bearing
+    assert agents_by_load[-1]["agent"] != "router"       # the coordinator is never least load bearing
     # β₁ interaction cycles present (bio<->chem<->router coordination loop)
     assert m["deadlock_cycles"] >= 1
 
@@ -39,7 +39,7 @@ def test_monitor_shapes_and_router_is_load_bearing():
 def test_drift_agent_has_lowest_alignment():
     m = _swarm().monitor()
     align = {a["agent"]: a["alignment"] for a in m["agents"]}
-    # the off-topic (pizza/beach) agent's output diverges most from the swarm
+    # the off topic (pizza/beach) agent's output diverges most from the swarm
     assert align["drift"] == min(align.values())
     assert align["drift"] < align["bio"] and align["drift"] < align["chem"]
 
@@ -81,21 +81,21 @@ def test_embedding_alignment_recognizes_disjoint_specialist():
     emb = {a["agent"]: a["alignment"] for a in memb["agents"]}
     assert memb["alignment_mode"] == "embedding"
     assert emb["math"] > lex["math"] + 0.3        # embedding recognizes the disjoint specialist
-    assert emb["drift"] < emb["math"]             # off-topic drift still clearly less aligned
+    assert emb["drift"] < emb["math"]             # off topic drift still clearly less aligned
 
 
 def test_empty_and_singleton():
     assert AgentComplex().monitor()["n_agents"] == 0
-    solo = AgentComplex().add_message("a", "a", "self note").monitor()   # no inter-agent edge
+    solo = AgentComplex().add_message("a", "a", "self note").monitor()   # no inter agent edge
     assert solo["n_interactions"] == 0
 
 
 def test_monitor_reports_rcfe_field():
     """The monitor surfaces the RCFE field: flat (no strain) on a pairwise complex, a real field
-    once agents coordinate (a face); per-agent curvature localizes the geometry."""
+    once agents coordinate (a face); per agent curvature localizes the geometry."""
     flat = AgentComplex().add_messages(
         [{"from": "a", "to": "b", "text": "x"}, {"from": "b", "to": "c", "text": "y"}]).monitor()
-    assert flat["strain"] in (0.0, None)                     # a 1-complex is flat, no curvature
+    assert flat["strain"] in (0.0, None)                     # a 1 complex is flat, no curvature
     triad = AgentComplex().add_messages(
         [{"from": "a", "to": "b", "text": "x"}, {"from": "b", "to": "c", "text": "y"},
          {"from": "c", "to": "a", "text": "z"}]).monitor()

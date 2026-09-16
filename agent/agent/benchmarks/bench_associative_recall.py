@@ -1,8 +1,8 @@
 """
-In-model test of the corrected attention on ASSOCIATIVE RECALL, the task that punishes the
+In model test of the corrected attention on ASSOCIATIVE RECALL, the task that punishes the
 copy/likelihood reflex. A sequence of (key,value) pairs, then a query key; predict the value
-BOUND TO THAT KEY (seen earlier), not the locally-recent token. The load-bearing token is
-distant and not content-obvious, so importance-gated relational routing should help where
+BOUND TO THAT KEY (seen earlier), not the locally recent token. The load bearing token is
+distant and not content obvious, so importance gated relational routing should help where
 plain content attention drifts.
 
 Compares (bidirectional encoder, Adam, to isolate the attention organ):
@@ -31,7 +31,7 @@ def make_batch(bs, n_pairs, n_keys, n_vals, device):
     """[k1,v1,...,kn,vn, QUERY, kq] ; target at last pos = value bound to kq. Vectorized."""
     QUERY = n_keys + n_vals
     T = 2 * n_pairs + 2
-    keys = torch.rand(bs, n_keys, device=device).argsort(dim=1)[:, :n_pairs]   # per-row perm
+    keys = torch.rand(bs, n_keys, device=device).argsort(dim=1)[:, :n_pairs]   # per row perm
     vals = torch.randint(0, n_vals, (bs, n_pairs), device=device)
     seq = torch.empty(bs, T, dtype=torch.long, device=device)
     seq[:, 0:2 * n_pairs:2] = keys

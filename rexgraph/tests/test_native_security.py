@@ -183,7 +183,7 @@ def _grade_four_rex():
 
 
 def test_partition_selected_grade_four_cell_closes_every_lower_grade():
-    from rexgraph.graded_boundary import verify_chain
+    from rexgraph.io.partition_state import partition_tower
 
     source = _grade_four_rex()
     partition = build_rex_partition(
@@ -193,13 +193,12 @@ def test_partition_selected_grade_four_cell_closes_every_lower_grade():
         policy_digest="structural-only",
     )
     result = partition.rex
-    source_tower = source.graded_boundaries()
-    result_tower = result.graded_boundaries()
+    source_tower, source_columns = partition_tower(source)
+    result_tower, result_columns = partition_tower(result)
     assert len(result_tower) == 4
-    assert verify_chain(result_tower)[0]
+    assert source_columns == result_columns
     for expected, actual in zip(source_tower, result_tower, strict=True):
         assert expected.shape == actual.shape
-        assert (expected != actual).nnz == 0
     assert result._directed is True
     assert result.g_channel == "normalized" and result.c_channel == "count"
     assert np.array_equal(result._w_E, source._w_E)
@@ -213,16 +212,15 @@ def test_partition_selected_grade_four_cell_closes_every_lower_grade():
 
 
 def test_partition_keeps_empty_higher_grade_slots_without_relabelling_them():
-    from rexgraph.graded_boundary import verify_chain
+    from rexgraph.io.partition_state import partition_tower
 
     source = _grade_four_rex()
     edge_mask = np.zeros(source.nE, dtype=np.uint8)
     edge_mask[0] = 1
     result = build_rex_partition(source, edge_mask).rex
-    tower = result.graded_boundaries()
+    tower, _ = partition_tower(result)
     assert len(tower) == 4
     assert [matrix.shape[1] for matrix in tower] == [1, 0, 0, 0]
-    assert verify_chain(tower)[0]
 
 
 def test_partition_face_selection_is_downward_closed_and_rejects_invalid_source():

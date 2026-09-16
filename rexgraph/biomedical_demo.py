@@ -2,19 +2,19 @@
 
 The demo deliberately keeps provenance separate from derived mathematics.
 BindingDB supplies measured compound--protein affinities.  Complex Portal supplies
-protein-complex membership plus its own disease and Reactome annotations.  Their
+protein complex membership plus its own disease and Reactome annotations.  Their
 shared UniProt accession is the join key; a displayed disease edge therefore means
 "Complex Portal annotates this complex with this condition", never that a compound
 has been clinically shown to treat it.
 
 ``build_mtor_demo`` makes two related relational complexes:
 
-* a native, primary-relation complex, preserving a protein complex as one k-ary
+* a native, primary relation complex, preserving a protein complex as one k-ary
   relation rather than expanding it into an unlabelled clique;
-* an affinity-panel 2-complex, whose faces are explicitly derived by an adaptive
-  affinity-band rule.  It is the object used for the Hodge reading.
+* an affinity panel 2 complex, whose faces are explicitly derived by an adaptive
+  affinity band rule.  It is the object used for the Hodge reading.
 
-The module has no RCDB or Agent dependency. An upper-layer caller injects optional
+The module has no RCDB or Agent dependency. An upper layer caller injects optional
 persistence and rendering callbacks into :func:`write_demo_artifacts`; that preserves
 the distribution direction while keeping the core data model reusable.
 """
@@ -65,7 +65,7 @@ def _sha256(path: Path) -> str:
 
 
 def _normalise_compound_id(value: str) -> str:
-    """Keep an integer-looking source identifier readable without asserting its scheme."""
+    """Keep an integer looking source identifier readable without asserting its scheme."""
     value = str(value).strip()
     return value[:-2] if re.fullmatch(r"\d+\.0", value) else value
 
@@ -137,7 +137,7 @@ def _complex_records(path: Path, complex_ids: tuple[str, ...]) -> list[dict[str,
 
 def _components(row: dict[str, str]) -> list[str]:
     values = _ACCESSION.findall(row["Identifiers (and stoichiometry) of molecules in complex"])
-    # Stable de-duplication preserves Complex Portal's published participant order.
+    # Stable de duplication preserves Complex Portal's published participant order.
     return list(dict.fromkeys(values))
 
 
@@ -180,7 +180,7 @@ def _make_rex(entities: list[dict[str, Any]], relations: list[dict[str, Any]]) -
 
 
 def _affinity_panel(records: list[dict[str, Any]], target_label: str) -> dict[str, Any]:
-    """A transparent 2-complex derived from adjacent values inside an affinity band."""
+    """A transparent 2 complex derived from adjacent values inside an affinity band."""
     if len(records) < 3:
         raise ValueError("an affinity-panel Hodge demo needs at least three compounds")
     labels = [target_label] + [_compound_label(record) for record in records]
@@ -210,7 +210,7 @@ def _affinity_panel(records: list[dict[str, Any]], target_label: str) -> dict[st
         })
         flow.append(float(record["pKd"]))
 
-    # Records arrive strongest-first.  The adaptive fence is recorded in the artifact;
+    # Records arrive strongest first.  The adaptive fence is recorded in the artifact;
     # it makes a face an explicit analysis relation rather than an unstated clique rule.
     pkd = np.asarray([record["pKd"] for record in records], dtype=float)
     gaps = np.abs(np.diff(pkd))
@@ -428,7 +428,7 @@ def write_demo_artifacts(
     persist: Callable[[dict[str, Any], Path], dict[str, Any]] | None = None,
     render: Callable[[RexGraph, list[str]], str] | None = None,
 ) -> dict[str, Path]:
-    """Write core provenance artifacts with optional, injected higher-layer outputs.
+    """Write core provenance artifacts with optional, injected higher layer outputs.
 
     The function never clears or replaces an artifact.  Use a fresh output directory
     for each demonstrated source snapshot, keeping an auditable relation between a

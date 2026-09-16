@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._cross_complex: Cross-complex structural comparison.
+rexgraph.core._cross_complex: Cross complex structural comparison.
 
 Aligns two relational complexes by shared vertex labels and compares
 structural invariants (coherence kappa, void fraction, spectral
@@ -31,14 +31,14 @@ def align_by_labels(list labels_A, list labels_B):
     """Find shared vertices between two complexes by label matching.
 
     Parameters
-    ----------
+
     labels_A : list of str
         Vertex labels for complex A. labels_A[i] is the label of vertex i.
     labels_B : list of str
         Vertex labels for complex B.
 
     Returns
-    -------
+
     tuple
         shared_labels : list of str
             Labels present in both complexes.
@@ -71,10 +71,10 @@ def align_by_labels(list labels_A, list labels_B):
     )
 
 
-# Pearson correlation (single-pass, same pattern as _faces._pearson_corr)
+# Pearson correlation (single pass, same pattern as _faces._pearson_corr)
 
 cdef f64 _pearson(const f64* x, const f64* y, int n) noexcept nogil:
-    """Single-pass Pearson correlation. Returns 0.0 if n < 2 or zero variance."""
+    """Single pass Pearson correlation. Returns 0.0 if n < 2 or zero variance."""
     if n < 2:
         return 0.0
 
@@ -113,7 +113,7 @@ def cross_complex_kappa(np.ndarray[f64, ndim=1] kappa_A,
     """Correlate coherence kappa across two complexes at shared vertices.
 
     Parameters
-    ----------
+
     kappa_A : f64[nV_A]
         Coherence from complex A.
     kappa_B : f64[nV_B]
@@ -124,7 +124,7 @@ def cross_complex_kappa(np.ndarray[f64, ndim=1] kappa_A,
         Shared vertex indices in B (from align_by_labels).
 
     Returns
-    -------
+
     dict
         correlation : float
             Pearson correlation of kappa at shared vertices.
@@ -182,7 +182,7 @@ def cross_complex_void_fraction(int n_voids_A, int n_potential_A,
     total number of triangles (realized + void).
 
     Parameters
-    ----------
+
     n_voids_A : int
     n_potential_A : int
         Total triangles in complex A.
@@ -191,7 +191,7 @@ def cross_complex_void_fraction(int n_voids_A, int n_potential_A,
         Total triangles in complex B.
 
     Returns
-    -------
+
     dict
         void_fraction_A : float
         void_fraction_B : float
@@ -218,19 +218,19 @@ def cross_complex_channel_scores(np.ndarray[f64, ndim=1] scores_A,
                                    np.ndarray[f64, ndim=1] scores_B):
     """Correlate spectral channel scores between two complexes.
 
-    Scores are per-group (e.g. per treatment arm) vectors from
+    Scores are per group (e.g. per treatment arm) vectors from
     group_channel_scores. Correlation measures whether the two
     complexes rank groups similarly.
 
     Parameters
-    ----------
+
     scores_A : f64[n_groups]
         Per-group scores from complex A.
     scores_B : f64[n_groups]
         Per-group scores from complex B.
 
     Returns
-    -------
+
     dict
         correlation : float
         n_groups : int
@@ -258,7 +258,7 @@ def cross_complex_bridge(np.ndarray[f64, ndim=1] kappa_A,
                           int n_voids_B, int n_potential_B,
                           channel_scores_A=None,
                           channel_scores_B=None):
-    """Full cross-complex bridge analysis.
+    """Full cross complex bridge analysis.
 
     Combines kappa correlation, void fraction comparison, and
     (optionally) channel score correlation into a single result.
@@ -266,7 +266,7 @@ def cross_complex_bridge(np.ndarray[f64, ndim=1] kappa_A,
     by the caller.
 
     Parameters
-    ----------
+
     kappa_A : f64[nV_A]
     kappa_B : f64[nV_B]
     idx_A : i32[n_shared]
@@ -277,7 +277,7 @@ def cross_complex_bridge(np.ndarray[f64, ndim=1] kappa_A,
     channel_scores_B : f64[n_groups] or None
 
     Returns
-    -------
+
     dict
         kappa : dict from cross_complex_kappa
         void : dict from cross_complex_void_fraction

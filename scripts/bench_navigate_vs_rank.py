@@ -181,12 +181,12 @@ for p in paths:
 
 n = len(true_A)
 print(f"\nn = {n} queries over {len(paths)} documents, chain {CHAIN}")
-print(f"\n  arrives at the TRUE span")
+print("\n  arrives at the true span")
 print(f"    A rank all leaves        {np.mean(true_A)*100:5.1f}%")
 print(f"    B descend, applied field {np.mean(true_B)*100:5.1f}%")
 print(f"    C descend, Green's       {np.mean(true_C)*100:5.1f}%")
 print(f"    D descend, TREE potential {np.mean(true_D)*100:5.1f}%   <- Thm 26's setting")
-print(f"\n  agrees with A's answer")
+print("\n  agrees with A's answer")
 print(f"    B {np.mean(same_B)*100:5.1f}%     C {np.mean(same_C)*100:5.1f}%     "
       f"D {np.mean(same_D)*100:5.1f}%")
 print(f"\n  sections evaluated: rank {int(np.median(touched_A))}  "

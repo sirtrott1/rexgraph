@@ -1,5 +1,5 @@
 """
-Core Cython-accelerated algorithms for rexgraph.
+Core Cython accelerated algorithms for rexgraph.
 
 Modules are imported with graceful fallback: uncompiled or
 unavailable extensions are silently skipped so the package
@@ -61,7 +61,7 @@ _MODULES = [
     '_l_gb',
     '_holomorphic',
 
-    # Domain-specific
+    # Domain specific
     '_color',
 ]
 
@@ -82,7 +82,7 @@ for _mod_name in _MODULES:
         # missing (e.g. libopenblas, libgomp). Emit a warning so a stale
         # or partial build does not silently reduce functionality;
         # downstream code that tries to use the module will surface a
-        # clearer AttributeError or None-method error.
+        # clearer AttributeError or None method error.
         _failed.append(_mod_name)
         _warnings.warn(
             f"rexgraph.core.{_mod_name} not available: {_e}",

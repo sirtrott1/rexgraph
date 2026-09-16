@@ -1,7 +1,7 @@
 """
-rexgraph.registry: one extension-point primitive.
+rexgraph.registry: one extension point primitive.
 
-The tree grew five near-registries with five different surfaces. io had
+The tree grew five near registries with five different surfaces. io had
 register/unregister/available, compute had register plus available, rcdb and
 _serialization had register alone, connectors was a bare dict, and the temporal
 rerank policies were a hardcoded tuple. Same pattern, five shapes, so extending any

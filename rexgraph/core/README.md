@@ -1,25 +1,25 @@
 # rexgraph/core/
 
-**Live topology computation is eigen-free / sparse.** The dense-eigensolve and
-dense-matrix paths in these Cython kernels have been superseded on the LIVE
-`RexGraph` computation paths by matrix-free / sparse implementations in the
-top-level Python layer, and the kernels here are RETAINED as the dense parity
-ORACLES those eigen-free paths are checked against (typically to ~1e-9/1e-10).
+**Live topology computation is eigen free / sparse.** The dense eigensolve and
+dense matrix paths in these Cython kernels have been superseded on the LIVE
+`RexGraph` computation paths by matrix free / sparse implementations in the
+top level Python layer, and the kernels here are RETAINED as the dense parity
+ORACLES those eigen free paths are checked against (typically to ~1e-9/1e-10).
 The Python layer they route to:
 
-- `rexgraph.scale_propagator`: Chebyshev matrix-functions (heat / wave /
-  schrodinger, matrix-free e^{-Lt} and e^{-iLt}) plus block-CG Green's functions.
-- `rexgraph.sparse_character`: resolvent / character via block-CG and LSQR
-  pseudoinverse quadratic forms (chi / phi / kappa scale-free).
-- `rexgraph.harmonic_sparse`: combinatorial harmonic basis and the low-rank
+- `rexgraph.scale_propagator`: Chebyshev matrix functions (heat / wave /
+  schrodinger, matrix free e^{-Lt} and e^{-iLt}) plus block CG Green's functions.
+- `rexgraph.sparse_character`: resolvent / character via block CG and LSQR
+  pseudoinverse quadratic forms (chi / phi / kappa scale free).
+- `rexgraph.harmonic_sparse`: combinatorial harmonic basis and the low rank
   harmonic projector.
 - `rexgraph.graded_boundary`: EXACT rational rank (`_sparse_rank`,
-  `_exact_rank_reduction`) and union-find Betti. Betti / rank now come from exact
-  rational column reduction: never SVD, never counting near-zero eigenvalues.
+  `_exact_rank_reduction`) and union find Betti. Betti / rank now come from exact
+  rational column reduction: never SVD, never counting near zero eigenvalues.
 - `rexgraph.field_propagator`, `rexgraph.dirac_propagator`,
-  `rexgraph.sparse_interfacing`: matrix-free field / Dirac / interfacing paths.
-- `rexgraph.compute`: the dispatch layer (dynamic backend selection, multi-GPU
-  column tiling, multi-core `parallel_map`).
+  `rexgraph.sparse_interfacing`: matrix free field / Dirac / interfacing paths.
+- `rexgraph.compute`: the dispatch layer (dynamic backend selection, multi GPU
+  column tiling, multi core `parallel_map`).
 
 
 
@@ -32,10 +32,10 @@ The Python layer they route to:
 Every Cython module in `rexgraph/core/` imports from `_common`. It defines the
 type system, error codes, memory management, parallelization decisions, numeric
 utilities, and data structure primitives. No mathematical computation happens
-here. This module ensures that all computation elsewhere is type-safe,
-memory-bounded, overflow-aware, and correctly parallelized.
+here. This module ensures that all computation elsewhere is type safe,
+memory bounded, overflow aware, and correctly parallelized.
 
----
+
 
 ### Type System
 
@@ -43,14 +43,14 @@ All modules share a unified set of type aliases for consistent precision:
 
 - `idx_t` (Py_ssize_t): array indices, loop counters
 - `idx32_t` (int32_t): CSR index arrays (boundary_ptr, boundary_idx)
-- `idx64_t` (int64_t): large-graph indices (>2B nodes)
+- `idx64_t` (int64_t): large graph indices (>2B nodes)
 - `i32` (int32_t), `i64` (int64_t): general integers
 - `f32` (float), `f64` (double): floating point
 
 The mathematical core uses `f64` for all Laplacian, eigenvalue, and character
 computation. `f32` exists for future GPU paths and visualization buffers.
 
----
+
 
 ### Error Codes
 
@@ -68,7 +68,7 @@ Python exceptions (which require the GIL):
 - `ERR_MEMORY_LIMIT` (-8): allocation exceeds configured limit
 - `ERR_CANCELLED` (-9): operation cancelled
 
-Python-level code converts these to typed exceptions via `raise_on_error()`:
+Python level code converts these to typed exceptions via `raise_on_error()`:
 
 ```python
 from rexgraph.core._common import raise_on_error, CoreMemoryError
@@ -83,14 +83,14 @@ Exception hierarchy:
 - `CoreValueError(CoreError, ValueError)`: invalid argument
 - `CoreOverflowError(CoreError, OverflowError)`: integer overflow
 
----
+
 
 ### Memory Management
 
-The library enforces three memory ceilings, auto-detected from system RAM at
+The library enforces three memory ceilings, auto detected from system RAM at
 import time and reconfigurable at runtime:
 
-- `max_parallel_buffer_bytes` (default: 25% of system RAM): per-operation
+- `max_parallel_buffer_bytes` (default: 25% of system RAM): per operation
   scratch for parallel loops
 - `max_total_allocation_bytes` (default: 75% of system RAM): global allocation
   ceiling
@@ -129,7 +129,7 @@ REXGRAPH_EIGEN_DENSE_LIMIT=3000
 REXGRAPH_DEFAULT_K=20
 ```
 
----
+
 
 ### Parallelization
 
@@ -137,23 +137,23 @@ OpenMP is detected at compile time via the `_OPENMP` preprocessor macro. When
 unavailable, all OpenMP functions are replaced with stubs returning 1. The
 `prange` import compiles without OpenMP and runs serially.
 
-Parallelization decisions are made per-operation by inline helpers:
+Parallelization decisions are made per operation by inline helpers:
 
 - `should_parallelize(work_size, threshold)`: True if OpenMP is available AND
   work_size >= max(threshold, 1000). The absolute minimum of 1000 prevents
   parallel overhead from dominating small operations.
 - `should_parallelize_with_memory(work_size, threshold, memory_required)` -
-  additionally checks that per-thread scratch fits in the parallel buffer limit.
+  additionally checks that per thread scratch fits in the parallel buffer limit.
 - `get_num_threads(requested)`: returns the effective thread count after
   applying `max_threads_limit` and `reserved_threads` caps.
 
 Default thresholds:
 
-- Simple row-parallel loops: 50,000 elements
+- Simple row parallel loops: 50,000 elements
 - CSR transpose: 500,000 elements
 - Reduction operations: 100,000 elements
 
----
+
 
 ### Numeric Utilities
 
@@ -175,7 +175,7 @@ Clamping and sanitization:
 - `log_clamp_min(x, min_x)`: log(max(x, min_x))
 - `sqrt_clamp_min(x)`: sqrt(max(x, 0))
 
----
+
 
 ### Bit Operations
 
@@ -183,7 +183,7 @@ Clamping and sanitization:
 - `next_power_of_two(x)`: smallest power of 2 >= x
 - `is_power_of_two(x)`: True iff x is a power of 2
 
----
+
 
 ### Hash Functions
 
@@ -193,7 +193,7 @@ Two hash functions for internal hash tables (used in `_sparse`, `_cycles`,
 - `fnv1a_hash_u64(x)`: FNV-1a bytewise hash of a uint64
 - `mix64(x)`: SplitMix64 finalizer (bijective mixing of 64 bits)
 
----
+
 
 ### CSR Utilities
 
@@ -204,9 +204,9 @@ representation:
 - `csr_row_length_i32(indptr, row)`: row length from int32 indptr
 - `csr_row_length_i64(indptr, row)`: row length from int64 indptr
 
----
 
-### Union-Find (Disjoint Set Union)
+
+### Union Find (Disjoint Set Union)
 
 Two implementations for connected component computation:
 
@@ -222,10 +222,10 @@ Two implementations for connected component computation:
 `UnionFind64` (int64, for graphs with > 2B nodes): identical API with `uf64_`
 prefix.
 
-Both use union-by-rank with path compression, giving amortized O(alpha(n)) per
+Both use union by rank with path compression, giving amortized O(alpha(n)) per
 operation where alpha is the inverse Ackermann function.
 
----
+
 
 ### Sorted Array Set Operations
 
@@ -238,7 +238,7 @@ O(|a| + |b|) time without allocation:
 - `sorted_intersection_write_i32(a, len_a, b, len_b, out, max_out)` -> writes
   intersection to out buffer
 
----
+
 
 ### Binary Search
 
@@ -249,9 +249,9 @@ For lookups in sorted CSR index arrays:
 - `lower_bound_i32(arr, n, target)` -> first index where arr[i] >= target
 - `upper_bound_i32(arr, n, target)` -> first index where arr[i] > target
 
----
 
-### Validation (Python-level)
+
+### Validation (Python level)
 
 For input validation at the Python/Cython boundary:
 
@@ -263,7 +263,7 @@ For input validation at the Python/Cython boundary:
 - `check_dense_allocation(op_name, nrows, ncols)`: raises if dense matrix
   exceeds limit
 
----
+
 
 ### Memory Estimation
 
@@ -281,7 +281,7 @@ dense = estimate_dense_matrix_bytes(5000)
 print(f"Dense: {dense['gb']:.2f} GB, fits: {dense['fits_in_limit']}")
 ```
 
----
+
 
 ### Diagnostics
 
@@ -300,14 +300,14 @@ result = test_parallel_execution(1_000_000)
 print(f"Threads: {result['threads_used']}, correct: {result['result_correct']}")
 ```
 
----
+
 
 ### Interop with Other Modules
 
 `_common` is imported by every other module in `rexgraph/core/`. The `.pxd`
 header is the C-level interface. `cimport` makes all inline functions, type
 aliases, and constants available at zero runtime cost. The `.pyx` implementation
-provides the Python-accessible configuration API and system detection logic.
+provides the Python accessible configuration API and system detection logic.
 
 
 
@@ -316,15 +316,15 @@ provides the Python-accessible configuration API and system detection logic.
 
 **File:** `_linalg.pyx` (324 lines)
 
-Provides Python-callable wrappers around the LAPACK and BLAS routines used
+Provides Python callable wrappers around the LAPACK and BLAS routines used
 throughout rexgraph. Also contains the `rl_pipeline` function, which runs the
-entire trace-normalize -> sum -> eigendecompose -> chi -> phi -> kappa
+entire trace normalize -> sum -> eigendecompose -> chi -> phi -> kappa
 computation in a single C-level call with zero Python overhead in the hot path.
 
 A static workspace buffer (`WORK_SIZE` doubles) is allocated once at module load
-for dsyev_ calls, avoiding per-call allocation.
+for dsyev_ calls, avoiding per call allocation.
 
----
+
 
 ### Eigendecomposition
 
@@ -332,10 +332,10 @@ for dsyev_ calls, avoiding per-call allocation.
 
   Symmetric eigendecomposition via LAPACK dsyev_. Input must be square
   symmetric. Returns eigenvalues sorted ascending and eigenvectors as columns of
-  a row-major array. Near-zero negative eigenvalues (|val| < 1e-10) are cleaned
+  a row major array. Near zero negative eigenvalues (|val| < 1e-10) are cleaned
   to 0.0.
 
----
+
 
 ### SVD
 
@@ -344,7 +344,7 @@ for dsyev_ calls, avoiding per-call allocation.
   General SVD via LAPACK dgesvd_. Returns U (m x m), S (min(m,n),), Vt (n x n)
   such that A = U @ diag(S) @ Vt.
 
----
+
 
 ### Least Squares
 
@@ -353,7 +353,7 @@ for dsyev_ calls, avoiding per-call allocation.
   Least squares min ||A @ x - b||_2 via LAPACK dgelsd_. Returns the solution
   vector x and the numerical rank.
 
----
+
 
 ### Matrix Rank
 
@@ -361,7 +361,7 @@ for dsyev_ calls, avoiding per-call allocation.
 
   Numerical rank via SVD. Singular values below tol are treated as zero.
 
----
+
 
 ### Matrix Multiply (BLAS dgemm)
 
@@ -373,7 +373,7 @@ Three variants covering all transpose combinations:
 
 All call BLAS dgemm directly. No intermediate copies.
 
----
+
 
 ### Spectral Pseudoinverse
 
@@ -389,27 +389,27 @@ All call BLAS dgemm directly. No intermediate copies.
   Used in the sparse phi computation path where only RL^+ @ (B1^T e_v) is needed
   per vertex.
 
----
 
-### rl_pipeline: Full RCF Computation
+
+### rl_pipeline: the full relational Laplacian computation
 
 `rl_pipeline(B1, L1, L_O, L_SG)` -> dict
 
 Runs the complete relational complex field computation in one call with all
 operations at the C level (BLAS/LAPACK, no Python in the loop):
 
-1. Trace-normalize L1, L_O, L_SG into hat operators h1, hO, hSG
+1. Trace normalize L1, L_O, L_SG into hat operators h1, hO, hSG
 2. Sum: RL = h1 + hO + hSG
 3. Eigendecompose RL via dsyev_
 4. Compute RL^+ via spectral pseudoinverse
 5. Compute chi: chi(e, k) = hat_k[e,e] / RL[e,e]
 6. Compute B1 @ RL^+ via dgemm
-7. Compute S0 diagonal (vertex self-response)
+7. Compute S0 diagonal (vertex self response)
 8. Compute phi: for each hat k, diag(B1_RLp @ hat_k @ B1_RLp^T) / S0
 9. Compute chi_star: mean of chi over incident edges
 10. Compute kappa: 1 - 0.5 * ||phi - chi_star||_1
 
-This is the 3-hat (RL3) variant used in the test suite and benchmarks. The
+This is the 3 hat (RL3) variant used in the test suite and benchmarks. The
 production path uses `_relational.build_RL` which handles N hats generically.
 
 Returns a dict with: RL, evals, evecs, RLp, chi, phi, chi_star, kappa,
@@ -426,10 +426,10 @@ DualCSR sparse format (CSR + CSC in one pass) with sorted indices, typed
 variants (i32/i64 x f32/f64), and operations: matvec, rmatvec, Gram
 products (A^T A, A A^T), diagonal extraction, dense conversion, scipy
 interop, and memory reporting. Internal sorting uses iterative quicksort
-with median-of-3 pivot and insertion sort fallback. All public functions
-auto-dispatch by index and value type.
+with median of 3 pivot and insertion sort fallback. All public functions
+auto dispatch by index and value type.
 
----
+
 
 ### Classes
 
@@ -442,11 +442,11 @@ auto-dispatch by index and value type.
 - `DualCSR(csr, col_ptr, row_idx, vals_csc)`
 
   Dual CSR/CSC storage built in a single pass through COO data. Exposes
-  both row-major (CSR) and column-major (CSC) views for efficient row and
+  both row major (CSR) and column major (CSC) views for efficient row and
   column access. Properties: nrow, ncol, nnz, row_ptr, col_idx, vals,
   col_ptr, row_idx, vals_csc, idx_bits, val_bits.
 
----
+
 
 ### Construction
 
@@ -464,7 +464,7 @@ auto-dispatch by index and value type.
 
   Adds CSC storage to an existing CSRMatrix.
 
----
+
 
 ### Type Selection
 
@@ -473,16 +473,16 @@ auto-dispatch by index and value type.
 - `aligned_empty_idx(n, use_64)`, `aligned_empty_val(n, use_64)`: typed allocation
 - `aligned_zeros_idx(n, use_64)`, `aligned_zeros_val(n, use_64)`
 
----
 
-### Matrix-Vector Products
 
-- `matvec(A, x)` -> f64[nrow]: y = A @ x via CSR. Auto-dispatches type.
-- `rmatvec(A, x)` -> f64[ncol]: y = A^T @ x via CSC. Auto-dispatches type.
+### Matrix Vector Products
+
+- `matvec(A, x)` -> f64[nrow]: y = A @ x via CSR. Auto dispatches type.
+- `rmatvec(A, x)` -> f64[ncol]: y = A^T @ x via CSC. Auto dispatches type.
 
   Both accept DualCSR and handle f32/f64 x i32/i64 combinations.
 
----
+
 
 ### Gram Products
 
@@ -491,7 +491,7 @@ auto-dispatch by index and value type.
 
   Both raise MemoryError if the output exceeds max_dense_allocation.
 
----
+
 
 ### Access and Extraction
 
@@ -501,7 +501,7 @@ auto-dispatch by index and value type.
 - `row_nnz(A, row)` -> int
 - `col_nnz(A, col)` -> int
 
----
+
 
 ### Conversion
 
@@ -518,12 +518,12 @@ auto-dispatch by index and value type.
 - `to_scipy_csr(A)` -> scipy.sparse.csr_matrix
 - `from_scipy_csr(sp_matrix)` -> DualCSR
 
----
+
 
 ### Memory
 
 - `memory_bytes(A)` -> int: total bytes used by CSR + CSC arrays
-- `memory_report(A)` -> str: human-readable memory usage
+- `memory_report(A)` -> str: human readable memory usage
 - `validate_csr(A, name="CSR")` -> (valid, error_msg): structural integrity check
 
 
@@ -533,7 +533,7 @@ auto-dispatch by index and value type.
 
 **File:** `_rex.pyx` (1230 lines)
 
-Array-level kernels for constructing, modifying, querying, and projecting
+Array level kernels for constructing, modifying, querying, and projecting
 relational complex structures at all dimension levels (vertices, edges, faces).
 This module treats edges as the primitive objects: vertices are derived from edge
 boundaries, and faces are attached via the B2 boundary operator.
@@ -541,7 +541,7 @@ boundaries, and faces are attached via the B2 boundary operator.
 Every function has i32 and i64 typed variants plus a dispatcher that selects by
 dtype automatically.
 
----
+
 
 ### Edge Classification
 
@@ -562,10 +562,10 @@ Functions:
   where edges can have arbitrary boundary sizes. Sorts boundary indices to count
   unique vertices. Returns (edge_types, boundary_sizes) as int32 arrays.
 
-- `classify_edges(nE, sources, targets, boundary_ptr, boundary_idx)`: top-level
+- `classify_edges(nE, sources, targets, boundary_ptr, boundary_idx)`: top level
   dispatcher that picks the right variant.
 
----
+
 
 ### Vertex Derivation
 
@@ -576,9 +576,9 @@ the maximum vertex index, then computes degree statistics:
 - `derive_vertex_set(nE, sources, targets)` -> (nV, degree, in_deg, out_deg)
 
 All four return values are int32 arrays. nV is the number of vertices (max
-index + 1). Degree counts are per-vertex.
+index + 1). Degree counts are per vertex.
 
----
+
 
 ### CSR Incidence Structures
 
@@ -590,7 +590,7 @@ coboundary computation throughout the library.
 - `build_vertex_to_edge_csr_general(nV, nE, boundary_ptr, boundary_idx)`
   -> (v2e_ptr, v2e_idx)
 
-  The transpose of the edge-to-vertex boundary CSR, so it carries a relation's whole
+  The transpose of the edge to vertex boundary CSR, so it carries a relation's whole
   support at any arity. The (sources, targets) form holds two vertices per relation, so
   on a branching relation it maps the first two and every vertex past them reads as
   isolated. The two agree exactly on a pairwise complex, edge order included.
@@ -604,12 +604,12 @@ coboundary computation throughout the library.
   each edge e, e2f_idx[e2f_ptr[e]:e2f_ptr[e+1]] gives the indices of all faces
   that have e on their boundary.
 
----
+
 
 ### Branching Edge Expansion
 
 When a relational complex contains hyperedges (branching edges with 3+
-boundary vertices), this function clique-expands them into standard 2-vertex
+boundary vertices), this function clique expands them into standard 2 vertex
 edges for use with the Hodge Laplacian machinery:
 
 - `clique_expand_branching(nE, boundary_ptr, boundary_idx, edge_types)`
@@ -619,7 +619,7 @@ A branching edge with k boundary vertices produces C(k,2) standard edges, each
 with weight 1/(k-1). The parent_edge array maps each expanded edge back to its
 original hyperedge index.
 
----
+
 
 ### Hyperslice Queries
 
@@ -654,13 +654,13 @@ The dispatcher takes the `_general` kernels for dims 0 and 1 when the boundary C
 supplied, which is what `RexGraph.hyperslice` does. The `_i32`/`_i64` pair is the
 pairwise path: it reports two vertices per relation whatever the arity, and gives a
 vertex the ONE other endpoint of each incident relation rather than all k-1
-co-participants. The face kernel was already general, since it reads B2 columns.
+co participants. The face kernel was already general, since it reads B2 columns.
 
 The counts of the three sets are what `rexgraph.tower.apd` reports: arity is |below|,
-degree is |above|, and |lateral| is the co-participation channel (the line-graph
+degree is |above|, and |lateral| is the co participation channel (the line graph
 degree). hyperslice names the cells, apd measures them.
 
----
+
 
 
 ### Dimensional Projection
@@ -678,7 +678,7 @@ to lower dimensions:
 
   How Betti numbers change when projecting down one dimension.
 
----
+
 
 ### Subsumption Embeddings
 
@@ -687,20 +687,20 @@ representation:
 
 - `from_graph(nV, src, tgt)` -> (sources, targets, edge_types, nV)
 
-  Simple graph to 1-rex. Self-loops are classified as EDGE_SELF_LOOP.
+  Simple graph to 1 rex. Self loops are classified as EDGE_SELF_LOOP.
 
 - `from_hypergraph(nV, hedge_ptr, hedge_idx)` -> (boundary_ptr, boundary_idx, edge_types)
 
-  Hypergraph to branching 1-rex. Edges with 1 boundary vertex are WITNESS,
+  Hypergraph to branching 1 rex. Edges with 1 boundary vertex are WITNESS,
   2 are STANDARD, 3+ are BRANCHING.
 
 - `from_simplicial_2complex(nV, edge_src, edge_tgt, tri_e0, tri_e1, tri_e2, tri_s0, tri_s1, tri_s2)`
   -> (B2_col_ptr, B2_row_idx, B2_vals)
 
-  Simplicial 2-complex (graph + triangles) to 2-rex. Builds B2 in CSC format
+  Simplicial 2 complex (graph + triangles) to 2 rex. Builds B2 in CSC format
   from triangle edge indices and orientation signs.
 
----
+
 
 ### Generalized k-Chain
 
@@ -710,15 +710,15 @@ For complexes beyond dimension 2 (tetrahedra, etc.):
   -> (col_ptr, row_idx, vals, n_cells)
 
   Builds the k-th boundary operator Bk in CSC from a list of k-cells given as
-  CSC-style pointers into a shared index array with orientation signs.
+  CSC style pointers into a shared index array with orientation signs.
 
 - `verify_chain_condition_Bk(n_rows_prev, Bkm1_rp, Bkm1_ci, Bkm1_v, Bk_cp, Bk_ri, Bk_v, tol)`
   -> (ok, max_error)
 
-  Verifies B_{k-1} * B_k = 0 via sparse matrix-vector product on each column
+  Verifies B_{k-1} * B_k = 0 via sparse matrix vector product on each column
   of B_k. Returns True and the maximum absolute entry in the product.
 
----
+
 
 ### Coboundary Queries
 
@@ -727,7 +727,7 @@ Direct coboundary lookups from the CSR incidence tables:
 - `coboundary_vertex_i32(v, v2e_ptr, v2e_idx)` -> edge indices incident to v
 - `coboundary_edge_i32(e, e2f_ptr, e2f_idx)` -> face indices incident to e
 
----
+
 
 ### Convenience
 
@@ -750,10 +750,10 @@ All matrix products go through BLAS dgemm. All eigendecompositions go through
 LAPACK dsyev_. No numpy.linalg calls.
 
 For large graphs where the dense nE x nE path is infeasible, a sparse path
-computes Betti numbers via union-find and the Fiedler value via matrix-free
+computes Betti numbers via union find and the Fiedler value via matrix free
 ARPACK, without materializing any nE x nE or nV x nV matrix.
 
----
+
 
 ### Laplacian Construction
 
@@ -762,21 +762,21 @@ The relational complex V -> E -> F defines three Hodge Laplacians:
 - `build_L0(B1)` -> L0 = B1 @ B1^T, shape (nV, nV)
 
   The vertex Laplacian. Its nullity is beta_0 (number of connected components).
-  Its second-smallest eigenvalue is the algebraic connectivity (Fiedler value).
+  Its second smallest eigenvalue is the algebraic connectivity (Fiedler value).
 
 - `build_L1_down(B1)` -> L1_down = B1^T @ B1, shape (nE, nE)
 
-  The downward edge Laplacian. Captures vertex-mediated coupling between edges.
+  The downward edge Laplacian. Captures vertex mediated coupling between edges.
 
 - `build_L1_up(B2)` -> L1_up = B2 @ B2^T, shape (nE, nE)
 
-  The upward edge Laplacian. Captures face-mediated coupling between edges.
+  The upward edge Laplacian. Captures face mediated coupling between edges.
   Returns a zero matrix if there are no faces.
 
 - `build_L1_full(L1_down, L1_up)` -> L1 = L1_down + L1_up, shape (nE, nE)
 
   The full Hodge Laplacian on edges. Its kernel is the space of harmonic
-  1-forms, whose dimension is beta_1 (the first Betti number). The Hodge
+  1 forms, whose dimension is beta_1 (the first Betti number). The Hodge
   decomposition splits any edge signal into gradient (from L1_down), curl (from
   L1_up), and harmonic components.
 
@@ -784,24 +784,24 @@ The relational complex V -> E -> F defines three Hodge Laplacians:
 
   The face Laplacian. Its nullity is beta_2.
 
----
+
 
 ### Eigendecomposition
 
 - `eigen_symmetric(L)` -> (evals, evecs)
 
   Full eigendecomposition of a symmetric matrix via LAPACK dsyev_. Eigenvalues
-  are returned in ascending order. Near-zero eigenvalues (|val| < 1e-12) are
+  are returned in ascending order. Near zero eigenvalues (|val| < 1e-12) are
   cleaned to exactly 0.0. Negative eigenvalues from numerical noise (|val| <
   1e-9) are also zeroed.
 
 - `clean_eigenvalues(evals, tol=1e-10)` -> cleaned copy
 
-- `fiedler_value(evals)` -> second-smallest eigenvalue (first eigenvalue > 1e-10)
+- `fiedler_value(evals)` -> second smallest eigenvalue (first eigenvalue > 1e-10)
 
 - `fiedler_vector(evecs, evals)` -> eigenvector for the Fiedler value
 
----
+
 
 ### Diagonal Extraction
 
@@ -809,20 +809,20 @@ The relational complex V -> E -> F defines three Hodge Laplacians:
 
   Extracts the diagonals of L1_down and L1_up without forming the full matrices.
   diag_down[e] = sum_v B1[v,e]^2 (column sum of squares). diag_up[e] = sum_f
-  B2[e,f]^2 (row sum of squares). Used for fast per-edge diagnostics without
+  B2[e,f]^2 (row sum of squares). Used for fast per edge diagnostics without
   O(nE^2) memory.
 
----
+
 
 ### Composite Operators
 
 - `build_L1_alpha(L1, L_O, alpha)` -> L1 + alpha * L_O
 
-  The alpha-coupled Laplacian, mixing Hodge structure with overlap geometry.
+  The alpha coupled Laplacian, mixing Hodge structure with overlap geometry.
 
 - `build_Lambda(B1, L_O)` -> B1 @ L_O @ B1^T, shape (nV, nV)
 
-  The vertex-level projection of the overlap Laplacian. Used in vertex character
+  The vertex level projection of the overlap Laplacian. Used in vertex character
   computation.
 
 - `compute_coupling_constants(evals_L1, evals_L_O, beta1, nE)` -> (alpha_G, alpha_T)
@@ -830,12 +830,12 @@ The relational complex V -> E -> F defines three Hodge Laplacians:
   alpha_G is the geometry<->topology coupling. It is NO LONGER the Fiedler ratio
   fiedler(L1)/fiedler(L_O): that needed two eigensolves and read an approximate slice.
   It is the exact trace ratio c^2 = tr((B2 B2^T)^2) / tr((B1^T B1)^2), which is
-  eigen-free and rational (see test_eigenfree.test_alpha_G_is_exact_c2_on_complete_graphs).
+  eigen free and rational (see test_eigenfree.test_alpha_G_is_exact_c2_on_complete_graphs).
   The historical reading was that it measures the geometric coupling between
   Hodge and overlap structure. alpha_T = beta_1 / nE measures the topological
   coupling (fraction of edges in harmonic cycles).
 
----
+
 
 ### Trace Normalization
 
@@ -846,7 +846,7 @@ The relational complex V -> E -> F defines three Hodge Laplacians:
   relational Laplacian: each hat operator contributes equally regardless of its
   absolute scale.
 
----
+
 
 ### build_all_laplacians
 
@@ -858,7 +858,7 @@ per graph and caches the result dict. It:
 1. Builds L0, L1_down, L1_up, L1_full, L2 via BLAS
 2. Eigendecomposes each via LAPACK dsyev_
 3. Computes Betti numbers from eigenvalue nullities (the historical path; prefer the
-   rank-based routine below, which needs no eigendecomposition)
+   rank based routine below, which needs no eigendecomposition)
 4. Eigenanalyzes the overlap Laplacian L_O
 5. Computes coupling constants alpha_G and alpha_T
 6. Builds K1 = |B1|^T @ |B1| (the overlap Gramian)
@@ -868,8 +868,8 @@ per graph and caches the result dict. It:
 
 Parameters:
 
-- `B1_in`: vertex-edge boundary operator (nV, nE)
-- `B2_in`: edge-face boundary operator (nE, nF), or None
+- `B1_in`: vertex edge boundary operator (nV, nE)
+- `B2_in`: edge face boundary operator (nE, nF), or None
 - `L_O_in`: overlap Laplacian (nE, nE), or None
 - `L_SG_in`: frustration Laplacian (nE, nE), or None
 - `L_C_in`: copath complex Laplacian (nE, nE), or None
@@ -878,23 +878,23 @@ Returns a dict with all Laplacians, eigenvalues, eigenvectors, Betti numbers,
 coupling constants, the relational Laplacian RL, its hat operators, trace
 values, hat names, and the structural character chi.
 
----
+
 
 ### Sparse Spectral Bundle
 
 For large graphs where nE x nE dense matrices are infeasible, three functions
-provide Betti numbers and the L0 Fiedler value without any dense edge-space
+provide Betti numbers and the L0 Fiedler value without any dense edge space
 computation.
 
 - `_sparse_betti(B1_in, B2_in, nV, nE, nF)` -> (beta0, beta1, beta2, rank_B1, rank_B2)
 
   Computes Betti numbers without eigendecomposition. beta_0 comes from
-  `_cycles.cycle_space_dimension`, which uses the nogil union-find from
+  `_cycles.cycle_space_dimension`, which uses the nogil union find from
   `_common.UnionFind` in O(nE * alpha(nV)) time with zero scipy calls.
   beta_1 follows from the Euler relation. When nF > 0, rank(B2) is the EXACT
   rational rank from `graded_boundary._sparse_rank` (combinatorial column
   reduction: no dense Gram, no truncated-`svds` cap that undercounted rank on
-  face-rich complexes), and beta_2 = nF - rank(B2). For faceless graphs, this is
+  face rich complexes), and beta_2 = nF - rank(B2). For faceless graphs, this is
   pure C.
 
   Accepts DualCSR, scipy sparse, or dense B1/B2.
@@ -908,7 +908,7 @@ computation.
   applies L0 via two Cython calls: `rmatvec(B1_dual, x)` for B1^T @ x
   through the CSC path, then `matvec(B1_dual, tmp)` for B1 @ tmp
   through the CSR path. ARPACK Lanczos finds the 6 smallest eigenvalues
-  in `which='SM'` mode (no shift-invert, no matrix factorization).
+  in `which='SM'` mode (no shift invert, no matrix factorization).
   Memory: O(nE) for the existing DualCSR arrays, not O(nV^2) for dense L0.
 
   Accepts DualCSR (preferred, uses Cython matvec) or scipy sparse (fallback).
@@ -918,7 +918,7 @@ computation.
   Sparse spectral bundle entry point. Returns a dict with the same key
   set as `build_all_laplacians` so graph.py can dispatch transparently.
   Populates: beta0, beta1, beta2, fiedler_val_L0, fiedler_vec_L0,
-  evals_L0, alpha_T. Sets edge-space operators (L1, L_O, RL, hats,
+  evals_L0, alpha_T. Sets edge space operators (L1, L_O, RL, hats,
   chi, K1, L_C) to None. The `_sparse_mode` key is set to True.
 
   Use `subgraph()` to extract a manageable subset for full dense spectral
@@ -945,33 +945,33 @@ The construction is:
     L_O = I - S                 overlap Laplacian
 
 K_ij counts the weighted number of vertices shared by edges i and j. W is an
-optional diagonal matrix of per-vertex weights (default: uniform). The
-normalization by D_ov^{-1/2} makes S a doubly stochastic-like matrix whose
+optional diagonal matrix of per vertex weights (default: uniform). The
+normalization by D_ov^{-1/2} makes S a doubly stochastic like matrix whose
 entries are in [0, 1], so L_O has eigenvalues in [0, 1].
 
 L_O enters the relational Laplacian as one of the typed hat operators. Its
 Fiedler value also determines the geometric coupling constant alpha_G =
 fiedler(L1) / fiedler(L_O).
 
----
+
 
 ### Algorithm
 
-The Gramian K is built by vertex-driven pair enumeration. For each vertex v
+The Gramian K is built by vertex driven pair enumeration. For each vertex v
 with degree d, the d^2 pairs of incident edges all share v and each contributes
 w_v to K. This runs in O(sum_v deg(v)^2) time.
 
 Two paths:
 
 - Dense (nE^2 fits in the dense allocation budget): fills K as an nE x nE
-  array directly, then normalizes in-place. No COO intermediate.
+  array directly, then normalizes in place. No COO intermediate.
 - Sparse (large nE): accumulates COO triples, converts to scipy CSR, then
   normalizes via sparse diagonal multiplication.
 
 The `method` parameter controls selection: "auto" (default) picks based on the
 memory budget, "dense" forces dense, "sparse" forces sparse.
 
----
+
 
 ### Functions
 
@@ -1001,7 +1001,7 @@ memory budget, "dense" forces dense, "sparse" forces sparse.
 
 
 
-## `_spectral`: Spectral Layout and Force-Directed Refinement
+## `_spectral`: Spectral Layout and Force Directed Refinement
 
 **File:** `_spectral.pyx` (794 lines)
 
@@ -1009,14 +1009,14 @@ Computes 2D vertex positions for visualization in two phases:
 
 1. Spectral embedding from L0 eigenvectors (Fiedler vector and third
    eigenvector as x/y coordinates).
-2. Force-directed refinement via Fruchterman-Reingold with Coulomb repulsion,
+2. Force directed refinement via Fruchterman Reingold with Coulomb repulsion,
    Hooke attraction, and centering forces.
 
-For graphs with more than 200 vertices, O(nV^2) all-pairs repulsion is replaced
-by Barnes-Hut quadtree approximation at O(nV log nV) with opening angle theta =
+For graphs with more than 200 vertices, O(nV^2) all pairs repulsion is replaced
+by Barnes Hut quadtree approximation at O(nV log nV) with opening angle theta =
 0.5.
 
----
+
 
 ### spectral_layout
 
@@ -1027,7 +1027,7 @@ Uses eigenvectors of the vertex Laplacian L0 to place vertices in 2D. Column 1
 y. Coordinates are linearly rescaled to fit the canvas with padding on each
 side.
 
-Falls back to deterministic placement (golden-ratio-based grid) when fewer than
+Falls back to deterministic placement (golden ratio based grid) when fewer than
 3 eigenvectors are available.
 
 Parameters:
@@ -1040,13 +1040,13 @@ Parameters:
 
 Returns (px, py) as float64 arrays of length nV.
 
----
+
 
 ### force_directed_refine
 
 `force_directed_refine(px, py, edge_src, edge_tgt, nV, nE, iterations=400, ...)`
 
-O(nV^2) Fruchterman-Reingold refinement. Each iteration computes:
+O(nV^2) Fruchterman Reingold refinement. Each iteration computes:
 
 - Coulomb repulsion between all vertex pairs: force proportional to
   1/distance^2, pushing apart
@@ -1059,7 +1059,7 @@ simulated annealing behavior.
 
 Parameters:
 
-- `px, py`: initial positions (modified in-place)
+- `px, py`: initial positions (modified in place)
 - `edge_src, edge_tgt`: int32 edge endpoint arrays
 - `iterations`: number of force iterations (default 400)
 - `repel_strength`: Coulomb constant (default 3000)
@@ -1068,15 +1068,15 @@ Parameters:
 - `centering`: centering force coefficient (default 0.008)
 - `width, height`: canvas dimensions for boundary clamping
 
----
+
 
 ### barnes_hut_refine
 
 `barnes_hut_refine(px, py, edge_src, edge_tgt, nV, nE, iterations=400, theta=0.5, ...)`
 
-O(nV log nV) force-directed refinement using a quadtree for far-field repulsion
+O(nV log nV) force directed refinement using a quadtree for far field repulsion
 approximation. Same force model as `force_directed_refine`, but repulsion is
-computed via Barnes-Hut tree traversal instead of all-pairs.
+computed via Barnes Hut tree traversal instead of all pairs.
 
 The quadtree is rebuilt each iteration from the current vertex positions. For
 each vertex, the tree is traversed: if a cell's size divided by its distance to
@@ -1088,24 +1088,24 @@ than the linear decay in the naive method.
 
 Additional parameter:
 
-- `theta`: Barnes-Hut opening angle (default 0.5). Smaller values give more
+- `theta`: Barnes Hut opening angle (default 0.5). Smaller values give more
   accurate but slower computation.
 
----
+
 
 ### compute_layout
 
 `compute_layout(evecs, nV, nE, edge_src, edge_tgt, width=700.0, height=500.0, iterations=400, evals=None)`
 
-Runs spectral embedding followed by force-directed refinement, automatically
-selecting the naive or Barnes-Hut method based on vertex count:
+Runs spectral embedding followed by force directed refinement, automatically
+selecting the naive or Barnes Hut method based on vertex count:
 
 - nV <= 200: O(nV^2) naive refinement
-- nV > 200: O(nV log nV) Barnes-Hut refinement
+- nV > 200: O(nV log nV) Barnes Hut refinement
 
 This is the function called by `graph.py`'s `layout` property.
 
----
+
 
 ### Internal Details
 
@@ -1131,13 +1131,13 @@ computes Betti numbers from Laplacian eigenvalues.
 B1 and B2 are stored as DualCSR matrices (from `_sparse`), which provide both
 CSR and CSC access without duplication.
 
----
+
 
 ### B1 Construction
 
 - `build_B1(nV, nE, sources, targets)` -> DualCSR (nV x nE)
 
-  The signed vertex-edge incidence matrix. For each edge j with source s and
+  The signed vertex edge incidence matrix. For each edge j with source s and
   target t: B1[s, j] = -1, B1[t, j] = +1. This convention orients edges from
   source to target.
 
@@ -1151,13 +1151,13 @@ CSR and CSC access without duplication.
   Dispatches to i32 or i64 variant based on dtype. Uses i64 when nV or nE
   exceeds 2^31 - 1.
 
----
+
 
 ### B2 Construction
 
 - `build_B2_from_cycles(nE, cycle_edges, cycle_signs, cycle_lengths)` -> DualCSR (nE x nF)
 
-  Builds the edge-face boundary operator from flat cycle data. Each face is
+  Builds the edge face boundary operator from flat cycle data. Each face is
   defined by a list of boundary edge indices with orientation signs (+/-1).
 
   The input arrays are concatenated across faces: cycle_edges and cycle_signs
@@ -1179,25 +1179,25 @@ CSR and CSC access without duplication.
   (-1, 0, or +1). Accepts (nE, nF) or (nF, nE) orientation; if the shape
   suggests transposition is needed, it is applied automatically.
 
----
+
 
 ### Relational Complex Verification
 
 - `verify_chain_complex(B1, B2, tol=1e-10)` -> (ok, max_error)
 
   Checks B1 @ B2 = 0 by iterating over columns of B2, applying B1 via sparse
-  matrix-vector product, and checking each result is zero. This avoids forming
+  matrix vector product, and checking each result is zero. This avoids forming
   the dense nV x nF product.
 
   Returns True if max|B1 @ B2| < tol, along with the actual maximum absolute
   entry. This is the computational proof of the chain condition: the boundary of
   a boundary is zero.
 
----
+
 
 ### Betti Numbers from Eigenvalues
 
-The spectral path computes Betti numbers in O(k) time from pre-computed
+The spectral path computes Betti numbers in O(k) time from pre computed
 Laplacian eigenvalues, avoiding any matrix factorization:
 
 - `count_zero_eigenvalues(evals, tol=1e-10)` -> int
@@ -1218,27 +1218,27 @@ Laplacian eigenvalues, avoiding any matrix factorization:
   Also computes beta1_rank_check: whether beta_1 from eigenvalue nullity matches
   beta_1 = nE - rank(B1) - rank(B2) from operator ranks.
 
----
+
 
 ### Unified Betti Interface
 
 - `betti_numbers(B1, B2=None, evals_L0=None, evals_L1=None, evals_L2=None)` -> tuple
 
   Uses the spectral path when eigenvalue arrays are available, otherwise falls
-  back to SVD-based rank computation (with a warning). Returns (beta_0, beta_1)
-  for a 1-rex or (beta_0, beta_1, beta_2) for a 2-rex.
+  back to SVD based rank computation (with a warning). Returns (beta_0, beta_1)
+  for a 1 rex or (beta_0, beta_1, beta_2) for a 2 rex.
 
----
+
 
 ### Exact / SVD Rank
 
 - `compute_rank(M, method="auto", tol=1e-10)` -> int
 
   Numerical rank. For an INTEGER boundary map (the unweighted topology) it takes
-  an EXACT eigen-free fast path: rational column reduction via
+  an EXACT eigen free fast path: rational column reduction via
   `graded_boundary._exact_rank_reduction` (guarded by
   `graded_boundary._is_integer_matrix`), with no SVD, no densification, and no
-  silent `svds` cap. Genuinely non-integer (weighted) matrices keep the SVD
+  silent `svds` cap. Genuinely non integer (weighted) matrices keep the SVD
   dispatch: the "auto" method then selects dense SVD (via `_linalg`) when the
   matrix is small enough, or scipy sparse `svds` otherwise. Prefer
   `betti_from_eigenvalues` when Laplacian eigenvalues are available.
@@ -1248,7 +1248,7 @@ Laplacian eigenvalues, avoiding any matrix factorization:
 
 ## `_hodge`: Hodge Decomposition of Edge Signals
 
-**File:** `_hodge.pyx` (535 lines)
+**File:** `_hodge.pyx`
 
 Decomposes an edge signal g into three mutually orthogonal components:
 
@@ -1257,15 +1257,16 @@ Decomposes an edge signal g into three mutually orthogonal components:
 
 The gradient component lies in im(B1^T), the curl component lies in im(B2),
 and the harmonic residual lies in ker(L1). Orthogonality holds when the chain
-condition B1 @ B2 = 0 is satisfied. If the complex has self-loop faces, they
+condition B1 @ B2 = 0 is satisfied. If the complex has self loop faces, they
 must be filtered from B2 before calling this module (graph.py handles this via
 B2_hodge).
 
-Potentials are recovered via pseudoinverse: phi = L0^+ (B1 g) and psi = L2^+
-(B2^T g). The dense path uses LAPACK dgelsd (lstsq), the sparse path uses
-scipy lsqr (iterative).
+Potentials are recovered via the numerical pseudoinverse: phi = (B1^T)^+ g
+and psi = B2^+ g. Native LSQR acts on the boundary factors through the compiled
+sparse kernels. It returns only after a recomputed residual test passes.
+The dense routine is a separate reference oracle, never selected by size.
 
----
+
 
 ### Signal Construction
 
@@ -1279,9 +1280,9 @@ scipy lsqr (iterative).
 - `normalize_signal(x)` -> f64[n]
 
   Scales a signal to [-1, 1] by dividing by the maximum absolute value. Returns
-  zeros if the input is all-zero.
+  zeros if the input is all zero.
 
----
+
 
 ### Vertex Divergence and Face Curl
 
@@ -1293,29 +1294,30 @@ scipy lsqr (iterative).
 
   B2^T @ g. Measures circulation around each face. Zero for gradient signals.
 
----
 
-### Per-Edge Resistance Ratio
+
+### Per Edge Resistance Ratio
 
 - `compute_rho(harm, flow)` -> f64[nE]
 
   rho(e) = |eta_e| / |g_e|, the fraction of each edge's signal that is
-  harmonic. Values in [0, 1]. Zero where the original flow is zero. Edges with
+  harmonic. The ratio can exceed one through local cancellation between
+  components. Zero where the original flow is zero. Edges with
   high rho carry signal that is neither gradient nor curl: they represent
   topological flow through independent cycles.
 
----
+
 
 ### Energy Decomposition
 
 - `compute_energy_percentages(grad, curl, harm)` -> (pct_grad, pct_curl, pct_harm)
 
   ||g||^2 = ||grad||^2 + ||curl||^2 + ||harm||^2. Returns the three energy
-  fractions summing to 1.0. A gradient-dominated signal flows along potential
-  differences. A curl-dominated signal circulates around faces. A
-  harmonic-dominated signal flows through cycles that are not face boundaries.
+  fractions summing to 1.0. A gradient dominated signal flows along potential
+  differences. A curl dominated signal circulates around faces. A
+  harmonic dominated signal flows through cycles that are not face boundaries.
 
----
+
 
 ### Orthogonality Verification
 
@@ -1324,26 +1326,26 @@ scipy lsqr (iterative).
   Computes the absolute inner products between all three component pairs:
   grad_curl, grad_harm, curl_harm. Returns max_inner (largest of the three) and
   orthogonal (True if max_inner < 1e-6). Large values indicate the chain
-  condition is violated, usually because self-loop faces were not filtered.
+  condition is violated, usually because self loop faces were not filtered.
 
----
+
 
 ### Hodge Decomposition
 
 - `hodge_decomposition(B1, B2, flow, L0=None, L2=None)` -> (grad, curl, harm)
 
-  The core decomposition. Automatically selects the dense or sparse path based
-  on matrix dimensions and the memory budget. Builds L0 and L2 internally if
-  not provided.
+  The core decomposition uses native boundary LSQR at every size. It does not
+  form L0 or L2 unless a caller supplies those operators explicitly. Set
+  potentials=True to also receive phi and psi.
 
   Parameters:
   - `B1`: DualCSR (nV, nE)
-  - `B2`: DualCSR (nE, nF) or None. Should have self-loop faces filtered.
+  - `B2`: DualCSR (nE, nF) or None. Should have self loop faces filtered.
   - `flow`: f64[nE] edge signal
   - `L0`: precomputed vertex Laplacian (dense or sparse), or None
   - `L2`: precomputed face Laplacian (dense or sparse), or None
 
----
+
 
 ### build_hodge: Full Analysis
 
@@ -1354,7 +1356,7 @@ scipy lsqr (iterative).
 
   - `grad, curl, harm`: raw f64[nE] components
   - `grad_norm, curl_norm, harm_norm, flow_norm`: normalized to [-1, 1]
-  - `rho`: per-edge harmonic resistance ratio
+  - `rho`: per edge harmonic resistance ratio
   - `pct_grad, pct_curl, pct_harm`: energy fractions
   - `divergence, div_norm`: vertex divergence and its normalization
   - `face_curl`: face curl B2^T g
@@ -1367,48 +1369,48 @@ scipy lsqr (iterative).
 
 **File:** `_faces.pyx` (1201 lines)
 
-Classifies faces into proper and self-loop types, filters B2 for exact Hodge
-decomposition, extracts per-face descriptors, computes structural metrics
-relating faces to vertices and edges, and provides typed and context-based
+Classifies faces into proper and self loop types, filters B2 for exact Hodge
+decomposition, extracts per face descriptors, computes structural metrics
+relating faces to vertices and edges, and provides typed and context based
 face selection for building new relational complexes from structural criteria.
 
-Self-loop faces arise when edges connect a vertex to itself (v -> v). Their B2
+Self loop faces arise when edges connect a vertex to itself (v -> v). Their B2
 column has nonzero entries but B1 @ B2 != 0 for those columns, because the
-boundary of a self-loop is v - v = 0 in the vertex chain group yet nonzero in
+boundary of a self loop is v - v = 0 in the vertex chain group yet nonzero in
 the edge chain. Filtering them out gives B2_hodge where B1 @ B2 = 0 holds
 exactly. This filtering is what makes the Hodge decomposition produce orthogonal
 components.
 
----
+
 
 ### Face Classification
 
 - `classify_faces(B2, edge_src, edge_tgt)` -> dict
 
-  Classifies each face as proper (2+ unique boundary vertices) or self-loop
+  Classifies each face as proper (2+ unique boundary vertices) or self loop
   (single vertex). Returns:
 
   - `proper_mask`: bool[nF], True for proper faces
-  - `self_loop_mask`: bool[nF], True for self-loop faces
+  - `self_loop_mask`: bool[nF], True for self loop faces
   - `n_proper, n_self_loop`: counts
   - `proper_indices, self_loop_indices`: index arrays
 
 - `filter_b2_hodge(B2_dense, proper_mask)` -> ndarray[nE, nF_hodge]
 
-  Extracts only the proper-face columns from B2. The returned matrix satisfies
+  Extracts only the proper face columns from B2. The returned matrix satisfies
   B1 @ B2_hodge = 0.
 
----
+
 
 ### Vertex Face Count
 
 - `vertex_face_count(B2, edge_src, edge_tgt, nV)` -> int32[nV]
 
   Counts the number of distinct faces incident to each vertex. Uses a
-  generation-counter technique (last_seen[v] = face_index) to avoid per-face
+  generation counter technique (last_seen[v] = face_index) to avoid per face
   set allocation. O(nnz(B2)) time.
 
----
+
 
 ### Face Extraction
 
@@ -1419,9 +1421,9 @@ components.
   - `boundary`: dict mapping edge names to orientation signs (+/-1)
   - `vertices`: sorted list of vertex names on the face boundary
   - `size`: number of boundary edges
-  - `is_self_loop`: True if the face is a self-loop
+  - `is_self_loop`: True if the face is a self loop
 
----
+
 
 ### Face Metrics
 
@@ -1431,18 +1433,18 @@ components.
 
   Phase 1: Face sizes (boundary edge count) and face vertex counts.
 
-  Phase 2: Per-edge contribution: for each edge, the average reciprocal face
+  Phase 2: Per edge contribution: for each edge, the average reciprocal face
   size (1/|boundary|) across its incident faces, and the average face size.
 
   Phase 3: Boundary asymmetry: |fc(src) - fc(tgt)| / max(fc(src), fc(tgt)),
   where fc is the vertex face count. Measures how asymmetric a face
   distribution is across an edge's endpoints.
 
-  Phase 4: Per-vertex contribution: average reciprocal face-vertex-count and
+  Phase 4: Per vertex contribution: average reciprocal face vertex count and
   average face size across a vertex's incident faces.
 
   Phase 5: Face concentration: coefficient of variation (CV = std/mean) of
-  vertex face counts within each face. Uses Welford's single-pass algorithm to
+  vertex face counts within each face. Uses Welford's single pass algorithm to
   compute mean and variance in one traversal of B2 per face.
 
   Phase 6: Pearson correlation between boundary asymmetry and harmonic
@@ -1457,7 +1459,7 @@ components.
   - `v_tc_sum, e_tc_sum`: scalar sums
   - `asym_rho_corr`: Pearson correlation
 
----
+
 
 ### build_face_data: Combined Builder
 
@@ -1470,17 +1472,17 @@ components.
   - `vertex_face_count`: int32[nV]
   - `metrics`: metrics dict
 
-  Returns zero-filled arrays when nF = 0.
+  Returns zero filled arrays when nF = 0.
 
----
+
 
 ### Typed Face Selection
 
 - `typed_face_selection(edge_type_labels, adj_ptr, adj_idx, adj_edge, nV, nE, n_types)` -> dict
 
-  Enumerates all triangles in the 1-skeleton via sorted adjacency
-  merge-intersection. A triangle is a realized face iff all three boundary
-  edges share the same type label. Cross-type triangles become voids.
+  Enumerates all triangles in the 1 skeleton via sorted adjacency
+  merge intersection. A triangle is a realized face iff all three boundary
+  edges share the same type label. Cross type triangles become voids.
 
   Returns: nF_realized, nF_void, n_triangles, realized_edges (i32[nF*3]),
   realized_signs (f64[nF*3]), void_edges (i32[nF_void*3]), face_types
@@ -1489,7 +1491,7 @@ components.
   Called by `graph.py`'s `typed_face_selection` method, which builds a new
   RexGraph from the realized faces.
 
----
+
 
 ### Context Face Selection
 
@@ -1497,7 +1499,7 @@ components.
 
   Selects faces based on a context matrix (uint8[n_contexts, nV]). A
   triangle is realized iff at least one context covers all three boundary
-  vertices (E = C^T |B1| > 0 per context row). Also computes per-context
+  vertices (E = C^T |B1| > 0 per context row). Also computes per context
   face counts and void fractions.
 
   Returns: nF, n_triangles, cycle_edges, cycle_signs, cycle_lengths,
@@ -1506,13 +1508,13 @@ components.
 
   Called by `graph.py`'s `context_face_selection` method.
 
----
+
 
 ### Void Type Composition
 
 - `void_type_composition(void_edges, edge_type_labels, nF_void, n_types)` -> dict
 
-  Analyzes the edge-type composition of void triangles. For each void,
+  Analyzes the edge type composition of void triangles. For each void,
   identifies the set of distinct edge types present. Returns pair_counts
   (how many voids have each type combination), pair_fractions (normalized),
   and type_pairs (the distinct type sets).
@@ -1524,17 +1526,17 @@ components.
 
 **File:** `_cycles.pyx` (1033 lines)
 
-Computes a fundamental cycle basis for the 1-skeleton of a relational complex
-via tree-cotree decomposition. The output defines the face set and provides the
-data needed to build B2 (the edge-face boundary operator).
+Computes a fundamental cycle basis for the 1 skeleton of a relational complex
+via tree cotree decomposition. The output defines the face set and provides the
+data needed to build B2 (the edge face boundary operator).
 
 The algorithm is deterministic: neighbor lists are sorted by vertex index before
 BFS traversal, so the same graph always produces the same spanning tree and the
-same cycle basis. This matters for reproducibility of the entire RCF pipeline,
+same cycle basis. This matters for reproducibility of the entire pipeline,
 since faces determine B2, which determines L1_up, which enters the Hodge
 Laplacian and the relational Laplacian.
 
----
+
 
 ### Algorithm
 
@@ -1556,9 +1558,9 @@ Laplacian and the relational Laplacian.
    target, -1 if reversed.
 
 The output format matches `build_B2_from_cycles` in `_boundary.pyx`:
-concatenated edge indices, orientation signs, and per-face boundary lengths.
+concatenated edge indices, orientation signs, and per face boundary lengths.
 
----
+
 
 ### Symmetric Adjacency
 
@@ -1568,7 +1570,7 @@ concatenated edge indices, orientation signs, and per-face boundary lengths.
   sorted by neighbor vertex index. adj_edge[k] maps each adjacency entry back to
   the original directed edge index.
 
----
+
 
 ### BFS Spanning Forest
 
@@ -1582,7 +1584,7 @@ concatenated edge indices, orientation signs, and per-face boundary lengths.
   - `is_tree[e]`: 1 for spanning tree edges, 0 for cotree edges
   - `n_components`: number of connected components (beta_0)
 
----
+
 
 ### Fundamental Cycle Basis
 
@@ -1598,16 +1600,16 @@ concatenated edge indices, orientation signs, and per-face boundary lengths.
   These arrays are passed directly to `_boundary.build_B2_from_cycles` to
   construct B2.
 
----
+
 
 ### Cycle Space Dimension
 
 - `cycle_space_dimension(nV, nE, sources, targets)` -> int
 
   Computes beta_1 = nE - nV + beta_0 without tracing any cycles. Uses
-  union-find for fast component counting. O(nE * alpha(nV)) time.
+  union find for fast component counting. O(nE * alpha(nV)) time.
 
----
+
 
 ### Verification
 
@@ -1615,9 +1617,9 @@ concatenated edge indices, orientation signs, and per-face boundary lengths.
 
   Checks that every cycle lies in ker(B1): for each cycle, constructs the signed
   edge vector and verifies that B1 @ vector = 0 within tolerance. This is the
-  computational proof that each cycle is a valid 1-boundary.
+  computational proof that each cycle is a valid 1 boundary.
 
----
+
 
 ### Combined Builder
 
@@ -1637,9 +1639,9 @@ complex. The character decomposes each cell's identity into a probability
 distribution over the typed Laplacian channels (Hodge, overlap, frustration,
 copath). All hot paths use BLAS/LAPACK with zero Python overhead.
 
-This dense character path is the small-graph oracle. At scale everything routes
-to `rexgraph.sparse_character` instead: chi / phi / kappa are computed scale-free
-via block-CG per-vertex Green's-function solves against the full-rank SPD RL4,
+This dense character path is the small graph oracle. At scale everything routes
+to `rexgraph.sparse_character` instead: chi / phi / kappa are computed scale free
+via block CG per vertex Green's-function solves against the full rank SPD RL4,
 with no dense RL or eigendecomposition (`graph.py` selects it through
 `_use_sparse_character`).
 
@@ -1647,7 +1649,7 @@ Compiled with `-fno-finite-math-only` to restore IEEE inf/nan semantics
 (required for mixing time and anisotropy computations that return inf for
 degenerate channels).
 
----
+
 
 ### chi: Edge Structural Character
 
@@ -1656,21 +1658,21 @@ degenerate channels).
   chi(e, k) = hat_k[e,e] / RL[e,e]. For each edge, the diagonal of each hat
   operator divided by the RL diagonal gives the fraction of that edge's
   relational weight coming from each channel. The result is a probability vector
-  on the nhats-simplex: chi(e) sums to 1 for every edge.
+  on the nhats simplex: chi(e) sums to 1 for every edge.
 
   When RL[e,e] is near zero (degenerate edge), chi defaults to uniform
   (1/nhats per channel).
 
----
+
 
 ### phi: Vertex Structural Character
 
 - `compute_phi(B1, RL, hats, nhats, nV, nE, green_cache=None)` -> f64[nV, nhats]
 
   phi(v, k) = diag(B1 @ RL^+ @ hat_k @ RL^+ @ B1^T)[v] / diag(B1 @ RL^+ @ B1^T)[v].
-  Projects the edge-level character to vertices through the Green's function
+  Projects the edge level character to vertices through the Green's function
   RL^+ (pseudoinverse of RL). The denominator S0[v,v] = (B1 @ RL^+ @ B1^T)[v,v]
-  is the vertex self-response.
+  is the vertex self response.
 
   Dense path (via `compute_phi_dense`): computes B1 @ RL^+ once, then reuses it
   for all hat operators. All matrix products via BLAS dgemm.
@@ -1680,18 +1682,18 @@ degenerate channels).
 
   When S0[v,v] is near zero (isolated vertex), phi defaults to uniform.
 
----
 
-### chi_star: Star-Averaged Edge Character
+
+### chi_star: Star Averaged Edge Character
 
 - `compute_chi_star(chi, v2e_ptr, v2e_idx, nV, nhats)` -> f64[nV, nhats]
 
   chi_star(v) = mean of chi(e) over all edges incident to v. This lifts edge
   character to vertices by simple averaging over the star neighborhood.
 
----
 
-### kappa: Cross-Dimensional Coherence
+
+### kappa: Cross Dimensional Coherence
 
 - `compute_kappa(phi, chi_star, nV, nhats)` -> f64[nV]
 
@@ -1701,7 +1703,7 @@ degenerate channels).
   (chi_star). Values in [0, 1]: kappa = 1 means perfect agreement, kappa near
   0 means the vertex sees its structural role very differently from its edges.
 
----
+
 
 ### build_character_bundle
 
@@ -1710,14 +1712,14 @@ degenerate channels).
   Computes chi, phi, chi_star, kappa in one call. Returns a dict with all four
   arrays. This is called by graph.py's character property.
 
----
+
 
 ### Hat Eigendecomposition
 
 - `hat_eigen(hat, nE)` -> (evals f64[nE], evecs f64[nE, nE])
 
-  Eigendecompose a single trace-normalized hat operator via LAPACK dsyev_.
-  Eigenvalues are ascending, near-zero values cleaned to exactly 0.0.
+  Eigendecompose a single trace normalized hat operator via LAPACK dsyev_.
+  Eigenvalues are ascending, near zero values cleaned to exactly 0.0.
   Eigenvectors are returned as columns of a contiguous array.
 
 - `hat_eigen_all(hats, nhats, nE)` -> list of (evals, evecs)
@@ -1726,18 +1728,18 @@ degenerate channels).
   `_hat_eigen_bundle` property and reused by `per_channel_mixing_times`
   and `primal_signal_character`.
 
----
 
-### Per-Channel Mixing Time
+
+### Per Channel Mixing Time
 
 - `per_channel_mixing_time(hat_evals, nE)` -> float
 
-  mu_X = ln(nE) / lambda_2(hat_L_X). Takes pre-computed eigenvalues from
+  mu_X = ln(nE) / lambda_2(hat_L_X). Takes pre computed eigenvalues from
   `hat_eigen`. Returns inf if no spectral gap (lambda_2 < 1e-10) or nE <= 1.
 
 - `per_channel_mixing_times_from_evals(hat_evals_list, nhats, nE)` -> f64[nhats]
 
-  Per-channel mixing times from pre-computed eigenvalue lists. Avoids
+  Per channel mixing times from pre computed eigenvalue lists. Avoids
   redundant eigendecomposition when hat eigendata is already cached.
 
 - `per_channel_mixing_times(hats, nhats, nE)` -> f64[nhats]
@@ -1745,21 +1747,21 @@ degenerate channels).
   Convenience wrapper that eigendecomposes each hat internally. Used when
   hat eigendata is not cached.
 
----
+
 
 ### Mixing Time Anisotropy
 
 - `mixing_time_anisotropy(times, nhats)` -> dict
 
-  Computes pairwise ratios of per-channel mixing times. Returns:
+  Computes pairwise ratios of per channel mixing times. Returns:
   - `ratios`: f64[nhats, nhats], ratios[i,j] = times[i] / times[j]
   - `dominant_channel`: channel with smallest finite mixing time
   - `slowest_channel`: channel with largest finite mixing time
   - `anisotropy`: ratio of slowest to fastest (inf if any channel has no gap)
 
----
 
-### Face-Void Dipole
+
+### Face Void Dipole
 
 - `face_void_dipole(psi, B2, Bvoid, nE, nF)` -> dict
 
@@ -1772,9 +1774,9 @@ degenerate channels).
 
   Called by `graph.py`'s `face_void_dipole` method.
 
----
 
-### Per-Vertex Curvature
+
+### Per Vertex Curvature
 
 - `per_vertex_curvature(phi, chi_star, kappa, nV, nhats)` -> f64[nV]
 
@@ -1788,16 +1790,16 @@ degenerate channels).
   far a vertex's incident edges deviate from uniform character, weighted by edge
   importance.
 
----
+
 
 ### Structural Summary
 
 - `structural_summary(chi, phi, kappa, nE, nV, nhats)` -> dict
 
-  Mean/std of chi per channel, mean/std of kappa, count of low-kappa vertices,
+  Mean/std of chi per channel, mean/std of kappa, count of low kappa vertices,
   dominant channel counts.
 
----
+
 
 ### Topological Integrity
 
@@ -1806,9 +1808,9 @@ degenerate channels).
   IT = sum_e w(e) * chi(e, 0) (topological channel weight), IF = sum_e w(e) *
   chi(e, 2) (frustration channel weight). Regime is "NORMAL" if IT > IF,
   "INVERTED" otherwise. Measures whether the graph is topologically or
-  frustration-dominated.
+  frustration dominated.
 
----
+
 
 ### Structural Entropy
 
@@ -1818,13 +1820,13 @@ degenerate channels).
   ln(chi_bar_k). Maximum entropy = ln(nhats) when the mean character is uniform.
   Low entropy means one channel dominates the graph's structure.
 
----
 
-### RL-Derived Operators
+
+### RL Derived Operators
 
 - `self_response(RLp, nE)` -> f64[nE]
 
-  R_self(e) = RL^+[e,e]. Per-edge effective resistance. Higher values mean the
+  R_self(e) = RL^+[e,e]. Per edge effective resistance. Higher values mean the
   edge is more structurally isolated.
 
 - `signed_cosine_matrix(RL, nE)` -> f64[nE, nE]
@@ -1838,7 +1840,7 @@ degenerate channels).
   of RL. Smaller mixing time means faster information propagation across the
   graph's relational structure.
 
----
+
 
 ### Derived Constants
 
@@ -1861,7 +1863,7 @@ computation. Also constructs the line graph of the overlap Gramian and the
 copath complex Laplacian L_C. All hot paths use BLAS/LAPACK via `_linalg`
 with zero Python overhead.
 
----
+
 
 ### Trace Normalization
 
@@ -1874,20 +1876,20 @@ with zero Python overhead.
   The C-level helper `_trace_normalize_inplace` operates directly on a memory
   buffer without allocation.
 
----
+
 
 ### Building RL
 
 - `build_RL(laplacians, names)` -> dict
 
   The main entry point for constructing the relational Laplacian from an
-  arbitrary number of typed Laplacians. Each input is trace-normalized. Those
+  arbitrary number of typed Laplacians. Each input is trace normalized. Those
   with trace below 1e-15 are dropped. RL is the sum of the surviving hat
   operators, so tr(RL) = nhats (the number of active hats).
 
   For N=3 and N=4, C-level fast paths (`_build_RL_3`, `_build_RL_4`) copy all
   inputs, normalize, and sum in a single nogil block with no Python calls.
-  The general path handles any N through a Python loop with per-operator
+  The general path handles any N through a Python loop with per operator
   C-level normalization.
 
   Returns a dict with:
@@ -1905,7 +1907,7 @@ with zero Python overhead.
   Convenience wrapper that calls `build_RL` with the three standard Laplacians
   and names `['L1_down', 'L_O', 'L_SG']`.
 
----
+
 
 ### Eigendecomposition
 
@@ -1917,7 +1919,7 @@ with zero Python overhead.
 
   Called by `graph.py`'s `_rl_eigen` property.
 
----
+
 
 ### Pseudoinverse
 
@@ -1932,7 +1934,7 @@ with zero Python overhead.
   RL^+ x = sum_k (1/lambda_k) (v_k^T x) v_k. Used in the sparse phi
   computation path where only RL^+ @ (B1^T e_v) is needed per vertex.
 
----
+
 
 ### Green Function Cache
 
@@ -1943,13 +1945,13 @@ with zero Python overhead.
 
   1. RL^+ via spectral pseudoinverse
   2. B1_RLp = B1 @ RL^+ via BLAS dgemm
-  3. S0 = B1_RLp @ B1^T via BLAS dgemm (vertex self-response matrix)
+  3. S0 = B1_RLp @ B1^T via BLAS dgemm (vertex self response matrix)
 
   Returns a dict with: RL_pinv, B1_RLp, S0, evals, evecs, nV, nE, dense.
   Called by `graph.py`'s `_green_cache` property, which passes the result to
   `_character.build_character_bundle`.
 
----
+
 
 ### Linear Solve
 
@@ -1961,10 +1963,10 @@ with zero Python overhead.
 - `rl_solve_column(RL, B1, vertex_idx)` -> f64[nE]
 
   Solves RL x = B1[vertex_idx, :] for a single vertex. Extracts the row of
-  B1 as the right-hand side and calls `rl_cg_solve`. Used in the sparse path
-  for per-vertex phi computation.
+  B1 as the right hand side and calls `rl_cg_solve`. Used in the sparse path
+  for per vertex phi computation.
 
----
+
 
 ### Line Graph and Copath Laplacian
 
@@ -1986,7 +1988,7 @@ with zero Python overhead.
   example a matching).
 
   L_C is the fourth hat operator in RL4 (when available). It captures
-  higher-order path structure beyond what L1, L_O, and L_SG measure.
+  higher order path structure beyond what L1, L_O, and L_SG measure.
 
 
 
@@ -2007,12 +2009,12 @@ is F = T - G:
     L_SG  = D_{|F_off|} + F_off          diagonal from the absolute row sum
 
 diag(T) = diag(G) identically, because the diagonal squares each incidence entry
-and squaring kills the sign. So ALL of B1's sign content lives off-diagonal, at
+and squaring kills the sign. So ALL of B1's sign content lives off diagonal, at
 relations sharing a vertex, and F is the device that lifts that residue onto a
-diagonal the character can read. Off-diagonal F is 0 where two relations agree on
+diagonal the character can read. Off diagonal F is 0 where two relations agree on
 a shared vertex and -2 where they oppose.
 
-The inverse-log-degree form documented here previously
+The inverse log degree form documented here previously
 
     w(v) = 1 / log(deg(v) + e)
     K_s  = B1^T diag(w) B1
@@ -2022,39 +2024,39 @@ and is not what the character reads: it carries a float vertex weight, so it
 leaves the exact tower, where F = T - G is rational at every arity.
 
 L_SG is symmetric and PSD. Where every relation agrees on its shared vertices the
-off-diagonal vanishes and so does the channel; where they oppose, L_SG carries how
+off diagonal vanishes and so does the channel; where they oppose, L_SG carries how
 the disagreement distributes. On a canonical complex the orientation content it
 reads is which vertex each relation distinguishes, not a separate sign array.
 
----
+
 
 ### Vertex Weights
 
 - `build_vertex_weights(nV, nE, sources, targets)` -> f64[nV]
 
   w(v) = 1 / log(deg(v) + e), where deg(v) is the undirected degree and e is
-  Euler's number. High-degree vertices contribute less per-edge, which prevents
-  hub vertices from dominating the Gramian. The log-based weighting is smoother
+  Euler's number. High degree vertices contribute less per edge, which prevents
+  hub vertices from dominating the Gramian. The log based weighting is smoother
   than inverse degree.
 
 - `build_vertex_weights_i64(nV, nE, sources, targets)` -> f64[nV]
 
   Same computation with int64 edge arrays.
 
----
+
 
 ### Signed Gramian
 
 - `build_signed_gramian_dense(nV, nE, sources, targets, signs, vertex_weights)` -> f64[nE, nE]
 
-  Builds K_s via vertex-driven pair enumeration. For each vertex v with
+  Builds K_s via vertex driven pair enumeration. For each vertex v with
   incident edges {e_1, ..., e_d}, adds w(v) to the diagonal for each incident
-  edge, and w(v) * sign(e_i) * sign(e_j) to each off-diagonal pair. Runs in
+  edge, and w(v) * sign(e_i) * sign(e_j) to each off diagonal pair. Runs in
   O(sum_v deg(v)^2) time.
 
-  Internally builds a vertex-to-edge CSR index for traversal.
+  Internally builds a vertex to edge CSR index for traversal.
 
----
+
 
 ### Frustration Laplacian
 
@@ -2066,10 +2068,10 @@ reads is which vertex each relation distinguishes, not a separate sign array.
 - `build_L_SG_sparse(nV, nE, sources, targets, signs, vertex_weights)` -> scipy CSR (nE x nE)
 
   REAL sparse construction: K_s = Bs^T W Bs is assembled as a scipy SPARSE matmul
-  from the sign-scaled signed incidence Bs (Bs[v,e] = B1[v,e] * sign(e): -sign(e)
+  from the sign scaled signed incidence Bs (Bs[v,e] = B1[v,e] * sign(e): -sign(e)
   at the source, +sign(e) at the target), so K_s carries the O(sum deg^2)
-  line-graph sparsity and the dense nE x nE Gramian is never formed. Then
-  L_SG = D_{|K_off|} - K_off with K_off = K_s off-diagonal. Returns scipy CSR and
+  line graph sparsity and the dense nE x nE Gramian is never formed. Then
+  L_SG = D_{|K_off|} - K_off with K_off = K_s off diagonal. Returns scipy CSR and
   equals `build_L_SG_dense` exactly.
 
 - `build_L_SG(nV, nE, sources, targets, signs=None, method="auto")` -> f64[nE, nE]
@@ -2086,13 +2088,13 @@ reads is which vertex each relation distinguishes, not a separate sign array.
   Called by `graph.py`'s `L_frustration` property and by
   `_laplacians.build_all_laplacians` during spectral bundle construction.
 
----
+
 
 ### Frustration Rate
 
 - `frustration_rate(signs, edge_types, nE, n_types)` -> f64[n_types]
 
-  Fraction of negative-signed edges per edge type. For each type t,
+  Fraction of negative signed edges per edge type. For each type t,
   rate[t] = (number of edges with type t and sign -1) / (total edges with
   type t). Returns 0.0 for types with no edges.
 
@@ -2103,7 +2105,7 @@ reads is which vertex each relation distinguishes, not a separate sign array.
 
 **File:** `_signal.pyx` (936 lines)
 
-End-to-end pipeline for perturbation analysis on the relational complex.
+End to end pipeline for perturbation analysis on the relational complex.
 Orchestrates calls to `_state`, `_field`, `_hodge`, `_temporal`, and
 `_wave` to produce a complete signal analysis from a single perturbation
 input. Field states live on (E, F) only; vertex observables are derived
@@ -2115,7 +2117,7 @@ per edge), cascade analysis (activation order and face emergence), temporal
 tagging (BIOES from energy ratio), and Hodge decomposition of initial and
 final states.
 
----
+
 
 ### Perturbation Construction
 
@@ -2141,7 +2143,7 @@ final states.
   Perturbation along a single eigenmode of RL. f_E = amplitude * evecs[:, mode_idx].
   Low modes are smooth (topological), high modes are rough (geometric).
 
----
+
 
 ### Propagation
 
@@ -2150,15 +2152,15 @@ final states.
   Heat equation on edges: f(t) = exp(-L t) f(0) via spectral decomposition.
   Computes spectral coefficients c_k = v_k^T f(0) once, then for each
   timestep t applies f(t) = sum_k c_k exp(-lambda_k t) v_k. Works with any
-  edge-space Laplacian (L1, L_O, or RL).
+  edge space Laplacian (L1, L_O, or RL).
 
 - `propagate_diffusion_comparative(f_E, L1, LO, RL1, evals_L1, evecs_L1, evals_LO, evecs_LO, evals_RL1, evecs_RL1, times)` -> (traj_L1, traj_LO, traj_RL1)
 
   Runs diffusion under L1, L_O, and RL simultaneously for comparison. Returns
   three trajectory arrays showing how the same perturbation behaves under
-  topological-only, geometric-only, and combined dynamics.
+  topological only, geometric only, and combined dynamics.
 
----
+
 
 ### Energy Decomposition
 
@@ -2170,17 +2172,17 @@ final states.
 
 - `hodge_energy_decomposition(f_E, B1, B2, L0, L2, L1)` -> (grad, curl, harm, E_grad, E_curl, E_harm, pct_grad, pct_curl, pct_harm)
 
-  Hodge-decomposes an edge signal and computes energy per component:
+  Hodge decomposes an edge signal and computes energy per component:
   E_grad = grad^T L1 grad, E_curl = curl^T L1 curl, E_harm = harm^T L1 harm
-  (E_harm should be near 0 since L1 harm = 0). Also returns norm-squared
+  (E_harm should be near 0 since L1 harm = 0). Also returns norm squared
   percentages.
 
 - `per_edge_energy_trajectory(trajectory, L1, LO)` -> (Ekin_per_edge, Epot_per_edge)
 
-  Per-edge energy at each timestep: E_kin_e(t) = f_e(t) * (L1 f(t))_e.
-  These per-edge values sum to the total E_kin and E_pot.
+  Per edge energy at each timestep: E_kin_e(t) = f_e(t) * (L1 f(t))_e.
+  These per edge values sum to the total E_kin and E_pot.
 
----
+
 
 ### Cascade Analysis
 
@@ -2188,16 +2190,16 @@ final states.
 
   Computes cascade activation order from an edge trajectory. An edge is
   activated at the first timestep its absolute signal exceeds the threshold.
-  If threshold is negative, auto-computed as 0.5% of peak signal magnitude.
+  If threshold is negative, auto computed as 0.5% of peak signal magnitude.
 
-  Returns per-edge activation times (-1 for never-activated), the sorted
-  activation order, per-edge rank in the order, and the threshold used.
+  Returns per edge activation times (-1 for never activated), the sorted
+  activation order, per edge rank in the order, and the threshold used.
 
 - `face_emergence(trajectory, B2, threshold=-1.0)` -> (face_activation_time, face_order)
 
   Tracks when faces activate during propagation. A face is active when the
   minimum |signal| across all its boundary edges exceeds the threshold. This
-  models higher-order emergence: a face becomes active only when all its
+  models higher order emergence: a face becomes active only when all its
   edges are active.
 
 - `cascade_depth(activation_order, edge_src, edge_tgt, nE)` -> i32[nE]
@@ -2207,7 +2209,7 @@ final states.
   depth 1 = star neighborhood, depth 2 = star of star, etc. Returns -1 for
   unreached edges.
 
----
+
 
 ### Temporal Tagging
 
@@ -2224,14 +2226,14 @@ final states.
   1 = wavefront advancing, 2 = peak activation step. new_per_step counts
   newly activated edges per timestep.
 
----
+
 
 ### Full Pipeline
 
 - `analyze_perturbation(f_E, f_F, L1, LO, evals_RL1, evecs_RL1, B1, B2, times, ...)` -> dict
 
-  One-call entry point that runs all six stages. Propagates f_E under RL
-  diffusion, computes energy trajectory, per-edge energy, cascade activation,
+  One call entry point that runs all six stages. Propagates f_E under RL
+  diffusion, computes energy trajectory, per edge energy, cascade activation,
   face emergence, BIOES tags, and Hodge decomposition of initial and final
   states. Also derives vertex observables via B1.
 
@@ -2247,7 +2249,7 @@ final states.
 
   Perturbation analysis using the full (E, F) field operator M from
   `_field.pyx`. Propagates the packed field state F = [f_E, f_F] under M,
-  then extracts per-dimension trajectories and energy decomposition.
+  then extracts per dimension trajectories and energy decomposition.
 
   In wave mode, also computes wave kinetic/potential energy and verifies
   energy conservation.
@@ -2267,7 +2269,7 @@ symmetric matrix. Its square D^2 = blkdiag(L0, L1, L2) when B1 @ B2 = 0.
 Schrodinger evolution exp(-iDt) preserves ||Psi||^2 exactly and couples
 all three dimensional sectors (vertices, edges, faces) simultaneously.
 
----
+
 
 ### Dirac Operator Construction
 
@@ -2279,14 +2281,14 @@ all three dimensional sectors (vertices, edges, faces) simultaneously.
            [ B1^T,  0,     B2   ],
            [ 0,     B2^T,  0    ]]
 
-  D is real symmetric by construction. The off-diagonal blocks place B1 and
+  D is real symmetric by construction. The off diagonal blocks place B1 and
   B2 (and their transposes) in the appropriate positions. Returns D and the
   tuple (nV, nE, nF).
 
   Called by `graph.py`'s `dirac_operator` property, which passes B1 and
-  B2_hodge (self-loop faces filtered).
+  B2_hodge (self loop faces filtered).
 
----
+
 
 ### Eigendecomposition
 
@@ -2294,21 +2296,21 @@ all three dimensional sectors (vertices, edges, faces) simultaneously.
 
   Full eigendecomposition via LAPACK dsyev_. Eigenvalues are sorted ascending
   and can be positive or negative (D is not PSD). Eigenvectors are returned
-  as columns of a row-major array.
+  as columns of a row major array.
 
   Called by `graph.py`'s `_dirac_eigen` cached property.
 
----
+
 
 ### D^2 Verification
 
 - `verify_d_squared(D, L0, L1, L2, nV, nE, nF, tol=1e-10)` -> (is_valid, max_error)
 
-  Checks that D^2 = blkdiag(L0, L1, L2). The off-diagonal blocks of D^2
+  Checks that D^2 = blkdiag(L0, L1, L2). The off diagonal blocks of D^2
   vanish because B1 @ B2 = 0. Returns True if the maximum absolute entry
   in (D^2 - expected) is below tol.
 
----
+
 
 ### Schrodinger Evolution
 
@@ -2333,7 +2335,7 @@ all three dimensional sectors (vertices, edges, faces) simultaneously.
 
   Called by `graph.py`'s `graded_trajectory` method.
 
----
+
 
 ### Canonical Collapse
 
@@ -2351,7 +2353,7 @@ all three dimensional sectors (vertices, edges, faces) simultaneously.
   Called by `graph.py`'s `canonical_collapse` method and as the default
   initial state for `graded_state`.
 
----
+
 
 ### Born Probabilities
 
@@ -2384,7 +2386,7 @@ structure is at each edge. Strain S = sum C(e) * RL[e,e] is the total
 structural stress. The Bianchi identity B1 @ diag(C) @ B2 = 0 guarantees that
 curvature is a cocycle: structural stress is conserved across the relational complex.
 
----
+
 
 ### Curvature
 
@@ -2396,13 +2398,13 @@ curvature is a cocycle: structural stress is conserved across the relational com
 
   Called by `graph.py`'s `rcfe_curvature` property.
 
----
+
 
 ### Strain
 
 - `compute_strain(curvature, rl_diag, nE)` -> float
 
-  S = sum_e C(e) * RL[e,e]. Weighs curvature by the relational self-weight of
+  S = sum_e C(e) * RL[e,e]. Weighs curvature by the relational self weight of
   each edge. Higher strain means more structural stress is concentrated on
   relationally important edges.
 
@@ -2410,10 +2412,10 @@ curvature is a cocycle: structural stress is conserved across the relational com
 
 - `compute_strain_per_face(B2, curvature, nE, nF)` -> f64[nF]
 
-  Per-face strain contribution: strain_f = sum of C(e) over boundary edges of
+  Per face strain contribution: strain_f = sum of C(e) over boundary edges of
   face f. Identifies which faces carry the most structural stress.
 
----
+
 
 ### Bianchi Identity
 
@@ -2425,10 +2427,10 @@ curvature is a cocycle: structural stress is conserved across the relational com
 
 - `bianchi_residual(B1, B2, curvature, nE, nF)` -> f64[nF]
 
-  Per-face Bianchi residual: ||B1 diag(C) B2[:,f]||_2 for each face. Should
-  be zero (or near-zero numerically) for every face.
+  Per face Bianchi residual: ||B1 diag(C) B2[:,f]||_2 for each face. Should
+  be zero (or near zero numerically) for every face.
 
----
+
 
 ### Face Realization Rates
 
@@ -2438,18 +2440,18 @@ curvature is a cocycle: structural stress is conserved across the relational com
   vertex and per edge. Uses `_void.classify_triangles` to distinguish realized
   from void triangles.
 
----
+
 
 ### Coupling Tensor
 
 - `coupling_tensor(B2, RL, hats, nhats, nE, nF)` -> f64[nF, nhats]
 
-  Per-face energy decomposition by operator channel. For each face f and
+  Per face energy decomposition by operator channel. For each face f and
   channel k: tensor[f,k] = sum of hat_k[e,e] / RL[e,e] over boundary edges
   of f. Shows how each face's structural role distributes across the typed
   Laplacian channels (Hodge, overlap, frustration, copath).
 
----
+
 
 ### Derived Quantities
 
@@ -2457,7 +2459,7 @@ curvature is a cocycle: structural stress is conserved across the relational com
 
   RI = 1 / (1 + kappa_total) where kappa_total = strain. Values near 1 mean
   low stress, values near 0 mean high stress. If B2 is provided, also returns
-  per-face RI.
+  per face RI.
 
 - `face_overlap_K2(B2, nE, nF)` -> f64[nF, nF]
 
@@ -2472,7 +2474,7 @@ curvature is a cocycle: structural stress is conserved across the relational com
   Weighted Laplacian L_w[i,j] = sqrt(w_i) * L[i,j] * sqrt(w_j). For dynamic
   edge weighting where w(e) depends on vertex amplitudes.
 
----
+
 
 ### Dynamic Strain Equilibrium
 
@@ -2482,7 +2484,7 @@ The dynamic strain framework couples curvature to quantum state probabilities.
 
   Builds attributed boundary operators B1^w and B2^w with edge weights and
   vertex amplitudes applied, then computes the curvature residual R = B1^w @ B2^w
-  and per-face attributed curvature kappa_f = ||R[:,f]||_2.
+  and per face attributed curvature kappa_f = ||R[:,f]||_2.
 
   Called by `graph.py`'s `attributed_curvature` method.
 
@@ -2529,7 +2531,7 @@ threshold graphs from similarity matrices, constructs linkage complexes
 from fiber bundle similarity, and projects simplex coordinates to 3D for
 visualization.
 
----
+
 
 ### Cosine Similarity
 
@@ -2545,13 +2547,13 @@ visualization.
   Pairwise cosine similarity of vertex character vectors. Same formula as
   chi_cosine but on phi vectors.
 
----
+
 
 ### Phi Similarity
 
 - `phi_similarity_score(phi_a, phi_b, nhats)` -> float
 
-  S_phi = 1 - 0.5 * ||phi_a - phi_b||_1. Same metric as cross-dimensional
+  S_phi = 1 - 0.5 * ||phi_a - phi_b||_1. Same metric as cross dimensional
   coherence (kappa) but between two vertices instead of between a vertex and
   its star. Values in [0, 1]: 1 means identical character, 0 means maximally
   different.
@@ -2563,7 +2565,7 @@ visualization.
 
   Called by `graph.py`'s `phi_similarity` property.
 
----
+
 
 ### Fiber Bundle Similarity
 
@@ -2574,14 +2576,14 @@ visualization.
   agreement. The cosine term is clamped to zero (negative cosines mean
   opposing fiber orientations). The product is zero when either factor is
   zero: vertices must agree on both their fiber structure and their
-  cross-dimensional character to score high.
+  cross dimensional character to score high.
 
   fchi is the star character chi* (nV, nhats), phi is the vertex character
   (nV, nhats).
 
   Called by `graph.py`'s `fiber_similarity` property.
 
----
+
 
 ### Threshold Graph
 
@@ -2598,7 +2600,7 @@ visualization.
   compute Betti numbers. Returns a dict with src, tgt, weights, n_edges, nV,
   nF, B1, B2, and beta tuple.
 
----
+
 
 ### Simplex Projection
 
@@ -2608,14 +2610,14 @@ visualization.
   coordinates for visualization.
 
   For nhats=3: barycentric coordinates on an equilateral triangle.
-  Simplex vertices map to (0,0), (1,0), (0.5, sqrt(3)/2) in the xy-plane.
+  Simplex vertices map to (0,0), (1,0), (0.5, sqrt(3)/2) in the xy plane.
 
   For nhats=4: barycentric coordinates on a regular tetrahedron. The fourth
   component lifts into the z-axis via sqrt(2/3).
 
   For nhats > 4: uses the first 3 components directly.
 
----
+
 
 ### Linkage Complex
 
@@ -2624,15 +2626,15 @@ visualization.
   Builds a full relational complex from thresholded fiber bundle similarity.
   Edges are created where S_fb[i,j] > threshold. The `face_fill` parameter
   selects how faces are filled; in both modes B1/B2 are dense arrays and Betti
-  is EXACT and eigen-free (no SVD).
+  is EXACT and eigen free (no SVD).
 
-  - `'clique'` (default): faces are ALL 3-cliques (triangles): "three-way
+  - `'clique'` (default): faces are ALL 3 cliques (triangles): "three way
     coherence", enumerated via sorted adjacency merge-intersection. Overlapping
     triangles can share edges, so rank(B2) may be < nF; beta_1 and beta_2 use
     the EXACT integer rank of B2 via `graded_boundary._sparse_rank` (rational
     column reduction) and the Euler relation. `triangles` (i32[nF, 3]) is
     populated.
-  - `'cycle'`: faces are the fundamental cycle basis (arbitrary-arity n-gon
+  - `'cycle'`: faces are the fundamental cycle basis (arbitrary arity n-gon
     faces, as `similarity_complex`). Every fundamental cycle is independent, so
     rank(B2) = nF and beta follows from Euler with NO rank computation. Faces are
     not triangles, so `triangles` is empty (0, 3) and a `face_lengths` (i32[nF])
@@ -2658,9 +2660,9 @@ Builds the filtered manifold sequence M1 < M2 where each inclusion adds
 cells, degrees of freedom, and Bianchi identities. Computes the harmonic
 shadow (cycles at dimension d that become boundaries at dimension d+1) and
 verifies the dimensional subsumption property: Betti numbers cannot increase
-when higher-dimensional cells are added.
+when higher dimensional cells are added.
 
----
+
 
 ### Manifold Sequence
 
@@ -2668,23 +2670,23 @@ when higher-dimensional cells are added.
 
   Constructs the filtered family of truncated complexes:
 
-  M1 (1-rex): vertices + edges only. Betti numbers are beta_0 from L0 and
+  M1 (1 rex): vertices + edges only. Betti numbers are beta_0 from L0 and
   beta_1(1) = nE - rank(B1) = nE - (nV - beta_0). No Bianchi identity at
   this level.
 
-  M2 (2-rex): vertices + edges + faces. Betti numbers are beta_0, beta_1
+  M2 (2 rex): vertices + edges + faces. Betti numbers are beta_0, beta_1
   (from full L1), and beta_2 (from L2). One Bianchi identity (B1 @ B2 = 0).
   Only included when nF > 0.
 
   Each manifold entry contains: dimension, cell counts, total DOF (N),
   Betti numbers, and number of Bianchi identities.
 
-  Returns a dict with: manifolds (list of per-level dicts), max_dimension,
+  Returns a dict with: manifolds (list of per level dicts), max_dimension,
   total_N.
 
   Called by `graph.py`'s `hypermanifold` property.
 
----
+
 
 ### Harmonic Shadow
 
@@ -2699,12 +2701,12 @@ when higher-dimensional cells are added.
 
   For d=1: evals_Ld_at_d are eigenvalues of L1_down (no face contribution),
   evals_Ld_at_d1 are eigenvalues of the full L1 (with L1_up from faces).
-  The shadow dimension is the number of 1-cycles that become boundaries of
-  2-cells.
+  The shadow dimension is the number of 1 cycles that become boundaries of
+  2 cells.
 
   Called by `graph.py`'s `harmonic_shadow` property.
 
----
+
 
 ### Dimensional Subsumption
 
@@ -2720,7 +2722,7 @@ when higher-dimensional cells are added.
 
   Called by `graph.py`'s `dimensional_subsumption` property.
 
----
+
 
 ### Betti from Eigenvalues
 
@@ -2732,7 +2734,7 @@ when higher-dimensional cells are added.
 
 
 
-## `_field`: Cross-Dimensional Field Dynamics on (E, F)
+## `_field`: Cross Dimensional Field Dynamics on (E, F)
 
 **File:** `_field.pyx` (850 lines)
 
@@ -2746,44 +2748,44 @@ The field operator M couples edges and faces through B2:
     M = [[ RL,       -g * B2    ],
          [-g * B2^T,     L2     ]]
 
-M is PSD when the coupling g is small enough. The default auto-coupling
+M is PSD when the coupling g is small enough. The default auto coupling
 g = 1 / max(||B2||_F, 1) stays in the PSD regime for typical complexes.
 
 The dense evolvers here (`build_field_operator`, `field_eigendecomposition`,
 `wave_evolve`/`_trajectory`, `field_diffusion_spectral`/`_trajectory`) are
 RETAINED AS PARITY ORACLES. The live `RexGraph.field_diffuse` and
 `field_wave_evolve` route to `field_propagator.field_heat_trajectory` /
-`field_wave_full`: matrix-free Chebyshev on the sparse, tensor-metric-aware
+`field_wave_full`: matrix free Chebyshev on the sparse, tensor metric aware
 field operator, never forming the dense (nE+nF) x (nE+nF) matrix or its
 eigenbasis. `classify_modes` / `resonance_frequencies` and the energy measures
 are genuinely spectral and are kept as the live path.
 
----
+
 
 ### Field Operator Construction
 
 - `build_field_operator(RL1, L2, B2, g=-1.0)` -> (M, g_used, is_psd)
 
   Assembles the (nE+nF) x (nE+nF) block matrix. RL1 is the relational
-  Laplacian on edges, L2 is the face Laplacian, B2 is the edge-face boundary.
-  If g < 0, auto-computes coupling from the Frobenius norm of B2. Runs a PSD
+  Laplacian on edges, L2 is the face Laplacian, B2 is the edge face boundary.
+  If g < 0, auto computes coupling from the Frobenius norm of B2. Runs a PSD
   check via eigendecomposition.
 
   Called by `graph.py`'s `field_operator` property.
 
 - `field_operator_matvec(F, RL1, L2, B2, g, nE, nF)` -> f64[nE+nF]
 
-  Applies M @ F without building the dense matrix. Uses operator-vector
+  Applies M @ F without building the dense matrix. Uses operator vector
   products directly. For large complexes where the dense (nE+nF)^2 matrix is
   too expensive.
 
----
+
 
 ### Eigendecomposition
 
 - `field_eigendecomposition(M)` -> (evals, evecs, freqs)
 
-  Eigendecomposition of the field operator via LAPACK dsyev_. Near-zero
+  Eigendecomposition of the field operator via LAPACK dsyev_. Near zero
   eigenvalues are cleaned. Frequencies are freqs[k] = sqrt(max(evals[k], 0)).
 
   Called by `graph.py`'s `field_eigen` property.
@@ -2792,7 +2794,7 @@ are genuinely spectral and are kept as the live path.
 
   Projects a field state onto the eigenbasis: c_k = v_k^T F.
 
----
+
 
 ### Wave Evolution
 
@@ -2811,7 +2813,7 @@ are genuinely spectral and are kept as the live path.
   Dense oracle for `graph.py`'s `field_wave_evolve` (which routes to
   `field_propagator.field_wave_full`).
 
----
+
 
 ### Diffusion
 
@@ -2826,7 +2828,7 @@ are genuinely spectral and are kept as the live path.
   Dense oracle for `graph.py`'s `field_diffuse` (which routes to
   `field_propagator.field_heat_trajectory`).
 
----
+
 
 ### Energy and Conservation
 
@@ -2846,7 +2848,7 @@ are genuinely spectral and are kept as the live path.
   Splits field energy into edge and face components: norm_E, norm_F,
   ke_E, ke_F.
 
----
+
 
 ### Mode Classification
 
@@ -2854,16 +2856,16 @@ are genuinely spectral and are kept as the live path.
 
   Classifies each eigenmode by its dimensional weight. For mode k,
   w_E = ||v_k[:nE]||^2 / ||v_k||^2 measures edge content, w_F measures face
-  content. Labels: 0 = edge-dominated, 1 = face-dominated, 2 = EF-resonant.
+  content. Labels: 0 = edge dominated, 1 = face dominated, 2 = EF resonant.
   Resonant modes transfer energy between edges and faces.
 
   Called by `graph.py`'s `classify_modes` method.
 
 - `resonance_frequencies(freqs, labels)` -> (res_freqs, res_indices)
 
-  Extracts frequencies of EF-resonant modes.
+  Extracts frequencies of EF resonant modes.
 
----
+
 
 ### Vertex Observables
 
@@ -2878,14 +2880,14 @@ are genuinely spectral and are kept as the live path.
 
   Called by `graph.py`'s `derive_vertex_state` method.
 
----
+
 
 ### RK4 Integration
 
 - `field_rk4_step(F, dFdt, RL1, L2, B2, g, nE, nF, dt)` -> (F_new, dFdt_new)
 
-  Single RK4 step for the second-order wave equation, rewritten as a
-  first-order system on (position, velocity). For large systems where
+  Single RK4 step for the second order wave equation, rewritten as a
+  first order system on (position, velocity). For large systems where
   spectral decomposition is too expensive.
 
 - `field_diffusion_rk4_step(F, RL1, L2, B2, g, nE, nF, dt)` -> f64[n]
@@ -2894,17 +2896,17 @@ are genuinely spectral and are kept as the live path.
 
 
 
-## `_wave`: Complex-Amplitude Wave Mechanics
+## `_wave`: Complex Amplitude Wave Mechanics
 
 **File:** `_wave.pyx` (1130 lines)
 
-Complex-valued wave mechanics on the relational complex. Operates on complex
+Complex valued wave mechanics on the relational complex. Operates on complex
 amplitudes psi in C^n under Schrodinger evolution exp(-i L t), where L is any
 Laplacian. Covers state operations, information theory, wave evolution
-(spectral, RK4, Trotter-Suzuki), interference, entanglement, decoherence
+(spectral, RK4, Trotter Suzuki), interference, entanglement, decoherence
 channels, measurement, and density matrix operations.
 
----
+
 
 ### Complex State Operations
 
@@ -2940,7 +2942,7 @@ channels, measurement, and density matrix operations.
 
   Diagonal phase rotation: out_i = exp(i * phases_i) * psi_i.
 
----
+
 
 ### Information Theory
 
@@ -2971,7 +2973,7 @@ channels, measurement, and density matrix operations.
 
   S_L = 1 - sum |psi_i|^4 = 1 - purity.
 
----
+
 
 ### Wave Evolution
 
@@ -3005,17 +3007,17 @@ channels, measurement, and density matrix operations.
 
 - `trotter_step(psi, diag, L_off, dt)` -> complex128[n]
 
-  Trotter-Suzuki split-operator step for L = L_diag + L_off.
+  Trotter Suzuki split operator step for L = L_diag + L_off.
 
 These dense spectral evolvers (`schrodinger_spectral`, `rk4_*_complex`,
 `field_schrodinger_evolve`/`_trajectory`) are RETAINED AS PARITY ORACLES. The
-live `RexGraph` accessors route to the matrix-free e^{-iLt} path instead:
+live `RexGraph` accessors route to the matrix free e^{-iLt} path instead:
 `evolve_schrodinger` and `evolve_field_wave`/`evolve_field_trajectory` call
 `scale_propagator.schrodinger_apply` / `schrodinger_trajectory` (Chebyshev
-matrix-functions on the sparse operator, no eigendecomposition), matching these
+matrix functions on the sparse operator, no eigendecomposition), matching these
 oracles to ~1e-10.
 
----
+
 
 ### Interference
 
@@ -3044,7 +3046,7 @@ oracles to ~1e-10.
 
   l1-norm coherence C = sum_{i!=j} |rho_ij|.
 
----
+
 
 ### Entanglement
 
@@ -3069,16 +3071,16 @@ oracles to ~1e-10.
 
 - `schmidt_decomposition(psi, dim_A, dim_B)` -> (values, vectors_A, vectors_B)
 
----
+
 
 ### Decoherence Channels
 
-- `dephasing_channel(rho, gamma, dt)`: off-diagonals decay exponentially
+- `dephasing_channel(rho, gamma, dt)`: off diagonals decay exponentially
 - `amplitude_damping(rho, gamma, dt)`: irreversible decay toward ground state
 - `depolarizing_channel(rho, p)`: rho -> (1-p) rho + (p/d) I
 - `lindblad_step(rho, H, lindblad_ops, dt)`: Euler step of Lindblad master equation
 
----
+
 
 ### Measurement
 
@@ -3092,10 +3094,10 @@ oracles to ~1e-10.
 
 - `measure_in_eigenbasis(psi, evecs)` -> (outcome, probability, collapsed)
 
-  Born-sample from eigenbasis coefficients and collapse. Called by
+  Born sample from eigenbasis coefficients and collapse. Called by
   `graph.py`'s `measure_in_eigenbasis`.
 
----
+
 
 ### Density Matrix Operations
 
@@ -3106,21 +3108,21 @@ oracles to ~1e-10.
 - `von_neumann_entropy(rho)` -> float: S = -Tr(rho log2 rho)
 - `fidelity_mixed(rho, sigma)` -> float: (Tr sqrt(sqrt(rho) sigma sqrt(rho)))^2
 
----
 
-### RCF Dynamics Operators
+
+### Relational dynamics operators
 
 - `amplitude_graded_projection(B1, B2, amplitudes, nV, nE, nF)` -> f64[N]
 
-  Graded projection using continuous vertex amplitudes with geometric-mean
+  Graded projection using continuous vertex amplitudes with geometric mean
   edge coupling. Edge endpoints are read from B1's signed CSC column support, so
   ARBITRARY ARITY is handled correctly: the edge amplitude is
   `(prod_{v in endpoints(e)} |a_v|)^(1/deg(e)) * sign`, which covers witness
-  edges (deg 1) and branching edges (deg > 2, first-class hyperedges) and reduces
-  to `sqrt(|a_i a_j|) * sign` for a standard 2-arity edge. The previous version
+  edges (deg 1) and branching edges (deg > 2, first class hyperedges) and reduces
+  to `sqrt(|a_i a_j|) * sign` for a standard 2 arity edge. The previous version
   scanned for only the first TWO nonzeros and silently dropped 3rd+ endpoints
   (and produced 0 for witness edges). The face block is `B2^T psi_E` via sparse
-  matvec; B1/B2 may be sparse or dense. Output is unit-normalized.
+  matvec; B1/B2 may be sparse or dense. Output is unit normalized.
 
 - `lagrangian_step(amplitudes, prev_amplitudes, sources, targets, edge_weights, nV, nE, dt, H0=1.0)` -> dict
 
@@ -3137,7 +3139,7 @@ oracles to ~1e-10.
 
 - `face_partition(B1, B2, sources, targets, probe_vertex, nV, nE, nF)` -> dict
 
-  Partitions faces into probe-incident and scaffold sets.
+  Partitions faces into probe incident and scaffold sets.
 
 - `action_integral(lagrangian_values, dt_values)` -> f64[nT]
 
@@ -3150,13 +3152,13 @@ oracles to ~1e-10.
 
 **File:** `_state.pyx` (555 lines)
 
-Provides signal norms, normalization, packing/unpacking of per-dimension
+Provides signal norms, normalization, packing/unpacking of per dimension
 signals into flat vectors, state differencing, energy decomposition, and
 state construction helpers. Also contains the RexState class for managing
 signal evolution with cached energy. In the rex framework, edges are
 primitive and vertices are derived via f_V = B1 f_E.
 
----
+
 
 ### Signal Norms
 
@@ -3165,7 +3167,7 @@ primitive and vertices are derived via f_V = B1 f_E.
 - `signal_norm_linf(signal)` -> float: max |f_i|
 - `signal_norm(signal, norm_type=NORM_L2)` -> float: dispatches by type (0=L1, 1=L2, 2=Linf)
 
----
+
 
 ### Normalization
 
@@ -3175,7 +3177,7 @@ primitive and vertices are derived via f_V = B1 f_E.
 
   Called by `graph.py`'s `normalize` method.
 
----
+
 
 ### State Packing (V + E + F)
 
@@ -3186,9 +3188,9 @@ primitive and vertices are derived via f_V = B1 f_E.
 
 - `unpack_state(flat, sizes)` -> (f0, f1, f2)
 
-  Splits a flat vector back into per-dimension signals.
+  Splits a flat vector back into per dimension signals.
 
----
+
 
 ### Field State Packing (E + F only)
 
@@ -3206,14 +3208,14 @@ primitive and vertices are derived via f_V = B1 f_E.
 
   Derives vertex observable from edge signal: f_V = B1 f_E.
 
----
+
 
 ### State Differencing
 
 - `state_diff(state_a, state_b)` -> f64[n]: diff = state_b - state_a
 - `state_apply_diff(state, diff)` -> f64[n]: result = state + diff
 
----
+
 
 ### Energy Computation
 
@@ -3225,7 +3227,7 @@ primitive and vertices are derived via f_V = B1 f_E.
 
   Called by `graph.py`'s `energy_kin_pot` method.
 
----
+
 
 ### State Construction
 
@@ -3254,7 +3256,7 @@ primitive and vertices are derived via f_V = B1 f_E.
 
   Random nonnegative signal at each dimension, normalized by norm_type.
 
----
+
 
 ### RexState Class
 
@@ -3269,7 +3271,7 @@ decomposition and evolution methods.
 - `update_energy(L1, LO, alpha)`: recomputes E_kin, E_pot, E_tot under RL
 - `energy`, `E_kin`, `E_pot`: cached energy properties (NaN if dirty)
 - `derive_vertex_signal(B1)`: sets f0 = B1 @ f1
-- `evolve_coupled(system, dt, n_steps=1)`: RK4 cross-dimensional evolution
+- `evolve_coupled(system, dt, n_steps=1)`: RK4 cross dimensional evolution
 - `evolve_schrodinger(system, dt)`: unitary evolution of f1 via RL
 - `evolve_diffusion(system, dt, dim=0)`: simple diffusion on one dimension
 
@@ -3283,10 +3285,10 @@ decomposition and evolution methods.
 Stateless transition operators for evolving signals on the relational complex.
 Covers Markov diffusion (discrete and continuous), Schrodinger unitary
 evolution (spectral and matrix exponential), RK4 ODE integration with
-coupled cross-dimensional dynamics, and signal resizing after structural
+coupled cross dimensional dynamics, and signal resizing after structural
 mutation.
 
----
+
 
 ### Markov Diffusion
 
@@ -3303,7 +3305,7 @@ mutation.
 
   p(t) = exp(-L t) p(0) via scipy matrix exponential. Dense ORACLE: the live
   `graph.py`'s `evolve_markov` routes to `scale_propagator.heat_apply`
-  (matrix-free Chebyshev e^{-Lt} on the sparse Laplacian).
+  (matrix free Chebyshev e^{-Lt} on the sparse Laplacian).
 
 - `markov_continuous_spectral(p, evals, evecs, t)` -> f64[n]
 
@@ -3312,15 +3314,15 @@ mutation.
 
 - `build_vertex_transition_matrix(L0)` -> f64[nV, nV]
 
-  Column-stochastic transition matrix W = I - D^{-1} L0 from the vertex
-  Laplacian. Isolated vertices get self-loops (W[i,i] = 1).
+  Column stochastic transition matrix W = I - D^{-1} L0 from the vertex
+  Laplacian. Isolated vertices get self loops (W[i,i] = 1).
 
 - `build_lazy_transition_matrix(W, lazy=0.5)` -> f64[nV, nV]
 
   Lazy random walk: W_lazy = lazy * I + (1 - lazy) * W. Ensures
   aperiodicity.
 
----
+
 
 ### Schrodinger (Unitary) Evolution
 
@@ -3331,7 +3333,7 @@ mutation.
   f_re = sum_k cos(lambda_k t) c_k v_k,
   f_im = -sum_k sin(lambda_k t) c_k v_k.
   Dense ORACLE: the live `graph.py`'s `evolve_schrodinger` routes to
-  `scale_propagator.schrodinger_apply` (matrix-free e^{-iLt}).
+  `scale_propagator.schrodinger_apply` (matrix free e^{-iLt}).
 
 - `schrodinger_evolve_expm(f, L, t)` -> (f_real, f_imag)
 
@@ -3343,7 +3345,7 @@ mutation.
   Evolves through multiple timepoints. Returns f64[nT, n] arrays for real
   and imaginary parts.
 
----
+
 
 ### Dephasing
 
@@ -3354,7 +3356,7 @@ mutation.
   Σ_f L_f L_f^T = B2 (B2^T psi_E) is applied as two matvecs (O(nnz)), so the
   dense nE x nE product B2 B2^T is never formed.
 
----
+
 
 ### Energy Decomposition
 
@@ -3369,7 +3371,7 @@ mutation.
 
   E_RL = E_kin + alpha_G * E_pot. Used by RexState.update_energy.
 
----
+
 
 ### RK4 Integration
 
@@ -3387,26 +3389,26 @@ mutation.
 
   Heat equation derivative: df/dt = -rate * L @ f.
 
----
 
-### Coupled Cross-Dimensional Dynamics
+
+### Coupled Cross Dimensional Dynamics
 
 - `coupled_derivative(flat_state, sizes, L0, L1, L2, L_O, B1_dense, B2_dense, alpha0, alpha1, alpha2, alpha_G)` -> f64[nV+nE+nF]
 
-  Coupled ODE right-hand side for cross-dimensional diffusion:
+  Coupled ODE right hand side for cross dimensional diffusion:
 
       df0/dt = -alpha0 * L0 @ f0
       df1/dt = -(alpha1 * L1 + alpha_G * L_O) @ f1 + B1^T @ f0
       df2/dt = -alpha2 * L2 @ f2 + B2^T @ f1
 
-  The edge tier uses RL = alpha1 * L1 + alpha_G * L_O. Cross-dimensional
+  The edge tier uses RL = alpha1 * L1 + alpha_G * L_O. Cross dimensional
   coupling flows downward via B1^T (vertex to edge) and B2^T (edge to face).
-  B2 should be B2_hodge (self-loop faces filtered).
+  B2 should be B2_hodge (self loop faces filtered).
 
   Used as the derivative function for `rk4_integrate` in
   `graph.py`'s `evolve_coupled` method.
 
----
+
 
 ### Rewrite (Signal Resizing)
 
@@ -3424,7 +3426,7 @@ For structural mutation (edge insertion/deletion, face changes):
 - `rewrite_add_faces(f2, n_new_faces, default_face_val=0.0)` -> f64[nF+n_new]
 - `rewrite_remove_faces(f2, keep_mask)` -> f64[n_keep]
 
----
+
 
 ### Transition Dispatch
 
@@ -3432,8 +3434,8 @@ For structural mutation (edge insertion/deletion, face changes):
 
   Unified dispatch for all transition types. trans_type selects the operator:
   TRANS_MARKOV (0), TRANS_SCHRODINGER (1), TRANS_DIFFERENTIAL (2),
-  TRANS_REWRITE (3). operator_data is a dict with operator-specific arrays.
-  Only the targeted dimension is modified; others are returned as-is.
+  TRANS_REWRITE (3). operator_data is a dict with operator specific arrays.
+  Only the targeted dimension is modified; others are returned as is.
 
 
 
@@ -3442,7 +3444,7 @@ For structural mutation (edge insertion/deletion, face changes):
 
 **File:** `_void.pyx` (443 lines)
 
-The void complex records potential faces (triangles in the 1-skeleton) that
+The void complex records potential faces (triangles in the 1 skeleton) that
 could exist but don't. Each void v has a boundary cycle bv in ker(B1) with
 harmonic content eta(v) in [0, 1]. If eta > 0, filling v decreases beta_1
 by 1. The void Laplacian Lvoid = Bvoid @ Bvoid^T measures structural stress
@@ -3451,18 +3453,18 @@ from unrealized faces.
 Key identities: B1 @ Bvoid = 0 (void boundaries lie in ker(B1)),
 L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
 
----
+
 
 ### Triangle Enumeration
 
 - `find_potential_triangles(adj_ptr, adj_idx, adj_edge, nV, nE)` -> (tri_edges, nT)
 
-  Finds all triangles in the 1-skeleton via the symmetric adjacency CSR.
+  Finds all triangles in the 1 skeleton via the symmetric adjacency CSR.
   For each vertex v, checks all neighbor pairs (u, w) with u < w < v for a
   closing edge. Returns tri_edges as an int32[nT, 3] array of edge indices
   per triangle, and the count nT.
 
----
+
 
 ### Triangle Classification
 
@@ -3472,7 +3474,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   of B2 (a realized face). realized[k] = 1 if triangle k is a face, 0 if
   void. void_indices lists the indices of void triangles.
 
----
+
 
 ### Void Boundary Operator
 
@@ -3483,7 +3485,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   Tries all 8 sign patterns and picks the one in ker(B1). Returns None if
   there are no voids.
 
----
+
 
 ### Harmonic Content
 
@@ -3499,16 +3501,16 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
 
 - `harmonic_content_all_sparse(B1, B2, Bvoid, n_voids, nE)` -> f64[n_voids]
 
-  Eigen-free harmonic content, so eta is available at scale (was NaN when no
+  Eigen free harmonic content, so eta is available at scale (was NaN when no
   dense L1 spectrum was computed). Instead of an eigendecomposition of L1 it uses
-  the combinatorial LOW-RANK harmonic projector P_H = H (H^T H)^-1 H^T, with H =
+  the combinatorial LOW RANK harmonic projector P_H = H (H^T H)^-1 H^T, with H =
   `harmonic_sparse.harmonic_basis_from_boundaries(B1, B2)` spanning the same
   ker(L1) as the dense harmonic eigenbasis. eta_k = (H^T bv_k)^T (H^T H)^-1
   (H^T bv_k) / ||bv_k||^2, batched over all voids as one shared sparse
-  factorization of H^T H (no per-void loop, no dense nE x nE). Identical to the
+  factorization of H^T H (no per void loop, no dense nE x nE). Identical to the
   dense value to ~1e-9.
 
----
+
 
 ### Void Character
 
@@ -3522,7 +3524,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
 
   Void character for all voids.
 
----
+
 
 ### Void Strain
 
@@ -3532,7 +3534,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   unrealized faces. For triangles, each ||bv||^2 = 3 (three edges with
   +/-1 entries), so S^void = 3 * n_voids.
 
----
+
 
 ### Filling Prediction
 
@@ -3541,7 +3543,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   fills_beta[k] = 1 if eta[k] > epsilon, meaning that filling void k would
   decrease beta_1 by 1.
 
----
+
 
 ### Void Type Decomposition
 
@@ -3550,7 +3552,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   Counts voids by bitmask of edge types present. For example, if a void has
   edges of types 0 and 2, its bitmask is 0b101 = 5.
 
----
+
 
 ### Void Identity Verification
 
@@ -3562,7 +3564,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   Bfull^T)` as scipy sparse matmuls, inspecting only stored nonzeros, never the
   dense nE x nE products.
 
----
+
 
 ### Combined Builder
 
@@ -3575,10 +3577,10 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   `Lvoid` is stored SPARSE (scipy CSR, `Bvoid @ Bvoid^T`) rather than as a dense
   nE x nE array: no consumer needs it dense (void nullity reads Bvoid, void
   strain reads tr(Lvoid) directly), and `VoidComplex.Lvoid` is typed `object`
-  so `.toarray()` reproduces the old dense array bit-for-bit. Harmonic content
+  so `.toarray()` reproduces the old dense array bit for bit. Harmonic content
   eta prefers the dense `harmonic_content_all` when the L1 eigenbasis is supplied
-  (`evals_L1`/`evecs_L1`, the small-graph oracle) and falls back to the
-  eigen-free `harmonic_content_all_sparse` otherwise.
+  (`evals_L1`/`evecs_L1`, the small graph oracle) and falls back to the
+  eigen free `harmonic_content_all_sparse` otherwise.
 
   Called by `graph.py`'s `void_complex` property.
 
@@ -3592,16 +3594,16 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
 
 **File:** `_quotient.pyx` (1931 lines)
 
-Given a 2-rex R and a subcomplex I specified by cell masks, builds the
+Given a 2 rex R and a subcomplex I specified by cell masks, builds the
 quotient complex R/I and computes relative homological invariants. Supports
 subcomplex selection (by edge type, signal threshold, energy regime, star
 neighborhood, hyperslice), quotient construction (reindexing, B1_quot,
 B2_quot), relative Betti numbers, congruence testing, signal
-restriction/lifting, per-edge energy decomposition, sparse quotient
-construction from large parent complexes, and character-based quotient
+restriction/lifting, per edge energy decomposition, sparse quotient
+construction from large parent complexes, and character based quotient
 filtration.
 
----
+
 
 ### Subcomplex Selection
 
@@ -3642,7 +3644,7 @@ filtration.
   Edges classified by log(E_kin/E_pot): regime 0 = kinetic, 1 = crossover,
   2 = potential.
 
----
+
 
 ### Quotient Construction
 
@@ -3671,7 +3673,7 @@ filtration.
   Betti numbers, L1_quot. Optionally builds RL1_quot if L_O is provided.
   Called by `graph.py`'s `quotient` method.
 
----
+
 
 ### Relative Homology
 
@@ -3683,19 +3685,19 @@ filtration.
 
 - `relative_cycle_basis(B1_quot, B2_quot, tol=1e-10)` -> f64[nE_quot, beta1_rel]
 
-  Orthonormal harmonic edge signals spanning H_1(R, I). Eigen-free: the harmonic
+  Orthonormal harmonic edge signals spanning H_1(R, I). Eigen free: the harmonic
   plane ker(L1q) = ker(B1q) ∩ ker(B2q^T) is the combinatorial cycle basis from
   `harmonic_sparse.harmonic_basis_from_boundaries`, orthonormalized by a thin QR:
   no dense eigendecomposition of L1q. Guarded by a dimension check against the
   exact relative beta_1 = nE - rank(B1q) - rank(B2q); on any mismatch it falls
-  back to the dense-eigh oracle so the result is always exact.
+  back to the dense eigh oracle so the result is always exact.
 
 - `connecting_homomorphism(B1_full, v_mask, e_mask, relative_cycle, e_reindex)` -> f64[nV_I]
 
-  Lifts a relative 1-cycle to the full edge space, applies B1, and
+  Lifts a relative 1 cycle to the full edge space, applies B1, and
   restricts to subcomplex vertices.
 
----
+
 
 ### Congruence
 
@@ -3710,15 +3712,15 @@ filtration.
   Partitions surviving edges into congruence equivalence classes. The subcomplex
   basis is factored ONCE (thin QR) and the whole survivor block is projected onto
   its orthogonal complement in one matmul, then grouped by equal residual,
-  replacing a per-pair lstsq that re-factored the basis for every pair. Identical partition
+  replacing a per pair lstsq that re factored the basis for every pair. Identical partition
   and label numbering to the historical version.
 
 - `congruence_classes_faces(B2, f_mask, tol=1e-10)` -> (labels, n_classes)
 
-  Same factor-once residual-projection scheme on the face boundary basis;
-  identical partition and labels to the historical per-pair lstsq.
+  Same factor once residual projection scheme on the face boundary basis;
+  identical partition and labels to the historical per pair lstsq.
 
----
+
 
 ### Signal Operations
 
@@ -3732,19 +3734,19 @@ filtration.
 - `quotient_RL1(B1_quot, B2_quot, LO_quot, alpha_G)` -> (RL1_quot, L1_quot)
 - `quotient_energy_kin_pot(signal_quot, L1_quot, LO_quot)` -> (E_kin, E_pot, ratio)
 
----
 
-### Per-Edge Energy
+
+### Per Edge Energy
 
 - `per_edge_energy(f_E, L1, LO)` -> (E_kin_per_edge, E_pot_per_edge)
 
   E_kin_e = f_E[e] * (L1 f_E)[e], E_pot_e = f_E[e] * (L_O f_E)[e]. These
-  per-edge values sum to the total energies. Called by `graph.py`'s
+  per edge values sum to the total energies. Called by `graph.py`'s
   `per_edge_energy` method.
 
----
 
-### Hyperslice, Edge-Type, and Temporal Integration
+
+### Hyperslice, Edge Type, and Temporal Integration
 
 - `hyperslice_quotient(dim, cell_idx, nV, nE, nF, ...)` -> (v_mask, e_mask, f_mask)
 
@@ -3754,14 +3756,14 @@ filtration.
 
 - `temporal_quotient(n_snapshots, time_mask, snapshot_sources, snapshot_targets, nV)` -> (v_mask, e_mask_union)
 
----
+
 
 ### Sparse Quotient Construction
 
 - `build_quotient_from_sparse(B1_scipy, B2_scipy, v_mask, e_mask, f_mask, nV, nE, nF)` -> dict
 
   Builds a quotient complex directly from sparse boundary operators without
-  densifying the parent at the nE x nE scale. Accepts DualCSR (auto-detected
+  densifying the parent at the nE x nE scale. Accepts DualCSR (auto detected
   via `hasattr(obj, 'row_ptr')` and converted via `to_scipy_csr`), scipy
   sparse, or dense input.
 
@@ -3773,7 +3775,7 @@ filtration.
 
   If the quotient has nEq <= 5000 edges, automatically runs the full dense
   `build_all_laplacians` on it to produce a `spectral_bundle_quot` dict with
-  RL, hats, chi, coupling constants, and the complete RCF analysis on the
+  RL, hats, chi, coupling constants, and the complete relational analysis on the
   tractable subcomplex.
 
   Returns dict with: B1_quot, B2_quot, L1_quot, betti_rel, chain_valid,
@@ -3784,7 +3786,7 @@ filtration.
   graph via `build_all_laplacians_sparse`, then use `build_quotient_from_sparse`
   to analyze structurally interesting subsets with full dense spectral.
 
----
+
 
 ### Quotient Filtration by Character
 
@@ -3793,7 +3795,7 @@ filtration.
   Removes edges in order of decreasing chi[:, channel] and tracks Betti
   numbers at each step. At each threshold, edges with chi above the
   threshold are removed and Betti numbers are recomputed on the remaining
-  subcomplex via `relative_betti` (so per-step Betti flows through the now-exact
+  subcomplex via `relative_betti` (so per step Betti flows through the now exact
   integer rank, no SVD). The transition point is the step with the largest drop
   in beta_1.
 
@@ -3811,19 +3813,19 @@ filtration.
 
 **File:** `_temporal.pyx` (1958 lines)
 
-Delta-encoded snapshot storage, BIOES phase detection on Betti and energy
+Delta encoded snapshot storage, BIOES phase detection on Betti and energy
 timeseries, edge and face lifecycle tracking, and cascade event analysis for
 temporal rexgraphs. All functions have i32 and i64 typed variants plus
-auto-dispatchers. General boundary variants handle branching, self-loop, and
-witness edges alongside standard 2-endpoint edges.
+auto dispatchers. General boundary variants handle branching, self loop, and
+witness edges alongside standard 2 endpoint edges.
 
----
+
 
 ### Delta Encoding
 
 - `encode_snapshot_delta(prev_src, prev_tgt, curr_src, curr_tgt, directed=False)` -> (born_src, born_tgt, died_src, died_tgt)
 
-  Computes the edge delta between consecutive snapshots via sorted merge-diff
+  Computes the edge delta between consecutive snapshots via sorted merge diff
   on canonical edge encodings. Born edges are in curr but not prev; died
   edges are in prev but not curr.
 
@@ -3831,7 +3833,7 @@ witness edges alongside standard 2-endpoint edges.
 
   General boundary variant using sorted boundary vertex tuples as edge keys.
 
----
+
 
 ### Temporal Index
 
@@ -3839,11 +3841,11 @@ witness edges alongside standard 2-endpoint edges.
 
   Builds an adaptive checkpoint index from a snapshot list. Checkpoints are
   stored when cumulative delta exceeds checkpoint_threshold * current edge
-  count. Returns checkpoint snapshots, per-step deltas, and checkpoint times.
+  count. Returns checkpoint snapshots, per step deltas, and checkpoint times.
 
   `TemporalRex` additionally stores a full checkpoint whenever either side of
   a transition has repeated cell or face keys. Canonical keys describe boundary
-  support, not relation identity, so key-level deltas are used only where those
+  support, not relation identity, so key level deltas are used only where those
   keys are injective. This preserves parallel relations and repeated faces as
   multisets during reconstruction instead of projecting them onto unique
   boundaries.
@@ -3854,7 +3856,7 @@ witness edges alongside standard 2-endpoint edges.
 
   General boundary variant.
 
----
+
 
 ### Edge Lifecycle
 
@@ -3868,21 +3870,21 @@ witness edges alongside standard 2-endpoint edges.
 
 - `edge_lifecycle_general(snapshots)` -> same
 
----
+
 
 ### Edge Metrics
 
 - `compute_edge_metrics(snapshots, directed=False)` -> (edge_counts, edge_born, edge_died)
 
-  Per-timestep edge counts, births, and deaths. Each is an int32[T] array.
+  Per timestep edge counts, births, and deaths. Each is an int32[T] array.
 
   Called by `TemporalRex.edge_metrics`.
 
 - `compute_edge_metrics_general(snapshots)` -> same
 
----
 
-### Phase Detection (Betti-based)
+
+### Phase Detection (Betti based)
 
 - `detect_phases(beta0, beta1, phase_tol=0.0)` -> (phase_start, phase_end, phase_b0, phase_b1)
 
@@ -3900,20 +3902,20 @@ witness edges alongside standard 2-endpoint edges.
   Phase detection with face event triggers. A phase also breaks when
   face births, deaths, splits, or merges exceed the threshold.
 
----
+
 
 ### BIOES Tagging
 
 - `assign_bioes_tags(T, phase_start, phase_end, min_phase_len=2)` -> int32[T]
 
   Tags each timestep: B=0 (begin), I=1 (inside), O=2 (outside),
-  E=3 (end), S=4 (single-step phase).
+  E=3 (end), S=4 (single step phase).
 
 - `assign_bioes_per_dimension(T, betti_matrix, phase_tol, min_phase_len)` -> int32[T, K]
 
-  Per-dimension BIOES tags.
+  Per dimension BIOES tags.
 
----
+
 
 ### Full BIOES Pipelines
 
@@ -3923,16 +3925,16 @@ witness edges alongside standard 2-endpoint edges.
 
 - `compute_bioes_unified(edge_snapshots, face_snapshots, betti_matrix, directed, phase_tol, min_phase_len, face_event_threshold, jaccard_threshold)` -> tuple
 
-  Unified pipeline with face tracking. Returns tags (unified + per-dim),
+  Unified pipeline with face tracking. Returns tags (unified + per dim),
   edge metrics, face metrics (counts, born, died, split, merge), phases.
 
   Called by `TemporalRex.bioes`.
 
 - `compute_bioes_general(...)`, `compute_bioes_unified_general(...)`: general boundary variants.
 
----
 
-### Energy-Ratio BIOES
+
+### Energy Ratio BIOES
 
 - `detect_phases_energy_ratio(E_kin, E_pot, ratio_tol=0.2, floor=1e-12)` -> (phase_start, phase_end, phase_regime, log_ratios, crossover_times)
 
@@ -3941,7 +3943,7 @@ witness edges alongside standard 2-endpoint edges.
 
 - `compute_bioes_energy(E_kin, E_pot, ratio_tol=0.2, min_phase_len=2, floor=1e-12)` -> (tags, phase_start, phase_end, phase_regime, log_ratios, crossover_times)
 
-  Full energy-ratio BIOES pipeline. Called by `TemporalRex.bioes_energy`
+  Full energy ratio BIOES pipeline. Called by `TemporalRex.bioes_energy`
   and by `_signal.tag_energy_phases`.
 
 - `detect_phases_joint(betti_matrix, E_kin, E_pot, betti_tol, ratio_tol)` -> (phase_start, phase_end, phase_betti, phase_regime, break_reasons, log_ratios)
@@ -3951,7 +3953,7 @@ witness edges alongside standard 2-endpoint edges.
 
   Called by `TemporalRex.bioes_joint`.
 
----
+
 
 ### Cascade Tracking
 
@@ -3965,13 +3967,13 @@ witness edges alongside standard 2-endpoint edges.
 
 - `cascade_wavefront(edge_signals, src, tgt, threshold)` -> dict
 
-  Wavefront tracking with spatial propagation analysis. Records per-timestep
+  Wavefront tracking with spatial propagation analysis. Records per timestep
   wavefront edges, their topological depth from the source, and propagation
   velocity.
 
   Called by `TemporalRex.cascade_wavefront`.
 
----
+
 
 ### Face Tracking
 
@@ -3991,15 +3993,15 @@ witness edges alongside standard 2-endpoint edges.
 
 
 
-## `_standard`: Classical Graph Algorithms on the 1-Skeleton
+## `_standard`: Classical Graph Algorithms on the 1 Skeleton
 
 **File:** `_standard.pyx` (1005 lines)
 
-Classical graph algorithms operating on the undirected 1-skeleton via
+Classical graph algorithms operating on the undirected 1 skeleton via
 symmetric CSR adjacency. All functions have i32 and i64 typed variants
-plus auto-dispatchers.
+plus auto dispatchers.
 
----
+
 
 ### PageRank
 
@@ -4010,7 +4012,7 @@ plus auto-dispatchers.
 
   Called by `graph.py`'s `pagerank` property via `build_standard_metrics`.
 
----
+
 
 ### Betweenness Centrality
 
@@ -4026,25 +4028,25 @@ plus auto-dispatchers.
 
   Called by `graph.py`'s `betweenness` property via `build_standard_metrics`.
 
----
+
 
 ### Clustering Coefficient
 
 - `clustering(adj_ptr, adj_idx, nV)` -> f64[nV]
 
-  Local clustering coefficient via sorted neighbor intersection (two-pointer
+  Local clustering coefficient via sorted neighbor intersection (two pointer
   merge). C(v) = 2 T(v) / (deg(v) (deg(v) - 1)) for deg >= 2, where T(v)
   is the triangle count at v. Zero for vertices with degree < 2.
 
   Called by `graph.py`'s `clustering` property via `build_standard_metrics`.
 
----
+
 
 ### Louvain Community Detection
 
 - `louvain(adj_ptr, adj_idx, adj_wt, nV, nE, max_passes=20)` -> (labels, n_communities, modularity)
 
-  Modularity-based community detection. For each vertex, evaluates the
+  Modularity based community detection. For each vertex, evaluates the
   modularity gain of moving to each neighbor's community and picks the best.
   Repeats until no improvement or max_passes reached. Returns community
   labels (int32[nV]), number of communities, and final modularity Q.
@@ -4052,25 +4054,25 @@ plus auto-dispatchers.
   Called by `graph.py`'s `partition_communities` property via
   `build_standard_metrics`.
 
----
+
 
 ### Pearson Correlation
 
 - `safe_correlation(a, b)` -> float
 
-  Pearson correlation with zero-variance guard. Returns 0.0 if either
+  Pearson correlation with zero variance guard. Returns 0.0 if either
   signal has zero variance or n < 2.
 
----
+
 
 ### Adjacency Weights
 
 - `build_adj_weights(adj_edge, edge_weights)` -> f64[nnz]
 
-  Maps per-edge weights to per-adjacency-entry weights:
+  Maps per edge weights to per adjacency entry weights:
   adj_wt[k] = edge_weights[adj_edge[k]].
 
----
+
 
 ### Combined Builder
 
@@ -4089,13 +4091,13 @@ plus auto-dispatchers.
 
 **File:** `_persistence.pyx` (1237 lines)
 
-Given a 2-rex and a filtration function on cells, computes persistence
+Given a 2 rex and a filtration function on cells, computes persistence
 pairs tracking birth and death of homological features. Supports multiple
 filtration sources, column reduction over Z/2 coefficients, barcode
 extraction, diagram distances, landscape functions, entropy, and
 enrichment with edge type and Hodge component data.
 
----
+
 
 ### Filtration Construction
 
@@ -4125,7 +4127,7 @@ enrichment with edge type and Hodge component data.
 
 - `filtration_rips(positions, boundary_ptr, boundary_idx, B2_col_ptr, B2_row_idx)` -> (filt_v, filt_e, filt_f)
 
-  Vietoris-Rips filtration from vertex positions. f(v)=0,
+  Vietoris Rips filtration from vertex positions. f(v)=0,
   f(e)=max pairwise distance among boundary vertices.
 
 - `filtration_temporal(snapshot_sources, snapshot_targets, nV, nE, directed)` -> (filt_v, filt_e, filt_f)
@@ -4138,14 +4140,14 @@ enrichment with edge type and Hodge component data.
 
   Trivial filtration by cell dimension (0, 1, 2).
 
----
+
 
 ### Filtration Ordering and Boundary Matrix
 
 - `build_filtration_order(filt_v, filt_e, filt_f)` -> (order, cell_dim, cell_idx, filt_vals)
 
   Sorts all cells by filtration value with ties broken by (dim, index).
-  Returns the permutation order, per-position dimension and cell index,
+  Returns the permutation order, per position dimension and cell index,
   and the sorted filtration values.
 
 - `build_boundary_matrix(order, cell_dim, cell_idx, nV, nE, boundary_ptr, boundary_idx, B2_col_ptr, B2_row_idx)` -> list
@@ -4154,20 +4156,20 @@ enrichment with edge type and Hodge component data.
   indexed by filtration order. Edges reference their boundary vertices,
   faces reference their boundary edges.
 
----
+
 
 ### Column Reduction
 
 - `reduce_boundary_matrix_mod2(boundary_cols)` -> (reduced, pivot_to_col)
 
-  Left-to-right column reduction over Z/2. Returns the reduced column
-  lists and a pivot-to-column mapping for pair extraction.
+  Left to right column reduction over Z/2. Returns the reduced column
+  lists and a pivot to column mapping for pair extraction.
 
 - `reduce_boundary_matrix(boundary_cols, coefficients="Z2")` -> same
 
   Wrapper supporting Z/2 coefficients (Z coefficients planned).
 
----
+
 
 ### Persistence Diagram
 
@@ -4180,7 +4182,7 @@ enrichment with edge type and Hodge component data.
 
   Called by `graph.py`'s `persistence` method.
 
----
+
 
 ### Barcodes
 
@@ -4189,7 +4191,7 @@ enrichment with edge type and Hodge component data.
   Extracts (birth, death) pairs for a specific dimension, sorted by
   persistence. Called by `graph.py`'s `persistence_barcodes` method.
 
----
+
 
 ### Diagram Distances
 
@@ -4203,7 +4205,7 @@ enrichment with edge type and Hodge component data.
 
   Called by `graph.py`'s `persistence_distance` method.
 
----
+
 
 ### Enrichment
 
@@ -4214,11 +4216,11 @@ enrichment with edge type and Hodge component data.
 - `enrich_pairs_hodge(pairs, grad_energy, curl_energy, harm_energy)` -> (dominant, fractions)
 
   Annotates dim-1 pairs with dominant Hodge component (0=grad, 1=curl,
-  2=harmonic) and per-component energy fractions.
+  2=harmonic) and per component energy fractions.
 
   Called by `graph.py`'s `enrich_persistence` method.
 
----
+
 
 ### Persistence Entropy
 
@@ -4228,7 +4230,7 @@ enrichment with edge type and Hodge component data.
 
   Called by `graph.py`'s `persistence_entropy` method.
 
----
+
 
 ### Persistence Landscape
 
@@ -4237,7 +4239,7 @@ enrichment with edge type and Hodge component data.
   Lambda_k(t) = k-th largest min(t - birth_i, death_i - t) at each grid
   point. Called by `graph.py`'s `persistence_landscape` method.
 
----
+
 
 ### Relative Persistence
 
@@ -4257,7 +4259,7 @@ Predicate masking (SELECT WHERE), signal imputation (INSERT missing),
 spectral propagation (AGGREGATE), and cell explanation (EXPLAIN) on the
 relational complex.
 
----
+
 
 ### Predicate Masking
 
@@ -4280,7 +4282,7 @@ relational complex.
 
 - `mask_and(a, b, n)`, `mask_or(a, b, n)`, `mask_not(a, n)`: boolean ops on masks.
 
----
+
 
 ### Signal Imputation
 
@@ -4295,21 +4297,21 @@ relational complex.
 
   Called by `graph.py`'s `impute` method.
 
----
+
 
 ### Spectral Propagation
 
 - `spectral_propagate(RL, hats, nhats, source, target, nE)` -> dict
 
   Computes propagation score = source^T RL^+ target / (||source|| ||target||).
-  Also computes per-channel typed scores, total energy, and spectral
+  Also computes per channel typed scores, total energy, and spectral
   coverage (fraction of RL eigenmodes activated by the source).
 
   Returns dict with: score, typed_scores (f64[nhats]), energy, coverage.
 
   Called by `graph.py`'s `propagate` method.
 
----
+
 
 ### Explain Edge
 
@@ -4322,7 +4324,7 @@ relational complex.
 
   Called by `graph.py`'s `explain(dim=1, idx)`.
 
----
+
 
 ### Explain Vertex
 
@@ -4348,12 +4350,12 @@ restriction/extension of relational complexes preserves the chain condition).
 
 All three join functions compute the joined Betti numbers from EXACT integer
 ranks (rank(B1j) and rank(B2j) via `graded_boundary._sparse_rank`, rational
-column reduction, eigen-free, no SVD; was `np.linalg.matrix_rank`), and guard
+column reduction, eigen free, no SVD; was `np.linalg.matrix_rank`), and guard
 those ranks and `chain_residual` against empty matrices (zero matched edges,
 zero faces). When any output dimension is zero, rank defaults to 0 and chain
 residual defaults to 0.0.
 
----
+
 
 ### Shared Maps
 
@@ -4367,7 +4369,7 @@ residual defaults to 0.0.
   Maps R-edges to S-edges by matching vertex pairs through the shared
   vertex map. Returns -1 for unmatched edges.
 
----
+
 
 ### Inner Join (Intersection)
 
@@ -4386,7 +4388,7 @@ residual defaults to 0.0.
 
   Called by `graph.py`'s `inner_join` method.
 
----
+
 
 ### Outer Join (Pushout)
 
@@ -4402,7 +4404,7 @@ residual defaults to 0.0.
 
   Called by `graph.py`'s `outer_join` method.
 
----
+
 
 ### Left Join
 
@@ -4410,7 +4412,7 @@ residual defaults to 0.0.
 
   Keeps all of R, adds S-edges between shared vertices that are not already
   in R (no duplicates). Only R faces are kept (S faces would need
-  cross-complex B2 construction). New edges get sign convention -1/+1 on
+  cross complex B2 construction). New edges get sign convention -1/+1 on
   their two shared endpoints.
 
   Returns dict with: B1j, B2j, nVj, nEj, nFj, beta, chain_residual,
@@ -4418,7 +4420,7 @@ residual defaults to 0.0.
 
   Called by `graph.py`'s `left_join` method.
 
----
+
 
 ### Attribute Merge
 
@@ -4436,7 +4438,7 @@ residual defaults to 0.0.
 **File:** `_interfacing.pyx` (623 lines)
 
 Maps a set of source vertices through typed response operators and projects
-onto a target edge vector to produce per-channel scores. The interfacing
+onto a target edge vector to produce per channel scores. The interfacing
 vector I lives on S^{n-1} after normalization and classifies entities by
 their structural mechanism. All hot paths are `cdef nogil` with BLAS/LAPACK
 calls.
@@ -4445,21 +4447,21 @@ This dense pipeline, which materializes the response operator
 S_T = B1^T L0^+ B1 (nE x nE), is RETAINED AS THE PARITY ORACLE. At scale the
 live `RexGraph.interfacing_vector` routes to
 `rexgraph.sparse_interfacing.build_interfacing_bundle_sparse`, which is
-matrix-free: L0^+ is applied by LSQR on the sparse graph Laplacian L0 = B1 B1^T,
+matrix free: L0^+ is applied by LSQR on the sparse graph Laplacian L0 = B1 B1^T,
 channel scores are bilinears target^T S_X psi = (B1 target)^T L0^+ (B1 psi) with
-S_T never formed, and the genuinely-spectral schrodinger / coverage terms use a
+S_T never formed, and the genuinely spectral schrodinger / coverage terms use a
 bounded `eigsh` on the sparse RL.
 
----
+
 
 ### Vertex Source
 
 - `build_vertex_source(target_indices, target_weights, vertex_weights, nV)` -> f64[nV]
 
   Weighted vertex source vector. rho[v] = sum of target_weight * vertex_weight
-  at each target vertex. Non-target vertices are zero.
+  at each target vertex. Non target vertices are zero.
 
----
+
 
 ### Edge Signal
 
@@ -4470,7 +4472,7 @@ bounded `eigsh` on the sparse RL.
   pseudoinverse. L0 eigendata is passed in from graph.py's spectral_bundle
   (no redundant eigensolves).
 
----
+
 
 ### Response Operators
 
@@ -4478,35 +4480,35 @@ bounded `eigsh` on the sparse RL.
 
   Builds typed response operators for the three structural channels:
   S_T = B1^T @ L0^+ @ B1 (gradient flow through vertex space, nE x nE),
-  S_G = L_O (overlap co-membership), S_F = L_SG (frustration sign coherence).
+  S_G = L_O (overlap co membership), S_F = L_SG (frustration sign coherence).
   Also returns L0_pinv.
 
----
+
 
 ### Channel Scores
 
 - `channel_scores(psi, S_T, S_G, S_F, target, nE)` -> f64[3]
 
-  Per-channel interfacing scores: I_X = target^T @ S_X @ psi for
+  Per channel interfacing scores: I_X = target^T @ S_X @ psi for
   X in {topological, geometric, frustration}. Uses bl_gemv_n + bl_dot
   per channel in a cdef nogil inner function.
 
 - `schrodinger_score(psi, evals_RL, evecs_RL, target, nE)` -> float
 
-  Time-averaged Born probability: I_Sch = sum_j |c_j|^2 * |t_j|^2 where
+  Time averaged Born probability: I_Sch = sum_j |c_j|^2 * |t_j|^2 where
   c_j = <v_j, psi> and t_j = <v_j, target>. Only eigenmodes with
   evals > 0 contribute.
 
----
+
 
 ### Quality Gate
 
 - `quality_gate(scores)` -> f64[n_entities, n_channels]
 
   Bayesian quality gate: q(x) = x / (x + median(|x|)) per channel.
-  Applied column-wise across entities.
+  Applied column wise across entities.
 
----
+
 
 ### Interfacing Vector Assembly
 
@@ -4518,7 +4520,7 @@ bounded `eigsh` on the sparse RL.
 
   Project to unit sphere: iv / ||iv||. Returns zero vector for zero input.
 
----
+
 
 ### Spectral Coverage
 
@@ -4531,7 +4533,7 @@ bounded `eigsh` on the sparse RL.
 
   Minimum acceptable coverage: 1 - 1/e = 0.6321.
 
----
+
 
 ### Source Efficiency
 
@@ -4540,7 +4542,7 @@ bounded `eigsh` on the sparse RL.
   Fraction of boundary entries that are activating (positive) across all
   edges incident to target vertices. Values in [0, 1].
 
----
+
 
 ### Confidence Flags
 
@@ -4550,7 +4552,7 @@ bounded `eigsh` on the sparse RL.
   LOW_SIGNAL (coverage < 1 - 1/e), CHANNEL_CONFLICT (efficiency < 0.5 and
   topological fraction < 2/3).
 
----
+
 
 ### Full Pipeline
 
@@ -4568,17 +4570,17 @@ bounded `eigsh` on the sparse RL.
 
 
 
-## `_channels`: Per-Channel Signal Decomposition and Group Scoring
+## `_channels`: Per Channel Signal Decomposition and Group Scoring
 
 **File:** `_channels.pyx` (281 lines)
 
 Decomposes an edge signal's energy across typed Laplacian channels via hat^+
 quadratic forms. Spectral channel scores propagate a source signal through RL
 eigenmodes and project onto a target. Group scores aggregate spectral scores
-across entity groups defined by vertex masks. All eigendata is pre-computed
+across entity groups defined by vertex masks. All eigendata is pre computed
 and passed in; no eigensolves here.
 
----
+
 
 ### Primal Signal Character
 
@@ -4591,11 +4593,11 @@ and passed in; no eigensolves here.
 
   Dense ORACLE: the live `graph.py`'s `primal_signal_character` routes to
   `sparse_character.primal_signal_character_sparse` (psi^T hat^+ psi via LSQR
-  pseudoinverse quadratic forms, no per-channel eigendecomposition). Hat
+  pseudoinverse quadratic forms, no per channel eigendecomposition). Hat
   eigendata for this oracle comes from `_character.hat_eigen_all` cached in
   `_hat_eigen_bundle`.
 
----
+
 
 ### Spectral Channel Score
 
@@ -4608,26 +4610,26 @@ and passed in; no eigensolves here.
 
   Dense ORACLE: the live `graph.py`'s `spectral_channel_score` routes to
   `sparse_character.spectral_channel_score_sparse` (source^T RL4^+ target via one
-  block-CG solve, RL4 being full-rank SPD), scale-free with no RL
+  block CG solve, RL4 being full rank SPD), scale free with no RL
   eigendecomposition.
 
----
+
 
 ### Group Channel Scores
 
 - `group_channel_scores(group_masks, target, evals_RL, evecs_RL, B1, nV, nE, n_groups)` -> f64[n_groups]
 
-  Per-group spectral channel scores. For each group, builds an edge source
+  Per group spectral channel scores. For each group, builds an edge source
   from vertex membership via bl_gemv_t (B1^T @ mask), normalizes via bl_nrm2,
   then computes the spectral channel score against the target vector.
 
----
 
-### Multi-Channel Profile
+
+### Multi Channel Profile
 
 - `multi_channel_profile(iv, primal_char, coverage_val, kappa_mean, efficiency)` -> dict
 
-  Assembles a multi-dimensional profile for visualization. Combines
+  Assembles a multi dimensional profile for visualization. Combines
   interfacing vector components (iv_T, iv_G, iv_F, iv_Sch), primal
   character fractions (pc_T, pc_G, pc_F), coverage, mean coherence,
   and efficiency into a single dict.
@@ -4635,7 +4637,7 @@ and passed in; no eigensolves here.
 
 
 
-## `_cross_complex`: Cross-Complex Structural Comparison
+## `_cross_complex`: Cross Complex Structural Comparison
 
 **File:** `_cross_complex.pyx` (303 lines)
 
@@ -4644,7 +4646,7 @@ structural invariants (coherence kappa, void fraction, spectral channel
 scores) across them. All data is passed as arrays; this module does not
 import or depend on RexGraph.
 
----
+
 
 ### Label Alignment
 
@@ -4652,20 +4654,20 @@ import or depend on RexGraph.
 
   Finds shared vertices between two complexes by label matching.
   Returns the shared labels and corresponding index arrays into each
-  complex. Uses a dict-based lookup for O(n) matching.
+  complex. Uses a dict based lookup for O(n) matching.
 
----
+
 
 ### Kappa Correlation
 
 - `cross_complex_kappa(kappa_A, kappa_B, idx_A, idx_B)` -> dict
 
   Correlates coherence kappa across two complexes at shared vertices.
-  Uses a single-pass Pearson correlation (cdef nogil `_pearson`).
+  Uses a single pass Pearson correlation (cdef nogil `_pearson`).
   Returns correlation, n_shared, kappa_A_shared, kappa_B_shared,
   mean_A, mean_B. Returns 0.0 for n_shared < 2.
 
----
+
 
 ### Void Fraction Comparison
 
@@ -4674,16 +4676,16 @@ import or depend on RexGraph.
   Compares void fractions (n_voids / n_potential) between two complexes.
   Returns void_fraction_A, void_fraction_B, and their difference.
 
----
+
 
 ### Channel Score Correlation
 
 - `cross_complex_channel_scores(scores_A, scores_B)` -> dict
 
-  Pearson correlation of per-group spectral channel scores between two
+  Pearson correlation of per group spectral channel scores between two
   complexes. Measures whether the two complexes rank groups similarly.
 
----
+
 
 ### Full Bridge Analysis
 
@@ -4691,7 +4693,7 @@ import or depend on RexGraph.
 
   Chains kappa correlation, void fraction comparison, and optionally
   channel score correlation into a single result. Returns dict with kappa,
-  void, n_shared sub-dicts, and optional channel sub-dict.
+  void, n_shared sub dicts, and optional channel sub dict.
 
   Called by the standalone `cross_complex_bridge()` function in `graph.py`,
   which extracts coherence and void_complex data from two RexGraph objects.
@@ -4702,11 +4704,11 @@ import or depend on RexGraph.
 These modules cover advanced structure beyond the core tower and were not listed above:
 
 - `_color`: C-level color pipeline for K_7 spectral color.
-- `_harmonic`: the harmonic plane of numbers (harmonic-analysis structure).
+- `_harmonic`: the harmonic plane of numbers (harmonic analysis structure).
 - `_holomorphic`: holomorphic Lagrangian structure on RL_4. `relational_cr` /
-  `cr_saddle_score` compute the per-edge Cauchy-Riemann violation from the
+  `cr_saddle_score` compute the per edge Cauchy Riemann violation from the
   DIAGONALS of the hat products: diag(hat_T hat_S) and diag(hat_S hat_T) via
   `np.einsum('ek,ke->e', ...)`, O(nE^2), never forming the dense nE x nE
   products (which would be O(nE^3)).
-- `_l_gb`: the graded boundary Laplacian L_gb (within-grade channel-mixing).
-- `_temporal_entity`: entity-level BIOES tagging over a temporal complex.
+- `_l_gb`: the graded boundary Laplacian L_gb (within grade channel mixing).
+- `_temporal_entity`: entity level BIOES tagging over a temporal complex.

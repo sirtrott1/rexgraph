@@ -46,7 +46,7 @@ np.import_array()
 # Helpers
 
 cdef np.ndarray _to_dense_f64(obj):
-    """Convert any matrix-like to dense float64 ndarray."""
+    """Convert any matrix like to dense float64 ndarray."""
     if hasattr(obj, 'toarray'):
         return np.asarray(obj.toarray(), dtype=np.float64)
     if hasattr(obj, 'row_ptr'):
@@ -60,7 +60,7 @@ cdef np.ndarray _to_dense_f64(obj):
 
 
 cdef inline f64 _safe_fiedler(f64[::1] evals, int n) noexcept nogil:
-    """Return second-smallest eigenvalue (Fiedler value), or 0.0."""
+    """Return second smallest eigenvalue (Fiedler value), or 0.0."""
     cdef int i
     cdef f64 val
     for i in range(n):
@@ -76,11 +76,11 @@ def build_L0(B1_in):
     """L_0 = B_1 B_1^T (vertex Laplacian).
 
     Parameters
-    ----------
-    B1_in : array-like, shape (nV, nE)
+
+    B1_in : array like, shape (nV, nE)
 
     Returns
-    -------
+
     L0 : ndarray, shape (nV, nV)
     """
     cdef np.ndarray[f64, ndim=2] B1 = _to_dense_f64(B1_in)
@@ -95,11 +95,11 @@ def build_L1_down(B1_in):
     """L_1^{down} = B_1^T B_1 (edge downward Laplacian).
 
     Parameters
-    ----------
-    B1_in : array-like, shape (nV, nE)
+
+    B1_in : array like, shape (nV, nE)
 
     Returns
-    -------
+
     L1_down : ndarray, shape (nE, nE)
     """
     cdef np.ndarray[f64, ndim=2] B1 = _to_dense_f64(B1_in)
@@ -114,11 +114,11 @@ def build_L1_up(B2_in):
     """L_1^{up} = B_2 B_2^T (edge upward Laplacian).
 
     Parameters
-    ----------
-    B2_in : array-like, shape (nE, nF)
+
+    B2_in : array like, shape (nE, nF)
 
     Returns
-    -------
+
     L1_up : ndarray, shape (nE, nE)
     """
     cdef np.ndarray[f64, ndim=2] B2 = _to_dense_f64(B2_in)
@@ -136,12 +136,12 @@ def build_L1_full(L1_down_in, L1_up_in):
     """L_1 = L_1^{down} + L_1^{up} (full edge Hodge Laplacian).
 
     Parameters
-    ----------
+
     L1_down_in : ndarray, shape (nE, nE)
     L1_up_in : ndarray, shape (nE, nE)
 
     Returns
-    -------
+
     L1 : ndarray, shape (nE, nE)
     """
     cdef np.ndarray[f64, ndim=2] Ld = np.ascontiguousarray(L1_down_in, dtype=np.float64)
@@ -164,11 +164,11 @@ def build_L2(B2_in):
     """L_2 = B_2^T B_2 (face Laplacian).
 
     Parameters
-    ----------
-    B2_in : array-like, shape (nE, nF)
+
+    B2_in : array like, shape (nE, nF)
 
     Returns
-    -------
+
     L2 : ndarray, shape (nF, nF)
     """
     cdef np.ndarray[f64, ndim=2] B2 = _to_dense_f64(B2_in)
@@ -185,7 +185,7 @@ def build_L2(B2_in):
 # Part II/X). L0 = B1 B1^T = D - A (nnz ~ 2*nE), L1_down = B1^T B1, L1_up = B2 B2^T,
 # L2 = B2^T B2 - assembled as SPARSE matmuls, never densifying B1/B2 (the nV x nE
 # / nE x nE dense allocation was the crash). Return scipy CSR. The dense builders
-# above are the verified opt-in fallback; on small graphs the sparse .toarray()
+# above are the verified opt in fallback; on small graphs the sparse .toarray()
 # reproduces them exactly (they compute the same B B^T).
 
 cdef object _as_scipy(obj):
@@ -231,25 +231,25 @@ def eigen_symmetric(np.ndarray[f64, ndim=2] L_in):
     """Eigendecompose a symmetric matrix via LAPACK dsyev_.
 
     Parameters
-    ----------
+
     L_in : ndarray, shape (n, n), symmetric
 
     Returns
-    -------
+
     evals : ndarray, shape (n,), ascending
-    evecs : ndarray, shape (n, n), row-major, columns are eigenvectors
+    evecs : ndarray, shape (n, n), row major, columns are eigenvectors
     """
     cdef int n = L_in.shape[0]
     if n == 0:
         return np.empty(0, dtype=np.float64), np.empty((0, 0), dtype=np.float64)
 
-    # dsyev_ needs Fortran-order input; overwrites with eigenvectors
+    # dsyev_ needs Fortran order input; overwrites with eigenvectors
     cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(L_in.copy())
     cdef np.ndarray[f64, ndim=1] evals = np.empty(n, dtype=np.float64)
 
     lp_eigh(&A_F[0, 0], &evals[0], n)
 
-    # Clean near-zero eigenvalues
+    # Clean near zero eigenvalues
     cdef int i
     for i in range(n):
         if fabs(evals[i]) < 1e-12:
@@ -257,7 +257,7 @@ def eigen_symmetric(np.ndarray[f64, ndim=2] L_in):
         elif evals[i] < 0.0 and fabs(evals[i]) < 1e-9:
             evals[i] = 0.0
 
-    # Convert to row-major (C-contiguous)
+    # Convert to row major (C-contiguous)
     cdef np.ndarray[f64, ndim=2] evecs = np.ascontiguousarray(A_F)
     return evals, evecs
 
@@ -275,7 +275,7 @@ def clean_eigenvalues(np.ndarray[f64, ndim=1] evals, f64 tol=1e-10):
 
 
 def fiedler_value(np.ndarray[f64, ndim=1] evals):
-    """Second-smallest eigenvalue (algebraic connectivity)."""
+    """Second smallest eigenvalue (algebraic connectivity)."""
     cdef int n = evals.shape[0]
     cdef f64[::1] ev = evals
     return float(_safe_fiedler(ev, n))
@@ -301,7 +301,7 @@ def extract_diag_L1(B1_in, B2_in):
     diag(B2 B2^T)[e] = sum_f B2[e,f]^2  (row sum of squares)
 
     Returns
-    -------
+
     (diag_down, diag_up) : tuple of ndarray
     """
     # diag(B1^T B1)[e] = column-e sum of squares of B1; diag(B2 B2^T)[e] = row-e sum of
@@ -332,13 +332,13 @@ def build_L1_alpha(L1_in, L_O_in, f64 alpha):
     """L_1(alpha) = L_1 + alpha * L_O.
 
     Parameters
-    ----------
+
     L1_in : ndarray (nE, nE)
     L_O_in : ndarray (nE, nE)
     alpha : float
 
     Returns
-    -------
+
     ndarray (nE, nE)
     """
     cdef np.ndarray[f64, ndim=2] L1 = np.ascontiguousarray(L1_in, dtype=np.float64)
@@ -360,12 +360,12 @@ def build_Lambda(B1_in, L_O_in):
     """Lambda = B_1 L_O B_1^T.
 
     Parameters
-    ----------
-    B1_in : array-like (nV, nE)
+
+    B1_in : array like (nV, nE)
     L_O_in : ndarray (nE, nE)
 
     Returns
-    -------
+
     ndarray (nV, nV)
     """
     cdef np.ndarray[f64, ndim=2] B1 = _to_dense_f64(B1_in)
@@ -391,7 +391,7 @@ def compute_coupling_constants(np.ndarray[f64, ndim=1] evals_L1,
     alpha_T = beta_1 / nE                    (topological coupling)
 
     Returns
-    -------
+
     (alpha_G, alpha_T)
     """
     cdef f64 fiedler_L1 = 0.0, fiedler_LO = 0.0
@@ -415,7 +415,7 @@ def compute_coupling_constants(np.ndarray[f64, ndim=1] evals_L1,
 # Trace normalization (for RL pipeline)
 
 def trace_normalize(L_in):
-    """Trace-normalize: L_hat = L / tr(L).
+    """Trace normalize: L_hat = L / tr(L).
 
     Returns (L_hat, trace_value). Returns (zero, 0.0) if tr(L) < epsilon.
     Works on dense ndarray.
@@ -443,10 +443,10 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
     Everything routes through LAPACK/BLAS; zero np.linalg calls.
 
     Parameters
-    ----------
-    B1_in : array-like, shape (nV, nE)
+
+    B1_in : array like, shape (nV, nE)
         Vertex-edge boundary operator.
-    B2_in : array-like or None, shape (nE, nF)
+    B2_in : array like or None, shape (nE, nF)
         Edge-face boundary operator. None if no faces.
     L_O_in : ndarray or None, shape (nE, nE)
         Overlap Laplacian. None if not computed.
@@ -460,7 +460,7 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
         Number of eigenvalues for sparse path (-1 = all, dense).
 
     Returns
-    -------
+
     dict with keys:
         L0, L1_down, L1_up, L1_full, L2,
         evals_L0, evecs_L0, fiedler_val_L0, fiedler_vec_L0,
@@ -621,9 +621,9 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
     # Coupling constant alpha_G = c^2 = G/T: the CANONICAL geometry<->topology exchange rate on the
     # EXACT tower, tr((B2 B2^T)^2)/tr((B1^T B1)^2) = ||L1_up||_F^2 / ||L1_down||_F^2 (integer traces,
     # exact rational = (k-2)/2 on K_k; = 0 with no faces = "no geometric content yet"). This replaces
-    # the outdated fiedler(L1)/fiedler(L_O) eigenvalue ratio, a float scale-balance proxy off the exact
+    # the outdated fiedler(L1)/fiedler(L_O) eigenvalue ratio, a float scale balance proxy off the exact
     # tower. It is the DOWN(gradient)/UP(curl) exchange, not an overlap ratio (tr(G^2)=tr(T^2) is a
-    # sign-blind constant, so the overlap ratio carries no information). alpha_T = beta1/nE.
+    # sign blind constant, so the overlap ratio carries no information). alpha_T = beta1/nE.
     cdef f64 calT = 0.0, calG = 0.0
     if auto_alpha and has_LO and nE > 0:
         calT = float(np.sum(L1d * L1d))
@@ -635,7 +635,7 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
     result['alpha_T'] = float(alpha_T)
 
     # RL_1 = L1_down + alpha_G * L1_up  =  gradient energy + c^2 * curl energy: the canonical
-    # relational Laplacian on edges (Hodge-decomposed). At c^2 = 1 this is the standard edge Hodge
+    # relational Laplacian on edges (Hodge decomposed). At c^2 = 1 this is the standard edge Hodge
     # L1_full. (Replaces the drifted RL_1 = L_1 + alpha_G * L_O, which scaled the overlap operator.)
     if auto_alpha and has_LO and nE > 0 and not (isnan(alpha_G) or isinf(alpha_G)):
         RL_1 = build_L1_alpha(L1d, L1u, alpha_G)
@@ -678,7 +678,7 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
 
     # Relational Laplacian via build_RL
     # Single computation point: assemble all available typed Laplacians,
-    # trace-normalize each once, sum into RL. No redundant normalization.
+    # trace normalize each once, sum into RL. No redundant normalization.
     if nE > 0:
         from rexgraph.core._relational import build_RL
         from rexgraph.core._character import compute_chi
@@ -719,7 +719,7 @@ def build_all_laplacians(B1_in, B2_in, L_O_in,
 # Sparse spectral bundle for large graphs
 
 def _sparse_betti(B1_in, B2_in, int nV, int nE, int nF):
-    """Betti numbers, EXACT and arity-aware (matches RexGraph.betti / betti_numbers).
+    """Betti numbers, EXACT and arity aware (matches RexGraph.betti / betti_numbers).
 
     beta_0 = n_0 - rank(B_1) = dim ker(B_1^T), the same formula as every other grade.
         A component count is NOT equivalent once any relation has arity above two:
@@ -793,9 +793,9 @@ def _sparse_fiedler_L0(B1_in, int nV, int nE):
 def _finish_sparse_bundle(result, int nV, int nE, int nF, int beta1):
     """The slots the sparse bundle does not compute at this scale, in one place so the
     with_fiedler branches cannot drift apart."""
-    result['L0'] = None                      # matrix-free operator instead
+    result['L0'] = None                      # matrix free operator instead
 
-    result['L1_down'] = None                 # edge-space operators: not at this scale
+    result['L1_down'] = None                 # edge space operators: not at this scale
     result['L1_up'] = None
     result['L1_full'] = None
     result['evals_L1'] = np.empty(0, dtype=np.float64)
@@ -832,26 +832,26 @@ def build_all_laplacians_sparse(B1_in, B2_in, int nV, int nE, int nF,
                                 bint with_fiedler=True):
     """Sparse spectral bundle for large graphs where nE x nE is too big.
 
-    Computes Betti numbers via union-find + Euler (no L1 eigendecomposition).
-    Computes L0 Fiedler via matrix-free ARPACK (no L0 materialized).
-    Edge-space operators (L1, L_O, RL, hats, chi) are set to None.
-    Use subgraph() or quotient() to analyze edge-level structure.
+    Computes Betti numbers via union find + Euler (no L1 eigendecomposition).
+    Computes L0 Fiedler via matrix free ARPACK (no L0 materialized).
+    Edge space operators (L1, L_O, RL, hats, chi) are set to None.
+    Use subgraph() or quotient() to analyze edge level structure.
 
     Parameters
-    ----------
+
     B1_in : DualCSR or scipy sparse or dense, shape (nV, nE)
     B2_in : DualCSR or scipy sparse or dense or None, shape (nE, nF)
     nV, nE, nF : int
 
     Returns
-    -------
+
     dict with the same key set as build_all_laplacians. Keys that
     require dense nE x nE computation are set to None or empty.
     """
     result = {}
     result['_sparse_mode'] = True
 
-    # Betti via union-find (passes B1_in directly, handles DualCSR internally)
+    # Betti via union find (passes B1_in directly, handles DualCSR internally)
     beta0, beta1, beta2, rank_B1, rank_B2 = _sparse_betti(
         B1_in, B2_in, nV, nE, nF)
     result['beta0'] = beta0

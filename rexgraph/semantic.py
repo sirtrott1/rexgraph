@@ -32,28 +32,28 @@ def relation_field(rex, edges=None):
     Q[i] = <V[:,i], V[:,i]>_L = R_eff(edges[i]), summing to rank(B1) over everything.
     """
 
-    from rexgraph.core._sparse import to_scipy_csr
-    from rexgraph.fiedler import deflated_operator, minimum_norm_gram_solve
-    from rexgraph.sparse_character import _block_cg
-
-    B1 = to_scipy_csr(rex._B1_dual).tocsc()
-    nE = B1.shape[1]
-    idx = np.arange(nE) if edges is None else np.asarray(edges, dtype=int).ravel()
-    if idx.size == 0:
-        return np.zeros((B1.shape[0], 0)), np.zeros(0)
-    Bc = np.ascontiguousarray(np.asarray(B1[:, idx].todense(), dtype=np.float64))
-    # L0 is never formed: _block_cg takes the operator as a callable, and B1 is 22x
-    # smaller than B1 B1^T with a matvec 6.8x faster (see fiedler.deflated_operator).
-    try:
-        apply_A, dinv, _U, _nc = deflated_operator(B1)
-    except ValueError:
-        # Branching C1 has a larger ker(B1.T) than its support components.  The
-        # general Green action is the minimum-norm solve over the declared boundary,
-        # never a pairwise component surrogate.
-        V = minimum_norm_gram_solve(B1, Bc, tol=1e-12, maxit=500)
-    else:
-        V = _block_cg(apply_A, Bc, dinv, tol=1e-12, maxit=500)
+    from rexgraph.green import vertex_green
+    Bc = _relation_sources(rex, edges)
+    V = vertex_green(rex).solve(Bc)
     return V, np.einsum("ve,ve->e", Bc, V)
+
+
+def _relation_sources(rex, edges):
+    """Read only the requested boundary columns into the output source block."""
+    from numbers import Integral
+    from rexgraph.native_sparse import NativeSparse
+    rex._ensure_clean()
+    boundary = NativeSparse(rex._B1_dual)
+    idx = list(range(boundary.shape[1])) if edges is None else list(edges)
+    if any(isinstance(i, (bool, np.bool_)) or not isinstance(i, Integral) for i in idx):
+        raise TypeError("relation indices must be integers")
+    if any(i < 0 or i >= boundary.shape[1] for i in idx):
+        raise ValueError("relation index is outside the boundary")
+    out = np.zeros((boundary.shape[0], len(idx)))
+    for j, edge in enumerate(idx):
+        lo, hi = boundary.dual.col_ptr[edge:edge + 2]
+        np.add.at(out[:, j], boundary.dual.row_idx[lo:hi], boundary.dual.vals_csc[lo:hi])
+    return out
 
 
 def significance(rex, edges=None):
@@ -65,16 +65,13 @@ def significance(rex, edges=None):
 def semantic_gram(rex, edges=None):
     """The Gram block of the field under the L-inner product, `G[i,j] = b_i^T L0^+ b_j`.
 
-    Its diagonal is the significance and its off-diagonal is how much two relations
+    Its diagonal is the significance and its off diagonal is how much two relations
     move the complex together. PSD by construction, so it is a kernel over relations.
     """
 
-    from rexgraph.core._sparse import to_scipy_csr
-    B1 = to_scipy_csr(rex._B1_dual).tocsc()
-    idx = (np.arange(B1.shape[1]) if edges is None
-           else np.asarray(edges, dtype=int).ravel())
-    V, _q = relation_field(rex, idx)
-    Bc = np.asarray(B1[:, idx].todense(), dtype=np.float64)
+    from rexgraph.green import vertex_green
+    Bc = _relation_sources(rex, edges)
+    V = vertex_green(rex).solve(Bc)
     G = Bc.T @ V
     return 0.5 * (G + G.T)                      # symmetrise the solve's rounding
 

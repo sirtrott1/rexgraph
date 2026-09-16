@@ -255,7 +255,7 @@ class TestFiedler:
         L0 = _laplacians.build_L0(_k4_B1())
         evals, evecs = _laplacians.eigen_symmetric(L0)
         fvec = _laplacians.fiedler_vector(evecs, evals)
-        # Fiedler vector is orthogonal to the all-ones vector
+        # Fiedler vector is orthogonal to the all ones vector
         assert abs(np.sum(fvec)) < 1e-10
 
 

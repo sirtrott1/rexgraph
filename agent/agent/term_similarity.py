@@ -14,7 +14,7 @@ distribution its ancestors induce and the shared mass is the overlap coefficient
                   = 1 - TV(p_a, p_b)
 
 which is a proper measure of agreement between distributions, is exactly rational when
-the weights are, and equals 1 exactly when the two terms have the same up-set.
+the weights are, and equals 1 exactly when the two terms have the same up set.
 
 The relationship to the standard measures is a reduction, not a rivalry. Over the same
 weighted set:
@@ -24,7 +24,7 @@ weighted set:
 
 so `Resnik <= shared`, with equality exactly when at most one shared ancestor carries
 weight. Every further thing two terms share that carries weight widens the gap, and
-the gap is what Resnik cannot see. Two pairs with the same most-informative ancestor
+the gap is what Resnik cannot see. Two pairs with the same most informative ancestor
 and different amounts of shared structure get the same Resnik score and different
 overlaps.
 
@@ -38,7 +38,7 @@ The weight is a parameter, and that matters. Information content is defined from
 annotation frequency, so a Resnik or Lin score between two terms changes when a
 different corpus is loaded: the same two terms are more or less similar depending on
 how much they happen to have been studied. The default here is uniform, which depends
-on the hierarchy alone. Pass `weight` to reproduce an information-content reading, and
+on the hierarchy alone. Pass `weight` to reproduce an information content reading, and
 the reduction above holds for whatever weight is passed.
 
 Nothing in this module implements Resnik or Lin. They are approximations of the object
@@ -47,7 +47,7 @@ library surface.
 
 **This is not the fiber similarity, and the two do not substitute for each other.**
 `RexGraph.spread_similarity` reads a term's position in the complex: its degree, its
-co-participation, its orientation agreement. It does not track ancestry and does not
+co participation, its orientation agreement. It does not track ancestry and does not
 substitute for this: use this for "how much do these two terms share", and the fiber
 similarity for "do these two terms sit in the same kind of structural position".
 """
@@ -63,7 +63,7 @@ HIERARCHY = frozenset({"is_a", "isa", "subclassof", "part_of", "partof"})
 
 @dataclass
 class TermHierarchy:
-    """A term hierarchy, and the up-set each term induces."""
+    """A term hierarchy, and the up set each term induces."""
 
     parents: dict[str, set] = field(default_factory=dict)
     _ancestors: dict[str, frozenset] = field(default_factory=dict, repr=False)
@@ -159,7 +159,7 @@ def shared_mass(h: TermHierarchy, a: str, b: str, *, weight=None) -> Fraction:
 def ancestor_overlap(h: TermHierarchy, a: str, b: str, *, weight=None) -> Fraction:
     """`sum_c min(p_a(c), p_b(c))`: the shared mass, normalised as distributions.
 
-    Exactly rational. 1 when the two terms have the same up-set, 0 when they share
+    Exactly rational. 1 when the two terms have the same up set, 0 when they share
     nothing, and in between it is the fraction of each term's own mass that the other
     accounts for. This is the overlap coefficient, equivalently `1 - TV`.
     """
@@ -187,7 +187,7 @@ def overlap_matrix(h: TermHierarchy, terms=None, *, weight=None):
 
 
 def discrimination(h: TermHierarchy, a: str, b: str, *, weight=None) -> dict:
-    """What the single-ancestor reading loses on this pair.
+    """What the single ancestor reading loses on this pair.
 
     `n_shared` is how many common ancestors there are; a reading that keeps one of
     them discards `n_shared - 1`. `mass_outside_the_largest` is the weight it

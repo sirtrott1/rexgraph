@@ -28,7 +28,7 @@ from rexgraph.hodge_coords import (
 
 
 def _two_rings():
-    """A 4-ring and a 3-ring, disjoint: two independent holes, no faces."""
+    """A 4 ring and a 3 ring, disjoint: two independent holes, no faces."""
     src = np.array([0, 1, 2, 3, 4, 5, 6], np.int32)
     tgt = np.array([1, 2, 3, 0, 5, 6, 4], np.int32)
     return RexGraph(sources=src, targets=tgt)
@@ -299,7 +299,7 @@ def test_structure_constants_place_the_product_in_coordinates():
 
 #### the Gram determinant counts spanning trees
 def _spanning_trees(nV, pairs):
-    """Matrix-Tree: any cofactor of L0, computed exactly and independently."""
+    """Matrix Tree: any cofactor of L0, computed exactly and independently."""
     from fractions import Fraction
 
     from rexgraph.rational_trig import bareiss_determinant
@@ -315,7 +315,7 @@ def _spanning_trees(nV, pairs):
 
 def test_the_frame_gram_determinant_counts_spanning_trees():
     """With no faces the frame is the whole cycle space, and its Gram determinant
-    is the spanning-tree count. Checked against the Matrix-Tree cofactor, which
+    is the spanning tree count. Checked against the Matrix Tree cofactor, which
     shares no code with the frame."""
     import itertools
 
@@ -392,7 +392,7 @@ def test_the_determinant_is_a_squared_volume_and_the_frame_is_equiangular():
 
 
 def test_a_subset_determinant_counts_the_edge_sets_it_is_independent_on():
-    """Cauchy-Binet against a unimodular cycle matrix: every maximal minor is 0 or
+    """Cauchy Binet against a unimodular cycle matrix: every maximal minor is 0 or
     +-1, so the determinant is a count, not only a volume."""
     import itertools
 
@@ -536,7 +536,7 @@ def test_the_lattice_automorphisms_are_the_graph_automorphisms():
 
 
 def test_the_lattice_keeps_every_ring_where_a_basis_must_drop_one():
-    """Cubane, the textbook ambiguity in ring perception. The 3-cube has six square
+    """Cubane, the textbook ambiguity in ring perception. The 3 cube has six square
     faces and beta_1 is five, so any cycle basis leaves one out and no rule says
     which. The lattice's minimal vectors keep all six."""
     import itertools
@@ -556,7 +556,7 @@ def test_the_lattice_keeps_every_ring_where_a_basis_must_drop_one():
 
 def test_holonomy_is_a_z2_functional_on_the_lattice():
     """A sign per edge is a gauge field; its product around a lattice vector is the
-    Wilson loop. Vertex re-signing is a gauge transformation and cannot move it;
+    Wilson loop. Vertex re signing is a gauge transformation and cannot move it;
     flipping one edge is physical and does."""
     import itertools
     e = list(itertools.combinations(range(4), 2))
@@ -583,7 +583,7 @@ def test_holonomy_is_a_z2_functional_on_the_lattice():
 
 #### the graded tower stays integer, and C60 is where that shows
 def test_the_boundary_tower_is_integer_at_every_grade_and_closes_exactly():
-    """C60 as a solid: a real molecule with mixed-arity faces. The chain condition
+    """C60 as a solid: a real molecule with mixed arity faces. The chain condition
     closes at exactly zero, not to a tolerance, because nothing left the integers."""
     from rexgraph.graded_boundary import (
         betti_numbers,
@@ -613,7 +613,7 @@ def test_grade_two_carries_mixed_arity_which_a_simplicial_complex_cannot():
 
 
 def test_the_intrinsic_angle_of_a_simple_graph_carries_no_valence():
-    """Worth pinning so it is not over-read. Two 2-ary relations meeting at a
+    """Worth pinning so it is not over read. Two 2 ary relations meeting at a
     vertex have spread 3/4 whatever the degree, because that is the shape of a
     k=2 column. Arity is where geometry enters, and it moves there."""
     from fractions import Fraction
@@ -656,7 +656,7 @@ def test_the_frame_is_integer_with_faces_present(n, tris):
     """`ker(B2^T C)` is the kernel of an integer matrix, so it has an integer basis.
     Taking it by dense SVD returned normalized float columns, and the frame built
     from them was not integer: every exact reading downstream (coordinates,
-    closure, the Gram determinant) only held on face-free complexes."""
+    closure, the Gram determinant) only held on face free complexes."""
     r = _faced(n, tris)
     H = np.asarray(harmonic_frame(r).todense())
     assert H.shape[1] > 0, "fixture has no harmonic content to test"
@@ -680,8 +680,8 @@ def test_the_faced_frame_still_spans_ker_l1(n, tris):
 def test_the_exact_kernel_declines_rather_than_overflowing():
     """Clearing denominators can push a coordinate past what a float64 holds
     exactly. A dense random integer matrix does it at 40x80. The routine returns
-    None there so the caller takes the float path, rather than wrapping to a wrong
-    integer."""
+    None there so the native caller refuses instead of silently switching to a
+    floating spectral frame."""
     import scipy.sparse as sp
 
     from rexgraph.harmonic_sparse import _integer_nullspace
@@ -690,4 +690,4 @@ def test_the_exact_kernel_declines_rather_than_overflowing():
     assert _integer_nullspace(sp.csr_matrix(A.astype(float))) is None
     # and a structured one does not
     small = _integer_nullspace(sp.csr_matrix(np.array([[1., -1., 0.], [0., 1., -1.]])))
-    assert small is not None and np.array_equal(small, np.round(small))
+    assert sp.issparse(small) and np.array_equal(small.data, np.round(small.data))

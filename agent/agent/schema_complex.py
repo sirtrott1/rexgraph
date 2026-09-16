@@ -3,11 +3,11 @@ agent.schema_complex: schemas and ontologies AS relational complexes.
 
 A database schema *is* a relational complex: tables are cells, foreign
 keys are typed, directional relations (child -> parent), and junction
-tables are co-participations (faces). Once a schema is a complex, the
+tables are co participations (faces). Once a schema is a complex, the
 same algebra that analyses documents diagnoses the schema's *actual
 topology*:
 
-  * Betti-1 = independent cycles = **circular FK dependencies** - the
+  * Betti 1 = independent cycles = **circular FK dependencies** - the
     thing that breaks migration ordering, cascade deletes, and topological
     insert/delete.
   * Hodge gradient % = how cleanly the FK graph forms a hierarchy.
@@ -68,7 +68,7 @@ class SchemaModel:
 
     def table_names(self) -> list[str]:
         names = [t.name for t in self.tables]
-        # include FK-referenced tables even if not explicitly defined
+        # include FK referenced tables even if not explicitly defined
         for fk in self.foreign_keys:
             for n in (fk.from_table, fk.to_table):
                 if n not in names:
@@ -116,7 +116,7 @@ _PK_RE = re.compile(r"primary\s+key\s*\(\s*([^)]+)\)", re.IGNORECASE)
 
 
 def _parse_ddl_sqlglot(ddl: str, dialect: str | None = None) -> SchemaModel:
-    """Dialect-aware DDL parsing via sqlglot (Oracle/Postgres/MySQL/…)."""
+    """Dialect aware DDL parsing via sqlglot (Oracle/Postgres/MySQL/…)."""
     from sqlglot import exp, parse
     read = dialect if dialect and dialect not in ("auto", "sql") else None
     statements = parse(ddl, read=read)
@@ -166,7 +166,7 @@ def _parse_ddl_sqlglot(ddl: str, dialect: str | None = None) -> SchemaModel:
 def parse_schema_ddl(ddl: str, dialect: str | None = None) -> SchemaModel:
     """Parse CREATE TABLE / FOREIGN KEY / ALTER DDL into a schema model.
 
-    Uses sqlglot (dialect-aware: oracle, postgres, mysql, tsql, snowflake, …)
+    Uses sqlglot (dialect aware: oracle, postgres, mysql, tsql, snowflake, …)
     when available and falls back to a regex parser otherwise. Pass
     ``dialect`` to disambiguate vendor syntax.
     """
@@ -180,10 +180,10 @@ def parse_schema_ddl(ddl: str, dialect: str | None = None) -> SchemaModel:
 
 
 def _split_top_level(body: str) -> list[str]:
-    """Split a CREATE TABLE body on top-level commas only: commas at paren
-    depth 0. A naive ``body.split(",")`` shreds parenthesised, comma-separated
+    """Split a CREATE TABLE body on top level commas only: commas at paren
+    depth 0. A naive ``body.split(",")`` shreds parenthesised, comma separated
     constraint lists (``PRIMARY KEY(a, b)``, ``FOREIGN KEY (x, y) REFERENCES
-    t(p, q)``, ``UNIQUE (a, b)``) mid-list, dropping the constraint and leaving
+    t(p, q)``, ``UNIQUE (a, b)``) mid list, dropping the constraint and leaving
     a phantom column. Keeping each ``(...)`` intact fixes both."""
     parts: list[str] = []
     depth = 0
@@ -244,7 +244,7 @@ def _parse_ddl_regex(ddl: str) -> SchemaModel:
 def reflect_schema(conn_str: str) -> SchemaModel:
     """Reflect a live database's schema via SQLAlchemy (any backend).
 
-    Read-only reflection; credentials are never returned in the model.
+    Read only reflection; credentials are never returned in the model.
     """
     from sqlalchemy import create_engine, inspect
     # short connect timeout so a bad host fails fast rather than hanging
@@ -294,7 +294,7 @@ def reflect_schema(conn_str: str) -> SchemaModel:
 
 
 def infer_mongo_schema(collections: dict[str, list[dict]]) -> SchemaModel:
-    """Infer a schema from MongoDB-style collections of sample documents.
+    """Infer a schema from MongoDB style collections of sample documents.
 
     Document databases have no declared foreign keys, but references are
     real: DBRef (``{"$ref": "coll"}``) and the ``<entity>_id`` / ``<entity>Id``
@@ -365,7 +365,7 @@ def export_migration_plan(model: SchemaModel) -> dict[str, Any]:
     """Produce a clean, executable order to build the schema.
 
     Returns a create order plus the FKs to add *after* the tables exist
-    (the cycle-breaking relations), which is exactly how you deploy a
+    (the cycle breaking relations), which is exactly how you deploy a
     schema that contains circular dependencies: create in topological
     order without the offending FKs, then ALTER TABLE ADD them last.
     """
@@ -395,11 +395,11 @@ def export_migration_plan(model: SchemaModel) -> dict[str, Any]:
 
 
 def export_schema_ddl(model: SchemaModel, dialect: str = "generic") -> str:
-    """Generate CREATE TABLE DDL from a schema model, cycle-safe.
+    """Generate CREATE TABLE DDL from a schema model, cycle safe.
 
     Tables are emitted in dependency order; foreign keys that would form a
     cycle are emitted as trailing ``ALTER TABLE ADD CONSTRAINT`` so the
-    script runs top-to-bottom without ordering errors.
+    script runs top to bottom without ordering errors.
     """
     order, cut = topological_order(model)
     cut_set = {(a, b) for a, b in cut}
@@ -435,8 +435,8 @@ def export_schema_ddl(model: SchemaModel, dialect: str = "generic") -> str:
 
 
 def list_tables(conn_str: str, with_counts: bool = False) -> list[dict]:
-    """List a live database's tables with column/PK/FK counts (read-only).
-    If ``with_counts``, also include a best-effort ``rows`` count per table."""
+    """List a live database's tables with column/PK/FK counts (read only).
+    If ``with_counts``, also include a best effort ``rows`` count per table."""
     from sqlalchemy import create_engine, inspect, text
     engine = create_engine(conn_str)
     insp = inspect(engine)
@@ -470,9 +470,9 @@ def list_tables(conn_str: str, with_counts: bool = False) -> list[dict]:
 
 def _associative_entities(model: SchemaModel) -> set:
     """Tables whose identity *is* their relationships: associative /
-    junction entities. Signal: a primary key composed of foreign-key
+    junction entities. Signal: a primary key composed of foreign key
     columns, binding two or more parents. These are the cells that
-    genuinely co-participate, so they license a co-participation face.
+    genuinely co participate, so they license a co participation face.
     """
     fk_cols: dict[str, set] = {}
     fk_count: dict[str, int] = {}
@@ -483,14 +483,14 @@ def _associative_entities(model: SchemaModel) -> set:
     for t in model.tables:
         pk = set(t.primary_key or [])
         cols = fk_cols.get(t.name, set())
-        # ≥2 FKs and every PK column is a foreign-key column
+        # ≥2 FKs and every PK column is a foreign key column
         if fk_count.get(t.name, 0) >= 2 and pk and pk.issubset(cols):
             assoc.add(t.name)
     return assoc
 
 
 def _coparticipation_b2(names, sources, targets, model):
-    """Build co-participation faces as general **k-gons** via the B₂ boundary
+    """Build co participation faces as general **k-gons** via the B₂ boundary
     matrix, not restricted to triangles.
 
     A face is the ``{0,1}⊗{+,-}`` column: participating edges (`{0,1}`) with
@@ -569,15 +569,15 @@ def _coparticipation_b2(names, sources, targets, model):
             np.asarray(vals, dtype=np.float64), descs)
 
 
-#: The available face-selection algorithms for a schema complex (see
+#: The available face selection algorithms for a schema complex (see
 #: `_schema_face_b2` / `explore_schema_faces`). Same tables & FKs, different
-#: definition of "what counts as a co-participation" -> different curl/harmonic.
+#: definition of "what counts as a co participation" -> different curl/harmonic.
 SCHEMA_FACE_SELECTIONS = ("coparticipation", "autoface", "promote", "none")
 
 
 def _schema_face_b2(names, src, tgt, edge_tables, model, mode):
     """Return the schema's B₂ as (col_ptr, row_idx, vals) CSC arrays under the
-    chosen face-selection algorithm, or None for no faces:
+    chosen face selection algorithm, or None for no faces:
 
       'coparticipation' - faces only over associative/junction entities (the
                           "real" co-participations); ordinary FK cycles stay
@@ -585,8 +585,8 @@ def _schema_face_b2(names, src, tgt, edge_tables, model, mode):
       'autoface'        - fill every triangle AND bigon the FK graph allows
                           (geometry-from-topology; more curl, less harmonic).
                           [_autoface_b2]
-      'none'            - 1-rex, no faces (pure gradient/harmonic split).
-    ('promote' is handled by the core face-finder in schema_to_rex, not here.)"""
+      'none'            - 1 rex, no faces (pure gradient/harmonic split).
+    ('promote' is handled by the core face finder in schema_to_rex, not here.)"""
     if mode == "coparticipation":
         cp, rp, vp, _ = _coparticipation_b2(names, src, tgt, model)
         return None if cp is None else (cp, rp, vp)
@@ -614,11 +614,11 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
     Vertices = tables. Edges = foreign keys (child -> parent). Faces are chosen by
     ``face_selection`` (see `SCHEMA_FACE_SELECTIONS` / `explore_schema_faces`):
     'coparticipation' (default - associative/junction entities), 'autoface' (every
-    triangle+bigon the FK graph allows), 'promote' (the core face-finder), or 'none'
-    (1-rex). ``weights`` optionally maps "from_table->to_table" to an edge magnitude
+    triangle+bigon the FK graph allows), 'promote' (the core face finder), or 'none'
+    (1 rex). ``weights`` optionally maps "from_table->to_table" to an edge magnitude
     (e.g. cardinality) - the complex then carries ``w_E`` into the core channels, so
     the weighted/curvature story lives on the standard complex rather than a separate
-    hand-rolled path. Different valid geometries of the same schema. Returns
+    hand rolled path. Different valid geometries of the same schema. Returns
     ``(rex_or_None, meta)``.
     """
     if face_selection not in SCHEMA_FACE_SELECTIONS:
@@ -644,7 +644,7 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
     # chokepoint) - schema_to_rex builds RexGraph directly, bypassing auto.py.
     from .auto import check_analysis_size
     check_analysis_size(len(names), len(sources))
-    # co-participation face descriptions are always reported (meta), independent
+    # co participation face descriptions are always reported (meta), independent
     # of which face_selection actually fills B₂ below.
     _, _, _, face_descs = (_coparticipation_b2(names, src, tgt, model)
                            if sources else (None, None, None, []))
@@ -686,7 +686,7 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
             rex = RexGraph(sources=src, targets=tgt, w_E=w_E)
     else:
         rex = RexGraph(sources=src, targets=tgt, w_E=w_E)
-        if face_selection == "promote":         # core face-finder
+        if face_selection == "promote":         # core face finder
             with contextlib.suppress(Exception):
                 rex = rex.promote()
     rex._agent_meta = meta
@@ -694,13 +694,13 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
 
 
 def explore_schema_faces(model: SchemaModel, modes=SCHEMA_FACE_SELECTIONS):
-    """Explore how the choice of face-selection algorithm changes the geometry of
+    """Explore how the choice of face selection algorithm changes the geometry of
     the SAME schema. For each mode, build the complex and report the face count,
     Betti numbers, and the Hodge split (how much relational flow is
     hierarchy/gradient vs bounded/curl vs persistent/harmonic). Filling more loops
     (autoface) trades harmonic "broken cycle" content for bounded curl; filling only
     genuine junctions (coparticipation) leaves ordinary FK cycles harmonic. Returns
-    ``{mode: {n_faces, betti, hodge}}`` - a side-by-side of the schema's options."""
+    ``{mode: {n_faces, betti, hodge}}`` - a side by side of the schema's options."""
     out: dict[str, Any] = {}
     for mode in modes:
         try:
@@ -723,7 +723,7 @@ def explore_schema_faces(model: SchemaModel, modes=SCHEMA_FACE_SELECTIONS):
     return out
 
 
-# cycle finder (actionable circular-dependency output)
+# cycle finder (actionable circular dependency output)
 
 def _find_cycles(names: list[str], edges: list[tuple[str, str]],
                  max_cycles: int | None = None) -> list[list[str]]:
@@ -757,7 +757,7 @@ def _find_cycles(names: list[str], edges: list[tuple[str, str]],
                     if key not in seen and len(cycles) < max_cycles:
                         seen.add(key)
                         cycles.append(cyc[:])
-                elif c == WHITE:                       # descend depth-first
+                elif c == WHITE:                       # descend depth first
                     color[nxt] = GREY
                     path.append(nxt)
                     stack.append((nxt, iter(adj.get(nxt, []))))
@@ -775,13 +775,13 @@ def topological_order(model: SchemaModel):
 
     For create/insert, a referenced (parent) table must exist before the
     referencing (child) table. Returns ``(order, relations_to_cut)``: a
-    topological order over the DAG part, plus a greedy feedback-arc set: the
+    topological order over the DAG part, plus a greedy feedback arc set: the
     foreign keys to defer/cut so a strict linear order exists. This breaks
     EVERY cycle (harmonic AND bounded/curl), because any cycle blocks a total
     order; the harmonic fraction in the readout then says which of those cuts
     address genuine broken dependencies (harmonic) vs intended recursion (curl,
-    e.g. a bill-of-materials) that you would instead handle with a deferred
-    constraint. So a non-empty cut with a low harmonic fraction is expected,
+    e.g. a bill of materials) that you would instead handle with a deferred
+    constraint. So a non empty cut with a low harmonic fraction is expected,
     not a contradiction.
     """
     names = model.table_names()
@@ -813,10 +813,10 @@ def topological_order(model: SchemaModel):
 
 def _autoface_b2(names, edges, B1):
     """Autoface: fill every triangle AND bigon the connectivity allows
-    (geometry-from-topology). Triangles = 3 pairwise-related tables; bigons =
+    (geometry from topology). Triangles = 3 pairwise related tables; bigons =
     mutual/parallel relations (e.g. a warehouse<->manager cycle, a self-M:N).
     Returns a SPARSE B₂ (nE×nF CSC) of signed loops with ∂₁∂₂=0 plus the
-    table-tuples. Adjacency-driven enumeration; sparse ∂₁∂₂ check (no dense B₂)."""
+    table tuples. Adjacency driven enumeration; sparse ∂₁∂₂ check (no dense B₂)."""
     import numpy as np
     import scipy.sparse as sp
     idx = {n: i for i, n in enumerate(names)}
@@ -894,7 +894,7 @@ def _autoface_b2(names, edges, B1):
 
 def _lagrangian_curvature(B1, B2, w):
     """Global Lagrangian curvature: the deviance of the tower exchange
-    c² = L_T/L_S from balance, via the NORMALIZED inverse-participation-ratio
+    c² = L_T/L_S from balance, via the NORMALIZED inverse participation ratio
     Lagrangians.
 
     L_T = tr(T²)/tr(T)² is the weighted *topological* (down) Lagrangian, T =
@@ -902,8 +902,8 @@ def _lagrangian_curvature(B1, B2, w):
     weighted *geometric* (up) Lagrangian, L₁ = B₂^wB₂^wᵀ. Both are inverse
     participation ratios (= e^{-H}) of the normalized spectrum, so they stay O(1)
     (no int64 overflow). c² = L_T/L_S = (k-2)/2 on Kₖ; curvature = |log c²| =
-    |H_S - H_T| (direction-free). When the topology overwhelms the geometry (heavy
-    junctions, few cycles) the curvature is large, closing the gap the face-bound
+    |H_S - H_T| (direction free). When the topology overwhelms the geometry (heavy
+    junctions, few cycles) the curvature is large, closing the gap the face bound
     curvatures leave on spans. The exact integer numerators tr(T²), tr(L₁²) are
     returned as L_T_trace/L_S_trace (unweighted: also c2_exact). c2 is None on a
     pure span (no geometry, L_S = 0); curvature stays large/finite there.
@@ -925,14 +925,14 @@ def _lagrangian_curvature(B1, B2, w):
 
 
 def _star_curvature(names, edges, w):
-    """Per-vertex star curvature (grade-0 localization of R): the weight
+    """Per vertex star curvature (grade 0 localization of R): the weight
     imbalance among each table's incident relations. Unlike face curvature
-    (grades 1-2), this is a gradient-tower quantity that fires on spans/
+    (grades 1-2), this is a gradient tower quantity that fires on spans/
     junctions: it is nonzero exactly where a table's relations carry
     imbalanced cardinality. Returns a ranked [{table, strain}] list.
     """
     # Math moved to the core: rexgraph.core._curvature.star_curvature is a tight
-    # per-vertex loop over the edge list (grade-0 localization). This wrapper only
+    # per vertex loop over the edge list (grade 0 localization). This wrapper only
     # maps names<->indices and shapes the ranked report.
     import numpy as np
     from rexgraph.core._curvature import star_curvature
@@ -947,10 +947,10 @@ def _star_curvature(names, edges, w):
 
 
 def relation_lint(model: SchemaModel) -> dict[str, Any]:
-    """Data-model lint from the RL4 character: label each foreign key by its
+    """Data model lint from the RL4 character: label each foreign key by its
     dominant structural channel, flag ones whose character is anomalous for the
     schema, and surface the tables pulled in conflicting directions (frustration).
-    Enriched with FK modality (optional/mandatory, identifying, on-delete)."""
+    Enriched with FK modality (optional/mandatory, identifying, on delete)."""
     import numpy as np
     rex, meta = schema_to_rex(model)
     out = {"relations": [], "conflict_tables": [], "anomalies": []}
@@ -989,7 +989,7 @@ def relation_lint(model: SchemaModel) -> dict[str, Any]:
             out["anomalies"].append(rec["relation"])
     fidx = 2 if chi.shape[1] > 2 else -1
     # Conflict tables = statistical OUTLIERS in the frustration channel (Tukey fence,
-    # data-adaptive, the same principled test as the relation anomalies above), not a
+    # data adaptive, the same principled test as the relation anomalies above), not a
     # fixed cutoff. `frustration_ranking` gives every table's exact value so the
     # caller sees the full distribution and can apply its own filter if desired.
     if fidx >= 0 and phi.shape[1] > 2 and phi.shape[0] >= len(names):
@@ -1008,13 +1008,13 @@ def relation_lint(model: SchemaModel) -> dict[str, Any]:
 
 
 def schema_strain(model: SchemaModel, weights=None):
-    """Data-forced strain: how the weighting (real data magnitudes) strains
-    the schema, on the lens-independent autoface geometry.
+    """Data forced strain: how the weighting (real data magnitudes) strains
+    the schema, on the lens independent autoface geometry.
 
     Three layers, each a plain answer (see the RCF conversation):
       * weighted->weighted (‖B₁^w B₂^w‖², intensity) -> *how much / where*
         - the strain heat map over joins.
-      * weighted->unweighted (B₁ diag(√w) B₂, first-order) -> *who / what*
+      * weighted->unweighted (B₁ diag(√w) B₂, first order) -> *who / what*
         - per-relation attribution, additive because ∂₁∂₂=0 exactly.
       * harmonic log of the strain Gram -> *how many / how coupled*
         - N_eff effective independent root causes + coupled pairs.
@@ -1045,10 +1045,10 @@ def schema_strain(model: SchemaModel, weights=None):
         if key in weights and weights[key] is not None:
             with contextlib.suppress(TypeError, ValueError):
                 w[e] = max(float(weights[key]), 1e-9)
-    # gradient-tower curvature localizations (fire on spans/junctions, unlike
-    # the face-bound curvature below):
-    #   relation_load: per-edge fan-out (which relation)
-    #   table_strain  - per-vertex star curvature (which table is the hotspot)
+    # gradient tower curvature localizations (fire on spans/junctions, unlike
+    # the face bound curvature below):
+    #   relation_load: per edge fan out (which relation)
+    #   table_strain  - per vertex star curvature (which table is the hotspot)
     if np.any(np.abs(w - 1.0) > 1e-9):
         loads = sorted(
             [{"relation": f"{edges[e][0]} -> {edges[e][1]}",
@@ -1064,12 +1064,12 @@ def schema_strain(model: SchemaModel, weights=None):
         _b1r += [idx[a], idx[b]]; _b1c += [e, e]; _b1v += [-1.0, 1.0]
     B1 = sp.csr_matrix((_b1v, (_b1r, _b1c)), shape=(nV, nE), dtype=np.float64)
     B2, faces = _autoface_b2(names, edges, B1)          # sparse nE × nF
-    # global Lagrangian curvature: tower-exchange deviance (works with or
+    # global Lagrangian curvature: tower exchange deviance (works with or
     # without faces - L_T is a B₁^w quantity, so it captures span pressure).
     report["lagrangian_curvature"] = _lagrangian_curvature(B1, B2, w)
     if B2 is None:
-        # no co-participation faces (tree/star): flat, no curvature - but the
-        # fan-out load above still surfaces span/junction pressure.
+        # no co participation faces (tree/star): flat, no curvature - but the
+        # fan out load above still surfaces span/junction pressure.
         return report
     report["has_geometry"] = True
 
@@ -1083,12 +1083,12 @@ def schema_strain(model: SchemaModel, weights=None):
          for f in range(len(faces))], key=lambda r: -r["strain"])
 
     # connection (who / what): the strain Gram M[i,j] = <U_i, U_j> with the
-    # per-relation contribution vectors U_e = (√w_e-1)·(B1[:,e] ⊗ B2[e,:]) reduces
+    # per relation contribution vectors U_e = (√w_e-1)·(B1[:,e] ⊗ B2[e,:]) reduces
     # EXACTLY to M = diag(s)·(T ⊙ B2B2ᵀ)·diag(s),  s = √w-1,  T = B1ᵀB1  - a sparse
-    # Hadamard product (no dense (nV·nF)×nE outer-product stack).
+    # Hadamard product (no dense (nV·nF)×nE outer product stack).
     s = np.sqrt(w) - 1.0
     T = (B1.T @ B1).tocsr()                             # topology channel (nE×nE)
-    L1up = (B2 @ B2.T).tocsr()                          # face co-incidence (nE×nE)
+    L1up = (B2 @ B2.T).tocsr()                          # face co incidence (nE×nE)
     M = (sp.diags(s) @ T.multiply(L1up) @ sp.diags(s)).tocsr()
     Mdiag = M.diagonal()
     report["per_relation"] = sorted(
@@ -1104,7 +1104,7 @@ def schema_strain(model: SchemaModel, weights=None):
         for i, j, v in zip(Mc.row, Mc.col, Mc.data, strict=False)
         if i < j and abs(v) > 1e-9]
 
-    # harmonic log of the Gram -> effective independent root causes, EIGEN-FREE:
+    # harmonic log of the Gram -> effective independent root causes, EIGEN FREE:
     # e^{H₂(M)} = 1/Σp² = tr(M)²/tr(M²)  (Rényi-2 collision / effective mode count).
     trM = float(Mdiag.sum())
     trM2 = float(M.multiply(M).sum())                   # tr(M²)=‖M‖_F² (M symmetric)
@@ -1115,7 +1115,7 @@ def schema_strain(model: SchemaModel, weights=None):
 
 def _row_count(conn, engine, table, approximate=False):
     """Count rows, preferring a fast catalog estimate in approximate mode
-    (dialect-aware), falling back to exact COUNT(*)."""
+    (dialect aware), falling back to exact COUNT(*)."""
     from sqlalchemy import text
     if approximate:
         d = engine.dialect.name
@@ -1149,7 +1149,7 @@ def pull_cardinality_stats(conn_str: str, model: SchemaModel = None,
                            approximate: bool = False):
     """Weight each foreign key by real data magnitude from a live database.
 
-    Cardinality ≈ child_row_count / parent_row_count (average fan-out). In
+    Cardinality ≈ child_row_count / parent_row_count (average fan out). In
     ``approximate`` mode, uses fast catalog estimates (pg_class.reltuples,
     information_schema.table_rows, sys.dm_db_partition_stats) instead of
     COUNT(*) - essential on very large tables. Returns ``(weights, row_counts)``.
@@ -1164,7 +1164,7 @@ def pull_cardinality_stats(conn_str: str, model: SchemaModel = None,
             for t in model.table_names():
                 counts[t] = _row_count(c, engine, t, approximate=approximate)
     finally:
-        engine.dispose()          # the with-block closes the connection, not the pool
+        engine.dispose()          # the with block closes the connection, not the pool
     weights = {}
     for fk in model.foreign_keys:
         child = counts.get(fk.from_table, 0)
@@ -1219,7 +1219,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
         report["hodge"] = {
             # gradient = the valid hierarchy/DAG backbone
             "hierarchy_gradient": grad,
-            # curl = bounded circulation (a loop that a co-participation fills):
+            # curl = bounded circulation (a loop that a co participation fills):
             # valid recursion / feedback, not a broken dependency
             "bounded_recursion_curl": curl,
             # harmonic = persistent LOGICAL circulation (no face fills it):
@@ -1228,10 +1228,10 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
         }
     except Exception:
         report["hodge"] = None
-    # EXACT integer invariants (threshold-free): the harmonic dimension β₁ counts
-    # persistent (unfilled) cycles; rank(B₂) = nF - β₂ counts the co-participation-
+    # EXACT integer invariants (threshold free): the harmonic dimension β₁ counts
+    # persistent (unfilled) cycles; rank(B₂) = nF - β₂ counts the co participation-
     # filled (curl) cycles. These are combinatorial facts - the verdict/findings
-    # below are driven by them (β₁>0, rank(B₂)>0), not by a Hodge-fraction cutoff.
+    # below are driven by them (β₁>0, rank(B₂)>0), not by a Hodge fraction cutoff.
     # The fractions above are kept only as informative magnitudes.
     _b = report.get("betti")
     harmonic_dim = int(_b[1]) if _b else 0
@@ -1245,7 +1245,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
     # valid order of operations + the relations to cut to reach a DAG. The cut
     # breaks EVERY cycle (harmonic and bounded/curl) so a strict order exists;
     # `readout.harmonic_fraction` says how many are genuinely broken vs intended
-    # recursion (a non-empty cut with low harmonic fraction is expected).
+    # recursion (a non empty cut with low harmonic fraction is expected).
     order, cut = topological_order(model)
     report["order_of_operations"] = order
     if cut:
@@ -1256,8 +1256,8 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
             "intended recursion (bounded curl).")
         report["migration_plan"] = export_migration_plan(model)
 
-    # co-participation faces (associative entities) - these make otherwise
-    # cycle-looking structure into bounded recursion (curl), not broken cycles
+    # co participation faces (associative entities) - these make otherwise
+    # cycle looking structure into bounded recursion (curl), not broken cycles
     if meta.get("coparticipation_faces"):
         report["findings"].append({
             "severity": "info",
@@ -1269,7 +1269,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
         })
 
     # circular FK dependencies - classified by harmonic vs curl (exact: β₁>0 means
-    # at least one directed cycle is unfilled/persistent; else all are face-closed).
+    # at least one directed cycle is unfilled/persistent; else all are face closed).
     cycles = _find_cycles(names, edges)
     if cycles:
         if harmonic_dim > 0:
@@ -1303,7 +1303,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
             "type": "harmonic_diffuse",
         })
 
-    # implied-but-missing relations (voids)
+    # implied but missing relations (voids)
     try:
         vc = rex.void_complex
         n_voids = int(vc.get("n_voids", 0))
@@ -1381,8 +1381,8 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
     # separate so they never contradict:
     #   * directed orderability - does a strict insert/delete order exist? That is
     #     purely the FK *dependency* structure: a valid order exists iff there are
-    #     no directed FK cycles, i.e. the feedback-arc cut is empty (`not cut`).
-    #   * harmonic content - persistent (undirected) co-participation tension in the
+    #     no directed FK cycles, i.e. the feedback arc cut is empty (`not cut`).
+    #   * harmonic content - persistent (undirected) co participation tension in the
     #     Hodge split; this CAN be present even in a perfectly orderable DAG (e.g. an
     #     FK triangle with no associative entity filling it), so it must not drive the
     #     "no valid order" claim.
@@ -1419,9 +1419,9 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
         "cycles_present": directed_cycles,
         # EXACT integer invariants (the decision basis):
         "harmonic_dimension": harmonic_dim,        # β₁: persistent unfilled cycles
-        "curl_dimension": curl_dim,                # rank(B₂) - face-filled cycles
+        "curl_dimension": curl_dim,                # rank(B₂) - face filled cycles
         "directed_cut_size": len(cut),             # feedback arcs to reach a DAG
-        # informative (flow-dependent) magnitudes, not decision thresholds:
+        # informative (flow dependent) magnitudes, not decision thresholds:
         "harmonic_fraction": round(float(harm), 4),
         "bounded_curl_fraction": round(float(curl), 4),
         "hierarchy_fraction": round(float(report["hodge"]["hierarchy_gradient"]), 4)

@@ -31,7 +31,7 @@ SPARSE = _rex("alpha beta gamma")
 def backend_store(request, tmp_path):
     """An opened store per backend, closed when the test ends.
 
-    This was a module-level _uris() built with tempfile.mkdtemp and mktemp, so the paths
+    This was a module level _uris() built with tempfile.mkdtemp and mktemp, so the paths
     were created at COLLECTION time and left in /tmp, and every parametrization opened a
     store that nothing closed. A SQL store owns a connection pool, so those stayed open
     until the collector reached them.
@@ -302,7 +302,7 @@ class TestAutoLineage:
         r1 = client.post("/api/v1/schema/analyze",
                          json={"spec": v1, "lineage_id": "auto"}).json()
         assert r1["version"]["version"] == 1 and r1["version"]["unchanged"] is False
-        # re-store identical -> no new version
+        # re store identical -> no new version
         r2 = client.post("/api/v1/schema/analyze",
                          json={"spec": v1, "lineage_id": "auto"}).json()
         assert r2["version"]["unchanged"] is True and r2["version"]["version"] == 1
@@ -333,7 +333,7 @@ def isolated_default_store():
 
 
 def test_default_store_honors_the_env_uri(tmp_path, monkeypatch, isolated_default_store):
-    """Without a shared default resolver, every non-HTTP consumer built its own
+    """Without a shared default resolver, every non HTTP consumer built its own
     MemoryStore() and silently discarded what it wrote."""
     from agent import rcdb as R
 
@@ -358,7 +358,7 @@ def test_default_store_falls_back_to_a_file_store(tmp_path, monkeypatch, isolate
 
 def test_hive_schema_and_query_manager_use_the_default_store(tmp_path, monkeypatch, isolated_default_store):
     """Constructing either without an explicit store must reach the default, so a
-    versioned self-schema survives the request that created it."""
+    versioned self schema survives the request that created it."""
     from agent.hive_schema import HiveSchema
     from agent.query_manager import QueryManager
 
@@ -380,10 +380,10 @@ def test_hive_schema_and_query_manager_use_the_default_store(tmp_path, monkeypat
 
 
 def test_file_store_ids_that_sanitize_alike_do_not_share_a_blob(tmp_path):
-    """_blob_path replaced every non-alphanumeric character with '_', so 'core/alpha'
+    """_blob_path replaced every non alphanumeric character with '_', so 'core/alpha'
     and 'core_alpha' mapped to the same file. The index kept both records, but the
     second put silently overwrote the first blob and the first id read back as the
-    wrong complex. Knowledge-core ids carry '/' and ':' routinely."""
+    wrong complex. Knowledge core ids carry '/' and ':' routinely."""
     import numpy as np
     from agent.rcdb import open_store
 

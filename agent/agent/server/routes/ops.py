@@ -12,7 +12,7 @@ from agent.server.auth import require_admin
 router = APIRouter(prefix="/v1")
 
 # Reading what the instance is running is ordinary use. Everything that MOVES it is not:
-# the runtime is process-wide, so these start and stop subprocesses, spend disk and VRAM,
+# the runtime is process wide, so these start and stop subprocesses, spend disk and VRAM,
 # and take a model or a profile out from under whoever else is using it. Those are
 # instance operations rather than workspace ones, and they are gated on instance admin.
 _admin = [Depends(require_admin)]
@@ -21,7 +21,7 @@ _admin = [Depends(require_admin)]
 
 @router.get("/ops/phases")
 async def ops_phases():
-    """List the available lifecycle phases (built-in and registered extensions)."""
+    """List the available lifecycle phases (built in and registered extensions)."""
     from agent import lifecycle
     return {"phases": lifecycle.phases()}
 
@@ -48,7 +48,7 @@ async def ops_compute():
 @router.post("/ops/compute", dependencies=_admin)
 async def ops_compute_set(body: dict = Body(...)):
     """Tune the execution layer and persist it into a setup. body: {threads?, backend?, profile?}.
-    Writes the compute config into the setup (shadowing a built-in) and applies it now. Every
+    Writes the compute config into the setup (shadowing a built in) and applies it now. Every
     subsequent operation honors it."""
     from agent import hive_config
     from rexgraph import compute
@@ -85,7 +85,7 @@ async def ops_run(body: dict = Body(...)):
 async def ops_runs(limit: int = 30, phase: str = None):
     """List recent runs (most recent first), optionally filtered by phase.
 
-    The run store is process-wide and holds each run's params and results, and starting
+    The run store is process wide and holds each run's params and results, and starting
     a run is an admin operation, so reading what was run is one too.
     """
     from agent import lifecycle

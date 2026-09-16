@@ -1,12 +1,12 @@
 """
-Track-1 stage-1: the edge-primary relational complex net vs a matched pairwise GNN, on a task
-where HIGHER-ORDER structure is decisive: substructure (triangle / 4-cycle) counting, the
-canonical failure mode of pairwise message passing (1-WL can't count them).
+Track 1 stage 1: the edge primary relational complex net vs a matched pairwise GNN, on a task
+where HIGHER ORDER structure is decisive: substructure (triangle / 4 cycle) counting, the
+canonical failure mode of pairwise message passing (1 WL can't count them).
 
 The premise being tested: carrying V/E/F cochains and flowing through the boundary operators
-B₁/B₂ (so FACES, bounded and relevance-selected triangles, are first-class) lets the model count
-what a pairwise model structurally cannot. The clean attribution is the faces-ablation:
-edge-primary WITH faces vs the SAME net with faces off (≈ pairwise reach).
+B₁/B₂ (so FACES, bounded and relevance selected triangles, are first class) lets the model count
+what a pairwise model structurally cannot. The clean attribution is the faces ablation:
+edge primary WITH faces vs the SAME net with faces off (≈ pairwise reach).
 
 Everything sparse scatter/gather on B₁/B₂ (O(nnz)), differentiable, trained by whichever optimizer
 make_optimizer("auto") routes to (these nets carry features, so that is plain Adam).
@@ -36,7 +36,7 @@ def gen_graph(nV, p, rng):
 def gen_graph_regular(nV, deg, rng):
     """Random d-REGULAR graph (constant degree) → substructure count is DECORRELATED from
     degree/density, so a pairwise GNN (all nodes look identical locally) has nothing to exploit
-    and must genuinely count: the clean test of the higher-order advantage."""
+    and must genuinely count: the clean test of the higher order advantage."""
     import networkx as nx
     seed = int(rng.integers(0, 2 ** 31 - 1))
     G = nx.random_regular_graph(deg, nV, seed=seed)
@@ -46,7 +46,7 @@ def gen_graph_regular(nV, deg, rng):
 
 
 def find_triangles(src, tgt, nV):
-    """Relevance-gated faces = the actual triangles (bounded, NOT combinatorial enumeration).
+    """Relevance gated faces = the actual triangles (bounded, NOT combinatorial enumeration).
     Returns face_edges [nF,3] (edge indices) and face_signs [nF,3] (∂ orientation +,+,−)."""
     eidx = {(int(s), int(t)): e for e, (s, t) in enumerate(zip(src, tgt, strict=False))}
     adj = {v: set() for v in range(nV)}
@@ -69,10 +69,10 @@ def find_triangles(src, tgt, nV):
 
 
 def count_4cycles(src, tgt, nV):
-    """# of 4-cycles (squares) = ½ Σ_{i<j} C(common_nbrs(i,j), 2)."""
+    """# of 4 cycles (squares) = ½ Σ_{i<j} C(common_nbrs(i,j), 2)."""
     A = np.zeros((nV, nV))
     A[src, tgt] = 1; A[tgt, src] = 1
-    co = A @ A                                          # common-neighbour counts
+    co = A @ A                                          # common neighbour counts
     tri = np.triu(co, 1)
     return float((tri * (tri - 1) / 2).sum() - _triangle_total(A) * 0) / 2.0
 
@@ -82,9 +82,9 @@ def _triangle_total(A):
 
 
 def make_batch(bs, rng, device, nmin=8, nmax=14, target="triangles", graphs="er"):
-    """Block-diagonal batch of bs graphs; target = per-graph substructure count (normalized).
-    graphs="er" (Erdős–Rényi, count correlates with density) or "regular" (fixed-size d-regular,
-    count decorrelated from degree: the clean higher-order test)."""
+    """Block diagonal batch of bs graphs; target = per graph substructure count (normalized).
+    graphs="er" (Erdős–Rényi, count correlates with density) or "regular" (fixed size d-regular,
+    count decorrelated from degree: the clean higher order test)."""
     S, T, VB, EB = [], [], [], []
     FE, FS, FB = [], [], []
     voff = eoff = 0
@@ -202,7 +202,7 @@ class ComplexNet(nn.Module):
 
 
 class PairwiseGNN(nn.Module):
-    """Matched pairwise message-passing baseline (vertices only, no faces)."""
+    """Matched pairwise message passing baseline (vertices only, no faces)."""
     def __init__(self, d=48, n_layers=3):
         super().__init__()
         self.d = d; self.v0 = nn.Linear(1, d)
@@ -223,15 +223,15 @@ class PairwiseGNN(nn.Module):
 
 #### stage 2: Green's-function (implicit) layers
 def edge_L1_matvec(b):
-    """Matrix-free edge Hodge Laplacian L₁ = B₁ᵀB₁ + B₂B₂ᵀ (down + up), for the batch."""
+    """Matrix free edge Hodge Laplacian L₁ = B₁ᵀB₁ + B₂B₂ᵀ (down + up), for the batch."""
     def mv(xE):
         return B1T_V2E(B1_E2V(xE, b), b) + B2_F2E(B2T_E2F(xE, b), b)
     return mv
 
 
 class GreenLayer(nn.Module):
-    """Edge-primary layer whose edge diffusion is the SOLVED equilibrium (I+αL₁)⁻¹, one
-    implicit layer captures all propagation depth (self-adjoint forward=backward, dynamic CG)."""
+    """Edge primary layer whose edge diffusion is the SOLVED equilibrium (I+αL₁)⁻¹, one
+    implicit layer captures all propagation depth (self adjoint forward=backward, dynamic CG)."""
     def __init__(self, d, use_faces=True):
         super().__init__()
         self.uf = use_faces
@@ -281,10 +281,10 @@ class GreenComplexNet(nn.Module):
         return self.head(torch.cat(feats, -1)).squeeze(-1)
 
 
-#### stage 3: Lagrangian-monitored predictor–corrector
+#### stage 3: Lagrangian monitored predictor–corrector
 def lagrangian_monitor(XE, b):
-    """Action + real-line coherence ρ. gradient energy ‖B₁X‖² is the coherent (real-line) part;
-    curl energy ‖B₂ᵀX‖² is the off-real (rotational) part. ρ = grad/(grad+curl) ∈ (0,1], cheap,
+    """Action + real line coherence ρ. gradient energy ‖B₁X‖² is the coherent (real line) part;
+    curl energy ‖B₂ᵀX‖² is the off real (rotational) part. ρ = grad/(grad+curl) ∈ (0,1], cheap,
     no eigensolve. Low ρ ⇒ the state has drifted off the real line ⇒ correct."""
     gradE = (B1_E2V(XE, b) ** 2).sum()
     curlE = (B2T_E2F(XE, b) ** 2).sum() if b["nF"] > 0 else XE.new_zeros(())
@@ -294,9 +294,9 @@ def lagrangian_monitor(XE, b):
 
 
 class LagrangianGreenLayer(nn.Module):
-    """Green's predictor + Lagrangian-monitored corrector. The predictor forward-propagates
-    (resolvent); the monitor reads the real-line coherence ρ; the corrector is a curl-directed
-    back-solve, gated by (1−ρ): 'on the real line ⇒ carry the coherent flow forward; off it ⇒
+    """Green's predictor + Lagrangian monitored corrector. The predictor forward propagates
+    (resolvent); the monitor reads the real line coherence ρ; the corrector is a curl directed
+    back solve, gated by (1−ρ): 'on the real line ⇒ carry the coherent flow forward; off it ⇒
     correct via the curl component.' The direction is chosen by the action monitor, per layer."""
     def __init__(self, d, use_faces=True):
         super().__init__()
@@ -317,7 +317,7 @@ class LagrangianGreenLayer(nn.Module):
         green = green_resolvent(XE, self.alpha.abs() + 1e-3, mv, tol=1e-4, max_iter=30)   # predictor
         action, rho = lagrangian_monitor(green, b)
         self.last_rho = float(rho.detach())
-        curl_comp = B2_F2E(B2T_E2F(green, b), b) if b["nF"] > 0 else torch.zeros_like(green)  # up-Lap=curl
+        curl_comp = B2_F2E(B2T_E2F(green, b), b) if b["nF"] > 0 else torch.zeros_like(green)  # up Lap=curl
         corr = green_resolvent(curl_comp, self.beta.abs() + 1e-3, mv, tol=1e-4, max_iter=30)  # corrector
         e = (self.e["self"](XE) + self.e["dn"](B1T_V2E(XV, b))
              + self.e["green"](rho * green) + self.e["corr"]((1 - rho) * corr))
@@ -354,7 +354,7 @@ class LagrangianGreenNet(nn.Module):
         return self.head(torch.cat(feats, -1)).squeeze(-1)
 
     def query(self, b, XE, seed_edges):
-        """Shared-complex inference: query the model's OWN complex by reweighting. Put a signal
+        """Shared complex inference: query the model's OWN complex by reweighting. Put a signal
         on seed edges, propagate via the Green's resolvent, return the surfaced response. Runs on
         the same structure being trained (model = complex = memory)."""
         from rexgraph.nn.rcf_torch import green_resolvent
@@ -388,7 +388,7 @@ def _verify_ops():
 #### train / eval
 def train(model_fn, seed, steps, device, target="triangles", graphs="er"):
     """Returns (R², n_params, optimizer_label). The optimizer comes from the router, not by name:
-    these nets are feature-space (no greens_groups), so "auto" resolves to plain Adam. The label is
+    these nets are feature space (no greens_groups), so "auto" resolves to plain Adam. The label is
     returned so a run reports which optimizer actually ran."""
     torch.manual_seed(seed)
     model = model_fn().to(device)

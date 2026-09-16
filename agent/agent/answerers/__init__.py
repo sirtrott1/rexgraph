@@ -1,4 +1,4 @@
-"""Structure-specific answerers.
+"""Structure specific answerers.
 
 Each answerer holds one structure, answers only the questions that structure supports,
 and declines the rest with a reason. Results compose as a union: every answerer is asked
@@ -25,12 +25,12 @@ __all__ = ["LexicalAnswerer", "LinkageAnswerer", "OntologyAnswerer",
 
 #: name -> (answerer, render). Instantiated once per process: a lexicon is 161,705
 #: entries and 2.6 s to read, and an ontology is a parse plus a complex build, so a
-#: per-query construction would make an exact answer look like an expensive one.
+#: per query construction would make an exact answer look like an expensive one.
 _REGISTRY: dict[str, tuple] = {}
 
 
 def register(name: str, answerer, render=None) -> None:
-    """Add an answerer to the exact-answer union. `render(result) -> str` defaults to
+    """Add an answerer to the exact answer union. `render(result) -> str` defaults to
     the one its own module defines."""
     if render is None:
         import importlib

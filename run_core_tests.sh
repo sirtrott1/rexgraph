@@ -8,17 +8,17 @@
 
 # The package is installed EDITABLE (meson-python): `rexgraph` is served from the
 # source tree and its compiled extensions from build/, both via the meson-python
-# import finder, which rebuilds changed .pyx on import. The repo-root conftest.py
+# import finder, which rebuilds changed .pyx on import. The repo root conftest.py
 # points rexgraph.__path__ at the source dir so `rexgraph.tests` (not a shipped
 # package) resolves too. So we just run pytest against the tree - no assembling a
-# throwaway package, no source-vs-installed juggling.
+# throwaway package, no source vs installed juggling.
 #   install editable:  pip install --no-build-isolation -e ".[io]"
 
 set -eu
 
 ENV_NAME="${ENV_NAME:-rexgraph}"
 
-# Pick a test runner DYNAMICALLY - never hard-fail just because conda is absent:
+# Pick a test runner DYNAMICALLY - never hard fail just because conda is absent:
 #   1. a conda frontend (micromamba/mamba/conda) with an env named $ENV_NAME  -> "conda run -n"
 #   2. else the active interpreter (a venv/uv/poetry/pdm/system python) that can import the core
 # Override the interpreter for path 2 via PYTHON=... (default: python3, then python).

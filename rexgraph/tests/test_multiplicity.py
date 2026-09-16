@@ -36,7 +36,7 @@ def test_parallel_relations_are_found_and_counted():
 
 
 def test_a_reversed_relation_cancels_by_sum_not_difference():
-    """The sign is load-bearing. (2,0) and (0,2) have the same support but opposite
+    """The sign is load bearing. (2,0) and (0,2) have the same support but opposite
     orientation, so they are negatives: their SUM has zero boundary and their
     difference does not. Dropping the sign emits a vector that is not a cycle."""
     r = _g([2, 0], [0, 2])
@@ -87,10 +87,10 @@ def test_a_simple_complex_has_no_multiplicity():
 
 
 def test_branching_relations_group_at_their_own_arity():
-    """Arity-general: identical 3-ary relations group exactly as 2-ary ones do, and
+    """Arity general: identical 3 ary relations group exactly as 2 ary ones do, and
     a relation over the same vertices with a DIFFERENT head is not the same column."""
     ptr = np.array([0, 3, 6, 9], np.int64)
-    idx = np.array([0, 1, 2, 0, 1, 2, 1, 0, 2], np.int64)   # third one re-heads
+    idx = np.array([0, 1, 2, 0, 1, 2, 1, 0, 2], np.int64)   # third one re heads
     r = RexGraph.from_hypergraph(ptr, idx)
     r._ensure_clean()
     groups = multiplicity_groups(r)
@@ -197,7 +197,7 @@ def test_the_grouping_is_arity_general_under_random_branching(seed):
 
 @pytest.mark.parametrize("seed", range(10))
 def test_the_dimension_shortcut_agrees_with_the_groups(seed):
-    """multiplicity_dimension skips building the groups (sum of size-1 is exactly
+    """multiplicity_dimension skips building the groups (sum of size 1 is exactly
     columns - runs). It must still return what counting the groups would."""
     rng = np.random.default_rng(200 + seed)
     nV = int(rng.integers(4, 10))
@@ -233,7 +233,7 @@ def test_a_forced_hash_collision_is_repaired():
 def test_a_face_can_fill_a_multiplicity_cycle():
     """Why multiplicity_dimension is not the H1 answer. W lives in Z1, not H1: put
     a face on a bigon and W still has dimension 1 while beta_1 is 0. Subtracting the
-    chain-level count would report more multiplicity than there is homology."""
+    chain level count would report more multiplicity than there is homology."""
     from rexgraph.harmonic_sparse import multiplicity_homology_dimension, simple_cycle_dimension
     r = _g([0, 0], [1, 1])
     assert int(r.betti[1]) == 1 and multiplicity_dimension(r) == 1

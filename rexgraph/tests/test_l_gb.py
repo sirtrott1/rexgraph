@@ -108,11 +108,11 @@ def test_l_gb_channel_tensor_matches_reference(n):
         f"L_gb tensor mismatch for K_{n}"
 
 
-# Reference values from post-paper test14.py (3 decimals)
+# Reference values from post paper test14.py (3 decimals)
 
 
 def _self_tensor_for_K_n(n):
-    """Compute L_gb 4×4 self-tensor for K_n via pure-numpy reference."""
+    """Compute L_gb 4×4 self tensor for K_n via pure numpy reference."""
     from rexgraph.tests.reference.channels_reference import build_channels
     B_1, B_2 = _build_K_n_complex(n)
     W = np.ones(n, dtype=np.float64)
@@ -137,14 +137,14 @@ def test_K_n_signature_matches_post_paper(n, expected):
 
 @pytest.mark.parametrize("n", [4, 5, 6])
 def test_self_tensor_symmetry(n):
-    """Self-tensor must be symmetric: T[i, j] == T[j, i] for all i, j."""
+    """Self tensor must be symmetric: T[i, j] == T[j, i] for all i, j."""
     T = _self_tensor_for_K_n(n)
     assert np.allclose(T, T.T, atol=1e-10), f"Self-tensor not symmetric for K_{n}"
 
 
 @pytest.mark.parametrize("n", [3, 4, 5, 6])
 def test_cycle_graph_TC_zero(n):
-    """Cycle graphs are uniquely characterized by TC = 0 in self-tensor."""
+    """Cycle graphs are uniquely characterized by TC = 0 in self tensor."""
     from rexgraph.tests.reference.channels_reference import build_channels
     B_1, B_2 = _build_cycle_complex(n)
     W = np.ones(n, dtype=np.float64)
@@ -153,12 +153,12 @@ def test_cycle_graph_TC_zero(n):
     assert abs(T[0, 3]) < 0.01, f"Cycle C_{n}: TC = {T[0, 3]:.4f}, expected ~0"
 
 
-# Self-tensor diagonal is identically zero
+# Self tensor diagonal is identically zero
 
 
 @pytest.mark.parametrize("n", [4, 5, 6])
 def test_self_tensor_diagonal_is_zero(n):
-    """For self-tensor, T[i, i] = 0 for all i (channel matches itself)."""
+    """For self tensor, T[i, i] = 0 for all i (channel matches itself)."""
     T = _self_tensor_for_K_n(n)
     for i in range(4):
         assert abs(T[i, i]) < 1e-10, f"K_{n} self-tensor T[{i},{i}] = {T[i,i]:.2e}"

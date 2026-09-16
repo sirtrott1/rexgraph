@@ -1,5 +1,5 @@
 """rexgraph._env: host/environment detection: Python env manager, compute backends, and the
-per-host backend recommendation. These tests must pass on ANY machine (including CI with no GPU
+per host backend recommendation. These tests must pass on ANY machine (including CI with no GPU
 and no toolchain), so they assert on STRUCTURE and invariants, never on specific hardware."""
 import os
 
@@ -9,7 +9,7 @@ import rexgraph._env as E
 def test_detect_python_env_wellformed():
     env = E.detect_python_env()
     assert isinstance(env, dict)
-    # required, always-present keys
+    # required, always present keys
     for k in ("manager", "python", "prefix", "in_venv", "compiler", "has_toolchain", "warnings"):
         assert k in env, f"missing key {k!r}"
     assert env["manager"] in {
@@ -18,7 +18,7 @@ def test_detect_python_env_wellformed():
     assert isinstance(env["in_venv"], bool)
     assert isinstance(env["warnings"], list)
     assert isinstance(env["compiler"], dict)
-    # compiler sub-report is well-formed even when no compiler exists
+    # compiler sub report is well formed even when no compiler exists
     for k in ("env_cc", "env_version", "system_cc", "system_version", "consistent", "warning"):
         assert k in env["compiler"]
     assert isinstance(env["compiler"]["consistent"], bool)
@@ -50,7 +50,7 @@ def test_recommend_backend_is_a_member_of_available():
     try:
         rec = E.recommend_backend(backends)
         assert rec in names, f"recommended {rec!r} not in available {names}"
-        # calling with no argument (auto-detect) also yields something sane
+        # calling with no argument (auto detect) also yields something sane
         assert isinstance(E.recommend_backend(), str)
         # accepts a plain list of names too
         assert E.recommend_backend(list(names)) in names

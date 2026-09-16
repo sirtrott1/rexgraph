@@ -43,13 +43,13 @@ and throughput falls with it, because eight accumulators and a larger reduction 
 more occupancy than the halved traffic buys. Four is measured, not reasoned.
 
 Two things separate 52.9 from 599.1 and neither is the hardware. Fusion is the first. Written as separate torch expressions the
-product launches about ten elementwise kernels, each round-tripping the full 134 MB of
+product launches about ten elementwise kernels, each round tripping the full 134 MB of
 planes, and it lands at 52.9. Compiled into one pass it reaches 616.2 at 154 GB/s
 against a 217.9 GB/s streaming ceiling, so it is finally bandwidth bound on data that
 is 16x denser. The device lane therefore compiles, and a lane that cannot compile is
 worth about a ninth of one that can.
 
-Residency is the second. The planes ARE the operator, so a lane that re-sends 134 MB
+Residency is the second. The planes ARE the operator, so a lane that re sends 134 MB
 per product spends its time on the bus: 96.0 against 599.1 for the same arithmetic.
 `TernaryOperator.to(device)` returns a `DeviceTernary` that holds them, and only the
 vector crosses per product. `matvec(op, x, prefer="cuda")` does not do this, because it
@@ -63,7 +63,7 @@ and no call site moves. `cpu` and `openmp` are the compiled kernel; `cuda` cover
 NVIDIA and ROCm alike, which is how compute.py already names that lane. A new
 architecture needs a register_op call and nothing here.
 
-WHERE THIS APPLIES. Dense ternary operators: composite-binary model weights, and small
+WHERE THIS APPLIES. Dense ternary operators: composite binary model weights, and small
 dense blocks. A SPARSE boundary is already stored without values by
 boundary_ptr/boundary_idx, which derives share from span width, so packing one of those
 wins nothing. Pack what is dense and ternary; leave the sparse boundary alone.
@@ -88,7 +88,7 @@ class TernaryOperator:
     P: np.ndarray
     S: np.ndarray
     shape: tuple[int, int]
-    K: np.ndarray = field(default=None)          # per-row arity, the product needs it
+    K: np.ndarray = field(default=None)          # per row arity, the product needs it
 
     @property
     def nbytes(self) -> int:
@@ -99,7 +99,7 @@ class TernaryOperator:
         return _ternary.unpack(self.P, self.S, self.shape[1])
 
     def arity(self) -> np.ndarray:
-        """Per-row support size, which is what a share of 1/(k-1) derives from."""
+        """Per row support size, which is what a share of 1/(k-1) derives from."""
         return self.K if self.K is not None else _ternary.arity(self.P)
 
 
@@ -107,7 +107,7 @@ class TernaryOperator:
         """Ship the planes once and keep them there.
 
         Not an optimisation detail. The planes are the whole operator, so a lane that
-        re-sends them per product pays the transfer every time and lands at 96
+        re sends them per product pays the transfer every time and lands at 96
         Gentry/s where the resident form reaches 599. Anything doing more than one
         product against the same operator should hold this.
         """

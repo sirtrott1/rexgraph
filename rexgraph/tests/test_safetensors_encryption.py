@@ -38,7 +38,7 @@ from rexgraph.io.safetensors_bridge import (
 
 
 class _AeadProperties:
-    """Test-only KMS/property object; core receives only this opaque action."""
+    """Test only KMS/property object; core receives only this opaque action."""
 
     def __init__(self, configuration, keys):
         self.configuration = configuration

@@ -42,7 +42,7 @@ class TransitionCommit:
         return manifest_digest({"object_type": "TransitionCommit", **self.manifest()})
 
     def signing_bytes(self) -> bytes:
-        """Return domain-separated bytes covered by a transition signature."""
+        """Return domain separated bytes covered by a transition signature."""
         return canonical_json({"digest": self.digest, "object_type": "TransitionCommit"})
 
     def signed(self, signer: Signer) -> TransitionCommit:

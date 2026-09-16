@@ -5,10 +5,10 @@ Save and test connections to any SQL database (or MongoDB), browse a live
 schema, and import it into the RCDB as a diagnosed relational complex.
 
 Security note: connection URIs may contain credentials. They are stored
-server-side under the config dir and are ALWAYS masked in responses. A
+server side under the config dir and are ALWAYS masked in responses. A
 production deployment should back this with a real secrets manager
 (Vault/KMS); the storage here is behind a single interface so that swap
-is a drop-in.
+is a drop in.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from fastapi import APIRouter, Body, HTTPException
 router = APIRouter(prefix="/v1/dbmanager")
 
 # Connection secrets live behind the SecretStore interface (file by default,
-# env-reference / Vault as drop-ins via REXGRAPH_SECRETS_URI). The per-request view of
+# env reference / Vault as drop ins via REXGRAPH_SECRETS_URI). The per request view of
 # it is shared with routes/connectors.py, which resolves the same saved names.
 
 
@@ -84,7 +84,7 @@ async def test_connection(body: dict = Body(...)):
                 client.close()
         else:
             from sqlalchemy import create_engine
-            # dispose, not just close: closing the checked-out connection returns it to
+            # dispose, not just close: closing the checked out connection returns it to
             # the pool, and the pool is what holds the socket. A probe route is called
             # repeatedly from the UI, so leaving one behind per probe adds up.
             engine = create_engine(uri)
@@ -141,8 +141,8 @@ async def import_schema(body: dict = Body(...)):
 
 @router.post("/strain")
 async def connection_strain(body: dict = Body(...)):
-    """Measure data-forced strain on a saved connection (reflect + pull live
-    cardinality + compute strain), keeping credentials server-side."""
+    """Measure data forced strain on a saved connection (reflect + pull live
+    cardinality + compute strain), keeping credentials server side."""
     uri = _resolve(body)
     try:
         from agent import schema_complex as sc
@@ -157,7 +157,7 @@ async def connection_strain(body: dict = Body(...)):
 
 @router.post("/ddl")
 async def generate_ddl(body: dict = Body(...)):
-    """Generate cycle-safe CREATE TABLE DDL from a JSON schema spec."""
+    """Generate cycle safe CREATE TABLE DDL from a JSON schema spec."""
     from agent import schema_complex as sc
     spec = body.get("spec")
     if not spec:

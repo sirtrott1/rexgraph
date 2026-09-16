@@ -1,6 +1,6 @@
 # rexgraph/io/zarr_format.py
 """
-Zarr-based storage for the rex framework.
+Zarr based storage for the rex framework.
 
 Stores RexGraph, TemporalRex, NamedTuples, and raw arrays in chunked,
 compressed Zarr stores. Works with both Zarr v2 and v3.
@@ -103,10 +103,10 @@ def load_zarr_array(path: str) -> np.ndarray:
 # RexZarrFormat
 
 class RexZarrFormat(CacheLayoutMixin):
-    """Zarr-based on-disk format for the rex framework.
+    """Zarr based on disk format for the rex framework.
 
     Parameters
-    ----------
+
     compressor
         Compression codec. Accepts numcodecs.Blosc, string shorthands
         ("blosc", "zstd", "none"), or None.
@@ -144,7 +144,7 @@ class RexZarrFormat(CacheLayoutMixin):
     def _store_chunked(
         self, group, name: str, arr: NDArray, chunk_rows: int = 10_000
     ) -> None:
-        """Store a large 2D array with explicit row-chunking."""
+        """Store a large 2D array with explicit row chunking."""
         arr = np.asarray(arr)
         if arr.ndim == 2:
             cr = min(chunk_rows, arr.shape[0])
@@ -198,7 +198,7 @@ class RexZarrFormat(CacheLayoutMixin):
         """Write a RexGraph, TemporalRex, or ndarray to disk.
 
         Parameters
-        ----------
+
         path : str
             Output path (.zarr suffix added if missing).
         obj : RexGraph, TemporalRex, or ndarray
@@ -246,7 +246,7 @@ class RexZarrFormat(CacheLayoutMixin):
             return self._load(root, "data")
         raise TypeError(f"Unknown object_type: {obj_type}")
 
-    # Container (multi-object) API
+    # Container (multi object) API
 
     def write_to_group(self, path: str, name: str, obj: Any, **kw) -> None:
         """Write an object into /objects/<name> inside path."""
@@ -292,7 +292,7 @@ class RexZarrFormat(CacheLayoutMixin):
         raise TypeError(f"Unknown object_type in group '{name}': {t}")
 
     def list_groups(self, path: str) -> list[str]:
-        """List sub-object names in a container store."""
+        """List sub object names in a container store."""
         path = ensure_zarr_suffix(path)
         if not os.path.exists(path):
             return []
@@ -307,7 +307,7 @@ class RexZarrFormat(CacheLayoutMixin):
 
 
     def _write_temporal_cache(self, g, trex, cache) -> None:
-        """Write TemporalRex-specific cached data."""
+        """Write TemporalRex specific cached data."""
         names = self._resolve_cache_names(cache)
         if not names:
             return
@@ -372,6 +372,9 @@ class RexZarrFormat(CacheLayoutMixin):
     def _read_temporal_rex(self, g) -> TemporalRex:
         """Reconstruct a TemporalRex from a Zarr group."""
         from ..graph import TemporalRex
+
+        if "temporal_state_header" in g.attrs:
+            return self._read_temporal_state(g)
 
         T = int(g.attrs["T"])
         directed = bool(g.attrs.get("directed", False))
@@ -850,7 +853,7 @@ class RexZarrFormat(CacheLayoutMixin):
         return result
 
 
-# Module-level convenience functions
+# Module level convenience functions
 
 _default_fmt: RexZarrFormat | None = None
 
@@ -872,7 +875,7 @@ def save_zarr(
     """Save a RexGraph, TemporalRex, or array to Zarr format.
 
     Parameters
-    ----------
+
     path : str
         Output path (.zarr appended automatically).
     obj : RexGraph, TemporalRex, or ndarray

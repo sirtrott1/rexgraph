@@ -3,14 +3,14 @@
 """
 rexgraph.core._signal: Signal processing pipeline on the relational complex.
 
-End-to-end pipeline: perturbation -> propagation -> decomposition -> tagging.
+End to end pipeline: perturbation -> propagation -> decomposition -> tagging.
 
 This module orchestrates calls to _state, _field, _hodge, _temporal, _wave,
 and _laplacians to produce a complete perturbation analysis. It is the
-top-level analytical interface for the rex framework.
+top level analytical interface for the rex framework.
 
 Field states live on (E, F) only. Vertex observables are derived via
-f_V = B_1 f_E. All functions accept and return edge-primary data.
+f_V = B_1 f_E. All functions accept and return edge primary data.
 
 Pipeline stages:
     1. Perturbation construction (Dirac, vertex-derived, multi-edge, spectral)
@@ -42,7 +42,7 @@ np.import_array()
 
 
 def _safe_dot(A, x):
-    """Matrix-vector product, dense or sparse."""
+    """Matrix vector product, dense or sparse."""
     return np.asarray(A.dot(x), dtype=np.float64)
 
 
@@ -63,13 +63,13 @@ def build_edge_perturbation(Py_ssize_t nE, Py_ssize_t nF,
     Vertex activation is derived via B_1.
 
     Parameters
-    ----------
+
     nE, nF : dimensions
     edge_idx : edge to perturb
     amplitude : signal magnitude
 
     Returns
-    -------
+
     f_E : f64[nE]
     f_F : f64[nF]
     """
@@ -90,13 +90,13 @@ def build_vertex_perturbation(Py_ssize_t vertex_idx,
     edges incident to v". The edge signal is B_1^T delta_v.
 
     Parameters
-    ----------
+
     vertex_idx : vertex to perturb
     B1_T : (nE, nV) - transpose of boundary operator
     nE, nF : dimensions
 
     Returns
-    -------
+
     f_E : f64[nE]
     f_F : f64[nF]
     """
@@ -118,13 +118,13 @@ def build_multi_edge_perturbation(Py_ssize_t nE, Py_ssize_t nF,
     cocktail hitting several pathway interactions at once).
 
     Parameters
-    ----------
+
     nE, nF : dimensions
     edge_indices : i32[k] - edges to perturb
     amplitudes : f64[k] - signal magnitudes
 
     Returns
-    -------
+
     f_E : f64[nE]
     f_F : f64[nF]
     """
@@ -152,14 +152,14 @@ def build_spectral_perturbation(Py_ssize_t nE, Py_ssize_t nF,
     are smooth (topological), high modes are rough (geometric).
 
     Parameters
-    ----------
+
     nE, nF : dimensions
     evecs_RL1 : f64[nE, nE] - eigenvectors of RL_1 (columns)
     mode_idx : which eigenmode to excite (0 = lowest)
     amplitude : scale factor
 
     Returns
-    -------
+
     f_E : f64[nE]
     f_F : f64[nF]
     """
@@ -179,10 +179,10 @@ def propagate_diffusion(np.ndarray[f64, ndim=1] f_E,
     """Heat equation on edges: f(t) = exp(-L t) f(0).
 
     Uses spectral decomposition for exact evolution.
-    L_operator can be L_1, L_O, or RL_1 (any edge-space Laplacian).
+    L_operator can be L_1, L_O, or RL_1 (any edge space Laplacian).
 
     Parameters
-    ----------
+
     f_E : f64[nE] - initial edge signal
     L_operator : (nE, nE) - Laplacian (not used directly, included for API)
     evals : f64[nE] - eigenvalues of L_operator
@@ -190,7 +190,7 @@ def propagate_diffusion(np.ndarray[f64, ndim=1] f_E,
     times : f64[T] - timepoints
 
     Returns
-    -------
+
     trajectory : f64[T, nE]
     """
     cdef Py_ssize_t nE = f_E.shape[0], T = times.shape[0]
@@ -236,11 +236,11 @@ def propagate_diffusion_comparative(np.ndarray[f64, ndim=1] f_E,
     """Run diffusion under L_1, L_O, and RL_1 for comparison.
 
     Returns three trajectory arrays so the user can see how the same
-    perturbation behaves under topological-only, geometric-only, and
+    perturbation behaves under topological only, geometric only, and
     combined dynamics.
 
     Returns
-    -------
+
     traj_L1 : f64[T, nE]
     traj_LO : f64[T, nE]
     traj_RL1 : f64[T, nE]
@@ -263,13 +263,13 @@ def energy_trajectory(np.ndarray[f64, ndim=2] trajectory,
     E_pot(t) = <f(t) | L_O | f(t)>   (geometric energy)
 
     Parameters
-    ----------
+
     trajectory : f64[T, nE]
     L1 : (nE, nE) - Hodge Laplacian
     LO : (nE, nE) - overlap Laplacian
 
     Returns
-    -------
+
     E_kin : f64[T]
     E_pot : f64[T]
     ratio : f64[T] - E_kin / E_pot (capped at 1e15)
@@ -319,7 +319,7 @@ def hodge_energy_decomposition(np.ndarray[f64, ndim=1] f_E,
                                object B1, object B2,
                                object L0, object L2,
                                object L1):
-    """Hodge-decompose an edge signal and compute energy per component.
+    """Hodge decompose an edge signal and compute energy per component.
 
     Decomposes f_E = grad + curl + harm, then computes:
         E_grad = <grad | L_1 | grad>
@@ -327,14 +327,14 @@ def hodge_energy_decomposition(np.ndarray[f64, ndim=1] f_E,
         E_harm = <harm | L_1 | harm>  (should be ~0 since L_1 harm = 0)
 
     Parameters
-    ----------
+
     f_E : f64[nE]
-    B1, B2 : boundary operators (B2 should be B2_hodge, self-loops filtered)
+    B1, B2 : boundary operators (B2 should be B2_hodge, self loops filtered)
     L0, L2 : vertex and face Laplacians (or None, built internally by hodge)
     L1 : edge Hodge Laplacian
 
     Returns
-    -------
+
     grad : f64[nE]
     curl : f64[nE]
     harm : f64[nE]
@@ -370,20 +370,20 @@ def hodge_energy_decomposition(np.ndarray[f64, ndim=1] f_E,
 def per_edge_energy_trajectory(np.ndarray[f64, ndim=2] trajectory,
                                object L1,
                                object LO):
-    """Compute per-edge E_kin and E_pot at each timestep.
+    """Compute per edge E_kin and E_pot at each timestep.
 
     E_kin_e(t) = f_e(t) * (L_1 f(t))_e
     E_pot_e(t) = f_e(t) * (L_O f(t))_e
 
-    These per-edge values sum to the total E_kin and E_pot.
+    These per edge values sum to the total E_kin and E_pot.
 
     Parameters
-    ----------
+
     trajectory : f64[T, nE]
     L1, LO : edge Laplacians
 
     Returns
-    -------
+
     Ekin_per_edge : f64[T, nE]
     Epot_per_edge : f64[T, nE]
     """
@@ -419,13 +419,13 @@ def cascade_from_edge(np.ndarray[f64, ndim=2] trajectory,
     automatic threshold based on peak signal magnitude.
 
     Parameters
-    ----------
+
     trajectory : f64[T, nE] - edge signal trajectory (from propagation)
-    threshold : float - activation threshold. If negative, auto-computed
+    threshold : float - activation threshold. If negative, auto computed
         as 0.5% of peak signal magnitude across all timesteps.
 
     Returns
-    -------
+
     activation_time : i32[nE] - first timestep each edge exceeds threshold (-1 = never)
     activation_order : i32[n_activated] - edges sorted by activation time
     activation_rank : i32[nE] - rank in activation order (-1 = never)
@@ -453,17 +453,17 @@ def face_emergence(np.ndarray[f64, ndim=2] trajectory,
 
     A face is active at timestep t when the minimum |signal| across
     all its boundary edges exceeds the threshold. This models face
-    "emergence": a higher-order structure becomes active when all
+    "emergence": a higher order structure becomes active when all
     its constituent edges are active.
 
     Parameters
-    ----------
+
     trajectory : f64[T, nE]
-    B2 : (nE, nF) - edge-face boundary (dense or sparse)
+    B2 : (nE, nF) - edge face boundary (dense or sparse)
     threshold : float - auto if negative
 
     Returns
-    -------
+
     face_activation_time : i32[nF] - first timestep face activates (-1 = never)
     face_order : i32[n_activated] - faces sorted by activation time
     """
@@ -526,20 +526,20 @@ def cascade_depth(np.ndarray[i32, ndim=1] activation_order,
     """Compute topological distance from perturbation source.
 
     Uses BFS on the edge adjacency graph (edges sharing a vertex)
-    starting from the first-activated edge.
+    starting from the first activated edge.
 
     depth 0 = perturbed edge
     depth 1 = star neighborhood (edges sharing a boundary vertex)
     depth 2 = star of star, etc.
 
     Parameters
-    ----------
+
     activation_order : i32[n_activated] - edges sorted by activation time
     edge_src, edge_tgt : i32[nE] - edge endpoints
     nE : number of edges
 
     Returns
-    -------
+
     depth : i32[nE] - topological depth from source (-1 if unreached)
     """
     if activation_order.shape[0] == 0:
@@ -600,15 +600,15 @@ def tag_energy_phases(np.ndarray[f64, ndim=1] E_kin,
     Wraps _temporal.compute_bioes_energy for the signal pipeline.
 
     Parameters
-    ----------
+
     E_kin : f64[T] - topological energy per timestep
     E_pot : f64[T] - geometric energy per timestep
-    ratio_tol : log-ratio threshold for crossover band
+    ratio_tol : log ratio threshold for crossover band
     min_phase_len : minimum phase length for BIOES assignment
     floor : minimum energy value
 
     Returns
-    -------
+
     tags : i32[T] - BIOES tags (0=B, 1=I, 2=O, 3=E, 4=S)
     phase_start : i32[n_phases]
     phase_end : i32[n_phases]
@@ -630,12 +630,12 @@ def tag_cascade_phases(np.ndarray[i32, ndim=1] activation_time,
         2 = peak activation step (most new edges in one step)
 
     Parameters
-    ----------
-    activation_time : i32[nE] - per-edge activation timestep (-1 = never)
+
+    activation_time : i32[nE] - per edge activation timestep (-1 = never)
     T : number of timesteps
 
     Returns
-    -------
+
     step_tags : i32[T]
     new_per_step : i32[T] - count of newly activated edges per step
     """
@@ -687,25 +687,25 @@ def analyze_perturbation(np.ndarray[f64, ndim=1] f_E,
                          np.ndarray[i32, ndim=1] edge_tgt=None,
                          double alpha_G=1.0,
                          object precomputed_trajectory=None):
-    """One-call perturbation analysis pipeline.
+    """One call perturbation analysis pipeline.
 
     1. Propagate f_E under RL_1 diffusion (spectral)
     2. Compute energy trajectory (E_kin, E_pot, ratio)
-    3. Per-edge energy at each timestep
+    3. Per edge energy at each timestep
     4. Cascade activation order
     5. Face emergence times
     6. BIOES phase tags
     7. Hodge decomposition of initial and final states
 
     Parameters
-    ----------
+
     f_E : f64[nE] - initial edge signal
     f_F : f64[nF] - initial face signal (usually zeros)
     L1 : (nE, nE) - Hodge Laplacian
     LO : (nE, nE) - overlap Laplacian
     evals_RL1, evecs_RL1 : eigendecomposition of RL_1
-    B1 : (nV, nE) - vertex-edge boundary
-    B2 : (nE, nF) - edge-face boundary (B2_hodge preferred)
+    B1 : (nV, nE) - vertex edge boundary
+    B2 : (nE, nF) - edge face boundary (B2_hodge preferred)
     times : f64[T] - timepoints
     L0 : vertex Laplacian (optional, for Hodge)
     L2_op : face Laplacian (optional, for Hodge)
@@ -714,7 +714,7 @@ def analyze_perturbation(np.ndarray[f64, ndim=1] f_E,
     alpha_G : coupling constant
 
     Returns
-    -------
+
     result : dict with keys:
         trajectory : f64[T, nE]
         E_kin, E_pot, ratio, norms : f64[T] each
@@ -734,9 +734,9 @@ def analyze_perturbation(np.ndarray[f64, ndim=1] f_E,
     cdef Py_ssize_t nE = f_E.shape[0]
     cdef Py_ssize_t T = times.shape[0]
 
-    # Step 1: Propagate under RL_1 diffusion. EIGEN-FREE when the caller supplies a
-    # matrix-free trajectory (Chebyshev heat via scale_propagator.heat_trajectory);
-    # otherwise fall back to the dense spectral mode-sum (kept as the oracle).
+    # Step 1: Propagate under RL_1 diffusion. EIGEN FREE when the caller supplies a
+    # matrix free trajectory (Chebyshev heat via scale_propagator.heat_trajectory);
+    # otherwise fall back to the dense spectral mode sum (kept as the oracle).
     if precomputed_trajectory is not None:
         trajectory = np.ascontiguousarray(precomputed_trajectory, dtype=np.float64)
     else:
@@ -745,7 +745,7 @@ def analyze_perturbation(np.ndarray[f64, ndim=1] f_E,
     # Step 2: Energy trajectory
     E_kin, E_pot, ratio, norms = energy_trajectory(trajectory, L1, LO)
 
-    # Step 3: Per-edge energy
+    # Step 3: Per edge energy
     Ekin_pe, Epot_pe = per_edge_energy_trajectory(trajectory, L1, LO)
 
     # Step 4: Cascade
@@ -836,15 +836,16 @@ def analyze_perturbation_field(np.ndarray[f64, ndim=1] f_E,
                                Py_ssize_t nF,
                                str mode="diffusion",
                                object precomputed_trajectory=None,
-                               object precomputed_velocity=None):
+                               object precomputed_velocity=None,
+                               object wave_metric=None):
     """Perturbation analysis using the full (E, F) field operator.
 
     Propagates the packed field state F = [f_E, f_F] under the coupled
-    field operator M from _field.pyx, then extracts per-dimension
+    field operator M from _field.pyx, then extracts per dimension
     energy and cascade information.
 
     Parameters
-    ----------
+
     f_E : f64[nE]
     f_F : f64[nF]
     M_field : f64[nE+nF, nE+nF] - field operator
@@ -854,9 +855,11 @@ def analyze_perturbation_field(np.ndarray[f64, ndim=1] f_E,
     times : f64[T]
     nE, nF : dimensions
     mode : 'diffusion' or 'wave'
+    wave_metric : positive diagonal or full SPD form used by the precomputed wave;
+        None means the identity. Kinetic energy uses this same form.
 
     Returns
-    -------
+
     result : dict with keys:
         field_trajectory : f64[T, nE+nF]
         edge_trajectory : f64[T, nE] (extracted edge block)
@@ -881,14 +884,14 @@ def analyze_perturbation_field(np.ndarray[f64, ndim=1] f_E,
 
     if mode == "wave":
         if precomputed_trajectory is not None and precomputed_velocity is not None:
-            # EIGEN-FREE wave: cos(t√M) F0 and -√M sin(t√M) F0 via matrix-free Chebyshev
+            # EIGEN FREE wave: cos(t√M) F0 and -√M sin(t√M) F0 via matrix free Chebyshev
             field_traj = np.ascontiguousarray(precomputed_trajectory, dtype=np.float64)
             vel_traj = np.ascontiguousarray(precomputed_velocity, dtype=np.float64)
         else:
             field_traj, vel_traj = wave_evolve_trajectory(
                 F0, evals_M, evecs_M, freqs_M, times)
     elif precomputed_trajectory is not None:
-        # EIGEN-FREE diffusion: e^{-tM} F0 via matrix-free Chebyshev (field_propagator)
+        # EIGEN FREE diffusion: e^{-tM} F0 via matrix free Chebyshev (field_propagator)
         field_traj = np.ascontiguousarray(precomputed_trajectory, dtype=np.float64)
     else:
         field_traj = field_diffusion_trajectory(F0, evals_M, evecs_M, times)
@@ -904,7 +907,7 @@ def analyze_perturbation_field(np.ndarray[f64, ndim=1] f_E,
     # Energy decomposition on edge block
     E_kin, E_pot, ratio, norms = energy_trajectory(edge_traj, L1, LO)
 
-    # Per-dimension norms
+    # Per dimension norms
     cdef np.ndarray[f64, ndim=1] norm_E = np.empty(T, dtype=np.float64)
     cdef np.ndarray[f64, ndim=1] norm_F = np.empty(T, dtype=np.float64)
     cdef Py_ssize_t t, j
@@ -936,13 +939,13 @@ def analyze_perturbation_field(np.ndarray[f64, ndim=1] f_E,
         "T": T,
     }
 
-    # Wave-specific: total energy conservation
+    # Wave specific: total energy conservation
     if mode == "wave" and vel_traj is not None:
         wave_KE = np.empty(T, dtype=np.float64)
         wave_PE = np.empty(T, dtype=np.float64)
         wave_total = np.empty(T, dtype=np.float64)
         for t in range(T):
-            ke, pe, tot = wave_energy(field_traj[t], vel_traj[t], M_field)
+            ke, pe, tot = wave_energy(field_traj[t], vel_traj[t], M_field, wave_metric)
             wave_KE[t] = ke
             wave_PE[t] = pe
             wave_total[t] = tot

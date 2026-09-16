@@ -1,13 +1,13 @@
 """Which lanes share a bus is hardware, so it is declared, not hardcoded.
 
 `min(proc, igpu)` baked in unified memory. That is right on the 8060S, where the iGPU
-and the CPU are on one physical bus, and wrong on a discrete-GPU box where VRAM is its
+and the CPU are on one physical bus, and wrong on a discrete GPU box where VRAM is its
 own pool and an igpu draw costs a CPU draw nothing.
 
-The topology is a complex, edge-primary: a bus is a vertex, a LANE is the relation over
+The topology is a complex, edge primary: a bus is a vertex, a LANE is the relation over
 the buses it draws on, and two lanes meet exactly when they share one. A lane on a single
-bus is a 1-ary witness relation, and two witnesses on one vertex meet there, so the
-unified case falls out of the incidence rather than being special-cased.
+bus is a 1 ary witness relation, and two witnesses on one vertex meet there, so the
+unified case falls out of the incidence rather than being special cased.
 """
 import numpy as np
 import pytest
@@ -53,7 +53,7 @@ def test_unified_memory_reproduces_the_previous_formula_exactly():
 
 
 def test_split_memory_frees_the_igpu_from_the_cpu_lanes():
-    """A discrete GPU has its own pool: a VRAM draw and a system-memory draw are not at
+    """A discrete GPU has its own pool: a VRAM draw and a system memory draw are not at
     war, and the unified formula would have charged for it."""
     C.set_bus_topology(C.SPLIT_MEMORY)
     cap, t = C.capacity(), _t()
@@ -106,7 +106,7 @@ def test_the_sheaf_recovers_the_sharing_from_the_incidence(topo, expect):
 
 def test_the_bus_complex_is_edge_primary_and_arity_general():
     """Lanes are the relations and buses their boundary. On unified memory each lane is a
-    1-ary witness on one vertex; on an overlapping cover a lane becomes 2-ary."""
+    1 ary witness on one vertex; on an overlapping cover a lane becomes 2 ary."""
     C.set_bus_topology(C.UNIFIED_MEMORY)
     rex, lanes = C.bus_complex()
     from rexgraph.harmonic_sparse import _b1_csc
@@ -146,8 +146,8 @@ def test_placement_responds_to_the_topology():
 
 #### a fleet is heterogeneous, so the topology belongs to the machine
 def test_two_models_hold_different_hardware_at_once():
-    """The reason this is per-model: a hive spanning a unified-memory laptop and a
-    discrete-GPU desktop has to describe both simultaneously, and a process-global
+    """The reason this is per model: a hive spanning a unified memory laptop and a
+    discrete GPU desktop has to describe both simultaneously, and a process global
     topology can only be one of them."""
     laptop, desktop = C.CostModel(), C.CostModel()
     laptop.set_buses(C.UNIFIED_MEMORY)
@@ -168,7 +168,7 @@ def test_an_undeclared_model_defers_to_the_process_default():
 
 
 def test_a_declared_model_ignores_the_process_default():
-    """Otherwise one machine reconfiguring the process would silently re-describe another."""
+    """Otherwise one machine reconfiguring the process would silently re describe another."""
     m = C.CostModel()
     m.set_buses(C.UNIFIED_MEMORY)
     C.set_bus_topology(C.SPLIT_MEMORY)
@@ -220,12 +220,12 @@ def test_a_mixed_fleet_prices_the_same_wave_differently_per_machine():
     assert scores["laptop-unified"] != pytest.approx(scores["desk-3070"])
 
 
-#### auto-configuration from the hardware
+#### auto configuration from the hardware
 @pytest.mark.parametrize("unified,expect", [
     (True, C.UNIFIED_MEMORY), (False, C.SPLIT_MEMORY), (None, None),
 ])
 def test_bus_topology_for_refuses_to_guess(unified, expect):
-    """None must stay None. A wrong topology silently mis-prices every bandwidth
+    """None must stay None. A wrong topology silently mis prices every bandwidth
     decision; an absent one only asks the caller to declare."""
     got = C.bus_topology_for(unified)
     assert got == (dict(expect) if expect else None)

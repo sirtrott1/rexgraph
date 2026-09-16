@@ -40,7 +40,7 @@ def triangle():
 class TestMarkovDiscrete:
 
     def test_step_preserves_l1(self, k4):
-        """Column-stochastic W preserves L1 norm of nonneg signal."""
+        """Column stochastic W preserves L1 norm of nonneg signal."""
         L0 = np.asarray(k4.L0, dtype=np.float64)
         W = _transition.build_vertex_transition_matrix(L0)
         p = np.ones(k4.nV, dtype=np.float64) / k4.nV

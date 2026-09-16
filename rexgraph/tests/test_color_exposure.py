@@ -53,7 +53,7 @@ def test_the_chosen_dLT_really_is_inside_every_interval_it_claims():
     """The solve is only right if the eigenvalues it counts are genuinely visible.
 
     An eigenvalue is visible exactly when 360 <= B / (lam * dLT) <= 830, so this
-    re-derives the condition rather than trusting the sweep that produced it.
+    re derives the condition rather than trusting the sweep that produced it.
     """
     chi = np.asarray(_panel().structural_character, dtype=float)
     dLT = exposure(chi)["dLT"]

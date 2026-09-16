@@ -38,7 +38,7 @@ def two_tenants(tmp_path, monkeypatch):
     auth.reset_auth_manager()
     audit.reset_cache()
     reset_default_store()
-    agent_complex.reset_live()                       # keyed by workspace, and process-wide
+    agent_complex.reset_live()                       # keyed by workspace, and process wide
 
     from agent.server.app import app
     mgr = auth.get_auth_manager()
@@ -150,7 +150,7 @@ def test_the_trail_still_verifies_after_the_routes_have_written_to_it(two_tenant
 ])
 def test_a_plain_user_cannot_move_the_shared_model_runtime(
         two_tenants, method, path, body):
-    """The inference runtime is process-wide, so a stop or an unload takes a model out
+    """The inference runtime is process wide, so a stop or an unload takes a model out
     from under whoever else was using it, and a pull spends disk and bandwidth."""
     client, _ah, bh, _a, _b = two_tenants
     kw = {"json": body} if body is not None else {}
@@ -168,7 +168,7 @@ def test_reading_which_models_exist_stays_ordinary_use(two_tenants, path):
 
 
 def test_a_direct_caller_outside_a_request_sees_the_whole_store(two_tenants):
-    """The CLI and anything in-process are not serving a request and are not scoped."""
+    """The CLI and anything in process are not serving a request and are not scoped."""
     from agent.rcdb import default_store
     _client, _ah, _bh, a_id, b_id = two_tenants
     ids = {r.id for r in default_store().list()}
@@ -176,7 +176,7 @@ def test_a_direct_caller_outside_a_request_sees_the_whole_store(two_tenants):
 
 
 def test_scoping_is_off_when_auth_is_off(tmp_path, monkeypatch):
-    """Single-operator local use has one tenant, so there is nothing to separate."""
+    """Single operator local use has one tenant, so there is nothing to separate."""
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     from agent.server import auth, scope
     auth.reset_auth_manager()
@@ -428,7 +428,7 @@ def test_effective_workspace_defers_outside_a_request():
 ])
 def test_a_plain_user_cannot_move_the_shared_instance(two_tenants, method, path, body):
     """These start and stop subprocesses, spend disk and VRAM, rewrite the compute config
-    or delete a profile, all of it process-wide. Repointing chat-config alone sends every
+    or delete a profile, all of it process wide. Repointing chat config alone sends every
     other tenant's prompts to an endpoint the caller chose."""
     client, _ah, bh, _a, _b = two_tenants
     kw = {"json": body} if body is not None else {}
@@ -516,9 +516,9 @@ def test_an_upload_does_not_stage_where_another_tenant_can_walk_it(two_tenants):
 
 
 def test_the_live_agentic_complex_is_per_workspace(two_tenants):
-    """One process-wide complex meant any tenant could append to the structure every
+    """One process wide complex meant any tenant could append to the structure every
     other tenant reads through the monitor, the router and the hive's own routing, so a
-    forged message moved another workspace's alignment and load-bearing readings."""
+    forged message moved another workspace's alignment and load bearing readings."""
     client, ah, bh, _a, _b = two_tenants
     r = client.post("/api/v1/agents/message", headers=bh,
                     json={"sender": "b1", "recipient": "b2", "text": "beta only"})
@@ -541,7 +541,7 @@ def test_resetting_clears_only_the_callers_own_complex(two_tenants):
 
 
 def test_a_named_hive_is_not_shared_between_workspaces(two_tenants):
-    """hive(name) is get-or-create and /agents/command reaches it with scope
+    """hive(name) is get or create and /agents/command reaches it with scope
     'hive:<name>', so any tenant could bring a named hive into being and every tenant
     then shared that one object: the same worker bees, and the same coordination complex
     they each wrote through chat and read through monitor."""
@@ -552,7 +552,7 @@ def test_a_named_hive_is_not_shared_between_workspaces(two_tenants):
                     json={"command": "status", "scope": "hive:victimhive"})
     assert r.status_code == 200, r.text
 
-    # Asked before default's own copy is materialised, because hive() is get-or-create
+    # Asked before default's own copy is materialised, because hive() is get or create
     # and naming it here would be this test creating what it then complains about.
     seen = client.get("/api/v1/agents/network", headers=ah).json()
     assert "victimhive" not in str(seen), "a hive another tenant created is listed here"

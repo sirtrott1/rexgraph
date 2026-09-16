@@ -1,4 +1,4 @@
-"""The k-ary fan and exact chain-condition fulfilment.
+"""The k-ary fan and exact chain condition fulfilment.
 
 The fixtures exercise the primary C1 column and its exact C2 closure at every tested
 arity.
@@ -24,7 +24,7 @@ def fan(k, *, legs=True):
 
 
 def chain_residual(rex):
-    """|B1 B2|, the exact chain-condition residual."""
+    """|B1 B2|, the exact chain condition residual."""
     b2 = getattr(rex, "_B2_hodge_dual", None)
     if b2 is None or int(rex.nF_hodge) == 0:
         return None
@@ -103,9 +103,9 @@ def test_the_zero_sum_share_is_the_same_number_that_makes_the_fan_bound(k):
     c = np.concatenate([[k - 1], -np.ones(k - 1)])
 
     right = 1.0 / (k - 1)
-    assert abs(B1(right)[:, 0].sum()) < 1e-12            # zero-sum column
+    assert abs(B1(right)[:, 0].sum()) < 1e-12            # zero sum column
     assert np.abs(B1(right) @ c).max() < 1e-12           # and it bounds
 
     unsigned = B1(1.0)
-    assert unsigned[:, 0].sum() == pytest.approx(k - 2)  # the known column-sum defect
+    assert unsigned[:, 0].sum() == pytest.approx(k - 2)  # the known column sum defect
     assert np.abs(unsigned @ c).max() == pytest.approx(k - 2)   # and it does NOT bound

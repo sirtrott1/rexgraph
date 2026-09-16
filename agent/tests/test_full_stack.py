@@ -11,7 +11,7 @@ import random
 import numpy as np
 import pytest
 from agent.knowledge import join
-from tests.test_knowledge_roundtrip import BRCA_GAF, BRCA_OBO, GTF
+from _rexgraph_agent_tests.test_knowledge_roundtrip import BRCA_GAF, BRCA_OBO, GTF
 
 pytest.importorskip("torch")  # the ml extra: these build or train models
 

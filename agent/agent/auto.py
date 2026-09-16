@@ -1,5 +1,5 @@
 """
-Auto-rex: automatic relational complex construction from any supported input.
+Auto rex: automatic relational complex construction from any supported input.
 
 This is the core of the agent. Data goes in, a typed RexGraph with faces
 and voids comes out. The math configures itself.
@@ -46,9 +46,9 @@ def _is_missing_cell(v) -> bool:
 
 
 def check_analysis_size(nV: int, nE: int) -> None:
-    """Fast-fail before the core's face-finding / boundary kernels run on a graph
+    """Fast fail before the core's face finding / boundary kernels run on a graph
     too large for reliable construction/analysis (segfault / OOM risk). Shared by
-    the edge-construction chokepoint and the schema/ontology/lineage builders so
+    the edge construction chokepoint and the schema/ontology/lineage builders so
     every RexGraph construction path is capped. Tune/disable with
     REXGRAPH_MAX_ANALYSIS_NODES / REXGRAPH_MAX_ANALYSIS_EDGES (0 disables).
     Raises ValueError when exceeded."""
@@ -83,7 +83,7 @@ def _refuse_if_missing_file(data, p: Path, suffix: str) -> None:
     """Raise when a string names a file that is not there.
 
     `source` is documented as a path *or* raw text, and the ambiguity was resolved
-    in favour of text: a mistyped path was tokenised into a co-occurrence complex, so
+    in favour of text: a mistyped path was tokenised into a co occurrence complex, so
     `/data/nope.txt` produced a plausible nV, nE and kappa over the words of the path.
     A wrong answer that looks right is worse than no answer.
 
@@ -174,8 +174,8 @@ def detect_input_type(data: Any) -> str:
         # No recognized extension, but it could still be a file path if it exists
         if isinstance(data, Path) or (isinstance(data, str) and len(data) < 256
                                        and "\n" not in data and p.exists()):
-            # Check if it's a 10X single-cell directory first (matrix.mtx +
-            # features/genes.tsv). This must precede the image-dir check.
+            # Check if it's a 10X single cell directory first (matrix.mtx +
+            # features/genes.tsv). This must precede the image dir check.
             if p.is_dir():
                 try:
                     from agent.adapters.single_cell import is_10x_dir
@@ -195,11 +195,11 @@ def detect_input_type(data: Any) -> str:
             raise ValueError(f"Unsupported file format: {suffix}")
 
         # String input that isn't a file path -> text
-        # Heuristic: contains whitespace (multi-word) or newlines, treat as prose
+        # Heuristic: contains whitespace (multi word) or newlines, treat as prose
         if isinstance(data, str) and (" " in data or "\n" in data or len(data) > 100):
             return "text"
 
-        # Single-word string with no path: assume the user meant a file
+        # Single word string with no path: assume the user meant a file
         raise ValueError(
             f"String input not recognized as file or text: {data[:60]!r}"
         )
@@ -235,7 +235,7 @@ def detect_input_type(data: Any) -> str:
                 # Diagonal ~ 0, values in [-1, 1] -> correlation with zeroed diagonal
                 if np.allclose(diag, 0.0, atol=0.1):
                     if np.all(np.abs(off_diag) <= 1.0 + 1e-6):
-                        # Check if continuous (not integer-like)
+                        # Check if continuous (not integer like)
                         if len(off_nonzero) > 0 and frac_integer < 0.5:
                             return "correlation"
 
@@ -274,7 +274,7 @@ def _classify_csv(path: Path, default: str = "edge_csv") -> str:
     if n_cols == 0:
         return "text"
 
-    # per-column sampled string values (aligned to header width)
+    # per column sampled string values (aligned to header width)
     def _col(j):
         return [r[j] for r in rows if j < len(r)]
 
@@ -289,7 +289,7 @@ def _classify_csv(path: Path, default: str = "edge_csv") -> str:
                 return False
         return True
 
-    # Text-heavy columns (annotation tables, ontologies) -> treat as text
+    # Text heavy columns (annotation tables, ontologies) -> treat as text
     for j in range(n_cols):
         col = _col(j)
         strvals = [str(v) for v in col if not _is_missing_cell(v)]
@@ -309,9 +309,9 @@ def _classify_csv(path: Path, default: str = "edge_csv") -> str:
         edge_keywords = {"source", "src", "from", "head", "target", "tgt", "to", "tail", "dest"}
         if col0 in edge_keywords or col1 in edge_keywords:
             return "edge_csv"
-        # first two columns non-numeric (node names) -> edge list. Requires actual
+        # first two columns non numeric (node names) -> edge list. Requires actual
         # rows: with none, `_is_numeric_col([])` is False for every column and a
-        # single line of prose reads as a two-node edge list.
+        # single line of prose reads as a two node edge list.
         if rows and not _is_numeric_col(_col(0)) and not _is_numeric_col(_col(1)):
             return "edge_csv"
 
@@ -359,7 +359,7 @@ def auto_rex(
     DataFrame and get back a RexGraph with typed faces and voids.
 
     Parameters
-    ----------
+
     data : str, Path, ndarray, or DataFrame
         The input data. See detect_input_type() for supported formats.
     threshold : 'auto' or float
@@ -387,15 +387,15 @@ def auto_rex(
         Additional adapter-specific options.
 
     Returns
-    -------
+
     RexGraph
         A relational complex with typed faces, voids, and ∂²=0 holds by construction.
     """
 
     # Fast path: caller already built the edges (e.g. an adapter that
-    # runs outside auto_rex, such as OCR-layout, single-cell, or L-R
+    # runs outside auto_rex, such as OCR layout, single cell, or L-R
     # scoring).  Construct the rex directly so every adapter shares the
-    # same face-selection and metadata handling.
+    # same face selection and metadata handling.
     if isinstance(data, EdgeConstruction):
         return build_rex_from_edges(
             data,
@@ -501,7 +501,7 @@ def auto_rex(
         raise ValueError(f"Unhandled input type: {input_type}")
 
     # Construct the RexGraph via the shared helper so every code path
-    # (auto_rex dispatch and out-of-band adapters) build faces and
+    # (auto_rex dispatch and out of band adapters) build faces and
     # metadata identically.
     return build_rex_from_edges(
         edges,
@@ -531,7 +531,7 @@ def attach_faces(rex, rule=FACE_RULE, *, type_labels=None):
 
     `rule` is 'none', 'auto'/'all' (every gon the cycle basis contains), 'promote'
     (fill the basis, beta_1 -> 0), 'hyper' (close branching relations), 'typed' (a
-    filter that keeps only same-type triangles, which is not what a face is and is
+    filter that keeps only same type triangles, which is not what a face is and is
     kept for a caller who wants exactly that), or a gon: 3, 5, [3, 6].
 
     Every path that used to call `typed_face_selection` directly goes through here,
@@ -557,11 +557,11 @@ def attach_faces(rex, rule=FACE_RULE, *, type_labels=None):
     k = rule
     if k in ("auto", "all"):
         # the supports, not the coefficient vectors: "which gons are present" is a
-        # question about |supp(c)|, and autoface re-solves the coefficients anyway.
-        # Reading the basis here and again inside autoface cost one cycle-space solve
+        # question about |supp(c)|, and autoface re solves the coefficients anyway.
+        # Reading the basis here and again inside autoface cost one cycle space solve
         # per distinct gon, so the basis is computed once and handed down.
         # which gons are present is a question about tree distances, not cycle vectors:
-        # cycle_gons reads it off the spanning forest with an LCA per non-tree relation
+        # cycle_gons reads it off the spanning forest with an LCA per non tree relation
         # and solves nothing. autoface then solves only the gons actually present.
         from rexgraph.faces import cycle_gons
         k = sorted(set(cycle_gons(rex)))
@@ -583,8 +583,8 @@ def build_rex_from_edges(
     """Construct a RexGraph from an EdgeConstruction.
 
     This is the single place where an EdgeConstruction becomes a
-    RexGraph, so adapters that run outside :func:`auto_rex` (OCR-layout,
-    single-cell, L-R scoring) get the same face selection, weight/sign
+    RexGraph, so adapters that run outside :func:`auto_rex` (OCR layout,
+    single cell, L-R scoring) get the same face selection, weight/sign
     handling and ``_agent_meta`` attachment.
 
     Mirrors ``rexgraph.io.csv_loader.GraphData.to_rex()``: ``w_E`` is the
@@ -592,11 +592,11 @@ def build_rex_from_edges(
     """
     from rexgraph.graph import RexGraph
 
-    # Construction guard. The core's face-finding / boundary kernels can segfault
+    # Construction guard. The core's face finding / boundary kernels can segfault
     # or exhaust memory on large, dense graphs (a real core limitation). Fail fast
     # and clearly HERE, before the C code runs.
     # guard on the PAIRWISE arrays, which is what this line reads. `edges.nE` counts
-    # relations at any arity, so a branching-only construction makes it truthy while
+    # relations at any arity, so a branching only construction makes it truthy while
     # `sources` is empty and `.max()` has nothing to reduce.
     _nV = (int(max(int(edges.sources.max()), int(edges.targets.max())) + 1)
            if len(edges.sources) else 0)
@@ -625,7 +625,7 @@ def build_rex_from_edges(
     branching = [list(map(int, r)) for r in getattr(edges, "branching", []) or []]
     if branching:
         # a wider relation cannot be said in (sources, targets), so the whole complex is
-        # built from a boundary CSR instead: the 2-ary relations first, in their original
+        # built from a boundary CSR instead: the 2 ary relations first, in their original
         # order so every aligned array still lines up, then the k-ary ones.
         supports = [[int(a), int(b)]
                     for a, b in zip(edges.sources, edges.targets, strict=True)]
@@ -656,9 +656,9 @@ def build_rex_from_edges(
     # A face is a filled cycle: whatever satisfies B1 c_f = 0 on the relations it
     # spans. It is not triangles, and it is not conditioned on edge type, which is
     # an attribute that weights the complex. `rexgraph.faces` already solves this
-    # exactly over the rationals and arity-general, reading the gon off the cycle
-    # basis; this path used to ignore it for a triangle-only, type-gated rule, so no
-    # ring with a double bond could close and no 4-gon could close at all.
+    # exactly over the rationals and arity general, reading the gon off the cycle
+    # basis; this path used to ignore it for a triangle only, type gated rule, so no
+    # ring with a double bond could close and no 4 gon could close at all.
     #
     # Nothing is filled unless asked. Asserting a face is asserting that something
     # is enclosed, and that is the caller's claim about their data, not a default.
@@ -673,19 +673,19 @@ def build_rex_from_edges(
         rex._embedding = embedding
 
     # attributes the reader parsed, onto the cells they belong to. Same shape as the
-    # store, so this is a hand-off rather than a translation.
+    # store, so this is a hand off rather than a translation.
     for grade, cells in (getattr(edges, "attributes", None) or {}).items():
         for index, values in cells.items():
             for key, value in values.items():
                 rex.attach_metadata(int(grade), int(index), str(key), value)
 
     # Honour the declared vertex count, AFTER faces: attaching them can rebuild the
-    # complex from its boundary arrays, which re-derives nV from the edge supports
+    # complex from its boundary arrays, which re derives nV from the edge supports
     # and drops any vertex with no incident edge. Sizing from the supports alone
     # loses only the TRAILING isolated ones, so the same records in a different
     # order gave a different complex and a different beta_0. An interval that
     # overlaps nothing, an atom that bonds to nothing and a gene nothing correlates
-    # with are all real 0-cells.
+    # with are all real 0 cells.
     n_declared = len(edges.vertex_labels or ())
     if n_declared > rex.nV:
         rex._nV = n_declared
@@ -703,7 +703,7 @@ def build_rex_from_edges(
         "typing": typing,
         "face_selection": face_selection,
     }
-    # Preserve text-position mapping when present (OCR/text adapters)
+    # Preserve text position mapping when present (OCR/text adapters)
     if getattr(edges, "source_text", ""):
         rex._agent_meta["source_text"] = edges.source_text
 
@@ -711,13 +711,13 @@ def build_rex_from_edges(
 
 
 def _fallback_text_or_raise(data, input_type, err, **kwargs):
-    """Fall back to text construction when a CSV-classified file won't load.
+    """Fall back to text construction when a CSV classified file won't load.
 
     ``detect_input_type`` classifies any existing ``.txt`` (and some
     ambiguous ``.csv``) by peeking at content, which can misfire on prose
     that merely contains commas. Rather than failing the whole document
-    with an "Empty CSV" style error, re-read the file as text and build a
-    word co-occurrence complex.
+    with an "Empty CSV" style error, re read the file as text and build a
+    word co occurrence complex.
     """
     from pathlib import Path as _Path
 
@@ -745,7 +745,7 @@ def _fallback_text_or_raise(data, input_type, err, **kwargs):
 
 
 def _read_numeric_csv(path):
-    """Read a CSV and return (X float64[n, k], names) for its numeric columns only. Pandas-free."""
+    """Read a CSV and return (X float64[n, k], names) for its numeric columns only. Pandas free."""
     import csv
     with open(path, newline="") as fh:
         reader = csv.reader(fh)
@@ -819,7 +819,7 @@ def _build_edge_list_edges(data, **kwargs) -> EdgeConstruction:
         raise TypeError(f"EdgeListAdapter needs a file path or DataFrame, got {type(data)}")
 
 
-# One-call analysis
+# One call analysis
 def auto_analyze(
     data: Any,
     *,
@@ -829,7 +829,7 @@ def auto_analyze(
     """Build a rex and run the full analysis pipeline in one call.
 
     Parameters
-    ----------
+
     data : any supported input (file path, array, DataFrame)
     depth : 'quick', 'standard', or 'full'
         'quick': topology + spectral (< 1 second)
@@ -839,7 +839,7 @@ def auto_analyze(
         Forwarded to auto_rex().
 
     Returns
-    -------
+
     dict
         Complete analysis results. Keys match rexgraph.analysis.analyze().
     """

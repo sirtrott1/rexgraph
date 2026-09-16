@@ -2,7 +2,7 @@
 
 Every store answers a structural predicate at about the same speed because they all
 walk their signatures one at a time. What none of them can answer is an aggregate:
-how kappa distributes by source, which betti values are over-represented, because
+how kappa distributes by source, which betti values are over represented, because
 a signature is a document and aggregating documents means writing the loop yourself.
 
 The view is derived, not another copy: it projects out of whatever store holds the

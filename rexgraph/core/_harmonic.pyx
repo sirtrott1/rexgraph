@@ -33,14 +33,14 @@ def harmonic_basis(np.ndarray[f64, ndim=2] B1,
     Extract the orthonormal harmonic basis from boundary operators.
 
     Parameters
-    ----------
+
     B1 : (nV, nE) float64
         Grade-1 boundary operator.
     B2 : (nE, nF) float64
         Grade-2 boundary operator.
 
     Returns
-    -------
+
     harm_basis : (nE, dim_H) float64
         Columns are orthonormal harmonic basis vectors.
     evals : (nE,) float64
@@ -69,12 +69,12 @@ def harmonic_projectors(np.ndarray[f64, ndim=2] B1,
     Compute the three Hodge projectors: P_grad, P_curl, P_harm.
 
     Parameters
-    ----------
+
     B1 : (nV, nE) float64
     B2 : (nE, nF) float64
 
     Returns
-    -------
+
     dict with keys 'P_harm', 'P_grad', 'P_curl', 'harm_basis', 'dim_H'.
     """
     cdef int nE = B1.shape[1]
@@ -110,7 +110,7 @@ def prime_removal_analysis(int k,
     from the face structure of K_k.
 
     Parameters
-    ----------
+
     k : int
         Number of vertices.
     removed_vertex : int
@@ -123,8 +123,8 @@ def prime_removal_analysis(int k,
         Natural logarithms of the primes.
 
     Returns
-    -------
-    dict with beta_1, concentration, harm_norm, and edge-level data.
+
+    dict with beta_1, concentration, harm_norm, and edge level data.
     """
     cdef int nE = B1.shape[1]
     cdef np.ndarray[f64, ndim=2] hb
@@ -133,7 +133,7 @@ def prime_removal_analysis(int k,
     hb, evals = harmonic_basis(B1, B2)
     cdef int dim_H = hb.shape[1]
 
-    # Build log-prime edge signal
+    # Build log prime edge signal
     cdef np.ndarray[f64, ndim=1] sig = np.zeros(nE, dtype=np.float64)
     cdef int e
     for e in range(nE):
@@ -170,12 +170,12 @@ def harmonic_product_table(np.ndarray[f64, ndim=2] harm_basis):
     Compute the Hadamard product multiplication table on H.
 
     Parameters
-    ----------
+
     harm_basis : (nE, dim_H) float64
         Orthonormal harmonic basis.
 
     Returns
-    -------
+
     dict with mult_table (dim_H, dim_H, dim_H), closure matrix,
     commutativity and associativity violations.
     """
@@ -282,11 +282,11 @@ def prime_coupling(int k,
     Compute pairwise cosine coupling between prime tensor positions on H.
 
     For each prime p_i, removes all faces involving vertex i, computes
-    the harmonic projection of the log-prime signal, and measures the
+    the harmonic projection of the log prime signal, and measures the
     cosine similarity between all pairs.
 
     Parameters
-    ----------
+
     k : int
         Number of primes.
     all_tri : list of (int, int, int)
@@ -297,7 +297,7 @@ def prime_coupling(int k,
         Natural log of each prime.
 
     Returns
-    -------
+
     dict with coupling matrix, mean/max coupling, orthogonality flag.
     """
     # Cannot cimport RexGraph, so we import at runtime
@@ -355,13 +355,13 @@ def harmonic_channel_character(np.ndarray[f64, ndim=2] harm_basis,
     Compute the channel character of the harmonic subspace.
 
     Parameters
-    ----------
+
     harm_basis : (nE, dim_H) float64
     chi : (nE, 4) float64
         Per-edge structural character on Delta^3.
 
     Returns
-    -------
+
     chi_H : (4,) float64
         Average channel character across harmonic basis vectors.
     isotropic : bool
@@ -400,14 +400,14 @@ def harmonic_encode(np.ndarray[f64, ndim=1] data_coords,
     Encode a coordinate vector into the harmonic subspace.
 
     Parameters
-    ----------
+
     data_coords : (dim_H,) float64
         Coordinates in the harmonic basis.
     harm_basis : (nE, dim_H) float64
         Orthonormal harmonic basis.
 
     Returns
-    -------
+
     harm_vec : (nE,) float64
         Edge signal in the harmonic subspace.
     """
@@ -420,14 +420,14 @@ def harmonic_decode(np.ndarray[f64, ndim=1] harm_vec,
     Decode a harmonic vector back to coordinates.
 
     Parameters
-    ----------
+
     harm_vec : (nE,) float64
         Edge signal (possibly with gradient/curl noise).
     harm_basis : (nE, dim_H) float64
         Orthonormal harmonic basis.
 
     Returns
-    -------
+
     coords : (dim_H,) float64
         Coordinates in the harmonic basis (noise annihilated).
     """
@@ -443,13 +443,13 @@ def harmonic_leakage(np.ndarray[f64, ndim=1] signal,
     between subspaces.
 
     Parameters
-    ----------
+
     signal : (nE,) float64
     P_harm, P_grad, P_curl : (nE, nE) float64
 
     Returns
-    -------
-    dict with norms, percentages, and cross-leakage (should be ~0).
+
+    dict with norms, percentages, and cross leakage (should be ~0).
     """
     cdef np.ndarray[f64, ndim=1] h = P_harm @ signal
     cdef np.ndarray[f64, ndim=1] g = P_grad @ signal
@@ -460,7 +460,7 @@ def harmonic_leakage(np.ndarray[f64, ndim=1] signal,
     cdef double nc = np.linalg.norm(c)
     cdef double total = nh*nh + ng*ng + nc*nc
 
-    # Cross-leakage: harmonic content in gradient/curl projections
+    # Cross leakage: harmonic content in gradient/curl projections
     cdef double h_in_g = np.linalg.norm(P_harm @ g)
     cdef double h_in_c = np.linalg.norm(P_harm @ c)
 
@@ -474,5 +474,3 @@ def harmonic_leakage(np.ndarray[f64, ndim=1] signal,
         'harm_in_grad': h_in_g,
         'harm_in_curl': h_in_c,
     }
-
-

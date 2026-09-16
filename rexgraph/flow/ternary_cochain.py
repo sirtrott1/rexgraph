@@ -1,6 +1,6 @@
-"""rexgraph.flow.ternary_cochain: the composite-binary cochain and its reduction.
+"""rexgraph.flow.ternary_cochain: the composite binary cochain and its reduction.
 
-A composite-binary field carries entries in {-1, 0, +1} against one scale. Reducing a
+A composite binary field carries entries in {-1, 0, +1} against one scale. Reducing a
 real field to that form has NO free parameter once the scale is derived, and deriving it
 is the whole of the construction.
 
@@ -37,12 +37,12 @@ an integer, with nothing rounded and no vector of floats to read. The float path
 dense query vector, which is the embedding a relational model exists to avoid, and it
 measured 121.7 Gentry/s against the packed path's 854.6 on the same machine.
 
-WHERE PACKING APPLIES. A field dense in (cells x classes). NOT the co-participation
+WHERE PACKING APPLIES. A field dense in (cells x classes). NOT the co participation
 adjacency, which is weighted rather than ternary, and NOT the boundary, which
 `boundary_ptr`/`boundary_idx` already stores without values. Density decides the rest:
 planes cost 2 bits an entry whatever the fill, a CSR form about 12 bytes a nonzero, so
 packing wins above a fill of 2/(8*12) and branching is what carries an operator across
-it. Measured on a 400-edge ring: 0.7% fill at arity 2, 3.7% at arity 8, 31.8% at 64.
+it. Measured on a 400 edge ring: 0.7% fill at arity 2, 3.7% at arity 8, 31.8% at 64.
 """
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ PACKING_DENSITY = 2.0 / (8 * 12)
 def packed_bytes(shape: tuple[int, int]) -> int:
     """What two bitplanes ACTUALLY cost for this shape.
 
-    Not `entries / 4`. A row is padded to a whole 64-bit word, so a short packed axis
+    Not `entries / 4`. A row is padded to a whole 64 bit word, so a short packed axis
     wastes most of every word: 4 classes use 4 bits of 64 and the planes come out 2x
     smaller than float64 rather than 32x. The win needs the packed axis at 64 or more,
     and is only exact at a multiple of 64.
@@ -85,7 +85,7 @@ def packing_pays(nnz: int, shape: tuple[int, int]) -> bool:
 
 
 def ternary_reduce(values):
-    """The composite-binary code of least spread against `values`, row by row.
+    """The composite binary code of least spread against `values`, row by row.
 
     Returns `(q, scale, deviation)`: the {-1,0,1} code, the scale `<x,q>/Q(q)` that
     minimises the residual for it, and `spread(x, q)`, which IS the fraction of the row's
@@ -170,7 +170,7 @@ class TernaryCochain:
     Carries no float in its product. `score` pairs it with a +-1 query and returns
     integers; `predict` reads the class each cell votes for. Both route through
     `rexgraph.compute`, so the cpu, openmp and any device lane are reachable without a
-    call-site change.
+    call site change.
     """
 
     __slots__ = ("_op", "n_cells", "n_classes", "_device", "scale", "deviation")
@@ -183,9 +183,9 @@ class TernaryCochain:
         self._op = tn.pack(a)                      # refuses anything not ternary
         self.n_cells, self.n_classes = self._op.shape
         self._device = None
-        #: per-cell scale carrying the code back to the field it reduced, if it reduced one
+        #: per cell scale carrying the code back to the field it reduced, if it reduced one
         self.scale = None if scale is None else np.asarray(scale, dtype=np.float64)
-        #: per-cell spread against that field: the deviation from the exact composite binary
+        #: per cell spread against that field: the deviation from the exact composite binary
         self.deviation = None if deviation is None else np.asarray(deviation, dtype=np.float64)
 
     @classmethod
@@ -228,7 +228,7 @@ class TernaryCochain:
     def predict(self) -> np.ndarray:
         """The class each cell votes for.
 
-        Pairing with the one-hot `e_c` returns `q[:, c]`, so the vote is the entry itself
+        Pairing with the one hot `e_c` returns `q[:, c]`, so the vote is the entry itself
         and there is no product to take. Ties go to the lowest class, which `argmax`
         already does; a ternary cochain has many of them by construction and a caller
         wanting them broken has to say how.
@@ -237,7 +237,7 @@ class TernaryCochain:
 
     def to(self, device: str = "cuda"):
         """Hold the planes on a device. See `rexgraph.ternary` on why residency is
-        explicit: the planes ARE the cochain, so re-sending them per product costs more
+        explicit: the planes ARE the cochain, so re sending them per product costs more
         than the product."""
         self._device = self._op.to(device)
         return self._device
@@ -252,7 +252,7 @@ class TernaryCochain:
 
 
 def from_cochain_model(model) -> TernaryCochain:
-    """Reduce a trained `CoParticipationCochain` to the composite-binary primitive.
+    """Reduce a trained `CoParticipationCochain` to the composite binary primitive.
 
     The model's forward is the identity, so its parameter IS its output and reducing the
     parameter reduces the model. Nothing about the complex changes: the structure lived in

@@ -1,5 +1,5 @@
 """
-End-to-end integration test for rexgraph v2.
+End to end integration test for rexgraph v2.
 
 Tests the full pipeline:
   Construction -> B1/B2 -> Laplacians -> RL -> chi/phi/kappa ->
@@ -347,7 +347,7 @@ class TestPropagation:
         source = np.zeros(g['nE'])
         source[0] = 1.0
         prop = RLp @ source
-        # Self-propagation should be stronger than cross-propagation
+        # Self propagation should be stronger than cross propagation
         self_score = abs(prop[0])
         other_scores = [abs(prop[e]) for e in range(1, g['nE'])]
         assert self_score >= max(other_scores) - 1e-10
@@ -378,7 +378,7 @@ class TestLinalgBackend:
 
 
 class TestFullPipeline:
-    """End-to-end: build complex, compute everything, verify all identities."""
+    """End to end: build complex, compute everything, verify all identities."""
 
     def test_drct_complex(self):
         """DRCT 8V/16E complex: the benchmark case."""

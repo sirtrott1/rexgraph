@@ -12,11 +12,11 @@ from the binding so a result can always say which state produced it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 
 from .binding import Binding, resolve
 from .signatures import OperatorSignature
-from .types import BasisRef, RCType
+from .types import BasisRef, PredicateResult, RCType
 
 
 def _plain_source(ref):
@@ -48,6 +48,7 @@ class TypedCall:
     args: tuple[object, ...]
     signature: OperatorSignature
     result: RCType
+    predicates: tuple[PredicateResult, ...] = ()
 
     @property
     def effects(self) -> frozenset:
@@ -62,16 +63,29 @@ class TypedCall:
             "source_state": _plain_source(self.binding.ref),
             "policy_digest": self.binding.ref.policy_digest,
             "requires": sorted(self.signature.requires),
+            "source_methods": sorted(self.signature.source_methods),
             "effects": sorted(effect.value for effect in self.signature.effects),
+            "memoizable": self.signature.memoizable,
             "preconditions": list(self.signature.preconditions),
+            "predicates": [asdict(item) for item in self.predicates],
             "result": {
                 "kind": self.result.kind.value,
                 "grade": self.result.grade,
                 "variance": None if self.result.variance is None else self.result.variance.value,
                 "domain": None if self.result.domain is None else self.result.domain.value,
                 "exactness": None if self.result.exactness is None else self.result.exactness.value,
+                "shape": None if self.result.shape is None else self.result.shape.dims,
+                "operator": None if self.result.operator is None else asdict(self.result.operator),
+                "metric": None if self.result.metric is None else asdict(self.result.metric),
+                "accessions": [asdict(a) for a in self.result.accessions],
+                "cross_metric": None if self.result.cross_metric is None else asdict(self.result.cross_metric),
+                "family_metric": None if self.result.family_metric is None else asdict(self.result.family_metric),
+                "graded_map": None if self.result.graded_map is None else asdict(self.result.graded_map),
+                "graded_operator": None if self.result.graded_operator is None else asdict(self.result.graded_operator),
+                "graded_bases": [asdict(b) for b in self.result.graded_bases],
+                "member_shapes": [list(s) for s in self.result.member_shapes],
                 # The state the result was read at, and the basis it is expressed in. Both
-                # are part of what the value means: an identical-looking reading from
+                # are part of what the value means: an identical looking reading from
                 # another version or another ordered basis is a different value, so an
                 # account that omitted them would let EXPLAIN imply a state and a frame it
                 # never established. Rendered as plain fields rather than the descriptors
@@ -91,7 +105,8 @@ class TypedCall:
         }
 
 
-def infer(binding: Binding, operator: str, args: tuple[object, ...] = ()) -> TypedCall:
+def infer(binding: Binding, operator: str, args: tuple[object, ...] = (), *,
+          context=None, children=()) -> TypedCall:
     """Resolve, check and type one call without executing it."""
     signature = resolve(binding, operator, args)
     result = signature.result_type(args)
@@ -115,5 +130,8 @@ def infer(binding: Binding, operator: str, args: tuple[object, ...] = ()) -> Typ
         basis = BasisRef(source.name, result.grade)
     result = result.with_(source=source, temporal=temporal, basis=basis)
 
-    return TypedCall(operator=operator.upper(), binding=binding, args=tuple(args),
-                     signature=signature, result=result)
+    from .validation import ValidationContext, refine
+    typed = TypedCall(operator=operator.upper(), binding=binding, args=tuple(args),
+                      signature=signature, result=result)
+    refined, predicates = refine(typed, children, context or ValidationContext(binding))
+    return replace(refined, predicates=predicates)

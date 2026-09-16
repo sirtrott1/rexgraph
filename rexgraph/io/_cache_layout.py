@@ -1,11 +1,11 @@
 """The cache layout every array backend writes, and the code that walks it.
 
-`RexHDF5Format` and `RexZarrFormat` held byte-identical copies of this: the same
+`RexHDF5Format` and `RexZarrFormat` held byte identical copies of this: the same
 thirteen cache groups and the same thirteen methods for writing them, 76 statements
 duplicated across two files. Two copies of one rule is how a fix lands in one of them,
 which is the whole reason this is one file now.
 
-What is genuinely per-backend stays per-backend. These methods decide WHAT is written
+What is genuinely per backend stays per backend. These methods decide WHAT is written
 and in what shape; the subclass decides HOW bytes reach the store, through the seam:
 
     _store(group, name, arr)          write one array
@@ -91,7 +91,7 @@ for _entries in _CACHE_GROUPS.values():
 
 
 class CacheLayoutMixin:
-    """The backend-independent half of an array-format writer."""
+    """The backend independent half of an array format writer."""
 
     def _is_large(self, rex) -> bool:
         return rex.nE >= self.large_threshold
@@ -119,9 +119,9 @@ class CacheLayoutMixin:
     def _write_rex_graph(self, g, rex, *, cache=None) -> None:
         """Serialize a RexGraph to an HDF5 group via the canonical rex state.
 
-        Every tensor goes through the one rex-state encoder (`to_state`), so the on-disk
+        Every tensor goes through the one rex state encoder (`to_state`), so the on disk
         reconstruction contract cannot drift from `.rcbd`, arrow, and safetensors. Dataset names
-        are `fname_encode`d because h5py treats '/' as a group separator, and nested-rex tensor
+        are `fname_encode`d because h5py treats '/' as a group separator, and nested rex tensor
         names legitimately contain '/'.
         """
         from .rex_state import fname_encode, to_state
@@ -147,40 +147,26 @@ class CacheLayoutMixin:
         return from_state(RexState(tensors, hdr))
 
     def _write_temporal_rex(self, g, trex, *, cache=None) -> None:
-        """Serialize a TemporalRex with all snapshots and optional cache."""
-        T = trex.T
-        g.attrs["T"] = T
-        g.attrs["directed"] = bool(trex._directed)
-        g.attrs["general"] = bool(trex._general)
-        g.attrs["relation_id_snapshots"] = dumps([
-            value is not None for value in getattr(trex, "_snapshot_relation_ids", ())
-        ])
-
-        sg = g.create_group("snapshots")
-        for t in range(T):
-            tg = sg.create_group(str(t))
-            snap = trex._snapshots[t]
-            if trex._general:
-                self._store(tg, "boundary_ptr", snap[0])
-                self._store(tg, "boundary_idx", snap[1])
-            else:
-                self._store(tg, "sources", snap[0])
-                self._store(tg, "targets", snap[1])
-            relation_ids = trex._snapshot_relation_ids[t]
-            if relation_ids is not None:
-                self._store(tg, "relation_ids", relation_ids)
-
-        if trex._face_snapshots:
-            fg = g.create_group("face_snapshots")
-            for t, fsnap in enumerate(trex._face_snapshots):
-                ftg = fg.create_group(str(t))
-                self._store(ftg, "B2_col_ptr", fsnap[0])
-                self._store(ftg, "B2_row_idx", fsnap[1])
-
-        if cache:
-            rex_final = trex.at(T - 1)
+        """Write the canonical lazy checkpoint/delta state, not a snapshot shadow."""
+        from .rex_state import fname_encode
+        from .temporal_state import to_temporal_state
+        state = to_temporal_state(trex)
+        for name, arr in state.tensors.items():
+            self._store(g, fname_encode(name), arr)
+        g.attrs["temporal_state_header"] = dumps(state.header)
+        g.attrs["tensor_names"] = json.dumps(list(state.tensors))
+        if cache and trex.T:
+            rex_final = trex.reconstruct_at(trex.T - 1)
             self._write_cache(g, rex_final, cache, self._is_large(rex_final))
             self._write_temporal_cache(g, trex, cache)
+
+    def _read_temporal_state(self, g):
+        from .rex_state import fname_encode
+        from .temporal_state import TemporalState, from_temporal_state
+        header = json.loads(as_str(g.attrs["temporal_state_header"]))
+        names = json.loads(as_str(g.attrs["tensor_names"]))
+        tensors = {name: self._load(g, fname_encode(name)) for name in names}
+        return from_temporal_state(TemporalState(tensors, header))
 
     def _write_cache(self, g, rex, cache, large: bool) -> None:
         """Write precomputed properties into subgroups."""

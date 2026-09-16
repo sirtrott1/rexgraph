@@ -1,7 +1,7 @@
 """Wiktionary: a binary index over the JSONL, with the JSONL kept only as a heap.
 
 3.21 GB and 1,487,639 entries of JSONL is not a format to query. Parsing it per lookup
-costs a full scan, and re-encoding the whole thing into records would duplicate 3 GB of
+costs a full scan, and re encoding the whole thing into records would duplicate 3 GB of
 prose that nothing reads until someone asks for one entry.
 
 So the split is the one the owner's storage already makes everywhere else: STRUCTURE goes
@@ -44,7 +44,7 @@ FUNCTION_POS = ("article", "conj", "det", "particle", "postp", "prep", "pron")
 
 FORMAT_VERSION = 1
 
-#: entry-level fields naming other words. These are the relations; everything else in an
+#: entry level fields naming other words. These are the relations; everything else in an
 #: entry is prose, pronunciation or template residue and stays in the heap.
 LINK_KINDS = ("synonyms", "antonyms", "hypernyms", "hyponyms", "meronyms",
               "holonyms", "coordinate_terms", "derived", "related", "troponyms")
@@ -64,9 +64,9 @@ def build_index(jsonl_path, *, lang_code="en", limit=None, link_kinds=LINK_KINDS
     """One streaming pass over the JSONL, returning the index as arrays.
 
     Byte offsets are recorded from the file position BEFORE each line is read, so an
-    offset plus a `readline` recovers the exact bytes without re-parsing anything ahead
+    offset plus a `readline` recovers the exact bytes without re parsing anything ahead
     of it. The file is opened in binary for that reason: a text handle's `tell` is opaque
-    and cannot be seeked to reliably mid-iteration.
+    and cannot be seeked to reliably mid iteration.
     """
     path = os.path.expanduser(str(jsonl_path))
     kinds = tuple(link_kinds)
@@ -119,7 +119,7 @@ def build_index(jsonl_path, *, lang_code="en", limit=None, link_kinds=LINK_KINDS
                         continue
                     l_src.append(src); l_dst.append(wcode(other))
                     l_kind.append(kind_code[k])
-            # sense-level linkages carry the same relations at a finer grain
+            # sense level linkages carry the same relations at a finer grain
             for s in d.get("senses") or ():
                 if not isinstance(s, dict):
                     continue
@@ -151,7 +151,7 @@ def write_index(path, index) -> str:
     """The index as safetensors, with a digest over the payload.
 
     String tables go as one utf-8 blob plus offsets, the same packing `rcdb_index` uses,
-    so a read is a slice and nothing re-encodes. The header is metadata only: counts,
+    so a read is a slice and nothing re encodes. The header is metadata only: counts,
     the language, the heap path, and the digest.
     """
     from safetensors.numpy import save_file
@@ -173,7 +173,7 @@ def write_index(path, index) -> str:
         "n_entries": str(index["n_entries"]),
         "n_words": str(index["n_words"]),
         # the FRAMING this digest was written under. `state_digest` gained
-        # length-prefixed fields (algo 2) because the unframed form collided; a file
+        # length prefixed fields (algo 2) because the unframed form collided; a file
         # written before that verifies only under algo 1, and without this stamp every
         # index already on disk reads as corrupt.
         "digest_algo": str(DIGEST_ALGO),

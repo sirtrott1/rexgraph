@@ -1,6 +1,6 @@
 """The hash chain has to survive more than one process writing it.
 
-`record` serialized on a `threading.Lock` and stamped `prev` from a process-local
+`record` serialized on a `threading.Lock` and stamped `prev` from a process local
 cached head, so two processes appending to the same journal both extended the same
 entry. The chain forked, `verify` walked it linearly and reported a break, and a real
 tamper became indistinguishable from ordinary concurrency, which is the whole property.
@@ -12,17 +12,9 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
-import os
 
 import pytest
-
-
-def _append(journal: str, n: int) -> None:
-    os.environ["REXGRAPH_AUDIT_JOURNAL"] = journal
-    from agent.server import audit
-    audit.reset_cache()
-    for i in range(n):
-        audit.record("test.write", user=f"p{os.getpid()}", target=str(i))
+from _rexgraph_agent_process_helpers import append_journal
 
 
 @pytest.fixture
@@ -38,13 +30,13 @@ def journal(tmp_path, monkeypatch):
 def test_the_chain_survives_concurrent_processes(journal):
     from agent.server import audit
     audit.record("test.genesis")
-    # spawn, not fork. Python 3.13 warns that forking a multi-threaded process may
-    # deadlock the child, and pytest is multi-threaded, so this was a real hazard rather
-    # than noise. _append is a top-level function that re-imports what it needs, so it
+    # spawn, not fork. Python 3.13 warns that forking a multi threaded process may
+    # deadlock the child, and pytest is multi threaded, so this was a real hazard rather
+    # than noise. The worker is an importable function that reads what it needs, so it
     # survives being pickled to a fresh interpreter; spawn is also the only one of the
     # three that exists everywhere.
     ctx = mp.get_context("spawn")
-    procs = [ctx.Process(target=_append, args=(str(journal), 25)) for _ in range(4)]
+    procs = [ctx.Process(target=append_journal, args=(str(journal), 25)) for _ in range(4)]
     for pr in procs:
         pr.start()
     for pr in procs:

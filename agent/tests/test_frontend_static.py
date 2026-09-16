@@ -1,6 +1,6 @@
-"""Static checks on the single-file frontend.
+"""Static checks on the single file frontend.
 
-app.jsx is hyperscript with no build step, so nothing type-checks it and nothing
+app.jsx is hyperscript with no build step, so nothing type checks it and nothing
 resolves its identifiers before a browser does. A render body that reads another
 component's state is valid JavaScript: it parses, it ships, and it throws
 ReferenceError the first time that screen mounts. These checks are the substitute
@@ -42,7 +42,7 @@ def _blank(s: str) -> str:
     scanning see code only. A `/` opens a regex when the last significant character
     cannot end an expression.
 
-    String and regex bodies become `0`, not spaces: a blanked-to-space `?"a":b` reads
+    String and regex bodies become `0`, not spaces: a blanked to space `?"a":b` reads
     as an empty ternary branch, which is one of the things these checks look for.
     Comments become spaces because nothing inside them is an operand.
     """
@@ -95,7 +95,7 @@ def _declared(body: str) -> set[str]:
 
 
 def _functions(clean: str) -> dict[str, tuple[int, int, str]]:
-    """Top-level `function NAME(...)` spans, located by brace matching."""
+    """Top level `function NAME(...)` spans, located by brace matching."""
     out = {}
     for m in re.finditer(r"^function ([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{", clean, re.M):
         depth, i = 1, m.end()
@@ -178,7 +178,7 @@ def test_no_dangling_ternary(src):
 
 
 def test_every_screen_and_sub_tab_renders():
-    """Shallow-render each screen, in each of its sub-tabs, with stub hooks.
+    """Shallow render each screen, in each of its sub tabs, with stub hooks.
 
     Catches what the static checks cannot see: a prop shape a primitive rejects, a
     component that throws while building its tree. It is the complement of

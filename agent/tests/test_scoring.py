@@ -1,16 +1,16 @@
 """One ranking, built on the reads RexGraph provides for exactly this.
 
 Two earlier designs are buried under this file. The first mixed a label Jaccard, a
-cosine of MEAN structural characters and a hand-rolled spectral term under fixed
+cosine of MEAN structural characters and a hand rolled spectral term under fixed
 0.3/0.35/0.35 weights. The second replaced that with ||iv|| from interfacing_vector
 called with target=None, which scores psi against itself rather than interfacing
-with anything, and paid a whole-complex bundle for an answer wanted at a few
+with anything, and paid a whole complex bundle for an answer wanted at a few
 vertices.
 
-What the library actually offers is demand-driven: coherence_response reads kappa at
+What the library actually offers is demand driven: coherence_response reads kappa at
 just the query's vertices and is identical to coherence[seed] rather than an
 approximation, and agentic_reading returns the bounded neighbourhood, the
-load-bearing relations, the frustrated entities under a data-adaptive Tukey fence,
+load bearing relations, the frustrated entities under a data adaptive Tukey fence,
 and context_size. Relevance is the query's footprint under the document's own
 coherence field.
 """
@@ -110,7 +110,7 @@ def test_the_demand_driven_read_equals_the_full_field_at_the_seed(corpus):
 
 def test_the_agentic_reading_diagnostics_come_back(corpus):
     """context_size is what a correct answer costs; load_bearing are the bridges;
-    frustrated is a data-adaptive Tukey outlier, not a threshold I chose."""
+    frustrated is a data adaptive Tukey outlier, not a threshold I chose."""
     doc = next(d for d in corpus.documents if d.doc_id == "boundary")
     qec = TextAdapter().build("boundary map orientation sign", min_count=1, max_vocab=200)
     r = interfacing_score(doc.rex, doc.vertex_labels, qec.vertex_labels)

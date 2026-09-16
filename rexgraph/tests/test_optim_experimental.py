@@ -1,7 +1,7 @@
 """HodgeAdam / HodgeSGD live in rexgraph.nn._experimental, not in rexgraph.nn.optim.
 
-They tie plain Adam on standard feature-space models, so they are kept off the
-rexgraph.nn top-level surface and out of the live optimizer module. optim.py re-exports
+They tie plain Adam on standard feature space models, so they are kept off the
+rexgraph.nn top level surface and out of the live optimizer module. optim.py re exports
 them so callers naming them directly keep resolving.
 """
 import pytest
@@ -21,7 +21,7 @@ def test_optim_reexport_is_the_same_object():
     assert HodgeSGD is _experimental.HodgeSGD
     assert optim.HodgeAdam is _experimental.HodgeAdam        # attribute access, the factory's path
     assert optim.HodgeSGD is _experimental.HodgeSGD
-    assert R.optim.HodgeAdam is _experimental.HodgeAdam       # aliased-module access
+    assert R.optim.HodgeAdam is _experimental.HodgeAdam       # aliased module access
 
 
 def test_absent_from_nn_surface():

@@ -5,7 +5,7 @@ rexgraph.core._overlap: Overlap Laplacian L_O on the edge set.
 
 Builds L_O in R^{m x m}, capturing geometric similarity between edges.
 Two edges are similar when they share boundary vertices. The similarity
-is normalized by overlap degree (total shared-vertex count per edge),
+is normalized by overlap degree (total shared vertex count per edge),
 which guarantees L_O is PSD with eigenvalues in [0, 1].
 
 The formula is:
@@ -16,16 +16,16 @@ The formula is:
     L_O = I - S                        overlap Laplacian
 
 K_ij counts the weighted number of vertices shared by edges i and j.
-W = diag(w_v) holds optional per-vertex weights (default: uniform).
+W = diag(w_v) holds optional per vertex weights (default: uniform).
 
 L_O is PSD with eigenvalues in [0, 1] because D_ov - K is diagonally
-dominant (nonneg diagonal, nonneg off-diagonal), so K <= D_ov in the
+dominant (nonneg diagonal, nonneg off diagonal), so K <= D_ov in the
 Loewner order, giving S <= I after congruence by D_ov^{-1/2}.
 
 The Fiedler value of L_O enters the coupling constant
 alpha_G = fiedler(L_1) / fiedler(L_O) of the Relational Laplacian.
 
-Algorithm: vertex-driven pair enumeration in O(sum deg^2) time. For
+Algorithm: vertex driven pair enumeration in O(sum deg^2) time. For
 each vertex v with degree d, the d^2 pairs of incident edges all share
 v and contribute w_v to K. COO triples are accumulated then summed into
 CSR via scipy. Normalization is O(nnz(K)).
@@ -54,14 +54,7 @@ from libc.math cimport sqrt
 
 np.import_array()
 
-try:
-    from scipy.sparse import eye as _speye, diags as _spdiags, triu as _sptriu, coo_matrix as _coo_matrix
-    _HAS_SCIPY_SPARSE = True
-except ImportError:
-    _HAS_SCIPY_SPARSE = False
-
-
-# Vertex-to-edge CSR
+# Vertex to edge CSR
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -73,7 +66,7 @@ cdef int _build_v2e_csr(
     i32* vptr,
     i32* vidx,
 ) noexcept nogil:
-    """Build vertex-to-edge CSR index.
+    """Build vertex to edge CSR index.
 
     For each vertex v, vptr[v]..vptr[v+1] lists edge indices incident
     to v. Caller allocates vptr[nV+1] and vidx[2*nE].
@@ -113,7 +106,7 @@ cdef int _build_v2e_csr(
     return 0
 
 
-# Gramian K = |B_1|^T W |B_1| via vertex-driven enumeration
+# Gramian K = |B_1|^T W |B_1| via vertex driven enumeration
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -124,7 +117,7 @@ cdef i64 _count_gramian_nnz(
     """Count total COO entries for the Gramian (including duplicates).
 
     Each vertex v with degree d contributes d^2 entries. Duplicates at
-    the same (i, j) are summed during COO-to-CSR conversion.
+    the same (i, j) are summed during COO to CSR conversion.
     """
     cdef Py_ssize_t i
     cdef i64 total = 0
@@ -153,7 +146,7 @@ cdef void _fill_gramian_coo(
     For each vertex v, all d^2 pairs (e_i, e_j) of incident edges
     contribute vertex_weights[v] to K[e_i, e_j]. When edges share
     multiple vertices, duplicate (i, j) entries arise and are summed
-    during COO-to-CSR conversion.
+    during COO to CSR conversion.
     """
     cdef Py_ssize_t v, j, k
     cdef i64 ptr = 0
@@ -187,9 +180,9 @@ cdef void _fill_gramian_dense(
     f64* K,
     Py_ssize_t nE,
 ) noexcept nogil:
-    """Fill dense K[nE, nE] via vertex-driven enumeration.
+    """Fill dense K[nE, nE] via vertex driven enumeration.
 
-    Row-major layout: K[e1, e2] at K[e1 * nE + e2].
+    Row major layout: K[e1, e2] at K[e1 * nE + e2].
     """
     cdef Py_ssize_t v, j, k
     cdef i32 e1, e2
@@ -207,14 +200,14 @@ cdef void _fill_gramian_dense(
                 K[e1 * nE + e2] += w
 
 
-# Overlap-degree normalization: L_O = I - D_ov^{-1/2} K D_ov^{-1/2}
+# Overlap degree normalization: L_O = I - D_ov^{-1/2} K D_ov^{-1/2}
 
 def _normalize_sparse(K_csr, Py_ssize_t nE):
-    """Apply overlap-degree normalization to sparse K.
+    """Apply overlap degree normalization to sparse K.
 
     Returns (L_O, S, d_ov) where L_O and S are CSR, d_ov is ndarray.
     """
-    speye, spdiags = _speye, _spdiags
+    from scipy.sparse import eye as speye, diags as spdiags
 
     cdef np.ndarray[f64, ndim=1] d_ov = np.asarray(K_csr.sum(axis=1)).ravel()
 
@@ -246,9 +239,9 @@ cdef void _normalize_dense(
     f64* d_ov,
     Py_ssize_t nE,
 ) noexcept nogil:
-    """Apply overlap-degree normalization to dense K.
+    """Apply overlap degree normalization to dense K.
 
-    Reads K, writes L_O, S, and d_ov. Row-major layout.
+    Reads K, writes L_O, S, and d_ov. Row major layout.
     """
     cdef Py_ssize_t i, j
     cdef f64 eps = 1e-12
@@ -288,14 +281,14 @@ def build_L_O(
 ):
     """Overlap Laplacian L_O = I - D_ov^{-1/2} K D_ov^{-1/2}.
 
-    Builds the unsigned Gramian K = |B_1|^T W |B_1| via vertex-driven
+    Builds the unsigned Gramian K = |B_1|^T W |B_1| via vertex driven
     pair enumeration, then normalizes by overlap degree (row sums of K).
 
     Parameters
-    ----------
+
     nV, nE : int
         Vertex and edge counts.
-    sources, targets : array-like of int32
+    sources, targets : array like of int32
         Edge endpoint arrays (length nE).
     method : {"auto", "dense", "sparse"}
         "auto" picks dense when nE^2 fits the dense allocation budget.
@@ -303,7 +296,7 @@ def build_L_O(
         Per-vertex weights for K = |B_1|^T W |B_1|. Default: uniform.
 
     Returns
-    -------
+
     L_O : ndarray[nE, nE] or scipy.sparse.csr_matrix
         Overlap Laplacian. Symmetric PSD, eigenvalues in [0, 1].
     """
@@ -327,7 +320,7 @@ def build_L_O(
         # allocation budget (no magic dimension cutoff).
         method = "dense" if can_allocate_dense_f64(nE, nE) else "sparse"
 
-    # Vertex-to-edge CSR
+    # Vertex to edge CSR
     cdef np.ndarray[i32, ndim=1] vptr_arr = np.empty(nV + 1, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] vidx_arr = np.empty(2 * nE, dtype=np.int32)
 
@@ -350,7 +343,7 @@ cdef object _build_dense(
     np.ndarray[i32, ndim=1] vidx_arr,
     np.ndarray[f64, ndim=1] W,
 ):
-    """Dense path: fill K in-place, normalize to L_O."""
+    """Dense path: fill K in place, normalize to L_O."""
     cdef np.ndarray[f64, ndim=2] K = np.zeros((nE, nE), dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] L_O = np.empty((nE, nE), dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] S = np.empty((nE, nE), dtype=np.float64)
@@ -387,7 +380,7 @@ cdef object _build_sparse(
             &coo_rows[0], &coo_cols[0], &coo_vals[0],
         )
 
-    coo_matrix = _coo_matrix
+    from scipy.sparse import coo_matrix
     K = coo_matrix(
         (coo_vals, (coo_rows, coo_cols)),
         shape=(nE, nE),
@@ -405,13 +398,13 @@ def build_overlap_gramian(
     vertex_weights=None,
 ):
     """Raw overlap Gramian K = |B_1|^T W |B_1| as a scipy CSR: the CANONICAL
-    integer G channel (exact co-incidence counts; reference Part IX).
+    integer G channel (exact co incidence counts; reference Part IX).
 
     K_ij = (weighted) number of vertices shared by edges i and j; the diagonal is
     the (weighted) edge degree. This is the UNNORMALIZED overlap: for unit weights
     it is an exact integer matrix (the Hodge/integer-tower form). `build_L_O`
     returns the NORMALIZED alternate I - D^{-1/2} K D^{-1/2} (float, degree-
-    comparable). Both are sparse; pick per the two-tower rule.
+    comparable). Both are sparse; pick per the two tower rule.
     """
     if not isinstance(sources, np.ndarray):
         sources = np.asarray(sources, dtype=np.int32)
@@ -446,7 +439,8 @@ def build_overlap_gramian(
             &vptr_arr[0], &vidx_arr[0], &W[0], nV,
             &coo_rows[0], &coo_cols[0], &coo_vals[0],
         )
-    return _coo_matrix(
+    from scipy.sparse import coo_matrix
+    return coo_matrix(
         (coo_vals, (coo_rows, coo_cols)), shape=(nE, nE),
     ).tocsr()
 
@@ -466,16 +460,16 @@ def build_overlap_adjacency(
     RL_1 = L_1 + alpha_G * L_O.
 
     Parameters
-    ----------
+
     nV, nE : int
         Vertex and edge counts.
-    sources, targets : array-like of int32
+    sources, targets : array like of int32
         Edge endpoint arrays.
     vertex_weights : ndarray[nV] of float64, optional
         Per-vertex weights. Default: uniform.
 
     Returns
-    -------
+
     S : ndarray[nE, nE], float64
         Overlap similarity (symmetric, nonneg, entries in [0, 1]).
     d_ov : ndarray[nE], float64
@@ -495,7 +489,7 @@ def build_overlap_adjacency(
     else:
         W = np.ones(nV, dtype=np.float64)
 
-    # Vertex-to-edge CSR
+    # Vertex to edge CSR
     cdef np.ndarray[i32, ndim=1] vptr_arr = np.empty(nV + 1, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] vidx_arr = np.empty(2 * nE, dtype=np.int32)
 
@@ -532,10 +526,10 @@ def build_overlap_pairs(
     """Top-k most similar edge pairs by overlap similarity.
 
     Parameters
-    ----------
+
     nV, nE : int
         Vertex and edge counts.
-    sources, targets : array-like of int32
+    sources, targets : array like of int32
         Edge endpoint arrays.
     topk : int
         Maximum pairs to return.
@@ -543,12 +537,12 @@ def build_overlap_pairs(
         Per-vertex weights. Default: uniform.
 
     Returns
-    -------
+
     list of dict
         Each dict: {edge_i, edge_j, similarity, shared}.
         Sorted by descending similarity.
     """
-    speye, triu = _speye, _sptriu
+    from scipy.sparse import eye as speye, triu
 
     L_O = build_L_O(nV, nE, sources, targets,
                      method="sparse", vertex_weights=vertex_weights)

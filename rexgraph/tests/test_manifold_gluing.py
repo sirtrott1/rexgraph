@@ -34,7 +34,7 @@ def betti_of(simplices):
     return betti_numbers(build_graded_boundaries(cells))
 
 
-#### homology and the chain condition, at every grade #######################
+# homology and the chain condition, at every grade
 @pytest.mark.parametrize("k", [2, 3, 4, 5])
 def test_the_simplex_boundary_is_a_k_sphere(k):
     assert betti_of(sphere(k)) == [1] + [0] * (k - 1) + [1]
@@ -48,7 +48,7 @@ def test_the_chain_condition_holds_exactly_at_every_consecutive_pair(k):
         assert np.abs((b[d] @ b[d + 1]).toarray()).max() == 0.0
 
 
-#### the two independent halves #############################################
+# the two independent halves
 def chart_glue(simplices, k):
     cells, by_grade = graded_cells(simplices)
     verts = [v for (v,) in by_grade[0]]

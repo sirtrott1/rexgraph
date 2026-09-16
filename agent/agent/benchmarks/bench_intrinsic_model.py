@@ -1,6 +1,6 @@
 """
 The intrinsic model: both relational organs baked into one small transformer, trained
-end-to-end on associative recall (retrieve the value bound to a distant key: importance,
+end to end on associative recall (retrieve the value bound to a distant key: importance,
 not likelihood). A 2×2 ablation isolates each organ:
 
     attention ∈ {standard softmax, propagator (relational)}
@@ -10,7 +10,7 @@ so we see the conventional baseline (standard+Adam), each organ alone, and both 
 Bidirectional encoder (the symmetric propagator).
 
 HodgeAdam is named explicitly here because it is one arm of the ablation, not because it is a
-recommended default: this model is feature-space, and the routing default (make_optimizer("auto"))
+recommended default: this model is feature space, and the routing default (make_optimizer("auto"))
 gives it plain Adam. The cell measures what HodgeAdam does to a standard transformer; that is the
 question, so naming it is the point.
 
@@ -32,7 +32,7 @@ from agent.benchmarks.bench_associative_recall import (
 )
 
 # straight from _experimental: the A/B arm names the demoted optimizer on purpose, so it reads
-# from where it lives rather than through optim's back-compat re-export.
+# from where it lives rather than through optim's back compat re export.
 from rexgraph.nn._experimental import HodgeAdam
 from rexgraph.nn.optim import pick_device
 from rexgraph.nn.relational_attention import PropagatorAttention

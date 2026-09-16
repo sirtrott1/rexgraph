@@ -1,13 +1,13 @@
 """
 The four channel operators (T, G, F, C) and the relational Laplacian RL_4.
 
-Pure-NumPy reference implementation matching the corrected definitions
+Pure NumPy reference implementation matching the corrected definitions
 from `rexgraph.core` (the compiled Cython modules). This module lives
 in `rexgraph/tests/reference/` as the algebraic correctness oracle for
-the compiled kernels - every compiled kernel has a pure-numpy reference
-here that the math-correctness tests compare against.
+the compiled kernels - every compiled kernel has a pure numpy reference
+here that the math correctness tests compare against.
 
-CRITICAL: every channel must be trace-normalized BEFORE summing into RL.
+CRITICAL: every channel must be trace normalized BEFORE summing into RL.
 Without this:
     - tr(RL) ≠ 4 (the framework identity is violated)
     - χ(e, k) is not simplex-valued (sums won't equal 1)
@@ -72,7 +72,7 @@ def build_L_T(B_1: np.ndarray) -> np.ndarray:
 
     Eigenvalues encode the cycle/cut structure of the underlying graph.
     By construction tr(T) = sum of squared L2 norms of B_1 columns = sum
-    of edge weights times 2 (each B_1 column has two non-zero entries).
+    of edge weights times 2 (each B_1 column has two non zero entries).
     """
     n_V, n_E = B_1.shape
     if n_E == 0:
@@ -94,19 +94,19 @@ def build_L_O(B_1: np.ndarray, vertex_weights: np.ndarray) -> np.ndarray:
     Returns symmetric PSD with eigenvalues in [0, 1].
 
     CRITICAL: d_ov is the ROW SUM of K, not the diagonal K[i, i]. The
-    diagonal-as-degree mistake gives tr(L_O) = 0 always (because the
+    diagonal as degree mistake gives tr(L_O) = 0 always (because the
     normalized matrix has 1 on the diagonal everywhere by construction)
     and produces eigenvalues to -60 on real data.
 
     Parameters
-    ----------
+
     B_1 : np.ndarray (n_V, n_E)
         Grade-1 boundary operator.
     vertex_weights : np.ndarray (n_V,)
         Per-vertex weights (typically token counts in text application).
 
     Returns
-    -------
+
     L_O : np.ndarray (n_E, n_E), symmetric PSD with eigs in [0, 1].
     """
     n_V, n_E = B_1.shape
@@ -147,18 +147,18 @@ def build_L_SG(B_1: np.ndarray,
         L_SG = D_{|K_off|} - K_off
 
     For unsigned graphs (all edge orientations consistent), K_s is dominated
-    by the unsigned coupling and L_SG reduces to a degree-weighted line-graph
+    by the unsigned coupling and L_SG reduces to a degree weighted line graph
     Laplacian. The frustration channel measures sign disagreement among
     edges sharing vertices.
 
     Parameters
-    ----------
+
     B_1 : np.ndarray (n_V, n_E)
     vertex_weights : np.ndarray (n_V,), optional
         If None, uses inverse-log-degree weights (the default per the repo).
 
     Returns
-    -------
+
     L_SG : np.ndarray (n_E, n_E), symmetric PSD.
     """
     n_V, n_E = B_1.shape
@@ -166,7 +166,7 @@ def build_L_SG(B_1: np.ndarray,
         return np.zeros((0, 0))
 
     if vertex_weights is None:
-        # inverse-log-degree
+        # inverse log degree
         deg = (np.abs(B_1) > 1e-15).sum(axis=1).astype(float)
         vertex_weights = 1.0 / np.log(deg + np.e)
     else:
@@ -187,22 +187,22 @@ def build_L_SG(B_1: np.ndarray,
 def build_L_C(B_1: np.ndarray, B_2: np.ndarray) -> np.ndarray:
     """Copath Laplacian L_C = L1_down + B_2 @ B_2^T.
 
-    This is the line-graph Hodge edge Laplacian: it combines the down
+    This is the line graph Hodge edge Laplacian: it combines the down
     Laplacian (B_1^T B_1) with the up Laplacian (B_2 B_2^T). The result
-    has the line-graph structure of the rex.
+    has the line graph structure of the rex.
 
-    NOTE: this is NOT a copy of the unsigned line-graph adjacency Laplacian.
+    NOTE: this is NOT a copy of the unsigned line graph adjacency Laplacian.
     The B_2 contribution carries the face structure that distinguishes L_C
-    from a pure adjacency-based operator.
+    from a pure adjacency based operator.
 
     Parameters
-    ----------
+
     B_1 : np.ndarray (n_V, n_E)
     B_2 : np.ndarray (n_E, n_F)
         May be (n_E, 0) if no faces.
 
     Returns
-    -------
+
     L_C : np.ndarray (n_E, n_E), symmetric PSD.
     """
     n_V, n_E = B_1.shape
@@ -216,7 +216,7 @@ def build_L_C(B_1: np.ndarray, B_2: np.ndarray) -> np.ndarray:
     return _symmetrize(L1_down)
 
 
-# Channel bundle: build all four trace-normalized hats
+# Channel bundle: build all four trace normalized hats
 
 
 def build_channels(
@@ -225,14 +225,14 @@ def build_channels(
     vertex_weights: np.ndarray,
     frustration_weights: np.ndarray | None = None,
 ) -> tuple[np.ndarray, list[np.ndarray]]:
-    """Build all four trace-normalized hat operators and the relational Laplacian.
+    """Build all four trace normalized hat operators and the relational Laplacian.
 
     Returns (RL, [hat_T, hat_G, hat_F, hat_C]) where each hat has trace 1
-    by construction (when the underlying operator is non-degenerate) and
+    by construction (when the underlying operator is non degenerate) and
     tr(RL) = 4 (the framework identity).
 
     Parameters
-    ----------
+
     B_1 : np.ndarray (n_V, n_E)
     B_2 : np.ndarray (n_E, n_F)
     vertex_weights : np.ndarray (n_V,)
@@ -241,7 +241,7 @@ def build_channels(
         For L_SG. Defaults to inverse-log-degree if not provided.
 
     Returns
-    -------
+
     RL : np.ndarray (n_E, n_E)
         The relational Laplacian RL = sum_k hat_k. tr(RL) = 4.
     hats : list of 4 np.ndarray
@@ -257,7 +257,7 @@ def build_channels(
     L_F = build_L_SG(B_1, frustration_weights)
     L_C = build_L_C(B_1, B_2)
 
-    # Trace-normalize each - this is non-negotiable
+    # Trace normalize each - this is non negotiable
     hat_T = trace_normalize(L_T)
     hat_G = trace_normalize(L_G)
     hat_F = trace_normalize(L_F)
@@ -273,7 +273,7 @@ def build_channels(
 def verify_channel_identities(RL: np.ndarray,
                               hats: list[np.ndarray],
                               tol: float = 1e-10) -> dict:
-    """Verify the framework's algebraic identities on the trace-normalized hats.
+    """Verify the framework's algebraic identities on the trace normalized hats.
 
     Returns a dict of identity name -> bool valid plus diagnostic values.
 
@@ -286,10 +286,10 @@ def verify_channel_identities(RL: np.ndarray,
     results = {}
     n_nonzero = sum(1 for h in hats if np.any(h))
 
-    # Per-hat trace
+    # Per hat trace
     traces = [float(np.trace(h)) for h in hats]
     for _i, (name, tr) in enumerate(zip("TGFC", traces, strict=False)):
-        if abs(tr) > 1e-15:  # only check non-degenerate
+        if abs(tr) > 1e-15:  # only check non degenerate
             results[f"tr(hat_{name})"] = (tr, abs(tr - 1.0) < tol)
 
     # RL trace

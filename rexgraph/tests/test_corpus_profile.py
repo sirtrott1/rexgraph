@@ -18,7 +18,7 @@ def _toks(text, profile=TEXT):
     return [t for t, _a, _b in tokenize(text, profile)]
 
 
-#### the failure that forced the profile ########################################
+# the failure that forced the profile
 
 @pytest.mark.parametrize("name,text,expect", [
     ("english", "the cat sat on the mat", 6),
@@ -43,12 +43,12 @@ def test_indic_vowel_marks_do_not_break_the_word():
 def test_a_mixed_script_run_survives():
     """The exact case the energy channel was demonstrated on. `αβγ` used to vanish.
     Case is folded because that is a PROSE fact carried by the profile: a
-    sentence-initial capital is noise here and load-bearing in source."""
+    sentence initial capital is noise here and load bearing in source."""
     assert _toks("The coefficient αβγ equals 3") == [
         "the", "coefficient", "αβγ", "equals", "3"]
 
 
-#### scripts written without separators ##########################################
+# scripts written without separators
 
 def test_a_continua_script_is_read_by_grapheme_not_by_run():
     """Chinese has no spaces, so a run rule would make ONE vertex of a whole sentence."""
@@ -57,7 +57,7 @@ def test_a_continua_script_is_read_by_grapheme_not_by_run():
 
 
 def test_a_grapheme_cluster_holds_its_marks_together():
-    """Per-codepoint tore Thai's base+vowel+tone into separate vertices."""
+    """Per codepoint tore Thai's base+vowel+tone into separate vertices."""
     toks = _toks("แมวนั่งบนเสื่อ")
     assert "นั่" in toks, toks
     assert all(len(t) >= 1 for t in toks)
@@ -69,7 +69,7 @@ def test_no_word_boundary_is_invented_inside_a_continua_script():
     assert len(_toks("แมวนั่งบนเสื่อ")) > 4, "graphemes, not guessed words"
 
 
-#### source code #################################################################
+# source code
 
 def test_an_identifier_stays_whole():
     """Splitting `build_document` into two vertices dissolves the name for the same
@@ -94,10 +94,10 @@ def test_the_two_rules_disagree_and_that_is_the_point():
     assert _toks(src, TEXT)[:3] == ["min", "_", "terms"], "prose does not join on it"
 
 
-#### positions, because everything above addresses by span #######################
+# positions, because everything above addresses by span
 
 def test_every_token_carries_its_position():
-    """The span must recover the token. Under a case-folding profile it recovers it up
+    """The span must recover the token. Under a case folding profile it recovers it up
     to that fold, which is why the comparison is against the folded source text and not
     against the raw slice."""
     text = "The coefficient αβγ equals 3"
@@ -114,7 +114,7 @@ def test_positions_are_monotone_and_non_overlapping():
         prev = b
 
 
-#### the profile carries the corpus facts, not the library #######################
+# the profile carries the corpus facts, not the library
 
 def test_english_and_gutenberg_facts_live_on_the_profile():
     assert ENGLISH_GUTENBERG.markers and ENGLISH_GUTENBERG.headings
@@ -150,7 +150,7 @@ def test_this_module_does_not_shadow_a_stdlib_name():
     """It was called `profile.py` and that broke 17 unrelated torch tests.
 
     `cProfile` does `import profile` to reuse the stdlib profiler's `run`, and
-    `torch._dynamo` imports `cProfile`. A top-level `profile.py` anywhere on `sys.path`
+    `torch._dynamo` imports `cProfile`. A top level `profile.py` anywhere on `sys.path`
     therefore shadows it, and pytest puts the package directory on the path only when
     the whole suite runs, so the failure appeared in the suite and vanished in
     isolation, which is the worst shape for finding it.
@@ -161,7 +161,7 @@ def test_this_module_does_not_shadow_a_stdlib_name():
 
     # the SOURCE directory, taken from a module's own file. Two wrong ways: the
     # substring "rexgraph" also matches the conda environment's path, and
-    # `rexgraph.__path__` is synthesised by the editable-install loader and is not a
+    # `rexgraph.__path__` is synthesised by the editable install loader and is not a
     # directory at all: both make the check pass while testing nothing.
     pkg = os.path.dirname(os.path.realpath(_cp.__file__))
     for name in ("profile", "cProfile", "code", "token", "types", "copy", "string",
@@ -185,7 +185,7 @@ def test_no_module_in_the_package_collides_with_a_stdlib_name():
 
 
 def test_case_folding_is_a_profile_fact_not_a_default():
-    """Prose folds because a sentence-initial capital is noise. Source does not, because
+    """Prose folds because a sentence initial capital is noise. Source does not, because
     `Foo` and `foo` are different identifiers and folding merges two vertices the
     language keeps apart."""
     assert _toks("The Cat sat", TEXT) == ["the", "cat", "sat"]
@@ -193,7 +193,7 @@ def test_case_folding_is_a_profile_fact_not_a_default():
     assert TEXT.casefold and not PYTHON_SOURCE.casefold
 
 
-#### one mark, three jobs #######################################################
+# one mark, three jobs
 
 _BURGERS = "Mr. Jim\'s burgers are great...but his wife\'s burgers are better."
 

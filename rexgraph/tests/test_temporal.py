@@ -189,7 +189,7 @@ class TestBIOESTags:
         ps = np.array([0, 1, 2], dtype=np.int32)
         pe = np.array([0, 1, 2], dtype=np.int32)
         tags = _temporal.assign_bioes_tags(3, ps, pe, min_phase_len=2)
-        assert np.all(tags == 4)  # all single-step phases
+        assert np.all(tags == 4)  # all single step phases
 
     def test_long_phase_bie(self):
         """Phase of length >= 3 has B at start, I in middle, E at end."""
@@ -202,7 +202,7 @@ class TestBIOESTags:
             assert tags[t] == 1  # I
 
 
-# Energy-Ratio BIOES
+# Energy Ratio BIOES
 
 class TestEnergyBIOES:
 
@@ -215,7 +215,7 @@ class TestEnergyBIOES:
         assert lr.shape == (5,)
 
     def test_kinetic_regime(self):
-        """All kinetic-dominated should be a single regime-0 phase."""
+        """All kinetic dominated should be a single regime 0 phase."""
         E_kin = np.array([10.0, 10.0, 10.0], dtype=np.float64)
         E_pot = np.array([0.1, 0.1, 0.1], dtype=np.float64)
         _, ps, pe, regime, _, _ = _temporal.compute_bioes_energy(E_kin, E_pot)

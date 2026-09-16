@@ -1,7 +1,7 @@
 """The banded causal propagator, in TensorFlow.
 
 Same operator as `relational_attention.CausalPropagatorAttention` with sparse=True,
-written against Keras so the relational path is not torch-only. The point of having
+written against Keras so the relational path is not torch only. The point of having
 both is that they can be checked against each other: the arithmetic is fixed by the
 complex, not by the framework, so if the two disagree one of them is wrong.
 
@@ -21,7 +21,7 @@ import sys as _sys
 # TensorFlow and a ROCm/CUDA torch each bundle their own LLVM, and whichever
 # registers its CommandLine options SECOND aborts the process:
 #
-#     : CommandLine Error: Option 'print-inst-addrs' registered more than once!
+#     : CommandLine Error: Option 'print inst addrs' registered more than once!
 #     LLVM ERROR: inconsistency in registered CommandLine options
 #
 # That is an abort, not an exception: no traceback, no chance to catch it, the
@@ -61,7 +61,7 @@ def _require():
 def causal_windows(z, w):
     """`z` [B,H,T,d] -> [B,H,T,w,d] with out[...,i,m,:] = z[..., i-w+1+m, :].
 
-    Left-pads the token axis and slices the band. tf has no `unfold`, so this uses
+    Left pads the token axis and slices the band. tf has no `unfold`, so this uses
     `extract_patches` semantics via gather on a padded index grid, which is a
     materialised band rather than a view: the same O(T*w*d) the torch einsum path
     ends up paying, stated plainly rather than implied.
@@ -85,11 +85,11 @@ def band_valid(T, w):
 class CausalPropagatorAttention(_Layer):
     """Y = sum_k c_k A^k V on a banded causal token graph, in TensorFlow.
 
-    `A` is the row-stochastic softmax over each token's window of prior tokens, so
+    `A` is the row stochastic softmax over each token's window of prior tokens, so
     the graph is a DAG and A^k routes information k hops back. `hops` is how far to
     reach and the hop weights are learnable. The [B,H,T,T] object is never formed.
 
-    Cross-checked against the torch implementation to 1e-5 in
+    Cross checked against the torch implementation to 1e-5 in
     rexgraph/tests/test_tf_integration.py; that agreement is the reason to trust
     either of them, since the operator is a property of the complex and not of the
     framework it is written in.

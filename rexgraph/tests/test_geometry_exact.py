@@ -5,7 +5,7 @@ transcendental and neither a reading of the boundary tensor. Quadrance and sprea
 the same geometry one step earlier, where it is still rational: Q = <v,v> is the squared
 length and s = 1 - <u,v>^2/(Q_u Q_v) is the squared sine, so cos^2 = 1 - s exactly.
 
-The part worth pinning hardest is the SOURCE. The share 1/(k-1) is not binary-exact for
+The part worth pinning hardest is the SOURCE. The share 1/(k-1) is not binary exact for
 most arities, so reading the assembled float B1 and calling the result exact returns the
 exact value of a double instead of the value. These columns are rebuilt from the
 boundary structure.
@@ -63,7 +63,7 @@ def test_a_pairwise_relation_is_the_k_equals_two_case():
 
 
 def test_quadrance_falls_toward_one_as_a_relation_widens():
-    """Concentration: a 2-ary relation is maximally concentrated, a wide one diffuse."""
+    """Concentration: a 2 ary relation is maximally concentrated, a wide one diffuse."""
     values = [relation_quadrance(_kary(k), 0) for k in (2, 3, 4, 8, 16)]
     assert values == sorted(values, reverse=True)
     assert values[-1] > 1

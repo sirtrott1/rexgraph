@@ -1,6 +1,6 @@
 """Exact integer/weighted curvature identities - the integer tower, no float drift.
 
-The Lagrangian and weighted-curvature quantities have closed-form or exact-integer
+The Lagrangian and weighted curvature quantities have closed form or exact integer
 oracles; these guard the sparse/integer kernels against silent regression.
 """
 import numpy as np
@@ -41,7 +41,7 @@ def test_weighted_curvature_signature_unweighted_is_flat():
 
 
 def test_weighted_curvature_signature_weighting_concentrates_n_eff():
-    """Non-uniform weights lower n_eff = (sum w)^2 / sum w^2, and with faces present
+    """Non uniform weights lower n_eff = (sum w)^2 / sum w^2, and with faces present
     raise the curvature residual R = B1 (W - I) B2 above zero."""
     rex = RexGraph.from_simplicial(                                  # tetrahedron: 4 faces
         np.array([0, 0, 0, 1, 1, 2], dtype=np.int32),

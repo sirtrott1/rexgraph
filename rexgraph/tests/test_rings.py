@@ -2,7 +2,7 @@
 
 A cycle basis holds beta_1 cycles and most structures have more rings than that,
 so every basis drops some and nothing in the notion says which. The lattice
-questions are basis-free: `shortest_cycles` is the minimal-vector set,
+questions are basis free: `shortest_cycles` is the minimal vector set,
 `relevant_cycles` is the cycles that are not a sum of strictly shorter ones,
 which is the union of every minimum cycle basis.
 """
@@ -34,7 +34,7 @@ def _ring(n):
 
 
 def _cubane():
-    """The 3-cube: eight atoms, twelve bonds, six square faces."""
+    """The 3 cube: eight atoms, twelve bonds, six square faces."""
     V = list(itertools.product([0, 1], repeat=3))
     ix = {v: i for i, v in enumerate(V)}
     return _rex([(ix[a], ix[b]) for a in V for b in V
@@ -56,7 +56,7 @@ def test_a_single_ring_has_one_ring():
 
 
 def test_two_fused_rings():
-    """Naphthalene. Two hexagons sharing a bond, and the ten-cycle around the
+    """Naphthalene. Two hexagons sharing a bond, and the ten cycle around the
     outside is their sum, so it is not relevant."""
     r = _rex([(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0),
               (2, 6), (6, 7), (7, 8), (8, 9), (9, 3)])
@@ -92,7 +92,7 @@ def test_c60_returns_twelve_pentagons_and_twenty_hexagons():
 def test_shortest_is_not_relevant_and_c60_is_why():
     """A hexagon is one longer than a pentagon, so it is not a minimal vector.
     Reporting minimal vectors as the rings would return twelve where chemistry
-    wants thirty-two."""
+    wants thirty two."""
     r = _c60()
     assert len(shortest_cycles(r)) == 12
     assert len(relevant_cycles(r)) == 32
@@ -223,7 +223,7 @@ def test_a_cycle_basis_counts_dim_z1_and_not_betti_one():
 
 def test_a_filled_bigon_still_has_a_ring():
     """The sharpest case: beta_1 is zero and the ring is still there, because a ring
-    is a fact about the 1-skeleton."""
+    is a fact about the 1 skeleton."""
     import numpy as np
 
     from rexgraph.graph import RexGraph

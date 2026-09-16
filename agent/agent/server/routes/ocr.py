@@ -23,7 +23,7 @@ async def ocr_file(
     backend: str = Form(None),
     dpi: int = Form(300),
 ):
-    """OCR an uploaded file or server-local path."""
+    """OCR an uploaded file or server local path."""
     from agent.integrations.unlimited_ocr import (
         create_ocr_client,
         is_image_file,
@@ -43,7 +43,7 @@ async def ocr_file(
             ocr_path = tmp.name
             cleanup_path = tmp.name
     elif path:
-        # This had no allow-list at all, only an existence check, which made it both an
+        # This had no allow list at all, only an existence check, which made it both an
         # arbitrary read for anything the OCR backend accepts and an existence oracle for
         # everything else: "File not found" and "Unsupported file type" answer a question
         # about a path the caller was never entitled to ask. Containment is decided
@@ -139,7 +139,7 @@ async def ocr_status():
     except Exception:
         mgr_status = {"loaded": [], "available": []}
 
-    # vLLM / Unlimited-OCR
+    # vLLM / Unlimited OCR
     vllm_installed = importlib.util.find_spec("vllm") is not None
     model_dir = Path.home() / ".cache" / "rexgraph" / "models" / "deepseek-ai--DeepSeek-OCR-2"
     model_downloaded = model_dir.exists() and any(model_dir.iterdir()) if model_dir.exists() else False

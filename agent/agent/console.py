@@ -1,9 +1,9 @@
-"""agent.console: a game-like command surface over the hive network (RimWorld/Factorio for agents).
+"""agent.console: a game like command surface over the hive network (RimWorld/Factorio for agents).
 
 Chat with and command the hive at any scale: the whole network, one hive, a worker team, or a single
-worker. Read-only verbs (status/monitor/dashboard) inspect; build verbs (require/forge/chat) act; and
+worker. Read only verbs (status/monitor/dashboard) inspect; build verbs (require/forge/chat) act; and
 CONSEQUENTIAL verbs (kill) are PROPOSED unless you pass confirm=True. The human is always the
-governor: nothing destructive or outward-facing happens without an explicit confirm.
+governor: nothing destructive or outward facing happens without an explicit confirm.
 
     console.command("status", scope="network")
     console.command("require review test", scope="hive")
@@ -56,7 +56,7 @@ class CommandConsole:
             return scope.split(":", 1)[1]
         return None
 
-    #### read-only
+    #### read only
     def _cmd_help(self, arg, *, scope, confirm):
         return {"ok": True, "commands": self._verbs(),
                 "scopes": ["network", "hive", "team:<name>", "worker:<name>"],

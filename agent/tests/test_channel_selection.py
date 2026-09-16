@@ -58,7 +58,7 @@ def test_the_frustration_and_coparticipation_channels_do_not_share_a_diagonal():
 def test_health_ratio_is_not_identically_one():
     """A metric that cannot move is not measuring anything.
 
-    A 4-cycle with chords gives 1.125 by name and exactly 1.0 positionally, so this fails
+    A 4 cycle with chords gives 1.125 by name and exactly 1.0 positionally, so this fails
     for any implementation that reads indices 0 and 1.
     """
     rex = RexGraph.from_graph(sources=[0, 1, 2, 3, 0, 1], targets=[1, 2, 3, 0, 2, 3])

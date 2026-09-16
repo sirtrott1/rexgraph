@@ -104,7 +104,7 @@ def test_the_reconstructed_column_is_the_column_that_exists(name):
 
 def test_a_witness_column_is_plus_one_and_not_the_head_rule():
     """Named on its own because it is the exception that broke the tower: arity 1
-    has no second vertex, so the zero-sum condition does not constrain it and the
+    has no second vertex, so the zero sum condition does not constrain it and the
     construction emits (+1), not the head's (-1)."""
     rex = ZOO["witness"]
     B = np.asarray(_b1_csc(rex).todense())

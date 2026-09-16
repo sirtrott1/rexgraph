@@ -1,11 +1,11 @@
 """A delocalised ring is one relation, not k bonds.
 
 MDL bond order 4 says the electrons are shared across the ring rather than held in
-alternating pairs. Reading that as k separate 2-ary bonds is the same loss clique
+alternating pairs. Reading that as k separate 2 ary bonds is the same loss clique
 expansion makes: it invents bonds the chemistry does not have and dissolves the system's
 identity as one object.
 
-Both grades are carried. The sigma framework stays 2-ary and the delocalised system is
+Both grades are carried. The sigma framework stays 2 ary and the delocalised system is
 added over the same atoms, which is the chemistry (a ring has a bonded framework AND a
 shared pi system) and also what makes the ring closable: a wide relation alone bounds
 nothing, so a complex built from the systems alone is a forest of stars with no face.

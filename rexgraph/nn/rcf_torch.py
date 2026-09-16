@@ -1,25 +1,25 @@
 """
-rcf_torch: differentiable, eigen-free RCF primitives in torch.
+rcf_torch: differentiable, eigen free RCF primitives in torch.
 
 Shared by relational attention and the Hodge optimizer. Every primitive here is the sparse /
-integer / matrix-free form, not a dense eigensolve. The governing rule: dense matrices and full
+integer / matrix free form, not a dense eigensolve. The governing rule: dense matrices and full
 eigendecompositions are an implementation choice, not the math; keep operators as matvecs and
 scalars as traces, and never form an n×n object whose zeros are the topology.
 
 What lives here (script -> primitive):
-  * [13] propagator f(L)·X via Chebyshev sparse-matvec recurrence - heat e^{-tL}
+  * [13] propagator f(L)·X via Chebyshev sparse matvec recurrence - heat e^{-tL}
     (gradient/diffusive), wave e^{-itL} split into real=gradient(cos) / imag=curl(sin).
     O(nnz·K·d), spectrum never formed. Differentiable (matvecs), incl. w.r.t. the time t.
-  * [14] energy character diag(L²) = row-norms ‖L[e,:]‖², the short-time propagator
+  * [14] energy character diag(L²) = row norms ‖L[e,:]‖², the short time propagator
     moment; O(nnz), no inversion.
   * [15] scale moments (L^k)_vv (closed k-walks) - local<->global, sparse matvec.
-  * [09,10] combinatorial harmonic basis (spanning-tree fundamental cycles, integer ±1,
+  * [09,10] combinatorial harmonic basis (spanning tree fundamental cycles, integer ±1,
     B₁H=0) + exact low-rank projector H(HᵀH)⁻¹Hᵀ, no eigensolve.
-  * [18,19] harmonic-log = Rényi-2 (collision) entropy via traces; varentropy gap
+  * [18,19] harmonic log = Rényi-2 (collision) entropy via traces; varentropy gap
     (H₁-H₂) = curvature self-diagnostic. Eigen-free.
   * [20] weighted curvature = chain residual R = B₁(W-I)B₂; additive edge decomposition.
 
-`spectral_bound` is a Gershgorin upper bound so the Chebyshev rescale stays eigen-free. torch
+`spectral_bound` is a Gershgorin upper bound so the Chebyshev rescale stays eigen free. torch
 is an optional dep, import guarded.
 """
 from __future__ import annotations
@@ -39,10 +39,10 @@ def _require():
         raise ImportError("rcf_torch requires PyTorch (optional dependency).")
 
 
-# propagator: f(L)·X, eigen-free [13]
+# propagator: f(L)·X, eigen free [13]
 
 def spectral_bound(L) -> float:
-    """Cheap eigen-free upper bound on λ_max via Gershgorin (max absolute row sum). Keeps
+    """Cheap eigen free upper bound on λ_max via Gershgorin (max absolute row sum). Keeps
     the Chebyshev rescale from needing an eigensolve."""
     _require()
     return float(L.abs().sum(dim=-1).max().item())
@@ -51,7 +51,7 @@ def spectral_bound(L) -> float:
 def cheb_coeffs(func: Callable, K: int, lam_max: float, *, device=None, dtype=None):
     """Chebyshev coefficients of a scalar spectral function ``func`` on [0, lam_max], via
     sampling at Chebyshev nodes + DCT. ``func`` maps a torch
-    tensor of eigen-samples -> values; it may depend on a learnable parameter (e.g. heat
+    tensor of eigen samples -> values; it may depend on a learnable parameter (e.g. heat
     time t) - the coefficients stay differentiable through it."""
     _require()
     t = _torch
@@ -91,8 +91,8 @@ def cheb_apply(L, X, coeffs, lam_max: float | None = None):
 
 
 def cheb_apply_op(matvec: Callable, X, coeffs, lam_max: float):
-    """Matrix-free Chebyshev: apply Σ_k c_k T_k(L̃) to X where L is given only as a linear
-    operator ``matvec: Y -> L·Y`` (e.g. a weighted graph Laplacian applied by edge-scatter,
+    """Matrix free Chebyshev: apply Σ_k c_k T_k(L̃) to X where L is given only as a linear
+    operator ``matvec: Y -> L·Y`` (e.g. a weighted graph Laplacian applied by edge scatter,
     never materialized). L̃ = 2L/λ_max - I. Keeps attention at O(nnz·K·d) with no n×n object.
     Differentiable through ``matvec`` and ``coeffs``."""
     _require()
@@ -112,7 +112,7 @@ def cheb_apply_op(matvec: Callable, X, coeffs, lam_max: float):
 
 
 def _cg_solve(A, b, tol: float, max_iter: int):
-    """Matrix-free CG solve of A y = b (A symmetric PD as a matvec). Returns (y, n_iters). The
+    """Matrix free CG solve of A y = b (A symmetric PD as a matvec). Returns (y, n_iters). The
     iteration count is dynamic: it stops at the tolerance, not a fixed number of steps."""
     x = _torch.zeros_like(b)
     r = b - A(x); p = r.clone(); rs = (r * r).sum()
@@ -143,7 +143,7 @@ if _HAS_TORCH:
         def backward(ctx, grad_y):
             y, alpha = ctx.saved_tensors
             A = lambda v: v + alpha * ctx.matvec_L(v)
-            # self-adjoint: A symmetric => (A⁻¹)ᵀ = A⁻¹, so the gradient flows through the same
+            # self adjoint: A symmetric => (A⁻¹)ᵀ = A⁻¹, so the gradient flows through the same
             # solve as the forward; forward and backward are one operator.
             grad_x, _ = _cg_solve(A, grad_y, ctx.tol, ctx.max_iter)
             grad_alpha = None
@@ -153,17 +153,17 @@ if _HAS_TORCH:
 
 
 def green_resolvent(x, alpha, matvec_L, tol: float = 1e-5, max_iter: int = 50):
-    """Green's-function (implicit resolvent) layer: y = (I + α·L)⁻¹ x, solved matrix-free by CG.
+    """Green's-function (implicit resolvent) layer: y = (I + α·L)⁻¹ x, solved matrix free by CG.
     The equilibrium of the diffusion; one solve captures all propagation depth, so there are no
     hardcoded hops. Because (I + α·L) is symmetric PD, the adjoint (backward) is the same solve
-    (self-adjoint): forward and gradient flow through one operator. ``matvec_L`` is the Hodge/graph
-    operator applied matrix-free; ``alpha`` is a differentiable scalar."""
+    (self adjoint): forward and gradient flow through one operator. ``matvec_L`` is the Hodge/graph
+    operator applied matrix free; ``alpha`` is a differentiable scalar."""
     _require()
     return _GreenResolvent.apply(x, alpha, matvec_L, tol, max_iter)
 
 
 def heat_apply(L, X, t: float, K: int = 32, lam_max: float | None = None):
-    """Heat propagator e^{-tL} applied to X (diffusive / gradient routing), eigen-free."""
+    """Heat propagator e^{-tL} applied to X (diffusive / gradient routing), eigen free."""
     _require()
     lam_max = lam_max if lam_max is not None else spectral_bound(L)
     c = cheb_coeffs(lambda l: _torch.exp(-t * l), K, lam_max,
@@ -185,14 +185,14 @@ def wave_apply(L, X, t: float, K: int = 32, lam_max: float | None = None) -> tup
 # energy character & scale moments [14,15]
 
 def energy_character(L):
-    """diag(L²) as row-norms ‖L[e,:]‖²: O(nnz), no inversion. The short-time (t²) moment of
+    """diag(L²) as row norms ‖L[e,:]‖²: O(nnz), no inversion. The short time (t²) moment of
     the heat propagator: the local character [14]."""
     _require()
     return (L * L).sum(dim=-1)
 
 
 def scale_moments(L, k_max: int):
-    """Closed-walk scale moments (L^k)_vv for k=0..k_max, via sparse matvec on the identity
+    """Closed walk scale moments (L^k)_vv for k=0..k_max, via sparse matvec on the identity
     columns - structure at scale k (girth) [15]. Returns [k_max+1, n]."""
     _require()
     n = L.shape[-1]
@@ -210,7 +210,7 @@ def scale_moments(L, k_max: int):
 def spanning_tree_cycles(sources, targets, nV: int):
     """Fundamental cycles of a spanning tree = the combinatorial harmonic basis: integer ±1
     vectors H ∈ {-1,0,+1}^{nE×β₁} with B₁H = 0 by construction, no eigensolve [10]. Inputs
-    are edge endpoint arrays (sparse-native). Returns H as a torch tensor (nE × β₁)."""
+    are edge endpoint arrays (sparse native). Returns H as a torch tensor (nE × β₁)."""
     _require()
     src = [int(x) for x in sources]; tgt = [int(x) for x in targets]
     nE = len(src)
@@ -254,7 +254,7 @@ def spanning_tree_cycles(sources, targets, nV: int):
 
 
 def harmonic_projector_apply(H, z):
-    """Apply the exact low-rank harmonic projector P_H = H(HᵀH)⁻¹Hᵀ to z without forming an
+    """Apply the exact low rank harmonic projector P_H = H(HᵀH)⁻¹Hᵀ to z without forming an
     nE×nE matrix: three small products, invert the β₁×β₁ Gram [10]. Lands z in the cycle
     space (B₁ P_H z = 0)."""
     _require()
@@ -264,11 +264,11 @@ def harmonic_projector_apply(H, z):
     return H @ sol
 
 
-# harmonic-log (Rényi-2) & varentropy [18,19]
+# harmonic log (Rényi-2) & varentropy [18,19]
 
 def renyi2(L, eps: float = 1e-12) -> float:
-    """Harmonic log = Rényi-2 (collision) entropy of the normalized spectrum, eigen-free:
-    H₂ = -log( tr(L²)/tr(L)² ) [18]. tr(L²) via the row-norm sum (no matrix square formed)."""
+    """Harmonic log = Rényi-2 (collision) entropy of the normalized spectrum, eigen free:
+    H₂ = -log( tr(L²)/tr(L)² ) [18]. tr(L²) via the row norm sum (no matrix square formed)."""
     _require()
     tr = _torch.diagonal(L, dim1=-2, dim2=-1).sum(-1)
     tr2 = energy_character(L).sum(-1)                 # Σ_e ‖L[e,:]‖² = tr(L²)
@@ -276,7 +276,7 @@ def renyi2(L, eps: float = 1e-12) -> float:
 
 
 def renyi_order(L, a: int, eps: float = 1e-12):
-    """Integer-order Rényi entropy H_a = (1-a)⁻¹ log( tr(Lᵃ)/tr(L)ᵃ ), eigen-free via a-1
+    """Integer order Rényi entropy H_a = (1-a)⁻¹ log( tr(Lᵃ)/tr(L)ᵃ ), eigen free via a-1
     matvecs [19]."""
     _require()
     tr = _torch.diagonal(L, dim1=-2, dim2=-1).sum(-1)
@@ -288,8 +288,8 @@ def renyi_order(L, a: int, eps: float = 1e-12):
 
 
 def varentropy_gap(L):
-    """Curvature self-diagnostic: the collision->diffusion gap approximated from integer-order
-    Rényi moments H₂,H₃ (extrapolating toward Shannon). Small => near-flat spectrum, Rényi-2
+    """Curvature self diagnostic: the collision->diffusion gap approximated from integer order
+    Rényi moments H₂,H₃ (extrapolating toward Shannon). Small => near flat spectrum, Rényi-2
     trustworthy; large => weight structure the 2nd moment misses [19]. Returns H₂ and the
     (H₃-based) gap estimate."""
     _require()
@@ -300,7 +300,7 @@ def varentropy_gap(L):
 # weighted curvature [20]
 
 def chain_residual(B1, B2, w):
-    """Weighted-tower curvature = the chain residual R = B₁(W-I)B₂ [20]. R=0 iff w uniform;
+    """Weighted tower curvature = the chain residual R = B₁(W-I)B₂ [20]. R=0 iff w uniform;
     nonzero R is the curvature (deviation from the unweighted ∂²=0 ideal). Sparse."""
     _require()
     Wm1 = _torch.diag(w - 1.0)

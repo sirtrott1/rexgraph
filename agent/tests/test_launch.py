@@ -42,7 +42,7 @@ def fake_uvicorn():
 
 def test_serve_passes_proxy_and_workers(fake_uvicorn, monkeypatch):
     # Binding 0.0.0.0 needs the explicit insecure override (auth is off in tests);
-    # this test exercises host/worker/proxy pass-through, not the bind guard.
+    # this test exercises host/worker/proxy pass through, not the bind guard.
     monkeypatch.setenv("RCF_ALLOW_INSECURE", "1")
     launch.serve(host="0.0.0.0", port=9001, workers=4, open_browser=False)
     assert fake_uvicorn["app"] == "agent.server.app:app"
@@ -59,14 +59,14 @@ def test_serve_secure_by_default_public_bind(fake_uvicorn, monkeypatch):
     reset_auth_manager()                                  # fresh (no auth.json yet)
     launch.serve(host="0.0.0.0", port=9001, open_browser=False)
     assert fake_uvicorn["host"] == "0.0.0.0"              # bind proceeded
-    assert get_auth_manager().auth_enabled is True        # secure-by-default kicked in
+    assert get_auth_manager().auth_enabled is True        # secure by default kicked in
 
 
 def test_serve_refuses_when_auth_explicitly_disabled(fake_uvicorn, monkeypatch):
-    """Fail-closed: an operator who persisted auth=off cannot public-bind without override."""
+    """Fail closed: an operator who persisted auth=off cannot public bind without override."""
     monkeypatch.delenv("RCF_ALLOW_INSECURE", raising=False)
     from agent.server import auth
-    # Persist an explicit auth-disabled config, then reload so it is not "fresh".
+    # Persist an explicit auth disabled config, then reload so it is not "fresh".
     (auth._CONFIG_DIR / "auth.json").write_text('{"enabled": false, "tokens": []}')
     auth.reset_auth_manager()
     with pytest.raises(RuntimeError, match="auth"):

@@ -1,15 +1,15 @@
-"""Disabling auth is gated: admin token + direct loopback + a step-up passphrase.
+"""Disabling auth is gated: admin token + direct loopback + a step up passphrase.
 
 A leaked or cached API token alone must not be enough to turn authentication off,
-and the toggle must not be reachable from any non-local client. Also covers the
-secure-by-default bootstrap helper.
+and the toggle must not be reachable from any non local client. Also covers the
+secure by default bootstrap helper.
 """
 import pytest
 from agent.server import auth
 from agent.server.auth import get_auth_manager
 from fastapi.testclient import TestClient
 
-# manager-level
+# manager level
 
 def test_passphrase_set_verify_roundtrip():
     mgr = get_auth_manager()
@@ -49,7 +49,7 @@ def test_is_fresh_reflects_config(tmp_path, monkeypatch):
     assert get_auth_manager().is_fresh is False
 
 
-# route-level
+# route level
 
 def _setup(*, local=True, passphrase="supersecret123", set_pass=True):
     from agent.server.app import app
@@ -116,7 +116,7 @@ def test_disable_rejected_without_admin_token():
 
 def test_enable_rejected_from_non_local_client():
     from agent.server.app import app
-    # auth starts off; a remote caller is synthetic-admin but still host-gated
+    # auth starts off; a remote caller is synthetic admin but still host gated
     client = TestClient(app, client=("203.0.113.9", 40000))
     r = client.post("/api/v1/admin/auth/enable", json={})
     assert r.status_code == 403

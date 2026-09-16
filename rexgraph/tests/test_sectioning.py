@@ -101,9 +101,9 @@ def test_sectionings_survive_the_state_round_trip_with_their_own_digests(rex):
 
 
 def test_a_tampered_layer_is_caught_by_its_own_digest(rex):
-    """The per-layer digest has to add protection the container digest does not.
+    """The per layer digest has to add protection the container digest does not.
 
-    Rewriting a layer AND refreshing the whole-state digest is exactly what a rewrite
+    Rewriting a layer AND refreshing the whole state digest is exactly what a rewrite
     through a legitimate writer looks like, so the outer seal passes. The layer's own
     digest is what still says the layer is not what was written.
     """
@@ -183,7 +183,7 @@ def test_a_sectioning_is_reconstructible_from_its_own_pieces(rex):
     assert again.as_sections() == s.as_sections()
 
 
-#### coarsening: a layer that owns sections, not cells ##########################
+# coarsening: a layer that owns sections, not cells
 
 def test_a_coarsening_stores_the_parent_map_not_the_memberships(rex):
     from rexgraph.sectioning import add_coarsening

@@ -3,7 +3,7 @@ Chat route: natural language interaction with the analysis.
 
 Classifies user intent and dispatches:
   - data question -> look up in existing results
-  - drill-down -> call specific rex method
+  - drill down -> call specific rex method
   - general -> format results as structured summary (or LLM narration)
 """
 
@@ -28,7 +28,7 @@ _SAFE_PROPERTIES = frozenset({
 
 
 def _get_tracker(session_id: str, ws=None):
-    """Get conversation tracker, workspace-scoped if available, session-scoped fallback."""
+    """Get conversation tracker, workspace scoped if available, session scoped fallback."""
     if ws is not None:
         return ws.get_tracker(session_id)
     from agent.conversation import ConversationTracker
@@ -40,7 +40,7 @@ def _get_tracker(session_id: str, ws=None):
     return _get_tracker._fallback[session_id]
 
 
-#: the one encoder (rexgraph.io._compat). Non-finite floats go out as null:
+#: the one encoder (rexgraph.io._compat). Non finite floats go out as null:
 #: a bare NaN token is not JSON and every browser JSON.parse rejects it.
 from agent.server.scope import effective_workspace
 from rexgraph.io._compat import json_sanitize
@@ -88,7 +88,7 @@ _INTENT_MAP = {
 
 
 def _classify_intent(message: str) -> tuple:
-    """Simple keyword-based intent classification.
+    """Simple keyword based intent classification.
 
     Returns (intent_type, target) where:
         intent_type: 'property', 'hodge', 'explain', 'summary', 'unknown'
@@ -185,8 +185,8 @@ def _build_summary(rex, results: dict) -> str:
 
 @router.get("/chat/{session_id}/metrics")
 async def chat_session_metrics(session_id: str, structural: bool = False):
-    """Per-session information metrics: the trend of coherence/perplexity over turns,
-    plus per-message metrics. Token metrics are free (always present). The structural
+    """Per session information metrics: the trend of coherence/perplexity over turns,
+    plus per message metrics. Token metrics are free (always present). The structural
     tier (~250 ms/message) is computed lazily and cached ONLY when `?structural=1` -
     so the interface pays for it exactly when the user drills into structure."""
     _ws = None
@@ -217,7 +217,7 @@ async def chat(session_id: str, body: dict = Body(...)):
     store = get_store()
     session = store.get(session_id)
 
-    # Auto-create session if it doesn't exist (chat-initiated sessions)
+    # Auto create session if it doesn't exist (chat initiated sessions)
     if session is None:
         session = store.create(name="chat-" + session_id)
 
@@ -289,7 +289,7 @@ async def chat(session_id: str, body: dict = Body(...)):
             response = {"text": str(e), "property": None, "viz_update": None}
 
     else:
-        # General question -> per-query relational complex, structural
+        # General question -> per query relational complex, structural
         # retrieval from the document/corpus, and grounded synthesis
         # (language model if configured, structural answer otherwise).
         from agent import query_engine
@@ -297,7 +297,7 @@ async def chat(session_id: str, body: dict = Body(...)):
         # The chat is scoped to this session's document, so that document is
         # the primary retrieval source. Only fall back to the workspace corpus
         # when the session has no usable document of its own (e.g. a fresh
-        # session), so building a corpus elsewhere doesn't hijack single-doc chat.
+        # session), so building a corpus elsewhere doesn't hijack single doc chat.
         corpus = None
         has_doc = False
         try:
@@ -314,7 +314,7 @@ async def chat(session_id: str, body: dict = Body(...)):
             except Exception:
                 corpus = None
         # ...and then the PERSISTED corpus, which is the last resort and the largest one.
-        # `default_store()` resolves REXGRAPH_RCDB_URI and is workspace-scoped when auth
+        # `default_store()` resolves REXGRAPH_RCDB_URI and is workspace scoped when auth
         # is on, so this reaches what was ingested rather than a throwaway. It comes last
         # for the same reason the workspace corpus does: a session that has its own
         # document is asking about THAT document, and a store holding 61,353 others must
@@ -361,8 +361,8 @@ async def chat(session_id: str, body: dict = Body(...)):
             "exchange_edges": ex_result.n_exchange_edges,
             "kappa": ex_result.kappa_mean,
         }
-        # Per-message metrics: token (from the reply's logprobs, if the model path
-        # ran) + structural (the reply's own complex) + fluent-but-hollow advisory -
+        # Per message metrics: token (from the reply's logprobs, if the model path
+        # ran) + structural (the reply's own complex) + fluent but hollow advisory -
         # attached to THIS message and stored on the exchange, so returning to any
         # point in the conversation shows its metrics, and the session trend fills in.
         try:

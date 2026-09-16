@@ -3,7 +3,7 @@ rcdb.analytics: the measurements a stored record's signature is built from.
 
 These live here rather than in the agent because `structural_signature` needs them on
 every put, and a store that had to import the application to describe a complex could not
-be installed or reasoned about on its own. The agent re-exports them, so its callers keep
+be installed or reasoned about on its own. The agent re exports them, so its callers keep
 the import path they had.
 
 `interfacing_score` is also reachable as a HOOK, so an application can supply a richer
@@ -43,14 +43,14 @@ def greens_budget() -> int:
 
 
 def coherence_kappa(rex) -> np.ndarray:
-    """Per-vertex coherence kappa, shape (nV,), at any scale. THE default read.
+    """Per vertex coherence kappa, shape (nV,), at any scale. THE default read.
 
-    This is `local_coherence`: kappa against the star-average character, O(nnz), so
+    This is `local_coherence`: kappa against the star average character, O(nnz), so
     it answers on a complex of any size. Its companion `rex.coherence` is a
     different moment of the same propagator (kappa against the global Green's phi),
     not a more accurate version of this one: on real complexes the two correlate
-    anywhere from -0.30 to +0.99, and the global read costs one block-CG solve per
-    vertex because its sandwiched two-inverse numerator resists selected inversion.
+    anywhere from -0.30 to +0.99, and the global read costs one block CG solve per
+    vertex because its sandwiched two inverse numerator resists selected inversion.
     Reach for that one through `coherence_greens`, which gates it, and report it
     under its own key rather than mixing the two in one field."""
     with contextlib.suppress(Exception):
@@ -68,7 +68,7 @@ def coherence_mean(rex, default: float = 0.0) -> float:
 
 
 def coherence_greens(rex, budget: int | None = None) -> np.ndarray | None:
-    """Per-vertex GLOBAL Green's coherence, or None when the complex is over budget.
+    """Per vertex GLOBAL Green's coherence, or None when the complex is over budget.
 
     The exact global moment, at one solve per vertex. None means "not computed at
     this size", never "zero": store it under its own key so an absent value stays
@@ -92,14 +92,14 @@ def coherence_greens_mean(rex, budget: int | None = None) -> float | None:
 
 def structural_metrics(rex) -> dict:
     """The relational complex's OWN information metrics from the RL4 spectrum, all
-    eigen-free: `structural_entropy_H2` = the harmonic-log (Rényi-2);
+    eigen free: `structural_entropy_H2` = the harmonic log (Rényi-2);
     `structural_perplexity` = exp(H₂) = the effective mode count (how many degrees of
     freedom the relation graph carries); `varentropy_gap` = the H₂-H₃ reliability
     certificate (small -> the H₂ summary is trustworthy). The structural analog of an
     LLM's perplexity/varentropy - computed with the same calculus as token_metrics."""
     H2 = float(rex.harmonic_entropy)
     # The H3 half needs tr(RL4^3), which forms RL4^2, and that product's FILL is
-    # data-dependent: on a complex with wide branching groups the co-participation
+    # data dependent: on a complex with wide branching groups the co participation
     # matrix squares into something enormous. Measured on a lexical complex, 31.4s and
     # 22.3 GB at nE 553,021, and still climbing through 94 GB at nE 1,626,490 before it
     # was killed. The bound nnz(X^2) <= sum_i sum_{j in row i} nnz(row j) is one matvec,
@@ -127,7 +127,7 @@ def structural_metrics(rex) -> dict:
         # a different statement from "certified unreliable"
         # `reliability_gap` certifies that the CHEAP H2 is exact, and its own docstring
         # says when: "~0 on flat/unweighted spectra (the cheap H2 is exact); grows with
-        # weight-induced non-uniformity". So this is an exactness test, not a policy
+        # weight induced non uniformity". So this is an exactness test, not a policy
         # band, and measured the values are 13 orders apart with nothing in between:
         # 5.6e-16 and 1.1e-15 where H2 is exact, 4.3e-02 where it is not. The old 0.05
         # sat ABOVE the inexact case and certified it.
@@ -160,7 +160,7 @@ def shared_indices(doc_labels: Sequence[str],
 
 def interfacing_score(rex, doc_labels: Sequence[str], query_labels: Sequence[str],
                       *, reading: bool = True) -> dict[str, Any]:
-    """Score a complex against a query vocabulary, by demand-driven read.
+    """Score a complex against a query vocabulary, by demand driven read.
 
     `reading=False` skips `agentic_reading` and returns the coherence score alone,
     for callers ranking a large candidate set who want the diagnostics only on what

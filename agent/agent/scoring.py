@@ -9,7 +9,7 @@ energy and interfaces with nothing. It also built the whole bundle per document,
 paying O(nV . solve) for an answer needed at a handful of vertices.
 
 RexGraph already answers "what does this query touch in this complex" directly, and
-demand-driven:
+demand driven:
 
     coherence_response(seed)  kappa at just the query's vertices, by diffusion.
                               O(|seed| . nhats . diffusion), and identical to

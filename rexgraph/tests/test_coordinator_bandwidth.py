@@ -1,6 +1,6 @@
 """The contention objective counts every lane's bandwidth draw.
 
-`min(proc, igpu)` said the right thing for two lanes, contention being what is CO-DRAWN
+`min(proc, igpu)` said the right thing for two lanes, contention being what is CO DRAWN
 since a lane drawing alone owns the bus, but it excluded the third, so anything on the
 thread lane drew for free. Free being cheap, the actuator PREFERRED that lane, which is
 exactly where a blocking call into a local model lands, and a local model is the
@@ -20,10 +20,10 @@ def _cap():
 
 
 def _caps():
-    """Per-lane capacity across a range of core counts. `capacity()` reads
+    """Per lane capacity across a range of core counts. `capacity()` reads
     os.cpu_count(), so anything asserted against the host's own capacity is a claim
-    about the machine the test happens to run on: a 3-core runner gives 1 per lane
-    where a 32-core box gives 16, and the wall-clock term scales with it."""
+    about the machine the test happens to run on: a 3 core runner gives 1 per lane
+    where a 32 core box gives 16, and the wall clock term scales with it."""
     return [{"proc": float(max(1, c // 2)), "thread": float(max(1, c // 2)),
              "igpu": 2.0} for c in (2, 3, 4, 8, 16, 32, 64)]
 
@@ -43,7 +43,7 @@ def _llm_units(ty):
 def _fixed(ty):
     """One assignment held constant, so swapping the type moves the COST and nothing
     else. Letting `assign` run twice compares two different problems: raising the
-    thread lane's draw makes the greedy re-place the gpu_kernel units, and at 16 per
+    thread lane's draw makes the greedy re place the gpu_kernel units, and at 16 per
     lane it answers by moving two of them ONTO the thread lane, which lowers
     `total - max` for local_llm below io_llm's. That is the actuator doing its job,
     not the type being cheaper."""
@@ -91,7 +91,7 @@ def test_it_never_under_counts_once_the_thread_lane_draws():
 
 def test_a_lane_drawing_alone_still_pays_nothing():
     """The idea being preserved: one draw and no other is not contention. If this broke,
-    the fix would have turned a co-drawn term into a plain total."""
+    the fix would have turned a co drawn term into a plain total."""
     cap = _cap()
     t = {ln: 0.1 for ln in C.LANES}
     for lane in C.LANES:
@@ -101,7 +101,7 @@ def test_a_lane_drawing_alone_still_pays_nothing():
 
 
 def test_the_thread_lane_no_longer_draws_for_free():
-    """The defect, isolated from wall-clock. Hold TIME equal across lanes so only the
+    """The defect, isolated from wall clock. Hold TIME equal across lanes so only the
     bandwidth term can move, then put a draw on each lane against a fixed igpu draw.
     Under `min(proc, igpu)` the thread placement scored strictly less than proc because
     its bandwidth was not counted at all; now the two agree."""
@@ -116,7 +116,7 @@ def test_the_thread_lane_no_longer_draws_for_free():
         scores[lane] = C._contention_from_sums(t, bw, cap)
     assert abs(scores["thread"] - scores["proc"]) < 1e-12, scores
     assert scores["thread"] > min(t[ln] / cap[ln] for ln in C.LANES) + 1e-9, scores
-    # and the old formula scored the thread placement at exactly the wall-clock: free
+    # and the old formula scored the thread placement at exactly the wall clock: free
     bw_thread = {"proc": 0.0, "thread": 0.9, "igpu": fixed}
     assert abs(_old(t, bw_thread, cap)
                - max(t[ln] / cap[ln] for ln in C.LANES)) < 1e-12
@@ -165,10 +165,10 @@ def test_the_objective_stays_nonnegative():
 
 def test_local_llm_keeps_the_thread_lane_strictly_cheapest():
     """A correctness constraint, not a preference. agent.coordinator_adapter routes LLM
-    work to a thread lane partly because a spawn or a live-server attach mutates hive
+    work to a thread lane partly because a spawn or a live server attach mutates hive
     state IN PLACE and must not run in a forkserver child, where the mutation would be
     lost. If local_llm ever made proc or igpu as cheap in TIME, that work would migrate
-    off-thread and the mutation would vanish. The correction to this type is the bus
+    off thread and the mutation would vanish. The correction to this type is the bus
     accounting; the placement must stay put."""
     cm = C.CostModel()
     for ty in ("io_llm", "local_llm"):

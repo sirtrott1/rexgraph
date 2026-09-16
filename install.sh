@@ -1,11 +1,11 @@
 #!/bin/sh
 
-# install.sh - OS-agnostic installer for the RexGraph monorepo.
+# install.sh - OS agnostic installer for the RexGraph monorepo.
 
 # Run from the REPO ROOT (the dir with meson.build + agent/):
 # sh install.sh
 
-# Autodetects, like enterprise software should:
+# Detects the build environment:
 # * OS + CPU arch (Linux/macOS, x86_64/arm64/aarch64/ppc64le)
 # * package manager (apt / dnf / yum / pacman / zypper / apk / brew)
 # * installer FRONTEND:
@@ -25,10 +25,11 @@
 # env, so the build is hermetic and does NOT depend on system BLAS packages
 # whose names differ per distro. System deps are just git + curl.
 
-# Idempotent and safe to re-run. Override any of these via env:
+# Idempotent and safe to re run. Override any of these via env:
 # ENV_NAME=rexgraph PY_SPEC= NATIVE=0 EXTRAS=server,schema,training
 # EXTRA_CONNECT=0 EXTRA_WAREHOUSE=0 MAMBA_ROOT_PREFIX=$HOME/micromamba
 # INSTALLER=auto NO_CONDA=0 VENV_DIR=<repo>/.venv
+# RUN_AGENT_TESTS=1 RUN_CORE_TESTS=0
 # EXTRAS is any agent profile or comma list (server / standard / ml /
 # integrations / all, or granular extras). See the README install table.
 
@@ -40,6 +41,8 @@ NATIVE="${NATIVE:-0}"                  # 1 = -march=native core build
 EXTRAS="${EXTRAS:-server,schema,training}"
 EXTRA_CONNECT="${EXTRA_CONNECT:-0}"
 EXTRA_WAREHOUSE="${EXTRA_WAREHOUSE:-0}"
+RUN_AGENT_TESTS="${RUN_AGENT_TESTS:-1}"
+RUN_CORE_TESTS="${RUN_CORE_TESTS:-0}"
 MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-$HOME/micromamba}"
 export MAMBA_ROOT_PREFIX
 INSTALLER="${INSTALLER:-auto}"         # auto | conda | pip
@@ -120,7 +123,7 @@ case "$INSTALLER" in
 esac
 
 if [ "$FRONTEND" = conda ]; then
-    # -------- conda path (unchanged behavior) --------
+    # conda path (unchanged behavior)
     if [ -z "$CONDA" ]; then
         info "No conda frontend found - bootstrapping micromamba (standalone, not miniforge)…"
         mkdir -p "$HOME/.local/bin"
@@ -130,7 +133,7 @@ if [ "$FRONTEND" = conda ]; then
     fi
     info "using: $CONDA ($($CONDA --version 2>/dev/null | head -1))"
 
-    # helper: create/update env and run inside it, tool-agnostically
+    # create or update the environment through the selected tool
     CREATE_YML="environment.yml"
     case "$CONDA" in
         *micromamba)
@@ -150,11 +153,14 @@ if [ "$FRONTEND" = conda ]; then
     # 4. create the environment
     say "Creating/updating the '$ENV_NAME' environment (conda-forge)"
     if ENV_EXISTS; then info "exists - updating…"; ENV_UPDATE; else ENV_CREATE; fi
-    [ -n "$PY_SPEC" ] && { info "pinning $PY_SPEC as requested"; INENV "${CONDA##*/}" install -y "$PY_SPEC" 2>/dev/null || true; }
+    if [ -n "$PY_SPEC" ]; then
+        info "pinning $PY_SPEC as requested"
+        "$CONDA" install -y -n "$ENV_NAME" "$PY_SPEC" || die "Python version selection failed."
+    fi
     info "python in env: $(INENV python --version 2>&1)"
     BUILD_ISOLATION="--no-build-isolation"   # build deps come from the conda env
 else
-    # -------- pip / venv path (fallback: conda/mamba/micromamba absent or unwanted) --------
+    # pip / venv path (fallback: conda/mamba/micromamba absent or unwanted)
     CONDA=""                                   # signal to the rest of the script: no conda
     info "Using a plain virtualenv - no conda. Build uses the SYSTEM compiler + BLAS."
     # pick a base python and a venv creator (uv if available, else python -m venv)
@@ -211,7 +217,7 @@ NATIVE_ARG=""; [ "$NATIVE" = 1 ] && { NATIVE_ARG="-Csetup-args=-Dnative=true"; i
 # `pip install ./rexgraph` fails with "Not the project root". Build from '.'.
 # [io] and [security] are declared in the root pyproject, which is the only one the
 # core has: rexgraph/meson.build is a subdir include with no project(). [security] brings
-# cryptography, which the AES-GCM envelopes and Ed25519 signatures need: without it the
+# cryptography, which the AES GCM envelopes and Ed25519 signatures need: without it the
 # modules still import and fail only when a sealing or signing call is made, which is a
 # worse way to find out than at install.
 # shellcheck disable=SC2086
@@ -224,7 +230,7 @@ INENV pip install $BUILD_ISOLATION $NATIVE_ARG ".[io,security]" || die "core bui
 # index where it does not exist, and the install would fail there rather than here.
 # Editable for the same reason the agent is: this repo stays the source of truth.
 say "Installing the sibling distributions (rcdb, rcql, system)"
-# Every rcdb extra, because this is the full-repo installer: the agent uses SQL and
+# Every rcdb extra, because this is the full repo installer: the agent uses SQL and
 # object stores and record encryption, and each of those is an optional dependency of the
 # store rather than a base one. The protected search index is NOT among them: safetensors
 # is a base dependency, because every backend's put writes safetensors bytes.
@@ -236,9 +242,12 @@ say "Installing the agent (extras: $EXTRAS)"
 X="$EXTRAS"
 [ "$EXTRA_CONNECT" = 1 ]   && X="$X,connectors"
 [ "$EXTRA_WAREHOUSE" = 1 ] && X="$X,warehouse"
+if [ "$RUN_AGENT_TESTS" = 1 ] || [ "$RUN_CORE_TESTS" = 1 ]; then
+    X="${X:+$X,}dev"
+fi
 # EDITABLE (-e) is required: the web UI is served from agent/frontend/, which the
-# server locates relative to the package source tree. A non-editable install
-# copies the package into site-packages, where that sibling frontend/ dir does
+# server locates relative to the package source tree. A non editable install
+# copies the package into site packages, where that sibling frontend/ dir does
 # NOT exist, so the browser app silently 404s (API + CLI still work). Editable
 # keeps the package pointing at this repo - so DO NOT move/delete this repo dir
 # after install.
@@ -258,34 +267,34 @@ else
 fi
 
 # 9. verify
-# The core is installed NON-editable (compiled .so live in the env's
-# site-packages). Run the smoke tests from a NEUTRAL directory: from the repo
+# The core is installed NON editable (compiled .so live in the env's
+# site packages). Run the smoke tests from a NEUTRAL directory: from the repo
 # root the source rexgraph/ dir (which has the .pyx but no .so) would shadow the
 # compiled package and every core import would fail (this is the real cause of
 # the "_laplacians is None" symptom - it's CWD shadowing, not a cache warmup).
 say "Verifying"
+REPO_DIR="$PWD"
 SMOKE_DIR="$(mktemp -d)"
-( cd "$SMOKE_DIR" && INENV python -c "from rexgraph.graph import RexGraph; r=RexGraph.from_graph([0,1,0],[1,2,2]); print('  core OK: betti', r.betti)" ) || { rmdir "$SMOKE_DIR" 2>/dev/null; die "core smoke test failed."; }
-( cd "$SMOKE_DIR" && INENV python -c "import agent.server.app; print('  server app imports OK')" ) || { rmdir "$SMOKE_DIR" 2>/dev/null; die "server import failed."; }
-rmdir "$SMOKE_DIR" 2>/dev/null || true
-info "running the agent test suite…"
-( cd agent && INENV python -m pytest -q 2>&1 | tail -3 ) || true
-if [ "${RUN_CORE_TESTS:-0}" = 1 ]; then
-    info "running the core test suite (RUN_CORE_TESTS=1)…"
-    # run_core_tests.sh auto-detects the runner: conda env if present, else PYTHON.
-    if [ "$FRONTEND" = conda ]; then
-        ENV_NAME="$ENV_NAME" sh run_core_tests.sh 2>&1 | tail -3 || true
-    else
-        ENV_NAME="$ENV_NAME" PYTHON="$VENV_PY" sh run_core_tests.sh 2>&1 | tail -3 || true
-    fi
+trap 'rmdir "$SMOKE_DIR" 2>/dev/null || true' 0
+( cd "$SMOKE_DIR" && INENV python -I -c "from rexgraph.graph import RexGraph; r=RexGraph.from_graph([0,1,0],[1,2,2]); print('  core OK: betti', r.betti)" ) || die "core smoke test failed."
+( cd "$SMOKE_DIR" && INENV python -I -c "import agent.server.app; print('  server app imports OK')" ) || die "server import failed."
+if [ "$RUN_AGENT_TESTS" = 1 ]; then
+    info "running the agent test suite"
+    ( cd "$SMOKE_DIR" && INENV python -I "$REPO_DIR/scripts/test_installed.py" \
+        --package rexgraph -- "$REPO_DIR/agent/tests" -q --tb=short ) || die "agent test suite failed."
 else
-    info "core suite: run  'sh run_core_tests.sh'  (compiled core; ~30s, 1700+ tests)."
+    info "agent suite not requested (RUN_AGENT_TESTS=0)."
+fi
+if [ "$RUN_CORE_TESTS" = 1 ]; then
+    info "running the core test suite"
+    ( cd "$SMOKE_DIR" && INENV python -I "$REPO_DIR/scripts/test_installed.py" \
+        --package rexgraph -- "$REPO_DIR/rexgraph/tests" -q --tb=short ) || die "core test suite failed."
+else
+    info "core suite not requested (RUN_CORE_TESTS=0)."
 fi
 
 # 10. next steps
-printf '\n\033[32m============================================================\n'
-printf ' RexGraph is installed in the "%s" environment.\n' "$ENV_NAME"
-printf '============================================================\033[0m\n\n'
+printf '\nRexGraph installation completed.\n\n'
 if [ "$FRONTEND" = conda ]; then
     ACT="$CONDA activate $ENV_NAME"; case "$CONDA" in */*) ACT="$(basename "$CONDA") activate $ENV_NAME";; esac
 else

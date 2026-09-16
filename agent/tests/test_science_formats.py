@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from agent.adapters import formats
 
-#### fixtures in the real on-disk shapes
+#### fixtures in the real on disk shapes
 SDF = """benzene
   RexGraph
 
@@ -87,7 +87,7 @@ def test_sdf_reads_atoms_as_vertices_and_bonds_as_edges(tmp_path):
 
 
 def test_sdf_bond_order_becomes_an_edge_type(tmp_path):
-    """Bond order is exactly the typed-edge information the complex already carries."""
+    """Bond order is exactly the typed edge information the complex already carries."""
     ec = formats.load_sdf(_write(tmp_path, "m.sdf", SDF))
     assert ec.type_labels is not None
     assert set(np.unique(ec.type_labels).tolist()) == {0, 1}, "single and double bonds"
@@ -315,7 +315,7 @@ def test_a_uniprot_style_fasta_header_is_parsed(tmp_path):
 
 
 def test_h5ad_refuses_an_X_that_will_not_fit(tmp_path, monkeypatch):
-    """This reader returns dense, so a stored-sparse X is materialised here.
+    """This reader returns dense, so a stored sparse X is materialised here.
 
     A cells x genes matrix is routinely large enough to exhaust memory, and the library
     has a guard for exactly that. Failing with the limit named beats an OOM from inside

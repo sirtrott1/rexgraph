@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1")
 
 
-#: the one encoder (rexgraph.io._compat). Non-finite floats go out as null:
+#: the one encoder (rexgraph.io._compat). Non finite floats go out as null:
 #: a bare NaN token is not JSON and every browser JSON.parse rejects it.
 import contextlib
 
@@ -71,7 +71,7 @@ def _get_tg_adapter(url=None):
     import os
     if url:
         # `url` arrives in a request body and becomes an outbound fetch from the server,
-        # so it answers to the anti-SSRF host policy. The environment fallback below is
+        # so it answers to the anti SSRF host policy. The environment fallback below is
         # operator configuration and does not.
         from agent.server.dbguard import check_outbound_url
         check_outbound_url(str(url))
@@ -107,7 +107,7 @@ async def trustgraph_health(body: dict = Body(...)):
     except Exception as e:
         raise HTTPException(500, f"TrustGraph health check failed: {e}") from e
 
-    # Remove non-serializable rex object if present
+    # Remove non serializable rex object if present
     result.pop("rex", None)
     return JSONResponse(_sanitize(result))
 
@@ -193,7 +193,7 @@ async def huggingface_analyze(body: dict = Body(...),
     With ``model``: hooks a HuggingFace transformer and measures how far
     its attention structure departs from a valid relational complex
     (∂²=0 / chain condition, equiweight). Without ``model``: analyzes the
-    text's co-occurrence complex and reports its axiom compliance, clearly
+    text's co occurrence complex and reports its axiom compliance, clearly
     labeled as ``mode: text_cooccurrence`` so it's not mistaken for a
     transformer probe. Accepts ``session_id`` in place of ``text``.
     """
@@ -205,7 +205,7 @@ async def huggingface_analyze(body: dict = Body(...),
     if model_name:
         # Naming a model downloads it and loads it into this process, which spends the
         # box's disk, bandwidth and VRAM. That is the same instance operation
-        # /api/v1/models/pull is gated on, so it answers to the same rule. Text-level
+        # /api/v1/models/pull is gated on, so it answers to the same rule. Text level
         # analysis names nothing and stays ordinary use.
         if not is_admin(token, "default"):
             raise HTTPException(403, "Naming a model is an instance operation; "
@@ -227,7 +227,7 @@ async def huggingface_analyze(body: dict = Body(...),
         except Exception as e:
             raise HTTPException(500, f"Transformer analysis failed: {e}") from e
 
-    # Standalone: axiom compliance of the text's co-occurrence complex.
+    # Standalone: axiom compliance of the text's co occurrence complex.
     rex, source = _rex_from_body(body)
     if rex is None:
         raise HTTPException(400, f"No input: {source}")
@@ -442,7 +442,7 @@ async def vllm_route(body: dict = Body(...)):
     Builds a relational complex from the prompt's token relationships and
     routes on the dominant RCF channel, no second LLM needed:
       T (topology) -> reasoning · G (geometry) -> creative ·
-      F (frustration) -> analytical · C (copath) -> multi-hop.
+      F (frustration) -> analytical · C (copath) -> multi hop.
     Pass optional ``models`` {capability: model_id} to get a concrete id.
     """
     text = body.get("text", "") or body.get("prompt", "")
@@ -685,7 +685,7 @@ async def download_training_data(fmt: str = "safetensors", target: str = "summar
 
     Formats: ``safetensors`` (feature matrix) or ``pairs`` (input->target
     training pairs). Both are safetensors, directly loadable in
-    PyTorch/JAX/HuggingFace for training or fine-tuning on RexGraph's
+    PyTorch/JAX/HuggingFace for training or fine tuning on RexGraph's
     structural features.
     """
     from agent.server.auth import get_auth_manager

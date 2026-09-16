@@ -29,7 +29,7 @@ def _sync():
 
 
 def step_cost(name, *, d=512, batch=256, iters=40, warm=8, lr=1e-3):
-    """Wall-clock of one full forward + backward + step."""
+    """Wall clock of one full forward + backward + step."""
     torch.manual_seed(0)
     model = nn.Sequential(nn.Linear(d, d), nn.GELU(), nn.Linear(d, d),
                           nn.GELU(), nn.Linear(d, 10)).to(DEV)

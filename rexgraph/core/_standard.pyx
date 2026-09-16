@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._standard: Classical graph algorithms on the 1-skeleton.
+rexgraph.core._standard: Classical graph algorithms on the 1 skeleton.
 
 Operates on the undirected graph underlying a relational complex.
 Input is a symmetric CSR adjacency from _cycles.build_symmetric_adjacency.
@@ -9,7 +9,7 @@ Input is a symmetric CSR adjacency from _cycles.build_symmetric_adjacency.
 PageRank - power iteration, O(nE) per step.
 Betweenness - vertex and edge betweenness centrality, O(nV * nE).
 Clustering - local clustering coefficient via sorted neighbor intersection.
-Louvain - modularity-based community detection, O(nE) per pass.
+Louvain - modularity based community detection, O(nE) per pass.
 """
 
 from __future__ import annotations
@@ -23,160 +23,236 @@ from rexgraph.core._common cimport (
     i32, i64, f64,
 )
 
-from libc.math cimport fabs, sqrt
+from libc.math cimport fabs, sqrt, isfinite
+from libc.float cimport DBL_MIN
 
 np.import_array()
 
 
 # PageRank
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
+ctypedef fused rank_index:
+    i32
+    i64
+
+
+def _markov_weights(np.ndarray[rank_index, ndim=1] ptr,
+                    np.ndarray[rank_index, ndim=1] idx,
+                    np.ndarray[f64, ndim=1] weights, Py_ssize_t n):
+    cdef np.ndarray[f64, ndim=1] probabilities = np.zeros(weights.shape[0])
+    cdef np.ndarray[np.uint8_t, ndim=1] dangling = np.zeros(n, dtype=np.uint8)
+    cdef Py_ssize_t v, k
+    cdef double scale, total, inverse_scale, inverse_total
+    for v in range(n):
+        if ptr[v+1] < ptr[v] or ptr[v+1] > len(idx):
+            raise ValueError("invalid Markov CSR pointers")
+        total = 0
+        for k in range(ptr[v], ptr[v+1]):
+            if idx[k] < 0 or idx[k] >= n:
+                raise ValueError("invalid Markov CSR index")
+            if not isfinite(weights[k]) or weights[k] < 0:
+                raise ValueError("Markov weights must be finite and nonnegative")
+            total += weights[k]
+        if total == 0:
+            dangling[v] = 1
+            continue
+        if isfinite(total) and total >= DBL_MIN:
+            inverse_total = 1/total
+            for k in range(ptr[v], ptr[v+1]):
+                probabilities[k] = weights[k]*inverse_total
+            continue
+        scale = 0
+        for k in range(ptr[v], ptr[v+1]):
+            if weights[k] > scale:
+                scale = weights[k]
+        total = 0
+        if scale >= DBL_MIN:
+            inverse_scale = 1/scale
+            for k in range(ptr[v], ptr[v+1]):
+                total += weights[k]*inverse_scale
+            inverse_total = 1/total
+            for k in range(ptr[v], ptr[v+1]):
+                probabilities[k] = (weights[k]*inverse_scale)*inverse_total
+        else:
+            for k in range(ptr[v], ptr[v+1]):
+                total += weights[k]/scale
+            inverse_total = 1/total
+            for k in range(ptr[v], ptr[v+1]):
+                probabilities[k] = (weights[k]/scale)*inverse_total
+    return probabilities, dangling
+
+
+def markov_weights(adj_ptr, adj_idx, adj_wt, nV):
+    """Validate CSR and normalize outgoing mass without a magnitude threshold."""
+    from numbers import Integral
+    if isinstance(nV, (bool, np.bool_)) or not isinstance(nV, Integral) or nV < 0:
+        raise ValueError("nV must be a nonnegative integer")
+    ptr, idx, wt = map(np.asarray, (adj_ptr, adj_idx, adj_wt))
+    if (ptr.ndim != 1 or idx.ndim != 1 or wt.ndim != 1
+            or ptr.dtype not in (np.dtype('int32'), np.dtype('int64'))
+            or idx.dtype != ptr.dtype):
+        raise TypeError("Markov CSR requires matching int32 or int64 indices and vector weights")
+    if len(ptr) != nV+1 or ptr[0] != 0 or ptr[len(ptr)-1] != len(idx) or len(wt) != len(idx):
+        raise ValueError("invalid Markov CSR coordinates")
+    if wt.dtype.kind not in "fiu":
+        raise TypeError("Markov weights must be real numbers")
+    converted = np.ascontiguousarray(wt, dtype=np.float64)
+    if wt.dtype.itemsize > 8 and np.any((wt != 0) & (converted == 0)):
+        raise ValueError("Markov weights underflow float64")
+    return _markov_weights(np.ascontiguousarray(ptr), np.ascontiguousarray(idx),
+                           converted, nV)
+
+
+cdef void _rank_step(const rank_index[::1] ptr, const rank_index[::1] idx,
+                     const f64[::1] probabilities, const np.uint8_t[::1] dangling,
+                     const f64[::1] seed, const f64[::1] current, f64[::1] output,
+                     double damping, Py_ssize_t n) noexcept:
+    cdef Py_ssize_t v, k
+    cdef double mass = 0
+    for v in range(n):
+        if dangling[v]:
+            mass += current[v]
+    for v in range(n):
+        output[v] = (1-damping)*seed[v] + damping*mass/n
+    for v in range(n):
+        mass = damping*current[v]
+        for k in range(ptr[v], ptr[v+1]):
+            output[idx[k]] += mass*probabilities[k]
+
+
+def _pagerank_iter(np.ndarray[rank_index, ndim=1] ptr,
+                   np.ndarray[rank_index, ndim=1] idx,
+                   np.ndarray[f64, ndim=1] probabilities,
+                   np.ndarray[np.uint8_t, ndim=1] dangling,
+                   np.ndarray[f64, ndim=1] seed,
+                   double damping, int max_iter, double tol, bint report, action=None):
+    cdef Py_ssize_t n = len(seed), v
+    cdef np.ndarray[f64, ndim=1] current_array = seed.copy()
+    cdef np.ndarray[f64, ndim=1] next_array = np.empty(n)
+    cdef f64[::1] current = current_array, nxt = next_array, temporary
+    cdef const rank_index[::1] rows = ptr, columns = idx
+    cdef const f64[::1] transition = probabilities, restart = seed
+    cdef const f64[::1] applied
+    cdef const np.uint8_t[::1] absent = dangling
+    cdef double diff = 0, residual = 0
+    cdef int iteration = 0
+    if n:
+        for iteration in range(1, max_iter+1):
+            if action is None:
+                _rank_step[rank_index](rows, columns, transition, absent, restart, current, nxt, damping, n)
+            else:
+                applied = action(np.asarray(current))
+                if len(applied) != n:
+                    raise ValueError("PageRank action changed its vertex axis")
+                for v in range(n):
+                    nxt[v] = damping*applied[v] + (1-damping)*restart[v]
+            diff = 0
+            for v in range(n):
+                diff += fabs(nxt[v]-current[v])
+            temporary = current
+            current = nxt
+            nxt = temporary
+            if damping*diff <= tol*(1-damping):
+                break
+        if report:
+            if action is None:
+                _rank_step[rank_index](rows, columns, transition, absent, restart, current, nxt, damping, n)
+            else:
+                applied = action(np.asarray(current))
+                if len(applied) != n:
+                    raise ValueError("PageRank action changed its vertex axis")
+                for v in range(n):
+                    nxt[v] = damping*applied[v] + (1-damping)*restart[v]
+            for v in range(n):
+                residual += fabs(nxt[v]-current[v])
+    # Memoryview identity is not ndarray identity. Return the actual current buffer.
+    if not report:
+        return np.asarray(current), None
+    return np.asarray(current), {
+        "iterations": iteration, "residual_l1": residual,
+        "error_bound_l1": residual/(1-damping),
+        "converged": bool(residual <= tol*(1-damping)),
+        "kernel": "native-pagerank" if action is None else "native-tensor-pagerank", "dangling": "uniform",
+    }
+
+
+def pagerank_controls(damping=0.85, max_iter=100, tol=1e-8):
+    """Validate the numerical contraction and iteration policy without solving."""
+    from numbers import Integral, Real
+    for name, value in (("damping", damping), ("tol", tol)):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real) or not np.isfinite(float(value)):
+            raise ValueError(name + " must be a finite real scalar")
+    damping, tol = float(damping), float(tol)
+    if not 0 <= damping < 1 or not 0 < tol < 1:
+        raise ValueError("PageRank requires 0<=damping<1 and 0<tol<1")
+    if (isinstance(max_iter, (bool, np.bool_)) or not isinstance(max_iter, Integral)
+            or not 0 < max_iter < np.iinfo(np.int32).max):
+        raise ValueError("max_iter must be a positive integer below INT32_MAX")
+    return damping, int(max_iter), tol
+
+
+def _pagerank_seed(nV, seed):
+    """Normalize the restart once for both selected transition policies."""
+    if seed is None:
+        seed = np.full(nV, 1.0/nV) if nV else np.empty(0)
+    else:
+        seed = np.asarray(seed)
+        if (seed.shape != (nV,) or seed.dtype.kind not in "fiu"
+                or np.any(~np.isfinite(seed)) or np.any(seed < 0)):
+            raise ValueError("PageRank seed must be a finite nonnegative vertex vector")
+        seed = np.ascontiguousarray(seed, dtype=np.float64)
+        if np.any(~np.isfinite(seed)):
+            raise ValueError("PageRank seed must be representable in float64")
+        if nV:
+            scale = np.max(seed)
+            if scale == 0:
+                raise ValueError("PageRank seed must have positive mass")
+            seed = seed/scale
+            seed = seed/seed.sum()
+    return seed
+
+
+def _pagerank_action(action, nV, damping, max_iter, tol, seed=None):
+    """Internal solver for the certified stochastic action built by Core."""
+    damping, max_iter, tol = pagerank_controls(damping, max_iter, tol)
+    seed = _pagerank_seed(nV, seed)
+    empty = np.empty(0, dtype=np.int64)
+    return _pagerank_iter(empty, empty, np.empty(0), np.empty(0, dtype=np.uint8),
+                          seed, damping, max_iter, tol, True, action)
+
+
+def pagerank(adj_ptr, adj_idx, adj_wt, nV, nE,
+             damping=0.85, max_iter=100, tol=1e-8, *, seed=None, report=False):
+    """Weighted outgoing walk with uniform dangling mass and explicit restart.
+
+    report=True returns a residual and contraction error bound with the scores.
+    The legacy array return remains available even after iteration exhaustion.
+    """
+    from numbers import Integral
+    damping, max_iter, tol = pagerank_controls(damping, max_iter, tol)
+    if isinstance(nE, (bool, np.bool_)) or not isinstance(nE, Integral) or nE < 0:
+        raise ValueError("nE must be a nonnegative integer")
+    if not isinstance(report, (bool, np.bool_)):
+        raise TypeError("report must be boolean")
+    probabilities, dangling = markov_weights(adj_ptr, adj_idx, adj_wt, nV)
+    seed = _pagerank_seed(nV, seed)
+    result, info = _pagerank_iter(np.ascontiguousarray(adj_ptr), np.ascontiguousarray(adj_idx),
+                                   probabilities, dangling, seed, damping, max_iter, tol, report)
+    return (result, info) if report else result
+
+
 def pagerank_i32(np.ndarray[i32, ndim=1] adj_ptr,
                  np.ndarray[i32, ndim=1] adj_idx,
-                 np.ndarray[f64, ndim=1] adj_wt,
-                 Py_ssize_t nV,
-                 Py_ssize_t nE,
-                 double damping=0.85,
-                 int max_iter=100,
-                 double tol=1e-8):
-    """
-    PageRank via power iteration on the undirected 1-skeleton.
-
-    Weighted damped random walk. Converges when L1 change < tol.
-
-    Parameters
-    ----------
-    adj_ptr : i32[nV+1]
-        CSR row pointers of the symmetric adjacency.
-    adj_idx : i32[2*nE]
-        Neighbor vertex indices.
-    adj_wt : f64[2*nE]
-        Edge weights for each adjacency entry.
-    nV, nE : int
-    damping : float, default 0.85
-    max_iter : int, default 100
-    tol : float, default 1e-8
-
-    Returns
-    -------
-    f64[nV]
-        PageRank scores summing to 1.0.
-    """
-    if nV == 0:
-        return np.empty(0, dtype=np.float64)
-
-    cdef i32[::1] ap = adj_ptr, ai = adj_idx
-    cdef f64[::1] aw = adj_wt
-
-    cdef np.ndarray[f64, ndim=1] inv_wdeg_arr = np.zeros(nV, dtype=np.float64)
-    cdef f64[::1] inv_wdeg = inv_wdeg_arr
-    cdef Py_ssize_t v, k
-    cdef double wdeg
-
-    for v in range(nV):
-        wdeg = 0.0
-        for k in range(ap[v], ap[v + 1]):
-            wdeg += aw[k]
-        if wdeg > 1e-15:
-            inv_wdeg[v] = 1.0 / wdeg
-
-    cdef np.ndarray[f64, ndim=1] r0 = np.full(nV, 1.0 / <double>nV, dtype=np.float64)
-    cdef np.ndarray[f64, ndim=1] r1 = np.empty(nV, dtype=np.float64)
-    cdef f64[::1] rc = r0, rn = r1
-    cdef f64[::1] tmp
-
-    cdef double base = (1.0 - damping) / <double>nV
-    cdef double diff, contrib
-    cdef int it
-    cdef Py_ssize_t u
-
-    for it in range(max_iter):
-        diff = 0.0
-        for v in range(nV):
-            contrib = 0.0
-            for k in range(ap[v], ap[v + 1]):
-                u = ai[k]
-                contrib += rc[u] * aw[k] * inv_wdeg[u]
-            rn[v] = base + damping * contrib
-            diff += fabs(rn[v] - rc[v])
-
-        tmp = rc; rc = rn; rn = tmp
-
-        if diff < tol:
-            break
-
-    if rc is r0:
-        return r0
-    return r1
+                 np.ndarray[f64, ndim=1] adj_wt, nV, nE,
+                 damping=0.85, max_iter=100, tol=1e-8, *, seed=None, report=False):
+    return pagerank(adj_ptr, adj_idx, adj_wt, nV, nE, damping, max_iter, tol, seed=seed, report=report)
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def pagerank_i64(np.ndarray[i64, ndim=1] adj_ptr,
                  np.ndarray[i64, ndim=1] adj_idx,
-                 np.ndarray[f64, ndim=1] adj_wt,
-                 Py_ssize_t nV,
-                 Py_ssize_t nE,
-                 double damping=0.85,
-                 int max_iter=100,
-                 double tol=1e-8):
-    """PageRank via power iteration. int64 index variant."""
-    if nV == 0:
-        return np.empty(0, dtype=np.float64)
-
-    cdef i64[::1] ap = adj_ptr, ai = adj_idx
-    cdef f64[::1] aw = adj_wt
-
-    cdef np.ndarray[f64, ndim=1] inv_wdeg_arr = np.zeros(nV, dtype=np.float64)
-    cdef f64[::1] inv_wdeg = inv_wdeg_arr
-    cdef Py_ssize_t v, k
-    cdef double wdeg
-
-    for v in range(nV):
-        wdeg = 0.0
-        for k in range(ap[v], ap[v + 1]):
-            wdeg += aw[k]
-        if wdeg > 1e-15:
-            inv_wdeg[v] = 1.0 / wdeg
-
-    cdef np.ndarray[f64, ndim=1] r0 = np.full(nV, 1.0 / <double>nV, dtype=np.float64)
-    cdef np.ndarray[f64, ndim=1] r1 = np.empty(nV, dtype=np.float64)
-    cdef f64[::1] rc = r0, rn = r1
-    cdef f64[::1] tmp
-
-    cdef double base = (1.0 - damping) / <double>nV
-    cdef double diff, contrib
-    cdef int it
-    cdef Py_ssize_t u
-
-    for it in range(max_iter):
-        diff = 0.0
-        for v in range(nV):
-            contrib = 0.0
-            for k in range(ap[v], ap[v + 1]):
-                u = <Py_ssize_t>ai[k]
-                contrib += rc[u] * aw[k] * inv_wdeg[u]
-            rn[v] = base + damping * contrib
-            diff += fabs(rn[v] - rc[v])
-
-        tmp = rc; rc = rn; rn = tmp
-        if diff < tol:
-            break
-
-    if rc is r0:
-        return r0
-    return r1
-
-
-def pagerank(adj_ptr, adj_idx, adj_wt, Py_ssize_t nV, Py_ssize_t nE,
-             double damping=0.85, int max_iter=100, double tol=1e-8):
-    """Dispatch PageRank by index type."""
-    if adj_ptr.dtype == np.int64:
-        return pagerank_i64(adj_ptr, adj_idx, adj_wt, nV, nE,
-                            damping, max_iter, tol)
-    return pagerank_i32(adj_ptr, adj_idx, adj_wt, nV, nE,
-                        damping, max_iter, tol)
+                 np.ndarray[f64, ndim=1] adj_wt, nV, nE,
+                 damping=0.85, max_iter=100, tol=1e-8, *, seed=None, report=False):
+    return pagerank(adj_ptr, adj_idx, adj_wt, nV, nE, damping, max_iter, tol, seed=seed, report=report)
 
 
 # Betweenness centrality
@@ -195,7 +271,7 @@ def betweenness_i32(np.ndarray[i32, ndim=1] adj_ptr,
     (nV-1)(nV-2)/2; edge betweenness by nV(nV-1)/2.
 
     Parameters
-    ----------
+
     adj_ptr : i32[nV+1]
     adj_idx : i32[2*nE]
     adj_edge : i32[2*nE]
@@ -206,7 +282,7 @@ def betweenness_i32(np.ndarray[i32, ndim=1] adj_ptr,
         0 means use all vertices (exact computation).
 
     Returns
-    -------
+
     bc_v : f64[nV]
         Normalized vertex betweenness.
     bc_e : f64[nE]
@@ -422,18 +498,18 @@ def clustering_i32(np.ndarray[i32, ndim=1] adj_ptr,
     """
     Local clustering coefficient for each vertex.
 
-    Triangles counted via two-pointer merge over sorted neighbor
+    Triangles counted via two pointer merge over sorted neighbor
     lists. C(v) = 2*T(v) / (deg(v) * (deg(v) - 1)) for deg >= 2.
 
     Parameters
-    ----------
+
     adj_ptr : i32[nV+1]
     adj_idx : i32[2*nE]
         Sorted neighbor indices within each row.
     nV : int
 
     Returns
-    -------
+
     f64[nV]
         Clustering coefficient in [0, 1]. Zero for deg < 2.
     """
@@ -549,7 +625,7 @@ def louvain_i32(np.ndarray[i32, ndim=1] adj_ptr,
     neighbor's community. Repeats until no improvement.
 
     Parameters
-    ----------
+
     adj_ptr : i32[nV+1]
     adj_idx : i32[2*nE]
     adj_wt : f64[2*nE]
@@ -557,7 +633,7 @@ def louvain_i32(np.ndarray[i32, ndim=1] adj_ptr,
     max_passes : int, default 20
 
     Returns
-    -------
+
     labels : i32[nV]
         Community label for each vertex.
     n_communities : int
@@ -818,16 +894,16 @@ def louvain(adj_ptr, adj_idx, adj_wt, Py_ssize_t nV, Py_ssize_t nE,
 def safe_correlation(np.ndarray[f64, ndim=1] a,
                      np.ndarray[f64, ndim=1] b):
     """
-    Pearson correlation with zero-variance guard.
+    Pearson correlation with zero variance guard.
 
     Returns 0.0 if either signal has zero variance or n < 2.
 
     Parameters
-    ----------
+
     a, b : f64[n]
 
     Returns
-    -------
+
     float
     """
     cdef Py_ssize_t n = a.shape[0]
@@ -874,7 +950,7 @@ def build_adj_weights_i32(np.ndarray[i32, ndim=1] adj_edge,
     twice with the same weight.
 
     Parameters
-    ----------
+
     adj_edge : i32[nnz]
         Edge index for each adjacency entry.
     edge_weights : f64[nE]
@@ -883,7 +959,7 @@ def build_adj_weights_i32(np.ndarray[i32, ndim=1] adj_edge,
         Length of adj_edge (= 2*nE).
 
     Returns
-    -------
+
     f64[nnz]
     """
     cdef np.ndarray[f64, ndim=1] wt = np.empty(nnz, dtype=np.float64)
@@ -934,7 +1010,7 @@ def build_standard_metrics(adj_ptr, adj_idx, adj_edge, adj_wt,
     Compute all standard graph metrics.
 
     Parameters
-    ----------
+
     adj_ptr : I[nV+1]
     adj_idx : I[2*nE]
     adj_edge : I[2*nE]
@@ -946,7 +1022,7 @@ def build_standard_metrics(adj_ptr, adj_idx, adj_edge, adj_wt,
     louvain_max_passes : int, default 20
 
     Returns
-    -------
+
     dict
         pagerank : f64[nV]
         betweenness_v : f64[nV]
@@ -1012,10 +1088,10 @@ def weighted_shortest_path(np.ndarray[i32, ndim=1] src,
                            int n_vertices,
                            int source, int target):
     """
-    Dijkstra shortest path on the 1-skeleton with edge weights.
+    Dijkstra shortest path on the 1 skeleton with edge weights.
 
     Parameters
-    ----------
+
     src, tgt : (nE,) int32
         Edge endpoints.
     weights : (nE,) float64
@@ -1026,7 +1102,7 @@ def weighted_shortest_path(np.ndarray[i32, ndim=1] src,
         Start and end vertex indices.
 
     Returns
-    -------
+
     dict with 'distance' (float), 'path' (list of vertex indices),
     'found' (bool).
     """

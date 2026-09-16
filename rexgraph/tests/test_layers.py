@@ -1,5 +1,5 @@
 """Composable relational NN layers (rexgraph.nn.layers): they compose into a trainable net and the
-GreenResolvent block differentiates through the self-adjoint solve."""
+GreenResolvent block differentiates through the self adjoint solve."""
 import numpy as np
 import pytest
 
@@ -21,8 +21,8 @@ class _Net(torch.nn.Module):
     def __init__(self, d=8, n_cls=3):
         super().__init__()
         self.emb = torch.nn.Linear(4, d)
-        self.b1 = R.RelationalBlock(d, op="heat")           # matrix-free propagator block
-        self.b2 = R.RelationalBlock(d, op="green")          # implicit self-adjoint block
+        self.b1 = R.RelationalBlock(d, op="heat")           # matrix free propagator block
+        self.b2 = R.RelationalBlock(d, op="green")          # implicit self adjoint block
         self.head = torch.nn.Linear(d, n_cls)
 
     def forward(self, X, L):
@@ -34,7 +34,7 @@ def test_blocks_compose_and_train_with_hodgeadam():
     net = _Net()
     X = torch.randn(nV, 4)
     y = torch.randint(0, 3, (nV,))
-    opt = R.optim.HodgeAdam(net.parameters(), lr=0.05)   # back-compat path; demoted off nn top-level
+    opt = R.optim.HodgeAdam(net.parameters(), lr=0.05)   # back compat path; demoted off nn top level
     first = last = None
     for i in range(30):
         opt.zero_grad()

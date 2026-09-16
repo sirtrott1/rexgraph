@@ -7,30 +7,30 @@ localizations, on the sparse/integer path.
 The Lagrangians and the five curvatures. This is the math that previously lived in
 the agent layer (`schema_complex._lagrangian_curvature` / `_star_curvature`) as
 dense `np.trace(L @ L)` - an O(nE^3)/O(nE^2) crash source. Here every quantity is
-a SPARSE reduction or a pure-integer degree sum; no dense nE x nE product and no
+a SPARSE reduction or a pure integer degree sum; no dense nE x nE product and no
 eigendecomposition.
 
-GLOBAL Lagrangian curvature - NORMALIZED inverse-participation-ratio Lagrangians
+GLOBAL Lagrangian curvature - NORMALIZED inverse participation ratio Lagrangians
 The Lagrangians are normalized concentrations, NOT bare traces:
     L_T = tr(T^2) / tr(T)^2      T  = B1^w^T B1^w   (topological / down)
     L_S = tr(L1^2) / tr(L1)^2    L1 = B2^w B2^w^T   (geometric / up)
     c2  = L_T / L_S ;  curvature = |log c2| = |H_S - H_T|   (direction-free)
 Each L_X = tr(X^2)/tr(X)^2 = Sum p_i^2 = e^{-H_X} is the inverse participation ratio
-of the normalized spectrum, so the Lagrangians ARE the harmonic-log machinery. On
+of the normalized spectrum, so the Lagrangians ARE the harmonic log machinery. On
 K_k, c2 = (k-2)/2 (1, 3/2, 2, 5/2). The trace identity tr((B^T B)^2) = ||B B^T||_F^2
 keeps the numerators sparse (L0 nnz ~ 2*nE; L2 is nF x nF). The bare integer tensors
 tr(T^2) = Sum deg^2 + 2*nE and tr(L1^2) are returned as L_T_trace/L_S_trace (still
 valid, reframed as the IPR numerators; exact via `lagrangian_L_T_integer`). Small/
 unweighted -> exact Fraction (c2_exact); large/weighted -> the normalized ratio stays
 O(1) so raw int64 tr(T^2) (~4e12 at weighted K20) never has to be formed. The bare
-L_S/L_T ratio (the pre-correction form) is available via normalized=False for diffing;
+L_S/L_T ratio (the pre correction form) is available via normalized=False for diffing;
 it coincides with the canonical L_T/L_S only on regular graphs.
 
 FIVE curvatures (localizations of R = B1 diag(w) B2, all sparse):
   1 scalar      ||R||_F
-  2 per-face    ||R[:,f]||
-  3 per-edge    |w_e| * ||B1[:,e]|| * ||B2[e,:]||
-  4 per-vertex star  Sum_{e in star(v)} |w_e - mean_star(v)|   (grade-0; fires on spans)
+  2 per face    ||R[:,f]||
+  3 per edge    |w_e| * ||B1[:,e]|| * ||B2[e,:]||
+  4 per vertex star  Sum_{e in star(v)} |w_e - mean_star(v)|   (grade 0; fires on spans)
   5 weighted degree  Sum_{e in star(v)} w_e
 """
 
@@ -73,7 +73,7 @@ cdef object _wdiag(w, Py_ssize_t nE):
 def lagrangian_curvature(B1_in, B2_in, w=None, bint normalized=True):
     """Global Lagrangian curvature {L_T, L_S, c2, curvature, L_T_trace, L_S_trace}.
 
-    NORMALIZED inverse-participation-ratio Lagrangians:
+    NORMALIZED inverse participation ratio Lagrangians:
         L_T = tr(T^2)/tr(T)^2, L_S = tr(L1^2)/tr(L1)^2, c2 = L_T/L_S,
         curvature = |log c2| = |H_S - H_T|  (direction-free; None when L_T == 0).
     On K_k, c2 = (k-2)/2. The exact integer numerators tr(T^2), tr(L1^2) (and their
@@ -108,7 +108,7 @@ def lagrangian_curvature(B1_in, B2_in, w=None, bint normalized=True):
         if L_S > 0.0:
             c2 = L_T / L_S                        # canonical: topological / geometric
         if L_T > 0.0:
-            curv = abs(float(np.log((L_T + eps) / (L_S + eps))))   # |log c2|, direction-free
+            curv = abs(float(np.log((L_T + eps) / (L_S + eps))))   # |log c2|, direction free
         out = {'L_T': L_T, 'L_S': L_S, 'c2': c2, 'curvature': curv,
                'tr_T': trT, 'tr_L1': trL}
         if w is None:
@@ -126,7 +126,7 @@ def lagrangian_curvature(B1_in, B2_in, w=None, bint normalized=True):
             out['L_S_trace'] = trL2
         return out
 
-    # legacy bare ratio (pre-correction), kept for diffing
+    # legacy bare ratio (pre correction), kept for diffing
     if trT2 > 0.0:
         c2 = trL2 / trT2
         curv = abs(float(np.log((trL2 + eps) / (trT2 + eps))))
@@ -152,10 +152,10 @@ def lagrangian_L_T_integer(sources, targets, Py_ssize_t nV):
     return int(acc + 2 * nE)
 
 
-# Grade-0 localizations (per-vertex; tight integer/rational loops)
+# Grade 0 localizations (per vertex; tight integer/rational loops)
 
 def weighted_degree(sources, targets, w, Py_ssize_t nV):
-    """Total incident weight per vertex (grade-0). Returns f64[nV]."""
+    """Total incident weight per vertex (grade 0). Returns f64[nV]."""
     cdef i64[::1] s = np.ascontiguousarray(sources, dtype=np.int64)
     cdef i64[::1] t = np.ascontiguousarray(targets, dtype=np.int64)
     cdef Py_ssize_t nE = s.shape[0]
@@ -171,8 +171,8 @@ def weighted_degree(sources, targets, w, Py_ssize_t nV):
 
 
 def star_curvature(sources, targets, w, Py_ssize_t nV):
-    """Per-vertex star curvature: Sum_{e in star(v)} |w_e - mean_star(v)|, the
-    grade-0 localization that fires on spans. 0 for vertices of degree <= 1
+    """Per vertex star curvature: Sum_{e in star(v)} |w_e - mean_star(v)|, the
+    grade 0 localization that fires on spans. 0 for vertices of degree <= 1
     (matches the agent semantics: needs > 1 incident edge). f64[nV]."""
     cdef i64[::1] s = np.ascontiguousarray(sources, dtype=np.int64)
     cdef i64[::1] t = np.ascontiguousarray(targets, dtype=np.int64)
@@ -206,10 +206,10 @@ def star_curvature(sources, targets, w, Py_ssize_t nV):
     return out
 
 
-# Face-bound curvatures from R = B1 diag(w) B2 (sparse)
+# Face bound curvatures from R = B1 diag(w) B2 (sparse)
 
 def curvature_operator(B1_in, B2_in, w=None):
-    """The face-bound curvatures from R = B1 diag(w) B2 (grades 1-2, sparse):
+    """The face bound curvatures from R = B1 diag(w) B2 (grades 1-2, sparse):
     {'scalar': ||R||_F, 'per_face': ||R[:,f]|| (f64[nF]),
      'per_edge': |w_e|*||B1[:,e]||*||B2[e,:]|| (f64[nE])}.
     These read 0 on a span (no face) by construction."""

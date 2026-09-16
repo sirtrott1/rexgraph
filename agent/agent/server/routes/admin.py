@@ -41,8 +41,8 @@ _LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 def _require_localhost(request: Request):
     """Reject anything that is not a direct loopback connection.
 
-    Uses the raw socket peer (request.client), never the client-supplied
-    X-Forwarded-For, and refuses requests that carry any forwarding header:
+    Uses the raw socket peer (request.client), never the client supplied
+    X-Forwarded For, and refuses requests that carry any forwarding header:
     a request that arrived through a proxy is treated as remote even when the
     proxy itself runs on the host. This is the gate for changing the auth
     posture, so it stays strict.
@@ -60,7 +60,7 @@ async def whoami(token: TokenEntry = Depends(require_auth),
                  ws: WorkspaceState = Depends(require_workspace)):
     """The current identity: who you are, your role in EACH workspace, your role in the current
     workspace, and whether auth is on. The UI reads this to show the right controls per workspace
-    (member-management appears only where you are an admin)."""
+    (member management appears only where you are an admin)."""
     mgr = get_auth_manager()
     return {"user_id": token.user_id, "roles": token.roles, "workspaces": token.workspaces,
             "role": token.role, "current_workspace": ws.name,
@@ -139,7 +139,7 @@ async def create_token(
     role: str = Body(ROLE_USER, embed=True),
     token: TokenEntry = Depends(_require_admin),
 ):
-    """Create a new API token (low-level; `POST /members` is the managed path that rotates per user)."""
+    """Create a new API token (low level; `POST /members` is the managed path that rotates per user)."""
     mgr = get_auth_manager()
     raw = mgr.create_token(user_id, workspaces, role)
     return {
@@ -164,7 +164,7 @@ async def enable_auth(
     passphrase: str = Body("", embed=True),
     token: TokenEntry = Depends(_require_admin),
 ):
-    """Enable bearer token authentication (host-local only).
+    """Enable bearer token authentication (host local only).
 
     Optionally set the disable passphrase at the same time by passing
     `passphrase`; a passphrase must be set before auth can later be disabled.
@@ -186,7 +186,7 @@ async def set_disable_passphrase(
     passphrase: str = Body(..., embed=True),
     token: TokenEntry = Depends(_require_admin),
 ):
-    """Set or rotate the passphrase required to disable auth (host-local only)."""
+    """Set or rotate the passphrase required to disable auth (host local only)."""
     _require_localhost(request)
     mgr = get_auth_manager()
     try:
@@ -224,7 +224,7 @@ async def disable_auth(
 async def create_recovery_key(token: TokenEntry = Depends(_require_admin)):
     """Create a recovery key (admin only). Returns the raw key once.
 
-    The recovery key lets a locked-out admin obtain a new API token
+    The recovery key lets a locked out admin obtain a new API token
     without filesystem access. Store it offline like a seed phrase.
     """
     mgr = get_auth_manager()

@@ -23,9 +23,9 @@ The ceilings are read rather than discovered by failing. `/rex/v1/hello` reports
 so a record too large for the peer is reported as `oversize` before anything crosses the
 wire, using the same comparison the server's own `check_size` makes against a frame header.
 
-Failures are per-record, never per-trip. A refused shipment, an unreachable peer, an
+Failures are per record, never per trip. A refused shipment, an unreachable peer, an
 oversized record: each lands as one shipment with a reason, and the rest of the trip
-continues, which is the same fail-soft contract the local courier gives an unreadable blob.
+continues, which is the same fail soft contract the local courier gives an unreadable blob.
 
     peer = Peer("gpu-box", RexClient("https://gpu-box:8000", api_key=tok))
     courier.attach_peer(peer)
@@ -39,8 +39,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .courier import structure_of
-
 logger = logging.getLogger(__name__)
 
 # Header fields the server measures against its cell ceiling. Checking the same three
@@ -53,7 +51,7 @@ class Shipment:
     """One record's fate on one crossing.
 
     `shipped` when the peer took it and named it, `held` when the ledger already records
-    this structure at this peer, `oversize` when it is past the peer's declared ceiling,
+    this native state at this peer, `oversize` when it is past the peer's declared ceiling,
     `refused` when the peer answered with an error, and `unreadable` when the local store
     could not produce the complex."""
     record_id: str
@@ -72,7 +70,7 @@ class Shipment:
 
 
 class Ledger:
-    """What this courier has shipped to which peer, and the structure it sent.
+    """What this courier has shipped to which peer, and the state identity it sent.
 
     Keyed by (peer, record id) and holding the id the peer minted back, so a second trip
     can skip a record without asking the peer a question the protocol has no route for.
@@ -130,7 +128,7 @@ class Ledger:
             self._entries = {}
 
     def save(self) -> None:
-        """Write through, atomically. A ledger torn by a crash mid-write would claim a
+        """Write through, atomically. A ledger torn by a crash mid write would claim a
         record was shipped when it was not, or the reverse."""
         if self.path is None:
             return
@@ -147,7 +145,7 @@ class Ledger:
 class Peer:
     """A remote rexgraph server as a courier destination.
 
-    `confirm` fetches each shipment back and compares fingerprints. It costs a second
+    `confirm` fetches each shipment back and compares native state digests. It costs a second
     round trip per record and is off by default, because the protocol already verifies the
     digest and the chain condition on arrival; turn it on when the receipt matters more
     than the traffic."""
@@ -185,14 +183,19 @@ class Peer:
 
     #### the crossing
     def ship(self, record, rex, *, source: str, courier: str) -> Shipment:
-        from rexgraph.protocol import fingerprint
+        from rexgraph.io.catalog import object_digest
         sig = dict(record.signature or {})
         over = self.oversize(sig)
         if over:
             return Shipment(record.id, "oversize", detail=over)
 
-        structure = structure_of(sig)
-        if self.ledger.structure(self.name, record.id) == structure:
+        try:
+            identity = {"state_digest": object_digest(rex)}
+        except Exception as e:
+            return Shipment(record.id, "unreadable", detail=_reason(e))
+        # Keep the ledger field/API for compatibility; old shape only entries do
+        # not match and are upgraded after one successful shipment.
+        if self.ledger.structure(self.name, record.id) == identity:
             return Shipment(record.id, "held",
                             remote_id=self.ledger.remote_id(self.name, record.id))
 
@@ -211,14 +214,15 @@ class Peer:
         if self.confirm:
             try:
                 back = self.client.rex_fetch(remote_id)
+                received_digest = object_digest(back)
             except Exception as e:
                 return Shipment(record.id, "refused", remote_id=remote_id,
                                 detail=f"stored but unconfirmable: {_reason(e)}")
-            if fingerprint(back) != fingerprint(rex):
+            if received_digest != identity["state_digest"]:
                 return Shipment(record.id, "refused", remote_id=remote_id,
                                 detail="the peer returned a different complex")
 
-        self.ledger.note(self.name, record.id, remote_id, structure)
+        self.ledger.note(self.name, record.id, remote_id, identity)
         return Shipment(record.id, "shipped", remote_id=remote_id)
 
     def retrieve(self, record_id: str):

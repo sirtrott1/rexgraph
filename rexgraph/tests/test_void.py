@@ -285,7 +285,7 @@ class TestRexGraphIntegration:
 
     def test_harmonic_content_eigenfree_fallback(self, k4_partial):
         """When no dense L1 spectrum is supplied, void harmonic content eta falls back
-        to the eigen-free combinatorial low-rank projector (built from B1/B2) instead
+        to the eigen free combinatorial low rank projector (built from B1/B2) instead
         of NaN, and equals the dense harmonic_content_all to ~1e-9."""
         g = k4_partial
         vc = g.void_complex
@@ -303,7 +303,7 @@ class TestRexGraphIntegration:
 
     def test_lvoid_stays_sparse(self, k4_partial):
         """Regression: Lvoid = Bvoid Bvoidᵀ is stored SPARSE (no nE x nE dense
-        materialization on the void path) and round-trips to the exact dense array;
+        materialization on the void path) and round trips to the exact dense array;
         tr(Lvoid) still equals void_strain."""
         import scipy.sparse as sp
         vc = k4_partial.void_complex

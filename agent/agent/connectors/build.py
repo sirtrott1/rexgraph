@@ -41,11 +41,11 @@ def faces_to_csc(b2_dense: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
 
 def to_rexgraph(rex: Any, meta: dict[str, Any]):
     """Normalise a connector's ``rex`` into a built ``RexGraph`` carrying
-    ``_agent_meta`` (so it stores and round-trips).
+    ``_agent_meta`` (so it stores and round trips).
 
     ``rex`` may be:
-      * an already-built ``RexGraph`` (returned as-is, meta attached), or
-      * a ``(sources, targets)`` pair of edge-endpoint arrays.
+      * an already built ``RexGraph`` (returned as is, meta attached), or
+      * a ``(sources, targets)`` pair of edge endpoint arrays.
 
     If ``meta['faces']`` is a dense ``B₂`` array it is attached as the face
     selection. Vertex labels come from ``meta['vertex_labels']``.
@@ -59,7 +59,7 @@ def to_rexgraph(rex: Any, meta: dict[str, Any]):
         "input_type": meta.get("input_type", "connector"),
     }
 
-    # already a RexGraph?  (duck-typed: has nV / nE)
+    # already a RexGraph?  (duck typed: has nV / nE)
     if hasattr(rex, "nV") and hasattr(rex, "nE"):
         rex._agent_meta = {**agent_meta, **getattr(rex, "_agent_meta", {})}
         return rex

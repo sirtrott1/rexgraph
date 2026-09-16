@@ -25,7 +25,7 @@ async def analyze_series(
     """Read the uploaded releases as one series, in the order given.
 
     Order is the caller's: a filename is not a date, so guessing one would silently
-    reorder the series. `labels` is an optional comma-separated list matching the
+    reorder the series. `labels` is an optional comma separated list matching the
     upload order.
 
     `download=temporal` returns the series itself as a temporal complex rather than a

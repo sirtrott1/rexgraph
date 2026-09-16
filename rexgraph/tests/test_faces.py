@@ -185,7 +185,7 @@ class TestFaceMetrics:
         assert np.all(m['e_bnd_asym'] <= 1.0 + 1e-12)
 
     def test_k4_zero_asymmetry(self, k4):
-        """K4 is vertex-transitive, so boundary asymmetry is zero."""
+        """K4 is vertex transitive, so boundary asymmetry is zero."""
         from rexgraph.core._faces import compute_face_metrics_i32, vertex_face_count
         vfc = vertex_face_count(k4._B2_dual, k4._sources, k4._targets, k4.nV)
         rho = np.zeros(k4.nE, dtype=np.float64)

@@ -120,9 +120,9 @@ import functools
 
 def test_execute_runs_picklable_fn_on_the_proc_lane():
     # The forkserver proc lane (the whole point of the 5.8x multicore path) must
-    # actually execute, not just be assign()-routed. Use a builtin-backed partial
+    # actually execute, not just be assign()-routed. Use a builtin backed partial
     # (picklable AND importable in the forkserver child; a fn defined in this
-    # non-package test module would not be importable there).
+    # non package test module would not be importable there).
     from rexgraph.coordinator import execute
     units = [{"id": f"c{i}", "type": "cpu_coordination",
               "fn": functools.partial(pow, i, 2)} for i in range(4)]
@@ -131,8 +131,8 @@ def test_execute_runs_picklable_fn_on_the_proc_lane():
 
 
 def test_unpicklable_proc_fn_spills_to_thread_and_keeps_side_effects():
-    # A closure (the natural hive-task form) cannot cross the forkserver boundary.
-    # It must spill to the thread lane (run in-process) instead of crashing the wave,
+    # A closure (the natural hive task form) cannot cross the forkserver boundary.
+    # It must spill to the thread lane (run in process) instead of crashing the wave,
     # which also preserves its side effects.
     from rexgraph.coordinator import execute
     seen = []
@@ -143,11 +143,11 @@ def test_unpicklable_proc_fn_spills_to_thread_and_keeps_side_effects():
     units = [{"id": f"c{i}", "type": "cpu_coordination", "fn": make(i)} for i in range(4)]
     res = execute(units, {u["id"]: "proc" for u in units})
     assert res == {f"c{i}": i for i in range(4)}
-    assert sorted(seen) == [0, 1, 2, 3]   # ran in-process, mutations preserved
+    assert sorted(seen) == [0, 1, 2, 3]   # ran in process, mutations preserved
 
 
 def test_assign_scales_and_stays_deterministic():
-    # Delta-scored greedy: a large wave must place quickly (not cubic seconds) and
+    # Delta scored greedy: a large wave must place quickly (not cubic seconds) and
     # remain deterministic across runs.
     import time as _t
     cm = CostModel()

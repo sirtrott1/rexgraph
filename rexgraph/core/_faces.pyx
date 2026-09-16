@@ -1,10 +1,10 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._faces: pairwise-derived face display and selection helpers.
+rexgraph.core._faces: pairwise derived face display and selection helpers.
 
 Classifies faces into proper (2+ unique boundary vertices) and
-self-loop (1 vertex), filters B_2 to produce B2_hodge for exact
+self loop (1 vertex), filters B_2 to produce B2_hodge for exact
 Hodge decomposition, extracts face descriptors, and computes
 structural metrics.
 
@@ -17,9 +17,9 @@ Face selection methods:
     void_type_composition - decompose void triangles by cross-type
         edge composition.
 
-Self-loop faces arise from edges like v->v. Their B_2 column has
+Self loop faces arise from edges like v->v. Their B_2 column has
 nonzero entries but B_1 B_2 != 0 for those columns because the
-boundary of a self-loop is v - v = 0 in the vertex chain group
+boundary of a self loop is v - v = 0 in the vertex chain group
 yet nonzero in the edge chain. Filtering them out gives B2_hodge
 where B_1 B_2 = 0 holds exactly.
 
@@ -31,11 +31,11 @@ Metrics computed:
     asym-rho correlation - Pearson(asymmetry, rho)
 
 Vertex deduplication within faces uses a generation counter
-(last_seen[v] = generation) to avoid per-face allocation.
+(last_seen[v] = generation) to avoid per face allocation.
 
 The selection/extraction routines take endpoint arrays and triangle assumptions.
 They are compatibility operations on an explicit pairwise section.  Exact
-arbitrary-arity face solving, orientation and chain verification are in
+arbitrary arity face solving, orientation and chain verification are in
 ``rexgraph.faces`` and must remain the authority for a primary relational
 complex.
 """
@@ -62,19 +62,19 @@ np.import_array()
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def classify_faces(B2, edge_src, edge_tgt):
-    """Classify faces as proper (2+ unique vertices) or self-loop.
+    """Classify faces as proper (2+ unique vertices) or self loop.
 
-    A face is a self-loop when all its boundary edges connect to the
+    A face is a self loop when all its boundary edges connect to the
     same single vertex. These faces violate B_1 B_2 = 0 and must be
     excluded from the Hodge tier.
 
     Parameters
-    ----------
+
     B2 : DualCSR, shape (nE, nF).
     edge_src, edge_tgt : int array [nE]
 
     Returns
-    -------
+
     dict
         proper_mask : bool[nF]
             True for faces with 2+ unique boundary vertices.
@@ -140,16 +140,16 @@ def filter_b2_hodge(B2_dense, proper_mask):
     """Filter B_2 columns to proper faces only (B2_hodge).
 
     The returned matrix satisfies B_1 B_2 = 0 when the original B_2
-    only violates this for self-loop face columns.
+    only violates this for self loop face columns.
 
     Parameters
-    ----------
+
     B2_dense : ndarray[nE, nF], float64
     proper_mask : bool[nF]
         From classify_faces.
 
     Returns
-    -------
+
     ndarray[nE, nF_hodge], float64
     """
     return np.ascontiguousarray(B2_dense[:, proper_mask], dtype=np.float64)
@@ -166,13 +166,13 @@ def vertex_face_count_i32(B2,
     """Count distinct faces incident to each vertex.
 
     Parameters
-    ----------
+
     B2 : DualCSR, shape (nE, nF).
     edge_src, edge_tgt : i32[nE]
     nV : int
 
     Returns
-    -------
+
     i32[nV]
     """
     cdef Py_ssize_t nF = B2.ncol
@@ -252,14 +252,14 @@ def vertex_face_count(B2, edge_src, edge_tgt, Py_ssize_t nV):
 
 def extract_faces(B2, edge_src, edge_tgt, vertex_names, edge_names,
                   face_class=None):
-    """Per-face descriptors from B_2.
+    """Per face descriptors from B_2.
 
     Each face dict has: id, boundary ({edge_name: sign}),
     vertices (sorted names), size (boundary edge count),
     is_self_loop (True if only 1 unique vertex).
 
     Parameters
-    ----------
+
     B2 : DualCSR, shape (nE, nF).
     edge_src, edge_tgt : int array [nE]
     vertex_names : list[str]
@@ -269,7 +269,7 @@ def extract_faces(B2, edge_src, edge_tgt, vertex_names, edge_names,
         read directly. If None, computed per face.
 
     Returns
-    -------
+
     list[dict]
     """
     cdef Py_ssize_t nF = B2.ncol
@@ -315,7 +315,7 @@ def extract_faces(B2, edge_src, edge_tgt, vertex_names, edge_names,
 
 cdef inline double _pearson_corr(f64[::1] x, f64[::1] y,
                                  Py_ssize_t n) noexcept nogil:
-    """Single-pass Pearson correlation. Returns 0.0 if either signal
+    """Single pass Pearson correlation. Returns 0.0 if either signal
     has zero variance or n < 2."""
     if n < 2:
         return 0.0
@@ -358,12 +358,12 @@ def compute_face_metrics_i32(B2,
                              np.ndarray[f64, ndim=1] rho):
     """Face structure metrics in six phases. O(nnz(B_2) + nE).
 
-    Phase 5 uses Welford's single-pass algorithm for face
-    concentration (CV), avoiding the two-pass mean-then-variance
+    Phase 5 uses Welford's single pass algorithm for face
+    concentration (CV), avoiding the two pass mean then variance
     approach that iterates B_2 twice per face.
 
     Parameters
-    ----------
+
     B2 : DualCSR, shape (nE, nF).
     edge_src, edge_tgt : i32[nE]
     nV, nE, nF : int
@@ -373,7 +373,7 @@ def compute_face_metrics_i32(B2,
         Per-edge harmonic resistance ratio.
 
     Returns
-    -------
+
     dict
     """
     cdef np.ndarray[f64, ndim=1] v_avg_c = np.zeros(nV, dtype=np.float64)
@@ -425,7 +425,7 @@ def compute_face_metrics_i32(B2,
                 ls[t] = fi
                 face_nv[f] += 1
 
-    # Phase 2: per-edge contribution metrics
+    # Phase 2: per edge contribution metrics
     for e in range(nE):
         efc = rp[e + 1] - rp[e]
         if efc == 0:
@@ -452,7 +452,7 @@ def compute_face_metrics_i32(B2,
         if mx > 0.0:
             ea[e] = diff / mx
 
-    # Phase 4: per-vertex contribution metrics
+    # Phase 4: per vertex contribution metrics
     cdef Py_ssize_t gen_offset = nF
     for f in range(nF):
         fi = f + gen_offset
@@ -474,7 +474,7 @@ def compute_face_metrics_i32(B2,
             vac[s] = vtc[s] / <double>vfcv[s]
             vas[s] = vas[s] / <double>vfcv[s]
 
-    # Phase 5: face concentration via Welford single-pass
+    # Phase 5: face concentration via Welford single pass
     # Old code iterated B_2 twice per face (mean pass, variance pass).
     # Welford computes both in one pass with one generation counter.
     cdef Py_ssize_t gen_offset2 = 2 * nF
@@ -647,7 +647,7 @@ def compute_face_metrics_i64(B2,
             vac[s] = vtc[s] / <double>vfcv[s]
             vas[s] = vas[s] / <double>vfcv[s]
 
-    # Phase 5: Welford single-pass
+    # Phase 5: Welford single pass
     cdef Py_ssize_t gen_offset2 = 2 * nF
     for f in range(nF):
         if face_nv[f] < 2:
@@ -712,12 +712,12 @@ def build_face_data(B2, edge_src, edge_tgt, Py_ssize_t nV,
                     np.ndarray[f64, ndim=1] rho):
     """Face classification, extraction, vertex counts, and metrics.
 
-    Runs classify_faces first to identify self-loop faces, then
+    Runs classify_faces first to identify self loop faces, then
     passes the classification to extract_faces so is_self_loop is
     set on each face descriptor.
 
     Parameters
-    ----------
+
     B2 : DualCSR, shape (nE, nF).
     edge_src, edge_tgt : int array [nE]
     nV : int
@@ -727,7 +727,7 @@ def build_face_data(B2, edge_src, edge_tgt, Py_ssize_t nV,
         Per-edge harmonic resistance ratio.
 
     Returns
-    -------
+
     dict
         faces : list[dict]
             Per-face descriptors (id, boundary, vertices, size,
@@ -803,7 +803,7 @@ def typed_face_selection(np.ndarray[i32, ndim=1] edge_types,
 
     B_1 is decomposed by edge type: B_1 = sum_t B_{1,t}. A triangle
     (e_uv, e_uw, e_vw) is realized as a face if and only if all three
-    boundary edges share the same type. Cross-type triangles become
+    boundary edges share the same type. Cross type triangles become
     voids. No external parameters are needed.
 
     Triangle enumeration uses adjacency intersection: for each vertex u,
@@ -812,7 +812,7 @@ def typed_face_selection(np.ndarray[i32, ndim=1] edge_types,
     found exactly once when u = min(u, v, w).
 
     Parameters
-    ----------
+
     edge_types : i32[nE]
         Per-edge type label (0, 1, ..., n_types-1).
     adj_ptr : i32[nV+1]
@@ -826,7 +826,7 @@ def typed_face_selection(np.ndarray[i32, ndim=1] edge_types,
         Number of distinct edge types.
 
     Returns
-    -------
+
     dict
         realized_edges : i32[nF_realized * 3]
             Flat array of edge indices for realized faces (groups of 3).
@@ -970,11 +970,11 @@ def context_face_selection(np.ndarray[f64, ndim=2] B1,
 
     This is a single matrix multiply with no thresholds.
 
-    Also computes per-context face realization counts: how many
+    Also computes per context face realization counts: how many
     triangles each individual context covers.
 
     Parameters
-    ----------
+
     B1 : f64[nV, nE]
         Signed incidence matrix.
     context_matrix : uint8[n_contexts, nV]
@@ -989,7 +989,7 @@ def context_face_selection(np.ndarray[f64, ndim=2] B1,
     nV, nE : int
 
     Returns
-    -------
+
     dict
         cycle_edges : i32[nF * 3]
             Flat edge indices for realized triangles.
@@ -1013,7 +1013,7 @@ def context_face_selection(np.ndarray[f64, ndim=2] B1,
     cdef np.uint8_t[:, ::1] cm = context_matrix
 
     # E[d, e] = sum of C[d, v] over boundary vertices v of edge e.
-    # For standard 2-endpoint edges, E[d, e] = C[d, src(e)] + C[d, tgt(e)].
+    # For standard 2 endpoint edges, E[d, e] = C[d, src(e)] + C[d, tgt(e)].
     # Threshold E[d, e] > 0: edge e is visible to context d if at least
     # one boundary vertex belongs to that context.
 
@@ -1031,13 +1031,13 @@ def context_face_selection(np.ndarray[f64, ndim=2] B1,
 
     # Enumerate all triangles
     # For each triangle, check if any context covers all 3 edges.
-    # Also track per-context counts.
+    # Also track per context counts.
     face_e_list = []
     face_s_list = []
     void_e_list = []
     void_s_list = []
 
-    # Collect all triangles first so we can count per-context
+    # Collect all triangles first so we can count per context
     all_tri_edges = []  # list of (e1, e2, e3) tuples
 
     cdef Py_ssize_t u, v, w
@@ -1080,7 +1080,7 @@ def context_face_selection(np.ndarray[f64, ndim=2] B1,
     cdef Py_ssize_t n_tri = len(all_tri_edges)
 
     # Phase 2: for each triangle, check global coverage (any context
-    # covers all 3 edges). Also build per-context face counts.
+    # covers all 3 edges). Also build per context face counts.
     cdef np.ndarray[i32, ndim=1] per_ctx = np.zeros(n_ctx, dtype=np.int32)
     cdef i32[::1] pcv = per_ctx
     cdef Py_ssize_t d, ti
@@ -1117,7 +1117,7 @@ def context_face_selection(np.ndarray[f64, ndim=2] B1,
     cdef Py_ssize_t nF = len(face_e_list) // 3
     cdef Py_ssize_t nF_v = len(void_e_list) // 3
 
-    # Per-context void fractions
+    # Per context void fractions
     cdef np.ndarray[f64, ndim=1] per_ctx_vf = np.ones(n_ctx, dtype=np.float64)
     cdef f64[::1] pvf = per_ctx_vf
     if n_tri > 0:
@@ -1147,13 +1147,13 @@ def void_type_composition(np.ndarray[i32, ndim=1] void_edges,
                            np.ndarray[i32, ndim=1] edge_types,
                            Py_ssize_t nF_void,
                            int n_types):
-    """Decompose void triangles by cross-type edge composition.
+    """Decompose void triangles by cross type edge composition.
 
     Each void triangle has edges from 2 or 3 different types. This
     function counts how many voids have each type combination.
 
     Parameters
-    ----------
+
     void_edges : i32[nF_void * 3]
         Flat edge indices from typed_face_selection or
         context_face_selection.
@@ -1165,7 +1165,7 @@ def void_type_composition(np.ndarray[i32, ndim=1] void_edges,
         Number of distinct edge types.
 
     Returns
-    -------
+
     dict
         type_pairs : list of tuple
             Sorted type sets for each void (e.g., (0, 1), (0, 1, 2)).
@@ -1223,13 +1223,13 @@ def clique_enumeration(np.ndarray[i32, ndim=1] src,
                        np.ndarray[i32, ndim=1] tgt,
                        int n_vertices, int max_k=5):
     """
-    Enumerate all cliques up to size max_k on the 1-skeleton.
+    Enumerate all cliques up to size max_k on the 1 skeleton.
 
     Uses recursive enumeration with early termination. Returns cliques
-    grouped by size. Useful for identifying candidate higher-dimensional cells.
+    grouped by size. Useful for identifying candidate higher dimensional cells.
 
     Parameters
-    ----------
+
     src, tgt : (nE,) int32
         Edge endpoints.
     n_vertices : int
@@ -1238,7 +1238,7 @@ def clique_enumeration(np.ndarray[i32, ndim=1] src,
         Maximum clique size to enumerate (default 5).
 
     Returns
-    -------
+
     dict mapping clique size k -> list of k-tuples (sorted vertex indices).
     """
     cdef int nE = src.shape[0]

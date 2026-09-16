@@ -12,7 +12,7 @@ __all__ = ["FORMAT_VERSION", "canonical_json", "digest_parts", "manifest_digest"
 
 
 def canonical_json(value: Any) -> bytes:
-    """Return one deterministic UTF-8 encoding for JSON-safe metadata."""
+    """Return one deterministic UTF-8 encoding for JSON safe metadata."""
     return json.dumps(
         value,
         sort_keys=True,
@@ -23,7 +23,7 @@ def canonical_json(value: Any) -> bytes:
 
 
 def manifest_digest(value: Any, *, algorithm: str = "sha256") -> str:
-    """Digest JSON-safe metadata with explicit framing and format identity."""
+    """Digest JSON safe metadata with explicit framing and format identity."""
     payload = canonical_json(value)
     digest = hashlib.new(algorithm)
     digest.update(b"rexgraph-manifest\x00")

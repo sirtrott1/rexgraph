@@ -53,7 +53,7 @@ def test_a_vocabulary_query_still_resolves(protected):
 
 def test_the_log_carries_tokens_so_replay_does_not_need_the_key(protected):
     """The frame's `extra` row carries the tokens behind a magic word, so a replay
-    re-adds terms it could not itself compute."""
+    re adds terms it could not itself compute."""
     store, root, _p, _k = protected
     raw = (root / "records.log").read_bytes()
     assert raw.startswith(b"REXLOG")
@@ -68,7 +68,7 @@ def test_the_record_itself_still_carries_its_labels(protected):
     Protecting the SEARCH INDEX does not minimise what the RECORD stores: the log frame
     still holds meta["vertex_labels"] and the signature's labels_sample in the clear.
     Removing those is `_stored_meta` and `signature_mode`, which are not ported yet, so
-    a protected index alone does not make the store's own bytes term-free.
+    a protected index alone does not make the store's own bytes term free.
     """
     store, root, _p, _k = protected
     raw = (root / "records.log").read_bytes()
@@ -123,7 +123,7 @@ def test_a_store_with_no_policy_is_unchanged(tmp_path):
 
 
 def test_a_protected_index_and_a_minimal_signature_compose(tmp_path):
-    """The two halves together are what makes the store's own bytes term-free.
+    """The two halves together are what makes the store's own bytes term free.
 
     Protecting the index stops the INDEX naming a term; minimising the signature and meta
     stops the RECORD carrying it. Either alone leaves the term on disk, which is why the

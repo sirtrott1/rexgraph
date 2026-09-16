@@ -35,7 +35,7 @@ def store(tmp_path, monkeypatch):
 
 
 def _rex():
-    """A triangle plus a pendant: one cycle, one isolated-ish tail."""
+    """A triangle plus a pendant: one cycle, one isolated ish tail."""
     return RexGraph(sources=np.array([0, 1, 2, 0], np.int32),
                     targets=np.array([1, 2, 0, 3], np.int32))
 

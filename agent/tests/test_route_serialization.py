@@ -5,7 +5,7 @@ a route that returns its result raw dies AFTER the handler succeeded. That failu
 is invisible until the data is shaped a particular way: `/v1/corpus/temporal` was
 fine with one document and 500ed with two.
 
-Three of twenty-five route modules sanitize by hand, which means the next route has
+Three of twenty five route modules sanitize by hand, which means the next route has
 to remember. This walks them instead.
 """
 from __future__ import annotations
@@ -15,8 +15,8 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-#### two documents, because a single-document corpus short-circuits the paths that
-#### produce cross-document arrays
+#### two documents, because a single document corpus short circuits the paths that
+#### produce cross document arrays
 DOCS = [
     ("a.txt", b"Alpha connects beta. Beta connects gamma. Gamma connects delta."),
     ("b.txt", b"Gamma connects delta. Delta connects epsilon. Epsilon connects alpha."),
@@ -28,10 +28,10 @@ SKIP = ("stream", "events", "/docs", "/redoc", "/openapi.json")
 
 @pytest.fixture
 def populated():
-    """Function-scoped on purpose: the full GET walk touches routes that change
+    """Function scoped on purpose: the full GET walk touches routes that change
     corpus state, so a shared corpus makes the later checks depend on walk order."""
     from agent.server.app import app
-    # Context-managed and yielded: constructing TestClient without entering it skips the
+    # Context managed and yielded: constructing TestClient without entering it skips the
     # app's lifespan, so the shutdown hook that disposes the SQL bridge engines never
     # runs and this fixture's pool outlives the test.
     with TestClient(app) as c:

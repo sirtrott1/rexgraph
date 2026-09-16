@@ -5,10 +5,10 @@ JSON loaders for relational complex data.
 Supports common graph interchange formats used in bioinformatics,
 clinical research, and network science:
 
-- Edge-list JSON (API export format)
+- Edge list JSON (API export format)
 - RexGraph native JSON (from to_json())
 - Cytoscape.js JSON (standard bioinformatics interchange)
-- NetworkX node-link JSON (Python network science standard)
+- NetworkX node link JSON (Python network science standard)
 - Adjacency matrix JSON (correlation matrices, gene expression)
 
 Each loader returns either a RexGraph directly or a GraphData
@@ -43,11 +43,11 @@ def load_json(
 ) -> Any:
     """Load a JSON file and return a RexGraph.
 
-    Auto-detects the format from the JSON structure if format is None.
+    Auto detects the format from the JSON structure if format is None.
 
     Parameters
-    ----------
-    path : str or path-like
+
+    path : str or path like
     format : str, optional
         One of: "edge_list", "rexgraph", "cytoscape", "networkx",
         "adjacency". Auto-detected if None.
@@ -58,7 +58,7 @@ def load_json(
         Whether to treat edges as directed.
 
     Returns
-    -------
+
     RexGraph
     """
     with open(path, encoding="utf-8") as f:
@@ -90,7 +90,7 @@ def _detect_format(data: Any) -> str:
         # Cytoscape: has elements.nodes/elements.edges
         if "elements" in data:
             return "cytoscape"
-        # NetworkX node-link: has nodes + links
+        # NetworkX node link: has nodes + links
         if "nodes" in data and "links" in data:
             return "networkx"
         # Edge list: has edges key
@@ -142,10 +142,10 @@ def _load_rexgraph_json(data: dict) -> Any:
     if "w_E" in data:
         kw["w_E"] = np.array(data["w_E"], dtype=np.float64)
     if "signs" in data:
-        # Edge signs (signed 1-cochain); part of the signed complex.
+        # Edge signs (signed 1 cochain); part of the signed complex.
         kw["signs"] = np.array(data["signs"], dtype=np.float64)
     if "w_boundary" in data:
-        # Stored as [key_list, value] pairs to survive JSON's string-only keys.
+        # Stored as [key_list, value] pairs to survive JSON's string only keys.
         kw["w_boundary"] = {
             tuple(k): v for k, v in data["w_boundary"]
         }
@@ -157,10 +157,10 @@ def load_rexgraph_json(path: str | os.PathLike) -> Any:
     return load_json(path, format="rexgraph")
 
 
-# Edge-list JSON
+# Edge list JSON
 
 def _load_edge_list_json(data: Any, directed: bool = False) -> Any:
-    """Load from edge-list JSON.
+    """Load from edge list JSON.
 
     Accepts:
         {"edges": [{"source": "A", "target": "B", ...}, ...]}
@@ -245,7 +245,7 @@ def _load_edge_list_json(data: Any, directed: bool = False) -> Any:
 
 
 def load_edge_list_json(path: str | os.PathLike, **kwargs) -> Any:
-    """Load a RexGraph from edge-list JSON."""
+    """Load a RexGraph from edge list JSON."""
     return load_json(path, format="edge_list", **kwargs)
 
 
@@ -321,10 +321,10 @@ def load_cytoscape_json(path: str | os.PathLike, **kwargs) -> Any:
     return load_json(path, format="cytoscape", **kwargs)
 
 
-# NetworkX node-link JSON
+# NetworkX node link JSON
 
 def _load_networkx_json(data: dict, directed: bool = False) -> Any:
-    """Load from NetworkX node-link JSON format.
+    """Load from NetworkX node link JSON format.
 
     Expects:
         {"nodes": [{"id": ...}, ...], "links": [{"source": ..., "target": ...}, ...]}
@@ -371,7 +371,7 @@ def _load_networkx_json(data: dict, directed: bool = False) -> Any:
 
 
 def load_networkx_json(path: str | os.PathLike, **kwargs) -> Any:
-    """Load a RexGraph from NetworkX node-link JSON."""
+    """Load a RexGraph from NetworkX node link JSON."""
     return load_json(path, format="networkx", **kwargs)
 
 
@@ -433,8 +433,8 @@ def load_matrix_csv(
     and other symmetric matrices where entries represent edge weights.
 
     Parameters
-    ----------
-    path : str or path-like
+
+    path : str or path like
     threshold : float
         Edges with |weight| <= threshold are excluded.
     absolute : bool
@@ -444,7 +444,7 @@ def load_matrix_csv(
         Whether the matrix is asymmetric (directed edges).
 
     Returns
-    -------
+
     RexGraph
     """
     import csv

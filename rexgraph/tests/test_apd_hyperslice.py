@@ -3,7 +3,7 @@
 `hyperslice(1, e)` returns three SETS around a relation: below (its boundary), above (the
 faces containing it), lateral (the relations it shares a vertex with). `apd` returns the
 MEASURES of the same neighborhood: arity is |below|, degree is |above|, and the third set
-is the C channel, `sum(deg(v) - 1)` over the support, which is the line-graph degree.
+is the C channel, `sum(deg(v) - 1)` over the support, which is the line graph degree.
 
 So hyperslice answers WHICH and apd answers HOW MANY, and the composition is the obvious
 one: apd in the global view finds the cells worth looking at, hyperslice says what is
@@ -25,7 +25,7 @@ from rexgraph.tower import apd
 
 
 def _pairwise():
-    """Triangle with a two-relation tail, filled, so degree varies."""
+    """Triangle with a two relation tail, filled, so degree varies."""
     rex = RexGraph(sources=np.array([0, 1, 2, 0, 3], dtype=np.int32),
                    targets=np.array([1, 2, 0, 3, 4], dtype=np.int32))
     autoface(rex)
@@ -33,7 +33,7 @@ def _pairwise():
 
 
 def _branching():
-    """A 4-ary relation with two 2-ary legs."""
+    """A 4 ary relation with two 2 ary legs."""
     return RexGraph.from_hypergraph(
         np.array([0, 4, 6, 8], dtype=np.int32),
         np.array([0, 1, 2, 3, 0, 1, 1, 2], dtype=np.int32))
@@ -62,7 +62,7 @@ def test_degree_is_the_size_of_the_hyperslice_above(build):
 
 def test_the_lateral_set_is_the_coparticipation_channel():
     """The third hyperslice set has no APD component, and it is not missing: its count is
-    the C channel, sum(deg(v) - 1) over the support, which is the line-graph degree.
+    the C channel, sum(deg(v) - 1) over the support, which is the line graph degree.
 
     They agree as a COUNT only where no two relations share more than one vertex, since C
     carries multiplicity and lateral is a set. Asserted on a complex where they do agree,
@@ -90,7 +90,7 @@ def test_parity_has_no_hyperslice_counterpart():
             != apd(reversed_rex, 2)["cells"][0]["n_negative"])
 
 
-#### both are arity-general, because both read the boundary column
+#### both are arity general, because both read the boundary column
 
 
 def test_a_branching_relation_reports_its_whole_boundary():
@@ -102,7 +102,7 @@ def test_a_branching_relation_reports_its_whole_boundary():
 
 
 def test_a_vertex_past_the_second_is_not_isolated():
-    """Vertex 3 is only in the 4-ary relation. Through the pairwise path it had no
+    """Vertex 3 is only in the 4 ary relation. Through the pairwise path it had no
     incident relations at all."""
     rex = _branching()
     above, lateral = rex.hyperslice(0, 3)

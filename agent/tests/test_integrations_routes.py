@@ -1,4 +1,4 @@
-"""Tests for the ecosystem-integration routes: vLLM structural routing,
+"""Tests for the ecosystem integration routes: vLLM structural routing,
 LangChain confidence/analyze, LangGraph state analysis, TrustGraph triple
 analysis, HuggingFace axiom compliance. All run standalone (no external
 services, no torch/langchain/langgraph install required)."""
@@ -98,7 +98,7 @@ class TestLangGraph:
                             {"from": "c", "to": "a"}]})
         assert r.status_code == 200
         d = r.json()
-        # a 3-cycle is a pure circulation -> curl dominates
+        # a 3 cycle is a pure circulation -> curl dominates
         assert d["hodge"]["curl"] >= d["hodge"]["gradient"]
         assert "channel_profile" in d
 

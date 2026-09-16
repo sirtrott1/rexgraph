@@ -2,7 +2,7 @@
 
 load_bundle's SQL branch handed `engine.connect()` straight to the batch reader and never
 closed it. The engine itself is cached for the life of the process, which is what makes
-asking for one per load correct; a checked-out connection is the opposite, and every load
+asking for one per load correct; a checked out connection is the opposite, and every load
 kept one. No test reached this branch, which is why it went unnoticed.
 """
 from __future__ import annotations

@@ -1,10 +1,10 @@
-"""Matrix-free graded field evolution == dense field eigendecomposition (tower thesis
+"""Matrix free graded field evolution == dense field eigendecomposition (tower thesis
 for the coupled (edge, face) field).
 
 The field operator M = [[RL1,-gB2],[-gB2ᵀ,L2]] on the graded space C1(+)C2 is evolved
 by a Chebyshev polynomial of the SPARSE M (never the dense (nE+nF)² matrix, no
 eigensolve). heat e^{-tM} and wave cos(t√M) must match the dense eigendecomposition
-apply, and a tensor-shaped field (a block of components) must propagate as a single
+apply, and a tensor shaped field (a block of components) must propagate as a single
 spmm - the shape the parallel/GPU backend batches over.
 """
 import numpy as np
@@ -89,7 +89,7 @@ def test_field_heat_trajectory_shares_matvecs():
 
 def test_tensor_field_block_propagates_as_spmm():
     """A block field (N, m) - m tensor components - propagates in one spmm and equals
-    component-by-component evolution."""
+    component by component evolution."""
     g = _tetra()
     N = g.nE + g.nF_hodge
     rng = np.random.default_rng(3)
@@ -109,7 +109,7 @@ def test_edge_signal_lifts_to_graded_state():
 
 
 def test_graded_3rex_field_runs_and_matches_dense():
-    """The field operator and its evolution generalize to a grade-3 rex (octahedron
+    """The field operator and its evolution generalize to a grade 3 rex (octahedron
     solid) - the graded space is C1(+)C2 here regardless of higher grades."""
     g = _octa_solid()
     M = fp.assemble_field_operator(g)
@@ -129,7 +129,7 @@ def _ref_metric_heat(Md, W, F0, t):
 
 def test_unweighted_default_metric_is_identity():
     """The default metric on an unweighted complex is the identity: field_heat reduces
-    to e^{-tM} exactly (back-compat)."""
+    to e^{-tM} exactly (back compat)."""
     g = _tetra()
     M = fp.assemble_field_operator(g); Md = np.asarray(M.todense())
     rng = np.random.default_rng(0); F0 = rng.standard_normal(M.shape[0])
@@ -148,7 +148,7 @@ def test_diagonal_metric_heat_matches_generalized(t):
 
 
 def test_full_spd_metric_heat_matches_generalized():
-    """A full (non-diagonal) SPD tensor metric via Cholesky conjugation matches."""
+    """A full (non diagonal) SPD tensor metric via Cholesky conjugation matches."""
     g = _tetra()
     M = fp.assemble_field_operator(g); Md = np.asarray(M.todense()); N = M.shape[0]
     rng = np.random.default_rng(2)

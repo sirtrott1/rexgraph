@@ -2,7 +2,7 @@
 
 Findings from a review of the temporal kernels. Each test names the defect it pins.
 
-The through-line is that the kernels tracked BIRTH and DEATH well and PERSISTENCE
+The through line is that the kernels tracked BIRTH and DEATH well and PERSISTENCE
 and MUTATION poorly. A cell that dies as another is born is a topology mutating, and
 reading it as two independent events loses exactly the thing worth knowing; a cell
 that flickers off and back is not one continuous life; a face that deforms has not
@@ -18,7 +18,7 @@ B, I, O, E, S = 0, 1, 2, 3, 4
 PERSIST, BORN, DIED, SPLIT, MERGE, MUTATE = 0, 1, 2, 3, 4, 5
 
 
-#### BIOES is blind to edge-level mutation
+#### BIOES is blind to edge level mutation
 def _pendant_moves():
     """Triangle 0-1-2 plus one pendant to vertex 3, which moves at t=2.
     beta0 and beta1 both hold, so only the churn reveals that anything happened."""
@@ -94,7 +94,7 @@ def test_a_deforming_face_is_a_mutation_not_a_merge():
 
 
 def test_a_jaccard_match_records_the_lineage_both_ways():
-    """prev_to_curr was only ever written by the exact-match pass, so every
+    """prev_to_curr was only ever written by the exact match pass, so every
     approximate correspondence left the predecessor looking dead."""
     _, _, p2c, c2p, _ = _track([[0, 1, 2]], [[0, 1, 3]])
     assert c2p[0] == 0
@@ -175,8 +175,8 @@ def test_a_mutating_face_still_counts_as_a_structural_event():
 
 def test_correspondence_uses_shared_boundary_not_a_similarity_score():
     """Face identity is already exact: B2 says which cells bound each face, and
-    cell keys are canonical. Estimating it with a set-similarity score and a 0.5
-    cutoff re-derives, badly, something the complex knows exactly."""
+    cell keys are canonical. Estimating it with a set similarity score and a 0.5
+    cutoff re derives, badly, something the complex knows exactly."""
     ev_prev, ev_curr, p2c, c2p, shared = _track([[0, 1, 2]], [[0, 1, 3]])
     assert list(shared) == [2], "shared boundary cells not reported as a count"
 
@@ -205,7 +205,7 @@ def test_no_shared_boundary_is_still_born_and_died():
 
 
 def test_orientation_is_not_invisible_to_correspondence():
-    """A set-similarity score cannot see orientation at all: a face and its reverse
+    """A set similarity score cannot see orientation at all: a face and its reverse
     score identically. Sharing the same boundary cells is still the right
     correspondence, but the shared count must come from the actual boundary."""
     ev_prev, ev_curr, _, _, shared = _track([[0, 1, 2]], [[0, 1, 2]])

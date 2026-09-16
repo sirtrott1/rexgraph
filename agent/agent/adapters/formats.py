@@ -14,7 +14,7 @@ framing. These are containers, the way .csv is a container:
 Parsers use h5py and the standard library. anndata, rdkit and biopython are not
 required: these layouts are documented and stable, and taking a hard dependency on
 a domain toolkit in order to read a file would be the wrong trade for a library
-that is otherwise domain-agnostic.
+that is otherwise domain agnostic.
 
 Readers are registered, so a format is added by registering one rather than by
 editing this module or auto_rex's dispatch.
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
-#: MDL atom-block charge codes. 0 and 4 are not charges (4 is a doublet radical).
+#: MDL atom block charge codes. 0 and 4 are not charges (4 is a doublet radical).
 _MDL_CHARGE = {1: 3, 2: 2, 3: 1, 5: -1, 6: -2, 7: -3}
 
 import gzip
@@ -186,7 +186,7 @@ def _sdf_record(lines: list[str], base: int, tag: str):
             if len(parts) < 3:
                 continue
             a, b, order = int(parts[0]), int(parts[1]), int(parts[2])
-        bonds.append((base + a - 1, base + b - 1, order))   # SDF atom indices are 1-based
+        bonds.append((base + a - 1, base + b - 1, order))   # SDF atom indices are 1 based
     return labels, bonds, coordinates, atom_attrs
 
 
@@ -195,7 +195,7 @@ def _aromatic_systems(bonds):
 
     MDL bond order 4 is "aromatic", which is the file saying the electrons are
     DELOCALISED over the ring rather than sitting in alternating pairs. That is a k-way
-    relation among the ring atoms, and splitting it into k separate 2-ary bonds is the
+    relation among the ring atoms, and splitting it into k separate 2 ary bonds is the
     same loss as expanding a hyperedge into a clique: it invents bonds the chemistry does
     not have and dissolves the system's identity as one object.
 
@@ -226,21 +226,21 @@ def _aromatic_systems(bonds):
 
 def load_sdf(path, *, aromatic: str = "branching", **kw) -> EdgeConstruction:
     """MDL SDF/MOL V2000. Atoms are vertices, bonds are relations, bond order is the
-    relation type, which is typed-edge information the complex already carries.
+    relation type, which is typed edge information the complex already carries.
 
     `aromatic="branching"` (the default) reads a delocalised system as ONE relation over
     its atoms, which is what the file means by bond order 4: the electrons are shared
-    across the ring, not held in alternating pairs. Benzene comes out as one 6-ary
-    relation plus six C-H bonds rather than twelve 2-ary bonds, so the ring is a single
+    across the ring, not held in alternating pairs. Benzene comes out as one 6 ary
+    relation plus six C-H bonds rather than twelve 2 ary bonds, so the ring is a single
     cell, its boundary column sums to zero over six atoms, and `auto_hyperface` can close
-    it into a 2-cell. Drawing it the other way is the crude pairwise picture the complex
+    it into a 2 cell. Drawing it the other way is the crude pairwise picture the complex
     exists to replace.
 
-    `aromatic="pairwise"` keeps every aromatic bond as its own 2-ary relation, which is
+    `aromatic="pairwise"` keeps every aromatic bond as its own 2 ary relation, which is
     what every reader did before and what a caller comparing against one will want.
 
     An SDF holds several records separated by `$$$$`. All of them are read into one
-    complex. Atom indices are per-record in the format, so each record is offset onto
+    complex. Atom indices are per record in the format, so each record is offset onto
     its own vertex block and labelled with the record number, leaving the molecules as
     separate components with beta_0 counting them.
     """
@@ -270,7 +270,7 @@ def load_sdf(path, *, aromatic: str = "branching", **kw) -> EdgeConstruction:
             attributes.setdefault(0, {})[len(labels) + j] = values
         labels.extend(rec_labels)
         coordinates.extend(rec_xyz)
-        # BOTH grades: the sigma framework stays 2-ary and the delocalised system is
+        # BOTH grades: the sigma framework stays 2 ary and the delocalised system is
         # added as one k-ary relation over the same atoms. That is the chemistry (a ring
         # has both a bonded framework and a shared pi system) and it is also what makes
         # the ring closable: the wide relation alone bounds nothing, since nothing is
@@ -325,7 +325,7 @@ def load_pdb(path, *, backbone: bool = True, **kw) -> EdgeConstruction:
     structure that is definitional rather than inferred: atoms within a residue,
     and the peptide bond between consecutive residues of a chain.
 
-    Distance-based bond inference is still refused. That is a modelling decision
+    Distance based bond inference is still refused. That is a modelling decision
     with a cutoff in it, and it is not what reading a file means.
     """
     serial_to_idx: dict[int, int] = {}
@@ -478,7 +478,7 @@ def load_fasta(path, *, k: int = 5, **kw) -> EdgeConstruction:
 def load_vcf(path, **kw) -> EdgeConstruction:
     """VCF as a bipartite incidence between samples and variants.
 
-    An edge exists where a sample carries a non-reference allele. A 0/0 genotype is
+    An edge exists where a sample carries a non reference allele. A 0/0 genotype is
     the ABSENCE of an edge, not an edge weighted zero. Existence is a condition of
     the complex, and encoding "no variant" as a present edge would put it in the
     wrong one.
@@ -521,7 +521,7 @@ def load_vcf(path, **kw) -> EdgeConstruction:
             v_idx = len(samples) + len(variants)
             variants.append(vid)
             # GT is wherever FORMAT says it is, and it is not always first. Reading
-            # sub-field 0 blind turned a DP-only record's read depth into "carries".
+            # sub field 0 blind turned a DP only record's read depth into "carries".
             keys = cols[8].split(":") if len(cols) > 8 else []
             try:
                 gt_at = keys.index("GT")
@@ -575,7 +575,7 @@ def _interval_overlap_ec(rows: list[tuple[str, int, int, str]], *,
 
 
 def _dbxrefs(attrs: str) -> set:
-    """Cross-references a GFF row declares.
+    """Cross references a GFF row declares.
 
     `Dbxref=GeneID:672,HGNC:HGNC:1100` is the row saying, explicitly, which other
     databases name this feature. That is a join key stated by the file itself, which
@@ -635,7 +635,7 @@ def _gff_attrs(attrs: str) -> dict:
 
 
 def _attrs_by_label(construction, by_label):
-    """Attach per-label attribute records onto the vertices they landed on.
+    """Attach per label attribute records onto the vertices they landed on.
 
     Readers that build intervals do not know a feature's vertex index until the overlap
     pass has run, so they collect by label and this maps them across afterwards.
@@ -706,13 +706,13 @@ def load_gff(path, **kw) -> EdgeConstruction:
             if parent and parent != label:
                 parent_of.append((label, parent))
 
-            # GFF coordinates are 1-based and inclusive; the sweep is half-open, as
+            # GFF coordinates are 1 based and inclusive; the sweep is half open, as
             # BED is. Passing them through unconverted made features that share a
             # single base read as disjoint.
             rows.append((c[0], int(c[3]) - 1, int(c[4]), label))
             # column 9 is already parsed into a dict and only two keys were read from
             # it. The rest of the line is standard and was read past: a caller could not
-            # select the minus strand or the features on one contig without re-reading
+            # select the minus strand or the features on one contig without re reading
             # the file. Keyed by LABEL here because vertex indices are assigned later.
             record = {"seqid": c[0], "start": int(c[3]), "end": int(c[4]),
                       "feature_type": ftype or "feature"}
@@ -761,8 +761,8 @@ def load_gff(path, **kw) -> EdgeConstruction:
 
 
 def load_bed(path, **kw) -> EdgeConstruction:
-    """BED intervals as an overlap graph. BED starts are 0-based and ends
-    exclusive, which is already the half-open convention the sweep assumes."""
+    """BED intervals as an overlap graph. BED starts are 0 based and ends
+    exclusive, which is already the half open convention the sweep assumes."""
     rows = []
     by_label: dict = {}
     with _open_text(path) as fh:
@@ -791,7 +791,7 @@ def load_bed(path, **kw) -> EdgeConstruction:
 
 #### matrix containers
 def _h5_index(group) -> list[str]:
-    """The axis labels of an AnnData-style dataframe group."""
+    """The axis labels of an AnnData style dataframe group."""
     key = group.attrs.get("_index", "_index")
     if isinstance(key, bytes):
         key = key.decode("utf-8")
@@ -832,7 +832,7 @@ def load_h5ad(path, **kw):
             cls = sp.csc_matrix if "csc" in str(enc) else sp.csr_matrix
             Xs = cls((node["data"][:], node["indices"][:], node["indptr"][:]),
                      shape=shape)
-            # this reader returns a dense array, so a stored-sparse X is materialised
+            # this reader returns a dense array, so a stored sparse X is materialised
             # here. Ask the library's own guard first: a cells x genes matrix is
             # routinely large enough to exhaust memory, and failing with the limit named
             # is worth more than an OOM from inside h5py.

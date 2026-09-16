@@ -1,17 +1,17 @@
 """agent.temporal_loop: Slice D online loop closure.
 
-ChangeSource turns the Slice C rcdb change-feed (routed through activity.py) into
-a stream of ChangeEvents with the self-write guard; OnlineLoop advances a running
-stable-id TemporalRex one step per event, runs FieldNavigator.step + the native
+ChangeSource turns the Slice C rcdb change feed (routed through activity.py) into
+a stream of ChangeEvents with the self write guard; OnlineLoop advances a running
+stable id TemporalRex one step per event, runs FieldNavigator.step + the native
 GreensCochainField, and (optionally) writes a guarded derived version back to the
-store. The default path is torch-free.
+store. The default path is torch free.
 """
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import NamedTuple
 
-DERIVED_TAG = "__online_derived__"          # reserved tag marking the loop's own write-backs
+DERIVED_TAG = "__online_derived__"          # reserved tag marking the loop's own write backs
 
 
 class ChangeEvent(NamedTuple):
@@ -22,7 +22,7 @@ class ChangeEvent(NamedTuple):
 
 
 class ChangeSource:
-    """Adapt the activity change-feed into ChangeEvents. Skips DERIVED_TAG events
+    """Adapt the activity change feed into ChangeEvents. Skips DERIVED_TAG events
     (the guard), fetches put payloads via store.get_version, and is idempotent on
     (id, version)."""
 
@@ -38,7 +38,7 @@ class ChangeSource:
         detail = pub.get("detail") or {}
         tags = detail.get("tags") or []
         if self.skip_tag in tags:
-            return None                     # the guard: never re-enter on our own writes
+            return None                     # the guard: never re enter on our own writes
         cid = detail.get("id")
         version = detail.get("version")
         if cid is None or version is None:
@@ -83,7 +83,7 @@ class ChangeSource:
         from agent import activity
         pubs = activity.get_log().events(scope="network", since=since, limit=limit)
         out = []
-        for pub in reversed(pubs):          # events() is newest-first; replay oldest-first
+        for pub in reversed(pubs):          # events() is newest first; replay oldest first
             ev = self._event_from_pub(pub)
             if ev is not None:
                 out.append(ev)
@@ -101,9 +101,9 @@ class StepResult(NamedTuple):
 
 
 class OnlineLoop:
-    """Hold the running stable-id TemporalRex, advance one step per change event,
+    """Hold the running stable id TemporalRex, advance one step per change event,
     run the navigator + native field update, optionally write back a guarded
-    derived version, and record a per-step StepResult."""
+    derived version, and record a per step StepResult."""
 
     def __init__(self, store, *, navigator=None, learner=None, observe=None,
                  write_back=False, derived_suffix="::online"):
@@ -131,7 +131,7 @@ class OnlineLoop:
             return res
         if ev.rex is None:
             return None
-        t = self.trex.append_snapshot(ev.rex)         # key-level stable ids
+        t = self.trex.append_snapshot(ev.rex)         # key level stable ids
         curr = self.trex.at(t)                        # materialize the snapshot ONCE
         if t > 0:
             prev = self.trex.at(t - 1)
@@ -149,7 +149,7 @@ class OnlineLoop:
 
     def _persist_derived(self, ev, t, learn):
         """Persist the current snapshot as a derived version tagged DERIVED_TAG so
-        ChangeSource skips the resulting feed event (the loop cannot self-trigger).
+        ChangeSource skips the resulting feed event (the loop cannot self trigger).
         A failed persist is swallowed: the loop keeps consuming."""
         derived_id = ev.id + self.derived_suffix
         try:
@@ -173,7 +173,7 @@ class OnlineLoop:
     def save(self, path_prefix):
         """Persist the running TemporalRex through the Slice B delta serializer and
         the native field (phi) as two named tensors through the safetensors backend
-        the rex-state pipeline uses. Returns (trex_path, field_path)."""
+        the rex state pipeline uses. Returns (trex_path, field_path)."""
         import numpy as np
         from safetensors.numpy import save_file
 

@@ -20,6 +20,13 @@ from rexgraph.core._common cimport (
     get_max_dense_allocation_bytes,
 
     get_EPSILON_NORM,
+
+    UnionFind,
+    uf_init, uf_free, uf_union, uf_find, uf_component_count,
+    sorted_jaccard_exact_i32,
+    UnionFind64,
+    uf64_init, uf64_free, uf64_union, uf64_find,
+    ERR_SUCCESS,
 )
 
 from libc.stdlib cimport malloc, free
@@ -37,7 +44,7 @@ cdef enum:
 
 
 # Sorting
-# Iterative quicksort with median-of-3 pivot and insertion sort fallback.
+# Iterative quicksort with median of 3 pivot and insertion sort fallback.
 
 # Swap helpers
 cdef inline void _sw32(i32* a, i32* b) noexcept nogil:
@@ -57,7 +64,7 @@ cdef inline void _swf64(f64* a, f64* b) noexcept nogil:
     a[0] = b[0]
     b[0] = t
 
-# Insertion sort: key-only
+# Insertion sort: key only
 cdef inline void _isort_i32(i32* a, Py_ssize_t n) noexcept nogil:
     cdef Py_ssize_t i, j
     cdef i32 key
@@ -80,7 +87,7 @@ cdef inline void _isort_i64(i64* a, Py_ssize_t n) noexcept nogil:
             j -= 1
         a[j+1] = key
 
-# Insertion sort: paired key-value
+# Insertion sort: paired key value
 cdef inline void _isort_kv_i32_f64(i32* k, f64* v, Py_ssize_t n) noexcept nogil:
     cdef Py_ssize_t i, j
     cdef i32 kk
@@ -141,7 +148,7 @@ cdef inline void _isort_kv_i64_f32(i64* k, f32* v, Py_ssize_t n) noexcept nogil:
         k[j+1] = kk
         v[j+1] = vv
 
-# Iterative quicksort: key-only
+# Iterative quicksort: key only
 cdef void _qsort_i32(i32* a, Py_ssize_t n) noexcept nogil:
     cdef Py_ssize_t stk[_QS_STACK]
     cdef Py_ssize_t sp=0, lo, hi, mid, i, j, sz
@@ -244,7 +251,7 @@ cdef void _qsort_i64(i64* a, Py_ssize_t n) noexcept nogil:
                 stk[sp+1]=j
                 sp+=2
 
-# Iterative quicksort: paired key-value
+# Iterative quicksort: paired key value
 cdef void _qsort_kv_i32_f64(i32* k, f64* v, Py_ssize_t n) noexcept nogil:
     cdef Py_ssize_t stk[_QS_STACK]
     cdef Py_ssize_t sp=0, lo, hi, mid, i, j, sz
@@ -506,6 +513,12 @@ cdef class CSRMatrix:
     @property
     def vals(self): return self._vals_arr
 
+    @property
+    def shape(self): return (self.nrow, self.ncol)
+
+    @property
+    def data(self): return self._vals_arr
+
     def __repr__(self):
         return f"CSRMatrix({self.nrow}x{self.ncol}, nnz={self.nnz}, idx{self.idx_bits}, val{self.val_bits})"
 
@@ -718,7 +731,7 @@ def csr_from_coo_i64_f32(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] c
     return CSRMatrix(rp, ci, cv, nrow, ncol)
 
 def csr_from_coo(rows, cols, vals, Py_ssize_t nrow, Py_ssize_t ncol):
-    """Build CSR from COO. Auto-selects i32/i64 x f32/f64."""
+    """Build CSR from COO. Auto selects i32/i64 x f32/f64."""
     if not isinstance(rows, np.ndarray): rows = np.asarray(rows)
     if not isinstance(cols, np.ndarray): cols = np.asarray(cols)
     if not isinstance(vals, np.ndarray): vals = np.asarray(vals)
@@ -798,7 +811,7 @@ def dual_from_coo_i32_f64(np.ndarray[i32, ndim=1] rows, np.ndarray[i32, ndim=1] 
 @cython.wraparound(False)
 def dual_from_coo_i64_f64(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] cols,
                            np.ndarray[f64, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
-    """Build DualCSR single-pass. i64+f64."""
+    """Build DualCSR single pass. i64+f64."""
     cdef Py_ssize_t nnz_in=rows.shape[0], i, k
     cdef i64[::1] r_mv=rows, c_mv=cols
     cdef f64[::1] v_mv=vals
@@ -971,7 +984,7 @@ def dual_from_coo_i64_f32(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] 
     return DualCSR(CSRMatrix(rp,ci_a,cv_a,nrow,ncol), cp, ri_a, vc_a)
 
 def dual_from_coo(rows, cols, vals, Py_ssize_t nrow, Py_ssize_t ncol):
-    """Build DualCSR (CSR+CSC) single-pass. Auto-typed."""
+    """Build DualCSR (CSR+CSC) single pass. Auto typed."""
     if not isinstance(rows, np.ndarray): rows = np.asarray(rows)
     if not isinstance(cols, np.ndarray): cols = np.asarray(cols)
     if not isinstance(vals, np.ndarray): vals = np.asarray(vals)
@@ -1018,8 +1031,9 @@ def dual_from_csr(CSRMatrix csr):
 def matvec_i32_f64(CSRMatrix A, np.ndarray[f64, ndim=1] x):
     cdef Py_ssize_t nrow=A.nrow
     cdef np.ndarray[f64, ndim=1] y = np.zeros(nrow, dtype=np.float64)
-    cdef i32[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
-    cdef f64[::1] av=A._vals_arr, yv=y, xv=x
+    cdef const i32[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
+    cdef const f64[::1] av=A._vals_arr, xv=x
+    cdef f64[::1] yv=y
     cdef Py_ssize_t i, k
     cdef f64 acc
     with nogil:
@@ -1034,8 +1048,9 @@ def matvec_i32_f64(CSRMatrix A, np.ndarray[f64, ndim=1] x):
 def matvec_i64_f64(CSRMatrix A, np.ndarray[f64, ndim=1] x):
     cdef Py_ssize_t nrow=A.nrow
     cdef np.ndarray[f64, ndim=1] y = np.zeros(nrow, dtype=np.float64)
-    cdef i64[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
-    cdef f64[::1] av=A._vals_arr, yv=y, xv=x
+    cdef const i64[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
+    cdef const f64[::1] av=A._vals_arr, xv=x
+    cdef f64[::1] yv=y
     cdef Py_ssize_t i, k
     cdef f64 acc
     with nogil:
@@ -1050,8 +1065,9 @@ def matvec_i64_f64(CSRMatrix A, np.ndarray[f64, ndim=1] x):
 def matvec_i32_f32(CSRMatrix A, np.ndarray[f32, ndim=1] x):
     cdef Py_ssize_t nrow=A.nrow
     cdef np.ndarray[f32, ndim=1] y = np.zeros(nrow, dtype=np.float32)
-    cdef i32[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
-    cdef f32[::1] av=A._vals_arr, yv=y, xv=x
+    cdef const i32[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
+    cdef const f32[::1] av=A._vals_arr, xv=x
+    cdef f32[::1] yv=y
     cdef Py_ssize_t i, k
     cdef f32 acc
     with nogil:
@@ -1066,8 +1082,9 @@ def matvec_i32_f32(CSRMatrix A, np.ndarray[f32, ndim=1] x):
 def matvec_i64_f32(CSRMatrix A, np.ndarray[f32, ndim=1] x):
     cdef Py_ssize_t nrow=A.nrow
     cdef np.ndarray[f32, ndim=1] y = np.zeros(nrow, dtype=np.float32)
-    cdef i64[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
-    cdef f32[::1] av=A._vals_arr, yv=y, xv=x
+    cdef const i64[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
+    cdef const f32[::1] av=A._vals_arr, xv=x
+    cdef f32[::1] yv=y
     cdef Py_ssize_t i, k
     cdef f32 acc
     with nogil:
@@ -1076,6 +1093,62 @@ def matvec_i64_f32(CSRMatrix A, np.ndarray[f32, ndim=1] x):
             for k in range(rp[i], rp[i+1]): acc=acc+av[k]*xv[ci[k]]
             yv[i]=acc
     return y
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def spmm_i32_f64(CSRMatrix A, np.ndarray[f64, ndim=2] X):
+    cdef Py_ssize_t nrow=A.nrow, ncol=X.shape[1]
+    cdef np.ndarray[f64, ndim=2] Y = np.zeros((nrow, ncol), dtype=np.float64)
+    cdef const i32[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
+    cdef const f64[::1] av=A._vals_arr
+    cdef const f64[:, ::1] xv=X
+    cdef f64[:, ::1] yv=Y
+    cdef Py_ssize_t i, k, c, j
+    cdef f64 a
+    with nogil:
+        for i in range(nrow):
+            for k in range(rp[i], rp[i+1]):
+                a=av[k]; j=ci[k]
+                for c in range(ncol): yv[i, c]=yv[i, c]+a*xv[j, c]
+    return Y
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def spmm_i64_f64(CSRMatrix A, np.ndarray[f64, ndim=2] X):
+    cdef Py_ssize_t nrow=A.nrow, ncol=X.shape[1]
+    cdef np.ndarray[f64, ndim=2] Y = np.zeros((nrow, ncol), dtype=np.float64)
+    cdef const i64[::1] rp=A._row_ptr_arr, ci=A._col_idx_arr
+    cdef const f64[::1] av=A._vals_arr
+    cdef const f64[:, ::1] xv=X
+    cdef f64[:, ::1] yv=Y
+    cdef Py_ssize_t i, k, c, j
+    cdef f64 a
+    with nogil:
+        for i in range(nrow):
+            for k in range(rp[i], rp[i+1]):
+                a=av[k]; j=ci[k]
+                for c in range(ncol): yv[i, c]=yv[i, c]+a*xv[j, c]
+    return Y
+
+
+def spmm(A, X):
+    """A @ X for a dense block X, one pass over the nonzeros.
+
+    The block primitive an incidence factored channel needs: it applies to a whole
+    block without assembling the operator.
+    """
+    cdef CSRMatrix csr
+    if isinstance(A, DualCSR): csr = (<DualCSR>A).csr
+    elif isinstance(A, CSRMatrix): csr = A
+    else: raise TypeError(f"Expected CSRMatrix or DualCSR, got {type(A)}")
+    if not isinstance(X, np.ndarray): X = np.asarray(X)
+    if X.ndim != 2: raise ValueError("spmm requires a 2-D block; use matvec for a vector")
+    X = np.ascontiguousarray(X, dtype=np.float64)
+    if csr.val_bits == 32:
+        raise TypeError("spmm carries f64 blocks; convert the carrier or use matvec")
+    return spmm_i64_f64(csr, X) if csr.idx_bits == 64 else spmm_i32_f64(csr, X)
+
 
 def matvec(A, x):
     cdef CSRMatrix csr
@@ -1093,8 +1166,9 @@ def matvec(A, x):
 def rmatvec_i32_f64(DualCSR A, np.ndarray[f64, ndim=1] x):
     cdef Py_ssize_t ncol=A.csr.ncol
     cdef np.ndarray[f64, ndim=1] y = np.zeros(ncol, dtype=np.float64)
-    cdef i32[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
-    cdef f64[::1] cv=A._vals_csc_arr, yv=y, xv=x
+    cdef const i32[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
+    cdef const f64[::1] cv=A._vals_csc_arr, xv=x
+    cdef f64[::1] yv=y
     cdef Py_ssize_t j, k
     cdef f64 acc
     with nogil:
@@ -1109,8 +1183,9 @@ def rmatvec_i32_f64(DualCSR A, np.ndarray[f64, ndim=1] x):
 def rmatvec_i64_f64(DualCSR A, np.ndarray[f64, ndim=1] x):
     cdef Py_ssize_t ncol=A.csr.ncol
     cdef np.ndarray[f64, ndim=1] y = np.zeros(ncol, dtype=np.float64)
-    cdef i64[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
-    cdef f64[::1] cv=A._vals_csc_arr, yv=y, xv=x
+    cdef const i64[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
+    cdef const f64[::1] cv=A._vals_csc_arr, xv=x
+    cdef f64[::1] yv=y
     cdef Py_ssize_t j, k
     cdef f64 acc
     with nogil:
@@ -1125,8 +1200,9 @@ def rmatvec_i64_f64(DualCSR A, np.ndarray[f64, ndim=1] x):
 def rmatvec_i32_f32(DualCSR A, np.ndarray[f32, ndim=1] x):
     cdef Py_ssize_t ncol=A.csr.ncol
     cdef np.ndarray[f32, ndim=1] y = np.zeros(ncol, dtype=np.float32)
-    cdef i32[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
-    cdef f32[::1] cv=A._vals_csc_arr, yv=y, xv=x
+    cdef const i32[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
+    cdef const f32[::1] cv=A._vals_csc_arr, xv=x
+    cdef f32[::1] yv=y
     cdef Py_ssize_t j, k
     cdef f32 acc
     with nogil:
@@ -1141,8 +1217,9 @@ def rmatvec_i32_f32(DualCSR A, np.ndarray[f32, ndim=1] x):
 def rmatvec_i64_f32(DualCSR A, np.ndarray[f32, ndim=1] x):
     cdef Py_ssize_t ncol=A.csr.ncol
     cdef np.ndarray[f32, ndim=1] y = np.zeros(ncol, dtype=np.float32)
-    cdef i64[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
-    cdef f32[::1] cv=A._vals_csc_arr, yv=y, xv=x
+    cdef const i64[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
+    cdef const f32[::1] cv=A._vals_csc_arr, xv=x
+    cdef f32[::1] yv=y
     cdef Py_ssize_t j, k
     cdef f32 acc
     with nogil:
@@ -1151,6 +1228,61 @@ def rmatvec_i64_f32(DualCSR A, np.ndarray[f32, ndim=1] x):
             for k in range(cp[j], cp[j+1]): acc=acc+cv[k]*xv[ri[k]]
             yv[j]=acc
     return y
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def rspmm_i32_f64(DualCSR A, np.ndarray[f64, ndim=2] X):
+    cdef Py_ssize_t ncol=A.csr.ncol, w=X.shape[1]
+    cdef np.ndarray[f64, ndim=2] Y = np.zeros((ncol, w), dtype=np.float64)
+    cdef const i32[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
+    cdef const f64[::1] cv=A._vals_csc_arr
+    cdef const f64[:, ::1] xv=X
+    cdef f64[:, ::1] yv=Y
+    cdef Py_ssize_t j, k, c, i
+    cdef f64 a
+    with nogil:
+        for j in range(ncol):
+            for k in range(cp[j], cp[j+1]):
+                a=cv[k]; i=ri[k]
+                for c in range(w): yv[j, c]=yv[j, c]+a*xv[i, c]
+    return Y
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def rspmm_i64_f64(DualCSR A, np.ndarray[f64, ndim=2] X):
+    cdef Py_ssize_t ncol=A.csr.ncol, w=X.shape[1]
+    cdef np.ndarray[f64, ndim=2] Y = np.zeros((ncol, w), dtype=np.float64)
+    cdef const i64[::1] cp=A._col_ptr_arr, ri=A._row_idx_arr
+    cdef const f64[::1] cv=A._vals_csc_arr
+    cdef const f64[:, ::1] xv=X
+    cdef f64[:, ::1] yv=Y
+    cdef Py_ssize_t j, k, c, i
+    cdef f64 a
+    with nogil:
+        for j in range(ncol):
+            for k in range(cp[j], cp[j+1]):
+                a=cv[k]; i=ri[k]
+                for c in range(w): yv[j, c]=yv[j, c]+a*xv[i, c]
+    return Y
+
+
+def rspmm(A, X):
+    """A^T @ X for a dense block, walking the dual's CSC arrays.
+
+    The transpose half of `spmm`. Together they apply an incidence factored channel
+    to a whole block in two passes over the nonzeros, with no assembled operator.
+    """
+    if not isinstance(A, DualCSR):
+        raise TypeError(f"rspmm needs a DualCSR for the transpose direction, got {type(A)}")
+    if not isinstance(X, np.ndarray): X = np.asarray(X)
+    if X.ndim != 2: raise ValueError("rspmm requires a 2-D block; use rmatvec for a vector")
+    X = np.ascontiguousarray(X, dtype=np.float64)
+    cdef DualCSR d = <DualCSR>A
+    if d.csr.val_bits == 32:
+        raise TypeError("rspmm carries f64 blocks; convert the carrier or use rmatvec")
+    return rspmm_i64_f64(d, X) if d.csr.idx_bits == 64 else rspmm_i32_f64(d, X)
+
 
 def rmatvec(A, x):
     if not isinstance(A, DualCSR): raise TypeError(f"rmatvec requires DualCSR, got {type(A)}")
@@ -1313,7 +1445,7 @@ def to_dense_f64(A):
     cdef i32[::1] rp, ci
     cdef i64[::1] rp64, ci64
     # ACCUMULATE, do not assign. A boundary column may carry two entries at the same
-    # (row, col): a self-loop stores -1 and +1 at its single vertex, and its boundary
+    # (row, col): a self loop stores -1 and +1 at its single vertex, and its boundary
     # is their sum, zero. Assigning let the second entry overwrite the first, so the
     # dense form showed a spurious +1 (a witness column) where the sparse operator the
     # kernels read has a cancelling pair. Summing duplicates is also what scipy's own
@@ -1331,12 +1463,17 @@ def to_dense_f64(A):
     return D
 
 def from_dense_f64(np.ndarray[f64, ndim=2] D, double tol=-1.0):
-    """Convert dense f64 matrix to DualCSR. Drops entries with |v| <= tol.
+    """Convert a dense f64 matrix to DualCSR. Drops entries with |v| <= tol.
 
-    Default tol is the library epsilon (~1e-10).
+    **The default drops exact zeros only.** Support is structural: the nonzero pattern
+    of a boundary tensor is its arity, its degree and its local parity, so dropping a
+    small coefficient deletes a relation's participation rather than denoising storage.
+
+    A caller that wants a threshold passes one, as the binary incidence conversion in
+    `_boundary` does with `tol=0.5`.
     """
     if tol < 0.0:
-        tol = get_EPSILON_NORM()
+        tol = 0.0
     cdef Py_ssize_t nr=D.shape[0], nc=D.shape[1], i, j, nnz=0
     for i in range(nr):
         for j in range(nc):
@@ -1371,6 +1508,91 @@ def from_scipy_csr(sp_matrix):
     csr = CSRMatrix(np.asarray(sp_matrix.indptr), np.asarray(sp_matrix.indices),
                     np.asarray(sp_matrix.data), sp_matrix.shape[0], sp_matrix.shape[1])
     return dual_from_csr(csr)
+
+def canonical_dual(DualCSR A):
+    """Coalesce sorted duplicate addresses and remove numerical zeros."""
+    cdef Py_ssize_t i, p, j
+    cdef double total
+    cdef const i64[::1] rp = np.ascontiguousarray(A.row_ptr, dtype=np.int64)
+    cdef const i64[::1] ci = np.ascontiguousarray(A.col_idx, dtype=np.int64)
+    cdef const f64[::1] av = np.ascontiguousarray(A.vals, dtype=np.float64)
+    rows, cols, values = [], [], []
+    for i in range(A.nrow):
+        p = rp[i]
+        while p < rp[i + 1]:
+            j, total = ci[p], 0.0
+            while p < rp[i + 1] and ci[p] == j:
+                total += av[p]
+                p += 1
+            if total != 0:
+                rows.append(i)
+                cols.append(j)
+                values.append(total)
+    if len(values) == A.nnz:
+        return A
+    return dual_from_coo(np.asarray(rows, dtype=np.int64),
+                         np.asarray(cols, dtype=np.int64),
+                         np.asarray(values, dtype=np.float64), A.nrow, A.ncol)
+
+
+def csr_product(DualCSR A, DualCSR B):
+    """Sparse row accumulation for A B, retaining no dense matrix workspace."""
+    if A.ncol != B.nrow:
+        raise ValueError("sparse product axes do not match")
+    cdef Py_ssize_t i, p, q, k, j
+    cdef double value
+    cdef dict row
+    cdef const i64[::1] arp = np.ascontiguousarray(A.row_ptr, dtype=np.int64)
+    cdef const i64[::1] aci = np.ascontiguousarray(A.col_idx, dtype=np.int64)
+    cdef const f64[::1] av = np.ascontiguousarray(A.vals, dtype=np.float64)
+    cdef const i64[::1] brp = np.ascontiguousarray(B.row_ptr, dtype=np.int64)
+    cdef const i64[::1] bci = np.ascontiguousarray(B.col_idx, dtype=np.int64)
+    cdef const f64[::1] bv = np.ascontiguousarray(B.vals, dtype=np.float64)
+    rows, cols, values = [], [], []
+    for i in range(A.nrow):
+        row = {}
+        for p in range(arp[i], arp[i + 1]):
+            k = aci[p]
+            for q in range(brp[k], brp[k + 1]):
+                j = bci[q]
+                value = row.get(j, 0.0)
+                row[j] = value + av[p] * bv[q]
+        for j in sorted(row):
+            value = row[j]
+            if value != 0:
+                rows.append(i)
+                cols.append(j)
+                values.append(value)
+    return dual_from_coo(np.asarray(rows, dtype=np.int64),
+                         np.asarray(cols, dtype=np.int64),
+                         np.asarray(values, dtype=np.float64), A.nrow, B.ncol)
+
+
+def csr_hadamard_rows(DualCSR A, DualCSR B):
+    """Row sums of A elementwise B for canonical sparse rows."""
+    if A.nrow != B.nrow or A.ncol != B.ncol:
+        raise ValueError("sparse contraction shapes do not match")
+    cdef Py_ssize_t i, p, q
+    cdef const i64[::1] arp = np.ascontiguousarray(A.row_ptr, dtype=np.int64)
+    cdef const i64[::1] aci = np.ascontiguousarray(A.col_idx, dtype=np.int64)
+    cdef const f64[::1] av = np.ascontiguousarray(A.vals, dtype=np.float64)
+    cdef const i64[::1] brp = np.ascontiguousarray(B.row_ptr, dtype=np.int64)
+    cdef const i64[::1] bci = np.ascontiguousarray(B.col_idx, dtype=np.int64)
+    cdef const f64[::1] bv = np.ascontiguousarray(B.vals, dtype=np.float64)
+    cdef np.ndarray[f64, ndim=1] out = np.zeros(A.nrow, dtype=np.float64)
+    for i in range(A.nrow):
+        p, q = arp[i], brp[i]
+        while p < arp[i + 1] and q < brp[i + 1]:
+            if aci[p] == bci[q]:
+                out[i] += av[p] * bv[q]
+                p += 1
+                q += 1
+            elif aci[p] < bci[q]:
+                p += 1
+            else:
+                q += 1
+    return out
+
 
 def memory_bytes(A):
     cdef CSRMatrix csr
@@ -1410,3 +1632,106 @@ def validate_csr(A, str name="CSR"):
         if ci.min() < 0: return False, f"{name}: negative column index"
         if ci.max() >= csr.ncol: return False, f"{name}: column index >= ncol"
     return True, ""
+
+
+
+def connected_components(indptr, indices, Py_ssize_t n=-1):
+    """Component label per row of a CSR pattern, and the component count.
+
+    Union find over the stored pattern, using `UnionFind` from `_common.pxd`.
+
+    Labels are renumbered in first appearance order, so they index densely from zero.
+    Only the pattern is read: for a graph Laplacian these components are its kernel
+    directions.
+
+    Returns (labels int64[n], count).
+    """
+    cdef np.ndarray[i64, ndim=1] ptr = np.ascontiguousarray(indptr, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] idx = np.ascontiguousarray(indices, dtype=np.int64)
+    if n < 0:
+        n = ptr.shape[0] - 1
+    cdef np.ndarray[i64, ndim=1] labels = np.empty(n, dtype=np.int64)
+    if n == 0:
+        return labels, 0
+
+    cdef const i64[::1] pv = ptr
+    cdef const i64[::1] iv = idx
+    cdef i64[::1] lv = labels
+    cdef Py_ssize_t row, k
+    cdef i64 col
+    cdef UnionFind uf
+    cdef UnionFind64 uf64
+    # `UnionFind` stores i32 parents, so past INT32_MAX rows the cast would wrap and
+    # merge unrelated components. `_common.pxd` carries the i64 variant for that.
+    cdef bint wide = n > MAX_INT32_NNZ
+    if wide:
+        if uf64_init(&uf64, n) != ERR_SUCCESS:
+            raise MemoryError("union find allocation failed")
+        try:
+            with nogil:
+                for row in range(n):
+                    for k in range(pv[row], pv[row + 1]):
+                        col = iv[k]
+                        if col != row and col >= 0 and col < n:
+                            uf64_union(&uf64, <i64>row, col)
+                for row in range(n):
+                    lv[row] = uf64_find(&uf64, <i64>row)
+            count = int(uf64.n_components)
+        finally:
+            uf64_free(&uf64)
+    else:
+        if uf_init(&uf, n) != ERR_SUCCESS:
+            raise MemoryError("union find allocation failed")
+        try:
+            with nogil:
+                for row in range(n):
+                    for k in range(pv[row], pv[row + 1]):
+                        col = iv[k]
+                        if col != row and col >= 0 and col < n:
+                            uf_union(&uf, <i32>row, <i32>col)
+                for row in range(n):
+                    lv[row] = <i64>uf_find(&uf, <i32>row)
+            count = int(uf_component_count(&uf))
+        finally:
+            uf_free(&uf)
+
+    # Renumber roots to dense `0..count-1` in first appearance order.
+    remap = {}
+    cdef Py_ssize_t i
+    for i in range(n):
+        root = labels[i]
+        slot = remap.get(root)
+        if slot is None:
+            slot = len(remap)
+            remap[root] = slot
+        labels[i] = slot
+    return labels, count
+
+
+def support_jaccard(a, b, *, exact=True):
+    """Jaccard between two supports, exactly by default.
+
+    `|A and B| / |A or B|` is a ratio of two counts, so it is a rational number and this
+    returns it as one. `exact=False` gives the float reading. Both run the single merge
+    pass of `sorted_jaccard_exact_i32` in `_common.pxd`; only the last step differs.
+
+    The inputs are supports, so they are treated as sets: sorted here, and repeated
+    coordinates counted once.
+    """
+    from fractions import Fraction
+
+    cdef np.ndarray[i32, ndim=1] av = np.sort(
+        np.ascontiguousarray(a, dtype=np.int32))
+    cdef np.ndarray[i32, ndim=1] bv = np.sort(
+        np.ascontiguousarray(b, dtype=np.int32))
+    cdef idx_t inter = 0, uni = 0
+    cdef const i32* ap = NULL
+    cdef const i32* bp = NULL
+    if av.shape[0]:
+        ap = &av[0]
+    if bv.shape[0]:
+        bp = &bv[0]
+    sorted_jaccard_exact_i32(ap, av.shape[0], bp, bv.shape[0], &inter, &uni)
+    if uni == 0:
+        return Fraction(0) if exact else 0.0
+    return Fraction(int(inter), int(uni)) if exact else float(inter) / float(uni)

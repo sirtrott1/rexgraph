@@ -1,5 +1,5 @@
 """
-Edge list adapter: pre-structured edge data -> typed relational complex.
+Edge list adapter: pre structured edge data -> typed relational complex.
 
 Thin wrapper around rexgraph.io.csv_loader and json_loader. Handles
 CSV and JSON files that already contain explicit edges with optional
@@ -35,7 +35,7 @@ class EdgeListAdapter(DomainAdapter):
         """Build typed edges from a CSV or JSON edge list.
 
         Parameters
-        ----------
+
         path : str
             File path to CSV or JSON.
         roles : dict, optional
@@ -47,7 +47,7 @@ class EdgeListAdapter(DomainAdapter):
             'none': no face selection.
 
         Returns
-        -------
+
         EdgeConstruction
         """
         from rexgraph.io.csv_loader import load_edge_csv
@@ -68,7 +68,7 @@ class EdgeListAdapter(DomainAdapter):
             type_labels, type_names = self._extract_types(gd)
 
         elif p.suffix.lower() == ".json":
-            # Use rexgraph's auto-detecting JSON loader
+            # Use rexgraph's auto detecting JSON loader
             rex = load_json(str(p))
             sources = rex.sources
             targets = rex.targets

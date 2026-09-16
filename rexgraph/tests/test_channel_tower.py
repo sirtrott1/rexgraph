@@ -2,7 +2,7 @@
 
 `channel_diagonals`' closed form is exact for a signed pairwise unweighted complex and
 says so; past that the disagreement count it uses is standing in for a magnitude, and
-the magnitude accumulates at every arity. Both off-diagonal channels sum over pairs
+the magnitude accumulates at every arity. Both off diagonal channels sum over pairs
 that share a vertex, and a pair contributes only there, so the sum reorders onto the
 vertex and no pair is ever formed.
 """
@@ -135,7 +135,7 @@ def test_a_vertex_weighting_is_refused_rather_than_approximated():
 
 def test_it_answers_exactly_where_the_pairwise_derivation_refuses():
     """The point of the kernel. `closed_form_applies` is False on every branching or
-    witness-carrying complex, and those used to fall through to assembling."""
+    witness carrying complex, and those used to fall through to assembling."""
     refused = [n for n in CASES if not closed_form_applies(_rex(CASES[n]))]
     assert refused, "some case must exercise the branching path"
     for name in refused:
@@ -229,7 +229,7 @@ def test_the_parallel_transpose_is_byte_identical_to_the_serial_one():
 
 
 def test_the_transpose_caps_its_threads_by_the_scratch_it_would_need():
-    """The per-thread histogram is nthr x nV against nnz of data, so the width is capped
+    """The per thread histogram is nthr x nV against nnz of data, so the width is capped
     at nnz // nV. A complex with more vertices than entries stays serial rather than
     allocating a histogram larger than the array it is permuting, and the answer is the
     same either way."""
@@ -244,8 +244,8 @@ def test_the_transpose_caps_its_threads_by_the_scratch_it_would_need():
 
 
 def test_the_default_width_is_physical_cores_not_logical():
-    """The tower is memory-bound, so SMT siblings add contention and not parallelism.
-    An explicit set_threads still wins, since that is where a measured per-host optimum
+    """The tower is memory bound, so SMT siblings add contention and not parallelism.
+    An explicit set_threads still wins, since that is where a measured per host optimum
     goes."""
     from rexgraph import compute
     from rexgraph.hardware import cpu_count, physical_cores

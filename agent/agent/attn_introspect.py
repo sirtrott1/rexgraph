@@ -1,14 +1,14 @@
 """
-attn_introspect: Tier-2 attention bridge (Python side).
+attn_introspect: Tier 2 attention bridge (Python side).
 
 Runs the `rex_attn_capture` host (agent/agent/native/, built against the local llama.cpp via
-its stock cb_eval callback, no ggml patch) to pull a model's internal per-layer attention
-weights, then feeds each layer's map to the RCF analyzer so the relational-complex math reads
+its stock cb_eval callback, no ggml patch) to pull a model's internal per layer attention
+weights, then feeds each layer's map to the RCF analyzer so the relational complex math reads
 the model's own attention: Hodge grad/curl/harmonic, the four channels, ∂²=0 compliance, per-
 layer structural character. This reaches what the OpenAI API never surfaces.
 
 Degrades cleanly: if the capture host isn't built (or no model given), `available()` is False
-and callers fall back to Tier-1 (`model_introspect.embed`). Public code paths never require it.
+and callers fall back to Tier 1 (`model_introspect.embed`). Public code paths never require it.
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def _lib_env() -> dict:
 
 def capture_attention(prompt: str, model_path: str | None = None, *, n_gpu_layers: int = 999,
                       timeout: float = 120.0) -> dict:
-    """Run one forward pass and capture per-layer attention (averaged over heads). Returns
+    """Run one forward pass and capture per layer attention (averaged over heads). Returns
     {n_tokens, n_layers, layers:[{layer, n_kv, n_q, n_head, attn:[[...]]}]}. Raises with
     actionable guidance if the host or model is missing."""
     binary = _capture_binary()
@@ -81,7 +81,7 @@ def attention_complex(prompt: str, model_path: str | None = None, *, layers: lis
                       threshold: float = 0.05) -> dict:
     """Capture the model's attention and run the RCF analysis per layer: each layer's [n_q×n_kv]
     map -> relational complex -> Hodge grad/curl/harmonic, four channels, coherence, Betti. This is
-    the model reading its OWN attention through the relational-complex math (Tier-2)."""
+    the model reading its OWN attention through the relational complex math (Tier 2)."""
     from agent.integrations.huggingface_analyzer import quick_attention_analysis
     cap = capture_attention(prompt, model_path)
     reports = []

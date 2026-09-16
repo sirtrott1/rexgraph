@@ -18,8 +18,8 @@ The harmonic frame is the interesting one. Its axes are cycles, `dim_H` of them,
 and a flow's position along them is the whole of its harmonic content. That is a
 coordinate system on the harmonic plane with one axis per independent hole.
 
-Redundancy is exact and worth stating. phi is fixed up to a constant on each
-connected component and psi up to ker(B2), so the chart carries beta_0 +
+Redundancy is exact and worth stating. phi is fixed up to ker(B1^T) and psi
+up to ker(B2), so the chart carries beta_0 +
 (nF - rank(B2)) more numbers than the space has dimensions. Quotient those out
 and what is left is rank(B1) + rank(B2) + dim_H, which is nE exactly. Use
 `coordinate_dims` to read both counts.
@@ -56,13 +56,13 @@ _f64 = np.float64
 HodgeCoords = namedtuple("HodgeCoords", "phi psi harmonic")
 
 
-def harmonic_frame(rex):
+def harmonic_frame(rex, *, native=False):
     """The harmonic plane's axes as a sparse nE x dim_H matrix.
 
     One column per independent hole, each a cycle carrying no face flux. This is
     `harmonic_basis`, named for what it is used as here.
     """
-    return harmonic_basis(rex)
+    return harmonic_basis(rex, native=native)
 
 
 def harmonic_coords(rex, flow, *, frame=None):
@@ -72,7 +72,7 @@ def harmonic_coords(rex, flow, *, frame=None):
     dim_H x dim_H because cycles share few edges. `H @ harmonic_coords(...)` is
     the harmonic projection, so this is the projector's small side.
     """
-    H = harmonic_frame(rex) if frame is None else frame
+    H = harmonic_frame(rex, native=True) if frame is None else frame
     from rexgraph.harmonic_sparse import as_edge_signal
     return harmonic_coordinates(H, as_edge_signal(flow, rex.nE, what="flow"))
 
@@ -119,14 +119,13 @@ def harmonic_spread(rex, u, v, *, frame=None):
 
 def from_harmonic_coords(rex, c, *, frame=None):
     """The edge signal a set of harmonic coordinates names: f64[nE]."""
-    import scipy.sparse as sp
+    from rexgraph.native_sparse import as_native
 
-    H = harmonic_frame(rex) if frame is None else frame
+    H = harmonic_frame(rex, native=True) if frame is None else frame
     c = np.atleast_1d(np.asarray(c, dtype=_f64).ravel())
     if H.shape[1] == 0:
         return np.zeros(H.shape[0], dtype=_f64)
-    Hs = H.tocsr() if sp.issparse(H) else sp.csr_matrix(np.asarray(H, dtype=_f64))
-    return np.asarray(Hs @ c).ravel()
+    return as_native(H).apply(c)
 
 
 def hodge_coords(rex, flow, *, frame=None):
@@ -185,8 +184,9 @@ def coordinate_dims(rex, *, frame=None):
     dim_h = int(H.shape[1])
     nV, nE = int(rex.nV), int(rex.nE)
     n_faces = int(rex._B2_hodge_dual.ncol) if rex._B2_hodge_dual is not None else 0
-    # rank(B1) = nV - b0 is exact: b0 counts connected components, which is the
-    # dimension of ker(B1 B1^T). rank(B2) then follows from the Hodge theorem
+    # rank(B1) = nV - b0 is exact: b0 is the dimension of ker(B1^T).
+    # It counts support components only in the pairwise case. rank(B2) follows
+    # from the Hodge dimension identity
     # rather than a second rank computation.
     rank_b1 = nV - int(rex.betti[0])
     rank_b2 = nE - dim_h - rank_b1
@@ -203,10 +203,11 @@ def _exact_ints(values, what):
     """`Fraction` of each value, refusing to round one that is not already integral.
 
     Every exact reading here rests on the frame being integer, and the frame is
-    integer only while `harmonic_sparse._integer_nullspace` can carry it: past 2**53
-    it declines and `_face_reduced_frame` falls back to a float SVD. Rounding that
-    float silently returns a plausible integer for a quantity that is not one --
-    a half-integer frame on K5 gave det 1 for a true determinant of 0.0305, so it
+    integer only while its coefficients can be represented exactly. Native
+    `_face_reduced_frame` now refuses an inexact float carrier. A supplied
+    floating frame must still be checked: rounding it silently returns a plausible
+    integer for a quantity that is not one --
+    a half integer frame on K5 gave det 1 for a true determinant of 0.0305, so it
     is refused loudly instead. Convert deliberately, or read the float path.
     """
     from fractions import Fraction
@@ -216,9 +217,7 @@ def _exact_ints(values, what):
         worst = float(np.abs(arr - np.round(arr)).max())
         raise ValueError(
             f"{what} is not integral (off by {worst:.3g}), so an exact reading of it "
-            "would be a rounded guess. The usual cause is a non-integer harmonic "
-            "frame: _integer_nullspace declines past 2**53 and _face_reduced_frame "
-            "then falls back to a float SVD.")
+            "would be a rounded guess. Supply an integral frame for exact readings.")
     flat = [Fraction(int(round(x))) for x in arr.ravel()]
     if arr.ndim == 0:
         return flat[0]
@@ -329,13 +328,13 @@ def harmonic_closure(rex, *, frame=None, exact=False):
 
 
 def harmonic_gram_det(rex, *, frame=None):
-    """Exact determinant of the frame Gram, by fraction-free elimination.
+    """Exact determinant of the frame Gram, by fraction free elimination.
 
-    With no faces and every relation 2-ary, the frame is the full cycle space and
+    With no faces and every relation 2 ary, the frame is the full cycle space and
     this is the number of spanning FORESTS: the product over connected components
-    of each component's spanning-tree count. That reduces to the spanning trees of
+    of each component's spanning tree count. That reduces to the spanning trees of
     the graph when it is connected, which is the case the claim was first read on.
-    Verified against the Matrix-Tree cofactor of L0 on six random graphs, against
+    Verified against the Matrix Tree cofactor of L0 on six random graphs, against
     Cayley's n^(n-2) on K4 through K19, and against the component product on four
     disconnected complexes (two and three triangles, triangle plus K4, triangle
     plus C4). Multigraphs are fine: a doubled relation reads 8 on the triangle.
@@ -343,8 +342,8 @@ def harmonic_gram_det(rex, *, frame=None):
     Outside that scope it is still the exact Gram determinant but it is NOT a tree
     count, and the earlier wording implied otherwise. Measured counterexamples: a
     disconnected pair of triangles reads 9 against 0 spanning trees, K4 with one
-    face reads 432 against 16, and Matrix-Tree does not apply at all once a
-    relation is 1-ary or branching (witness reads 3 against 2).
+    face reads 432 against 16, and Matrix Tree does not apply at all once a
+    relation is 1 ary or branching (witness reads 3 against 2).
 
     It is where the harmonic readings get their denominators. A reading is
     `q^T G^-1 q` shaped, which is `q^T adj(G) q / det(G)`, so a coordinate's
@@ -353,7 +352,7 @@ def harmonic_gram_det(rex, *, frame=None):
     125 and 3, and the diagonal closure is 7/15.
 
     Float LU on the same matrix drifts (160 absolute at K16, 9.4e6 at K19),
-    which is why this path is fraction-free.
+    which is why this path is fraction free.
     """
 
     from rexgraph.rational_trig import bareiss_determinant
@@ -370,7 +369,7 @@ def complex_structure(A, *, tol=1e-12):
     """Read an antisymmetric operator as a complex structure.
 
     A real antisymmetric operator is a rotation generator: it has even rank, its
-    nonzero spectrum is conjugate pairs on the imaginary axis, and on each 2-plane
+    nonzero spectrum is conjugate pairs on the imaginary axis, and on each 2 plane
     it spans it normalises to J with J^2 = -I. So it splits the space into complex
     lines, one per pair, and a real kernel it cannot reach.
 
@@ -380,7 +379,7 @@ def complex_structure(A, *, tol=1e-12):
     to have the same magnitude.
 
     Returns a dict with ``dim``, ``rank``, ``pairs``, ``real_dim`` and ``rates``,
-    the per-plane rotation rates in decreasing order. Raises if `A` is not
+    the per plane rotation rates in decreasing order. Raises if `A` is not
     antisymmetric, since every statement here depends on it.
     """
     A = np.asarray(A, dtype=_f64)

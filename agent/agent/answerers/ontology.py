@@ -39,7 +39,7 @@ class OntologyAnswerer:
         self._rc = None
         self._by_label: dict | None = None
 
-    #### the ontology, built once ##############################################
+    # the ontology, built once
     @classmethod
     def from_file(cls, path, *, name: str | None = None):
         """Read any format the adapter layer supports and answer over it."""
@@ -80,9 +80,9 @@ class OntologyAnswerer:
         human = (getattr(self._parsed, "labels", {}) or {}).get(term)
         return f"{human} ({term})" if human and human != term else str(term)
 
-    #### the reading ###########################################################
+    # the reading
     def _subject(self, toks):
-        """The term this ontology holds. A multi-word term is matched whole first,
+        """The term this ontology holds. A multi word term is matched whole first,
         because "apoptotic process" is one concept and its words separately are not."""
         low = " ".join(toks)
         best = None
@@ -101,7 +101,7 @@ class OntologyAnswerer:
         from agent import ontology_reasoning as orx
 
         toks = Q.tokens(query)
-        # the INTERFACE check needs no ontology, so a non-ontological query is declined
+        # the INTERFACE check needs no ontology, so a non ontological query is declined
         # without paying to build one.
         if not any(t in INTERFACE for t in toks):
             return {"answered": False, "reason": "no ontology relation is asked for",

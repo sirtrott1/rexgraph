@@ -1,10 +1,10 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._temporal_entity: Entity-level BIOES tagging for
-cross-document NLP on relational complexes.
+rexgraph.core._temporal_entity: Entity level BIOES tagging for
+cross document NLP on relational complexes.
 
-Extends _temporal with per-entity and per-relationship lifecycle
+Extends _temporal with per entity and per relationship lifecycle
 tracking.  Tags individual entities/edges with B-I-O-E-S across
 the chunk/document sequence.
 
@@ -12,10 +12,10 @@ Hot loops are pure C with typed memoryviews.  No Python object
 access in inner paths.
 
 Functions
----------
+
 entity_bioes_matrix   - N × T tag matrix from birth/death, single nogil pass
-entity_bioes_gapped   - gap-aware tagging (re-appearance = new span)
-vertex_lifecycle      - per-vertex birth/death tracking
+entity_bioes_gapped   - gap aware tagging (re appearance = new span)
+vertex_lifecycle      - per vertex birth/death tracking
 cross_document_stats  - summary statistics with document boundaries
 persistence_spectrum  - lifespan distribution for persistence analysis
 """
@@ -56,7 +56,7 @@ cdef inline i64 _encode_directed(i32 s, i32 t) noexcept nogil:
 # Pure C inner loops
 
 cdef void _tag_contiguous(i32 *row, i32 b, i32 d) noexcept nogil:
-    """Tag a contiguous birth-death span in a pre-zeroed (O-filled) row."""
+    """Tag a contiguous birth death span in a pre zeroed (O-filled) row."""
     cdef i32 span = d - b
     cdef i32 t
     if span <= 0:
@@ -103,13 +103,13 @@ def entity_bioes_matrix(np.ndarray[i32, ndim=1] birth,
     """Build the full N × T BIOES tag matrix in one nogil pass.
 
     Parameters
-    ----------
-    birth : i32[N]   - per-entity first-seen snapshot index
-    death : i32[N]   - per-entity snapshot AFTER last presence (-1 = alive)
+
+    birth : i32[N]   - per entity first seen snapshot index
+    death : i32[N]   - per entity snapshot AFTER last presence (-1 = alive)
     T     : int      - total number of snapshots
 
     Returns
-    -------
+
     tags : i32[N, T]  - tag matrix (0=B 1=I 2=O 3=E 4=S)
     """
     cdef Py_ssize_t N = birth.shape[0]
@@ -136,27 +136,27 @@ def entity_bioes_matrix(np.ndarray[i32, ndim=1] birth,
 def entity_bioes_gapped(list snapshots,
                         np.ndarray[i64, ndim=1] edge_ids,
                         bint directed=False):
-    """Gap-aware per-entity BIOES tagging.
+    """Gap aware per entity BIOES tagging.
 
-    Tracks actual per-snapshot presence and creates separate B-I-E
+    Tracks actual per snapshot presence and creates separate B-I-E
     spans for each contiguous appearance.  An entity absent in the
     middle of its lifespan gets O tags during the gap.
 
     Parameters
-    ----------
+
     snapshots  : list of (i32 src, i32 tgt) per timestep
     edge_ids   : i64[N] sorted unique IDs from edge_lifecycle
     directed   : bool
 
     Returns
-    -------
+
     tags    : i32[N, T]
-    n_spans : i32[N]  - contiguous-appearance count per entity
+    n_spans : i32[N]  - contiguous appearance count per entity
     """
     cdef Py_ssize_t T = len(snapshots), N = edge_ids.shape[0]
     cdef Py_ssize_t t, j, nE
 
-    # Presence matrix  (row-major, N × T)
+    # Presence matrix  (row major, N × T)
     cdef np.ndarray[np.uint8_t, ndim=2] presence = np.zeros(
         (N, T), dtype=np.uint8)
     cdef np.uint8_t *pptr = <np.uint8_t *>presence.data
@@ -213,10 +213,10 @@ def entity_bioes_gapped(list snapshots,
 # vertex_lifecycle
 
 def vertex_lifecycle(list snapshots, bint directed=False):
-    """Per-vertex birth and death times across snapshots.
+    """Per vertex birth and death times across snapshots.
 
     Returns
-    -------
+
     vertex_ids : i32[M]
     birth      : i32[M]
     death      : i32[M]   (-1 = alive at end)
@@ -264,10 +264,10 @@ def cross_document_stats(np.ndarray[i32, ndim=1] birth,
                          np.ndarray[i32, ndim=1] death,
                          np.ndarray[i32, ndim=1] doc_boundaries,
                          i32 T):
-    """Summary statistics with document-boundary awareness.
+    """Summary statistics with document boundary awareness.
 
     Parameters
-    ----------
+
     doc_boundaries : i32[n_docs - 1]
         Chunk indices where each subsequent document begins.
     """
@@ -351,7 +351,7 @@ def cross_document_stats(np.ndarray[i32, ndim=1] birth,
 def persistence_spectrum(np.ndarray[i32, ndim=1] birth,
                          np.ndarray[i32, ndim=1] death,
                          i32 T):
-    """Sorted lifespans + birth-death pairs for persistence analysis."""
+    """Sorted lifespans + birth death pairs for persistence analysis."""
     cdef Py_ssize_t N = birth.shape[0], i
     cdef np.ndarray[f64, ndim=1] lifespans = np.empty(N, dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] pairs     = np.empty((N, 2), dtype=np.float64)

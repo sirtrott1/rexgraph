@@ -4,7 +4,7 @@ from __future__ import annotations
 import struct
 
 import numpy as np
-from rcdb import MemoryStore
+import pytest
 from rexgraph.io import FileCatalog
 from rexgraph.io.rcbf import MAGIC
 
@@ -39,11 +39,12 @@ def _write_branching_rcbf(path):
 
 
 def test_rcbf_can_be_loaded_from_a_catalog_stored_in_rcdb_and_queried(tmp_path):
+    MemoryStore = pytest.importorskip("rcdb", reason="optional RCDB integration").MemoryStore
     path = tmp_path / "drug_gene.rcbf"
     _write_branching_rcbf(path)
     catalog = FileCatalog([tmp_path])
 
-    # The FILE source form proves that RCQL sees the primary 3-ary C1 cell directly.
+    # The FILE source form proves that RCQL sees the primary 3 ary C1 cell directly.
     catalog_result = Executor(sources={"files": catalog}).execute(parse(
         'FROM FILE("files", "root0/drug_gene.rcbf") '
         'RETURN BETTI(0), BETTI(1), ARITY(CELL(1, 0))'

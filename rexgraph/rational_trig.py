@@ -41,23 +41,26 @@ Cost. Exact arithmetic over Fractions is cubic in the number of vectors with
 coefficient growth on top, so the exact entry points are for small blocks: a face
 candidate, a star, a handful of channels. The float entry points carry no square root
 either and are the ones to use across a whole complex. `exact_character` is the
-exception: it reads diagonals only and is exact at any size.
+exception: it reads diagonals only and is exact at any size. Full T/raw-G/F/C
+actions are also available through `channel_operator(...).apply(..., exact=True)`:
+those use linear incidence passes, not cubic elimination. Fraction coefficient
+growth still determines their bit cost.
 
 ## Which path, and why
 
-There is one place a square root is genuinely unavoidable, and everything else is
-arranged so it does not spread.
+Full normalized operators and their diagonal readings have different arithmetic.
 
 **Normalization is not the main path.** The G channel has two forms. `raw` is
-``K = |B1|^T W |B1|``, the co-incidence Gramian, whose entries are integers on a pairwise
+``K = W |B1|^T |B1| W``, the co incidence Gramian, whose entries are integers on a unit weight pairwise
 complex and rationals once a relation branches, because the boundary share is ``1/(k-1)``.
-`normalized` is ``I - D^{-1/2} K D^{-1/2}``, which is degree-comparable and therefore
+`normalized` is ``I - D^{-1/2} K D^{-1/2}``, which is degree comparable and therefore
 useful when you are comparing cells of very different degree, and which takes a square
-root of the degree, so it lands on the float tower and stays there. `raw` is the
-constructor default for that reason, and `exact_channel_diagonals` reports
-``(None, [])`` on a normalized complex rather than approximating a rational character
-that does not exist. Normalization is a choice you make when comparability matters more
-than exactness, not a default you inherit.
+root of the degree in its off diagonal entries. `raw` remains the constructor default.
+But its normalized DIAGONAL is ``1 - K[e,e]/D[e]``, rational for rational K and
+nonnegative relation weights. Thus `exact_channel_diagonals` and `exact_character`
+support normalized G too, without constructing its possibly irrational off diagonal.
+A zero row uses diagonal 1, as in I minus zero normalized adjacency. Signed weights
+are supported by raw T/G/F, but refused by this normalized channel contract.
 
 **Angles never need the square root.** This is what the spread tower buys. An angle costs
 an arccosine of a ratio of norms, and each norm costs a square root; the squared
@@ -67,8 +70,8 @@ counterparts do not, and carry the same ordering::
     spread      s(u, v)  = 1 - <u,v>^2 / (Q(u) Q(v))   instead of angle, and s = sin^2
 
 so ``cos^2 = 1 - s`` exactly. `geometry.relation_quadrance` and `geometry.relation_spread`
-are the whole-complex readings; `projection` places cells in the plane through the
-half-angle parametrisation ``cos = (1-t^2)/(1+t^2)``, ``sin = 2t/(1+t^2)``, which gives a
+are the whole complex readings; `projection` places cells in the plane through the
+half angle parametrisation ``cos = (1-t^2)/(1+t^2)``, ``sin = 2t/(1+t^2)``, which gives a
 rational point on the unit circle for every rational ``t``, so a rendering has exact
 coordinates and exact angles between them. Nothing in that path calls sqrt, sin, cos or
 atan2.
@@ -76,14 +79,14 @@ atan2.
 **Exactness needs an exact SOURCE, not an exact reading.** This is the failure mode to
 watch, because it looks like rigour. ``Fraction(x)`` on a float is exact for the double
 it holds, which is a different number from the one meant whenever the value is not
-binary-exact, and ``1/(k-1)`` is not for most arities. Taking an exact Gram over a
+binary exact, and ``1/(k-1)`` is not for most arities. Taking an exact Gram over a
 densified float ``B1`` returned ``432691404877902290367942354447019 /
 324518553658426726783156020576256`` at ``k = 4`` where the answer is ``4/3``. So the exact
 entry points rebuild columns from the boundary CSR (`faces._exact_b1_block`) and read
 weights through `RexGraph.edge_metric_exact`, never off the assembled operators.
 
-**What the float tower is still for.** Anything spectral, anything needing a degree
-normalization, anything at a scale where cubic exact elimination is the wrong trade, and
+**What the float tower is still for.** Numerical spectral computations, full normalized
+operators, anything at a scale where cubic exact elimination is the wrong trade, and
 the propagators, which are Chebyshev or CG by construction. The two towers are meant to
 agree: `exact_character` against `structural_character` is a test, not a fallback, and a
 disagreement is a defect in one of them by definition.
@@ -122,6 +125,8 @@ def _exact(values):
     """
     out = []
     for x in values:
+        if isinstance(x, (complex, np.complexfloating)):
+            raise TypeError("exact rational geometry does not support complex coefficients")
         if isinstance(x, Fraction):
             out.append(x)
         elif isinstance(x, (int, np.integer)):
@@ -140,12 +145,17 @@ def quadrance(v, *, exact: bool = False):
     if exact:
         e = _exact(np.asarray(v).ravel())
         return sum(x * x for x in e)
-    a = np.asarray(v, dtype=np.float64).ravel()
-    return float(a @ a)
+    a = _numeric_vector(v)
+    return float(np.vdot(a, a).real)
+
+
+def _numeric_vector(v):
+    a = np.asarray(v)
+    return a.astype(np.complex128 if np.iscomplexobj(a) else np.float64).ravel()
 
 
 def spread(u, v, *, exact: bool = False):
-    """``s(u, v) = 1 - <u,v>^2 / (Q(u) Q(v))``. The squared sine of the angle.
+    """``s(u, v) = 1 - |<u,v>|^2 / (Q(u) Q(v))`` (Hermitian for complex data).
 
     0 when the vectors are parallel, 1 when perpendicular, and rational throughout.
     Returns ``None`` when either vector is zero, where no angle is defined; that is
@@ -159,19 +169,18 @@ def spread(u, v, *, exact: bool = False):
         if qa == 0 or qb == 0:
             return None
         return Fraction(1) - (ip * ip) / (qa * qb)
-    a = np.asarray(u, dtype=np.float64).ravel()
-    b = np.asarray(v, dtype=np.float64).ravel()
-    qa, qb = float(a @ a), float(b @ b)
+    a, b = _numeric_vector(u), _numeric_vector(v)
+    qa, qb = float(np.vdot(a, a).real), float(np.vdot(b, b).real)
     if qa == 0.0 or qb == 0.0:
         return None
-    ip = float(a @ b)
-    return 1.0 - (ip * ip) / (qa * qb)
+    ip = np.vdot(a, b)
+    return float(1.0 - abs(ip)**2 / (qa * qb))
 
 
 def gram(vectors, *, exact: bool = False):
     """The Gram block ``G[i,j] = <v_i, v_j>``.
 
-    The diagonal is the inner ranking (quadrances) and the off-diagonal the outer
+    The diagonal is the inner ranking (quadrances) and the off diagonal the outer
     ranking (pairwise inner products). Everything else here is a function of this
     block.
     """
@@ -180,12 +189,50 @@ def gram(vectors, *, exact: bool = False):
         k = len(rows)
         return [[sum(rows[i][t] * rows[j][t] for t in range(len(rows[0])))
                  for j in range(k)] for i in range(k)]
-    M = np.asarray([np.asarray(v, dtype=np.float64).ravel() for v in vectors])
-    return M @ M.T
+    M = np.asarray([_numeric_vector(v) for v in vectors])
+    return M.conj() @ M.T
+
+
+def _sparse_gram_determinant(columns, row_indices):
+    """Exact reduced Gram determinant, with sparse Schur elimination over Q.
+
+    Input coefficients are primary rationals or Python integers. Neither fixed
+    width Gram products nor a dense rank by rank workspace intervene. Fill and
+    rational coefficient growth still determine the elimination cost.
+    """
+    rows = {int(i): {} for i in row_indices}
+    for column in columns:
+        entries = [(i, value) for i, value in column.items() if i in rows and value]
+        for i, a in entries:
+            for j, b in entries:
+                value = rows[i].get(j, Fraction(0)) + a*b
+                if value:
+                    rows[i][j] = value
+                else:
+                    rows[i].pop(j, None)
+    determinant = Fraction(1)
+    while rows:
+        pivot = min(rows, key=lambda i: (len(rows[i]), i))
+        row = rows.pop(pivot)
+        diagonal = row.pop(pivot, Fraction(0))
+        if diagonal == 0:
+            return Fraction(0)
+        if diagonal < 0:
+            raise ArithmeticError("a rational Gram cannot have a negative Schur pivot")
+        determinant *= diagonal
+        for i, a in row.items():
+            rows[i].pop(pivot, None)
+            for j, b in row.items():
+                value = rows[i].get(j, Fraction(0)) - a*b/diagonal
+                if value:
+                    rows[i][j] = value
+                else:
+                    rows[i].pop(j, None)
+    return determinant
 
 
 def bareiss_determinant(A_in):
-    """Exact determinant by fraction-free (Bareiss) elimination.
+    """Exact determinant by fraction free (Bareiss) elimination.
 
     Every division is exact in the ring the entries came from, so integer input
     stays integer all the way through and never grows a denominator. Ordinary
@@ -215,7 +262,7 @@ def bareiss_determinant(A_in):
 
 
 def gram_determinant(vectors, *, exact: bool = True):
-    """``det`` of the Gram block, by fraction-free elimination when exact.
+    """``det`` of the Gram block, by fraction free elimination when exact.
 
     Zero exactly when the vectors are linearly dependent. For boundary columns that
     is exactly when the set carries a cycle, which is why this is a homology test
@@ -292,30 +339,33 @@ def spread_matrix(vectors, *, exact: bool = False):
     vs = list(vectors)
     n = len(vs)
     if exact:
-        return [[Fraction(0) if i == j else spread(vs[i], vs[j], exact=True)
+        return [[spread(vs[i], vs[j], exact=True)
                  for j in range(n)] for i in range(n)]
-    M = np.asarray([np.asarray(v, dtype=np.float64).ravel() for v in vs])
-    G = M @ M.T
-    q = np.diag(G).copy()
+    G = gram(vs)
+    q = np.diag(G).real.copy()
     denom = np.outer(q, q)
     with np.errstate(divide="ignore", invalid="ignore"):
-        out = 1.0 - (G * G) / denom
+        out = 1.0 - abs(G)**2 / denom
     out[denom == 0] = np.nan
-    np.fill_diagonal(out, 0.0)
+    nz = np.flatnonzero(q != 0)
+    out[nz, nz] = 0.0
     return out
 
 
 def cross_spread(T, G):
-    """The spread difference of a signed/unsigned Gram pair sharing a diagonal.
+    """The determinant spreads of a signed/unsigned Gram pair sharing a diagonal.
+
+    Each is det(Gram)/prod(diag): ordinary vector spread for two vectors,
+    normalized squared volume for larger blocks, not its complement.
 
     ``T = B^T B`` and ``G = |B|^T |B|`` have identical diagonals at every grade,
     because squaring an entry discards its sign. So the two spreads share a
     denominator and differ only in the determinant::
 
-        s_T - s_G = (det G - det T) / prod(diag)
+        s_T - s_G = (det T - det G) / prod(diag)
 
     which isolates the orientation content as a single rational number. It is not a
-    restatement of ``T - G``: that is the off-diagonal mismatch, this is what the
+    restatement of ``T - G``: that is the off diagonal mismatch, this is what the
     mismatch does to the block's degeneracy.
 
     Returns ``(s_T, s_G, difference, shared_denominator)``, or ``None`` for the
@@ -325,6 +375,8 @@ def cross_spread(T, G):
           for row in T]
     Ge = [[Fraction(x) if not isinstance(x, Fraction) else x for x in row]
           for row in G]
+    if len(Te) != len(Ge) or any(len(row) != len(Te) for row in Te + Ge):
+        raise ValueError("cross_spread requires equal square Gram blocks")
     diag_T = [Te[i][i] for i in range(len(Te))]
     diag_G = [Ge[i][i] for i in range(len(Ge))]
     if diag_T != diag_G:
@@ -338,9 +390,9 @@ def cross_spread(T, G):
         return None, None, None, denom
     det_T = _det_of(Te)
     det_G = _det_of(Ge)
-    s_T = Fraction(1) - det_T / denom
-    s_G = Fraction(1) - det_G / denom
-    return s_T, s_G, (det_G - det_T) / denom, denom
+    s_T = det_T / denom
+    s_G = det_G / denom
+    return s_T, s_G, (det_T - det_G) / denom, denom
 
 
 def _det_of(A_in):
@@ -359,11 +411,11 @@ def rational_reconstruct(values, *, max_denominator: int | None = None):
 
     The characters ARE rational: they come from integer boundary operators through
     rational operations, and on a small complex they read as small fractions:
-    `1/4` on a triangle, `37/135` on K4, `220/969` on a five-edge path. Stored as
+    `1/4` on a triangle, `37/135` on K4, `220/969` on a five edge path. Stored as
     float64 the fraction is still there and can be recovered.
 
     It does not survive size. The denominator grows with the complex, and past roughly
-    a few dozen cells it exceeds what a double can pin down: a random 20-vertex
+    a few dozen cells it exceeds what a double can pin down: a random 20 vertex
     complex needs a denominator near 1e9 to match its stored float, which is not the
     true value but merely a fraction close to that float. Continued fractions will
     always produce such a thing, so a reconstruction that does not check is a
@@ -402,8 +454,9 @@ CHANNEL_ORDER = ("L1_down", "L_O", "L_SG", "L_C")
 def exact_channel_diagonals(rex):
     """The four channel diagonals as exact Fractions, built from the boundary structure.
 
-    Every channel is a polynomial in the entries of B1, and those entries are `-1` and
-    `1/(k-1)` at arity k, so each diagonal is exactly rational::
+    Raw channels have rational values for rational boundary coefficients and relation
+    weights. Absolute value preserves rational valuedness; with unrestricted signed
+    weights F need not be a single polynomial across weight sign regions::
 
         T[e,e] = w_e^2 * sum_v c_e[v]^2         = w_e^2 * (1 + 1/(k-1))
         G[e,e] = w_e^2 * sum_v |c_e[v]|^2       = T[e,e], since squaring kills the
@@ -412,7 +465,7 @@ def exact_channel_diagonals(rex):
                                                   co-participation being topological
         F[e,e] = sum_{f != e} |T[e,f] - G[e,f]|   the signed/unsigned mismatch, which
                                                   lives entirely off-diagonal
-        C[e,e] = sum_{f != e} G[e,f]              the share-weighted overlap row sum
+        C[e,e] = sum_{f != e} K_C[e,f]            selected unweighted share/count overlap
 
     Read from the boundary CSR rather than the assembled float64 channels. Recovering
     these from the float would put the whole rational tower on the approximation tower
@@ -420,17 +473,21 @@ def exact_channel_diagonals(rex):
     `(1, 3/2]` for every k >= 3, so anything that rounds collapses every branching arity
     onto the same value and zeroes the mismatch that F is made of.
 
-    Returns `(diagonals, names)` with `diagonals` a dict name -> list of Fractions, or
-    `(None, [])` when the complex is not exactly representable. The normalized G channel
-    is the one case that is not: `I - D^-1/2 K D^-1/2` takes a square root, so a complex
-    carrying it has no rational character and says so rather than approximating one.
+    Returns `(diagonals, names)` with `diagonals` a dict name -> list of Fractions.
+    For normalized G with nonnegative weights, its diagonal is rational even when
+    its off diagonal is not: `1 - K[e,e]/sum_f K[e,f]`. A zero row has diagonal 1,
+    matching I minus the zero normalized adjacency. No Gram matrix is assembled.
     """
-    if getattr(rex, "g_channel", "raw") != "raw":
-        return None, []                     # normalized L_O takes a sqrt: not rational
+    normalized = getattr(rex, "g_channel", "raw") == "normalized"
     rex._ensure_clean()
+    if normalized:
+        from rexgraph.sparse_character import _require_distinct_channel_participants
+        _require_distinct_channel_participants(rex)
+    for attr in ('w_V', 'vertex_weights'):
+        weights = getattr(rex, attr, None)
+        if weights is not None and not np.all(np.asarray(weights) == 1):
+            raise ValueError('exact channel diagonals do not support vertex weighting')
     nE = int(rex.nE)
-    if nE == 0:
-        return None, []
 
     bp = np.asarray(rex._boundary_ptr)
     bi = np.asarray(rex._boundary_idx)
@@ -440,15 +497,17 @@ def exact_channel_diagonals(rex):
     # taking it here would put the exact tower on the exact value of a double
     metric = getattr(rex, "edge_metric_exact", None)
     w = list(metric) if metric is not None else [Fraction(1)] * nE
+    if normalized and any(x < 0 for x in w):
+        raise ValueError("exact normalized G requires nonnegative relation weights")
 
     # the exact B1 column: the head is distinguished at -1 and the rest share
     # 1/(k-1), which is what makes the column sum to zero at every arity k >= 2.
     #
     # A WITNESS (k = 1) is the exception and does not follow the head rule: the
     # construction emits (+1), so that L0 u = u, and there is no second vertex for
-    # the zero-sum condition to constrain. Reconstructing it as (-1) flipped the
-    # sign of every T off-diagonal it took part in, and since F is built from
-    # T - G off-diagonal it was the only channel that moved: on a 1-ary/2-ary
+    # the zero sum condition to constrain. Reconstructing it as (-1) flipped the
+    # sign of every T off diagonal it took part in, and since F is built from
+    # T - G off diagonal it was the only channel that moved: on a 1-ary/2-ary
     # complex F read [0,2,4,2] against the definition's [2,2,4,4], and on one
     # carrying arities 1..4 it read [0,0,0,0] against [6,2,2,2]. T, G and C were
     # untouched, the diagonal squaring the sign away and C taking absolute values.
@@ -467,15 +526,20 @@ def exact_channel_diagonals(rex):
             col[v] = col.get(v, Fraction(0)) + share
         cols.append(col)
 
-    incident = {}
+    # Two incidence passes. F uses unsigned metric masses but B1 orientations;
+    # taking signs from weighted B1 would measure a different channel.
+    masses = {}
     for e, col in enumerate(cols):
-        for v in col:
-            incident.setdefault(v, []).append(e)
+        for v, c in col.items():
+            total, pos, neg, weighted = masses.get(v, (Fraction(0),) * 4)
+            mass = abs(w[e] * c)
+            masses[v] = (total + abs(c), pos + (mass if c > 0 else 0),
+                         neg + (mass if c < 0 else 0), weighted + w[e] * abs(c))
 
-    # G is T's unsigned TWIN and carries the same per-relation metric: `overlap_gramian`
+    # G is T's unsigned TWIN and carries the same per relation metric: `overlap_gramian`
     # is already weighted, so leaving it unweighted here made diag(T) != diag(G) at any
     # w != 1 and broke the identity F is defined by. C stays unweighted on purpose, since
-    # co-participation is a topological fact about which relations meet.
+    # co participation is a topological fact about which relations meet.
     T = [w[e] * w[e] * sum((c * c for c in cols[e].values()), Fraction(0))
          for e in range(nE)]
     G = [w[e] * w[e] * sum((abs(c) * abs(c) for c in cols[e].values()), Fraction(0))
@@ -484,19 +548,23 @@ def exact_channel_diagonals(rex):
     F = [Fraction(0)] * nE
     C = [Fraction(0)] * nE
     for e in range(nE):
-        neighbours = {f for v in cols[e] for f in incident[v] if f != e}
-        for f in neighbours:
-            shared = cols[e].keys() & cols[f].keys()
-            t = w[e] * w[f] * sum((cols[e][v] * cols[f][v] for v in shared), Fraction(0))
-            g = w[e] * w[f] * sum((abs(cols[e][v]) * abs(cols[f][v]) for v in shared),
-                                  Fraction(0))
-            F[e] += abs(t - g)
-            C[e] += sum((abs(cols[e][v]) * abs(cols[f][v]) for v in shared), Fraction(0))
+        row_mass = Fraction(0)
+        for v, c in cols[e].items():
+            total, pos, neg, weighted = masses[v]
+            F[e] += 2 * abs(w[e] * c) * (neg if c > 0 else pos if c < 0 else 0)
+            C[e] += abs(c) * (total - abs(c))
+            row_mass += w[e] * abs(c) * weighted
+        if normalized:
+            G[e] = Fraction(1) - T[e] / row_mass if row_mass else Fraction(1)
+
+    if getattr(rex, "c_channel", "share") == "count":
+        from rexgraph.sparse_character import _count_c_diagonal
+        C = [Fraction(value) for value in _count_c_diagonal(rex)]
 
     # Every channel is reported, including one summing to zero. A channel with no
-    # mass is a MEASUREMENT and not an absence: frustration vanishes exactly on a
-    # uniformly oriented complex, where every vertex is a pure source or a pure sink
-    # so the signed and unsigned overlaps agree at every shared vertex. Dropping it
+    # mass is a MEASUREMENT and not an absence. For distinct participants and nonzero
+    # relation weights, frustration vanishes exactly when each vertex has only one
+    # incidence orientation. Zero weight relations can mask disagreements. Dropping it
     # there disagreed with the float bundle, which now keeps it too, and made two
     # characters of different widths not comparable.
     diagonals, names = {}, []
@@ -507,15 +575,15 @@ def exact_channel_diagonals(rex):
 
 
 def exact_character(rex):
-    """The per-edge structural character as exact Fractions, computed not recovered.
+    """The per edge structural character as exact Fractions, computed not recovered.
 
     The character is a ratio of DIAGONALS::
 
         hat_k    = L_k / trace(L_k)
         chi[e,k] = hat_k[e,e] / RL[e,e]        where  RL = sum_k hat_k
 
-    and every channel's diagonal is a polynomial in B1's entries, which are `-1` and
-    `1/(k-1)`, so the whole thing is a ratio of rationals. No solve, no eigenvalue and
+    and the raw diagonals are rational valued on rational input, so the whole thing
+    is a ratio of rationals. No solve, no eigenvalue and
     no square root enters at any point. The diagonals come from `exact_channel_diagonals`,
     built from the boundary structure: they are NOT integers once any relation branches,
     and reading them back off the float channels would lose exactly the arity content the

@@ -1,17 +1,17 @@
 """
-agent.finetune: LoRA fine-tune of a Hugging Face model on this machine's GPU, plus an
+agent.finetune: LoRA fine tune of a Hugging Face model on this machine's GPU, plus an
 optimizer A/B on the same run.
 
 `finetune()` builds its optimizer with `make_optimizer(optimizer, ...)` and defaults to `"auto"`,
-which routes a feature-space model (this is one: LoRA adapts weight matrices) to plain Adam. It
+which routes a feature space model (this is one: LoRA adapts weight matrices) to plain Adam. It
 streams the loss through the platform's run log and produces a loadable adapter. `finetune_ab()`
 names its two arms deliberately (`("hodge", "adam")` by default): it trains the same model on the
 same data with the same seed under each, so the two loss curves are directly comparable, and judges
-on a held-out eval split. HodgeAdam appears there as an arm under test, not as a recommendation.
+on a held out eval split. HodgeAdam appears there as an arm under test, not as a recommendation.
 
 Scope: LoRA optimizes the model's weight matrices; the transformer's attention stays standard
-(relational attention is the native-model track, not a llama.cpp/HF retrofit). This exercises the
-optimizer and the end-to-end platform, not relational attention.
+(relational attention is the native model track, not a llama.cpp/HF retrofit). This exercises the
+optimizer and the end to end platform, not relational attention.
 
 Heavy deps (transformers/peft/datasets/accelerate) are optional and imported lazily: when absent,
 every entry point returns an "install the [finetune] extra" message instead of raising.
@@ -29,7 +29,7 @@ logger = logging.getLogger("rexgraph.finetune")
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
-# A tiny built-in instruction set so a run needs no data setup. Small on purpose: it exercises the
+# A tiny built in instruction set so a run needs no data setup. Small on purpose: it exercises the
 # optimizer moving weights, not the training of a strong model.
 _TINY_DATA: list[dict] = [
     {"instruction": "What is the capital of France?", "response": "The capital of France is Paris."},
@@ -98,8 +98,8 @@ _TINY_DATA: list[dict] = [
 
 
 def deps_available() -> dict:
-    """Report which fine-tune deps are present and whether the phase can run, so the UI/CLI can
-    report what to install rather than failing mid-run."""
+    """Report which fine tune deps are present and whether the phase can run, so the UI/CLI can
+    report what to install rather than failing mid run."""
     have = {}
     for m in ("torch", "transformers", "peft", "datasets", "accelerate", "safetensors"):
         try:
@@ -129,11 +129,11 @@ def load_data(dataset=None, *, text_field: str | None = None,
               instruction_field: str = "instruction", response_field: str = "response",
               split: str = "train", limit: int | None = None) -> list[dict]:
     """Load training rows. `dataset` may be:
-      - None              -> the built-in tiny set,
+      - None              -> the built in tiny set,
       - a local file      -> .jsonl / .json / .csv (rows) or .txt (one text per line),
       - a HF dataset id   -> loaded via `datasets` (needs the extra).
     Rows are normalized to {'text'} or {'instruction','response'} using the field names given
-    (auto-detects common ones). Use `text_field` for a plain-text column."""
+    (auto detects common ones). Use `text_field` for a plain text column."""
     if dataset is None:
         return list(_TINY_DATA)
     rows: list[dict] = []
@@ -182,10 +182,10 @@ def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: i
              split: str = "train", data_limit: int | None = None, full: bool = False,
              target_modules=None, save_dir: str | None = None, on_step: Callable = None,
              label: str | None = None) -> dict:
-    """One fine-tune run with the chosen optimizer, on a given model and data. Loads the HF model
+    """One fine tune run with the chosen optimizer, on a given model and data. Loads the HF model
     (`model_id`: a hub id or a local path), optionally wraps it in LoRA (or `full=True` for a full
-    fine-tune), trains on `dataset` (see `load_data`) streaming loss, and saves the result. Returns
-    train and held-out-eval trajectories. Requires the [finetune] extra."""
+    fine tune), trains on `dataset` (see `load_data`) streaming loss, and saves the result. Returns
+    train and held out eval trajectories. Requires the [finetune] extra."""
     dep = deps_available()
     if not dep["ready"]:
         return {"skipped": dep["need"], "optimizer": optimizer, "deps": dep}
@@ -202,7 +202,7 @@ def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: i
         tok.pad_token = tok.eos_token
     model = AutoModelForCausalLM.from_pretrained(model_id)
     if full:
-        model = model.to(dev)                    # full fine-tune: every weight trains
+        model = model.to(dev)                    # full fine tune: every weight trains
     else:
         lora = LoraConfig(r=lora_r, lora_alpha=lora_alpha, lora_dropout=0.0, bias="none",
                           task_type="CAUSAL_LM",
@@ -219,7 +219,7 @@ def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: i
         logger.warning("optimizer %r failed (%s) -> Adam", optimizer, e)
         opt = torch.optim.Adam(trainable, lr=lr or 1e-4); opt_class = "Adam"; optimizer = "adam"
 
-    # deterministic train/eval split: eval is held-out data the model never trains on, so the
+    # deterministic train/eval split: eval is held out data the model never trains on, so the
     # A/B verdict compares generalization, not memorization of the training loss.
     ex = list(data or load_data(dataset, text_field=text_field, instruction_field=instruction_field,
                                 response_field=response_field, split=split, limit=data_limit))
@@ -283,8 +283,8 @@ def finetune(*, model_id: str = DEFAULT_MODEL, optimizer: str = "auto", steps: i
 
 def finetune_ab(*, model_id: str = DEFAULT_MODEL, optimizers=("hodge", "adam"), steps: int = 60,
                 on_step: Callable = None, **kw) -> dict:
-    """The A/B run: fine-tune the same model on the same data and seed under each optimizer, so the
-    loss curves are directly comparable. Returns both runs and a verdict on held-out eval loss."""
+    """The A/B run: fine tune the same model on the same data and seed under each optimizer, so the
+    loss curves are directly comparable. Returns both runs and a verdict on held out eval loss."""
     dep = deps_available()
     if not dep["ready"]:
         return {"skipped": dep["need"], "deps": dep, "ab": []}
@@ -296,7 +296,7 @@ def finetune_ab(*, model_id: str = DEFAULT_MODEL, optimizers=("hodge", "adam"), 
         if "skipped" in r:
             return r
         runs.append(r)
-    # judge on held-out eval loss (generalization), not training loss
+    # judge on held out eval loss (generalization), not training loss
     evals = {r["optimizer"]: r["eval_final"] for r in runs if r.get("eval_final") is not None}
     trains = {r["optimizer"]: r["loss_final"] for r in runs if r.get("loss_final") is not None}
     best = min(evals, key=evals.get) if evals else None
@@ -306,7 +306,7 @@ def finetune_ab(*, model_id: str = DEFAULT_MODEL, optimizers=("hodge", "adam"), 
         margin = round(vals[1] - vals[0], 4)
     verdict = "inconclusive"
     if best is not None:
-        # a sub-1% eval gap is within noise, not a win
+        # a sub 1% eval gap is within noise, not a win
         rel = (margin / max(evals.values())) if (margin and max(evals.values())) else 0
         verdict = (f"{best} generalized better (eval gap {margin})" if rel > 0.01
                    else f"tie - eval gap {margin} is within noise")

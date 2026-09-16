@@ -77,7 +77,7 @@ def test_the_relation_holds_no_plaintext_on_disk(relation, tmp_path):
 
 
 def test_a_persisted_relation_cannot_resolve_identities(relation, tmp_path):
-    """record_ids is in-memory only, which is what keeps identities out of the file."""
+    """record_ids is in memory only, which is what keeps identities out of the file."""
     rel, policy, keys = relation
     path = tmp_path / "search.safetensors"
     save_search_relation(path, rel)
@@ -123,7 +123,7 @@ def test_a_keyed_token_is_scoped_to_its_workspace(tmp_path, monkeypatch):
     """The adaptation that makes this a port rather than a copy.
 
     The reference took key bytes through a static provider. Here the identifier resolves
-    through the workspace-scoped secret store, so the same name in two workspaces derives
+    through the workspace scoped secret store, so the same name in two workspaces derives
     two different keys and one tenant's tokens are meaningless to another. A static
     provider constructed inside a request would hand every tenant the same key.
     """

@@ -1,7 +1,7 @@
 var h=React.createElement,{useState,useEffect,useRef,useCallback}=React;
 try{var _th=localStorage.getItem("rexgraph_theme");if(_th)document.documentElement.dataset.theme=_th;}catch(e){}
 
-// ── Auth state (module-level so all components can access) ──
+// ── Auth state (module level so all components can access) ──
 var _authToken=sessionStorage.getItem("rexgraph_token")||"";
 var _workspace=sessionStorage.getItem("rexgraph_workspace")||"default";
 var _onAuthFail=null; // set by App to trigger login screen
@@ -23,7 +23,7 @@ function api(p,o){
 function jpost(p,b){return api(p,{method:"POST",headers:Object.assign({"Content-Type":"application/json"},authHeaders()),body:JSON.stringify(b)})}
 function jdel(p){return api(p,{method:"DELETE"})}
 function fpost(p,fd){
-  var hdrs=authHeaders(); // don't set Content-Type for FormData
+  var hdrs=authHeaders(); // don't set Content Type for FormData
   return fetch("/api"+p,{method:"POST",headers:hdrs,body:fd}).then(function(r){
     if(r.status===401){if(_onAuthFail)_onAuthFail();throw new Error("Authentication required")}
     if(!r.ok)return r.json().catch(function(){return{}}).then(function(d){throw new Error(d.detail||d.error||r.statusText)});
@@ -36,7 +36,7 @@ function kc(k){return k>=0.7?"kappa-high":k>=0.4?"kappa-mid":"kappa-low"}
 
 // ── Shared ──
 function Table(p){if(!p.rows||!p.rows.length)return ;return h("table",null,h("thead",null,h("tr",null,p.cols.map(function(c,i){return h("th",{key:i},c.l)}))),h("tbody",null,p.rows.map(function(r,i){return h("tr",{key:i},p.cols.map(function(c,j){var v=c.r?c.r(r,i):r[c.k];var cell=(v==null)?"-":(React.isValidElement(v)||Array.isArray(v)||typeof v!=="object")?v:JSON.stringify(v);return h("td",{key:j},cell)}))})))}
-// `className` is forwarded so a caller can mark a whole card advanced-only. Without
+// `className` is forwarded so a caller can mark a whole card advanced only. Without
 // it the class was accepted and dropped, and the card showed in Standard.
 function Card(p){return h("div",{className:"card"+(p.className?" "+p.className:"")},h("div",{className:"card-header"},h("h3",null,p.title),p.actions),h("div",{className:"card-body"},p.children))}
 function Badge(p){return h("span",{className:"badge "+(p.type||"neutral")},p.children)}
@@ -81,7 +81,7 @@ function _plRun(fd){
           else if(evT==="done"){if(d.documents)d.documents.forEach(function(doc){var exists=_pl.results.some(function(r){return r.doc_id===doc.doc_id});if(!exists)_pl.results.push(doc)});_pl.ontology=d.ontology||null;_pl.busy=false;_plNotify()}
           else if(evT==="error"){_pl.err=d.error||"Pipeline error";_pl.busy=false;_plNotify()}}evT="";evD=""}}return pump()})}
     return pump()}).catch(function(x){_pl.err=x.message;_pl.busy=false;_plNotify()})}
-// Upsert a progress row keyed by (phase, doc) so streamed per-stage
+// Upsert a progress row keyed by (phase, doc) so streamed per stage
 // analysis events collapse into one updating row instead of growing
 // without bound (audit A3).
 function _plUpsertPhase(d){
@@ -770,7 +770,7 @@ function Builder(){
   // vLLM structural router
   var rp=useState(""),prompt=rp[0],setPr=rp[1],rr=useState(null),route=rr[0],setRoute=rr[1];
   function doRoute(){if(!prompt.trim())return;setE("");jpost("/v1/vllm/route",{text:prompt}).then(setRoute).catch(function(x){setE(x.message)})}
-  // LangChain confidence (session-aware)
+  // LangChain confidence (session aware)
   var ses=useState([]),sessions=ses[0],setSes=ses[1],cSel=useState(""),cSes=cSel[0],setCSes=cSel[1];
   var cf=useState(null),conf=cf[0],setConf=cf[1];
   var ct=useState(""),confText=ct[0],setConfText=ct[1];
@@ -1366,7 +1366,7 @@ function Login(p){
       h("div",{style:{textAlign:"center",marginTop:12}},
         h("button",{onClick:function(){setRc(!showRecover);setE("")},style:{background:"none",border:"none",color:"var(--fg2)",fontSize:12,cursor:"pointer",textDecoration:"underline"}},showRecover?"Back to sign in":"Lost your token?"))))}
 
-// #### FIRST-RUN SETUP
+// #### FIRST RUN SETUP
 function Setup(p){
   var ph=useState("welcome"),phase=ph[0],setPh=ph[1];
   var tk=useState(""),token=tk[0],setTk=tk[1];
@@ -2735,12 +2735,12 @@ var TAB_MAP={pipeline:Pipeline,graph:GraphView,documents:Documents,corpus:Corpus
 
 /* useEventStream: one shared SSE hook.
 
-   EventSource is GET-only and carries no headers, so the token rides as a query
+   EventSource is GET only and carries no headers, so the token rides as a query
    param the same way the export links do. The stream is opened once per mount and
    closed on unmount, because an EventSource left open survives the screen that
    created it and keeps reconnecting forever.
 
-   Returns [events, connected]. Newest first, capped, so a long-running feed cannot
+   Returns [events, connected]. Newest first, capped, so a long running feed cannot
    grow without bound. */
 function useEventStream(path, cap){
   var ev=useState([]),events=ev[0],setEvents=ev[1];
@@ -2842,7 +2842,7 @@ function Readout(p){
       h("span",{className:"ro-adv adv"},p.adv!=null?p.adv:fmt(p.value,4))));
 }
 
-/* Derivation: advanced-only. the equation, its inputs and its output. */
+/* Derivation: advanced only. the equation, its inputs and its output. */
 function Derivation(p){
   return h("div",{className:"derivation adv"},
     p.title&&h("div",{className:"drv-t"},p.title),
@@ -2852,7 +2852,7 @@ function Derivation(p){
 
 
 /* Icon: one 16px sprite, stroked in currentColor, so an icon inherits the colour
-   of whatever it sits in and needs no per-theme variant. Unicode glyphs are not
+   of whatever it sits in and needs no per theme variant. Unicode glyphs are not
    used for controls: they render differently on every platform and screen
    readers announce them literally. */
 function Icon(p){
@@ -2934,7 +2934,7 @@ function Finding(p){
 
 /* ── templates ─────────────────────────────────────────────────────────────
    Six shapes. A screen supplies content and actions; it never lays itself out.
-   Every template hosts sub-tabs, because six screens need them and Models needs
+   Every template hosts sub tabs, because six screens need them and Models needs
    eight. A template that cannot carry eight is the wrong shape.
 
    Common props:
@@ -3100,8 +3100,8 @@ function Empty(p){
 
 
 
-/* Sub-tab routing. Each screen owns its own sub-tab state, so search hands the
-   target across in a one-shot slot the screen reads as its initial value. It is
+/* Sub tab routing. Each screen owns its own sub tab state, so search hands the
+   target across in a one shot slot the screen reads as its initial value. It is
    cleared on read, so a later visit opens where the screen last was rather than
    where search once sent it. */
 var _pendingSub=null;
@@ -3111,10 +3111,10 @@ function takeSub(fallback){var v=_pendingSub;_pendingSub=null;return v||fallback
 /* Palette: the search bar, wired.
 
    Indexes what the app can actually reach: every screen from SECTIONS, every
-   sub-tab those screens declare, and the actions the frame owns. Selecting a
+   sub tab those screens declare, and the actions the frame owns. Selecting a
    result navigates; it never just filters a list somewhere.
 
-   Scored, not merely substring-matched: an exact prefix beats a word start,
+   Scored, not merely substring matched: an exact prefix beats a word start,
    which beats a subsequence, so typing "doc" puts Documents above
    "Schema Diagnosis". */
 var SUBTABS={documents:["files","sessions","explore"],
@@ -3154,7 +3154,7 @@ function Palette(p){
   useEffect(function(){setI(0)},[q]);
   var idx=buildIndex().concat(p.actions||[]);
   // ties go to the shorter, more general result: a screen ranks above its own
-  // sub-tabs, so "doc" offers Documents before Documents: sessions.
+  // sub tabs, so "doc" offers Documents before Documents: sessions.
   var hits=idx.map(function(r){return {r:r,s:score(q,r.label)}})
               .filter(function(x){return x.s>0})
               .sort(function(a,b){
@@ -3188,7 +3188,7 @@ function Palette(p){
 }
 
 /* ── frame ─────────────────────────────────────────────────────────────────
-   Regions are cells, dividers are the 1-cells between them. A divider is a
+   Regions are cells, dividers are the 1 cells between them. A divider is a
    boundary column over exactly two regions and its direction is read off the
    sign, never branched per panel. */
 function _readMode(){try{return localStorage.getItem("rexgraph_mode")||"std"}catch(e){return "std"}}

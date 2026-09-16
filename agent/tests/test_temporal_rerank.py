@@ -7,9 +7,9 @@ stale, once the candidates were structurally scored.
 
 Everything here reads STORED SIGNATURES ONLY. store.history returns records without
 touching a blob, and a signature already carries nV/nE/betti1/kappa_mean per version,
-so per-candidate temporal features cost dict arithmetic rather than a reconstruction
+so per candidate temporal features cost dict arithmetic rather than a reconstruction
 per version. rcdb.trajectory does the expensive thing (a blob per version plus a
-cross-complex bridge per step) and is the wrong tool inside a query.
+cross complex bridge per step) and is the wrong tool inside a query.
 """
 
 import pytest
@@ -96,7 +96,7 @@ def test_a_missing_record_yields_neutral_features(store):
 
 
 def test_recency_is_a_rank_within_the_candidates_not_a_decay_constant(store):
-    """An absolute half-life would be a magic number with no defensible value. The
+    """An absolute half life would be a magic number with no defensible value. The
     ordering among the actual candidates carries the same information and needs none."""
     from agent.temporal import recency_weights
 

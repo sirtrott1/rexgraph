@@ -7,8 +7,8 @@ its structural character, and route based on which channel dominates.
 
 T-dominant prompt -> logical reasoning model
 G-dominant prompt -> associative/creative model
-F-dominant prompt -> contradiction-handling model
-C-dominant prompt -> multi-hop reasoning model
+F-dominant prompt -> contradiction handling model
+C-dominant prompt -> multi hop reasoning model
 
 High void affinity -> refuse or flag uncertainty
 
@@ -48,7 +48,7 @@ def _tokenize_simple(text: str) -> list[str]:
 def _build_prompt_rex(tokens: list[str], window: int = 3):
     """Build a small relational complex from prompt tokens.
 
-    Edges = co-occurrence within a sliding window.
+    Edges = co occurrence within a sliding window.
     Types = adjacent (bigram) vs skip (within window, not adjacent).
     """
     try:
@@ -89,7 +89,7 @@ def _build_prompt_rex(tokens: list[str], window: int = 3):
     rex = RexGraph(sources=sources, targets=targets, w_E=weights)
 
     # One rule, the canonical one. This branched on the number of edge types, so a
-    # single-type prompt got its whole cycle basis filled and a multi-type one got a
+    # single type prompt got its whole cycle basis filled and a multi type one got a
     # type filter: two different complexes for the same shape of input.
     from agent.auto import attach_faces
     rex = attach_faces(rex, type_labels=types)
@@ -114,7 +114,7 @@ class RexRouter:
         0: "reasoning",    # T: topological, logical
         1: "creative",     # G: geometric, associative
         2: "analytical",   # F: frustration, contradiction
-        3: "reasoning",    # C: copath, higher-order (defaults to reasoning)
+        3: "reasoning",    # C: copath, higher order (defaults to reasoning)
     }
 
     def __init__(
@@ -126,7 +126,7 @@ class RexRouter:
     ):
         """
         Parameters
-        ----------
+
         models : dict mapping capability name -> model identifier
             E.g., {"reasoning": "mistral-7b", "creative": "llama-3-8b"}
         default : str

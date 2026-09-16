@@ -5,13 +5,13 @@ Zarr v2/v3 and HDF5 compatibility layer.
 Zarr helpers: path normalization, root group open/create, numcodecs
 Blosc to v3 BloscCodec bridge, compressor normalization, array
 creation (v2 create_dataset / v3 create_array), complex array
-storage, sparse CSR storage, ragged UTF-8 strings, dict-of-arrays
+storage, sparse CSR storage, ragged UTF-8 strings, dict of arrays
 group storage.
 
 HDF5 helpers: file open/close, complex arrays, sparse CSR, dict
-storage, variable-length UTF-8 strings.
+storage, variable length UTF-8 strings.
 
-Shared helpers: numpy-to-native conversion, JSON encoding, boolean
+Shared helpers: numpy to native conversion, JSON encoding, boolean
 mask storage.
 """
 
@@ -52,10 +52,9 @@ except ImportError:
 # Scipy detection
 
 try:
-    import scipy.sparse as _sp
-    HAS_SCIPY: bool = True
+    from importlib.util import find_spec
+    HAS_SCIPY: bool = find_spec("scipy") is not None
 except ImportError:
-    _sp = None  # type: ignore[assignment]
     HAS_SCIPY = False
 
 
@@ -112,21 +111,21 @@ _INTERNAL_ATTRS = frozenset({
 
 # Shared type conversion
 #
-# One encoder, one NaN policy. This used to be nine near-copies across bundle,
+# One encoder, one NaN policy. This used to be nine near copies across bundle,
 # parquet, arrow, sql, the dashboard and three server routes, with four different
-# answers for a non-finite float, and none of them worked, because np.float64
+# answers for a non finite float, and none of them worked, because np.float64
 # subclasses Python float and so is serialized directly without ever reaching
 # JSONEncoder.default. A NaN metric therefore wrote a bare `NaN` token into an .rcbd
 # MANIFEST.json, which is not JSON and JSON.parse rejects. The policy has to be
 # applied to the object BEFORE dumps, which is what json_sanitize does.
 
-#: what a non-finite float becomes. "zero" is the historical io behaviour; "null"
+#: what a non finite float becomes. "zero" is the historical io behaviour; "null"
 #: is what a JSON consumer expects for a missing number; "raise" refuses to guess.
 NAN_POLICIES = ("zero", "null", "raise")
 
 
 def _finite(val: float, nan: str = "zero") -> Any:
-    """Apply the non-finite policy to one float. Finite values pass through."""
+    """Apply the non finite policy to one float. Finite values pass through."""
     if val == val and val not in (float("inf"), float("-inf")):
         return val
     if nan == "zero":
@@ -155,11 +154,11 @@ def to_native(v: Any) -> Any:
 
 
 def json_sanitize(o: Any, nan: str = "zero") -> Any:
-    """Walk `o` and return an equivalent tree of JSON-native types.
+    """Walk `o` and return an equivalent tree of JSON native types.
 
-    Handles what `default=` cannot reach: non-finite Python floats (and np.float64,
+    Handles what `default=` cannot reach: non finite Python floats (and np.float64,
     which is one), numpy scalars inside arrays, and numpy dict keys. Headers here are
-    KB-scale, so the walk is cheap next to the tensor payload it accompanies.
+    KB scale, so the walk is cheap next to the tensor payload it accompanies.
     """
     if isinstance(o, float):                       # covers np.float64
         return _finite(o, nan)
@@ -186,10 +185,10 @@ def json_sanitize(o: Any, nan: str = "zero") -> Any:
 
 
 def dumps(o: Any, nan: str = "zero", **kwargs: Any) -> str:
-    """json.dumps with the numpy and non-finite policies already applied.
+    """json.dumps with the numpy and non finite policies already applied.
 
     `allow_nan=False` is a backstop, not the mechanism: json_sanitize has already
-    removed every non-finite value, so a NaN reaching here means the walk missed a
+    removed every non finite value, so a NaN reaching here means the walk missed a
     container type and we want the loud failure rather than invalid JSON on disk.
     """
     kwargs.setdefault("default", json_default)
@@ -201,7 +200,7 @@ def json_default(o: Any) -> Any:
     """JSON serializer fallback for numpy types.
 
     Pass as json.dumps(obj, default=json_default). Prefer `dumps`, which also applies
-    the non-finite policy. `default` alone cannot, since json never calls it for a
+    the non finite policy. `default` alone cannot, since json never calls it for a
     float subclass.
     """
     if isinstance(o, np.ndarray):
@@ -249,7 +248,7 @@ def rm_rf(path: str) -> None:
         os.remove(path)
 
 
-# Zarr root-group helpers
+# Zarr root group helpers
 
 def _require_zarr() -> None:
     if not HAS_ZARR:
@@ -303,7 +302,7 @@ def _numcodecs_blosc_to_v3_codec(comp: Any):
 
 
 def _normalize_create_kwargs(kw: dict[str, Any]) -> dict[str, Any]:
-    """Normalize array-creation kwargs across Zarr v2 and v3."""
+    """Normalize array creation kwargs across Zarr v2 and v3."""
     out = dict(kw)
 
     if ZARR_V3:
@@ -410,7 +409,7 @@ def g_store_complex(
     compressor=None,
     chunks=True,
 ) -> None:
-    """Store a possibly-complex ndarray in a Zarr group.
+    """Store a possibly complex ndarray in a Zarr group.
 
     Complex arrays become a subgroup with real and imag datasets
     plus is_complex/dtype/shape attrs. Real arrays are stored as a
@@ -467,7 +466,9 @@ def g_store_sparse_csr(
         return
 
     if not HAS_SCIPY:
-        raise ImportError("scipy is required for sparse storage: pip install scipy")
+        raise ImportError("explicit SciPy matrix storage requires rexgraph[scipy]")
+
+    import scipy.sparse as _sp
 
     if _sp.issparse(matrix):
         csr = matrix.tocsr()
@@ -495,7 +496,7 @@ def g_load_sparse_csr(group, name: str, *, dense: bool = False):
     """Load a sparse or dense array from a Zarr group.
 
     Parameters
-    ----------
+
     group : Zarr group
     name : str
     dense : bool
@@ -506,7 +507,8 @@ def g_load_sparse_csr(group, name: str, *, dense: bool = False):
 
     if hasattr(obj, "attrs") and obj.attrs.get("is_sparse", False):
         if not HAS_SCIPY:
-            raise ImportError("scipy is required: pip install scipy")
+            raise ImportError("explicit SciPy matrix loading requires rexgraph[scipy]")
+        import scipy.sparse as _sp
         data = np.asarray(obj["data"])
         indices = np.asarray(obj["indices"])
         indptr = np.asarray(obj["indptr"])
@@ -520,7 +522,7 @@ def g_load_sparse_csr(group, name: str, *, dense: bool = False):
     return np.asarray(obj)
 
 
-# Zarr dict-of-arrays helpers
+# Zarr dict of arrays helpers
 
 def g_store_dict(
     group,
@@ -532,8 +534,8 @@ def g_store_dict(
 ) -> None:
     """Store a dict of arrays and scalars as a Zarr subgroup.
 
-    Arrays become datasets (complex-aware). Scalars and lists become
-    JSON attrs. Nested dicts become sub-subgroups (one level deep).
+    Arrays become datasets (complex aware). Scalars and lists become
+    JSON attrs. Nested dicts become sub subgroups (one level deep).
     """
     sub = group.create_group(name)
     _dict_to_group(sub, data, compressor=compressor, chunks=chunks)
@@ -658,7 +660,7 @@ def write_text_array(
     """Store a sequence of strings as ragged UTF-8 byte arrays.
 
     Creates <name>_vls/values (uint8) and <name>_vls/offsets (int64).
-    Avoids fixed-width |S# dtypes which break across Zarr v2/v3 and
+    Avoids fixed width |S# dtypes which break across Zarr v2/v3 and
     NumPy 2.x.
     """
     encoded: list[bytes] = []
@@ -690,12 +692,12 @@ def write_text_array(
 
 
 def read_text_array(group, name: str) -> list[bytes]:
-    """Read a string array from legacy fixed-width or ragged layout.
+    """Read a string array from legacy fixed width or ragged layout.
 
     Returns raw bytes. The caller decodes (typically .decode("utf-8")).
     Raises KeyError if neither format is found.
     """
-    # Legacy fixed-width bytes dataset
+    # Legacy fixed width bytes dataset
     try:
         obj = group[name]
     except KeyError:
@@ -792,7 +794,7 @@ def h5_store_complex(
     compression: str = "lzf",
     chunks: bool = True,
 ) -> None:
-    """Store a possibly-complex ndarray in HDF5.
+    """Store a possibly complex ndarray in HDF5.
 
     Same behavior as h5_store_array; provided for API symmetry with
     g_store_complex.
@@ -802,7 +804,7 @@ def h5_store_complex(
 
 
 def h5_load_complex(group, name: str) -> np.ndarray:
-    """Load a possibly-complex ndarray from HDF5."""
+    """Load a possibly complex ndarray from HDF5."""
     return h5_load_array(group, name)
 
 
@@ -827,7 +829,9 @@ def h5_store_sparse_csr(
         return
 
     if not HAS_SCIPY:
-        raise ImportError("scipy is required for sparse storage: pip install scipy")
+        raise ImportError("explicit SciPy matrix storage requires rexgraph[scipy]")
+
+    import scipy.sparse as _sp
 
     if _sp.issparse(matrix):
         csr = matrix.tocsr()
@@ -858,7 +862,7 @@ def h5_load_sparse_csr(group, name: str, *, dense: bool = False):
     """Load a sparse or dense array from an HDF5 group.
 
     Parameters
-    ----------
+
     group : h5py group
     name : str
     dense : bool
@@ -868,7 +872,8 @@ def h5_load_sparse_csr(group, name: str, *, dense: bool = False):
 
     if isinstance(obj, h5py.Group) and obj.attrs.get("is_sparse", False):
         if not HAS_SCIPY:
-            raise ImportError("scipy is required: pip install scipy")
+            raise ImportError("explicit SciPy matrix loading requires rexgraph[scipy]")
+        import scipy.sparse as _sp
         data = obj["data"][:]
         indices = obj["indices"][:]
         indptr = obj["indptr"][:]
@@ -879,7 +884,7 @@ def h5_load_sparse_csr(group, name: str, *, dense: bool = False):
     return h5_load_array(group, name)
 
 
-# HDF5 dict-of-arrays helpers
+# HDF5 dict of arrays helpers
 
 def h5_store_dict(
     group,
@@ -1015,7 +1020,7 @@ def h5_store_strings(
     name: str,
     strings: list[str],
 ) -> None:
-    """Store a list of strings as a variable-length UTF-8 HDF5 dataset."""
+    """Store a list of strings as a variable length UTF-8 HDF5 dataset."""
     _require_hdf5()
     dt = h5py.string_dtype(encoding="utf-8")
     group.create_dataset(name, data=np.array(strings, dtype=object), dtype=dt)

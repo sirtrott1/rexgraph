@@ -6,7 +6,7 @@ A rational point on the unit circle removes that: cos = (1-t^2)/(1+t^2) and
 sin = 2t/(1+t^2) are both rational and satisfy cos^2 + sin^2 = 1 exactly, so a direction
 from a rational parameter is rational in both components.
 
-The construction is the slot-wise difference of squares: (1 + X)(1 - X) = 1 - X^2, and
+The construction is the slot wise difference of squares: (1 + X)(1 - X) = 1 - X^2, and
 with X a cosine that is 1 - cos^2 = sin^2, which IS the spread. These pin that identity,
 the exactness of the coordinates, and that the angle between two rendered cells is a
 rational number rather than a float.

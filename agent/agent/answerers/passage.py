@@ -1,7 +1,7 @@
 """Passage answerer over a document corpus.
 
 Reports which retrieved spans hold which query terms, with document, section and byte
-offsets. A document complex records co-occurrence, so it locates terms and asserts no
+offsets. A document complex records co occurrence, so it locates terms and asserts no
 predication.
 """
 from __future__ import annotations
@@ -60,7 +60,7 @@ class PassageAnswerer:
             if not text:
                 continue
             # WHICH terms this span holds is a set intersection over the span's own
-            # tokens: exact, and the only claim the co-occurrence structure licenses.
+            # tokens: exact, and the only claim the co occurrence structure licenses.
             present = {w for w, _a, _b in tokenize(text, TEXT)} & want
             if not present:
                 continue

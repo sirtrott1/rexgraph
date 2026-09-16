@@ -1,5 +1,5 @@
 """
-Tests for linkage complex construction and character-based
+Tests for linkage complex construction and character based
 quotient filtration.
 """
 import numpy as np
@@ -67,7 +67,7 @@ class TestLinkageComplex:
         assert isinstance(rex, RexGraph)
 
     def test_betti_eigenfree_matches_svd(self, k4):
-        """The clique-path Betti now uses exact rational rank (no SVD); it equals the
+        """The clique path Betti now uses exact rational rank (no SVD); it equals the
         rank counted from B2's singular values."""
         sfb = k4.fiber_similarity
         result = _fiber.linkage_complex(sfb, 0.1, k4.nV)
@@ -78,7 +78,7 @@ class TestLinkageComplex:
         assert result['beta'][2] == result['nF'] - rank_svd
 
     def test_face_fill_cycle(self, k4):
-        """face_fill='cycle' fills the fundamental cycle basis (arbitrary-arity faces):
+        """face_fill='cycle' fills the fundamental cycle basis (arbitrary arity faces):
         every cycle independent so beta_1=beta_2=0, chain condition B1@B2=0 holds,
         Euler holds, and triangles is empty while face_lengths is populated."""
         sfb = k4.fiber_similarity
@@ -142,12 +142,12 @@ class TestQuotientFiltration:
 
 
 class TestQuotientEigenFree:
-    """The quotient kernels compute Betti/harmonic/congruence eigen-free (exact rank,
-    combinatorial harmonic basis, factor-once congruence) - each pinned to its dense
+    """The quotient kernels compute Betti/harmonic/congruence eigen free (exact rank,
+    combinatorial harmonic basis, factor once congruence) - each pinned to its dense
     oracle."""
 
     def _quot(self):
-        # 5-vertex graph, 2 independent cycles, one triangular face on edges 0,1,2
+        # 5 vertex graph, 2 independent cycles, one triangular face on edges 0,1,2
         nV, nE = 5, 6
         edges = [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)]
         B1 = np.zeros((nV, nE))

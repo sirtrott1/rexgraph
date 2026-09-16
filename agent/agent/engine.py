@@ -3,10 +3,10 @@ Agent decision engine: inspect data, plan analysis, execute.
 
 The engine determines what kind of relational structure the data
 carries, selects the construction strategy, runs the analysis,
-and produces a domain-specific interpretation.  Every decision
+and produces a domain specific interpretation.  Every decision
 is recorded with its rationale.
 
-No fitted parameters.  No domain-specific thresholds.  The
+No fitted parameters.  No domain specific thresholds.  The
 algebraic structure of the data itself determines the plan.
 
 Usage:
@@ -116,7 +116,7 @@ class EngineResult:
         companion file (.h5).
 
         Parameters
-        ----------
+
         path : str
             Output path (e.g., 'results.rcbd', 'results.zarr').
         format : str, optional
@@ -211,14 +211,14 @@ class EngineResult:
         """Load a saved EngineResult from disk.
 
         Parameters
-        ----------
+
         path : str
             Path to the saved result.
         format : str, optional
             Override format detection.
 
         Returns
-        -------
+
         EngineResult
         """
         import json
@@ -289,7 +289,7 @@ class DecisionEngine:
         """Inspect data and produce an analysis plan without executing.
 
         Parameters
-        ----------
+
         data : any supported input
         contexts : dict, optional
             Context label -> entity list mapping for face selection.
@@ -299,7 +299,7 @@ class DecisionEngine:
             Domain-specific edge signal to decompose.
 
         Returns
-        -------
+
         AnalysisPlan
         """
         plan = AnalysisPlan()
@@ -331,7 +331,7 @@ class DecisionEngine:
         """Full pipeline: detect, plan, build, analyze, interpret.
 
         Parameters
-        ----------
+
         data : any supported input
         contexts : dict, optional
         context_matrix : ndarray, optional
@@ -344,7 +344,7 @@ class DecisionEngine:
             Forwarded to the adapter.
 
         Returns
-        -------
+
         EngineResult
         """
         plan = self.plan(
@@ -648,7 +648,7 @@ class DecisionEngine:
                 fs = plan.face_selection
                 if fs == "all":
                     # "all" is this planner's word for the fullest reading. It used
-                    # to map to "typed", which is a filter that keeps only same-type
+                    # to map to "typed", which is a filter that keeps only same type
                     # triangles, so the fullest plan produced the narrowest complex.
                     fs = "auto"
                 build_kwargs["face_selection"] = fs
@@ -688,7 +688,7 @@ class DecisionEngine:
             )
 
     def _interpret(self, plan, rex, meta, analysis, signal_decomp):
-        """Produce domain-specific interpretation."""
+        """Produce domain specific interpretation."""
         interp = {
             "domain": plan.domain,
             "strategy": plan.interpretation_strategy,
@@ -707,18 +707,18 @@ class DecisionEngine:
         """Knowledge graph interpretation."""
         result = {}
 
-        # Per-entity structural summary
+        # Per entity structural summary
         rel = analysis.get("relational", {})
         kappa = rel.get("kappa_per_vertex")
         rel.get("phi_per_vertex")
         labels = meta.get("vertex_labels", [])
 
         if kappa and labels:
-            # Entities needing review = low-coherence OUTLIERS, flagged by a
-            # data-adaptive lower Tukey fence (q1 - 1.5·IQR), not a fixed magic
+            # Entities needing review = low coherence OUTLIERS, flagged by a
+            # data adaptive lower Tukey fence (q1 - 1.5·IQR), not a fixed magic
             # cutoff. Coherence κ is continuous (no integer invariant applies), so
             # the threshold is derived from the κ distribution itself - matching the
-            # project's outlier-detection convention (schema_complex relation_lint).
+            # project's outlier detection convention (schema_complex relation_lint).
             n = min(len(kappa), len(labels))
             k_arr = np.asarray(kappa[:n], dtype=np.float64)
             q1, q3 = np.percentile(k_arr, [25.0, 75.0])
@@ -731,10 +731,10 @@ class DecisionEngine:
             result["entities_needing_review"] = review_entities
             result["n_review"] = len(review_entities)
 
-            # What's LOAD-BEARING around the flagged entities: seed the incoherent
-            # entities, diffuse (demand-driven), and read which reached relations are
+            # What's LOAD BEARING around the flagged entities: seed the incoherent
+            # entities, diffuse (demand driven), and read which reached relations are
             # BRIDGES - critical links with no backup path - plus how far the flagged
-            # incoherence reaches (blast radius). The "what's load-bearing / what's
+            # incoherence reaches (blast radius). The "what's load bearing / what's
             # frustrated" verdict the narrative otherwise lacks.
             try:
                 seeds = [i for i in range(n) if kappa[i] < fence]
@@ -745,7 +745,7 @@ class DecisionEngine:
                     # A BRIDGE IS EXACT, so nothing here is a cutoff. R_eff(e) = 1
                     # exactly when removing e disconnects its endpoints, and
                     # `bridge_mask` decides that combinatorially: one walk of the
-                    # 1-skeleton, no solve, measured identical to the solve on every
+                    # 1 skeleton, no solve, measured identical to the solve on every
                     # complex tried (520/520 and 1315/1315 on GO slices, 1513x and
                     # 19233x faster). The previous `> 0.9` was guessing at where to cut
                     # a continuum that has no continuum: the values are 1 on a bridge

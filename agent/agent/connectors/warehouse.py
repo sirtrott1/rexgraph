@@ -3,7 +3,7 @@ Redshift / Databricks).
 
 Same *shape* as SQL: it is the SQL connector with the warehouse dialects added.
 The reflection code is unchanged: installing the vendor's SQLAlchemy driver is
-the only delta. Validated against SQLite as a structural stand-in here; point it
+the only delta. Validated against SQLite as a structural stand in here; point it
 at a live warehouse URI in the host environment (where the driver is installed).
 """
 from __future__ import annotations

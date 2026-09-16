@@ -33,9 +33,9 @@ from .state import SessionStore
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    """On startup: warm-load the activity journal (history across restarts) and tail it, so events
+    """On startup: warm load the activity journal (history across restarts) and tail it, so events
     recorded by any other local process - a `rexgraph-*` CLI, a worker - fold into this server's log
-    and stream live to the UI. The journal is the cross-process event bus; this is the server's end."""
+    and stream live to the UI. The journal is the cross process event bus; this is the server's end."""
     try:
         from agent import activity
         activity.get_log().enable_journal(warm=True, tail=True)
@@ -57,7 +57,7 @@ async def _lifespan(_app: FastAPI):
 
 
 class FiniteJSONResponse(_StarletteJSONResponse):
-    """JSON with non-finite floats rendered as null.
+    """JSON with non finite floats rendered as null.
 
     A measurement over nothing is NaN and a mixing time with no cycle to mix through
     is infinity. Both are honest values and neither is JSON: the default encoder
@@ -96,7 +96,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Workspace"],
 )
 
-# Starlette runs the LAST-registered middleware FIRST, so these three are registered
+# Starlette runs the LAST registered middleware FIRST, so these three are registered
 # in reverse of the order they run: a request is authenticated, then scoped to its
 # workspace, then metered, and only then reaches a route.
 add_compute_budget(app)
@@ -109,11 +109,11 @@ add_security_headers(app)
 # Sanitize error responses (generic 5xx + error_id; verbose with REXGRAPH_DEBUG_ERRORS=1).
 add_error_sanitizer(app)
 
-# HTTPS hardening (HSTS on TLS responses; no-op on plain HTTP)
+# HTTPS hardening (HSTS on TLS responses; no op on plain HTTP)
 add_https_hardening(app)
 
 # Rate limiting LAST -> outermost middleware, so it counts every request
-# (including failed-auth attempts) before auth verification runs.
+# (including failed auth attempts) before auth verification runs.
 _limiter = setup_rate_limiter(app)
 
 # Clean stale temp files on startup
@@ -250,7 +250,7 @@ async def index():
 # Mount static files (frontend JS, CSS, components).
 # app.jsx is loaded via <script src="/static/app.jsx">; StaticFiles would otherwise
 # guess its type as application/octet-stream, which the browser REFUSES to execute
-# as a script because we send X-Content-Type-Options: nosniff. Register .jsx as
+# as a script because we send X-Content Type Options: nosniff. Register .jsx as
 # JavaScript so the UI actually runs (keeping the nosniff hardening intact).
 import mimetypes
 
@@ -260,7 +260,7 @@ mimetypes.add_type("text/javascript", ".mjs")
 if _FRONTEND_DIR.exists():
     class _NoCacheStatic(StaticFiles):
         # frontend assets (app.jsx / theme.css) are edited in place; without this the browser
-        # heuristic-caches them and edits don't show. 'no-cache' still uses the etag (cheap 304s)
+        # heuristic caches them and edits don't show. 'no cache' still uses the etag (cheap 304s)
         # but revalidates every load, so the UI is never stale.
         async def get_response(self, path, scope):
             resp = await super().get_response(path, scope)
@@ -306,7 +306,7 @@ async def health(request: Request):
     return out
 
 
-# Console-script entry point (rcf-server)
+# Console script entry point (rcf server)
 
 
 def main() -> None:

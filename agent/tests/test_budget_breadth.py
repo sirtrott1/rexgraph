@@ -6,7 +6,7 @@ of cells. A guard written into one route covers that route, and a caller reaches
 expensive work through whichever route did not have one. So the slot is taken in
 middleware, and these tests are mostly about routes that never asked for it.
 
-The ordering matters and is easy to get backwards: Starlette runs the LAST-registered
+The ordering matters and is easy to get backwards: Starlette runs the LAST registered
 middleware FIRST, so the budget is registered BEFORE the auth enforcement it has to run
 behind. An unauthenticated request must be rejected without ever holding a slot.
 """

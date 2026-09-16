@@ -1,7 +1,7 @@
-"""The co-participation cochain classifier: the optimizer propagates the class through arity>2
-branching hyperedges where a structure-blind optimizer (Adam) cannot. Synthetic hub-hypergraph, no
-external data. Mirrors the real-data finding (a target bound by many ligands is a branching hyperedge;
-co-participation through it carries the label) on a controlled complex."""
+"""The co participation cochain classifier: the optimizer propagates the class through arity>2
+branching hyperedges where a structure blind optimizer (Adam) cannot. Synthetic hub hypergraph, no
+external data. Mirrors the real data finding (a target bound by many ligands is a branching hyperedge;
+co participation through it carries the label) on a controlled complex."""
 import numpy as np
 import pytest
 
@@ -15,9 +15,9 @@ from rexgraph.nn.factory import make_optimizer  # noqa: E402
 
 def _hub_hypergraph(groups=8, per_group=15, n_classes=2):
     """`groups` hubs, each a target vertex bound by `per_group` ligands -> an arity-`per_group`
-    branching hyperedge. Every edge in a group shares that hub, so co-participation groups them; a
+    branching hyperedge. Every edge in a group shares that hub, so co participation groups them; a
     ligand is unique to its edge, so the ONLY shared structure is the hub. class = group % n_classes.
-    Hub ids 0..groups-1, ligand ids groups.. (disjoint, so no vertex collision). Returns
+    Hub ids 0..groups 1, ligand ids groups.. (disjoint, so no vertex collision). Returns
     (rex, labels, per_group, groups)."""
     src, dst, labels = [], [], []
     lig = groups
@@ -40,10 +40,10 @@ def test_coparticipation_adjacency_is_sparse_and_carries_hub_arity():
     n_edges = len(labels)
     assert adj.shape == (n_edges, n_edges)
     assert adj.is_sparse
-    # every edge co-participates with the other (arity-1) edges of its hub: a genuine arity>2 clique,
-    # NOT a pairwise 2-neighbourhood. Count off-diagonal co-participants for edge 0.
+    # every edge co participates with the other (arity 1) edges of its hub: a genuine arity>2 clique,
+    # NOT a pairwise 2 neighbourhood. Count off diagonal co participants for edge 0.
     dense = adj.to_dense()
-    off = (dense[0] != 0).sum().item() - 1  # minus the self-loop from renormalisation
+    off = (dense[0] != 0).sum().item() - 1  # minus the self loop from renormalisation
     assert off == arity - 1 >= 2, f"edge 0 should see {arity - 1} hub co-participants, saw {off}"
 
 
@@ -74,7 +74,7 @@ def test_coparticipation_channel_propagates_where_adam_cannot():
     obs = ~is_m
 
     # Adam floor: a bare cochain trained with plain Adam never sends a gradient to a masked edge,
-    # so its masked predictions stay at the zero-init argmax (chance).
+    # so its masked predictions stay at the zero init argmax (chance).
     floor = CoParticipationCochain(rex, 2)
     opt = torch.optim.Adam(floor.parameters(), lr=0.3)
     lab_t = torch.as_tensor(labels, dtype=torch.long)
@@ -86,7 +86,7 @@ def test_coparticipation_channel_propagates_where_adam_cannot():
     adam_acc = _masked_acc(floor.predict(), labels, is_m)
     assert adam_acc < 0.65, f"Adam should be near chance on masked edges, got {adam_acc}"
 
-    # co-participation Green's channel via make_optimizer("auto"): the class is carried through the
+    # co participation Green's channel via make_optimizer("auto"): the class is carried through the
     # shared hub to the masked edges.
     model = CoParticipationCochain(rex, 2).fit(labels, obs, epochs=400, lr=0.3)
     greens_acc = _masked_acc(model.predict(), labels, is_m)
@@ -94,12 +94,12 @@ def test_coparticipation_channel_propagates_where_adam_cannot():
 
 
 def test_restricting_connectors_to_the_non_hub_side_kills_propagation():
-    # ablation: restrict co-participation to the LIGAND vertices (unique per edge) -> no shared cell,
+    # ablation: restrict co participation to the LIGAND vertices (unique per edge) -> no shared cell,
     # so the channel cannot propagate and collapses to the Adam floor. Proves it is the branching HUB
-    # doing the work, not co-participation generically.
+    # doing the work, not co participation generically.
     rex, labels, _arity, groups = _hub_hypergraph()
     n_vertices = abs(_scipy_incidence(rex)).shape[0]
-    ligand_only = np.arange(n_vertices) >= groups  # hubs are ids 0..groups-1
+    ligand_only = np.arange(n_vertices) >= groups  # hubs are ids 0..groups 1
     rng = np.random.RandomState(0)
     is_m = rng.rand(len(labels)) < 0.3
     obs = ~is_m
@@ -115,8 +115,8 @@ def _scipy_incidence(rex):
 
 
 def test_coparticipation_operator_survives_safetensors_roundtrip(tmp_path):
-    # the complex that DEFINES co-participation must round-trip losslessly, or a reloaded model would
-    # build a different operator. Assert the operator is bit-identical after the safetensors bridge.
+    # the complex that DEFINES co participation must round trip losslessly, or a reloaded model would
+    # build a different operator. Assert the operator is bit identical after the safetensors bridge.
     pytest.importorskip("safetensors")
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
 
@@ -148,7 +148,7 @@ def test_trained_model_roundtrips_through_safetensors(tmp_path):
     assert np.array_equal(reloaded.predict(), pred0)               # identical predictions
     assert torch.equal(reloaded.Z, model.Z)                        # identical cochain
     assert (reloaded.green_lam, reloaded.green_iters, reloaded.green_channel) == (3.0, 15, "low")
-    # the rebuilt operator matches too (complex round-tripped, same restriction)
+    # the rebuilt operator matches too (complex round tripped, same restriction)
     assert torch.equal(reloaded._adj.to_dense(), model._adj.to_dense())
 
 

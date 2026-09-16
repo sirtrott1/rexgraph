@@ -6,7 +6,7 @@ consequence of the mass sequence alone. It is an identity, so these check it rat
 sample it.
 
 The mass is EXTENSIVE (a sum over stored entries, additive over disjoint components)
-where the trace-normalised character is not. That difference is the whole reason to
+where the trace normalised character is not. That difference is the whole reason to
 prefer it: it carries the structural content without the global coupling.
 """
 from __future__ import annotations
@@ -72,7 +72,7 @@ def test_the_tower_law_holds(build):
     (truncated_icosahedron_3rex(), "truncated icosahedron"),
 ], ids=["octahedron", "pyramid", "trunc-icosa"])
 def test_the_law_holds_at_grade_three(cells, name):
-    """Genuine 3-complexes, where there is a B_3 for the law to reach."""
+    """Genuine 3 complexes, where there is a B_3 for the law to reach."""
     import scipy.sparse as sp
 
     from rexgraph.graded_boundary import build_graded_boundaries, graded_laplacians
@@ -86,7 +86,7 @@ def test_the_law_holds_at_grade_three(cells, name):
 
 
 def test_the_moments_follow_from_the_mass():
-    """d tr(0->1) = ||B_2||^2 exactly, which is why a face-free complex reads zero."""
+    """d tr(0->1) = ||B_2||^2 exactly, which is why a face free complex reads zero."""
     g = _filled(3)
     assert moments(g)[0] == pytest.approx(float(boundary_mass(g, 2)), abs=1e-9)
     assert moments(_path())[0] == pytest.approx(0.0, abs=1e-12)
@@ -115,11 +115,11 @@ def test_the_gradient_mass_is_the_total_quadrance():
 
 
 def test_the_mass_is_exact_at_branching_arity():
-    """A 4-ary relation contributes Q = 4/3, so the mass is rational and stays so."""
+    """A 4 ary relation contributes Q = 4/3, so the mass is rational and stays so."""
     g = _branching()
     m = boundary_mass(g, 1)
     assert isinstance(m, Fraction)
-    assert m == Fraction(28, 3)                  # one 4-ary at 4/3 plus four pairwise at 2
+    assert m == Fraction(28, 3)                  # one 4 ary at 4/3 plus four pairwise at 2
 
 
 def test_grades_count_from_one():
@@ -226,7 +226,7 @@ def test_the_closed_case_is_reached_by_the_redundant_face():
 
 
 def test_filling_never_changes_the_cycle_count():
-    """ker(B_1) is fixed by the 1-skeleton; filling moves cycles from harmonic to
+    """ker(B_1) is fixed by the 1 skeleton; filling moves cycles from harmonic to
     curl, which is what harmonic_shadow counts."""
     from rexgraph.tower import manifold_state
     counts = {manifold_state(_tetra(n))["cycles"] for n in (0, 1, 2, 3, 4)}
@@ -241,8 +241,8 @@ def test_an_acyclic_complex_says_so():
 
 
 def test_mass_equality_is_not_sufficient_even_when_the_chain_condition_holds():
-    """The question this closes. K5 with every triangle filled has mean edge-face
-    degree 3; a five-edge path has degree 0. Their disjoint union is chain-valid and
+    """The question this closes. K5 with every triangle filled has mean edge face
+    degree 3; a five edge path has degree 0. Their disjoint union is chain valid and
     satisfies the mass equality, and nothing in it has degree two."""
     import itertools
 
@@ -332,9 +332,9 @@ def test_the_identity_reports_scope():
 
 
 def test_the_cr_violation_cannot_see_a_face():
-    """Forced, not incidental: the RL_4 channels are strictly 1-skeleton, so the
-    Cauchy-Riemann violation is identical at every stage of filling. It separates
-    1-skeletons, not manifold states."""
+    """Forced, not incidental: the RL_4 channels are strictly 1 skeleton, so the
+    Cauchy Riemann violation is identical at every stage of filling. It separates
+    1 skeletons, not manifold states."""
     readings = {_tetra(n).cr_violation() for n in (0, 1, 2, 3, 4)}
     assert len(readings) == 1, f"filling moved it: {readings}"
 
@@ -356,7 +356,7 @@ def test_the_cr_violation_separates_different_one_skeletons():
                       targets=np.array([1, 2, 3, 4, 5, 6], dtype=np.int32)), "tree"),
 ], ids=["tetra", "C4", "path", "tree"])
 def test_mean_c_squared_is_three_on_a_pairwise_complex(build, name):
-    """A measured pattern over pairwise complexes, not a proof. Per-relation c2 ranges
+    """A measured pattern over pairwise complexes, not a proof. Per relation c2 ranges
     over 2 to 4 while the mean sits exactly on 3."""
     lf = build().lagrangian_fields()
     assert float(np.mean(lf["c2"])) == pytest.approx(3.0, abs=1e-9)
@@ -385,8 +385,8 @@ def test_zero_frustration_is_read_rather_than_returning_nothing():
     assert fields is not None
     assert list(fields["channels"]) == ["L1_down", "L_O", "L_SG", "L_C"]
     # L_t is the T channel's hat DIAGONAL and L_s the other three summed, so the pair
-    # adds to RL[e,e] and not to 1. It is 1 on this fixture only because a 3-edge star
-    # normalises that way; a 4-edge star reads 0.75.
+    # adds to RL[e,e] and not to 1. It is 1 on this fixture only because a 3 edge star
+    # normalises that way; a 4 edge star reads 0.75.
     rl_diag = np.diagonal(np.asarray(star.RL))
     assert np.allclose(fields["Lt"] + fields["Ls"], rl_diag)
     # F contributes exactly nothing to L_s here, which is the whole point of the fixture
@@ -395,7 +395,7 @@ def test_zero_frustration_is_read_rather_than_returning_nothing():
     assert star.cr_violation() is not None
 
 
-#### the arity- and degree-general form
+#### the arity- and degree general form
 
 
 @pytest.mark.parametrize("cells,name", [
@@ -409,11 +409,11 @@ def test_zero_frustration_is_read_rather_than_returning_nothing():
 def test_the_general_identity_holds_where_the_twos_do_not(cells, name):
     """`a/d + c/k = 1 + chi/E` for the declared incidence profile.
 
-    This is an arity-count identity, not a chain-complex construction test. In
-    particular, its branching fixture deliberately has an all-positive five-relation
+    This is an arity count identity, not a chain complex construction test. In
+    particular, its branching fixture deliberately has an all positive five relation
     C2 declaration so that ``c=5``; canonical C1 shares correctly reject that as a
     face boundary. Count the declared supports directly rather than asking the exact
-    relational-complex importer to materialize a non-closing C2 column.
+    relational complex importer to materialize a non closing C2 column.
     """
     nV = int(cells[0])
     nE = len(cells[1])

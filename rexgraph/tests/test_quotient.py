@@ -191,12 +191,12 @@ class TestSignalRestrictLift:
         assert restricted[1] == 5+6j
 
 
-# Per-Edge Energy
+# Per Edge Energy
 
 class TestPerEdgeEnergy:
 
     def test_sums_to_total(self, k4):
-        """Per-edge energies sum to total E_kin and E_pot."""
+        """Per edge energies sum to total E_kin and E_pot."""
         f_E = np.random.RandomState(42).randn(k4.nE).astype(np.float64)
         ek_pe, ep_pe = k4.per_edge_energy(f_E)
         ek_total, ep_total, _ = k4.energy_kin_pot(f_E)

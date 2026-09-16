@@ -1,117 +1,107 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
-# cython: initializedcheck=False, nonecheck=False, embedsignature=True
+"""Sparse rational readings over factored denominators.
+
+Supplied coordinates accumulate as checked integer ratios per item. Only rows
+whose intermediate integers exceed the machine bounds use Fraction arithmetic.
+Results round once in numerical mode. No item by seed grid, fixed precision
+cancellation threshold or dense matrix is allocated.
 """
-rexgraph.core._exact_ratio: rational readings over factored denominators.
-
-A reading assembled from a boundary operator is a sum of rationals whose denominators
-come from two axes: an incidence count per vertex, and an arity per cell. Their common
-multiple grows with the term count and has no fixed width. Dividing by each axis
-separately leaves the widest intermediate at one small factor against a numerator, so
-128 bits suffices at any term count.
-
-    item value   ( SUM over seeds v of a[i,v]/deg[v] ) / den[i]
-
-`mode` selects what is taken from that per item, and `group` optionally sums the items
-into a coarser index:
-
-    SUM       the value as it stands, for a reading with no orientation to cancel
-    ABS       its magnitude, for a signed reading read at the item
-    COVERAGE  the unsigned total less the magnitude of the signed one, which is what a
-              zero-sum column leaves behind when its support is seeded evenly
-
-Accumulation is in fixed point and exact. The division by `den` truncates, and what it
-discards is carried as a sticky bit, so the single rounding that produces the double
-goes the right way. Under `group` the truncation is per item and accumulates, so
-correct rounding there rests on `frac_bits`, which `frac_bits_for` sets from the item
-count.
-"""
-
-from __future__ import annotations
+from fractions import Fraction
+from numbers import Integral
 
 import numpy as np
-
-cimport cython
 cimport numpy as np
-from libc.math cimport ldexp
-from libc.stdint cimport int64_t, uint64_t
+from libc.stdint cimport int64_t, INT64_MAX, INT64_MIN
 from libc.stdlib cimport calloc, free
+from ._common cimport compute_parallel_buffer_memory
 
 np.import_array()
 
-cdef extern from *:
-    ctypedef unsigned long long u128 "unsigned __int128"
-    ctypedef long long i128 "__int128"
+SUM = 0
+ABS = 1
+COVERAGE = 2
 
 
-cdef extern from *:
-    """
-    static inline int _rex_clz64(unsigned long long x) { return __builtin_clzll(x); }
-    """
-    int _rex_clz64(uint64_t x) nogil
+cdef inline int64_t _gcd(int64_t a, int64_t b) noexcept nogil:
+    cdef int64_t r
+    while b:
+        r = a % b
+        a, b = b, r
+    return a
 
 
-cdef enum Mode:
-    _SUM = 0
-    _ABS = 1
-    _COVERAGE = 2
-
-#: what to take from each item's value
-SUM = <int>_SUM
-ABS = <int>_ABS
-COVERAGE = <int>_COVERAGE
-
-
-cdef inline int _bits(u128 v) noexcept nogil:
-    """Position of the highest set bit."""
-    cdef uint64_t hi = <uint64_t>(v >> 64)
-    cdef uint64_t lo = <uint64_t>v
-    if hi:
-        return 128 - _rex_clz64(hi)
-    if lo:
-        return 64 - _rex_clz64(lo)
-    return 0
+cdef inline bint _multiply(int64_t a, int64_t b, int64_t *out) noexcept nogil:
+    # b is positive. C division truncates toward zero, including INT64_MIN / b.
+    if b == 1 or a == 0:
+        out[0] = a
+        return True
+    if (a > 0 and a > INT64_MAX / b) or (a < 0 and a < INT64_MIN / b):
+        return False
+    out[0] = a * b
+    return True
 
 
-cdef inline double _round(u128 q, int shift, bint sticky) noexcept nogil:
-    """`q * 2**shift` as the nearest double, ties to even.
-
-    Keeps 54 bits, 53 for the mantissa and one to round on. Anything below them folds
-    into `sticky`, which separates a tie from a value whose leading bits only resemble
-    one.
-    """
-    cdef int b
-    cdef int drop
-    cdef uint64_t mant
-    if q == 0:
-        return 0.0
-    b = _bits(q)
-    if b > 54:
-        drop = b - 54
-        if (q & (((<u128>1) << drop) - 1)) != 0:
-            sticky = True
-        q >>= drop
-        shift += drop
-        b = 54
-    mant = <uint64_t>q
-    if b == 54:
-        if (mant & 1) and (sticky or (mant & 2)):
-            mant += 2
-        mant >>= 1
-        shift += 1
-    return ldexp(<double>mant, shift)
+cdef inline bint _add(int64_t a, int64_t b, int64_t *out) noexcept nogil:
+    if (b > 0 and a > INT64_MAX - b) or (b < 0 and a < INT64_MIN - b):
+        return False
+    out[0] = a + b
+    return True
 
 
-cdef inline i128 _divide(i128 value, int64_t d, bint *sticky) noexcept nogil:
-    """`value/d`, recording in `sticky` whether anything was discarded."""
-    cdef i128 dd
-    cdef i128 q
-    if d <= 1:
-        return value
-    dd = <i128>d
-    q = value / dd
-    if q * dd != value:
-        sticky[0] = True
-    return q
+cdef inline bint _accumulate(int64_t *row, int64_t n, int64_t d,
+                             bint coverage) noexcept nogil:
+    """Commit an exact ratio addition only after all intermediate bounds pass."""
+    cdef int64_t left, right, common, divisor, a, b, total, mass = 0
+    if row[2] == 0:
+        return False
+    if n == 0:
+        return True
+    if coverage and n == INT64_MIN:
+        return False
+    if row[0] == 0 and row[1] == 0:
+        row[0], row[1], row[2] = n, (-n if n < 0 else n) if coverage else 0, d
+        return True
+    if row[2] == d:
+        common, left, right = d, 1, 1
+    else:
+        divisor = _gcd(row[2], d)
+        left, right = d / divisor, row[2] / divisor
+        if not _multiply(row[2], left, &common):
+            return False
+    if not _multiply(row[0], left, &a) or not _multiply(n, right, &b):
+        return False
+    if not _add(a, b, &total):
+        return False
+    if coverage:
+        if not _multiply(row[1], left, &a):
+            return False
+        if not _multiply(-n if n < 0 else n, right, &b):
+            return False
+        if not _add(a, b, &mass):
+            return False
+    row[0], row[1], row[2] = total, mass, common
+    return True
+
+
+cdef void _promote_add(int64_t *row, dict wide, Py_ssize_t k,
+                      object n, object d, bint coverage) except *:
+    """Promote only the row that cannot complete a bounded addition."""
+    if row[2]:
+        wide[k] = (Fraction(int(row[0]), int(row[2])),
+                   Fraction(int(row[1]), int(row[2])) if coverage else 0)
+        row[2] = 0
+    value, mass = wide[k]
+    term = Fraction(n, d)
+    wide[k] = (value + term, mass + abs(term) if coverage else 0)
+
+
+cdef inline double _float_ratio(int64_t n, int64_t d) except? -1:
+    # Exact operands make hardware division one correctly rounded operation.
+    # Beyond 53 bits Python integer true division supplies the correct rounding.
+    cdef int64_t exact_limit = (<int64_t>1) << 53
+    if -exact_limit <= n <= exact_limit and d <= exact_limit:
+        return <double>n / <double>d
+    return (<object>n) / (<object>d)
 
 
 def axis_ratio(const int64_t[::1] item,
@@ -123,123 +113,160 @@ def axis_ratio(const int64_t[::1] item,
                int frac_bits,
                const int64_t[::1] group=None,
                Py_ssize_t n_groups=0,
-               int mode=_SUM):
-    """The reading per item, or per group when `group` maps items into one.
+               int mode=0, *, exact=False):
+    """Read sum, absolute sum or coverage per item or declared group.
 
-    `carried[k]` lands on item `item[k]` under seed `seed[k]` and may be negative: a
-    boundary entry at position 0 carries the opposite sign to the arguments, and
-    `COVERAGE` is the reading that measures exactly that disagreement.
+    Coverage is sum(abs(carried)/deg) minus abs(sum(carried/deg)), then
+    divided by the item denominator. Callers supplying boundary entries
+    must coalesce their primary column before taking its absolute values.
+    Group -1 omits an item. Invalid coordinates and denominators are refused.
+
+    frac_bits remains an accepted compatibility hint in [0,126]. It does
+    not limit exact arithmetic. exact=True returns Fractions; otherwise
+    each finished rational is converted once to its nearest float.
     """
-    cdef Py_ssize_t m = item.shape[0]
-    cdef Py_ssize_t s = deg.shape[0]
-    cdef Py_ssize_t i, v, out_n
-    cdef int64_t it, g
-    cdef bint grouped = group is not None
-    cdef i128 *signed_a = <i128 *>calloc(n_items * s, sizeof(i128))
-    cdef i128 *unsigned_a = NULL
-    cdef i128 *acc = NULL
-    cdef i128 total, mag, term, scaled
-    cdef bint sticky, any_sticky
-    cdef np.ndarray[np.float64_t, ndim=1] out
-    cdef double[::1] o
+    cdef Py_ssize_t i, m = item.shape[0], out_n
+    cdef int64_t it, v, g, n, d, common = 1, magnitude = 0, bound = 0
+    cdef bint coverage = mode == COVERAGE
+    cdef bint absolute = mode == ABS
+    cdef bint retain_exact
+    cdef object value, mass, out
+    cdef dict wide = {}, grouped = {}
+    cdef int64_t *rows = NULL
+    cdef int64_t *groups = NULL
+    cdef double[::1] numerical
+    if n_items < 0 or n_groups < 0:
+        raise ValueError("axis sizes must be nonnegative")
+    if carried.shape[0] != m or seed.shape[0] != m or den.shape[0] != n_items:
+        raise ValueError("axis arrays have incompatible lengths")
+    if mode not in (SUM, ABS, COVERAGE) or not 0 <= frac_bits <= 126:
+        raise ValueError("unknown ratio mode or invalid precision hint")
+    if not isinstance(exact, (bool, np.bool_)):
+        raise TypeError("exact must be boolean")
+    retain_exact = exact
+    if group is not None and group.shape[0] != n_items:
+        raise ValueError("group must have one coordinate per item")
+    for i in range(deg.shape[0]):
+        if deg[i] <= 0:
+            raise ValueError("seed denominators must be positive")
+        if common and not _multiply(common, deg[i] / _gcd(common, deg[i]), &common):
+            common = 0
+    for i in range(n_items):
+        if den[i] <= 0:
+            raise ValueError("item denominators must be positive")
+        if group is not None and (group[i] < -1 or group[i] >= n_groups):
+            raise ValueError("group coordinate is outside its declared axis")
+    for i in range(m):
+        it, v = item[i], seed[i]
+        if it < 0 or it >= n_items or v < 0 or v >= deg.shape[0]:
+            raise ValueError("ratio coordinate is outside its declared axis")
+        if common:
+            if carried[i] == INT64_MIN:
+                common = 0
+            else:
+                magnitude = -carried[i] if carried[i] < 0 else carried[i]
+                if not _add(bound, magnitude, &bound):
+                    common = 0
+    if common and bound > INT64_MAX / common:
+        common = 0
 
-    out_n = n_groups if grouped else n_items
-    out = np.zeros(max(out_n, 0), dtype=np.float64)
-    o = out
-    if signed_a == NULL:
-        raise MemoryError("axis accumulator")
-    if mode == _COVERAGE:
-        unsigned_a = <i128 *>calloc(n_items * s, sizeof(i128))
-        if unsigned_a == NULL:
-            free(signed_a)
-            raise MemoryError("axis accumulator")
-    if grouped:
-        acc = <i128 *>calloc(max(out_n, 1), sizeof(i128))
-        if acc == NULL:
-            free(signed_a)
-            if unsigned_a != NULL:
-                free(unsigned_a)
-            raise MemoryError("group accumulator")
-    any_sticky = False
+    if (compute_parallel_buffer_memory(1, n_items, 3*sizeof(int64_t)) < 0
+            or (group is not None and compute_parallel_buffer_memory(1, n_groups, 3*sizeof(int64_t)) < 0)):
+        raise MemoryError("ratio accumulator size exceeds the addressable range")
+    rows = <int64_t*>calloc(n_items, 3*sizeof(int64_t))
+    if rows == NULL and n_items:
+        raise MemoryError("cannot allocate ratio items")
     try:
-        with nogil:
-            for i in range(m):
-                it = item[i]
-                if it < 0 or it >= n_items:
-                    continue
-                signed_a[it * s + seed[i]] += <i128>carried[i]
-                if mode == _COVERAGE:
-                    unsigned_a[it * s + seed[i]] += <i128>(
-                        carried[i] if carried[i] >= 0 else -carried[i])
+        if common:
+            # sum(abs(carried)) * common bounds every partial numerator and mass.
+            # Every deg divides common. There is no truncation in this factoring.
             for i in range(n_items):
-                total = 0
-                mag = 0
-                sticky = False
-                for v in range(s):
-                    term = signed_a[i * s + v]
-                    if term != 0:
-                        scaled = term << frac_bits
-                        total += _divide(scaled, deg[v], &sticky)
-                    if mode == _COVERAGE:
-                        term = unsigned_a[i * s + v]
-                        if term != 0:
-                            scaled = term << frac_bits
-                            mag += _divide(scaled, deg[v], &sticky)
-                if total == 0 and mag == 0:
+                rows[3*i+2] = common
+            for i in range(m):
+                it, v = item[i], seed[i]
+                n = carried[i] * (common / deg[v])
+                rows[3*it] += n
+                if coverage:
+                    rows[3*it+1] += -n if n < 0 else n
+        else:
+            for i in range(n_items):
+                rows[3*i+2] = 1
+            for i in range(m):
+                it, v = item[i], seed[i]
+                if not _accumulate(&rows[3*it], carried[i], deg[v], coverage):
+                    _promote_add(&rows[3*it], wide, it, int(carried[i]), int(deg[v]), coverage)
+
+        out_n = n_items if group is None else n_groups
+        out = np.full(out_n, Fraction(0), dtype=object) if retain_exact else np.zeros(out_n, dtype=np.float64)
+        if not retain_exact:
+            numerical = out
+        if group is not None:
+            groups = <int64_t*>calloc(n_groups, 3*sizeof(int64_t))
+            if groups == NULL and n_groups:
+                raise MemoryError("cannot allocate ratio groups")
+            for i in range(n_groups):
+                groups[3*i+2] = 1
+        for it in range(n_items):
+            g = it if group is None else group[it]
+            if g < 0:
+                continue
+            value = None
+            if rows[3*it+2] == 0:
+                value, mass = wide[it]
+                value = (mass - abs(value) if coverage else abs(value) if absolute else value) / int(den[it])
+            else:
+                n = rows[3*it]
+                if coverage:
+                    n = rows[3*it+1] - (-n if n < 0 else n)
+                elif absolute and n < 0:
+                    if n == INT64_MIN:
+                        value = Fraction(-int(n), int(rows[3*it+2]) * int(den[it]))
+                    else:
+                        n = -n
+                if n == 0:
                     continue
-                total = _divide(total, den[i], &sticky)
-                if mode == _ABS:
-                    if total < 0:
-                        total = -total
-                elif mode == _COVERAGE:
-                    mag = _divide(mag, den[i], &sticky)
-                    if total < 0:
-                        total = -total
-                    total = mag - total
-                if grouped:
-                    g = group[i]
-                    if 0 <= g < out_n:
-                        acc[g] += total
-                        if sticky:
-                            any_sticky = True
+                if value is None and not _multiply(rows[3*it+2], den[it], &d):
+                    value = Fraction(int(n), int(rows[3*it+2]) * int(den[it]))
+            if value is not None:
+                if group is None:
+                    if retain_exact:
+                        out[g] = value
+                    else:
+                        numerical[g] = float(value)
                 else:
-                    if total > 0:
-                        o[i] = _round(<u128>total, -frac_bits, sticky)
-                    elif total < 0:
-                        o[i] = -_round(<u128>(-total), -frac_bits, sticky)
-            if grouped:
-                for i in range(out_n):
-                    if acc[i] > 0:
-                        o[i] = _round(<u128>acc[i], -frac_bits, any_sticky)
-                    elif acc[i] < 0:
-                        o[i] = -_round(<u128>(-acc[i]), -frac_bits, any_sticky)
+                    _promote_add(&groups[3*g], grouped, g, value.numerator, value.denominator, False)
+            elif group is not None:
+                if not _accumulate(&groups[3*g], n, d, False):
+                    _promote_add(&groups[3*g], grouped, g, int(n), int(d), False)
+            elif n:
+                if retain_exact:
+                    out[g] = Fraction(int(n), int(d))
+                else:
+                    numerical[g] = _float_ratio(n, d)
+        if group is not None:
+            for g in range(n_groups):
+                if groups[3*g+2] == 0:
+                    value = grouped[g][0]
+                    if retain_exact:
+                        out[g] = value
+                    else:
+                        numerical[g] = float(value)
+                elif groups[3*g]:
+                    n, d = groups[3*g], groups[3*g+2]
+                    if retain_exact:
+                        out[g] = Fraction(int(n), int(d))
+                    else:
+                        numerical[g] = _float_ratio(n, d)
+        return out
     finally:
-        free(signed_a)
-        if unsigned_a != NULL:
-            free(unsigned_a)
-        if acc != NULL:
-            free(acc)
-    return out
+        free(groups)
+        free(rows)
 
 
-def frac_bits_for(Py_ssize_t widest_carried, Py_ssize_t n_seeds, Py_ssize_t n_items=1):
-    """How far to scale each term so the accumulation stays inside 128 bits.
-
-    A term is at most `carried << frac_bits`, there are `n_seeds` of them per item, and
-    with a group they sum over `n_items`. What is left over those three is what can be
-    spent on fractional bits.
-    """
-    cdef int used = 1                      # one bit of headroom for the sign
-    cdef Py_ssize_t w = widest_carried if widest_carried > 0 else 1
-    cdef Py_ssize_t c = n_seeds if n_seeds > 0 else 1
-    cdef Py_ssize_t g = n_items if n_items > 0 else 1
-    while w:
-        w >>= 1
-        used += 1
-    while c:
-        c >>= 1
-        used += 1
-    while g:
-        g >>= 1
-        used += 1
-    return max(126 - used, 0)
+def frac_bits_for(widest_carried, n_seeds, n_items=1):
+    """Legacy precision hint; axis_ratio now carries exact rationals regardless."""
+    if any(isinstance(v, (bool, np.bool_)) or not isinstance(v, Integral) or v < 0
+           for v in (widest_carried, n_seeds, n_items)):
+        raise ValueError("precision dimensions must be nonnegative integers")
+    return max(125 - sum(max(int(v), 1).bit_length() for v in
+                         (widest_carried, n_seeds, n_items)), 0)

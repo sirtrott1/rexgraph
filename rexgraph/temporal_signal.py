@@ -1,7 +1,7 @@
 """Temporal delta fields and exact local signal actions.
 
-The temporal store already retains successive relational-complex states.  This
-module turns one state transition into a source-bound *field*, without reducing
+The temporal store already retains successive relational complex states.  This
+module turns one state transition into a source bound *field*, without reducing
 the transition to a vertex walk or a count of changed records.
 
 ``TemporalSignal`` keeps the independent C1 conditions apart:
@@ -21,10 +21,10 @@ field, never relabelled as exact topology.
 
 The first action supplied here is local and exact: ``B1*`` followed by ``B1``.
 It is the C0 block of ``D^2`` and gives a graded response through actual
-relations, not a search for vertex paths.  Higher-grade temporal identities
+relations, not a search for vertex paths.  Higher grade temporal identities
 need their own stable cell identity carrier before a corresponding temporal
 source can be represented honestly, so this module deliberately names its C1
-scope rather than fabricating a general-grade claim.
+scope rather than fabricating a general grade claim.
 """
 from __future__ import annotations
 
@@ -50,8 +50,8 @@ __all__ = [
 
 
 # Anonymous timelines use an exact support tuple rather than the temporal
-# kernel's 64-bit hash.  An identified timeline uses its persisted int64 C1
-# relation ID instead: equal-support relations are distinct primary cells and
+# kernel's 64 bit hash.  An identified timeline uses its persisted int64 C1
+# relation ID instead: equal support relations are distinct primary cells and
 # support is not their temporal identity.
 RelationKey = int | tuple[int, ...]
 _Channel = Literal["structural", "existence", "geometry", "amplitude", "signing"]
@@ -67,7 +67,7 @@ class _BoundaryColumn:
 
 @dataclass(frozen=True)
 class TemporalSignalEvent:
-    """One independently-addressable C1 state transition.
+    """One independently addressable C1 state transition.
 
     ``key`` is a persisted relation ID when the source timeline carries one;
     otherwise it is the canonical support tuple.  In either mode the head is
@@ -80,8 +80,8 @@ class TemporalSignalEvent:
     signing: int
     previous_head: int | None
     head: int | None
-    previous_amplitude: float | None
-    amplitude: float | None
+    previous_amplitude: int | Fraction | float | None
+    amplitude: int | Fraction | float | None
     boundary_changed: bool
 
     @property
@@ -106,7 +106,7 @@ class TemporalSignalEvent:
 class TemporalSignal:
     """The direct C1 signal emitted by one TemporalRex transition.
 
-    ``event(key)`` is an average O(1) exact relation-identity lookup after the
+    ``event(key)`` is an average O(1) exact relation identity lookup after the
     transition index has been built.  Materializing a boundary is necessarily proportional
     to that relation's arity; applying a field action is proportional to the
     participating boundary entries.  Those costs are stated rather than hidden
@@ -240,7 +240,7 @@ class TemporalSignalFlow:
     ``relation_response`` is ``B1* source`` on the current C1 basis and
     ``returned_boundary`` is ``B1 relation_response``.  Together they form the
     C0 ``D^2`` response.  The carrier keeps each grade and basis attached, so
-    equal-length arrays cannot be mistaken for the same field space.
+    equal length arrays cannot be mistaken for the same field space.
     """
 
     signal: TemporalSignal
@@ -252,7 +252,7 @@ class TemporalSignalFlow:
 
 
 def relation_key(rex: Any, index: int) -> RelationKey:
-    """Return the exact orientation-independent C1 support identity for one cell."""
+    """Return the exact orientation independent C1 support identity for one cell."""
     rex._ensure_clean()
     index = int(index)
     ptr = np.asarray(rex._boundary_ptr)
@@ -278,7 +278,7 @@ def temporal_signal(temporal: Any, step: int) -> TemporalSignal:
     """Build the exact C1 delta field from ``step - 1`` to ``step``.
 
     This reads snapshots through TemporalRex's public reconstruction method,
-    so checkpoint versus delta-backed storage does not change the signal.  The
+    so checkpoint versus delta backed storage does not change the signal.  The
     function requires a continuous C0 index space, as TemporalRex itself does;
     a newly visible vertex simply enlarges the direct source basis to the union
     size for this one transition.
@@ -314,8 +314,11 @@ def temporal_signal(temporal: Any, step: int) -> TemporalSignal:
             signing = (after.sign - before.sign) // 2
         before_amplitude = None if before is None else before.amplitude
         after_amplitude = None if after is None else after.amplitude
+        # Event identity follows stored coefficients, not the rounded numerical
+        # amplitude reading. Distinct rationals can have the same float value.
         amplitude_changed = before is not None and after is not None and (
-            _effective_amplitude(before_amplitude) != _effective_amplitude(after_amplitude)
+            (1 if before_amplitude is None else before_amplitude)
+            != (1 if after_amplitude is None else after_amplitude)
         )
         boundary_changed = before is not None and after is not None and before.column != after.column
         if existence or orientation or signing or boundary_changed or amplitude_changed:
@@ -405,7 +408,7 @@ class _SnapshotCell:
     head: int
     polarity: int
     sign: int
-    amplitude: float | None
+    amplitude: int | Fraction | float | None
     column: _BoundaryColumn
 
 
@@ -437,7 +440,7 @@ def _snapshot_cells(rex: Any) -> dict[RelationKey, _SnapshotCell]:
         head = support[0]
         base = min(support)
         sign = 1 if signs is None else int(np.asarray(signs).ravel()[index])
-        amplitude = None if amplitudes is None else float(np.asarray(amplitudes).ravel()[index])
+        amplitude = None if amplitudes is None else np.asarray(amplitudes).ravel()[index]
         out[key] = _SnapshotCell(
             head=head,
             polarity=1 if head == base else -1,
@@ -486,14 +489,14 @@ def _check_channel(channel: str) -> _Channel:
         raise ValueError(
             "signal channel must be structural, existence, geometry, amplitude, or signing"
         )
-    return channel  # type: ignore[return-value]
+    return channel  # type: ignore[return value]
 
 
 def _check_relation_channel(channel: str) -> _RelationChannel:
     channel = str(channel).lower()
     if channel not in {"amplitude", "existence", "orientation", "signing"}:
         raise ValueError("relation signal channel must be amplitude, existence, orientation, or signing")
-    return channel  # type: ignore[return-value]
+    return channel  # type: ignore[return value]
 
 
 def _accumulate(out, column: _BoundaryColumn | None, multiplier, *, exact: bool) -> None:

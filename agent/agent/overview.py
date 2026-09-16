@@ -4,7 +4,7 @@ agent.overview: one call that says what a complex is.
 `rexgraph.analysis.analyze` was this, for the old dashboard. What it produced was
 partly a picture of where a linear cut fell and partly a table of comparison baselines,
 and getting it cost a dense eigendecomposition. This assembles the same kind of answer
-from the readings that are exact and eigen-free, and adds the thing a section-by-section
+from the readings that are exact and eigen free, and adds the thing a section by section
 report cannot have: the sections checked against each other.
 
     shape        counts, and the ARITY distribution. A graph-shaped summary cannot show
@@ -42,7 +42,7 @@ def shape_of(rex) -> dict:
     """Counts, and how the relations are distributed over arity.
 
     The arity histogram is the reading a graph summary has no room for: a complex whose
-    relations are all pairwise and one carrying 4-ary relations are different objects,
+    relations are all pairwise and one carrying 4 ary relations are different objects,
     and `nE` alone does not distinguish them.
     """
     rex._ensure_clean()

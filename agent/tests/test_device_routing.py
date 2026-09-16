@@ -1,4 +1,4 @@
-"""Splitting a batch across device-pinned bees, when the devices contend.
+"""Splitting a batch across device pinned bees, when the devices contend.
 
 Measured on this laptop (Qwen2.5-Coder-7B Q4, unified memory), with the contended rates
 taken under SUSTAINED mutual load rather than one generation each:
@@ -7,7 +7,7 @@ taken under SUSTAINED mutual load rather than one generation each:
     cpu  solo 21.41  contended  8.23 (38%)
 
 so the pair makes 40.17 tok/s against 46.98 for the iGPU alone. On unified memory,
-co-scheduling the CPU alongside the iGPU is a NET LOSS: the CPU bee takes more bandwidth
+co scheduling the CPU alongside the iGPU is a NET LOSS: the CPU bee takes more bandwidth
 than it contributes. A scheduler that assumes more devices is more throughput takes that
 trade every time.
 """
@@ -41,7 +41,7 @@ def test_co_scheduling_is_taken_when_it_wins():
 
 def test_the_contention_policy_uses_one_device_when_two_are_worse():
     """The point of pricing contention is knowing when NOT to spread. On unified memory
-    the contention-aware answer is the same as the naive fast one, and that is correct
+    the contention aware answer is the same as the naive fast one, and that is correct
     rather than a failure to be clever."""
     split = plan_split(UNIFIED, 16, "contention")
     assert split == {"igpu": 16, "cpu": 0}
@@ -72,7 +72,7 @@ def test_the_makespan_is_piecewise_because_contention_ends():
     even = {"igpu": 8, "cpu": 8}
     got = expected_makespan(UNIFIED, even, 120)
     assert 55.0 < got < 70.0, got                     # measured 61.01
-    flat = 8 * 120 / 8.23                             # the old, wrong, whole-run form
+    flat = 8 * 120 / 8.23                             # the old, wrong, whole run form
     assert got < flat - 20.0, (got, flat)
 
 
@@ -136,7 +136,7 @@ def test_more_cpu_threads_can_mean_more_cpu_and_less_machine():
 
 def test_co_scheduling_pays_at_the_right_partition():
     """1.09x at eight threads. The earlier conclusion that it never pays came from
-    measuring the sixteen-thread point and nothing else."""
+    measuring the sixteen thread point and nothing else."""
     worth, agg, best = co_scheduling_pays(SWEEP, SOLO_BEST)
     assert worth is True
     assert agg == pytest.approx(48.28, abs=0.01)
@@ -144,7 +144,7 @@ def test_co_scheduling_pays_at_the_right_partition():
 
 
 def test_one_bad_allocation_does_not_get_to_decide():
-    """Handed only the worst point, the flat-rate form says no, correctly about THAT
+    """Handed only the worst point, the flat rate form says no, correctly about THAT
     allocation, and wrongly about the machine. The sweep is what makes it an answer."""
     worst = [DeviceRate("igpu", "igpu", 44.16, 32.63),
              DeviceRate("cpu", "cpu", 21.41, 10.50)]

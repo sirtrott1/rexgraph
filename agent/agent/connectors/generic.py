@@ -1,7 +1,7 @@
-"""agent.connectors.generic: the long-tail edge/table connector.
+"""agent.connectors.generic: the long tail edge/table connector.
 
-For anything already shaped as relationships: an in-memory edge list, a
-dataframe of pairs, a 2-column CSV, a dump. Point it at ``(src, dst[, weight])``
+For anything already shaped as relationships: an in memory edge list, a
+dataframe of pairs, a 2 column CSV, a dump. Point it at ``(src, dst[, weight])``
 rows and it emits the complex directly.
 
     read(source) -> (rex, meta)

@@ -8,7 +8,7 @@ between adjacent grades, or between channel pairs at the same grade.
 Three variants:
 
 1. l_gb_scalar(spec_d, spec_d1) - between adjacent grades d and d+1.
-   Rank-2 by construction (difference of two rank-1 projections).
+   Rank 2 by construction (difference of two rank 1 projections).
    One positive eigenvalue (dominant side), one negative (subdominant).
 
 2. l_gb_channel_tensor(hats_A, hats_B) - 4×4 within a single rex.
@@ -20,7 +20,7 @@ Three variants:
 
 Reference: the L_gb source paper sections 6-9.
 
-This is a pure-NumPy implementation. When merged into the main rexgraph
+This is a pure NumPy implementation. When merged into the main rexgraph
 repository, it should be reimplemented as a Cython module
 `rexgraph/core/_l_gb.pyx` for ~100x speedup on large complexes.
 """
@@ -39,14 +39,14 @@ def normalized_coherence_spectrum(M: np.ndarray, eps: float = 1e-10) -> np.ndarr
     Symmetrizes M before computing eigenvalues for numerical stability.
 
     Parameters
-    ----------
+
     M : np.ndarray, square
         Symmetric (or near-symmetric) matrix.
     eps : float
         Eigenvalues with |λ| < eps are discarded as numerical noise.
 
     Returns
-    -------
+
     np.ndarray of length k where k = number of nonzero eigenvalues.
     Sorted in decreasing order, with values[0] = 1.
     Returns array([0.]) if all eigenvalues are below eps.
@@ -77,7 +77,7 @@ def dirac_spectrum_at_grade(
     composed with its adjoint.
 
     Parameters
-    ----------
+
     B1 : np.ndarray (n_V × n_E)
         Grade-1 boundary operator.
     B2 : np.ndarray (n_E × n_F), optional
@@ -86,7 +86,7 @@ def dirac_spectrum_at_grade(
         Which grade to extract the spectrum at (0, 1, or 2).
 
     Returns
-    -------
+
     Normalized coherence spectrum (sorted abs eigenvalues, max = 1).
     """
     if grade == 0:
@@ -119,17 +119,17 @@ def l_gb_scalar(spec_d: np.ndarray, spec_d1: np.ndarray) -> dict:
     L_gb^(d,d+1) = (k_d k_d^T) / ||k_d||²  -  (k_{d+1} k_{d+1}^T) / ||k_{d+1}||²
 
     where k_d is the normalized coherence spectrum at grade d. The result
-    is rank-2 by construction with one positive and one negative eigenvalue.
+    is rank 2 by construction with one positive and one negative eigenvalue.
 
     Parameters
-    ----------
+
     spec_d : np.ndarray
         Coherence spectrum at grade d.
     spec_d1 : np.ndarray
         Coherence spectrum at grade d+1.
 
     Returns
-    -------
+
     dict with:
         top_eig : float - top (positive) eigenvalue of L_gb
         bot_eig : float - bottom (negative) eigenvalue of L_gb
@@ -146,7 +146,7 @@ def l_gb_scalar(spec_d: np.ndarray, spec_d1: np.ndarray) -> dict:
 
     # Match the reference convention from the L_gb source:
     # when one spectrum is zero, the projection collapses to just the other
-    # rank-1 projection, whose Frobenius norm is 1. This produces the
+    # rank 1 projection, whose Frobenius norm is 1. This produces the
     # universal TF=FC=1 identity on graphs where F is degenerate.
     nx = max(float(np.linalg.norm(a)), 1e-12)
     ny = max(float(np.linalg.norm(b)), 1e-12)
@@ -161,7 +161,7 @@ def l_gb_scalar(spec_d: np.ndarray, spec_d1: np.ndarray) -> dict:
     bot = float(evals[0])
     frob = float(np.linalg.norm(L_gb, "fro"))
 
-    # Localization: sign-weighted mass differential
+    # Localization: sign weighted mass differential
     # Take the top eigenvector of |L_gb|, project it onto a (grade d) vs b (grade d+1)
     abs_L = np.abs(L_gb)
     try:
@@ -187,7 +187,7 @@ def l_gb_scalar(spec_d: np.ndarray, spec_d1: np.ndarray) -> dict:
     }
 
 
-# 4×4 channel L_gb tensor (within-grade fingerprint)
+# 4×4 channel L_gb tensor (within grade fingerprint)
 
 
 def l_gb_channel_tensor(
@@ -198,11 +198,11 @@ def l_gb_channel_tensor(
 
     Entry [i, j] is the Frobenius norm of L_gb between the i-th channel of
     hats_A and the j-th channel of hats_B (or hats_A again if hats_B is None,
-    giving the self-tensor).
+    giving the self tensor).
 
     The order is always [T, G, F, C].
 
-    Self-tensor properties (from the L_gb source paper section 7):
+    Self tensor properties (from the L_gb source paper section 7):
         - Diagonal entries are 0 (each channel against itself).
         - TF = FC = 1 universally on every graph.
         - Cycles: TC = 0 uniquely.
@@ -211,7 +211,7 @@ def l_gb_channel_tensor(
         - Petersen: GC ≈ 1.233 (only graph with GC > 1 besides K_6).
 
     Parameters
-    ----------
+
     hats_A : list of 4 np.ndarray
         The four channels [T_hat, G_hat, F_hat, C_hat] of the first complex.
     hats_B : list of 4 np.ndarray, optional
@@ -219,7 +219,7 @@ def l_gb_channel_tensor(
         If None, computes the self-tensor of A.
 
     Returns
-    -------
+
     np.ndarray of shape (4, 4) with entries in [0, ~2].
     """
     if hats_B is None:
@@ -267,13 +267,13 @@ def l_gb_tower(B_list: list[np.ndarray]) -> list[dict]:
         - S^5: four pairs, nested symmetric pattern
 
     Parameters
-    ----------
+
     B_list : list of np.ndarray
         Boundary operators [B1, B2, B3, ...]. B_d has shape (n_{d-1}, n_d).
         Allowed to contain None or empty arrays for missing grades.
 
     Returns
-    -------
+
     list of dicts, one per adjacent pair (d, d+1).
     Each dict has the same fields as l_gb_scalar, plus:
         pair : tuple (d, d+1)
@@ -283,7 +283,7 @@ def l_gb_tower(B_list: list[np.ndarray]) -> list[dict]:
     if n_grades == 0:
         return []
 
-    # Use the highest-grade boundary for the spectrum at each grade
+    # Use the highest grade boundary for the spectrum at each grade
     # For grade d, we use the full Hodge Laplacian L_d = B_d^T B_d + B_{d+1} B_{d+1}^T
     specs = []
     for d in range(n_grades + 1):
@@ -307,7 +307,7 @@ def l_gb_tower(B_list: list[np.ndarray]) -> list[dict]:
         elif L_up is None:
             specs.append(normalized_coherence_spectrum(L_down))
         else:
-            # Match dimensions by zero-padding the smaller
+            # Match dimensions by zero padding the smaller
             n = max(L_down.shape[0], L_up.shape[0])
             if L_down.shape[0] < n:
                 pad = n - L_down.shape[0]

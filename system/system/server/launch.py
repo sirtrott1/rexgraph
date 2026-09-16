@@ -5,32 +5,18 @@ import argparse
 import os
 from pathlib import Path
 
-_REACT_VERSION = "18.2.0"
-_UI_ASSETS = {
-    "react.production.min.js":
-        f"https://cdnjs.cloudflare.com/ajax/libs/react/{_REACT_VERSION}"
-        "/umd/react.production.min.js",
-    "react-dom.production.min.js":
-        f"https://cdnjs.cloudflare.com/ajax/libs/react-dom/{_REACT_VERSION}"
-        "/umd/react-dom.production.min.js",
-}
+_UI_ASSETS = ("index.html", "app.jsx", "react.production.min.js",
+              "react-dom.production.min.js", "styles/theme.css", "styles/system.css")
 
 
 def _ensure_ui_assets() -> None:
-    """Fetch React into the frontend directory when it is absent."""
-    frontend = Path(__file__).parent.parent.parent / "frontend"
-    missing = [(name, url) for name, url in _UI_ASSETS.items()
+    """Validate packaged UI assets without network access or site package writes."""
+    frontend = Path(__file__).parent.parent / "frontend"
+    missing = [name for name in _UI_ASSETS
                if not (frontend / name).exists() or (frontend / name).stat().st_size == 0]
-    if not missing:
-        return
-    try:
-        import urllib.request
-        for name, url in missing:
-            with urllib.request.urlopen(url, timeout=15) as response:
-                (frontend / name).write_bytes(response.read())
-    except Exception as exc:
-        names = ", ".join(name for name, _ in missing)
-        print(f"System UI needs {names}: {exc}")
+    if missing:
+        raise RuntimeError("System installation is missing packaged UI assets: "
+                           + ", ".join(missing) + "; reinstall rexgraph-system")
 
 
 def _load_sources(specs) -> None:

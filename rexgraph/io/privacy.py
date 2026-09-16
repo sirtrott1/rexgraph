@@ -30,7 +30,7 @@ class IdentityKeyProvider(Protocol):
 
 @dataclass(frozen=True)
 class StaticIdentityKeyProvider:
-    """Small in-process identity key provider for tests and local deployments."""
+    """Small in process identity key provider for tests and local deployments."""
 
     keys: Mapping[str, bytes]
 

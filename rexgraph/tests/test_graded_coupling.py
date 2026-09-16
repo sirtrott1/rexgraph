@@ -1,4 +1,4 @@
-"""The between-grade coupling, L_gb as a spread, and what arity does to cycles.
+"""The between grade coupling, L_gb as a spread, and what arity does to cycles.
 
 The coupling between adjacent grades is the one rank they share, L_gb is that same
 spread taken on spectra instead of ranks, and a branching relation carries no cycle
@@ -43,7 +43,7 @@ def _hyper(groups):
 
 
 def _mixed(groups):
-    """Both grades: each group as a branching relation AND its pairs as 2-ary ones."""
+    """Both grades: each group as a branching relation AND its pairs as 2 ary ones."""
     rels = [list(g) for g in groups]
     for g in groups:
         rels.extend([a, b] for a, b in itertools.combinations(sorted(g), 2))
@@ -127,7 +127,7 @@ def test_the_seal_is_where_beta_2_appears():
     assert int(full.betti[2]) == 1
 
 
-# the identity is grade-general
+# the identity is grade general
 
 def test_the_rank_identity_holds_at_grade_two():
     """sum R_eff_k = rank(B_k) with the grade's own boundary operator."""
@@ -162,7 +162,7 @@ def test_wide_relations_do_not_close_on_a_shared_vertex(groups):
 def test_enough_overlap_does_make_wide_relations_dependent():
     """The correction: real protein complexes share subunits and 260 of them carry 52
     k-ary cycles with no pairwise relation present. Reproduced here in miniature."""
-    # every 3-subset of five proteins: far more relations than the rank can support
+    # every 3 subset of five proteins: far more relations than the rank can support
     groups = list(itertools.combinations(range(5), 3))
     rex = _hyper([list(g) for g in groups])
     rex._ensure_clean()
@@ -180,7 +180,7 @@ def test_the_boundary_column_is_zero_sum_at_every_arity():
 
 
 def test_beta0_is_the_rank_convention_not_the_component_count():
-    """Two disjoint 3-ary relations: two components, but beta_0 = n0 - rank = 4."""
+    """Two disjoint 3 ary relations: two components, but beta_0 = n0 - rank = 4."""
     rex = _hyper([[0, 1, 2], [3, 4, 5]])
     rex._ensure_clean()
     B1 = np.asarray(rex.B1)
@@ -243,8 +243,8 @@ def test_nothing_fills_a_self_loop():
 
 
 @pytest.mark.parametrize("groups,want", [
-    (([0],), 1.0),                 # witness: the only non-zero-sum column
-    (([0, 0],), 0.0),              # self-loop: carries none of the boundary
+    (([0],), 1.0),                 # witness: the only non zero sum column
+    (([0, 0],), 0.0),              # self loop: carries none of the boundary
     (([0, 1],), 1.0),              # edge
     (([0, 1, 2],), 1.0),           # branching
 ])
@@ -312,12 +312,12 @@ def _tetra(nfaces):
 
 
 def test_the_binary_reading_exists_above_grade_one():
-    """Corollary 21.2: the walk is grade-1 only, the READING is not."""
+    """Corollary 21.2: the walk is grade 1 only, the READING is not."""
     full = _leverage(np.asarray(_tetra(4).B2_hodge))
     assert np.allclose(full, 0.75)
     assert int((full > 1 - 1e-9).sum()) == 0            # every face corroborated
     lone = _leverage(np.asarray(_tetra(1).B2_hodge))
-    assert np.allclose(lone, 1.0)                       # the only face is load-bearing
+    assert np.allclose(lone, 1.0)                       # the only face is load bearing
 
 
 def test_the_leverage_form_gives_the_rank_at_grade_two():
@@ -328,7 +328,7 @@ def test_the_leverage_form_gives_the_rank_at_grade_two():
 
 
 def test_phi_comes_off_one_decomposition():
-    """Theorem 22: no per-vertex solve."""
+    """Theorem 22: no per vertex solve."""
     rex = _g([0, 1, 2, 0, 3], [1, 2, 0, 3, 4])
     rex._ensure_clean()
     ch = rex._sparse_character
@@ -356,7 +356,7 @@ def test_phi_comes_off_one_decomposition():
 
 def test_the_leverage_partitions_the_rank():
     """Theorem 23 on a mixed partition: sections sum to the whole, each under its own
-    rank, and the section ranks over-count by exactly the overlap."""
+    rank, and the section ranks over count by exactly the overlap."""
     groups = [[0, 1, 2, 3], [2, 3, 4, 5], [4, 5, 6]]
     rex = _mixed(groups)
     rex._ensure_clean()

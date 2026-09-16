@@ -2,8 +2,8 @@
 Feature matrix adapter: tabular data -> typed relational complex.
 
 Takes a (samples × features) matrix and constructs typed, signed edges
-between features based on correlation structure. Same-type triangles
-become faces, cross-type become voids, ∂²=0 guaranteed.
+between features based on correlation structure. Same type triangles
+become faces, cross type become voids, ∂²=0 guaranteed.
 
 Handles: cancer imaging, gene expression, financial features, sensor
 data, survey responses: anything where rows are observations and
@@ -19,7 +19,7 @@ from . import DomainAdapter, EdgeConstruction
 
 
 def _compute_correlation(X: NDArray) -> NDArray:
-    """Feature-feature Pearson correlation with NaN safety."""
+    """Feature feature Pearson correlation with NaN safety."""
     R = np.corrcoef(X.T)
     R = np.nan_to_num(R, nan=0.0, posinf=1.0, neginf=-1.0)
     np.fill_diagonal(R, 0.0)
@@ -33,12 +33,12 @@ def _auto_threshold(R: NDArray, target_density: float = 0.08) -> float:
     structure for faces and voids without drowning in noise.
 
     Parameters
-    ----------
+
     R : (n, n) absolute correlation matrix (diagonal zeroed)
     target_density : fraction of possible edges to keep (default 8%)
 
     Returns
-    -------
+
     threshold : float in [0, 1]
     """
     n = R.shape[0]
@@ -60,15 +60,15 @@ def _spectral_cluster_features(R: NDArray, n_clusters: str | int = "auto") -> ND
     we use a simple spectral decomposition to configure the full rex.
 
     Parameters
-    ----------
+
     R : (n, n) absolute correlation matrix
     n_clusters : 'auto' or int. If 'auto', uses eigengap heuristic.
 
     Returns
-    -------
+
     labels : int32 array of cluster assignments
     """
-    # Rex-native LAPACK wrapper. Same dsyev_ call as scipy.linalg.eigh,
+    # Rex native LAPACK wrapper. Same dsyev_ call as scipy.linalg.eigh,
     # with the identical (evals sorted ascending, evecs in columns)
     # return convention. Keeping the eigendecomposition inside the
     # compiled kernel removes one of the remaining scipy hot paths in
@@ -85,16 +85,16 @@ def _spectral_cluster_features(R: NDArray, n_clusters: str | int = "auto") -> ND
     D = np.diag(A.sum(axis=1))
     L = D - A
 
-    # Symmetrize to guard against round-off (the correlation-derived
+    # Symmetrize to guard against round off (the correlation derived
     # Laplacian should be symmetric by construction, but the rex eigh
     # expects a clean symmetric matrix). Cast to contiguous f64 so the
-    # Cython-level typed memoryview accepts the buffer.
+    # Cython level typed memoryview accepts the buffer.
     L_sym = 0.5 * (L + L.T)
     L_sym = np.ascontiguousarray(L_sym, dtype=np.float64)
     # Only the smallest ~9 eigenpairs are ever used (the eigengap heuristic over
     # evals[1:max_k+1], max_k ≤ 8, and the Fiedler/low eigenvectors evecs[:,1:k]).
     # So compute just the low end via a partial solver instead of the full O(n³)
-    # dense decomposition. The difference is a solver-capability boundary (ARPACK
+    # dense decomposition. The difference is a solver capability boundary (ARPACK
     # needs k < n-1), NOT an accuracy trade: both return the exact smallest pairs.
     n_want = min(9, n - 1)
     if n_want >= n - 1:
@@ -158,8 +158,8 @@ def _detect_column_families(names: list[str]) -> NDArray | None:
 
     Looks for common naming patterns:
     - PyRadiomics: original_shape_Sphericity, wavelet_glcm_Contrast
-    - Underscore-separated: shape_volume, texture_entropy
-    - Dot-separated: shape.volume, texture.entropy
+    - Underscore separated: shape_volume, texture_entropy
+    - Dot separated: shape.volume, texture.entropy
 
     Returns None if no clear family structure is detected.
     """
@@ -191,8 +191,8 @@ class FeatureMatrixAdapter(DomainAdapter):
     """Construct a typed relational complex from a feature matrix.
 
     The features become vertices. Correlated feature pairs become edges.
-    Edge types come from feature families (detected or spectral-clustered).
-    Same-type triangles become faces. Cross-type triangles become voids.
+    Edge types come from feature families (detected or spectral clustered).
+    Same type triangles become faces. Cross type triangles become voids.
     ∂²=0 is guaranteed by typed_face_selection.
     """
 
@@ -211,7 +211,7 @@ class FeatureMatrixAdapter(DomainAdapter):
         """Build typed edges from a feature matrix.
 
         Parameters
-        ----------
+
         X : ndarray (n_samples, n_features)
             Rows are observations, columns are features. Should be numeric.
             NaN values are replaced with column means.
@@ -234,7 +234,7 @@ class FeatureMatrixAdapter(DomainAdapter):
             Number of clusters for spectral typing. 'auto' uses eigengap.
 
         Returns
-        -------
+
         EdgeConstruction
         """
         X = np.asarray(X, dtype=np.float64)
@@ -313,7 +313,7 @@ class FeatureMatrixAdapter(DomainAdapter):
     ) -> tuple[NDArray, list[str]]:
         """Assign edge types based on the chosen strategy."""
 
-        # Get vertex-level type labels
+        # Get vertex level type labels
         if typing == "auto":
             vertex_types = _detect_column_families(feature_names)
             if vertex_types is None:
@@ -344,8 +344,8 @@ class FeatureMatrixAdapter(DomainAdapter):
             type_names = ["all"]
 
         # Convert vertex types to edge types
-        # Same-type edge: both endpoints in the same cluster -> that cluster's label
-        # Cross-type edge: endpoints in different clusters -> cross label
+        # Same type edge: both endpoints in the same cluster -> that cluster's label
+        # Cross type edge: endpoints in different clusters -> cross label
         n_vertex_types = len(type_names)
         cross_label = n_vertex_types
         type_names_full = type_names + ["cross"]

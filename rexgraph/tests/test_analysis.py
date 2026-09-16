@@ -56,7 +56,7 @@ def triangle_data(triangle):
     return analyze(triangle, run_perturbation=False)
 
 
-# Top-level structure
+# Top level structure
 
 class TestAnalyzeKeys:
 

@@ -95,7 +95,7 @@ async def builder_run(
     # Checked on the MERGED params, because AgentBuilder builds each step's params as
     # dict(self.defaults) updated with the step's own: naming the output in `defaults`
     # rather than in `params` skipped the check entirely and wrote outside the
-    # allow-list. Fired.
+    # allow list. Fired.
     from ..handles import path_allowed
     defaults = cfg.get("defaults") if isinstance(cfg.get("defaults"), dict) else {}
     for step in cfg["steps"]:

@@ -39,7 +39,7 @@ def test_a_sealed_record_round_trips_in_every_backend(backend, tmp_path):
 
 
 def test_the_object_backend_seals_too():
-    """Built directly on an in-memory filesystem.
+    """Built directly on an in memory filesystem.
 
     Its registered schemes are cloud ones, so no local uri routes to it, and it never
     creates its own directories because an object store has none: on a real local

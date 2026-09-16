@@ -19,7 +19,7 @@ edges, branching hyperedges).
 
 flow_step resolves a unit seed on the localized region into the real flow
 response of the complex: a Hodge decomposition of the seed splits it into a
-draining part (gradient, along the tree-like acyclic direction) and a
+draining part (gradient, along the tree like acyclic direction) and a
 circulating part (curl plus harmonic, along actual cycles), and the signed
 boundary B1 carries the seed across grades to the vertices it touches.
 """
@@ -30,8 +30,8 @@ from collections import namedtuple
 import numpy as np
 from numpy.typing import NDArray
 
-from rexgraph.core._hodge import _hodge_sparse
-from rexgraph.core._sparse import to_scipy_csr
+from rexgraph.core._hodge import hodge_decomposition
+from rexgraph.native_sparse import NativeSparse
 from rexgraph.flow.gate import MalaughGate
 
 __all__ = ["FieldNavigator", "flow_step", "changed_edges", "EdgeChange", "removed_region_for"]
@@ -56,9 +56,9 @@ def changed_edges(prev_rex, curr_rex) -> EdgeChange:
     identity is not "changed", and a cell whose key is new (even if some
     other cell kept that index) is. cell_keys_of hashes the boundary CSR
     column directly, so this works for ANY arity: ordered pair encoding for
-    simple 2-arity edges, an order-independent hash of the boundary vertices
+    simple 2 arity edges, an order independent hash of the boundary vertices
     for witness (arity 1) and branching (arity > 2) hyperedges alike. There
-    is no longer a 2-arity precondition.
+    is no longer a 2 arity precondition.
 
     Edge identity is directedness aware, using each rex's own
     `_directed` flag, the same scheme the delta store keys edges with, so
@@ -94,39 +94,29 @@ def flow_step(rex, region: NDArray) -> dict[str, object]:
 
     A unit seed is placed on the region's edges and run through the Hodge
     decomposition of the (signed) boundary structure: the gradient part is
-    the draining component (flow that terminates, tree-like), and the curl
+    the draining component (flow that terminates, tree like), and the curl
     plus harmonic parts are the circulating component (flow that follows
     actual cycles, closed or trapped). Separately, the signed vertex
     boundary B1 carries the seed across grades to the vertices it touches
-    (the across-grade response), independent of the in-grade decomposition.
+    (the across grade response), independent of the in grade decomposition.
 
-    Calls _hodge_sparse directly instead of the generic hodge_decomposition
-    dispatcher, which falls to a dense LAPACK lstsq/SVD solve below its size
-    cutoff (every realistic Slice-1 input is below it). Direct call keeps
-    the flow path matrix-free at every scale.
+    Uses the native Hodge decomposition on the boundary factors. There is no
+    dimension based switch to a dense solve and no assembled Laplacian.
     """
     seed = np.zeros(rex.nE)
     seed[region] = 1.0
 
-    # use the chain-filtered B2 (self-loop/chain-violating faces removed) so that
+    # use the chain filtered B2 (self-loop/chain-violating faces removed) so that
     # B1 B2 = 0 holds and the draining/circulating split stays orthogonal. This is
     # what every other hodge_decomposition call site in the codebase passes.
     b1 = rex._B1_dual
     b2 = getattr(rex, "_B2_hodge_dual", None)
 
-    sp_b1 = to_scipy_csr(b1)
-    L0 = sp_b1 @ sp_b1.T
-    L2 = None
-    if b2 is not None:
-        sp_b2 = to_scipy_csr(b2)
-        L2 = sp_b2.T @ sp_b2
-
-    # [:3] drops the potentials; this path wants the components only
-    gradient, curl, harmonic = _hodge_sparse(b1, b2, seed, L0, L2)[:3]
+    gradient, curl, harmonic = hodge_decomposition(b1, b2, seed)
     draining = gradient
     circulating = curl + harmonic
 
-    vertex_response = np.asarray(sp_b1 @ seed).ravel()
+    vertex_response = NativeSparse(b1).apply(seed)
 
     return {
         "draining": draining,
@@ -142,7 +132,7 @@ def removed_region_for(prev_rex, curr_rex, removed_keys) -> NDArray:
     A removed cell has no index in `curr_rex`, so map each removed key back to
     its endpoint vertices in `prev_rex` (via cell_keys_of), then collect the
     current edges incident to any of those vertices. Keyed by canonical key so
-    an index shift never mis-locates the removed cell."""
+    an index shift never mis locates the removed cell."""
     from rexgraph.core._temporal import cell_keys_of
 
     removed_keys = np.asarray(removed_keys, dtype=np.int64)
@@ -179,7 +169,7 @@ class FieldNavigator:
     changed_edges against the previous snapshot) and runs flow_step only
     over that region, counting the call in flow_calls.
 
-    Single-use instance: a FieldNavigator (and the MalaughGate it wraps)
+    Single use instance: a FieldNavigator (and the MalaughGate it wraps)
     carries gate state (_prev, _hist) across calls to run(). It is meant
     to be run once per stream; reusing one instance across separate
     streams blends the baseline from the first stream into the second
@@ -192,7 +182,7 @@ class FieldNavigator:
 
     def step(self, rex, change=None, removed_region=None) -> dict[str, object]:
         """Advance the field ONE snapshot. `change` is an EdgeChange(added, removed);
-        None means all-added (first step). `removed_region` is the caller-resolved
+        None means all added (first step). `removed_region` is the caller resolved
         int index array (into `rex`) of edges disturbed by removals (see
         removed_region_for). Returns {event} when idle, else {event, region, flow};
         `run` wraps this with the snapshot index `t`."""
@@ -218,7 +208,7 @@ class FieldNavigator:
         Delegates each snapshot to step(), which consumes both
         changed_edges().added and the removed cells (mapped to their prior
         endpoints via removed_region_for). Idle steps are {t, event: False};
-        events are {t, event: True, region, flow}. On growth-only streams
+        events are {t, event: True, region, flow}. On growth only streams
         (no removals), region == added."""
         log: list[dict[str, object]] = []
         for i in range(trex.T):

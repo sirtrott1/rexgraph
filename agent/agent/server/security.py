@@ -97,7 +97,7 @@ def sanitize_log_message(msg: str, max_len: int = 200) -> str:
 # HTTPS configuration
 
 def generate_self_signed_cert(cert_dir: str | None = None) -> dict:
-    """Generate a self-signed TLS certificate for development.
+    """Generate a self signed TLS certificate for development.
 
     For production, use Let's Encrypt or a proper CA.
     Returns dict with cert_path and key_path.
@@ -208,9 +208,9 @@ def get_https_config() -> dict:
 def add_security_headers(app) -> None:
     """Attach conservative security response headers to every response.
 
-    Complements HSTS (which is TLS-only). These are safe defaults for an API +
-    self-hosted single-page UI: block content-type sniffing, deny framing
-    (clickjacking), and trim the referrer. Cheap, no-op-safe on all responses.
+    Complements HSTS (which is TLS only). These are safe defaults for an API +
+    self hosted single page UI: block content type sniffing, deny framing
+    (clickjacking), and trim the referrer. Cheap, no op safe on all responses.
     """
     @app.middleware("http")
     async def _headers(request, call_next):
@@ -222,7 +222,7 @@ def add_security_headers(app) -> None:
 
 
 # Public paths reachable without a token even when auth is enabled: the UI shell,
-# static assets, the health probe, API docs, and the recovery-key path (which is
+# static assets, the health probe, API docs, and the recovery key path (which is
 # how you regain access after losing all tokens).
 _PUBLIC_EXACT = {
     "/", "/api/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico",
@@ -236,10 +236,10 @@ def add_auth_enforcement(app) -> None:
 
     Individual routers only sometimes declare ``Depends(require_auth)``. This
     middleware guarantees that once an operator enables auth, every ``/api``
-    endpoint (except the small public allow-list above) requires a valid bearer
+    endpoint (except the small public allow list above) requires a valid bearer
     token - closing the gap where compute/DB routes were reachable unauthenticated.
 
-    When auth is disabled, this is a pure pass-through, so open local/dev use
+    When auth is disabled, this is a pure pass through, so open local/dev use
     and the test suite are unaffected.
     """
     from fastapi.responses import JSONResponse
@@ -266,12 +266,12 @@ def add_auth_enforcement(app) -> None:
 
 
 def add_error_sanitizer(app) -> None:
-    """Stop server-side error detail (exception text, stack context, connection
+    """Stop server side error detail (exception text, stack context, connection
     strings, file paths) from leaking to HTTP clients.
 
     Client errors (4xx) keep their intentional, useful messages. Server faults
     (5xx) and any *unhandled* exception return a generic message plus a short
-    ``error_id`` that is logged server-side with the full detail, so operators
+    ``error_id`` that is logged server side with the full detail, so operators
     can correlate a report to a log line without exposing internals.
 
     Set ``REXGRAPH_DEBUG_ERRORS=1`` to restore verbose errors (dev/debug only).
@@ -310,8 +310,8 @@ def add_error_sanitizer(app) -> None:
 def add_https_hardening(app) -> None:
     """Send HSTS on any response served over TLS.
 
-    Registered unconditionally: it is a no-op on plain-HTTP requests (checks the
-    request scheme, honoring X-Forwarded-Proto when uvicorn runs with proxy
+    Registered unconditionally: it is a no op on plain HTTP requests (checks the
+    request scheme, honoring X-Forwarded Proto when uvicorn runs with proxy
     headers), so it is safe whether or not TLS is active. Completes the HTTPS
     stack alongside ``get_https_config`` / ``generate_self_signed_cert``.
     """
@@ -329,7 +329,7 @@ def add_https_hardening(app) -> None:
 
 _RATE_LIMIT_OFF = {"", "0", "off", "none", "disabled", "false"}
 
-# Tiered per-client-IP limits chosen by URL path prefix (first match wins). Each
+# Tiered per client IP limits chosen by URL path prefix (first match wins). Each
 # tier is a separate bucket, so heavy compute/IO and sensitive auth routes can be
 # limited far tighter than ordinary reads.
 _AUTH_PREFIXES = ("/api/v1/admin/token", "/api/v1/admin/auth",
@@ -350,7 +350,7 @@ def _rate_tier(path: str) -> str:
 
 def _rate_client_ip(request) -> str:
     # Behind a reverse proxy (uvicorn --proxy-headers on) the real client is the
-    # first X-Forwarded-For hop; otherwise the socket peer.
+    # first X-Forwarded For hop; otherwise the socket peer.
     xff = request.headers.get("X-Forwarded-For", "")
     if xff:
         return xff.split(",")[0].strip()
@@ -358,7 +358,7 @@ def _rate_client_ip(request) -> str:
 
 
 def setup_rate_limiter(app):
-    """Install a tiered per-client-IP rate limit on every route.
+    """Install a tiered per client IP rate limit on every route.
 
     Three buckets, chosen by path (health + static are exempt - probes/UI assets):
       * ``auth``    - token/auth/recovery admin routes (``RCF_RATE_LIMIT_AUTH``,  default 10/minute)
@@ -366,11 +366,11 @@ def setup_rate_limiter(app):
       * ``general`` - everything else (``RCF_RATE_LIMIT``, default 240/minute)
 
     Set ``RCF_RATE_LIMIT`` to ``0``/``off`` to disable entirely (the test suite
-    does). Uses the in-process ``limits`` moving-window limiter; for multi-worker
+    does). Uses the in process ``limits`` moving window limiter; for multi worker
     or HA deployments back it with shared storage (Redis) or limit at the proxy.
 
     Registered LAST so it is the OUTERMOST middleware, and therefore counts every
-    request (including failed-auth attempts) before auth verification runs.
+    request (including failed auth attempts) before auth verification runs.
     """
     general = os.environ.get("RCF_RATE_LIMIT", "240/minute").strip()
     if general.lower() in _RATE_LIMIT_OFF:
@@ -399,7 +399,7 @@ def setup_rate_limiter(app):
                 path.startswith(p) for p in _RATE_EXEMPT_PREFIXES):
             return await call_next(request)
         tier = _rate_tier(path)
-        # bucket per (client-IP, tier)
+        # bucket per (client IP, tier)
         if not limiter.hit(tiers[tier], _rate_client_ip(request), tier):
             return JSONResponse(
                 {"detail": "Rate limit exceeded", "tier": tier},

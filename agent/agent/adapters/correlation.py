@@ -30,7 +30,7 @@ class CorrelationAdapter(DomainAdapter):
         """Build typed edges from a symmetric matrix.
 
         Parameters
-        ----------
+
         R : ndarray (n, n), symmetric
         labels : list of str, optional
             Vertex names. Defaults to v0, v1, ...
@@ -113,7 +113,7 @@ class AdjacencyAdapter(DomainAdapter):
             labels = [f"v{i}" for i in range(n)]
 
         # Vectorized edge extraction (was an O(n²) Python double loop); identical
-        # result and row-major (directed) / i<j (undirected) edge order.
+        # result and row major (directed) / i<j (undirected) edge order.
         if directed:
             M = np.abs(A) > 1e-15
             np.fill_diagonal(M, False)

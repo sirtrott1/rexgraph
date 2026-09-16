@@ -2,9 +2,9 @@
 
 Where the mass tower reads each grade alone, L_gb reads the coupling between
 adjacent grades. It is `a a^T/|a|^2 - b b^T/|b|^2` on the two grades' normalized
-coherence spectra: a difference of two rank-1 ORTHOGONAL projectors, which the
-reference states as "rank-2 by construction, one positive eigenvalue, one
-negative". For that shape the spectrum is closed-form and needs no eigensolver.
+coherence spectra: a difference of two rank 1 ORTHOGONAL projectors, which the
+reference states as "rank 2 by construction, one positive eigenvalue, one
+negative". For that shape the spectrum is closed form and needs no eigensolver.
 """
 
 import itertools
@@ -31,7 +31,7 @@ def _complete(n):
 
 #### the closed form
 def test_the_spectrum_is_plus_minus_root_spread():
-    """A difference of two rank-1 orthogonal projectors has eigenvalues +-sin(theta)
+    """A difference of two rank 1 orthogonal projectors has eigenvalues +-sin(theta)
     and zeros, so one dot product settles the whole thing."""
     rng = np.random.default_rng(0)
     for _ in range(50):
@@ -95,7 +95,7 @@ def test_graded_delta_is_reachable_from_the_package():
         assert {"pair", "top_eig", "bot_eig", "frob", "localization"} <= set(d)
 
 
-#### the within-grade channel tensor
+#### the within grade channel tensor
 def test_channel_delta_is_a_symmetric_four_by_four_with_a_zero_diagonal():
     T = channel_delta(_complete(5))
     assert T.shape == (4, 4)
@@ -118,7 +118,7 @@ def test_channel_delta_matches_the_reference_implementation():
 def _ref():
     """Load the reference implementation relative to this file, not the caller's cwd.
 
-    A cwd-relative path only resolves when pytest is invoked from the repository root,
+    A cwd relative path only resolves when pytest is invoked from the repository root,
     so running the installed suite from anywhere else failed seven tests on a missing
     file rather than on any property of the math.
     """
@@ -134,7 +134,7 @@ def _ref():
 
 def test_a_zero_spectrum_leaves_the_other_projector_standing():
     """The reference floors each norm before normalising, so a spectrum that is
-    identically zero does not collapse the pair to nothing: the other rank-1
+    identically zero does not collapse the pair to nothing: the other rank 1
     projector remains, and its Frobenius norm is 1. The compiled path returned 0
     here, which is where the documented T[i,F] = 1 reading was being lost."""
     ref = _ref()
@@ -155,7 +155,7 @@ def test_both_zero_and_parallel_still_couple_at_nothing():
 
 def test_the_degenerate_eigenvalues_are_zero_and_minus_one():
     """`-P_b` has spectrum {-1, 0, ...}, so the pair is not symmetric there. The
-    +-sqrt(spread) form is the both-ordinary case, not the general one."""
+    +-sqrt(spread) form is the both ordinary case, not the general one."""
     ref = _ref()
     b = np.abs(np.random.default_rng(1).normal(size=7))
     z = np.zeros(7)
@@ -168,7 +168,7 @@ def test_the_degenerate_eigenvalues_are_zero_and_minus_one():
 
 
 def test_the_closed_form_matches_the_reference_across_every_regime():
-    """Zero, tiny-but-nonzero, parallel, ragged lengths and ordinary, together."""
+    """Zero, tiny but nonzero, parallel, ragged lengths and ordinary, together."""
     ref = _ref()
     rng = np.random.default_rng(2)
     worst = 0.0
@@ -291,7 +291,7 @@ def test_channel_delta_is_four_wide_whatever_the_orientation():
         assert channel_delta(r).shape == (4, 4), name
 
 
-#### frustration is a first-class channel everywhere it is read
+#### frustration is a first class channel everywhere it is read
 def test_a_massless_channel_reports_zero_mixing_time_not_infinity():
     """Its operator is the zero matrix, so e^{-tL} = I and every state is already
     stationary at t=0. Nothing equilibrates because nothing moves, which is a mixing

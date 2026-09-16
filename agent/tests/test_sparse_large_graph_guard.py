@@ -1,14 +1,14 @@
-"""Regression: the always-sparse spectral bundle truncates the L0 eigenbasis
+"""Regression: the always sparse spectral bundle truncates the L0 eigenbasis
 for nV>2000 (k<<nV eigenpairs). Feeding that truncated basis to the dense
 nV x nV L0 Cython kernels (build_edge_signal / build_response_operators) reads
 out of bounds -> uncatchable C-level SIGSEGV. Two live agent paths did this:
 corpus._spectral_score and the pipeline quality gate. These tests pin the fix:
-guard on the full basis, and use the matrix-free B1^+ equivalent when truncated.
+guard on the full basis, and use the matrix free B1^+ equivalent when truncated.
 
 The corpus half now goes through agent.scoring.interfacing_score, so the guard sits
 inside RexGraph.interfacing_vector (it routes to the sparse bundle on the same
-condition) instead of being hand-rolled in the caller. The property under test is
-unchanged: a truncated-basis graph must return a finite score, not a SIGSEGV.
+condition) instead of being hand rolled in the caller. The property under test is
+unchanged: a truncated basis graph must return a finite score, not a SIGSEGV.
 """
 import numpy as np
 from agent.corpus import CorpusBuilder
@@ -82,9 +82,9 @@ def test_quality_gate_large_graph_is_measured_not_skipped():
     """A large complex gets a real score.
 
     This used to assert the opposite: the gate skipped when the L0 eigenbasis was
-    truncated, because it hand-fed the dense response-operator kernel and that kernel
+    truncated, because it hand fed the dense response operator kernel and that kernel
     needs the full basis. It now goes through `interfacing_vector`, which dispatches
-    to the eigen-free sparse bundle, so the size that used to force a skip is just a
+    to the eigen free sparse bundle, so the size that used to force a skip is just a
     size. Skipping measured nothing, which meant the gate was blindest on exactly the
     complexes worth gating."""
     rex = _connected_graph(2500, extra_edges=1500)
@@ -108,7 +108,7 @@ def test_quality_gate_small_graph_scores_too():
 
 
 def test_lsqr_matches_dense_edge_signal_on_small_graph():
-    """The matrix-free fallback psi = B1^+ rho (LSQR) equals the dense-kernel
+    """The matrix free fallback psi = B1^+ rho (LSQR) equals the dense kernel
     psi = B1^T L0^+ rho on a small graph where the full basis is available."""
     from rexgraph.core._interfacing import build_edge_signal
     from scipy.sparse import csr_matrix

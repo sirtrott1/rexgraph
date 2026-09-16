@@ -19,7 +19,7 @@ def test_complex_record_has_bitemporal_fields():
     d = r.to_dict()
     assert d["version"] == 2 and d["tx_from"] == 100.0 and d["tx_to"] is None
     assert d["valid_from"] == 90.0 and d["valid_to"] is None
-    assert ComplexRecord.from_dict(d).version == 2          # round-trips
+    assert ComplexRecord.from_dict(d).version == 2          # round trips
     # legacy dict (no temporal fields) backfills to version 1
     legacy = {"id": "b", "signature": {}, "created": 50.0, "meta": {}}
     lr = ComplexRecord.from_dict(legacy)
@@ -60,7 +60,7 @@ def test_filestore_versions_and_legacy_read(tmp_path):
     st = FileStore(str(tmp_path / "db"))
     st.put("g", _rex(3)); st.put("g", _rex(4))
     assert [r.version for r in st.history("g")] == [1, 2]
-    # reopen from disk (index.json persisted) and time-travel
+    # reopen from disk (index.json persisted) and time travel
     st2 = FileStore(str(tmp_path / "db"))
     assert st2.get("g").nE == 4
     v1 = st2.history("g")[0]
@@ -101,7 +101,7 @@ def test_sqlstore_append_only_and_migration(tmp_path):
 def test_change_feed_emitted(tmp_path, uri_factory):
     """put/delete must emit rcdb.put/rcdb.delete events on the shared activity journal,
     for every backend. Each parametrization uses its own id so events from other tests
-    (and other parametrizations, sharing the same process-wide singleton log) cannot be
+    (and other parametrizations, sharing the same process wide singleton log) cannot be
     mistaken for this one's."""
     from agent.rcdb import open_store
 
@@ -210,8 +210,8 @@ def test_get_ver_falls_back_for_backend_without_get_version():
 
 
 # parametrized over all three backends, plus a
-# versioned-store dogfood test. Everything below exercises behavior already
-# implemented in Tasks 1 to 9; the point is coverage and cross-backend proof,
+# versioned store dogfood test. Everything below exercises behavior already
+# implemented in Tasks 1 to 9; the point is coverage and cross backend proof,
 # not new production code.
 
 def _open(backend, tmp_path, name="db"):
@@ -276,7 +276,7 @@ def test_bitemporal_valid_time_windows_all_backends(backend, tmp_path):
 
 @pytest.mark.parametrize("backend", _ALL_BACKENDS)
 def test_legacy_read_backfills_to_version_1_all_backends(backend, tmp_path):
-    """A pre-Slice-C record shape (no version/tx_from/tx_to/valid_from/valid_to)
+    """A pre Slice-C record shape (no version/tx_from/tx_to/valid_from/valid_to)
     reads back as version 1 on every backend."""
     import json
 
@@ -339,7 +339,7 @@ def test_incremental_version_index_all_backends(backend, tmp_path):
 
 @pytest.mark.parametrize("backend", _ALL_BACKENDS)
 def test_opt_in_temporalrex_payload_round_trip_all_backends(backend, tmp_path):
-    """The TemporalRex payload is opt-in: put a TemporalRex, get it back as a
+    """The TemporalRex payload is opt in: put a TemporalRex, get it back as a
     TemporalRex (not a plain RexGraph), on every backend."""
     from rexgraph.graph import TemporalRex
     st = _open(backend, tmp_path)
@@ -372,7 +372,7 @@ def test_trajectory_signed_movement_all_backends(backend, tmp_path):
     st.close()
 
 
-# Slice C final-review fix: {base}@{version} display-id resolution as a
+# Slice C final review fix: {base}@{version} display id resolution as a
 # fallback, plus the legacy meta.lineage scheme fallback for lineage/drift.
 
 @pytest.mark.parametrize("backend", _ALL_BACKENDS)
@@ -413,7 +413,7 @@ def test_lineage_legacy_meta_scheme_fallback(backend, tmp_path):
     lineage id; instead each version was its own record, id "L@1"/"L@2", each
     carrying meta["lineage"]. lineage()/drift() must still read it: history("L")
     is empty (no such id was ever put), so the legacy meta.lineage scan is the
-    only source, and its output shape must match the old native-chain shape."""
+    only source, and its output shape must match the old native chain shape."""
     from agent.rcdb import drift, lineage
     st = _open(backend, tmp_path)
     t0 = time.time()
@@ -432,7 +432,7 @@ def test_lineage_legacy_meta_scheme_fallback(backend, tmp_path):
 
 def test_lineage_native_chain_unchanged():
     """Guard against the fallback disturbing the happy path: a normal
-    put_version chain still returns exactly the same display-id rows."""
+    put_version chain still returns exactly the same display id rows."""
     from agent.rcdb import MemoryStore, lineage, put_version
     st = MemoryStore()
     put_version(st, "N", _rex(3))
@@ -458,7 +458,7 @@ def test_get_real_at_id_still_wins_over_split(backend, tmp_path):
 
 
 def test_dogfood_versioned_store_timetravel_and_trend(tmp_path):
-    """Slice C dogfood: stream an evolving complex through a real (file-backed)
+    """Slice C dogfood: stream an evolving complex through a real (file backed)
     versioned store, time travel to prior states, confirm the change feed rode
     the shared activity journal, and confirm trajectory shows the trend."""
     from agent.rcdb import open_store, trajectory
@@ -470,7 +470,7 @@ def test_dogfood_versioned_store_timetravel_and_trend(tmp_path):
         rec = st.put("dev", _rex(k))
         times.append(rec.tx_from)
     assert st.get("dev").nE == 4                                  # current
-    assert st.get("dev", as_of=times[0] + 1e-9).nE == 2          # time-travel to v1
+    assert st.get("dev", as_of=times[0] + 1e-9).nE == 2          # time travel to v1
     assert st.get("dev", as_of=times[2] + 1e-9).nE == 4          # v3
     traj = trajectory(st, "dev")
     assert [s["d"]["nE"] for s in traj["steps"]] == [1, 1, 1, -1]  # grew then shrank

@@ -1,6 +1,6 @@
 """What the relational attention costs, against the thing it has to beat.
 
-The claim in `relational_attention` is that the mixing operator is matrix-free and
+The claim in `relational_attention` is that the mixing operator is matrix free and
 so the n x n object is "never formed at scale". `CausalPropagatorAttention` as
 written does form it: `scores = q @ k.transpose(-2,-1)` is [B,H,T,T] before the
 mask, and the K propagator matvecs are added ON TOP of that. So it is strictly more

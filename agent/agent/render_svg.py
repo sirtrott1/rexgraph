@@ -2,7 +2,7 @@
 
 This module computes no mathematics. Every number it draws with comes from the library:
 positions from `projection`, lengths from `geometry.relation_quadrance`, angles from
-`relation_spread`, the 2-cells from `faces.solve_face_basis`, their vertex order from
+`relation_spread`, the 2 cells from `faces.solve_face_basis`, their vertex order from
 `graded_boundary._order_face_ccw`, the field from `rational_trig.exact_character`. What is
 here is the mapping from those to a path string, which is presentation and nothing else.
 
@@ -16,12 +16,12 @@ vertex that is not in the complex. The boundary column says which vertices the r
 touches, and the shape is that set.
 
 **Length carries arity.** A relation's quadrance is `1 + 1/(k-1)`, so the stroke width
-comes off it rather than off a legend. A 2-ary relation is maximally concentrated and a
+comes off it rather than off a legend. A 2 ary relation is maximally concentrated and a
 wide one diffuse, and the drawing says so without being told which is which.
 
 **Colour is derived, not chosen.** `rexgraph.color` mixes the character into K7's channel
 operators, reads its spectrum as wavelengths against the Balmer limit and integrates those
-through the CIE colour-matching functions. So a colour is a physical consequence of a
+through the CIE colour matching functions. So a colour is a physical consequence of a
 character rather than a lookup, and structurally identical cells come out identical
 without being told to.
 """
@@ -42,7 +42,7 @@ _CATEGORIES = ("#3373d9", "#e68c26", "#2fa36b", "#b8437f", "#7a5cc4",
 
 
 def colour_scheme(payload, colour_by: str):
-    """A per-cell colour function, and what it is a picture of.
+    """A per cell colour function, and what it is a picture of.
 
     Three kinds, and the difference matters enough to report:
 
@@ -74,7 +74,7 @@ def colour_scheme(payload, colour_by: str):
             if grade != 1 or index not in values:
                 return None
             t = (float(values[index]) - lo) / span
-            # a single cold-to-hot ramp, stated rather than tuned
+            # a single cold to hot ramp, stated rather than tuned
             r = int(255 * min(1.0, max(0.0, 1.5 * t)))
             b = int(255 * min(1.0, max(0.0, 1.5 * (1.0 - t))))
             g = int(255 * (1.0 - abs(2 * t - 1)) * 0.55)
@@ -108,7 +108,7 @@ def channel_colour(shares, *, dLT: float = 1.0, eps: float = 1.0) -> str:
 
     Not a palette. The character is mixed into K7's channel operators, its spectrum is
     read as wavelengths against the Balmer limit and integrated through the CIE
-    colour-matching functions, so the colour is a physical consequence of the character
+    colour matching functions, so the colour is a physical consequence of the character
     and two cells the same colour have the same character. `dLT` positions the picture on
     the spectrum and `eps` scales the intensity; both are the caller's.
     """
@@ -135,7 +135,7 @@ def _boundary_ids(relation):
 
 
 def _selection_dimming(payload):
-    """A per-cell opacity factor from the payload's selection, or 1 everywhere.
+    """A per cell opacity factor from the payload's selection, or 1 everywhere.
 
     Dimming rather than deleting. Removing the unselected cells would change the
     character of every cell that remained, recolour cells the filter never mentioned, and
@@ -177,7 +177,7 @@ def _fan_coincident(placed, width, height, pad=0):
     out = dict(placed)
     for (cx, cy), members in fanned.items():
         n = len(members)
-        # phyllotaxis rather than one ring: a fixed-radius ring of 58 identical cells has
+        # phyllotaxis rather than one ring: a fixed radius ring of 58 identical cells has
         # them closer together than the markers are wide, so it draws as a blob and says
         # less than the single dot did. Radius by sqrt(rank) keeps the area per cell
         # constant however many there are, and the golden angle keeps them from lining up
@@ -263,7 +263,7 @@ def _camera(azimuth, elevation):
     picture at coordinates that have no exact value at all, and every pan accumulates its
     own error on top of the last.
 
-    So the parameters are half-angle parameters rather than angles. Every rational `t`
+    So the parameters are half angle parameters rather than angles. Every rational `t`
     gives a rational point on the circle through `(1-t^2)/(1+t^2)`, `2t/(1+t^2)`, which is
     `projection.rational_direction`, already here for the plane. The basis built from
     those is exactly orthonormal, so `right . up = 0` and each has quadrance 1 as
@@ -313,7 +313,7 @@ def _hull_ink(n_relations, base=0.18):
 def _label_room(placed, texts=None, font_size=11.0):
     """Which cells the drawing has room to label, and how many that is.
 
-    Not a vertex-count cutoff. A label is a box: `font_size` tall, about `0.6 * font_size`
+    Not a vertex count cutoff. A label is a box: `font_size` tall, about `0.6 * font_size`
     per character wide in this font, starting 9px right of its vertex. It collides with
     the next cell exactly when that cell is nearer than the box reaches, which is a fact
     about the picture rather than a number to pick, and it scales with the canvas for
@@ -382,7 +382,7 @@ def render_svg(payload, *, width: int = 900, height: int = 700, pad: int = 60,
                colour_by: str = "character") -> str:
     """The payload as an SVG document.
 
-    Takes `agent.graph_view.render_payload` output. Draws, in order: the solved 2-cells as
+    Takes `agent.graph_view.render_payload` output. Draws, in order: the solved 2 cells as
     filled polygons, then the relations, then the vertices, so a cell never hides the
     boundary that defines it.
 
@@ -400,7 +400,7 @@ def render_svg(payload, *, width: int = 900, height: int = 700, pad: int = 60,
 
     `view="structural"` is the one to reach for when the question is what the graph LOOKS
     like. The other views place a cell by what it IS, and two cells that are structurally
-    identical then land on the same point, correctly and unhelpfully: a 9-vertex star puts
+    identical then land on the same point, correctly and unhelpfully: a 9 vertex star puts
     all 9 on one, because all 9 have star character (1/3, 1/3, 1/3). This view places a
     cell by what it is NEAR, off L0's low eigenvectors with force refinement, which is the
     layout already sitting in `rexgraph.core._spectral`. Measured against the plane view,
@@ -411,13 +411,13 @@ def render_svg(payload, *, width: int = 900, height: int = 700, pad: int = 60,
     star and nothing else, so it is exact and local. `view="character"` uses the 3D
     character embedding through an orthographic camera, which is where a height field
     lives: the third axis is a real channel rather than an added dimension, so a ridge in
-    the picture is a ridge in the character. Depth-sorted rather than z-buffered, which is
+    the picture is a ridge in the character. Depth sorted rather than z-buffered, which is
     enough because the cells are flat.
 
     The camera is orthographic on purpose. A perspective divide would scale lengths by
     depth, and the lengths here are quadrances the drawing is supposed to agree with.
 
-    `azimuth` and `elevation` are HALF-ANGLE PARAMETERS, not radians: every rational one
+    `azimuth` and `elevation` are HALF ANGLE PARAMETERS, not radians: every rational one
     gives a rational point on the circle, so the camera basis is exactly orthonormal and
     panning composes without drift. 0 looks down the axis, 1 is a quarter turn.
     """
@@ -494,7 +494,7 @@ def render_svg(payload, *, width: int = 900, height: int = 700, pad: int = 60,
     by_index = {r["index"]: r for r in relations}
     body = []
 
-    # 2-cells first, so the relations bounding them stay visible on top
+    # 2 cells first, so the relations bounding them stay visible on top
     for face in payload.get("faces", []):
         bounding = [by_index.get(e) for e in face["relations"]]
         if any(r is None for r in bounding):
@@ -587,7 +587,7 @@ def _render_flow(payload, flow, width, height, pad, labels, dLT, eps, colour_of=
                  exposure_note=""):
     """Cells at (potential, divergence): the flow's own ordering across, source strength up.
 
-    Flat on purpose. This is not a projection of anything three-dimensional; both axes are
+    Flat on purpose. This is not a projection of anything three dimensional; both axes are
     readings of one signal, so a camera would suggest a space that is not there.
     """
     raw = np.asarray(flow["positions"], dtype=float)
@@ -635,7 +635,7 @@ def _render_embedded(payload, embedded, width, height, pad, labels, dLT, eps,
 
 def _render_character(payload, width, height, pad, labels, dLT, eps, azimuth, elevation,
                       colour_of=None, exposure_note=""):
-    """The 3D character embedding, orthographic and depth-sorted."""
+    """The 3D character embedding, orthographic and depth sorted."""
     character = payload.get("positions", {}).get("character", {})
     raw = np.asarray(character.get("positions", []), dtype=float)
     if raw.size == 0:
@@ -667,7 +667,7 @@ def _scene(payload, raw, width, height, pad, labels, dLT, eps, azimuth, elevatio
            *, caption, colour_of=None, placed=None):
     """One scene builder: the character view, the source coordinates, and the flow.
 
-    `placed` short-circuits the camera for a view that is already flat, so the flow does
+    `placed` short circuits the camera for a view that is already flat, so the flow does
     not get rotated through a third dimension it does not have.
     """
     if placed is not None:
@@ -685,7 +685,7 @@ def _scene(payload, raw, width, height, pad, labels, dLT, eps, azimuth, elevatio
     by_index = {r["index"]: r for r in relations}
     drawable = []
 
-    # the solved 2-cells, depth-sorted with everything else. They were missing here
+    # the solved 2 cells, depth sorted with everything else. They were missing here
     # entirely: the plane view drew the faces the sign solver produces and the 3D views
     # drew none, so the same complex had two different contents depending on the camera.
     for face in payload.get("faces", []):
@@ -724,7 +724,7 @@ def _scene(payload, raw, width, height, pad, labels, dLT, eps, azimuth, elevatio
                              f'stroke-width="{stroke:.2f}" stroke-opacity="{opacity:.2f}" '
                              f'stroke-linecap="round"><title>{title}</title></line>'))
         else:
-            # same ordering as the plane view: in file order a polygon can self-cross,
+            # same ordering as the plane view: in file order a polygon can self cross,
             # and a crossed outline is a different shape from the cell it stands for
             ordered = _order_projected(ids, flat)
             pts = " ".join(f"{flat[v][0]:.2f},{flat[v][1]:.2f}" for v in ordered)

@@ -25,12 +25,12 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.1.5"
+version = "1.1.6"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
 # and the table form is deprecated. Metadata 2.4 carries this as
-# License-Expression with the file itself bundled alongside.
+# License Expression with the file itself bundled alongside.
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
@@ -61,15 +61,19 @@ classifiers = [
 # Core dependencies
 dependencies = [
     "numpy>=1.24",
-    "scipy>=1.10",
-    # Caps inner BLAS/OpenMP pools during compute.parallel_map fan-out so nested
+    # Caps inner BLAS/OpenMP pools during compute.parallel_map calls so nested
     # parallelism (outer workers x inner BLAS) does not oversubscribe cores. Tiny,
-    # pure-Python; the compute layer degrades gracefully to uncapped fan-out without it.
+    # Python only; the compute layer leaves pools uncapped without it.
     "threadpoolctl>=3.0",
 ]
 
 # Optional dependency groups
 [project.optional-dependencies]
+
+# Explicit matrix exports, spectral references and older sparse analysis APIs.
+# Native construction, exact channels, RCQL and record storage do not need this.
+scipy = ["scipy>=1.10"]
+oracles = ["scipy>=1.10"]
 
 # I/O: Zarr, HDF5, Arrow, Parquet, SQL
 io = [
@@ -80,7 +84,7 @@ io = [
     "safetensors>=0.3",
     # Store blobs are framed and compressed (agent/rcdb.py `compress_blob`). zlib is the
     # stdlib fallback so a store always writes and reads without this, but zstd at level
-    # 3 measured 500 MiB/s against zlib-6's 28 MiB/s for the same ratio, which over a
+    # 3 measured 500 MiB/s against 28 MiB/s for zlib level 6 at the same ratio, which over a
     # corpus is the difference between minutes and an hour.
     "zstandard>=0.21",
     "zarr>=2.14",
@@ -109,15 +113,16 @@ cuda = [
 # TensorFlow, for `rexgraph.nn.tf_relational`. Separate from `nn` on purpose:
 # tensorflow and a ROCm/CUDA torch CANNOT share an interpreter here. Importing
 # torch then tensorflow aborts outright (both bundle LLVM; the second to register
-# its CommandLine options calls LLVM ERROR), and even tf-first a later ROCm GPU
+# its CommandLine options calls LLVM ERROR), and even tf first a later ROCm GPU
 # dispatch segfaults. Install both only if the two are kept in separate processes,
 # which is what rexgraph/tests/test_tf_integration.py does.
 tf = [
     "tensorflow>=2.16",
 ]
 
-# Contributor tooling: test, lint, type-check, and the build backend.
+# Contributor tooling: test, lint, type check, and the build backend.
 dev = [
+    "scipy>=1.10",  # The complete test suite includes explicit reference oracles.
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-benchmark>=4.0",
@@ -132,7 +137,7 @@ dev = [
 ]
 
 # The lightweight runtime extras. nn (torch), cuda (GPU), and dev are separate
-# opt-ins so this stays small.
+# opt ins so this stays small.
 all = [
     "rexgraph[io,security]",
 ]
@@ -146,14 +151,14 @@ Documentation = "https://github.com/sirtrott1/rexgraph#readme"
 Repository = "https://github.com/sirtrott1/rexgraph"
 Issues = "https://github.com/sirtrott1/rexgraph/issues"
 
-# Meson-python: no extra arguments needed; meson.build default_options
+# Meson python: no extra arguments needed; meson.build default_options
 # sets buildtype=release and b_lto=true.
 
 # Testing
 [tool.pytest.ini_options]
 testpaths = ["rexgraph/tests"]
 addopts = ["-v", "--tb=short"]
-# One entry, and it names exactly one third-party message. torch/utils/mkldnn.py defines
+# One entry, and it names exactly one third party message. torch/utils/mkldnn.py defines
 # MkldnnLinear and friends as torch.jit.ScriptModule with @torch.jit.script_method, which
 # torch itself has deprecated; the module is imported lazily when we move a tensor to a
 # device, so the 14 warnings are 14 of torch's own decorations and no call of ours can
@@ -183,7 +188,7 @@ ignore = [
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI declares dependencies and request bodies as argument defaults, so the call in
-# the default is the framework's interface rather than the mutable-default bug B008 looks
+# the default is the framework's interface rather than the mutable default bug B008 looks
 # for.
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Body", "fastapi.File",
                           "fastapi.Query", "fastapi.Header", "fastapi.Form"]
@@ -199,17 +204,15 @@ ignore_missing_imports = true
 #
 # The package is not on PyPI, so today every install compiles 39 Cython kernels from
 # source and therefore needs a C compiler, meson and cython on the user's machine. That
-# is the real cross-setup barrier: not that the build is fragile, but that a build is
+# is the real cross setup barrier: not that the build is fragile, but that a build is
 # required at all. A wheel removes it, and `pip install rexgraph` becomes a download.
 [tool.cibuildwheel]
 build = ["cp310-*", "cp311-*", "cp312-*", "cp313-*"]
 
-# All three skips are decisions, not omissions. PyPy has no scipy wheel on every
-# platform here and the kernels are CPython C-API code that gains nothing from it.
+# These kernels target the CPython C API. PyPy is not in this wheel matrix.
 # musllinux is left off the first pass because it doubles Linux build time for the
 # Alpine case; the line to add it is this one, once the glibc wheels are known good.
-# win32 is 32-bit Windows, which numpy and scipy stopped shipping wheels for, so a
-# build there fails resolving its own dependencies before it reaches any of this code.
+# win32 is outside the supported NumPy and native kernel build matrix.
 skip = ["pp*", "*-musllinux_*", "*-win32"]
 
 # rexgraph.tests is deliberately not shipped in the wheel, so there is no suite inside
@@ -236,7 +239,7 @@ manylinux-x86_64-image = "manylinux_2_28"
 # no NEEDED entry for it to vendor. meson now errors instead of warning when it finds
 # no BLAS, so this line failing is a failed build rather than a broken wheel.
 # the braces matter: `a || b && c` parses as `(a || b) && c`, so without them a
-# successful yum still ran apt-get and the build failed with code 127 on an image
+# successful yum still ran apt get and the build failed with code 127 on an image
 # that had already installed what it needed.
 before-all = "yum install -y openblas-devel || { apt-get update && apt-get install -y libopenblas-dev; }"
 
@@ -245,7 +248,7 @@ before-all = "yum install -y openblas-devel || { apt-get update && apt-get insta
 # receiving updates, so it costs no reach.
 environment = { MACOSX_DEPLOYMENT_TARGET = "10.13", PKG_CONFIG_PATH = "/usr/local/opt/openblas/lib/pkgconfig:/opt/homebrew/opt/openblas/lib/pkgconfig" }
 
-# same reason as linux. Homebrew keeps openblas keg-only, so its pkgconfig directory
+# same reason as linux. Homebrew keeps openblas keg only, so its pkgconfig directory
 # has to be named explicitly above; both prefixes are listed because Intel and Apple
 # silicon runners differ.
 before-all = "brew install openblas"

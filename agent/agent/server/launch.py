@@ -3,7 +3,7 @@ agent.server.launch: the one room behind both front doors.
 
 `run.py` (flags) and `rcf-server` / `app.main()` (env) are thin wrappers that map
 their inputs onto :func:`serve`. All the launch logic (TLS resolution via the
-built-in adapters, the banner, optional browser open, proxy-header handling, and the
+built in adapters, the banner, optional browser open, proxy header handling, and the
 single ``uvicorn.run`` call) lives here, so the two paths cannot diverge and new
 options (workers, etc.) are added in exactly one place.
 """
@@ -68,10 +68,10 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
 def _enforce_bind_safety(host: str) -> None:
-    """Fail closed when publishing the server on a non-loopback interface with
+    """Fail closed when publishing the server on a non loopback interface with
     authentication DISABLED.
 
-    Binding to 0.0.0.0 (or any non-loopback host) while auth is off exposes an
+    Binding to 0.0.0.0 (or any non loopback host) while auth is off exposes an
     unauthenticated *admin* API to the network - anyone who can reach the port
     gets a local admin token. The default bind (127.0.0.1) is unaffected. Set
     RCF_ALLOW_INSECURE=1 to override deliberately (e.g. auth is terminated at an
@@ -141,9 +141,9 @@ _UI_ASSETS = {
 def _ensure_ui_assets() -> None:
     """Fetch the vendored UI libraries (React) into the frontend dir if absent.
 
-    React is a third-party dependency, not repo source, so it is acquired at
+    React is a third party dependency, not repo source, so it is acquired at
     install or first run rather than committed. install.sh also vendors it; this
-    covers the plain `pip install` + run path. Best-effort: the API works either
+    covers the plain `pip install` + run path. Best effort: the API works either
     way, and an offline host gets a clear message instead of a silently broken UI.
     """
     fe = Path(__file__).parent.parent.parent / "frontend"
@@ -177,18 +177,18 @@ def _open_browser(url: str) -> None:
         else:
             subprocess.Popen(["xdg-open", url], start_new_session=True, **kwargs)
     except Exception:
-        pass  # best-effort; never crash the server for it
+        pass  # best effort; never crash the server for it
 
 
 def resolve_tls(https: bool = False, ssl_cert: str | None = None,
                 ssl_key: str | None = None) -> tuple[dict[str, str], str]:
-    """Resolve uvicorn SSL kwargs via the built-in TLS adapters.
+    """Resolve uvicorn SSL kwargs via the built in TLS adapters.
 
     One precedence, shared by both launchers:
       1. explicit ``ssl_cert`` + ``ssl_key`` (flags / args)
-      2. configured certs - env ``REXGRAPH_TLS_CERT``/``KEY`` or the config-dir
+      2. configured certs - env ``REXGRAPH_TLS_CERT``/``KEY`` or the config dir
          (``get_https_config``); when present, HTTPS is used automatically
-      3. ``https=True`` with none of the above -> generate a self-signed cert
+      3. ``https=True`` with none of the above -> generate a self signed cert
       4. otherwise -> plain HTTP
 
     Returns ``(ssl_kwargs, scheme)`` where scheme is "http" or "https".
@@ -231,7 +231,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, *, reload: bool = False,
             "uvicorn is not installed. Install the server extras:\n"
             "    pip install 'rexgraph-agent[server]'") from exc
 
-    # A fresh install comes up authenticated with a one-time admin token.
+    # A fresh install comes up authenticated with a one time admin token.
     _secure_by_default()
     # Acquire the vendored UI libraries if a bare install skipped install.sh.
     _ensure_ui_assets()
@@ -255,7 +255,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, *, reload: bool = False,
         or os.environ.get("RCF_FORWARDED_ALLOW_IPS", "127.0.0.1"),
         **ssl_kwargs,
     )
-    # workers>1 requires the import-string app (used here) and is incompatible
+    # workers>1 requires the import string app (used here) and is incompatible
     # with --reload; only pass it when it actually applies.
     if workers and workers > 1 and not reload:
         run_kwargs["workers"] = workers

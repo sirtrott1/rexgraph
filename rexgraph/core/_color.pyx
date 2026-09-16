@@ -4,16 +4,16 @@
 rexgraph.core._color: C-level color pipeline for K_7 spectral color.
 
 Forward map: (chi, dLT, eps) -> sRGB via eigenspectrum + CIE + gamma.
-Batch forward: N pixels in one call, optionally OpenMP-parallel.
-Inverse helpers: loss computation for Nelder-Mead refinement.
+Batch forward: N pixels in one call, optionally OpenMP parallel.
+Inverse helpers: loss computation for Nelder Mead refinement.
 
 All hot paths are cdef nogil. Eigendecomposition via LAPACK dsyev_
 directly (not via lp_eigh, which uses a shared static buffer and is
-not thread-safe for prange). CIE color-matching via Wyman-Sloan-Shirley
+not thread safe for prange). CIE color matching via Wyman Sloan Shirley
 Gaussian fit (inline, no tables). sRGB gamma via IEC 61966-2-1.
 
 The hat operators (4 x 21 x 21) are passed in from Python as a
-pre-stacked contiguous array. No Python calls in the per-pixel loop.
+pre stacked contiguous array. No Python calls in the per pixel loop.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ M_SRGB_XYZ[1][0] = 0.21258623; M_SRGB_XYZ[1][1] = 0.71517030; M_SRGB_XYZ[1][2] =
 M_SRGB_XYZ[2][0] = 0.01929722; M_SRGB_XYZ[2][1] = 0.11918386; M_SRGB_XYZ[2][2] = 0.95049713
 
 
-# CIE 1931 color-matching (Wyman-Sloan-Shirley Gaussian fit)
+# CIE 1931 color matching (Wyman Sloan Shirley Gaussian fit)
 
 cdef inline double _cie_x(double wl) noexcept nogil:
     cdef double t1 = (wl - 442.0) * (0.0624 if wl < 442.0 else 0.0374)
@@ -117,18 +117,18 @@ cdef inline double _clamp01(double x) noexcept nogil:
     return x
 
 
-# Thread-safe eigsolve for 21x21
+# Thread safe eigsolve for 21x21
 
 cdef inline void _eigh_21(double* M_row, double* evals,
                           double* M_fort, double* work) noexcept nogil:
     """Symmetric eigsolve of a 21x21 matrix.
 
-    M_row : input, row-major (NE x NE)
+    M_row : input, row major (NE x NE)
     evals : output, eigenvalues ascending (NE,)
-    M_fort : scratch, Fortran-order copy (NE x NE)
+    M_fort : scratch, Fortran order copy (NE x NE)
     work : scratch, dsyev_ workspace (DSYEV_LWORK,)
 
-    All buffers are caller-owned. Thread-safe.
+    All buffers are caller owned. Thread safe.
     """
     cdef int i, j
     cdef int n = NE
@@ -137,7 +137,7 @@ cdef inline void _eigh_21(double* M_row, double* evals,
     cdef char jobz = b'V'
     cdef char uplo = b'U'
 
-    # Row-major -> Fortran-order
+    # Row major -> Fortran order
     for i in range(NE):
         for j in range(NE):
             M_fort[j * NE + i] = M_row[i * NE + j]
@@ -145,20 +145,20 @@ cdef inline void _eigh_21(double* M_row, double* evals,
     dsyev_(&jobz, &uplo, &n, M_fort, &n, evals, work, &lwork, &info)
 
 
-# Per-pixel core (all scratch passed in, fully thread-safe)
+# Per pixel core (all scratch passed in, fully thread safe)
 
 cdef void _forward_core(
     const double* chi,           # (4,) on Delta^3
     double dLT,
     double eps,
-    const double* hats,          # (4, 21, 21) row-major
+    const double* hats,          # (4, 21, 21) row major
     double* rgb_out,             # (3,) output sRGB
     double* M_buf,               # scratch (441)
     double* evals,               # scratch (21)
     double* M_fort,              # scratch (441)
     double* work,                # scratch (DSYEV_LWORK)
 ) noexcept nogil:
-    """Full forward map. All scratch is caller-owned."""
+    """Full forward map. All scratch is caller owned."""
     cdef int i, k
     cdef double wl, lam
     cdef double X = 0.0, Y = 0.0, Z = 0.0
@@ -207,7 +207,7 @@ cdef void _forward_xyz_core(
     double* M_fort,              # scratch (441)
     double* work,                # scratch (DSYEV_LWORK)
 ) noexcept nogil:
-    """Unexposed CIE XYZ. All scratch is caller-owned."""
+    """Unexposed CIE XYZ. All scratch is caller owned."""
     cdef int i, k
     cdef double wl, lam
     cdef double X = 0.0, Y = 0.0, Z = 0.0
@@ -246,7 +246,7 @@ cdef double _forward_loss_core(
     double* M_fort,
     double* work,
 ) noexcept nogil:
-    """Squared error in linear RGB. All scratch is caller-owned."""
+    """Squared error in linear RGB. All scratch is caller owned."""
     cdef double xyz[3]
     _forward_xyz_core(chi, dLT, hats, xyz, M_buf, evals, M_fort, work)
 
@@ -266,9 +266,9 @@ cdef double _forward_loss_core(
 
 
 
-# Python-callable wrappers
+# Python callable wrappers
 
-# Per-pixel scratch (for single-threaded Python calls)
+# Per pixel scratch (for single threaded Python calls)
 cdef double _M_buf[441]
 cdef double _evals[21]
 cdef double _M_fort[441]
@@ -278,18 +278,18 @@ cdef double _dsyev_work[128]   # DSYEV_LWORK
 def forward_pixel(double[::1] chi not None,
                   double dLT, double eps,
                   double[:, :, ::1] hats_stack not None):
-    """Single-pixel forward map.
+    """Single pixel forward map.
 
     Parameters
-    ----------
+
     chi : f64[4] on Delta^3
     dLT : positive scalar
     eps : positive scalar
-    hats_stack : f64[4, 21, 21] pre-stacked hat operators (C-contiguous)
+    hats_stack : f64[4, 21, 21] pre stacked hat operators (C-contiguous)
 
     Returns
-    -------
-    ndarray f64[3] gamma-encoded sRGB in [0, 1]
+
+    ndarray f64[3] gamma encoded sRGB in [0, 1]
     """
     cdef double rgb[3]
     _forward_core(&chi[0], dLT, eps, &hats_stack[0, 0, 0],
@@ -300,7 +300,7 @@ def forward_pixel(double[::1] chi not None,
 def forward_xyz_pixel(double[::1] chi not None,
                       double dLT,
                       double[:, :, ::1] hats_stack not None):
-    """Single-pixel unexposed CIE XYZ.
+    """Single pixel unexposed CIE XYZ.
 
     Returns ndarray f64[3] CIE (X, Y, Z) before eps scaling.
     """
@@ -314,7 +314,7 @@ def forward_loss(double[::1] chi not None,
                  double dLT, double eps,
                  double[:, :, ::1] hats_stack not None,
                  double[::1] target_lin not None):
-    """Squared linear-RGB loss for Nelder-Mead."""
+    """Squared linear RGB loss for Nelder Mead."""
     return _forward_loss_core(&chi[0], dLT, eps, &hats_stack[0, 0, 0],
                               &target_lin[0],
                               _M_buf, _evals, _M_fort, _dsyev_work)
@@ -326,20 +326,20 @@ def forward_batch(double[:, ::1] chi not None,
                   double[:, :, ::1] hats_stack not None):
     """Batch forward map for N pixels.
 
-    Serial: the per-pixel loop runs under nogil but not under prange, because the
+    Serial: the per pixel loop runs under nogil but not under prange, because the
     scratch block is indexed at fixed offsets and would need omp_get_thread_num to
     be safe across threads (see the fallback note at the loop).
 
     Parameters
-    ----------
+
     chi : f64[N, 4]
     dLT : f64[N]
     eps : f64[N]
     hats_stack : f64[4, 21, 21]
 
     Returns
-    -------
-    ndarray f64[N, 3] gamma-encoded sRGB
+
+    ndarray f64[N, 3] gamma encoded sRGB
     """
     cdef int N = chi.shape[0]
     cdef double[:, ::1] rgb = np.empty((N, 3), dtype=np.float64)
@@ -352,9 +352,9 @@ def forward_batch(double[:, ::1] chi not None,
     cdef double* scratch = NULL
 
     if should_parallelize(N, 256):
-        # Allocate per-thread scratch for all threads
+        # Allocate per thread scratch for all threads
         # omp_get_max_threads is not available via _common, so allocate
-        # per-iteration scratch inside the loop (stack-allocated via C arrays
+        # per iteration scratch inside the loop (stack allocated via C arrays
         # would be ideal but Cython prange doesn't support C VLAs).
         # Instead: allocate a big block and index by thread.
         scratch = <double*>malloc(max_threads * scratch_per * sizeof(double))
@@ -366,7 +366,7 @@ def forward_batch(double[:, ::1] chi not None,
         else:
             with nogil:
                 for i in range(N):
-                    # Use per-pixel scratch at fixed offsets (serial fallback
+                    # Use per pixel scratch at fixed offsets (serial fallback
                     # since prange with malloc indexing needs omp_get_thread_num).
                     # For true parallel: see note below.
                     _forward_core(
@@ -412,7 +412,7 @@ def forward_loss_batch(double[:, ::1] chi not None,
                        double[:, ::1] target_lin not None):
     """Batch squared loss for N pixels.
 
-    Returns ndarray f64[N] per-pixel squared error.
+    Returns ndarray f64[N] per pixel squared error.
     """
     cdef int N = chi.shape[0]
     cdef double[::1] loss = np.empty(N, dtype=np.float64)
@@ -462,7 +462,7 @@ def linear_to_xyz_batch(double[:, ::1] lin not None):
 
 def compute_uint8_error(double[:, ::1] recon_srgb not None,
                         int[:, ::1] orig_u8 not None):
-    """Per-pixel max uint8 error. Returns i32[N]."""
+    """Per pixel max uint8 error. Returns i32[N]."""
     cdef int N = recon_srgb.shape[0]
     cdef int[::1] err = np.empty(N, dtype=np.int32)
     cdef int i, c, r8, diff, max_diff

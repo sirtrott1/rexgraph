@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _fixture() -> RexGraph:
-    """A tetrahedron with weights: cycles, a metric, and every channel non-trivial."""
+    """A tetrahedron with weights: cycles, a metric, and every channel non trivial."""
     rex = RexGraph(sources=np.array([0, 1, 2, 0, 1, 2], np.int32),
                    targets=np.array([1, 2, 0, 3, 3, 3], np.int32),
                    w_E=np.linspace(1.0, 2.0, 6))

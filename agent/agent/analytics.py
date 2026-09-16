@@ -3,9 +3,9 @@ agent.analytics: columnar queries over what the store already knows.
 
 Every backend can answer "which records match this predicate" by walking its
 signatures, and all of them take about the same 10-24 ms over eight thousand
-records because all of them are doing the same row-at-a-time work. What none of
+records because all of them are doing the same row at-a-time work. What none of
 them can answer at all is the shape of question you actually ask of a corpus:
-how does kappa distribute across sources, which betti values are over-represented,
+how does kappa distribute across sources, which betti values are over represented,
 what is the median edge count per tag. The signature is a document, and
 aggregating documents means writing the loop yourself.
 
@@ -85,7 +85,7 @@ def signature_rows(store, *, limit: int = 10 ** 9, include_history: bool = False
 
 
 class SignatureView:
-    """A columnar view of one store's signatures. Read-only, and derived: rebuild it
+    """A columnar view of one store's signatures. Read only, and derived: rebuild it
     after writing rather than trying to keep it in step, since a view that silently
     lags the store it describes is worse than one you refresh."""
 
@@ -107,7 +107,7 @@ class SignatureView:
         self.refresh()
 
     def refresh(self) -> SignatureView:
-        """Re-project the store. Cheap: signatures are scalars the store already holds."""
+        """Re project the store. Cheap: signatures are scalars the store already holds."""
         cols = ", ".join(f"{n} {t}" for n, t in COLUMNS)
         self.con.execute(f"DROP TABLE IF EXISTS {self.TABLE}")
         self.con.execute(f"CREATE TABLE {self.TABLE} ({cols})")
@@ -140,7 +140,7 @@ class SignatureView:
         return [(rid, self.store.get(rid)) for rid in self.ids(where, limit=limit)]
 
     def describe(self) -> list[tuple]:
-        """Per-column summary statistics, which is usually the first real question."""
+        """Per column summary statistics, which is usually the first real question."""
         return self.sql(f"SUMMARIZE {self.TABLE}")
 
     def to_arrow(self):

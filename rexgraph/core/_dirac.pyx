@@ -47,12 +47,12 @@ def build_dirac_operator(np.ndarray[f64, ndim=2] B1,
              [ 0,       B2^T,    0     ]]
 
     Parameters
-    ----------
-    B1 : f64[nV, nE] - vertex-edge boundary operator
-    B2 : f64[nE, nF] - edge-face boundary operator
+
+    B1 : f64[nV, nE] - vertex edge boundary operator
+    B2 : f64[nE, nF] - edge face boundary operator
 
     Returns
-    -------
+
     D : f64[N, N] where N = nV + nE + nF
     sizes : (nV, nE, nF)
     """
@@ -103,7 +103,7 @@ def verify_d_squared(np.ndarray[f64, ndim=2] D,
                       double tol=1e-10):
     """Verify D^2 = blkdiag(L0, L1, L2).
 
-    The off-diagonal blocks of D^2 vanish because B1*B2 = 0.
+    The off diagonal blocks of D^2 vanish because B1*B2 = 0.
     Returns (is_valid, max_error).
     """
     cdef int N = nV + nE + nF
@@ -136,14 +136,14 @@ def schrodinger_evolve(np.ndarray[f64, ndim=1] evals,
     where c_j = <Psi0, phi_j>.
 
     Parameters
-    ----------
+
     evals : f64[N] - Dirac eigenvalues
     evecs : f64[N, N] - Dirac eigenvectors (columns)
     psi0 : f64[N] - initial graded state
     t : float - time
 
     Returns
-    -------
+
     psi_re : f64[N] - real part of Psi(t)
     psi_im : f64[N] - imaginary part of Psi(t)
     """
@@ -183,7 +183,7 @@ def schrodinger_trajectory(np.ndarray[f64, ndim=1] evals,
     """Evolve graded state at multiple timepoints.
 
     Returns
-    -------
+
     traj_re : f64[T, N] - real parts
     traj_im : f64[T, N] - imaginary parts
     born : f64[T, N] - Born probability |Psi_k(t)|^2 per cell
@@ -236,13 +236,13 @@ def canonical_collapse(np.ndarray[f64, ndim=2] B1,
     = (B1 B2)^T delta_v = 0 by the chain condition.
 
     Parameters
-    ----------
+
     B1 : f64[nV, nE]
     nV, nE, nF : dimensions
     vertex_idx : which vertex is observed
 
     Returns
-    -------
+
     psi_collapsed : f64[N] - normalized graded state
     """
     cdef int N = nV + nE + nF
@@ -279,7 +279,7 @@ def born_graded(np.ndarray[f64, ndim=1] psi_re,
     """Born probability per cell and per dimension from graded state.
 
     Returns
-    -------
+
     per_cell : f64[N] - |Psi_k|^2 per cell
     per_dim : f64[3] - total probability in V, E, F sectors
     """

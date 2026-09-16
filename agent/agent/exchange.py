@@ -105,10 +105,10 @@ def build_exchange_complex(
     exchange_signs = []
 
     # For each pair of shared vertices, create an exchange edge if the (undirected)
-    # pair co-occurs as an edge in BOTH input and output. Build the two edge-pair
+    # pair co occurs as an edge in BOTH input and output. Build the two edge pair
     # sets once (O(nE)) so each pair test is an O(1) membership - total O(n_shared²)
-    # instead of the old O(n_shared² · nE) triple loop. Self-loops (endpoints equal)
-    # collapse to a singleton frozenset and never match a 2-vertex pair, as intended.
+    # instead of the old O(n_shared² · nE) triple loop. Self loops (endpoints equal)
+    # collapse to a singleton frozenset and never match a 2 vertex pair, as intended.
     in_pairs = {frozenset((int(in_ec.sources[k]), int(in_ec.targets[k])))
                 for k in range(in_ec.nE)}
     out_pairs = {frozenset((int(out_sources_remapped[k]), int(out_targets_remapped[k])))

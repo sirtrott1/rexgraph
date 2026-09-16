@@ -9,7 +9,7 @@ pytest.importorskip("torch")  # the ml extra: these build or train models
 
 
 def _spec():
-    # a tiny 2-class hypergraph: 6 binding-nodes, 2 hyperedges
+    # a tiny 2 class hypergraph: 6 binding nodes, 2 hyperedges
     X = np.random.RandomState(0).standard_normal((6, 8)).astype(np.float32)
     y = np.array([0, 0, 1, 1, 0, 1], dtype=np.int64)
     return {"archetype": "hgnn", "params": {"d_hid": 8, "n_layers": 1},
@@ -29,5 +29,5 @@ def test_train_one_is_picklable_and_trains():
 
 
 def test_train_task_lane_mapping():
-    assert _to_type("train:hgnn") == "gpu_kernel"     # GPU-capable -> igpu lane
-    assert _to_type("train:cnn") == "cpu_coordination"  # CPU-only -> proc lane
+    assert _to_type("train:hgnn") == "gpu_kernel"     # GPU capable -> igpu lane
+    assert _to_type("train:cnn") == "cpu_coordination"  # CPU only -> proc lane

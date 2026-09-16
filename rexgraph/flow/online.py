@@ -1,11 +1,11 @@
-"""rexgraph.flow.online: native online predict-then-observe field, no external
-deep-learning framework dependency.
+"""rexgraph.flow.online: native online predict then observe field, no external
+deep learning framework dependency.
 
 GreensCochainField is the owner's Green's-cochain math applied ONLINE as one
 propagate (predict) plus one relational correction (update) per event, over the
-co-participation Laplacian L_C. State is a cochain phi over edges keyed by the
+co participation Laplacian L_C. State is a cochain phi over edges keyed by the
 canonical cell key so it survives index shifts. No epochs, no learning rate, no
-embeddings, no argmax classifier: the update is a matrix-free Green's solve via
+embeddings, no argmax classifier: the update is a matrix free Green's solve via
 _block_cg and one preconditioned residual step, pure numpy/scipy.
 """
 from __future__ import annotations
@@ -27,16 +27,16 @@ def _keys_of(rex) -> NDArray:
 
 
 def _sparse_L_C(rex):
-    """The co-participation line-graph Laplacian as scipy CSR, or None if the
-    line graph has no edges (trace-zero channel dropped). `rex.L_coPC` only
-    reads the DENSE bundle (opt-in, O(nE^2)); the scale-free accessor is the
-    per-channel sparse builder, matching rexgraph.tests.test_relational's own
+    """The co participation line graph Laplacian as scipy CSR, or None if the
+    line graph has no edges (trace zero channel dropped). `rex.L_coPC` only
+    reads the DENSE bundle (opt in, O(nE^2)); the scale free accessor is the
+    per channel sparse builder, matching rexgraph.tests.test_relational's own
     `dict(build_sparse_channels(g)).get('L_C')` idiom."""
     return dict(build_sparse_channels(rex)).get('L_C')
 
 
 def edge_persistence(region, rex, rex_next) -> NDArray:
-    """Structural, domain-agnostic default observe target: for each edge index in
+    """Structural, domain agnostic default observe target: for each edge index in
     `region` (in `rex`), 1.0 if its canonical cell key is still present in
     `rex_next`, else 0.0. Supervised entirely by the stream's own evolution."""
     k = _keys_of(rex)
@@ -48,7 +48,7 @@ def edge_persistence(region, rex, rex_next) -> NDArray:
 
 class GreensCochainField:
     """A cochain field phi over edges, propagated and corrected by the Green's
-    function over L_C. One propagate + one correction per event, matrix-free."""
+    function over L_C. One propagate + one correction per event, matrix free."""
 
     def __init__(self, *, green_lam: float = 4.0, green_iters: int = 20,
                  observe: Callable | None = None):
@@ -59,19 +59,19 @@ class GreensCochainField:
         self._pending = None                          # (region_indices, rex_at_predict)
 
     def _sparse_L_C(self, rex):
-        """Instance-level bounded cache over the module-level `_sparse_L_C(rex)`
+        """Instance level bounded cache over the module level `_sparse_L_C(rex)`
         builder. Keyed by id(rex); the cache entry holds a STRONG reference to
         `rex` alongside its L_C, so while cached the id cannot be reused by another
-        object and the identity check (`hit[0] is rex`) is collision-free. Bounded
+        object and the identity check (`hit[0] is rex`) is collision free. Bounded
         to 4 entries (evict oldest) so it never grows unbounded across a long run."""
         from collections import OrderedDict
         cache = self.__dict__.setdefault("_lc_cache", OrderedDict())   # id(rex) -> (rex, L_C)
         key = id(rex)
         hit = cache.get(key)
-        if hit is not None and hit[0] is rex:                          # identity-verified hit
+        if hit is not None and hit[0] is rex:                          # identity verified hit
             cache.move_to_end(key)
             return hit[1]
-        L = _sparse_L_C(rex)                                           # the existing module-level accessor
+        L = _sparse_L_C(rex)                                           # the existing module level accessor
         cache[key] = (rex, L)
         cache.move_to_end(key)
         while len(cache) > 4:                                          # bounded
@@ -86,7 +86,7 @@ class GreensCochainField:
             self.phi[int(k)] = float(x)
 
     def _greens_apply(self, L, seed) -> NDArray:
-        """Solve (I + green_lam * L) x = seed via the native matrix-free block CG."""
+        """Solve (I + green_lam * L) x = seed via the native matrix free block CG."""
         lam = self.green_lam
         apply_A = lambda P: P + lam * (L @ P)
         dinv = 1.0 / (1.0 + lam * L.diagonal())
@@ -129,8 +129,8 @@ class GreensCochainField:
     def predict_then_observe(self, t, change, rex) -> dict[str, object]:
         """Predict at t (recorded before observation), then observe + correct the
         PREVIOUS step's pending region against the realized snapshot at t. Keyed by
-        canonical cell key so a renumber-free index shift never mis-pairs. `rex` is
-        the caller's already-materialized snapshot at t (no at() call here)."""
+        canonical cell key so a renumber free index shift never mis pairs. `rex` is
+        the caller's already materialized snapshot at t (no at() call here)."""
         if change is None:
             added = np.arange(rex.nE, dtype=np.int64)
         else:

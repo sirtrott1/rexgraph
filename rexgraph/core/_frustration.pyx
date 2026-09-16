@@ -7,7 +7,7 @@ Signed weighted Gramian K_s = B1^T W B1 where W = diag(1/log(deg+e)).
 Frustration Laplacian L_SG = D_{|K_off|} - K_off, where K_off is K_s
 with diagonal zeroed.
 
-Same vertex-driven pair enumeration as _overlap.pyx but with different
+Same vertex driven pair enumeration as _overlap.pyx but with different
 weights. Dense and sparse construction paths with adaptive selection.
 """
 
@@ -39,7 +39,7 @@ np.import_array()
 def build_vertex_weights(Py_ssize_t nV, Py_ssize_t nE,
                          np.ndarray[i32, ndim=1] sources,
                          np.ndarray[i32, ndim=1] targets):
-    """Inverse-log-degree vertex weights for the signed Gramian."""
+    """Inverse log degree vertex weights for the signed Gramian."""
     cdef np.ndarray[f64, ndim=1] deg = np.zeros(nV, dtype=np.float64)
     cdef np.ndarray[f64, ndim=1] w = np.empty(nV, dtype=np.float64)
     cdef i32[::1] sv = sources, tv = targets
@@ -93,7 +93,7 @@ cdef int _build_v2e_csr_i32(
     Py_ssize_t nV, Py_ssize_t nE,
     i32* vptr, i32* vidx
 ) noexcept nogil:
-    """Build vertex-to-edge CSR. Caller allocates vptr[nV+1], vidx[2*nE]."""
+    """Build vertex to edge CSR. Caller allocates vptr[nV+1], vidx[2*nE]."""
     cdef Py_ssize_t e
     cdef i32 u, v
 
@@ -139,7 +139,7 @@ def build_signed_gramian_dense(Py_ssize_t nV, Py_ssize_t nE,
     The edge signs array further multiplies each edge's B1 column.
 
     Diagonal: K_s[i,i] = sum_{v in boundary(i)} w(v) (always positive).
-    Off-diagonal: sign depends on boundary orientations at the shared vertex.
+    Off diagonal: sign depends on boundary orientations at the shared vertex.
     """
     cdef np.ndarray[f64, ndim=2] Ks = np.zeros((nE, nE), dtype=np.float64)
     cdef f64[:, ::1] kv = Ks
@@ -194,7 +194,7 @@ def build_signed_gramian_dense(Py_ssize_t nV, Py_ssize_t nE,
 
     free(pos)
 
-    # Vertex-driven pair enumeration
+    # Vertex driven pair enumeration
     for v in range(nV):
         wv = wt[v]
         lo = vptr[v]
@@ -203,7 +203,7 @@ def build_signed_gramian_dense(Py_ssize_t nV, Py_ssize_t nE,
             ei = vidx[j]
             # Diagonal: always positive (B1[v,e]^2 = 1)
             kv[ei, ei] += wv
-            # Off-diagonal pairs: use boundary signs
+            # Off diagonal pairs: use boundary signs
             bi = bsign[j]
             for k in range(j + 1, hi):
                 ej = vidx[k]
@@ -252,10 +252,10 @@ def build_L_SG_dense(Py_ssize_t nV, Py_ssize_t nE,
 
 def build_L_SG_sparse(Py_ssize_t nV, Py_ssize_t nE, sources, targets, signs, vertex_weights):
     """REAL sparse frustration Laplacian - K_s = Bs^T W Bs assembled as a SPARSE matmul
-    (Bs the sign-scaled signed incidence: Bs[v,e] = B1[v,e]·sign(e) = -sign(e) at the
-    source, +sign(e) at the target), so K_s has the O(Σ deg²) line-graph sparsity and is
+    (Bs the sign scaled signed incidence: Bs[v,e] = B1[v,e]·sign(e) = -sign(e) at the
+    source, +sign(e) at the target), so K_s has the O(Σ deg²) line graph sparsity and is
     never the dense nE×nE Gramian. Then L_SG = D_{|K_off|} − K_off with K_off = K_s
-    off-diagonal. Returns scipy CSR. Equals build_L_SG_dense exactly."""
+    off diagonal. Returns scipy CSR. Equals build_L_SG_dense exactly."""
     import scipy.sparse as _sp
     src = np.asarray(sources, dtype=np.int64)
     tgt = np.asarray(targets, dtype=np.int64)
@@ -265,7 +265,7 @@ def build_L_SG_sparse(Py_ssize_t nV, Py_ssize_t nE, sources, targets, signs, ver
     Bs = _sp.csr_matrix(
         (np.concatenate([-sgn, sgn]),
          (np.concatenate([src, tgt]), np.concatenate([eidx, eidx]))),
-        shape=(nV, nE))                                  # signed, sign-scaled incidence
+        shape=(nV, nE))                                  # signed, sign scaled incidence
     Ks = (Bs.T @ (_sp.diags(w) @ Bs)).tocsr()            # nE × nE, sparse matmul
     Koff = (Ks - _sp.diags(Ks.diagonal())).tocsr()       # zero the diagonal
     D = np.asarray(np.abs(Koff).sum(axis=1), dtype=np.float64).ravel()
@@ -277,7 +277,7 @@ def build_L_SG(Py_ssize_t nV, Py_ssize_t nE, sources, targets,
     """Frustration Laplacian L_SG.
 
     Parameters
-    ----------
+
     nV, nE : int
     sources, targets : int array[nE]
     signs : float array[nE], optional
@@ -286,7 +286,7 @@ def build_L_SG(Py_ssize_t nV, Py_ssize_t nE, sources, targets,
         "auto", "dense", or "sparse".
 
     Returns
-    -------
+
     ndarray or scipy CSR
     """
     src = np.asarray(sources, dtype=np.int32)
@@ -311,7 +311,7 @@ def build_L_SG(Py_ssize_t nV, Py_ssize_t nE, sources, targets,
 def frustration_rate(np.ndarray[f64, ndim=1] signs,
                      np.ndarray[i32, ndim=1] edge_types,
                      Py_ssize_t nE, Py_ssize_t n_types):
-    """Fraction of negative-signed edges per type."""
+    """Fraction of negative signed edges per type."""
     cdef np.ndarray[f64, ndim=1] rates = np.zeros(n_types, dtype=np.float64)
     cdef np.ndarray[i32, ndim=1] total = np.zeros(n_types, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] neg = np.zeros(n_types, dtype=np.int32)

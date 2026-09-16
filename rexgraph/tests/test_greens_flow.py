@@ -2,7 +2,7 @@
 
 `coparticipation_adjacency` is |B1|^T|B1| and never touches B2, so a model trained
 through it is blind to every face in the complex. That is measurable rather than
-arguable: the operator is bit-identical on an open complex and the same complex closed,
+arguable: the operator is bit identical on an open complex and the same complex closed,
 so an ablation over the two reports the same number for a reason that has nothing to do
 with the data.
 
@@ -10,7 +10,7 @@ with the data.
 carry signal, and alpha defaults to c0_squared, the exact rational coupling.
 
 This is additive. GreensCochain is unchanged and stays right for a cochain over a
-face-free complex, where there is no curl tier to miss.
+face free complex, where there is no curl tier to miss.
 """
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def test_the_curl_tier_changes_the_preconditioned_gradient(closed, open_complex)
 
 
 def test_the_trajectories_separate(closed, open_complex):
-    """One Adam step is sign-only, so a single step cannot show this and does not."""
+    """One Adam step is sign only, so a single step cannot show this and does not."""
     ends = []
     target = torch.arange(12, dtype=torch.float64).reshape(6, 2)
     for rex in (closed, open_complex):
@@ -111,7 +111,7 @@ def test_a_different_alpha_gives_a_different_operator(closed):
 
 
 def test_it_says_when_there_is_no_curl_tier(closed, open_complex):
-    """On a face-free complex this degrades to GreensCochain rather than pretending to a
+    """On a face free complex this degrades to GreensCochain rather than pretending to a
     tier that is not there."""
     z = torch.zeros(6, 2, dtype=torch.float64, requires_grad=True)
     assert GreensFlow([{"params": [z]}], rex=closed).reads_faces is True

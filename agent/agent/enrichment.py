@@ -3,7 +3,7 @@ agent.enrichment: which terms a set of entities is concentrated in.
 
 The standard question. A gene set comes out of an experiment, and the ontology is
 asked which of its terms the set favours. Every tool answers it the same way: apply
-the true-path rule so that annotating a term annotates its ancestors, count, run a
+the true path rule so that annotating a term annotates its ancestors, count, run a
 hypergeometric test per term, correct for multiplicity, sort by p.
 
 That answer is computed here, exactly, because it is the number people know how to
@@ -64,7 +64,7 @@ def build_annotation_model(knowledge) -> AnnotationModel:
     """Split a joined complex into hierarchy and annotations.
 
     Both are edges of the same complex and are told apart by their relation, which is
-    what the type channel carries. Nothing is re-read from a file.
+    what the type channel carries. Nothing is re read from a file.
     """
     terms, entities = set(), set()
     direct: dict[str, set] = {}
@@ -87,7 +87,7 @@ def build_annotation_model(knowledge) -> AnnotationModel:
 def apply_true_path(model: AnnotationModel) -> AnnotationModel:
     """Annotating a term annotates every term above it.
 
-    The true-path rule, and it is not optional: without it a term's count is only its
+    The true path rule, and it is not optional: without it a term's count is only its
     direct annotations and every ancestor reads as empty, so the hierarchy the
     ontology exists to provide contributes nothing to the answer.
 
@@ -142,7 +142,7 @@ def hypergeometric_sf(k: int, N: int, K: int, n: int) -> float:
 
 
 def benjamini_hochberg(pvalues: list[float]) -> list[float]:
-    """FDR-adjusted p-values, in the order given."""
+    """FDR adjusted p-values, in the order given."""
     m = len(pvalues)
     if m == 0:
         return []
@@ -160,7 +160,7 @@ def benjamini_hochberg(pvalues: list[float]) -> list[float]:
 def enrich(knowledge, study_set, *, universe=None, min_term_size: int = 1) -> dict:
     """Which terms the study set is concentrated in.
 
-    Returns the classical answer (counts, hypergeometric p, BH-adjusted q) and the
+    Returns the classical answer (counts, hypergeometric p, BH adjusted q) and the
     structural one (the persistence of the annotation complex restricted to the set)
     over the same complex, so the two can be compared directly.
     """

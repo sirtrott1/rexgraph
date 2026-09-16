@@ -3,7 +3,7 @@ rexgraph.hardware: what this machine actually gives us.
 
 The tree could generate SLURM submission scripts but never read the allocation
 back, so thread counts fell through to os.cpu_count(): on a cluster, the NODE's
-core count rather than the job's. An eight-core allocation on a 128-core node
+core count rather than the job's. An eight core allocation on a 128 core node
 would start 128 workers, which on a shared cluster gets the job killed rather
 than merely running slowly. Memory was not detected at all.
 
@@ -128,7 +128,7 @@ def cpu_count(*, with_source: bool = False):
 def physical_cores(*, with_source: bool = False):
     """Cores that do not share a load/store path, capped by `cpu_count`.
 
-    SMT siblings share L1 and the load/store units, so on a MEMORY-BOUND kernel they add
+    SMT siblings share L1 and the load/store units, so on a MEMORY BOUND kernel they add
     contention without adding memory parallelism. The channel tower is exactly that shape
     and measures it: on a 16c/32t machine the best width is 14 and 32 costs 10 to 15%
     against it, while the curve is flat from 10 to 24. Physical cores lands inside that
@@ -142,7 +142,7 @@ def physical_cores(*, with_source: bool = False):
     """
     def _topology_id(path):
         # NOT `_read_int`: that treats 0 as absent, which is right for a quota and wrong
-        # here, since cpu0's core_id IS 0 and every id is 0-based.
+        # here, since cpu0's core_id IS 0 and every id is 0 based.
         try:
             with open(path) as fh:
                 return int(fh.read().strip())
@@ -252,7 +252,7 @@ def gpus() -> list[dict[str, Any]]:
 # reads the DRM nodes directly, which is the only way to learn whether a device's
 # memory is UNIFIED with system RAM: that decides bus topology, and a framework
 # that reports total memory will not tell you.
-#### GPU probes################################
+# GPU probes
 # One probe per driver family, registered rather than branched, so a vendor this has
 # never seen can be added from outside without editing anything here. A probe takes the
 # system RAM in bytes and returns a list of device dicts; it must never raise, and it
@@ -337,7 +337,7 @@ def _unified_from_memory(vram, gtt, ram_bytes) -> tuple:
     return None, (f"inconclusive: vram_frac {vram_frac:.3f}, gtt_frac {gtt_frac:.3f}")
 
 def _unified_from_drm(dev: dict, ram_bytes: int) -> tuple:
-    """Back-compat shim: the memory test, taking a device dict."""
+    """Back compat shim: the memory test, taking a device dict."""
     return _unified_from_memory(dev.get("vram_bytes"), dev.get("gtt_bytes"), ram_bytes)
 
 def _drm_cards(driver_match) -> list:
@@ -391,7 +391,7 @@ def _probe_intel(ram_bytes: int) -> list:
     return out
 
 def _probe_nvidia(ram_bytes: int) -> list:
-    """The proprietary driver exposes no DRM memory manager, so this asks nvidia-smi.
+    """The proprietary driver exposes no DRM memory manager, so this asks nvidia smi.
 
     Every PCIe card has its own VRAM. Tegra and Grace are unified and would need their
     own probe; this does not claim them, and says so rather than calling them discrete.
@@ -496,8 +496,8 @@ def _torch_info() -> dict[str, Any]:
 #### cloud
 #
 # Detection reads LOCAL signals only. The instance metadata service lives on a
-# link-local address that HANGS rather than refuses when you are not on that cloud,
-# so a provider probe that dials it turns "which cloud am I on" into a multi-second
+# link local address that HANGS rather than refuses when you are not on that cloud,
+# so a provider probe that dials it turns "which cloud am I on" into a multi second
 # stall on every machine that is on none of them. DMI answers the same question
 # from a file read.
 
@@ -538,7 +538,7 @@ def cloud() -> dict[str, Any]:
     elif "oraclecloud" in vendor.lower().replace(" ", ""):
         provider = "oci"
 
-    # env-provided identifiers, which containers get even when DMI is masked
+    # env provided identifiers, which containers get even when DMI is masked
     for env_name, name in (("AWS_EXECUTION_ENV", "aws"),
                            ("ECS_CONTAINER_METADATA_URI_V4", "aws"),
                            ("AZURE_CLIENT_ID", None), ("GCE_METADATA_HOST", "gcp")):

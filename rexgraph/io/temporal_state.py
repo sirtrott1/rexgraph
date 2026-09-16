@@ -1,6 +1,7 @@
 """Canonical, semantic tensor state for ``TemporalRex`` histories.
 
-Version 2 binds reconstruction metadata and tensor bytes into one state identity. Version
+Version 3 adds the shared exact coefficient codec. Numeric only writes retain v2
+and their existing identities. Version 2 binds reconstruction metadata and tensor bytes into one state identity. Version
 1 remains readable for reference artifacts, but its digest covered only tensors and must
 not be used as the identity of a newly signed mutation.
 """
@@ -14,14 +15,16 @@ from typing import Any
 import numpy as np
 
 from .manifest import manifest_digest
-from .rex_state import DIGEST_ALGO, state_digest
+from .rex_state import DIGEST_ALGO, decode_tensors, encode_tensors, state_digest
 
-FORMAT_VERSION = 2
-READABLE_VERSIONS = (1, FORMAT_VERSION)
+FORMAT_VERSION = 3
+VERIFIED_VERSIONS = (2, FORMAT_VERSION)
+READABLE_VERSIONS = (1, *VERIFIED_VERSIONS)
 
 __all__ = [
     "FORMAT_VERSION",
     "READABLE_VERSIONS",
+    "VERIFIED_VERSIONS",
     "TemporalState",
     "from_temporal_state",
     "to_temporal_state",
@@ -154,7 +157,7 @@ def to_temporal_state(trex) -> TemporalState:
     header: dict[str, Any] = {
         "object_type": "TemporalRex",
         "encoding": "delta",
-        "temporal_state_version": FORMAT_VERSION,
+        "temporal_state_version": 2,
         "T": total,
         "directed": bool(trex._directed),
         "general": bool(trex._general),
@@ -168,6 +171,15 @@ def to_temporal_state(trex) -> TemporalState:
         "digest_names": sorted(tensors),
         "digest_algo": DIGEST_ALGO,
     }
+    labels = _read_vertex_labels({"vertex_labels": getattr(trex, "_vertex_labels", None)}, total)
+    if any(value is not None for value in labels):
+        header["vertex_labels"] = labels
+    # Reuse the exact static state codec; do not change numeric v2 identities.
+    exact = {name: value for name, value in tensors.items() if value.dtype.hasobject}
+    if exact:
+        header["tensor_codecs"] = encode_tensors(exact)
+        tensors.update(exact)
+        header["temporal_state_version"] = FORMAT_VERSION
     header["tensor_digest"] = state_digest(
         tensors, header["digest_names"], algo=DIGEST_ALGO
     )
@@ -184,7 +196,7 @@ def verify_temporal_state(state: TemporalState) -> bool:
         return False
     # Version 1 binds tensors only. It is readable through an explicit migration path,
     # but it can never answer that reconstruction semantics are intact.
-    if version != FORMAT_VERSION:
+    if version not in VERIFIED_VERSIONS:
         return False
     declared = state.header.get("digest")
     if not _is_sha256(declared):
@@ -225,6 +237,18 @@ def _read_channels(
     ):
         raise ValueError(f"TemporalState {field} are invalid")
     return list(raw)
+
+
+def _read_vertex_labels(header: dict[str, Any], total: int) -> list:
+    raw = header.get("vertex_labels")
+    if raw is None:
+        return [None] * total
+    if (not isinstance(raw, list) or len(raw) != total or any(
+        value is not None and (not isinstance(value, list) or any(
+            not isinstance(label, str) for label in value)) for value in raw
+    )):
+        raise ValueError("TemporalState vertex_labels must contain string lists or null per step")
+    return [None if value is None else list(value) for value in raw]
 
 
 def _read_layout(
@@ -296,7 +320,7 @@ def from_temporal_state(
     verify: bool = True,
     allow_legacy: bool = False,
 ):
-    """Reconstruct a delta-backed ``TemporalRex`` from canonical tensor state."""
+    """Reconstruct a delta backed ``TemporalRex`` from canonical tensor state."""
     header = state.header
     version = header.get("temporal_state_version")
     if not isinstance(version, int) or isinstance(version, bool):
@@ -316,7 +340,14 @@ def from_temporal_state(
 
     from rexgraph.graph import FaceDelta, TemporalDelta, TemporalRex
 
-    tensors = state.tensors
+    tensors = dict(state.tensors)
+    codecs = header.get("tensor_codecs")
+    if codecs is not None:
+        if version < 3 or not isinstance(codecs, dict) or any(
+            not isinstance(spec, dict) or spec.get("c") != "exact" for spec in codecs.values()
+        ):
+            raise ValueError("invalid TemporalState exact coefficient codecs")
+        decode_tensors(tensors, codecs)
     (
         total,
         directed,
@@ -327,6 +358,7 @@ def from_temporal_state(
         g_channels,
         c_channels,
     ) = _read_layout(header)
+    vertex_labels = _read_vertex_labels(header, total)
     index_checkpoints = {}
     for time in checkpoints:
         prefix = f"checkpoint/{time}/"
@@ -409,4 +441,5 @@ def from_temporal_state(
     trex._times = times
     trex._g_channels = g_channels
     trex._c_channels = c_channels
+    trex._vertex_labels = vertex_labels
     return trex

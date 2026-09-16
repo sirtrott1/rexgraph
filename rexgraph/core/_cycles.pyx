@@ -1,10 +1,10 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._cycles: deterministic pairwise-derived cycle routines.
+rexgraph.core._cycles: deterministic pairwise derived cycle routines.
 
-Computes a fundamental cycle basis for an explicit 1-skeleton via
-tree-cotree decomposition, yielding the face set and data needed to
+Computes a fundamental cycle basis for an explicit 1 skeleton via
+tree cotree decomposition, yielding the face set and data needed to
 build B_2.
 
 Algorithm:
@@ -50,7 +50,7 @@ cdef enum:
     _SENTINEL = -1
 
 
-# BFS queue (nogil, malloc-backed)
+# BFS queue (nogil, malloc backed)
 
 cdef struct _Queue:
     i32* data
@@ -193,7 +193,7 @@ def build_symmetric_adjacency_i32(Py_ssize_t nV, Py_ssize_t nE,
     BFS traversal.
 
     Returns
-    -------
+
     adj_ptr : int32[nV + 1]
         CSR row pointers.
     adj_idx : int32[2 * nE]
@@ -376,7 +376,7 @@ def bfs_spanning_forest(np.ndarray[i32, ndim=1] adj_ptr,
     BFS spanning forest with deterministic traversal order.
 
     Returns
-    -------
+
     parent : int32[nV]
         Parent vertex for each vertex (-1 sentinel unused
         roots
@@ -668,10 +668,10 @@ def find_fundamental_cycles_i32(Py_ssize_t nV, Py_ssize_t nE,
                                  np.ndarray[i32, ndim=1] sources,
                                  np.ndarray[i32, ndim=1] targets):
     """
-    Compute a fundamental cycle basis for the 1-skeleton.
+    Compute a fundamental cycle basis for the 1 skeleton.
 
     Parameters
-    ----------
+
     nV : int
         Number of vertices.
     nE : int
@@ -680,7 +680,7 @@ def find_fundamental_cycles_i32(Py_ssize_t nV, Py_ssize_t nE,
         Tail and head vertex indices for each directed edge.
 
     Returns
-    -------
+
     cycle_edges : int32[sum(lengths)]
         Concatenated edge indices for all fundamental cycles.
     cycle_signs : float64[sum(lengths)]
@@ -871,17 +871,17 @@ def find_fundamental_cycles_i64(Py_ssize_t nV, Py_ssize_t nE,
 
 def find_fundamental_cycles(Py_ssize_t nV, Py_ssize_t nE, sources, targets):
     """
-    Compute a fundamental cycle basis for the 1-skeleton.
+    Compute a fundamental cycle basis for the 1 skeleton.
 
     Parameters
-    ----------
+
     nV, nE : int
         Vertex and edge counts.
-    sources, targets : array-like of int
+    sources, targets : array like of int
         Tail and head vertex indices for each directed edge.
 
     Returns
-    -------
+
     cycle_edges : int32[sum(lengths)]
         Concatenated edge indices for all fundamental cycles.
     cycle_signs : float64[sum(lengths)]
@@ -913,7 +913,7 @@ def cycle_space_dimension(Py_ssize_t nV, Py_ssize_t nE, sources, targets):
     """
     Compute beta_1 = m - n + beta_0 without tracing cycles.
 
-    Uses union-find for component counting.
+    Uses union find for component counting.
     """
     if not isinstance(sources, np.ndarray):
         sources = np.asarray(sources)
@@ -963,7 +963,7 @@ def build_adjacency_and_forest(Py_ssize_t nV, Py_ssize_t nE, sources, targets):
     Exposes intermediate results for inspection and testing.
 
     Returns
-    -------
+
     adj_ptr, adj_idx, adj_edge : int32 arrays
         Symmetric CSR adjacency with sorted rows.
     parent, parent_edge, depth, is_tree : int32 arrays

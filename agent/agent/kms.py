@@ -87,7 +87,7 @@ class WorkspaceKeyring:
             # operator allowed, and this is the path that buys key material rather than
             # a listing.
             return resolve_request_ref(key_id)
-        # The workspace's own keyring first. secret_store() is the per-request scoped
+        # The workspace's own keyring first. secret_store() is the per request scoped
         # view, so this is where namespacing happens; open_secret_store() would reach
         # the flat namespace and hand one tenant another tenant's keys.
         try:
@@ -135,7 +135,7 @@ class WorkspaceKeyring:
         """Open an envelope whose key the caller already knows, in one attempt.
 
         Use this wherever the identifier came out of an AUTHENTICATED manifest. It is
-        not attacker-chosen there, so resolving it is safe, and naming the key directly
+        not attacker chosen there, so resolving it is safe, and naming the key directly
         avoids both the trial loop and the need to prime a reader with keys it will not
         use. `open` remains for the case where the reader has only the envelope.
         """

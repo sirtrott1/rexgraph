@@ -1,7 +1,7 @@
 """Routes hand back artifacts, not summaries of artifacts.
 
 The library has a complete binary I/O stack: `.rcbd` bundles, safetensors, HDF5, Zarr,
-the labeled vector container and the canonical per-cell table writers. A route that
+the labeled vector container and the canonical per cell table writers. A route that
 computes a complex and returns only a JSON description of it has thrown the object
 away.
 
@@ -16,8 +16,8 @@ import zipfile
 
 import numpy as np
 import pytest
-from tests.test_knowledge_roundtrip import BRCA_GAF, BRCA_OBO, GTF
-from tests.test_ontology_reasoning import IMMUNE, OBO, REPAIR, _gaf
+from _rexgraph_agent_tests.test_knowledge_roundtrip import BRCA_GAF, BRCA_OBO, GTF
+from _rexgraph_agent_tests.test_ontology_reasoning import IMMUNE, OBO, REPAIR, _gaf
 
 #: containers written as a directory, so downloaded zipped
 ZIPPED = {"rex", "zarr"}
@@ -247,7 +247,7 @@ def test_no_scratch_files_are_left_behind(client, study_files):
     assert after == before, f"scratch left behind: {sorted(after - before)}"
 
 
-#### per-cell analysis tables
+#### per cell analysis tables
 
 
 @pytest.fixture
@@ -260,7 +260,7 @@ def session(client, tmp_path):
         p.write_text(text)
         return str(p)
 
-    from tests.test_knowledge_roundtrip import BRCA_GAF, BRCA_OBO, GTF
+    from _rexgraph_agent_tests.test_knowledge_roundtrip import BRCA_GAF, BRCA_OBO, GTF
     k = join(w("g.gtf", GTF), w("a.gaf", BRCA_GAF), w("o.obo", BRCA_OBO))
     s = get_store().create(name="tables")
     s.add_snapshot(rex=k.rex(), action="join", params={}, results={}, summary="")
@@ -273,7 +273,7 @@ def session(client, tmp_path):
 ])
 def test_an_analysis_table_comes_back_as_parquet(client, session, tmp_path,
                                                  kind, column):
-    """Per-cell output goes through the canonical writer, so the SQL bridge and the
+    """Per cell output goes through the canonical writer, so the SQL bridge and the
     warehouse read it without a conversion nobody wrote."""
     pq = pytest.importorskip("pyarrow.parquet")
     r = client.get(f"/api/analysis/{session}/table?kind={kind}")

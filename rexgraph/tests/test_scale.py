@@ -497,7 +497,7 @@ class TestXLargeSparse:
         assert sb['beta0'] >= 1
         assert sb['beta1'] >= 0
         assert sb['fiedler_val_L0'] >= 0
-        # Edge-space operators are None (too large for dense)
+        # Edge space operators are None (too large for dense)
         assert sb['L1_full'] is None
         assert sb['RL'] is None
 
@@ -625,7 +625,7 @@ class TestHugeSparse:
         assert sb['L1_full'] is None
 
     def test_subgraph_then_dense_huge(self, rex):
-        """Extract 200-edge subgraph from 500K, verify full spectral."""
+        """Extract 200 edge subgraph from 500K, verify full spectral."""
         mask = np.zeros(rex.nE, dtype=bool)
         mask[:200] = True
         sub, v_map, e_map = rex.subgraph(mask)
@@ -668,7 +668,7 @@ class TestHugeSparse:
             assert sb["beta0"] >= 1
 
 
-# Cross-scale invariants
+# Cross scale invariants
 
 class TestInvariants:
 
@@ -703,7 +703,7 @@ class TestInvariants:
         assert rex2.betti == rex.betti
 
 
-# Sparse-specific invariants
+# Sparse specific invariants
 
 class TestSparseInvariants:
 

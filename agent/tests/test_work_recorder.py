@@ -1,7 +1,7 @@
 """Recording the platform's own work as temporal relational state.
 
 The lineage is one record holding a TemporalRex: a version is a step, and a moment
-resolves to a position. Recording is opt-in per workspace and off by default, so a
+resolves to a position. Recording is opt in per workspace and off by default, so a
 workspace that has said nothing records nothing.
 """
 from __future__ import annotations
@@ -15,8 +15,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("REXGRAPH_RCDB_URI", "sqlite:///" + str(tmp_path / "rcdb.sqlite"))
     from agent.rcdb import reset_default_store
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path / "ws"))
-    # `_store()` resolves through agent.rcdb.default_store, which caches process-wide;
-    # clearing a route-module global does not reach it.
+    # `_store()` resolves through agent.rcdb.default_store, which caches process wide;
+    # clearing a route module global does not reach it.
     reset_default_store()
     from agent.server.app import app
     yield TestClient(app)

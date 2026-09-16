@@ -37,7 +37,7 @@ __all__ = ["encoding_energy", "encoding_width", "boundary_signals",
            "segment_sentences", "segment_paragraphs", "segment_chapters",
            "strip_markers", "document_layers"]
 
-# The English-and-Gutenberg constants belong to the corpus: the inserted markers,
+# The English and Gutenberg constants belong to the corpus: the inserted markers,
 # the chapter conventions and the abbreviation veto: are now on
 # `rexgraph.corpus_profile.ENGLISH_GUTENBERG`. They are facts about one corpus in one
 # language, and a segmenter that carries them cannot serve a Chinese corpus or a source
@@ -74,9 +74,9 @@ def strip_markers(raw, markers=(), *, encoding="utf-8"):
 
 
 def encoding_energy(text, *, encoding="utf-8"):
-    """Per-character energy under `encoding`: `sum (byte * position)^2` over its bytes.
+    """Per character energy under `encoding`: `sum (byte * position)^2` over its bytes.
 
-    Position is 1-based within the character's own byte run, matching
+    Position is 1 based within the character's own byte run, matching
     `partition.byte_energy`, so a character's energy is a property of how the ENCODING
     spends bytes on it. That is the whole point: the same character has a different
     energy in utf-8 than in a CJK encoding, and comparing across encodings is meaningless
@@ -102,10 +102,10 @@ def encoding_width(text, *, encoding="utf-8"):
     run of width 2 inside a run of width 1, and its boundary is exactly where the width
     CHANGES. Nothing is compared against a level.
 
-    This replaces a median-normalised energy ratio. That version divided by the text's
+    This replaces a median normalised energy ratio. That version divided by the text's
     own median and fired above 1.0, which put a statistic and a cutoff in a decision
     path: the median is not a property of the encoding or of the text's structure, and
-    "above the middle" is a level rather than a fact. Byte width is exact, per-encoding,
+    "above the middle" is a level rather than a fact. Byte width is exact, per encoding,
     and needs neither.
     """
     s = _as_text(text)
@@ -248,7 +248,7 @@ def segment_paragraphs(text, *, offset=0):
     """
     s = _as_text(text)
     # `\r?\n` on BOTH sides: a CRLF file separates paragraphs with "\r\n\r\n",
-    # which an LF-only pattern cannot match, so every such document read as one
+    # which an LF only pattern cannot match, so every such document read as one
     # block. `read_document` deliberately does not translate newlines (that is what
     # shifts byte spans), so the pattern has to.
     parts = re.split(r"\r?\n[ \t]*\r?\n", s)
@@ -276,7 +276,7 @@ def segment_chapters(text, *, offset=0, min_sections=2, headings=()):
 
     Returns `(spans, titles, method)`. A book without headings returns `([], [], "none")`
     and gets no chapter layer, which is the honest outcome: inventing chapter boundaries
-    from length or blank-line counts would produce divisions no reader could confirm and
+    from length or blank line counts would produce divisions no reader could confirm and
     that no two books would agree on. Retrieval then reads a paragraph where it could
     have read a chapter, which costs context and does not cost correctness.
     """

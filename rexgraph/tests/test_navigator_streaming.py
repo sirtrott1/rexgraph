@@ -29,7 +29,7 @@ def test_step_active_unions_added_and_removed_region():
     change = EdgeChange(added=np.array([0], np.int64), removed=np.array([], np.int64))
     out = nav.step(r, change, removed_region=np.array([2], np.int64))
     assert out["event"] is True
-    assert out["region"].tolist() == [0, 2]         # added union removed-region, uniqued+sorted
+    assert out["region"].tolist() == [0, 2]         # added union removed region, uniqued+sorted
     assert nav.flow_calls == 1
     assert "draining" in out["flow"] and "circulating" in out["flow"]
 
@@ -55,7 +55,7 @@ def _snaps():
         ([0, 0, 1, 2], [1, 2, 3, 4]),
         ([0, 0, 1, 2, 3], [1, 2, 3, 4, 5]),
         ([0, 0, 1, 2, 3, 4], [1, 2, 3, 4, 5, 6]),
-        ([0, 0, 1, 2, 3, 4, 4], [1, 2, 3, 4, 5, 6, 0]),        # cycle-close (surprise)
+        ([0, 0, 1, 2, 3, 4, 4], [1, 2, 3, 4, 5, 6, 0]),        # cycle close (surprise)
         ([0, 0, 1, 2, 3, 4, 4, 5], [1, 2, 3, 4, 5, 6, 0, 7]),
     ]
     return TemporalRex([(np.asarray(s, np.int32), np.asarray(t, np.int32)) for s, t in S])
@@ -87,7 +87,7 @@ def test_run_threads_real_nonempty_removed_region():
     change = changed_edges(prev, curr)
     assert change.removed.size >= 1                      # a real removal happened
     expected_rr = removed_region_for(prev, curr, change.removed)
-    assert expected_rr.size >= 1                         # non-empty: this is the path under test
+    assert expected_rr.size >= 1                         # non empty: this is the path under test
     expected_region = np.unique(np.concatenate(
         [np.asarray(change.added, np.int64), expected_rr]))
     log = FieldNavigator(gate=_AlwaysGate()).run(trex)

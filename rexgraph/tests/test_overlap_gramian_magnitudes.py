@@ -1,4 +1,4 @@
-"""The overlap Gramian must carry per-entry boundary magnitudes, not a support count.
+"""The overlap Gramian must carry per entry boundary magnitudes, not a support count.
 
 `overlap_gramian` and `overlap_gramian_sparse` both document themselves as
 ``K = |B1|^T |B1|``. On the general (branching) path they did not compute that: the
@@ -11,17 +11,17 @@ column carries the share 1/(k-1).
 Three properties hold here.
 
 PER RELATION INCIDENCE. The magnitudes have to be read off the primary boundary
-structure, not off a dense signed B1. A deliberate self-loop lists its vertex twice with
+structure, not off a dense signed B1. A deliberate self loop lists its vertex twice with
 -1 and +1; the dense form has already summed those to 0, and |0| != |-1| + |+1|.
 Recovering K from the dense signed view is therefore impossible, which is what
-`test_self_loop_limitations_that_remain_are_pinned` records. The compiled standard-only
+`test_self_loop_limitations_that_remain_are_pinned` records. The compiled standard only
 kernel gets this right and is left alone here. Other repeated C0 participants are not a
 valid primary C1 carrier and are rejected at construction.
 
 DENSE AND SPARSE AGREE. They are documented as the same quantity in two shapes.
 
 THE COUNT IS STILL AVAILABLE where a count is what is wanted: the C channel is defined
-on shared-vertex counts, and that is a different quantity from G, not a cheaper version
+on shared vertex counts, and that is a different quantity from G, not a cheaper version
 of it.
 """
 
@@ -90,9 +90,9 @@ def test_a_repeated_boundary_entry_is_not_silently_collapsed_to_a_pairwise_relat
 def test_reading_the_gramian_does_not_mutate_the_complex():
     """A read must not move the model.
 
-    `np.ascontiguousarray` does not copy an already-contiguous array and `csr_matrix`
+    `np.ascontiguousarray` does not copy an already contiguous array and `csr_matrix`
     aliases the indptr and indices it is given, so a `sum_duplicates()` inside the
-    builder must not reach the graph's own primary carrier. A branching arity-3
+    builder must not reach the graph's own primary carrier. A branching arity 3
     relation must retain its declared support after a Gramian read.
     """
     for accessor in ("overlap_gramian_sparse", "overlap_gramian"):
@@ -119,8 +119,8 @@ def test_repeated_reads_are_stable():
 
 
 def test_simple_graphs_are_untouched():
-    """The standard-only path is a different kernel and is correct, including on
-    self-loops where the dense signed B1 cannot express the magnitudes at all."""
+    """The standard only path is a different kernel and is correct, including on
+    self loops where the dense signed B1 cannot express the magnitudes at all."""
     rex = RexGraph(sources=np.array([0, 1, 2], np.int32),
                    targets=np.array([1, 2, 0], np.int32))
     K = rex.overlap_gramian_sparse.toarray()
@@ -131,8 +131,8 @@ def test_simple_graphs_are_untouched():
 
 
 def test_the_c_channel_still_reads_counts():
-    """G and C are different quantities. C is the weighted line-graph Laplacian over
-    shared-vertex counts; making G a true Gramian must not silently redefine C."""
+    """G and C are different quantities. C is the weighted line graph Laplacian over
+    shared vertex counts; making G a true Gramian must not silently redefine C."""
     from rexgraph.sparse_character import build_sparse_channels
 
     rex = _branching([0, 3, 5], [0, 1, 2, 2, 3])

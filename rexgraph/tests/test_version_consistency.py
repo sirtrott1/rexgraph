@@ -6,14 +6,14 @@ has to answer without the package being installed. None of them is removable wit
 giving something up, so instead of one source of truth there is one test.
 
 It matters more than it did. rcdb, rcql and system are their own distributions now, and
-the carrier contract changed this release, so every inter-distribution floor was raised
-to >=1.1.5. That floor rejects a pre-1.1.5 sibling; it does not pin the five to each
+the query surface grew this release, so every inter distribution floor was raised
+to >=1.1.6. That floor rejects a pre-1.1.6 sibling; it does not pin the five to each
 other, and a later release can still resolve an older one unless its own floor moves.
 What this test guarantees is the half that is checkable here: this source release states
-1.1.5 in every one of the eleven places that state a version.
+1.1.6 in every one of the eleven places that state a version.
 
 It is here because the drift already happened: meson.build sat at 1.0.1 against a 1.0.6
-package through two releases. Nothing was mis-built, since pyproject is what
+package through two releases. Nothing was mis built, since pyproject is what
 meson-python packages from, but `meson dist` produced a tarball named 1.0.1 and anyone
 reading meson.build got the wrong answer. A mismatch is silent everywhere it matters
 until it is embarrassing, which is the kind worth a test rather than a convention.
@@ -42,7 +42,7 @@ def _module_version(p):
 #: There are eleven now rather than five, because rcdb, rcql and system became
 #: distributions of their own. A package declaring one version while its distribution
 #: declares another is what makes a floor meaningless, and each package's own test proves
-#: only that it agrees with ITSELF, so the cross-distribution check lives here.
+#: only that it agrees with ITSELF, so the cross distribution check lives here.
 SOURCES = {
     "pyproject.toml": _toml_version,
     "agent/pyproject.toml": _toml_version,
@@ -97,7 +97,7 @@ def test_the_runtime_version_is_the_declared_one():
 @pytest.mark.skipif(not (ROOT / "pyproject.toml").exists(),
                     reason="not a source checkout")
 def test_the_version_is_a_release_number():
-    """Three dot-separated numbers, optionally a pre-release suffix.
+    """Three dot separated numbers, optionally a pre release suffix.
 
     Guards the bump itself rather than taste: `1.0.6-dev`, a stray quote, or an empty
     string all pass an equality check between five identical mistakes.

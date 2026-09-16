@@ -1,12 +1,12 @@
 """One engine per connection string, and a way to let them go.
 
-get_engine cached in-memory engines but built a NEW engine for every file-backed call.
+get_engine cached in memory engines but built a NEW engine for every file backed call.
 An engine owns a connection pool, so a caller that asks per operation, as the workspace
 persistence layer does, opened one pool per save and abandoned every one of them. The
-cost was not only the leak: rebuilding the engine each time made a 25-test round trip
+cost was not only the leak: rebuilding the engine each time made a 25 test round trip
 take 7.05s that now takes 0.41s.
 
-The cache is process-wide and long lived by design, which is what makes calling
+The cache is process wide and long lived by design, which is what makes calling
 get_engine per operation correct. dispose_engines is how a process that is finished with
 a database actually releases them.
 """

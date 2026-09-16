@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, HTTPException
 router = APIRouter()
 
 
-#: the one encoder (rexgraph.io._compat). Non-finite floats go out as null:
+#: the one encoder (rexgraph.io._compat). Non finite floats go out as null:
 #: a bare NaN token is not JSON and every browser JSON.parse rejects it.
 from rexgraph.io._compat import json_sanitize
 
@@ -53,7 +53,7 @@ async def get_property(session_id: str, name: str):
 
     try:
         value = getattr(rex, name)
-        # Convert to JSON-safe format
+        # Convert to JSON safe format
         result = _sanitize({"property": name, "value": value})
         return result
     except Exception as e:
@@ -109,7 +109,7 @@ def _edge_label(rex, e: int, labels):
 @router.post("/explore/{session_id}/context")
 async def local_context(session_id: str, body: dict = Body(...)):
     """The forged contextual picture around query ENTITIES (vertices) and RELATIONS
-    (edges) - per-seed diagnostics plus the bounded relevant sub-complex reached by one
+    (edges) - per seed diagnostics plus the bounded relevant sub complex reached by one
     heat diffusion seeded across both grades, so the LLM acts on the relevant structure
     instead of enumerating the whole graph.
 
@@ -119,7 +119,7 @@ async def local_context(session_id: str, body: dict = Body(...)):
                  ('seeds' is accepted as an alias.)
       edges    : relation edge indices, and/or [endpoint, endpoint] pairs (labels or
                  indices) resolved to the joining edge.
-      t        : heat-diffusion scale (small = tight, larger = wider).
+      t        : heat diffusion scale (small = tight, larger = wider).
       max_cells: optional cap on the returned neighborhood per grade.
 
     Returns {seed_vertices:[explain_vertex...], seed_edges:[explain_edge...],

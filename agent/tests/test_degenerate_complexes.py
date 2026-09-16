@@ -4,11 +4,11 @@ An empty complex is a real input: a document that produced no relations, an uplo
 that OCR could not read, a query naming nothing. The analysis pipeline runs on it,
 and what it reports has to be reportable.
 
-An undefined measurement over such a complex is reported as an IEEE non-finite: the
+An undefined measurement over such a complex is reported as an IEEE non finite: the
 mean over zero edges is NaN and the mixing time of a complex with no cycle is
 infinity. Both are the correct values and both are kept. What is not acceptable is
 either of them reaching a client, because neither is JSON, so the app renders a
-non-finite as null at the response boundary.
+non finite as null at the response boundary.
 """
 from __future__ import annotations
 

@@ -43,7 +43,7 @@ def test_rcdb_does_not_import_the_agent(path):
 @pytest.mark.parametrize("name", ["rcdb", "rcdb_index", "rexstore", "objectstore",
                                   "rcdb_protected_index"])
 def test_the_agent_modules_are_compatibility_surfaces(name):
-    """Each is a re-export, so the thirty-odd modules importing agent.rcdb still work."""
+    """Each is a re export, so the thirty odd modules importing agent.rcdb still work."""
     path = REPO / "agent" / "agent" / f"{name}.py"
     if not path.is_dir() and not path.exists():
         pytest.skip(f"{name} is not present in this checkout")
@@ -84,7 +84,7 @@ def test_a_store_works_with_no_hooks_configured():
 
 def test_the_agent_installs_its_policy():
     """And with the agent present, all four arrive."""
-    pytest.importorskip("agent")
+    pytest.importorskip("agent.rcdb")
     import agent  # noqa: F401  - importing is what installs them
 
     from rcdb import core
@@ -97,7 +97,7 @@ def test_the_agent_installs_its_policy():
 def test_the_public_surface_is_reachable_from_the_package():
     """Every name in __all__ resolves, and the surface is not quietly narrowed.
 
-    The agent re-exports this package dynamically, so a name dropped from __init__ still
+    The agent re exports this package dynamically, so a name dropped from __init__ still
     reaches anyone importing agent.rcdb and nothing fails there. That masking is exactly
     why this checks the package DIRECTLY: the first version of this __init__ exported a
     fraction of the surface and the agent suite stayed green.
@@ -124,12 +124,13 @@ def test_safetensors_is_a_base_dependency_not_an_extra():
     and index.py reads and writes the tensor index with it. Declared as an extra, a base
     install imports cleanly and then fails on its first put, which is the worst place to
     learn a dependency is missing. This was a real regression: the extraction moved
-    safetensors from base into a search extra, and a system-site test environment that
+    safetensors from base into a search extra, and a system site test environment that
     happened to have safetensors installed hid it from every suite.
     """
     import re
-    import tomllib
     from pathlib import Path
+
+    import tomllib
 
     meta = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())
     project = meta["project"]
@@ -142,7 +143,7 @@ def test_safetensors_is_a_base_dependency_not_an_extra():
             f"base declares {sorted(base)}"
         )
 
-    # and an extra must not re-declare it, which is how the demotion reads as harmless
+    # and an extra must not re declare it, which is how the demotion reads as harmless
     for name, deps in project.get("optional-dependencies", {}).items():
         if name == "dev":
             continue

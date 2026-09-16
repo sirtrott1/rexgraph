@@ -1,23 +1,23 @@
 """
-relational_attention: attention as a propagator on a content-weighted token complex,
-built on the eigen-free rcf_torch primitives.
+relational_attention: attention as a propagator on a content weighted token complex,
+built on the eigen free rcf_torch primitives.
 
 Standard attention forms softmax(QKᵀ), a dense metric object, and uses it directly as the
-one-hop mixing matrix. Propagator attention treats the tokens as a weighted graph (edge
+one hop mixing matrix. Propagator attention treats the tokens as a weighted graph (edge
 weights = content affinity) and mixes values by a propagator f(L_W)·V computed with a
-Chebyshev sparse-matvec recurrence; the n×n mixing operator f(L_W) is never formed
+Chebyshev sparse matvec recurrence; the n×n mixing operator f(L_W) is never formed
 (O(nnz·K·d)). Two routing channels come from the light propagator's exact split:
 
-  * heat  e^{-tL}·V  - diffusive / gradient routing (multi-hop reachability)
+  * heat  e^{-tL}·V  - diffusive / gradient routing (multi hop reachability)
   * curl  Im(e^{-itL})·V = -sin(tL)·V - rotational / directional routing, which softmax
     cannot express in one hop ("complex rotation is curl")
 
-The token graph is content-weighted, so the weighting's curvature (: weighted
-degree / participation ratio) and the per-head varentropy self-diagnostic (collision-vs-diffusion gap) are computed readouts. `t` (propagation scale) is learnable; the
-topology is multi-hop, gradient⊕curl.
+The token graph is content weighted, so the weighting's curvature (: weighted
+degree / participation ratio) and the per head varentropy self diagnostic (collision vs diffusion gap) are computed readouts. `t` (propagation scale) is learnable; the
+topology is multi hop, gradient⊕curl.
 
-v1 stores the T×T content-affinity like standard attention does, but the mixing operator is
-matrix-free; the fully sparse (scatter, no T×T) path uses rcf_torch.cheb_apply_op, see the
+v1 stores the T×T content affinity like standard attention does, but the mixing operator is
+matrix free; the fully sparse (scatter, no T×T) path uses rcf_torch.cheb_apply_op, see the
 cost study in agent.benchmarks. torch is optional; import guarded at use.
 """
 from __future__ import annotations
@@ -37,8 +37,8 @@ except Exception:                                    # pragma: no cover
 
 
 class PropagatorAttention(_Base):
-    """Attention = f(L_W)·V on a content-weighted token graph, mixing channels ∈
-    {heat, gradient, curl}. Reduces to a diffusive graph-attention at channels=('heat',),
+    """Attention = f(L_W)·V on a content weighted token graph, mixing channels ∈
+    {heat, gradient, curl}. Reduces to a diffusive graph attention at channels=('heat',),
     order 1; multi-hop/rotational at higher order and with the curl channel."""
 
     def __init__(self, d: int, n_head: int, cheb_order: int = 16,
@@ -65,7 +65,7 @@ class PropagatorAttention(_Base):
         S = (q @ k.transpose(-2, -1)) / math.sqrt(self.dk)      # [B,H,T,T] affinity scores
         W = _F.softplus(S)
         W = 0.5 * (W + W.transpose(-2, -1))                     # symmetric -> PSD Laplacian
-        W = W - _t.diag_embed(_t.diagonal(W, dim1=-2, dim2=-1))  # no self-edge
+        W = W - _t.diag_embed(_t.diagonal(W, dim1=-2, dim2=-1))  # no self edge
         deg = W.sum(-1)                                          # [B,H,T]
         L = _t.diag_embed(deg) - W
         return L, W, deg
@@ -81,15 +81,15 @@ class PropagatorAttention(_Base):
         lam_max = R.spectral_bound(L)
         t = self.log_t.exp() if self.log_t is not None else self.init_time
 
-        # importance gate (opt-in, default off): per-token structural centrality (2-hop vs
-        # 1-hop reach). Finding (associative-recall bench): this gate is inert (Δ≈0), because
-        # the importance the task needs is already intrinsic to the propagator's multi-hop
-        # routing (propagator solves recall 1.0 vs standard 0.55). Kept opt-in in case a task
+        # importance gate (opt in, default off): per token structural centrality (2 hop vs
+        # 1 hop reach). Finding (associative recall bench): this gate is inert (Δ≈0), because
+        # the importance the task needs is already intrinsic to the propagator's multi hop
+        # routing (propagator solves recall 1.0 vs standard 0.55). Kept opt in in case a task
         # rewards explicit centrality; not the default.
         imp = None
         if self.importance:
-            r1 = deg                                          # 1-hop weighted reach [B,H,T]
-            r2 = (W @ r1.unsqueeze(-1)).squeeze(-1)           # 2-hop reach
+            r1 = deg                                          # 1 hop weighted reach [B,H,T]
+            r2 = (W @ r1.unsqueeze(-1)).squeeze(-1)           # 2 hop reach
             imp = r2 / (r1 + 1e-6)                             # reach divergence (centrality)
             imp = imp / imp.mean(dim=-1, keepdim=True).clamp_min(1e-6)
             gate = 1.0 + _F.softplus(self.imp_gain) * (imp - 1.0)   # gate≈1 at init, learns up
@@ -115,7 +115,7 @@ class PropagatorAttention(_Base):
         if not return_diag:
             return out, None
         with _t.no_grad():
-            #: per-head varentropy gap (collision vs diffusion) - routing structure
+            #: per head varentropy gap (collision vs diffusion) - routing structure
             vg = R.varentropy_gap(L)
             #: weight concentration = participation ratio N_eff = (Σw)²/Σw² per head
             wsum = W.sum(dim=(-2, -1)); w2sum = (W * W).sum(dim=(-2, -1))
@@ -132,7 +132,7 @@ class PropagatorAttention(_Base):
 def _causal_windows(z, w):
     """`z` [B,H,T,d] -> [B,H,T,w,d] with out[...,i,m,:] = z[..., i-w+1+m, :].
 
-    A strided view of the left-padded tensor, so the band is addressed rather than
+    A strided view of the left padded tensor, so the band is addressed rather than
     built. Rows with i < w-1 read padding, which the score mask removes.
     """
     zp = _F.pad(z, (0, 0, w - 1, 0))                 # pad the T axis on the left
@@ -147,12 +147,12 @@ def _band_valid(T, w, device):
 
 
 class CausalPropagatorAttention(_Base):
-    """Causal relational attention: the decoder-LM form, where causality, sparsity, and
-    multi-hop propagation are one structural choice.
+    """Causal relational attention: the decoder LM form, where causality, sparsity, and
+    multi hop propagation are one structural choice.
 
-    A causal, windowed prior-token neighborhood is simultaneously the causal mask and the
-    O(n·w) sparse graph. Because a causal token graph is a DAG, its (row-stochastic) adjacency
-    A is nilpotent-under-truncation, so the propagator is a finite matvec series
+    A causal, windowed prior token neighborhood is simultaneously the causal mask and the
+    O(n·w) sparse graph. Because a causal token graph is a DAG, its (row stochastic) adjacency
+    A is nilpotent under truncation, so the propagator is a finite matvec series
 
         Y = Σ_{k=0}^{K} c_k · Aᵏ · V            (A lower-triangular => Y[i] depends only on j≤i)
 
@@ -193,7 +193,7 @@ class CausalPropagatorAttention(_Base):
     Where the shape does pay is DECODE, one token against a KV cache, which is what
     token/s measures: the window bounds the read and the hops buy back the reach it
     gave up, at a cost proportional to K. Same benchmark, B=8 d=512 h=8, window 64,
-    against full-history decode:
+    against full history decode:
 
         cache T    256    1024    4096    8192
         K=4       0.18x   0.53x   2.13x   3.91x   (>1 is faster)
@@ -272,10 +272,10 @@ class CausalPropagatorAttention(_Base):
             return self._forward_banded(q, k, v, B, T, d, return_diag)
         scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.dk)     # [B,H,T,T]
         i = _t.arange(T, device=x.device)
-        causal = i[:, None] >= i[None, :]                     # j ≤ i (lower-triangular)
+        causal = i[:, None] >= i[None, :]                     # j ≤ i (lower triangular)
         if self.window is not None:
             causal = causal & (i[:, None] - i[None, :] < self.window)
-        A = scores.masked_fill(~causal, float("-inf")).softmax(dim=-1)   # row-stochastic DAG
+        A = scores.masked_fill(~causal, float("-inf")).softmax(dim=-1)   # row stochastic DAG
         c = (self.log_c.softmax(0) if self.log_c is not None
              else _t.full((self.hops + 1,), 1.0 / (self.hops + 1), device=x.device))
         # finite causal propagator series Y = Σ_k c_k Aᵏ V (K matvecs, causality preserved)

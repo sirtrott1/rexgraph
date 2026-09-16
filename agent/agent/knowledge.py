@@ -9,7 +9,7 @@ synonym list; a GO term carries `GO:0006281` with `alt_id`s. Nothing is ambiguou
 about any of it, and nothing joins, because the join key is spelled differently in
 each file.
 
-Every one of those files states its own cross-references. This module reads only what
+Every one of those files states its own cross references. This module reads only what
 the files declare, unions the identifier sets transitively, and emits a single
 relational complex whose vertices are entities and whose edges keep the relation and
 the file they came from.
@@ -20,7 +20,7 @@ the file they came from.
     k.triples()              # the same thing for an agent or TrustGraph
     k.store(store, "study")  # into the RCDB, searchable by entity and by source
 
-The join is transitive and stated-only: an entity reaches another identifier because
+The join is transitive and stated only: an entity reaches another identifier because
 some file says the two name one thing, never because the strings resemble each other.
 An identifier claimed by two entities within a file is reported as a collision and
 declined as a key, since a wrong join produces a complex that looks richer than the
@@ -78,7 +78,7 @@ def _normalise_identifier(x: str) -> str:
 
 
 class _Union:
-    """Union-find over identifiers, so a join through a chain of files works.
+    """Union find over identifiers, so a join through a chain of files works.
 
     `gene_name BRCA1` in a GTF and `UniProtKB:P38398` in a GAF are one entity only
     because a GAF row lists both. Following that one step at a time is what makes the
@@ -255,7 +255,7 @@ class Knowledge:
 
         Edge types are `origin:relation` by default, so the type channel separates a
         subsumption asserted by the ontology from an annotation asserted by the GAF
-        from an overlap computed off the GTF. Selecting a sub-complex is then a type
+        from an overlap computed off the GTF. Selecting a sub complex is then a type
         filter rather than a rebuild.
         """
         from .adapters.formats import _ec
@@ -405,7 +405,7 @@ class Knowledge:
         return recs
 
     def features(self, *, rex=None, signal=None, t_scales=(0.5, 2.0)):
-        """Per-relation features read off the complex's own tensor fields.
+        """Per relation features read off the complex's own tensor fields.
 
         The training signal for a joined complex is structural, not textual: an
         ontology and a genome annotation carry no prose to chunk, and the thing worth
@@ -416,7 +416,7 @@ class Knowledge:
         This is `warehouse.edge_features` on this complex, not a second copy of it.
 
         Returns
-        -------
+
         (X, names, y, classes)
             `X` is (n_relations, n_features); `y` is the relation's type index and
             `classes` names them, so "which kind of relation is this, and which file
@@ -443,7 +443,7 @@ class Knowledge:
         holds load in them. For an ontology that reads as definitional circularity;
         for a joined complex it also finds the entities every path runs through.
 
-        `flow` is a per-relation load, defaulting to uniform, which reads the
+        `flow` is a per relation load, defaulting to uniform, which reads the
         structure alone.
         """
         from rexgraph.mesh_health import mesh_health
@@ -458,7 +458,7 @@ class Knowledge:
 
         A seed on some relations spreads to the relations near them and to the faces
         above, so "what does this set reach" is answered by the complex rather than by
-        a hop count. `seed` is a per-relation vector or a set of entity names, in
+        a hop count. `seed` is a per relation vector or a set of entity names, in
         which case every relation touching one of them starts at 1.
 
         Returns the propagated field over the relations, in the same order.
@@ -514,14 +514,14 @@ def join(*sources, origins: list[str] | None = None) -> Knowledge:
     """Join files into one complex on the identifiers they declare.
 
     Parameters
-    ----------
+
     *sources
         Paths, EdgeConstructions or ParsedOntologies, in any mix.
     origins
         Names for the sources, one per source. Defaults to filenames.
 
     Returns
-    -------
+
     Knowledge
         The entities, their relations with provenance, and a report of what joined.
     """
@@ -611,9 +611,9 @@ def join(*sources, origins: list[str] | None = None) -> Knowledge:
 
     referenced = {c for e in edges for c in (e[0], e[2])}
     n_ambiguous_skipped = len(ambiguous)
-    # invert canon_of_root rather than re-deriving the root from an identifier.
+    # invert canon_of_root rather than re deriving the root from an identifier.
     # `groups` is keyed by uf.find(_root_key(...)), which SKIPS ambiguous keys, so an
-    # entity whose alphabetically-first id happens to be an ambiguous one finds its own
+    # entity whose alphabetically first id happens to be an ambiguous one finds its own
     # singleton root instead, and that root is not in `groups`. Real data hits this:
     # joining go-basic.obo with goa_human.gaf raised KeyError: 'aqp9'.
     root_of_canon = {canon: root for root, canon in canon_of_root.items()}

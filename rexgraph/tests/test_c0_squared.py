@@ -1,4 +1,4 @@
-"""c0^2, the exchange-rate invariant, as an exact rational.
+"""c0^2, the exchange rate invariant, as an exact rational.
 
 Two coupling constants are in circulation and they are the two sides of the
 energy/entropy duality, not rival definitions of one quantity:
@@ -6,8 +6,8 @@ energy/entropy duality, not rival definitions of one quantity:
     c2_E = tr(L1^2) / tr(T^2)                          the ENERGY side  (RexGraph alpha_G)
     c2_H = [tr(T^2)/tr(T)^2] / [tr(L1^2)/tr(L1)^2]     the ENTROPY side, = e^{H_S - H_T}
 
-They coincide on K_k by regularity, so a complete-graph fixture cannot separate them, and
-they differ on any non-regular complex. What is invariant is the geometric mean, and the
+They coincide on K_k by regularity, so a complete graph fixture cannot separate them, and
+they differ on any non regular complex. What is invariant is the geometric mean, and the
 square root is exact because the product telescopes:
 
     c2_E * c2_H = [trL2/trT2] * [trT2/trT^2] * [trL^2/trL2] = (trL / trT)^2
@@ -35,7 +35,7 @@ from rexgraph.graph import RexGraph
 
 def _complete(k):
     """K_k with every triangle attached, built explicitly so the fixture does not depend
-    on the face-detection path under test elsewhere."""
+    on the face detection path under test elsewhere."""
     E = list(combinations(range(k), 2))
     ei = {e: i for i, e in enumerate(E)}
     src = np.array([i for i, j in E], np.int32)
@@ -50,7 +50,7 @@ def _complete(k):
 
 
 def _p4_tri():
-    """A path a-b-c-d with a chord a-c closed by one triangle. Non-regular, so it
+    """A path a-b-c-d with a chord a-c closed by one triangle. Non regular, so it
     separates c2_E from c2_H."""
     rex = RexGraph(sources=np.array([0, 1, 2, 0], np.int32),
                    targets=np.array([1, 2, 3, 2], np.int32))
@@ -97,7 +97,7 @@ def test_the_geometric_mean_identity(fixture):
 
 
 def test_c2_E_and_c2_H_coincide_on_K_k_and_differ_otherwise():
-    """Why a complete-graph fixture cannot validate either one alone."""
+    """Why a complete graph fixture cannot validate either one alone."""
     reg = _complete(5)
     assert reg.c2_E == reg.c2_H == Fraction(3, 2)
     non = _p4_tri()

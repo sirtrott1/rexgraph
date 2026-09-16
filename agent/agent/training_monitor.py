@@ -1,10 +1,10 @@
 """agent.training_monitor: watch model training live and diagnose/fix what's wrong, structurally.
 
-Training is a signal on a complex: the per-step loss is a 1-D trajectory whose SHAPE says what is
+Training is a signal on a complex: the per step loss is a 1-D trajectory whose SHAPE says what is
 happening. A healthy run descends (the loss "drains"); a broken one shows a structural signature:
-it never moves (no learning signal), it climbs or goes non-finite (diverging), or the validation
+it never moves (no learning signal), it climbs or goes non finite (diverging), or the validation
 turns up while training falls (overfitting). `diagnose()` reads those signatures with exact/relative
-signals (finiteness, sign of the trend, a numerical-zero flatness test), never a tuned cutoff, and
+signals (finiteness, sign of the trend, a numerical zero flatness test), never a tuned cutoff, and
 names the likely CAUSE and a FIX. `train_watched()` runs a training with the live loss hook, applies
 the fix, and retries: the reactive layer aimed at the training loop instead of the swarm.
 """
@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-# machine-precision "is this change essentially zero vs the loss scale": a numerical zero, not a
+# machine precision "is this change essentially zero vs the loss scale": a numerical zero, not a
 # policy threshold.
 _ZERO = 1e-9
 
@@ -76,7 +76,7 @@ _FIXABLE = {"diverging", "not_learning", "overfitting"}
 class TrainingMonitor:
     """Runs a training with the live loss hook, diagnoses it, and (optionally) applies the fix and
     retries. Registers the final model as a bee. Governed: `autofix` is off by default; it proposes
-    a diagnosis and stops; turn it on for a bounded self-healing loop."""
+    a diagnosis and stops; turn it on for a bounded self healing loop."""
 
     def __init__(self, hive=None):
         if hive is None:
@@ -122,7 +122,7 @@ class TrainingMonitor:
                 res = _train.train_one(model, bundle, optimizer=optimizer, steps=steps, lr=lr,
                                        device=dev, seed=seed,
                                        on_step=lambda i, loss, total: losses.append(loss))
-                # the eval trajectory is a METRIC (higher is better); negate it into a loss-proxy so
+                # the eval trajectory is a METRIC (higher is better); negate it into a loss proxy so
                 # "validation worsening" == the proxy rising, matching diagnose's convention.
                 traj = res.get("trajectory") or []
                 val_proxy = [-float(m) for m in traj] if traj else None

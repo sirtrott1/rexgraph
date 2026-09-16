@@ -1,4 +1,4 @@
-"""The lifecycle spine (agent.lifecycle): phase registry, run-logging, and setup-driven phases."""
+"""The lifecycle spine (agent.lifecycle): phase registry, run logging, and setup driven phases."""
 import pytest
 
 from agent import hive, hive_config, lifecycle

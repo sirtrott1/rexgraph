@@ -52,7 +52,7 @@ def test_the_embedded_length_is_the_real_one():
 
 
 def test_it_is_a_different_reading_from_the_intrinsic_one():
-    """The intrinsic quadrance of a 2-ary relation is 2 whatever the embedding, because
+    """The intrinsic quadrance of a 2 ary relation is 2 whatever the embedding, because
     it is `1 + 1/(k-1)` and says nothing about where the atoms sit."""
     rex, points = _corner()
     assert geometry_of(rex, exact=True)["quadrance"] == ["2", "2"]

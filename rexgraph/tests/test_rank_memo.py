@@ -1,6 +1,6 @@
-"""The exact integer-rank reduction is memoized on exact matrix content so the same
+"""The exact integer rank reduction is memoized on exact matrix content so the same
 boundary map (e.g. a shared B1 across two complexes in one monitor step) is reduced once.
-These tests pin that the memo returns byte-exact results and never collides across
+These tests pin that the memo returns byte exact results and never collides across
 distinct matrices."""
 import numpy as np
 import scipy.sparse as sp
@@ -30,7 +30,7 @@ def test_identical_matrices_hit_the_memo_once():
     M = _rand_int_sparse(30, 40, seed=1)
     r1 = _exact_rank_reduction(M)
     size_after_first = len(gb._RANK_MEMO)
-    # a fresh, content-identical copy must hit the cache (no new entry)
+    # a fresh, content identical copy must hit the cache (no new entry)
     M2 = sp.csc_matrix((M.data.copy(), M.indices.copy(), M.indptr.copy()), shape=M.shape)
     r2 = _exact_rank_reduction(M2)
     assert r1 == r2

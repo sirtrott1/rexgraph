@@ -30,7 +30,7 @@ jobs:
     name: ${{ matrix.os }} py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     strategy:
-      # one platform failing must not cancel the other, or a macOS-only break hides
+      # one platform failing must not cancel the other, or a break limited to macOS hides
       # whether Linux is fine, which is the question you actually have at that moment
       fail-fast: false
       matrix:
@@ -47,11 +47,11 @@ jobs:
 
       # this job's interpreter comes from the tool cache, outside the checkout, so it
       # never exercises the layout where the virtualenv sits inside the project. That
-      # case had its own bug and now has its own job: see install-layouts below.
+      # case had its own bug and now has its own job: see `install-layouts` below.
       # The kernels call cblas_* and LAPACK out of _linalg.pxd, and meson refuses to
       # build without them rather than emitting a wheel that imports and then dies on
       # "undefined symbol: cblas_dgemm". The runners ship neither, so every job that
-      # compiles has to install one first. Homebrew keeps openblas keg-only, so its
+      # compiles has to install one first. Homebrew does not link openblas globally, so its
       # pkgconfig directory has to be named explicitly.
       - name: BLAS
         run: |
@@ -66,18 +66,19 @@ jobs:
         run: python -m pip install --upgrade pip "meson-python>=0.16" "meson>=1.3" "ninja>=1.8.2" "cython>=3.0" "numpy>=1.24"
 
       - name: install rexgraph, editable
-        run: pip install --no-build-isolation -e ".[io]"
+        run: pip install --no-build-isolation -e ".[io,oracles]"
 
       # rexgraph-rcdb is a sibling in this repository rather than a published wheel, and
       # the agent depends on it, so pip cannot resolve the agent until it is installed.
-      # Dependency order is rexgraph, then rcdb, then the agent. rcql is not installed on
-      # purpose: its tests fall back to the in-repo copy, which exercises the same code
-      # without the extra install.
+      # Install each local distribution before testing its consumers.
       - name: install rexgraph-rcdb
         run: pip install -e "rcdb/[sql,objectstore,crypto]"
 
       - name: install rexgraph-agent
         run: pip install -e "agent/[server]"
+
+      - name: install query language and System
+        run: pip install -e ./rcql -e "./system[dev]"
 
       # the optional dependencies the suites actually exercise. CPU torch only: the
       # default wheel carries a CUDA runtime that is a large download and unusable on a
@@ -106,6 +107,9 @@ jobs:
         run: python -m pytest -q -p no:cacheprovider tests
         working-directory: agent
 
+      - name: query, store and System suites
+        run: python -m pytest --import-mode=importlib -q rcql/tests rcdb/tests system/tests
+
   package:
     name: installs from a clean checkout
     runs-on: ubuntu-latest
@@ -126,7 +130,7 @@ jobs:
       # The kernels call cblas_* and LAPACK out of _linalg.pxd, and meson refuses to
       # build without them rather than emitting a wheel that imports and then dies on
       # "undefined symbol: cblas_dgemm". The runners ship neither, so every job that
-      # compiles has to install one first. Homebrew keeps openblas keg-only, so its
+      # compiles has to install one first. Homebrew does not link openblas globally, so its
       # pkgconfig directory has to be named explicitly.
       - name: BLAS
         run: |
@@ -169,11 +173,15 @@ jobs:
           print("wheel ok:", rexgraph.__file__)
           PY
 
+      - name: native actions work with SciPy disabled
+        working-directory: ${{ runner.temp }}
+        run: '"$RUNNER_TEMP/fresh/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_no_scipy.py" --require-absent'
+
       # every extra must RESOLVE. An extra that names a distribution nobody can install,
       # or that omits one the code imports, is only visible from an empty environment.
       - name: every declared extra installs
         run: |
-          for extra in io nn dev; do
+          for extra in io nn dev scipy oracles; do
             echo "::group::rexgraph[$extra]"
             python -m venv "$RUNNER_TEMP/x-$extra"
             "$RUNNER_TEMP/x-$extra/bin/pip" install -q --upgrade pip
@@ -190,7 +198,7 @@ jobs:
     # are the four combinations of (virtualenv inside or outside the project directory)
     # x (editable or wheel), and all four have to pass.
     #
-    # The in-tree editable one is here because it FAILED, for everyone, until the numpy
+    # The editable installation inside the tree failed until the numpy
     # include in meson.build stopped going through include_directories(). That function
     # rejects an absolute path inside the source tree, and numpy's include path is inside
     # it whenever the virtualenv is `.venv/` in the project directory, which is the most
@@ -206,7 +214,7 @@ jobs:
       # The kernels call cblas_* and LAPACK out of _linalg.pxd, and meson refuses to
       # build without them rather than emitting a wheel that imports and then dies on
       # "undefined symbol: cblas_dgemm". The runners ship neither, so every job that
-      # compiles has to install one first. Homebrew keeps openblas keg-only, so its
+      # compiles has to install one first. Homebrew does not link openblas globally, so its
       # pkgconfig directory has to be named explicitly.
       - name: BLAS
         run: |

@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._channels: Per-channel signal decomposition and group scoring.
+rexgraph.core._channels: Per channel signal decomposition and group scoring.
 
 Primal signal character decomposes an edge signal's energy across
 typed Laplacian channels via hat^+ quadratic forms. Spectral channel
@@ -9,7 +9,7 @@ scores propagate a source signal through RL eigenmodes and project
 onto a target vector. Group scores aggregate spectral scores across
 entity groups defined by vertex masks.
 
-All eigendata is pre-computed and passed in. No eigensolves here.
+All eigendata is pre computed and passed in. No eigensolves here.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def primal_signal_character(np.ndarray[f64, ndim=1] psi,
     Returned as fractions summing to 1.
 
     Parameters
-    ----------
+
     psi : f64[nE]
         Edge signal.
     hat_evals_list : list of f64[nE]
@@ -78,7 +78,7 @@ def primal_signal_character(np.ndarray[f64, ndim=1] psi,
     nE : int
 
     Returns
-    -------
+
     f64[nhats]
         Energy fractions per channel, summing to 1.
         Zero vector if total energy is zero.
@@ -154,7 +154,7 @@ def spectral_channel_score(np.ndarray[f64, ndim=1] source,
     c_j^src = <v_j, source>, c_j^tgt = <v_j, target>.
 
     Parameters
-    ----------
+
     source : f64[nE]
         Source edge signal.
     target : f64[nE]
@@ -166,7 +166,7 @@ def spectral_channel_score(np.ndarray[f64, ndim=1] source,
     nE : int
 
     Returns
-    -------
+
     float
     """
     return float(_spectral_channel_score(&source[0], &target[0],
@@ -181,14 +181,14 @@ def group_channel_scores(np.ndarray[np.uint8_t, ndim=2] group_masks,
                           np.ndarray[f64, ndim=2] evecs_RL,
                           np.ndarray[f64, ndim=2] B1,
                           int nV, int nE, int n_groups):
-    """Per-group spectral channel scores.
+    """Per group spectral channel scores.
 
     For each group, builds an edge source from vertex membership
     via B1^T @ mask, normalizes, then computes the spectral
     channel score against the target vector.
 
     Parameters
-    ----------
+
     group_masks : uint8[n_groups, nV]
         Binary vertex membership per group.
     target : f64[nE]
@@ -199,7 +199,7 @@ def group_channel_scores(np.ndarray[np.uint8_t, ndim=2] group_masks,
     nV, nE, n_groups : int
 
     Returns
-    -------
+
     f64[n_groups]
     """
     cdef np.ndarray[f64, ndim=1] scores = np.empty(n_groups, dtype=np.float64)
@@ -230,21 +230,21 @@ def group_channel_scores(np.ndarray[np.uint8_t, ndim=2] group_masks,
     return scores
 
 
-# Multi-channel profile
+# Multi channel profile
 
 def multi_channel_profile(np.ndarray[f64, ndim=1] iv,
                            np.ndarray[f64, ndim=1] primal_char,
                            f64 coverage_val,
                            f64 kappa_mean,
                            f64 efficiency):
-    """Assemble a multi-dimensional profile for visualization.
+    """Assemble a multi dimensional profile for visualization.
 
     Combines interfacing vector components, primal signal character,
     spectral coverage, mean coherence, and source efficiency into
     a single dict.
 
     Parameters
-    ----------
+
     iv : f64[n_channels]
         Interfacing vector.
     primal_char : f64[nhats]
@@ -255,7 +255,7 @@ def multi_channel_profile(np.ndarray[f64, ndim=1] iv,
     efficiency : float
 
     Returns
-    -------
+
     dict with named fields for each dimension.
     """
     cdef int n_iv = iv.shape[0]

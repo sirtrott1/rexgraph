@@ -4,7 +4,7 @@
 """
 rexgraph.core._state: Rex state representation and signal operations.
 
-A rex state consists of per-dimension signals f0 (vertices), f1 (edges),
+A rex state consists of per dimension signals f0 (vertices), f1 (edges),
 f2 (faces). This module provides norms, normalization, packing/unpacking,
 differencing, projection, energy computation, stochastic validation,
 and state construction helpers.
@@ -37,12 +37,12 @@ cdef enum:
     _NORM_L2 = 1
     _NORM_LINF = 2
 
-# Python-visible constants for use as default arguments
+# Python visible constants for use as default arguments
 NORM_L1 = _NORM_L1
 NORM_L2 = _NORM_L2
 NORM_LINF = _NORM_LINF
 
-# Lazy import of _transition (avoids import-order issues during parallel builds)
+# Lazy import of _transition (avoids import order issues during parallel builds)
 cdef object _transition_mod = None
 
 cdef object _get_transition():
@@ -113,10 +113,10 @@ def normalize_signal(np.ndarray[f64, ndim=1] signal, int norm_type=NORM_L2):
 def pack_state(np.ndarray[f64, ndim=1] f0,
                np.ndarray[f64, ndim=1] f1,
                np.ndarray[f64, ndim=1] f2):
-    """Pack per-dimension signals into a single flat vector.
+    """Pack per dimension signals into a single flat vector.
 
     Returns
-    -------
+
     flat : f64[nV + nE + nF]
     sizes : int32[3] [nV, nE, nF]
     """
@@ -133,7 +133,7 @@ def pack_state(np.ndarray[f64, ndim=1] f0,
 
 def unpack_state(np.ndarray[f64, ndim=1] flat,
                  np.ndarray[i32, ndim=1] sizes):
-    """Unpack flat vector back to per-dimension signals."""
+    """Unpack flat vector back to per dimension signals."""
     cdef i32[::1] sz = sizes
     cdef Py_ssize_t nV = sz[0], nE = sz[1], nF = sz[2]
     cdef np.ndarray[f64, ndim=1] f0 = np.empty(nV, dtype=np.float64)
@@ -147,7 +147,7 @@ def unpack_state(np.ndarray[f64, ndim=1] flat,
     return f0, f1, f2
 
 
-# Field State Packing (Edge + Face only, V-as-boundary)
+# Field State Packing (Edge + Face only, V-as boundary)
 
 def field_state_pack(np.ndarray[f64, ndim=1] f_E,
                      np.ndarray[f64, ndim=1] f_F):
@@ -158,7 +158,7 @@ def field_state_pack(np.ndarray[f64, ndim=1] f_E,
     (E, F) only; vertex observables are derived via f_V = B_1 f_E.
 
     Returns
-    -------
+
     flat : f64[nE + nF]
     sizes : int32[2] [nE, nF]
     """
@@ -176,7 +176,7 @@ def field_state_unpack(np.ndarray[f64, ndim=1] flat,
     """Unpack field state vector back to edge and face signals.
 
     Returns
-    -------
+
     f_E : f64[nE]
     f_F : f64[nF]
     """
@@ -200,12 +200,12 @@ def field_state_vertex_observable(np.ndarray[f64, ndim=1] f_E, object B1):
     vertex, not an independently evolved quantity.
 
     Parameters
-    ----------
+
     f_E : f64[nE] - edge signal
     B1 : (nV, nE) matrix (dense or sparse) - boundary operator
 
     Returns
-    -------
+
     f_V : f64[nV]
     """
     return np.asarray(B1.dot(f_E), dtype=np.float64)
@@ -243,13 +243,13 @@ def energy_kin_pot(np.ndarray[f64, ndim=1] f_E, object L1, object LO):
     E_pot = <f_E | L_O | f_E>  (geometric energy)
 
     Parameters
-    ----------
+
     f_E : f64[nE] - edge signal
     L1 : (nE, nE) - Hodge Laplacian (dense or sparse)
     LO : (nE, nE) - overlap Laplacian (dense or sparse)
 
     Returns
-    -------
+
     E_kin : float
     E_pot : float
     ratio : float (E_kin / E_pot, inf if E_pot ~ 0)
@@ -326,13 +326,13 @@ def vertex_perturbation_to_edges(Py_ssize_t vertex_idx, object B1_T,
     edges incident to v". The edge signal is B_1^T delta_v.
 
     Parameters
-    ----------
+
     vertex_idx : int - vertex to perturb
     B1_T : (nE, nV) matrix - transpose of boundary operator
     nE, nF : dimensions
 
     Returns
-    -------
+
     f_E : f64[nE] - edge signal (B_1^T delta_v)
     f_F : f64[nF] - zero face signal
     """
@@ -359,10 +359,10 @@ def random_state(Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF,
 # Rex State Class
 
 cdef class RexState:
-    """Container for signals on the 2-relational complex.
+    """Container for signals on the 2 relational complex.
 
     Attributes
-    ----------
+
     f0 : f64[nV] (vertex signals, derived from f1 via B_1)
     f1 : f64[nE] (edge signals, primary)
     f2 : f64[nF] (face signals)
@@ -446,7 +446,7 @@ cdef class RexState:
         return self._last_E_pot
 
     def derive_vertex_signal(self, object B1):
-        """Derive f0 from f1 via B_1 (V-as-boundary semantics).
+        """Derive f0 from f1 via B_1 (V-as boundary semantics).
 
         Sets f0 = B_1 @ f1. This replaces independent vertex evolution
         with the derived vertex observable.
@@ -454,12 +454,12 @@ cdef class RexState:
         self.f0 = np.asarray(B1.dot(self.f1), dtype=np.float64)
 
     def evolve_coupled(self, system, double dt, Py_ssize_t n_steps=1):
-        """Evolve state using coupled cross-dimensional equations.
+        """Evolve state using coupled cross dimensional equations.
 
         Updates f0, f1, and f2 simultaneously via RK4 integration.
 
         Parameters
-        ----------
+
         system : RexGraph (wrapper)
             Must provide L0, L1, L2, LO, B1_dense, B2_dense, and alphas.
         dt : float

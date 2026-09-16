@@ -137,8 +137,8 @@ def detect_hallucinations_exchange(
             try:
                 vc = rex.void_complex
                 if vc and vc.get('n_voids', 0) > 0 and vc.get('Bvoid') is not None:
-                    # Matrix-free on the universal scale-free path (dense sb['RL']/hats
-                    # are None): per-void character via LSQR pinv quadratic forms.
+                    # Matrix free on the universal scale free path (dense sb['RL']/hats
+                    # are None): per void character via LSQR pinv quadratic forms.
                     if rex._use_sparse_character:
                         from rexgraph.sparse_character import void_character_sparse
                         void_chi = void_character_sparse(rex, vc['Bvoid'])

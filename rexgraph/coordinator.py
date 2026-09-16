@@ -1,4 +1,4 @@
-"""Hive Coordinator (v1): place tasks onto compute lanes by minimizing a relational-complex
+"""Hive Coordinator (v1): place tasks onto compute lanes by minimizing a relational complex
 contention objective."""
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ LANES = ("proc", "thread", "igpu")
 TYPES = ("cpu_coordination", "io_llm", "local_llm", "gpu_kernel")
 
 # (time_s prior, bandwidth_demand prior) per (type, lane), seeded from the 2026-07-25 benchmark:
-# cpu_coordination scales on the forkserver (proc), is GIL-flat on threads; io_llm is I/O-bound
+# cpu_coordination scales on the forkserver (proc), is GIL flat on threads; io_llm is I/O-bound
 # (cheap on threads, pointless elsewhere); gpu_kernel is cheap on the iGPU, dearer on the CPU.
 #
 # local_llm is NOT io_llm. io_llm is a REMOTE call: the caller blocks on a socket, so it is cheap
@@ -26,10 +26,10 @@ _PRIORS = {
     "io_llm":           {"proc": (1.00, 0.1), "thread": (0.10, 0.1), "igpu": (1.00, 0.1)},
     # TIME mirrors io_llm exactly and only BANDWIDTH differs. That is deliberate: the
     # agent adapter routes LLM work here partly for a CORRECTNESS reason. A spawn or a
-    # live-server attach mutates hive state in place and must not run in a forkserver
+    # live server attach mutates hive state in place and must not run in a forkserver
     # child, where the mutation would be lost, so it relies on the thread lane being
     # strictly cheapest. Giving local_llm a cheaper proc or igpu time would silently move
-    # that work off-thread and lose the mutation. The fix here is the bus accounting, not
+    # that work off thread and lose the mutation. The fix here is the bus accounting, not
     # the placement, so the placement is left identical by construction.
     "local_llm":        {"proc": (1.00, 0.9), "thread": (0.10, 0.9), "igpu": (1.00, 0.9)},
     "gpu_kernel":       {"proc": (1.00, 0.9), "thread": (1.00, 0.9), "igpu": (0.10, 0.9)},
@@ -41,7 +41,7 @@ _PRIORS = {
 LOCAL_LLM_BATCH_GAIN = {1: 1.00, 2: 1.39, 4: 1.52, 8: 2.26}
 
 # Types whose cost is SHARED rather than additive: the bus draw belongs to one server serving all of
-# them, and their wall-clock overlaps. Everything else stays strictly additive as before.
+# them, and their wall clock overlaps. Everything else stays strictly additive as before.
 _SHARED_TYPES = frozenset({"local_llm"})
 
 
@@ -49,14 +49,14 @@ _SHARED_TYPES = frozenset({"local_llm"})
 #
 # `min(proc, igpu)` baked in unified memory. On the 8060S that is right, since the iGPU and
 # the CPU are on one physical bus, so a draw on either is a draw on the same resource --
-# and on a discrete-GPU box it is wrong, because VRAM is its own pool and an igpu draw
+# and on a discrete GPU box it is wrong, because VRAM is its own pool and an igpu draw
 # costs a CPU draw nothing.
 #
-# So the topology is a COMPLEX, edge-primary the way everything else here is: a bus is a
+# So the topology is a COMPLEX, edge primary the way everything else here is: a bus is a
 # vertex, a LANE is the relation over the buses it draws on, and two lanes meet exactly
-# when they share one. A lane on a single bus is a 1-ary witness relation, and two
+# when they share one. A lane on a single bus is a 1 ary witness relation, and two
 # witnesses on one vertex meet there, which is what makes the unified case fall out
-# rather than being special-cased.
+# rather than being special cased.
 UNIFIED_MEMORY = {"mem": ("proc", "thread", "igpu")}
 SPLIT_MEMORY = {"sys_mem": ("proc", "thread"), "vram": ("igpu",)}
 _BUSES = UNIFIED_MEMORY
@@ -76,9 +76,9 @@ def _validate_buses(buses: dict) -> None:
 
 
 def set_bus_topology(buses: dict | None) -> None:
-    """Declare the PROCESS-default topology. None restores unified memory.
+    """Declare the PROCESS default topology. None restores unified memory.
 
-    Per-machine topology belongs on a CostModel (`set_buses`); this is the convenience
+    Per machine topology belongs on a CostModel (`set_buses`); this is the convenience
     for the common case of one process describing one machine.
     """
     global _BUSES
@@ -99,7 +99,7 @@ def bus_topology_for(unified) -> dict | None:
     """The topology implied by whether the compute GPU's memory is unified.
 
     True -> UNIFIED_MEMORY, False -> SPLIT_MEMORY, and None stays None: an undetermined
-    answer must not become a guess, because guessing wrong silently mis-prices every
+    answer must not become a guess, because guessing wrong silently mis prices every
     bandwidth decision while guessing nothing only asks the caller to declare.
 
     Pure on purpose: it takes the answer rather than probing, so the decision can be
@@ -194,7 +194,7 @@ def share_key(unit: dict) -> str:
 
     An explicit `share_group` is the honest answer when the caller knows it: a hive with
     three bees has three servers, and requests to different bees share nothing. Without
-    one, units of a type are assumed to hit the same server, which is the single-bee case
+    one, units of a type are assumed to hit the same server, which is the single bee case
     and the common one.
     """
     return str(unit.get("share_group") or unit.get("type"))
@@ -213,13 +213,13 @@ class CostModel:
     def __init__(self):
         self._t = {ty: {ln: _PRIORS[ty][ln][0] for ln in LANES} for ty in TYPES}
         self._bw = {ty: {ln: _PRIORS[ty][ln][1] for ln in LANES} for ty in TYPES}
-        self._gain = dict(LOCAL_LLM_BATCH_GAIN)   # per-model, so two boxes do not collide
+        self._gain = dict(LOCAL_LLM_BATCH_GAIN)   # per model, so two boxes do not collide
         self._base = None                         # measured n = 1 aggregate tok/s
         self._pending = []                        # n > 1 samples seen before any baseline
         # The bus topology is HARDWARE, so it belongs to the model that describes a
-        # machine and not to the process: a hive spanning a unified-memory laptop and a
-        # discrete-GPU desktop has to hold both at once. Seeded from the process default
-        # so a single-machine caller never has to say anything.
+        # machine and not to the process: a hive spanning a unified memory laptop and a
+        # discrete GPU desktop has to hold both at once. Seeded from the process default
+        # so a single machine caller never has to say anything.
         self._buses = None
 
     def cost(self, task_type: str, lane: str) -> tuple[float, float]:
@@ -303,7 +303,7 @@ class CostModel:
         return {"baseline_tok_s": self._base, "gain": dict(self._gain)}
 
 
-#### Resource complex + contention sensor (edge-centric delegation complex)
+#### Resource complex + contention sensor (edge centric delegation complex)
 import os
 
 import numpy as np
@@ -311,7 +311,7 @@ import numpy as np
 BRAIN = 0
 _LANE_V = {"proc": 1, "thread": 2, "igpu": 3}
 _HUB = 4
-_BW_LAMBDA = 0.02   # gentle weight on the CPU<->iGPU bandwidth-war term vs the primary wall-clock
+_BW_LAMBDA = 0.02   # gentle weight on the CPU<->iGPU bandwidth war term vs the primary wall clock
 _LAMBDA_PRI = 0.5   # how hard priority weights bias placement vs the primary makespan term
 
 _ACTIVE_SHARES: dict = {}
@@ -340,9 +340,9 @@ def share_fraction(name: str) -> float:
 
 
 def capacity(share_fraction: float = 1.0) -> dict:
-    """Per-lane parallelism, optionally scaled by this hive's share of the machine. proc = physical
-    cores (forkserver workers); thread = a comparable core-wide I/O pool; igpu = a small slot count
-    (a bandwidth-bound single device). A share below 1.0 splits proc/thread down (never below 1)."""
+    """Per lane parallelism, optionally scaled by this hive's share of the machine. proc = physical
+    cores (forkserver workers); thread = a comparable core wide I/O pool; igpu = a small slot count
+    (a bandwidth bound single device). A share below 1.0 splits proc/thread down (never below 1)."""
     cores = os.cpu_count() or 8
     base_proc = float(max(1, cores // 2))
     base_thread = float(max(1, cores // 2))
@@ -355,7 +355,7 @@ def capacity(share_fraction: float = 1.0) -> dict:
 def _new_state(gain=None):
     """Lane accumulators. `solo_t`/`solo_bw` are the additive part; `grp[lane][key]` is
     `[count, time_sum, bw_once]` for a shared resource, whose bus draw is counted ONCE
-    however many units draw on it and whose wall-clock is divided by the batch gain."""
+    however many units draw on it and whose wall clock is divided by the batch gain."""
     return {"solo_t": {ln: 0.0 for ln in LANES}, "solo_bw": {ln: 0.0 for ln in LANES},
             "grp": {ln: {} for ln in LANES},
             # the LEARNED curve when a model supplies one, so a coordinator that has been
@@ -400,9 +400,9 @@ def _lane_groups(assignment, units, cost):
 
 
 def _contention_from_sums(time: dict, bw: dict, cap: dict, buses: dict | None = None) -> float:
-    """Contention from precomputed per-lane time/bw sums (the actuator hot path).
+    """Contention from precomputed per lane time/bw sums (the actuator hot path).
 
-    The bandwidth term counts what is CO-DRAWN, which is the circulating part: a lane
+    The bandwidth term counts what is CO DRAWN, which is the circulating part: a lane
     drawing while the others are idle has the bus to itself and is not at war with
     anyone. That was written as `min(proc, igpu)`, which says it for two lanes but
     silently excluded the third, so anything on the thread lane drew for free, and
@@ -413,7 +413,7 @@ def _contention_from_sums(time: dict, bw: dict, cap: dict, buses: dict | None = 
 
     The generalisation is `total - max`, because for two terms that IS the minimum:
     min(a, b) = (a + b) - max(a, b). So every lane's draw is counted, the largest one
-    is credited with owning the bus, and the rest are the co-drawn mass contending with
+    is credited with owning the bus, and the rest are the co drawn mass contending with
     it. Whenever the thread lane draws nothing this returns the OLD value exactly, so
     the correction is confined to the case that was wrong.
 
@@ -426,16 +426,16 @@ def _contention_from_sums(time: dict, bw: dict, cap: dict, buses: dict | None = 
     bw_war = 0.0
     for draws in _bus_draws(bw, buses):
         if draws:
-            bw_war += sum(draws) - max(draws)     # co-drawn mass on THAT bus
+            bw_war += sum(draws) - max(draws)     # co drawn mass on THAT bus
     return wall + _BW_LAMBDA * bw_war
 
 
 def _priority_penalty(assignment: dict, units: list, cost: CostModel) -> float:
     """Sum over tasks of (weight - 1) * (time on assigned lane - time on the task type's best lane).
     Weight is centered on its own neutral value (1.0) so a wave with no weights contributes zero
-    penalty regardless of placement (the objective reduces exactly to the unweighted wall-clock
-    term). Above-neutral weight grows the penalty as the task is pushed off its best lane, so the
-    actuator prefers to spill below-neutral (low-priority) work instead."""
+    penalty regardless of placement (the objective reduces exactly to the unweighted wall clock
+    term). Above neutral weight grows the penalty as the task is pushed off its best lane, so the
+    actuator prefers to spill below neutral (low priority) work instead."""
     by_id = {u["id"]: u for u in units}
     pen = 0.0
     for tid, ln in assignment.items():
@@ -447,16 +447,16 @@ def _priority_penalty(assignment: dict, units: list, cost: CostModel) -> float:
 
 
 def contention(assignment: dict, units: list, cost: CostModel, cap: dict | None = None) -> float:
-    """Nonnegative contention of a placement. Wave WALL-CLOCK (max over lanes of load/parallelism)
-    plus a small CPU<->iGPU bandwidth-war term plus a priority penalty that keeps high-weight tasks
-    on their fast lane. `cap` overrides the per-lane capacity (e.g. a hive-share-scaled capacity)."""
+    """Nonnegative contention of a placement. Wave WALL CLOCK (max over lanes of load/parallelism)
+    plus a small CPU<->iGPU bandwidth war term plus a priority penalty that keeps high weight tasks
+    on their fast lane. `cap` overrides the per lane capacity (e.g. a hive share scaled capacity)."""
     time, bw = _lane_groups(assignment, units, cost)
     base = _contention_from_sums(time, bw, cap or capacity(), _buses_of(cost))
     return base + _LAMBDA_PRI * _priority_penalty(assignment, units, cost)
 
 
 def delegation_complex(assignment: dict, units: list):
-    """The edge-centric delegation complex (owner's model: an operator running a task IS an EDGE
+    """The edge centric delegation complex (owner's model: an operator running a task IS an EDGE
     from the brain, via the operator lane, to the task, not a vertex label). Vertices: brain, proc,
     thread, igpu, hub, tasks. Edges: brain->lane (operator channels), lane->task (each execution,
     the datum), and proc->hub / igpu->hub (shared bandwidth). Returned as a RexGraph for monitoring /
@@ -479,9 +479,9 @@ def delegation_complex(assignment: dict, units: list):
     return RexGraph(sources=np.array(src, dtype=np.int32), targets=np.array(tgt, dtype=np.int32))
 
 
-#### Flow actuator (marginal-contention greedy)
+#### Flow actuator (marginal contention greedy)
 def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
-    """Greedy marginal-contention placement with O(1) delta-scored moves. Same greedy/tie-break as a
+    """Greedy marginal contention placement with O(1) delta scored moves. Same greedy/tie-break as a
     full recompute. Each unit may carry a `weight` (default 1.0, centered so the neutral value
     contributes no penalty); the priority penalty is separable per task, so a move's penalty delta
     is (weight - 1)*(time_new - time_cur)."""
@@ -490,7 +490,7 @@ def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
     a = {u["id"]: cost.best_lane(u["type"]) for u in units}
     # A shared type's cost is not separable per unit, since moving one changes what the
     # others on that lane cost, so the running state is per (lane, share group) rather than a
-    # single float, and a move re-derives only the two groups it touched. Still O(1) per
+    # single float, and a move re derives only the two groups it touched. Still O(1) per
     # candidate: _state_sums walks LANES and the few live groups, not the units.
     buses = _buses_of(cost)
     st = _new_state(getattr(cost, "batch_gain", None))
@@ -572,7 +572,7 @@ _log = _logging.getLogger(__name__)
 
 def _run_one(u):
     """Run one unit's fn, catching its exception so a single bad task cannot abort the whole wave's
-    map (which would otherwise re-run every already-completed task in the serial fallback). Returns
+    map (which would otherwise re run every already completed task in the serial fallback). Returns
     (id, result, seconds, error_repr) with error_repr None on success."""
     t0 = _time.perf_counter()
     try:
@@ -594,7 +594,7 @@ def _picklable(fn) -> bool:
 
 def _partition_spill(units: list, assignment: dict):
     """Split units by assigned lane, spilling any unpicklable proc fn to the thread lane (it then
-    runs in-process, preserving side effects). Returns (by_id, proc_units, thread_units, eff_lane)
+    runs in process, preserving side effects). Returns (by_id, proc_units, thread_units, eff_lane)
     where eff_lane[id] is the lane the fn will ACTUALLY run on."""
     by_id = {u["id"]: u for u in units}
     eff = dict(assignment)
@@ -610,27 +610,27 @@ def _partition_spill(units: list, assignment: dict):
 
 def execute(units: list, assignment: dict, cost: CostModel|None = None) -> dict:
     """Execute each unit's `fn` on its assigned lane: proc -> process pool (true multicore for CPU-
-    bound work), thread/igpu -> thread pool (I/O and GPU-launch are GIL-light). Results are keyed by
-    id and are INDEPENDENT of lane and order. Folds per-task timing into cost.
+    bound work), thread/igpu -> thread pool (I/O and GPU launch are GIL light). Results are keyed by
+    id and are INDEPENDENT of lane and order. Folds per task timing into cost.
 
     Two guards make this safe for real (not just test) hive tasks:
-    - PICKLABILITY: a proc-lane fn that cannot be pickled (a closure/lambda/bound-method over hive
+    - PICKLABILITY: a proc lane fn that cannot be pickled (a closure/lambda/bound-method over hive
       state) is transparently spilled to the thread lane instead of crashing the forkserver pool.
-    - SIDE EFFECTS: the proc lane runs the fn in a child process, so in-process mutations do NOT
+    - SIDE EFFECTS: the proc lane runs the fn in a child process, so in process mutations do NOT
       propagate back, only the return value does. The picklability spill covers the common stateful
-      case (closures run in-process on the thread lane, mutations preserved); a picklable fn that
+      case (closures run in process on the thread lane, mutations preserved); a picklable fn that
       relies on mutating shared parent state must not be routed to proc. Cost timing is recorded
-      against the lane the fn ACTUALLY ran on (post-spill), so the model never learns a wrong lane.
+      against the lane the fn ACTUALLY ran on (post spill), so the model never learns a wrong lane.
 
-    See LanePools for the managed, warm-pool path (this function creates and tears down a fresh
+    See LanePools for the managed, warm pool path (this function creates and tears down a fresh
     pool per wave, which is the right behavior for the standalone/test path)."""
     by_id, proc_units, thread_units, eff_lane = _partition_spill(units, assignment)
     results = {}
     timings = []
 
     def drain(pool_units, ex):
-        # Per-task isolation: a failed task is logged and OMITTED from results (its id simply does
-        # not appear), so one bad fn never aborts the wave or forces a full re-run of its peers.
+        # Per task isolation: a failed task is logged and OMITTED from results (its id simply does
+        # not appear), so one bad fn never aborts the wave or forces a full re run of its peers.
         for tid, res, dt, err in ex.map(_run_one, pool_units):
             if err is not None:
                 _log.warning("coordinator task '%s' failed on lane %s: %s", tid, eff_lane[tid], err)
@@ -643,8 +643,8 @@ def execute(units: list, assignment: dict, cost: CostModel|None = None) -> dict:
             drain(thread_units, ex)
     if proc_units:
         # forkserver, not raw fork: this process has imported torch/numpy (many threads), and
-        # os.fork() in a multi-threaded process warns and can deadlock. forkserver is also the
-        # mechanism that gave CPU-bound coordination its 5.8x multicore scaling in benchmarks.
+        # os.fork() in a multi threaded process warns and can deadlock. forkserver is also the
+        # mechanism that gave CPU bound coordination its 5.8x multicore scaling in benchmarks.
         import multiprocessing as _mp
         ctx = _mp.get_context("forkserver")
         with ProcessPoolExecutor(max_workers=min(os.cpu_count() or 8, len(proc_units)),
@@ -669,14 +669,14 @@ def _inner_threads(workers: int, cores_budget: int|None = None) -> int:
     return max(1, int(budget) // max(1, int(workers)))
 
 
-_WORKER_TL = None   # holds the per-worker threadpool limiter for the worker's whole lifetime
+_WORKER_TL = None   # holds the per worker threadpool limiter for the worker's whole lifetime
 
 
 def _proc_worker_init(inner: int, affinity: bool):
-    """forkserver proc-lane worker setup. CAPS this worker's inner native (BLAS / OpenMP) thread
+    """forkserver proc lane worker setup. CAPS this worker's inner native (BLAS / OpenMP) thread
     pools to `inner`, so N workers each running threaded BLAS do not oversubscribe the machine
     (workers * inner tracks the core budget, the same arithmetic parallel_map uses). Without this,
-    a BLAS-heavy batch runs about 10x SLOWER than serial (32 workers each spawning 32 BLAS threads).
+    a BLAS heavy batch runs about 10x SLOWER than serial (32 workers each spawning 32 BLAS threads).
     Optionally pins the worker to a core to keep its cache hot."""
     global _WORKER_TL
     import os as _os
@@ -685,7 +685,7 @@ def _proc_worker_init(inner: int, affinity: bool):
         _os.environ[_v] = str(inner)           # for any BLAS pool not yet initialized
     try:
         import threadpoolctl
-        _WORKER_TL = threadpoolctl.threadpool_limits(inner)   # runtime cap for already-loaded pools
+        _WORKER_TL = threadpoolctl.threadpool_limits(inner)   # runtime cap for already loaded pools
     except Exception:
         pass
     if affinity:
@@ -697,9 +697,9 @@ def _proc_worker_init(inner: int, affinity: bool):
 
 
 class LanePools:
-    """Managed execution lanes with an idle-aware lifecycle: lazy (no pool until a lane is used),
+    """Managed execution lanes with an idle aware lifecycle: lazy (no pool until a lane is used),
     warm (a created pool is reused across waves), and reaped when idle (a daemon reaper closes a
-    lane idle past its TTL and self-exits once both lanes are cold, so nothing lingers at rest)."""
+    lane idle past its TTL and self exits once both lanes are cold, so nothing lingers at rest)."""
 
     def __init__(self, hive: str = "default", *, now=_time.monotonic,
                  idle_ttl_proc: float = 30.0, idle_ttl_thread: float = 120.0,
@@ -710,14 +710,14 @@ class LanePools:
         self._ttl = {"proc": idle_ttl_proc, "thread": idle_ttl_thread}
         self._affinity = affinity
         self._cap = cap
-        # This pool's share of machine cores (for the inner-thread budget). Defaults to all cores
+        # This pool's share of machine cores (for the inner thread budget). Defaults to all cores
         # (single coordinator); pass the hive's share when several coordinators run concurrently so
         # they do not collectively oversubscribe.
         self._cores_budget = int(cores_budget) if cores_budget else (os.cpu_count() or 8)
         self._reaper_tick = reaper_tick
         self._pools = {"proc": None, "thread": None}
         self._last = {"proc": 0.0, "thread": 0.0}
-        self._active = {"proc": 0, "thread": 0}   # in-flight waves per lane (never reap a busy lane)
+        self._active = {"proc": 0, "thread": 0}   # in flight waves per lane (never reap a busy lane)
         self._lock = threading.RLock()
         self._reaper = None
         self.reaper_alive = False
@@ -745,7 +745,7 @@ class LanePools:
             return self._pools[lane]
 
     def _start_reaper_locked(self):
-        # Key off the lock-protected reaper_alive flag, NOT thread.is_alive(). _reap_once clears the
+        # Key off the lock protected reaper_alive flag, NOT thread.is_alive(). _reap_once clears the
         # flag under this same lock at the instant it decides to exit, so a wave arriving while the
         # old thread is still winding down sees the flag False and starts a fresh reaper. That closes
         # the window where a newly created pool could be left with no reaper watching it. A brief
@@ -790,8 +790,8 @@ class LanePools:
         timings = []
 
         def drain(pool_units, ex):
-            # Per-task isolation (see execute): a failed task is logged and omitted, never aborting
-            # the wave or re-running its peers.
+            # Per task isolation (see execute): a failed task is logged and omitted, never aborting
+            # the wave or re running its peers.
             for tid, res, dt, err in ex.map(_run_one, pool_units):
                 if err is not None:
                     _log.warning("coordinator task '%s' failed on lane %s: %s",
@@ -803,7 +803,7 @@ class LanePools:
         def run_lane(lane, lane_units):
             ex = self._ensure(lane)             # create/warm the pool, stamp last, start reaper
             with self._lock:
-                self._active[lane] += 1         # mark busy so the reaper cannot close it mid-wave
+                self._active[lane] += 1         # mark busy so the reaper cannot close it mid wave
             try:
                 drain(lane_units, ex)
             finally:
@@ -840,10 +840,10 @@ class LanePools:
             self.reaper_alive = False
 
 
-#### Coordinator: the per-wave plan -> execute -> learn loop (cadence = per-wave in v1)
+#### Coordinator: the per wave plan -> execute -> learn loop (cadence = per wave in v1)
 class Coordinator:
-    """Per-wave plan -> execute -> learn loop. With a `pools` (LanePools) it dispatches through the
-    managed warm lanes; without, it uses per-wave `execute`. `cap` is an optional hive-share-scaled
+    """Per wave plan -> execute -> learn loop. With a `pools` (LanePools) it dispatches through the
+    managed warm lanes; without, it uses per wave `execute`. `cap` is an optional hive share scaled
     capacity used by the actuator."""
 
     def __init__(self, cost: CostModel|None = None, pools: LanePools|None = None,

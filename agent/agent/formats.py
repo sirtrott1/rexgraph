@@ -1,4 +1,4 @@
-"""Bundle suffixes for agent-owned paths.
+"""Bundle suffixes for agent owned paths.
 
 The canonical container is RCBD (``.rcbd``).  Legacy ``.rex`` bundles stay
 readable, and they need no reader of their own: the core identifies a directory

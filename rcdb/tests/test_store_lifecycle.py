@@ -1,6 +1,6 @@
 """Closing a store releases its connections, and the default store closes when reset.
 
-SQLStore defined no close, so it inherited RCStore's no-op and every caller that
+SQLStore defined no close, so it inherited RCStore's no op and every caller that
 dutifully called close kept the engine's pool open. The connections then surfaced at
 garbage collection, which reports whichever frame happened to be running rather than
 where they were opened, so one lifecycle bug here read as scattered warnings from
@@ -29,11 +29,12 @@ def _sqlite_uri(tmp_path, name: str = "store") -> str:
 
 
 def test_sqlstore_defines_its_own_close():
-    """The inherited no-op is the bug; pin that it is no longer what resolves."""
+    """The inherited no op is the bug; pin that it is no longer what resolves."""
     assert SQLStore.close is not RCStore.close, "close would be a no-op again"
 
 
 def test_closing_a_store_releases_its_connections(tmp_path):
+    pytest.importorskip("sqlalchemy")
     store = SQLStore(_sqlite_uri(tmp_path))
     store.put_bytes("k", b"v") if hasattr(store, "put_bytes") else None
 
@@ -46,12 +47,14 @@ def test_closing_a_store_releases_its_connections(tmp_path):
 
 def test_close_is_idempotent(tmp_path):
     """It is called from several paths and from reset_default_store."""
+    pytest.importorskip("sqlalchemy")
     store = SQLStore(_sqlite_uri(tmp_path))
     store.close()
-    store.close()               # dispose on a disposed engine is a no-op in SQLAlchemy
+    store.close()               # dispose on a disposed engine is a no op in SQLAlchemy
 
 
 def test_resetting_the_default_store_closes_it(monkeypatch, tmp_path):
+    pytest.importorskip("sqlalchemy")
     monkeypatch.setenv("REXGRAPH_RCDB_URI", _sqlite_uri(tmp_path, "default"))
     reset_default_store()
     store = default_store()

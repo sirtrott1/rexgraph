@@ -6,7 +6,7 @@ from chapter to paragraph to sentence is a refinement of that partition rather t
 walk into a nested object. That is what this module stores.
 
 A partition of the cells at grade `k` is an integer cochain at grade `k`: one value per
-cell naming its owner. So a sectioning needs no new storage type, it is a first-class
+cell naming its owner. So a sectioning needs no new storage type, it is a first class
 object of the model already, and SEVERAL sectionings coexist over ONE field the same way
 several cochains do. Encoding it as CSR (section -> its cells) covers both readings a
 document actually needs:
@@ -19,7 +19,7 @@ document actually needs:
 
 `spans` carries each section's byte range in the raw source. That is the pointer layer:
 the text stays an addressable heap and a section names where it lives, so recovering a
-section's prose is one seek and one read rather than a re-parse.
+section's prose is one seek and one read rather than a re parse.
 
 Each sectioning carries its OWN digest over its own tensors, so a layer can be checked
 without loading the complex it sections, matching what nested states already do.
@@ -67,7 +67,7 @@ class Sectioning:
         #: `parent[i]` is the section of THIS layer that finer section `i` belongs to.
         #: The CSR is then derived rather than stored, which is the whole saving: a
         #: paragraph layer over 2,662 sentences is 2,662 numbers, not the 121,877 cell
-        #: memberships it would re-list. That is also the honest model, because a
+        #: memberships it would re list. That is also the honest model, because a
         #: paragraph does not own cells directly, it owns sentences that own cells.
         self.refines = str(refines or "")
         self.parent = None if parent is None else np.asarray(parent, dtype=np.int64)
@@ -180,7 +180,7 @@ def add_coarsening(rex, name, refines, parent, labels, *, spans=None, method="",
 
     `parent[i]` is the index of the section of THIS layer that section `i` of `refines`
     belongs to. Nothing about the cells is stored, because a paragraph owns sentences and
-    the sentences already say which cells they own; re-listing them cost 45x what the map
+    the sentences already say which cells they own; re listing them cost 45x what the map
     costs and could disagree with the finer layer, which a derived one cannot.
     """
     store = getattr(rex, "_sectionings", None) or {}
@@ -246,7 +246,7 @@ def drop_sectioning(rex, name):
 
 
 def sectioning_summary(rex):
-    """Per-sectioning summary small enough for a store index to carry and query.
+    """Per sectioning summary small enough for a store index to carry and query.
 
     This is what makes the layers queryable without opening the complex: a caller asks
     which documents have a paragraph layer, or how many sections one has, and reads it
@@ -269,12 +269,12 @@ def sectioning_summary(rex):
     return out
 
 
-#### serialisation #############################################################
+# serialisation
 
 def pack_sectionings(rex, t, h):
     """Write every sectioning into the tensor dict under `sections/<name>/*`.
 
-    Mirrors how nested states are packed, including the per-layer digest: each sectioning
+    Mirrors how nested states are packed, including the per layer digest: each sectioning
     is digested over its OWN tensors so a caller can check one layer without the rest.
     """
     from rexgraph.io.rex_state import DIGEST_ALGO, _pack_strings, state_digest

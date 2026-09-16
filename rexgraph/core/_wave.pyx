@@ -1,9 +1,9 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._wave: Complex-amplitude wave mechanics on the relational complex.
+rexgraph.core._wave: Complex amplitude wave mechanics on the relational complex.
 
-Complex-valued counterpart to _state.pyx and _transition.pyx. Operates on
+Complex valued counterpart to _state.pyx and _transition.pyx. Operates on
 complex amplitudes psi_k in C^n under exp(-i L t) evolution, where L is
 any Laplacian (L_0, L_1, L_2, L_O, or the Relational Laplacian RL_1).
 
@@ -11,13 +11,13 @@ Complex state operations - normalization, inner products, Born probabilities,
     fidelity, phase extraction.
 Information theory - Shannon, von Neumann, Renyi entropy; participation ratio;
     KL divergence.
-Wave evolution - Schrodinger propagation (spectral, RK4, Trotter-Suzuki).
+Wave evolution - Schrodinger propagation (spectral, RK4, Trotter Suzuki).
     Includes field_schrodinger_evolve for coupled (V+E+F) evolution.
 Interference - superposition, fringe visibility, coherence measures.
 Entanglement - tensor product, partial trace, Schmidt decomposition, PPT.
 Decoherence - dephasing, amplitude damping, depolarizing, Lindblad.
 Measurement - Born sampling, projective collapse, eigenbasis measurement.
-Density matrices - pure-to-density, mixed state, purity, von Neumann entropy.
+Density matrices - pure to density, mixed state, purity, von Neumann entropy.
 """
 
 from __future__ import annotations
@@ -236,14 +236,14 @@ def schrodinger_spectral(np.ndarray[np.complex128_t, ndim=1] psi,
       psi(t) = sum_j exp(-i lambda_j t) * <v_j|psi(0)> * v_j
 
     Parameters
-    ----------
+
     psi : complex128[n]
     evals : f64[k]
     evecs : f64[n, k]
     t : float
 
     Returns
-    -------
+
     psi_t : complex128[n]
     """
     cdef Py_ssize_t n = psi.shape[0], nk = evals.shape[0], j, i
@@ -384,12 +384,12 @@ def field_schrodinger_evolve(np.ndarray[np.complex128_t, ndim=1] psi_E,
     convenience when B_1 is provided.
 
     The edge tier uses the Relational Laplacian RL_1 = L_1 + alpha_G * L_O.
-    Cross-dimensional coupling (via B_1, B_2) is not included in the
+    Cross dimensional coupling (via B_1, B_2) is not included in the
     evolution itself; use the field operator in _field.pyx for fully
     coupled dynamics.
 
     Parameters
-    ----------
+
     psi_E : complex128[nE]
     psi_F : complex128[nF]
     evals_RL1, evecs_RL1 : Relational Laplacian spectrum
@@ -399,7 +399,7 @@ def field_schrodinger_evolve(np.ndarray[np.complex128_t, ndim=1] psi_E,
         If provided, vertex observables psi_V = B_1 psi_E are returned.
 
     Returns
-    -------
+
     psi_E_t : complex128[nE]
     psi_F_t : complex128[nF]
     psi_V_t : complex128[nV] or None
@@ -430,7 +430,7 @@ def field_schrodinger_trajectory(psi_E, psi_F,
     when B1 is provided.
 
     Returns
-    -------
+
     traj_E : complex128[nT, nE]
     traj_F : complex128[nT, nF]
     traj_V : complex128[nT, nV] or None
@@ -466,11 +466,11 @@ def trotter_step(np.ndarray[np.complex128_t, ndim=1] psi,
                  np.ndarray[f64, ndim=2] L_off,
                  double dt):
     """
-    Trotter-Suzuki step for split operator L = L_diag + L_off.
+    Trotter Suzuki step for split operator L = L_diag + L_off.
 
     exp(-iLdt) ~ exp(-iL_diag dt/2) exp(-iL_off dt) exp(-iL_diag dt/2)
 
-    Useful for Laplacians where diagonal = degree, off-diagonal = coupling.
+    Useful for Laplacians where diagonal = degree, off diagonal = coupling.
     """
     cdef c128[::1] pv = psi
     cdef f64[::1] dv = diag
@@ -588,7 +588,7 @@ def visibility(np.ndarray[np.complex128_t, ndim=1] psi1,
 def coherence_measure(np.ndarray[np.complex128_t, ndim=2] rho):
     """
     l1-norm coherence: C = sum_{i!=j} |rho_{ij}|.
-    Measures total off-diagonal weight (quantum coherence).
+    Measures total off diagonal weight (quantum coherence).
     """
     cdef c128[:, ::1] R = rho
     cdef Py_ssize_t n = rho.shape[0], i, j
@@ -601,7 +601,7 @@ def coherence_measure(np.ndarray[np.complex128_t, ndim=2] rho):
     return s
 
 
-# Cross-dimensional entanglement
+# Cross dimensional entanglement
 
 def tensor_product(np.ndarray[np.complex128_t, ndim=1] psi_A,
                    np.ndarray[np.complex128_t, ndim=1] psi_B):
@@ -709,7 +709,7 @@ def schmidt_decomposition(np.ndarray[np.complex128_t, ndim=1] psi,
     Schmidt decomposition: |psi> = sum_i lambda_i |a_i> (x) |b_i>.
 
     Returns
-    -------
+
     schmidt_values : f64[r]
     vectors_A : complex128[dim_A, r]
     vectors_B : complex128[r, dim_B]
@@ -729,7 +729,7 @@ def schmidt_decomposition(np.ndarray[np.complex128_t, ndim=1] psi,
 def dephasing_channel(np.ndarray[np.complex128_t, ndim=2] rho,
                       double gamma, double dt):
     """
-    Dephasing: off-diagonals decay as rho[i,j] *= exp(-gamma*|i-j|*dt).
+    Dephasing: off diagonals decay as rho[i,j] *= exp(-gamma*|i-j|*dt).
 
     """
     cdef c128[:, ::1] R = rho
@@ -745,7 +745,7 @@ def dephasing_channel(np.ndarray[np.complex128_t, ndim=2] rho,
 def amplitude_damping(np.ndarray[np.complex128_t, ndim=2] rho,
                       double gamma, double dt):
     """
-    Amplitude damping on 2-level subspaces.
+    Amplitude damping on 2 level subspaces.
     Models irreversible decay toward ground state of each pair.
     """
     cdef c128[:, ::1] R = rho
@@ -853,7 +853,7 @@ def measure_in_eigenbasis(np.ndarray[np.complex128_t, ndim=1] psi,
     Measure in the eigenbasis of a Laplacian.
 
     Returns
-    -------
+
     outcome : int
     probability : float
     collapsed : complex128[n]
@@ -974,10 +974,10 @@ def fidelity_mixed(np.ndarray[np.complex128_t, ndim=2] rho,
 def amplitude_graded_projection(B1, B2,
                                  np.ndarray[f64, ndim=1] amplitudes,
                                  int nV, int nE, int nF):
-    """Amplitude-based graded projection onto the relational complex.
+    """Amplitude based graded projection onto the relational complex.
 
-    Unlike the standard delta-vertex projection (Def 4.5), this uses continuous
-    vertex amplitudes with geometric-mean edge coupling over the edge's ACTUAL
+    Unlike the standard delta vertex projection (Def 4.5), this uses continuous
+    vertex amplitudes with geometric mean edge coupling over the edge's ACTUAL
     endpoints (any arity):
 
         psi_0(v)       = a_v
@@ -985,9 +985,9 @@ def amplitude_graded_projection(B1, B2,
         psi_0(nV+nE+f) = (B2^T psi_E)_f
 
     Endpoints are read from B1's signed column support, so witness edges (deg 1) and
-    branching edges (deg > 2, first-class hyperedges) are handled correctly - the
+    branching edges (deg > 2, first class hyperedges) are handled correctly - the
     previous version scanned for only the first TWO nonzeros and silently dropped the
-    3rd+ endpoint (and produced 0 for witness edges). For a standard 2-arity edge this
+    3rd+ endpoint (and produced 0 for witness edges). For a standard 2 arity edge this
     reduces to sqrt(|a_i a_j|) * sign(B1[i,e]) exactly. B1/B2 may be dense or sparse.
 
     Normalized to unit norm. Returns f64[nV + nE + nF] (the graded state vector).
@@ -1018,7 +1018,7 @@ def amplitude_graded_projection(B1, B2,
         if deg <= 0:
             continue
         prod_abs = 1.0
-        sgn = data[lo]                    # sign at the smallest-index endpoint
+        sgn = data[lo]                    # sign at the smallest index endpoint
         for k in range(lo, hi):
             prod_abs *= fabs(av[indices[k]])
         pv[nV + e] = (prod_abs ** (1.0 / deg)) * (-1.0 if sgn < 0 else 1.0)
@@ -1103,9 +1103,9 @@ def face_partition(np.ndarray[f64, ndim=2] B1,
                     np.ndarray[i32, ndim=1] targets,
                     int probe_vertex,
                     int nV, int nE, int nF):
-    """Partition faces into probe-incident (psi) and scaffold.
+    """Partition faces into probe incident (psi) and scaffold.
 
-    A face is probe-incident if any of its boundary edges touch probe_vertex.
+    A face is probe incident if any of its boundary edges touch probe_vertex.
 
     Returns dict with psi_faces (i32[]), scaffold_faces (i32[]).
     """

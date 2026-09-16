@@ -1,4 +1,4 @@
-"""Bitemporal reads for the COLLECTION accessors, not just single-record get.
+"""Bitemporal reads for the COLLECTION accessors, not just single record get.
 
 get/get_record/get_version took as_of/valid_at from the start, so one record could
 always be read as it stood. list and query could not, so "the corpus as it stood at
@@ -6,7 +6,7 @@ T" was unanswerable, and once retrieval gained a label prefilter, that became a
 silent false negative: the prefilter matched CURRENT labels, so a document whose
 vocabulary had since been replaced was dropped before anything read its as_of blob.
 
-A time-travelling query that quietly omits what was relevant at the time is worse
+A time travelling query that quietly omits what was relevant at the time is worse
 than one that is slow, and worse than one that refuses.
 """
 
@@ -86,7 +86,7 @@ def test_list_before_anything_existed_is_empty(revised):
 
 def test_retrieval_as_of_finds_what_was_relevant_then(revised):
     """The regression that motivated all of this. The prefilter matched current
-    labels, so time-travel retrieval silently missed the document."""
+    labels, so time travel retrieval silently missed the document."""
     store, t_mid = revised
     sections, _ = qe.retrieve_sections("frustration sign conflict", top_k=3,
                                        store=store, as_of=t_mid)

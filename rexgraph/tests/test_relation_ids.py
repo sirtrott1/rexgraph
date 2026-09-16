@@ -1,4 +1,4 @@
-"""Exact C1 instance identity: no support-key collapse in temporal deltas."""
+"""Exact C1 instance identity: no support key collapse in temporal deltas."""
 from __future__ import annotations
 
 import numpy as np

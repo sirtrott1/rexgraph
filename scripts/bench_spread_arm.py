@@ -8,7 +8,7 @@ from rexgraph.sectioning import sectionings_of
 from rexgraph.core._sparse import to_scipy_csr
 from rexgraph.rational_trig import spread as exact_spread
 
-#### the vectorised form must BE the library's definition, not a lookalike ####
+# the vectorised form must BE the library's definition, not a lookalike
 _rng = np.random.default_rng(0)
 for _ in range(200):
     k = int(_rng.integers(2, 7))

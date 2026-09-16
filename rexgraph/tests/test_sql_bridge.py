@@ -2,7 +2,7 @@
 Tests for rexgraph.io.sql_bridge: SQL database bridge.
 
 Requires sqlalchemy and pandas. Skipped if either is not installed.
-Uses in-memory SQLite for all tests (no file I/O).
+Uses in memory SQLite for all tests (no file I/O).
 
 Verifies:
     - Engine: get_engine returns a usable engine
@@ -74,7 +74,7 @@ def triangle():
 
 @pytest.fixture
 def branching():
-    # An arity-3 hyperedge {0,1,2} embedded as a branching edge (Definition 3.2),
+    # An arity 3 hyperedge {0,1,2} embedded as a branching edge (Definition 3.2),
     # plus two standard edges (0,3) and (1,4).
     ptr = np.array([0, 3, 5, 7], dtype=np.int32)
     idx = np.array([0, 1, 2, 0, 3, 1, 4], dtype=np.int32)
@@ -95,7 +95,7 @@ class TestEngine:
         assert eng is not None
 
     def test_shared_memory(self):
-        """Same in-memory SQLite engine returned for same conn string."""
+        """Same in memory SQLite engine returned for same conn string."""
         e1 = get_engine("sqlite:///:memory:")
         e2 = get_engine("sqlite:///:memory:")
         assert e1 is e2
@@ -256,12 +256,12 @@ class TestVoidTable:
         assert "fills_beta" in loaded
 
 
-# Branching / hyperedge topology round-trip through the edge table
+# Branching / hyperedge topology round trip through the edge table
 
 class TestBranchingEdgeRoundtrip:
 
     def test_all_endpoints_preserved(self, branching, engine):
-        # Edge 0 is an arity-3 branching edge; source/target alone (2 endpoints)
+        # Edge 0 is an arity 3 branching edge; source/target alone (2 endpoints)
         # would silently drop vertex 2.
         assert int(np.asarray(branching.edge_types)[0]) == 2  # EdgeType.BRANCHING
         write_edge_sql(branching, engine, "edges")
@@ -271,12 +271,12 @@ class TestBranchingEdgeRoundtrip:
         assert eps[0] == [0, 1, 2]
         assert eps[1] == [0, 3]
         assert eps[2] == [1, 4]
-        # The full general-boundary CSR round-trips.
+        # The full general boundary CSR round trips.
         flat = [v for ep in eps for v in ep]
         assert flat == [int(v) for v in np.asarray(branching._boundary_idx)]
 
 
-# Dtype fidelity: SQLite widens int32 -> int64 through a generic driver-level
+# Dtype fidelity: SQLite widens int32 -> int64 through a generic driver level
 # fetch (and pandas' read_sql inherits that widening); Core plus the recorded
 # numpy dtype must cast back exactly.
 

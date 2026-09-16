@@ -1,4 +1,4 @@
-"""Typed cochain, graded operator, and matrix-free Green contracts."""
+"""Typed cochain, graded operator, and matrix free Green contracts."""
 from __future__ import annotations
 
 import numpy as np
@@ -258,3 +258,25 @@ def test_green_gram_quadrance_and_spread_are_consistent():
     np.testing.assert_allclose(spread, spread.T)
     assert np.array_equal(np.diag(spread), np.zeros(rex.nE))
     assert np.all((spread >= 0.0) & (spread <= 1.0))
+
+
+def test_green_method_observation_is_local_to_each_solve():
+    action = vertex_green(_cycle())
+    seed = np.array([1.0, -1.0, 0.0])
+    field, info = action.solve_with_info(seed)
+    assert info["kernel"] == "deflated-block-cg"
+    assert info["status"] == "observed" and not info["fallback"]
+    np.testing.assert_allclose(field, action.solve(seed))
+    info["kernel"] = "changed by caller"
+    assert action.solve_with_info(seed)[1]["kernel"] == "deflated-block-cg"
+
+
+def test_green_observation_hook_checks_constructor_and_input_contracts():
+    op = hodge_operator(_cycle(), 0)
+    with pytest.raises(TypeError, match="observed"):
+        GreenOperator(op, lambda values: values, observed_solver=42)
+    custom = GreenOperator(op, lambda values: values)
+    with pytest.raises(ValueError, match="cell axis"):
+        custom.solve_with_info(np.zeros(2))
+    _, info = custom.solve_with_info(np.zeros(3))
+    assert info == {"kernel": None, "status": "unreported"}

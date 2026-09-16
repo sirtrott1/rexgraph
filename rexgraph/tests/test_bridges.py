@@ -1,7 +1,7 @@
-"""The binary load-bearing question is a walk, not a solve.
+"""The binary load bearing question is a walk, not a solve.
 
 R_eff(e) = 1 exactly when e is a bridge, so `bridge_mask` answers it in one traversal
-of the 1-skeleton and `_effective_resistance_batch` spends its columns only on the
+of the 1 skeleton and `_effective_resistance_batch` spends its columns only on the
 relations that lie on a cycle. Measured identical to the solve on Gene Ontology
 slices, 520/520 and 1315/1315.
 """
@@ -15,7 +15,7 @@ from rexgraph.graph import RexGraph
 
 
 def _tarjan(nV, src, tgt):
-    """Reference bridge finder, deliberately a plain recursion-free DFS."""
+    """Reference bridge finder, deliberately a plain recursion free DFS."""
     adj = [[] for _ in range(nV)]
     for e, (a, b) in enumerate(zip(src, tgt, strict=True)):
         adj[a].append((b, e))
@@ -114,9 +114,9 @@ def test_the_two_masks_partition_the_relations():
 
 
 def test_branching_cycle_support_is_read_from_the_exact_c1_kernel():
-    """The wide relation is 2e1-e2-e3 in ker(B1), not a first-two-vertex edge.
+    """The wide relation is 2e1-e2-e3 in ker(B1), not a first two vertex edge.
 
-    The former endpoint traversal marked e3 load-bearing because it could only
+    The former endpoint traversal marked e3 load bearing because it could only
     see the first two boundary participants of e1.  The declared C1 boundary
     gives one exact cycle with support on all three relations.
     """
@@ -140,7 +140,7 @@ def test_the_mask_agrees_with_the_solve():
 
 
 def test_routing_leaves_the_values_exact():
-    """Solving only the non-bridges must not move any value."""
+    """Solving only the non bridges must not move any value."""
     rex = _g([0, 1, 2, 0, 4, 5, 6, 4, 8, 9], [1, 2, 0, 2, 5, 6, 4, 6, 9, 8])
     rex._ensure_clean()
     B1 = np.asarray(rex.B1)

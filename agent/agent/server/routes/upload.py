@@ -24,13 +24,13 @@ async def upload_data(
     file: UploadFile = File(...),
     options: str = Form("{}"),
 ):
-    """Upload a dataset and auto-construct the relational complex.
+    """Upload a dataset and auto construct the relational complex.
 
     Returns session ID and quick topology results immediately.
     Full analysis streams via /api/analysis/{session_id}/stream.
 
     Parameters
-    ----------
+
     file : uploaded file (CSV, JSON, or rexgraph format)
     options : JSON string with optional overrides:
         threshold, typing, sign, face_selection
@@ -72,7 +72,7 @@ async def upload_data(
             tmp.write(chunk)
 
     try:
-        # Auto-construct the rex
+        # Auto construct the rex
         rex = auto_rex(tmp_path, **opts)
     except Exception as e:
         os.unlink(tmp_path)

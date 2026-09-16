@@ -15,7 +15,7 @@ out of a blob instead of seeking, and putting it back here would undo the point 
 spans at all.
 
 Resumable in the same sense the fetcher is: a document whose content digest already
-matches the stored one is skipped, so a re-run costs a hash and not a rebuild.
+matches the stored one is skipped, so a re run costs a hash and not a rebuild.
 """
 from __future__ import annotations
 
@@ -92,8 +92,8 @@ def ingest_document(store, source, *, doc_id=None, raw=None, heap=None,
         raw, exact = read_document(path, build_kw.get("encoding", "utf-8"))
     rid = str(doc_id or os.path.splitext(os.path.basename(path))[0] or "doc")
     if heap is None and is_file and os.path.exists(path):
-        # a heap pointer is only published when the text re-encodes to the file
-        # byte-for-byte; otherwise the spans are valid against `raw` and nothing else,
+        # a heap pointer is only published when the text re encodes to the file
+        # byte for byte; otherwise the spans are valid against `raw` and nothing else,
         # and handing out a path would produce confidently wrong prose.
         heap = path if exact else None
 
@@ -173,7 +173,7 @@ def backfill_analytics(store, ids=None, *, voids=False, log=print):
     costs 2.17 s a document, which is worth paying for the records someone actually asks
     about and not for 61,354 of them up front.
 
-    Re-puts each record with a full signature. Returns a small run summary.
+    Re puts each record with a full signature. Returns a small run summary.
     """
     from agent.rcdb import structural_signature
 

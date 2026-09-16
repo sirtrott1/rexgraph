@@ -1,6 +1,6 @@
 """The TrustGraph adapter, in standalone mode.
 
-2,257 lines, 28% executed, and it is the beachhead integration: knowledge-graph
+2,257 lines, 28% executed, and it is the beachhead integration: knowledge graph
 triples in, a relational complex and a confidence reading out. Most of the untested
 mass needs a live TrustGraph API, but the whole standalone path does not: triple
 normalisation, context matrices, complex construction, analysis, signal decomposition,
@@ -230,7 +230,7 @@ def test_subgraph_confidence_ignores_an_out_of_range_vertex(adapter):
     assert isinstance(out, dict)
 
 
-#### enrichment triples: the write-back path
+#### enrichment triples: the write back path
 
 
 def test_enrichment_triples_are_produced_from_an_analysis(adapter):

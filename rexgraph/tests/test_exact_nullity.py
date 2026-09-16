@@ -2,7 +2,7 @@
 
 The harmonic space, the nullity of a Laplacian and the Fiedler value all turn on the
 same question: which modes are zero. A magnitude cutoff answers it by asking how small
-is small, so a nearly-degenerate mode moves the reported topology, and the reading is a
+is small, so a nearly degenerate mode moves the reported topology, and the reading is a
 different number on a different machine. The rank tower answers it with an integer.
 
 These pin the exact path against the dense spectral one, which stays available as the

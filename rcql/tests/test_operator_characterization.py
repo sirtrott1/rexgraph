@@ -6,9 +6,9 @@ signature safely unless its present behaviour is pinned first, so a Phase 1 chan
 visible as a diff rather than as a silent shift in meaning.
 
 Scope is deliberately the 19 operators that are not Rex mathematics: REX, the file catalog
-and metadata readings, and the RCDB readings. The 19 Rex-math adapters are excluded on
+and metadata readings, and the RCDB readings. The 19 Rex math adapters are excluded on
 purpose. Their exactness and grade contracts are being corrected in the same phase, so
-pinning today's floating and grade-1-only behaviour would produce tests written to fail.
+pinning today's floating and grade 1 only behaviour would produce tests written to fail.
 
 Where an operator's current behaviour is wrong against the native contract, the test says
 so and pins the wrong behaviour anyway, naming what Phase 1 owes. A characterization test
@@ -61,7 +61,7 @@ def store(tmp_path, rex):
     s.close()
 
 
-# ---------------------------------------------------------------- source binding
+# source binding
 
 
 def test_rex_returns_the_bound_name_rather_than_a_typed_complex(rex):
@@ -74,7 +74,7 @@ def test_rex_returns_the_bound_name_rather_than_a_typed_complex(rex):
     assert isinstance(_op("REX")(rex, "graph_a"), str)
 
 
-# ---------------------------------------------------------------- file catalog
+# file catalog
 
 
 def test_the_catalog_indexes_loadable_kinds_only(catalog):
@@ -114,9 +114,9 @@ def test_file_info_is_not_idempotent_and_depends_on_what_ran_before_it(catalog):
     digest and writes it back into the cached entry, so a FILE_INFO issued afterwards
     reports a digest that the identical call reported as None a moment earlier.
 
-    This matters more for RCQL than for the catalog. The blueprint requires provenance to
+    This matters more for RCQL than for the catalog. The contract requires provenance to
     travel with a result and forbids EXPLAIN implying a field came from a state other than
-    the one read, and common-subplan elimination assumes identical inputs give identical
+    the one read, and common subplan elimination assumes identical inputs give identical
     results. A reading whose field appears only after an unrelated operator has run
     satisfies neither. Phase 1 should either make the digest an explicit request that
     always computes, or declare it absent and leave FILE_HASH as the only way to get it.
@@ -141,7 +141,7 @@ def test_state_hash_takes_a_complex_and_not_a_catalog(rex, catalog):
         _op("STATE_HASH")(catalog)
 
 
-# ---------------------------------------------------------------- RCDB readings
+# RCDB readings
 
 
 def test_rcdb_list_and_history_project_structure_without_the_complex(store):
@@ -186,31 +186,20 @@ def test_rcdb_search_matches_nothing_without_an_index(store):
     assert _op("RCDB_SEARCH")(store, "r1") == []
 
 
-def test_rcdb_state_hash_cannot_execute_against_any_store(store):
-    """Registered, catalogued, and unreachable.
+def test_rcdb_state_hash_uses_the_framework_logical_manifest(store):
+    """The once refused name now has a real RCDB owned contract, not an adapter hash."""
+    from rexgraph.io.manifest import manifest_digest
 
-    RCDB_STATE_HASH requires ``source.state_digest()``. No RCStore has that method and
-    none of the nine registered backends provides it, so the operator raises for every
-    possible RCDB source rather than for a badly typed one. Phase 1 must either bind it to
-    a real store-level digest or refuse it at signature time, because a catalogue entry
-    that cannot run is worse than an absent one: it type-checks and then fails.
-    """
-    from rcdb.core import RCStore
-
-    assert not hasattr(RCStore, "state_digest")
-    assert not hasattr(store, "state_digest")
-
-    with pytest.raises(TypeError, match="expects an RCDB store"):
-        _op("RCDB_STATE_HASH")(store)
+    assert _op("RCDB_STATE_HASH")(store) == manifest_digest(store.state_manifest())
 
 
-# ---------------------------------------------------------------- catalogue shape
+# catalogue shape
 
 
 def test_every_storage_operator_is_characterized_here():
     """Nothing this file owns can enter the registry without a characterization.
 
-    The check is deliberately one-sided. Rex-mathematics operators are Codex's and their
+    The check is deliberately one sided. Rex mathematics operators are Codex's and their
     own direct suite covers them, so asserting an exhaustive registry equality here would
     fail on every addition they make and teach whoever hits it to widen a set without
     reading. What must not drift is the other direction: an operator in the storage,

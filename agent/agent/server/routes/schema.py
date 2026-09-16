@@ -17,8 +17,8 @@ def _parse_schema(body: dict):
         return sc.parse_schema_json(body["spec"])
     if body.get("mongo"):
         return sc.infer_mongo_schema(body["mongo"])
-    # Both of these hand a caller-supplied URI to a live connection, so they answer to
-    # the same allow-list dbmanager and connectors do. Without it the REXGRAPH_DB_SAFE
+    # Both of these hand a caller supplied URI to a live connection, so they answer to
+    # the same allow list dbmanager and connectors do. Without it the REXGRAPH_DB_SAFE
     # and host policies were simply absent on this router.
     from agent.server.dbguard import check_db_uri
     if body.get("mongo_connection"):
@@ -43,8 +43,8 @@ async def analyze_schema(body: dict = Body(...)):
       * ``connection`` - a SQLAlchemy URL to reflect a live database
 
     Optional: ``store_id`` (persist the schema complex in the RCDB) and
-    ``tags``. Returns circular-dependency chains, the Hodge hierarchy/
-    tension split, implied-missing relations (voids), and hub tables.
+    ``tags``. Returns circular dependency chains, the Hodge hierarchy/
+    tension split, implied missing relations (voids), and hub tables.
     """
     try:
         model = _parse_schema(body)
@@ -82,7 +82,7 @@ async def analyze_schema(body: dict = Body(...)):
 
 @router.post("/lint")
 async def lint_schema(body: dict = Body(...)):
-    """Data-model lint: per-relation character + anomalies + conflict tables."""
+    """Data model lint: per relation character + anomalies + conflict tables."""
     try:
         model = _parse_schema(body)
     except HTTPException:
@@ -94,14 +94,14 @@ async def lint_schema(body: dict = Body(...)):
 
 @router.post("/faces")
 async def schema_faces_route(body: dict = Body(...)):
-    """Explore how the face-selection algorithm changes the schema's geometry.
+    """Explore how the face selection algorithm changes the schema's geometry.
 
     Same tables & foreign keys, different definition of "what counts as a
-    co-participation" -> different curl/harmonic reading. Returns, per mode
+    co participation" -> different curl/harmonic reading. Returns, per mode
     ('coparticipation', 'autoface', 'promote', 'none'), the face count, Betti
-    numbers, and the Hodge split: a side-by-side of the schema's topological
-    options (e.g. an FK triangle is persistent-harmonic under 'coparticipation'
-    but bounded-curl under 'autoface').
+    numbers, and the Hodge split: a side by side of the schema's topological
+    options (e.g. an FK triangle is persistent harmonic under 'coparticipation'
+    but bounded curl under 'autoface').
     """
     try:
         model = _parse_schema(body)
@@ -115,12 +115,12 @@ async def schema_faces_route(body: dict = Body(...)):
 
 @router.post("/strain")
 async def schema_strain_route(body: dict = Body(...)):
-    """Data-forced strain: weight the schema by real data magnitudes and
+    """Data forced strain: weight the schema by real data magnitudes and
     measure the geometric strain the data imposes.
 
     Body: a schema (ddl/spec/mongo/connection) plus either explicit
     ``weights`` {"from->to": cardinality} or a ``connection`` to pull live
-    cardinality from. Returns the heat map (how much / where), per-relation
+    cardinality from. Returns the heat map (how much / where), per relation
     attribution (who / what), and effective root causes (how many / coupled).
     """
     try:

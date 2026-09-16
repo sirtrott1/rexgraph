@@ -27,12 +27,16 @@ split exists to prevent.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 
 _repo = pathlib.Path(__file__).resolve().parent.parent
 
-for _dist in sorted(p for p in _repo.iterdir() if p.is_dir()):
+# Installed wheel tests must neither replace installed packages nor reach for
+# sibling source fallbacks. The isolated runner preloads the installed packages.
+_siblings = () if os.environ.get("REXGRAPH_TEST_INSTALLED") == "1" else _repo.iterdir()
+for _dist in sorted(p for p in _siblings if p.is_dir()):
     _name = _dist.name
     if not (_dist / _name / "__init__.py").is_file():
         continue

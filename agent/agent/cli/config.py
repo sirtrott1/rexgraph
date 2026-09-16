@@ -49,7 +49,7 @@ class PlatformInfo:
     arch: str = ""                  # x86_64, aarch64, arm64
     package_manager: str = ""       # apt, dnf, brew, conda, choco, none
     gpu: str = ""                   # nvidia, amd, apple, none
-    gpu_name: str = ""              # human-readable GPU name
+    gpu_name: str = ""              # human readable GPU name
     gpu_vram_mb: int = 0            # VRAM in megabytes
     cuda_version: str = ""          # CUDA toolkit version if installed
     python: str = ""                # Python version
@@ -57,7 +57,7 @@ class PlatformInfo:
     scheduler: str = ""             # slurm, pbs, sge, none
     is_hpc: bool = False            # detected HPC environment
     scratch_dir: str = ""           # $SCRATCH or $TMPDIR if on HPC
-    has_sudo: bool = False          # can run sudo non-interactively
+    has_sudo: bool = False          # can run sudo non interactively
 
 
 def detect_platform() -> PlatformInfo:
@@ -102,7 +102,7 @@ def detect_platform() -> PlatformInfo:
     # GPU detection
     info.gpu, info.gpu_name, info.gpu_vram_mb, info.cuda_version = _detect_gpu()
 
-    # Sudo availability (non-interactive check)
+    # Sudo availability (non interactive check)
     if info.os != "windows":
         try:
             r = subprocess.run(
@@ -183,7 +183,7 @@ def _detect_gpu():
         gpu_type = "amd"
         gpu_name = "AMD GPU (ROCm)"
 
-        # Method 1: rocm-smi --showmeminfo vram
+        # Method 1: rocm smi --showmeminfo vram
         try:
             r = subprocess.run(
                 ["rocm-smi", "--showmeminfo", "vram"],
@@ -209,7 +209,7 @@ def _detect_gpu():
         except Exception:
             pass
 
-        # Method 2: rocm-smi --showmeminfo vram --csv
+        # Method 2: rocm smi --showmeminfo vram --csv
         if vram_mb == 0:
             try:
                 r = subprocess.run(
@@ -386,7 +386,7 @@ def process_alive(pid: int) -> bool:
 
 
 def main(argv=None) -> int:
-    """CLI entry: rexgraph-config show|path."""
+    """CLI entry: rexgraph config show|path."""
     import argparse
     import dataclasses
     import json as _json

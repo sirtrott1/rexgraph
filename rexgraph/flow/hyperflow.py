@@ -22,12 +22,12 @@ there is nothing for a face to close. Together the group opens the hole and the 
 it, which is exactly `curl_dim = cycle_count - dim_H`: the cycle count does not change,
 what changes is whether those cycles are holes or boundaries.
 
-Only then is the Hodge decomposition non-trivial in all three parts,
+Only then is the Hodge decomposition non trivial in all three parts,
 
     R^nE  =  im(B1^T)  (+)  im(B2)  (+)  ker(L1)
              gradient        curl        harmonic
 
-with all three parts non-trivial, which is what gives a flow model separately
+with all three parts non trivial, which is what gives a flow model separately
 addressable channels. Propagation between grades is the graded Dirac. Equiweight
 (Gamma D + D Gamma = 0) makes D odd with respect to the grading, so it never leaves a
 signal in the grade it started in.
@@ -80,7 +80,7 @@ def build_flow_complex(groups: Sequence[Sequence[int]], *,
     """Build the flow complex from a list of groups.
 
     Each group is a list of entity ids: the first is the distinguished one (the entity
-    the group is *of*), the rest are its partners. `measurements=False` omits the 2-ary
+    the group is *of*), the rest are its partners. `measurements=False` omits the 2 ary
     legs and `include_groups=False` omits the branching columns, so the degenerate
     constructions stay reachable for comparison rather than being asserted away.
 
@@ -241,9 +241,9 @@ class FlowComplex:
         third by subtraction and no cross term has to be estimated.
 
         The harmonic part comes from `harmonic_sparse.harmonic_projection`, which applies
-        P_H = H (H^T H)^-1 H^T LOW-RANK against a SPARSE Gram and never forms the dense
+        P_H = H (H^T H)^-1 H^T LOW RANK against a SPARSE Gram and never forms the dense
         nE x nE projector. The gradient part is a sparse SPD solve through
-        `scale_propagator.block_cg_solve`, the same matrix-free solver the Green's
+        `scale_propagator.block_cg_solve`, the same matrix free solver the Green's
         diagonal uses. Curl is what is left.
         """
         from rexgraph.harmonic_sparse import cycle_basis as _cycles
@@ -255,7 +255,7 @@ class FlowComplex:
             raise ValueError(f"signal must have one entry per relation ({nE})")
 
         # ker(B1) is the CYCLE space and that is curl (+) harmonic, not harmonic alone.
-        # So one low-rank projection off the cycle basis gives the gradient complement,
+        # So one low rank projection off the cycle basis gives the gradient complement,
         # and a second off the harmonic basis splits what is left. Both go through the
         # same projector, which uses the sparse Gram and never forms nE x nE.
         Z = _cycles(self.rex)
@@ -301,7 +301,7 @@ class FlowComplex:
     def propagate(self, psi, t: float, order: int = 60):
         """The unitary (wave) propagator e^{-itD}, returning (real, imaginary).
 
-        Norm-conserving, so the grades exchange amplitude without any being lost. That is
+        Norm conserving, so the grades exchange amplitude without any being lost. That is
         what makes it a flow rather than a diffusion; use `rexgraph.dirac_propagator`'s
         heat form when dissipation is what is wanted.
         """
@@ -319,13 +319,13 @@ def flow_adjacency(rex, *, alpha=1.0):
 
     `coparticipation_adjacency` is built from abs(B1) alone and never touches B2, so a
     learner using it is blind to every face in the complex: attaching hyperfaces leaves
-    its operator bit-identical. Measured on a three-group fixture, the co-participation
+    its operator bit identical. Measured on a three group fixture, the co participation
     block over the measurement relations is unchanged by closing the complex, which is
     why an ablation over that learner reports the same accuracy for an open and a closed
     complex. The curl tier exists and the model cannot see it.
 
-    This is the operator a flow model needs: the down-Laplacian carries the gradient tier
-    and the up-Laplacian carries the curl tier, so signal propagates through both. alpha
+    This is the operator a flow model needs: the down Laplacian carries the gradient tier
+    and the up Laplacian carries the curl tier, so signal propagates through both. alpha
     is the exchange rate between them; `rex.c0_squared` is the principled choice and is
     exact rational, which is why it is available separately rather than baked in here.
 
@@ -341,8 +341,8 @@ def flow_adjacency(rex, *, alpha=1.0):
     if int(rex.nF_hodge) > 0 and alpha:
         B2 = _tsc(rex._B2_hodge_dual).tocsr()
         L = (L + float(alpha) * (B2 @ B2.T)).tocsr()         # + curl tier
-    # a Laplacian is PSD with a kernel; GreensCochain wants a low-pass ADJACENCY, so take
-    # the off-diagonal magnitude and renormalise exactly as coparticipation_adjacency does
+    # a Laplacian is PSD with a kernel; GreensCochain wants a low pass ADJACENCY, so take
+    # the off diagonal magnitude and renormalise exactly as coparticipation_adjacency does
     A = abs(L).tocsr()
     A.setdiag(0)
     A.eliminate_zeros()

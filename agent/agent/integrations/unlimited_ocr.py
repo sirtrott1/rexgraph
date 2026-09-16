@@ -76,7 +76,7 @@ class OCRResult:
     """Result of a single OCR operation.
 
     Attributes
-    ----------
+
     text : str
         Extracted text (typically markdown-formatted).
     source : str
@@ -98,10 +98,10 @@ class OCRResult:
 
 @dataclass
 class OCRBatchResult:
-    """Result of a multi-page or batch OCR operation.
+    """Result of a multi page or batch OCR operation.
 
     Attributes
-    ----------
+
     pages : list of OCRResult
         Per-page OCR results, in order.
     full_text : str
@@ -135,7 +135,7 @@ class OCRBatchResult:
 
 # Utilities
 def _encode_image(image_path: str) -> dict[str, Any]:
-    """Encode an image file as a base64 data-URL content block."""
+    """Encode an image file as a base64 data URL content block."""
     ext = os.path.splitext(image_path)[1].lower()
     mime_map = {
         ".jpg": "image/jpeg",
@@ -256,10 +256,10 @@ def is_pdf_file(path: str) -> bool:
 
 # Client
 class UnlimitedOCRClient:
-    """Client for the Unlimited-OCR inference server.
+    """Client for the Unlimited OCR inference server.
 
     Parameters
-    ----------
+
     server_url : str
         Base URL of the SGLang or OpenAI-compatible server.
     model_name : str
@@ -298,14 +298,14 @@ class UnlimitedOCRClient:
 
     @classmethod
     def deepseek_ocr2(cls, server_url: str = DEFAULT_SERVER_URL, **kwargs):
-        """Create a client configured for DeepSeek-OCR-2.
+        """Create a client configured for DeepSeek OCR-2.
 
-        DeepSeek-OCR-2 uses the same OpenAI-compatible API as
-        Unlimited-OCR when served via vLLM, with slightly different
+        DeepSeek OCR-2 uses the same OpenAI compatible API as
+        Unlimited OCR when served via vLLM, with slightly different
         defaults (768px images, grounding prompt).
 
         Parameters
-        ----------
+
         server_url : str
             URL of the vLLM server running DeepSeek-OCR-2.
         **kwargs
@@ -324,10 +324,10 @@ class UnlimitedOCRClient:
 
     @classmethod
     def deepseek_ocr(cls, server_url: str = DEFAULT_SERVER_URL, **kwargs):
-        """Create a client configured for DeepSeek-OCR (v1).
+        """Create a client configured for DeepSeek OCR (v1).
 
         Parameters
-        ----------
+
         server_url : str
             URL of the vLLM server running DeepSeek-OCR.
         **kwargs
@@ -356,7 +356,7 @@ class UnlimitedOCRClient:
         except Exception:
             return False
 
-    # Single-image OCR
+    # Single image OCR
     def ocr_image(
         self,
         image_path: str,
@@ -366,7 +366,7 @@ class UnlimitedOCRClient:
         """Run OCR on a single image.
 
         Parameters
-        ----------
+
         image_path : str
             Path to the image file.
         prompt : str, optional
@@ -375,7 +375,7 @@ class UnlimitedOCRClient:
             Override the default image mode.
 
         Returns
-        -------
+
         OCRResult
         """
         import requests
@@ -402,23 +402,23 @@ class UnlimitedOCRClient:
             elapsed=elapsed,
         )
 
-    # Multi-page OCR
+    # Multi page OCR
     def ocr_images(
         self,
         image_paths: Sequence[str],
         prompt: str | None = None,
     ) -> OCRBatchResult:
-        """Run OCR on multiple images as a single multi-page request.
+        """Run OCR on multiple images as a single multi page request.
 
         Parameters
-        ----------
+
         image_paths : sequence of str
             Paths to image files, in order.
         prompt : str, optional
             Override the default multi-page prompt.
 
         Returns
-        -------
+
         OCRBatchResult
         """
         import requests
@@ -438,7 +438,7 @@ class UnlimitedOCRClient:
         )
         elapsed = time.time() - start
 
-        # Split into per-page results heuristically
+        # Split into per page results heuristically
         pages = self._split_pages(text, image_paths)
 
         return OCRBatchResult(
@@ -457,10 +457,10 @@ class UnlimitedOCRClient:
     ) -> OCRBatchResult:
         """Run OCR on a PDF document.
 
-        Converts pages to images, then runs multi-page OCR.
+        Converts pages to images, then runs multi page OCR.
 
         Parameters
-        ----------
+
         pdf_path : str
             Path to the PDF file.
         dpi : int
@@ -469,7 +469,7 @@ class UnlimitedOCRClient:
             Override the default multi-page prompt.
 
         Returns
-        -------
+
         OCRBatchResult
         """
         image_paths = _pdf_to_images(pdf_path, dpi=dpi)
@@ -490,14 +490,14 @@ class UnlimitedOCRClient:
         """Run OCR on all images in a directory.
 
         Parameters
-        ----------
+
         directory : str
             Path to a directory containing image files.
         prompt : str, optional
             Override the default prompt.
 
         Returns
-        -------
+
         OCRBatchResult
         """
         image_paths = _collect_images_from_dir(directory)
@@ -523,7 +523,7 @@ class UnlimitedOCRClient:
         }
         if DEFAULT_NGRAM_SIZE > 0 and ngram_window > 0:
             # The ngram processor is only needed if sglang is the backend.
-            # For generic OpenAI-compatible servers it's ignored gracefully.
+            # For generic OpenAI compatible servers it's ignored gracefully.
             try:
                 from sglang.srt.sampling.custom_logit_processor import (
                     DeepseekOCRNoRepeatNGramLogitProcessor,
@@ -612,8 +612,8 @@ class UnlimitedOCRClient:
         text: str,
         image_paths: Sequence[str],
     ) -> list[OCRResult]:
-        """Heuristically split multi-page output into per-page results."""
-        # Try splitting on page-break markers the model may emit
+        """Heuristically split multi page output into per page results."""
+        # Try splitting on page break markers the model may emit
         page_pattern = re.compile(
             r'(?:---\s*page\s*\d+\s*---|'
             r'<!--\s*page\s*\d+\s*-->|'
@@ -640,7 +640,7 @@ class UnlimitedOCRClient:
 class OfflineOCRClient:
     """Fallback client that extracts text from images using
     lightweight local methods (Tesseract OCR) when the
-    Unlimited-OCR server is unavailable.
+    Unlimited OCR server is unavailable.
 
     Falls back to an empty string if Tesseract is also unavailable,
     allowing the pipeline to proceed with whatever text can be
@@ -722,11 +722,11 @@ class PaddleOCRClient:
     key, no cloud dependency, no cost.  Supports 100+ languages,
     tables, formulas, and structured Markdown/JSON output.
 
-    Uses ``PPStructureV3`` for document parsing (layout-aware markdown)
+    Uses ``PPStructureV3`` for document parsing (layout aware markdown)
     and falls back to ``PaddleOCR`` for plain text extraction.
 
     Parameters
-    ----------
+
     use_structure : bool
         Use PP-StructureV3 for layout-aware markdown output.
         Falls back to PaddleOCR if False or if PPStructureV3 fails.
@@ -793,7 +793,7 @@ class PaddleOCRClient:
         return OCRResult(text=text, source=image_path, page=0, elapsed=elapsed)
 
     def ocr_pdf(self, pdf_path: str, dpi: int = 300, **kwargs) -> OCRBatchResult:
-        """Run OCR on a PDF (page-by-page)."""
+        """Run OCR on a PDF (page by page)."""
         start = time.time()
         images = _pdf_to_images(pdf_path, dpi=dpi)
         try:
@@ -843,7 +843,7 @@ class PaddleOCRClient:
             if self.use_structure and hasattr(results[0], "markdown"):
                 return results[0].markdown or ""
 
-            # PPStructureV3 may return page-level results
+            # PPStructureV3 may return page level results
             if self.use_structure:
                 parts = []
                 for r in results:
@@ -872,12 +872,12 @@ class PaddleOCRClient:
 class GOTOCRClient:
     """Client using GOT-OCR2.0 via HuggingFace transformers.
 
-    GOT-OCR2.0 (General OCR Theory) is an end-to-end OCR model
+    GOT-OCR2.0 (General OCR Theory) is an end to end OCR model
     merged into ``transformers``.  Apache 2.0 code, free weights
     on HuggingFace.  Requires a GPU for inference.
 
     Parameters
-    ----------
+
     model_name : str
         HuggingFace model ID.
     device : str
@@ -976,7 +976,7 @@ class GOTOCRClient:
         return OCRResult(text=text, source=image_path, page=0, elapsed=elapsed)
 
     def ocr_pdf(self, pdf_path: str, dpi: int = 300, **kwargs) -> OCRBatchResult:
-        """Run OCR on a PDF (page-by-page)."""
+        """Run OCR on a PDF (page by page)."""
         start = time.time()
         images = _pdf_to_images(pdf_path, dpi=dpi)
         try:
@@ -1039,14 +1039,14 @@ class GOTOCRClient:
 
 # Mistral OCR (cloud API)
 class MistralOCRClient:
-    """Client for Mistral's cloud-hosted OCR API.
+    """Client for Mistral's cloud hosted OCR API.
 
     Uses the ``mistralai`` SDK to call ``mistral-ocr-latest``.
     No GPU required, just an API key.  Native PDF support (no
-    page-to-image conversion needed).
+    page to image conversion needed).
 
     Parameters
-    ----------
+
     api_key : str, optional
         Mistral API key.  Defaults to the ``MISTRAL_API_KEY``
         environment variable.
@@ -1089,7 +1089,7 @@ class MistralOCRClient:
         except Exception:
             return False
 
-    # Single-image OCR
+    # Single image OCR
     def ocr_image(
         self,
         image_path: str,
@@ -1118,7 +1118,7 @@ class MistralOCRClient:
     ) -> OCRBatchResult:
         """Run OCR on a PDF document via the Mistral API.
 
-        Mistral OCR supports PDFs natively - no page-to-image
+        Mistral OCR supports PDFs natively - no page to image
         conversion is needed.
         """
         start = time.time()
@@ -1134,7 +1134,7 @@ class MistralOCRClient:
             total_elapsed=elapsed,
         )
 
-    # Multi-image OCR
+    # Multi image OCR
     def ocr_images(
         self,
         image_paths: Sequence[str],
@@ -1209,7 +1209,7 @@ class MistralOCRClient:
 
     @staticmethod
     def _extract_pages(response, source: str) -> list[OCRResult]:
-        """Extract per-page results from a Mistral OCR response."""
+        """Extract per page results from a Mistral OCR response."""
         if not response or not hasattr(response, "pages"):
             return []
         results = []
@@ -1273,7 +1273,7 @@ def create_ocr_client(
         export REXGRAPH_OCR_PRIORITY=offline  # tesseract only
 
     Parameters
-    ----------
+
     server_url : str, optional
         URL of the self-hosted OCR server.
     mistral_api_key : str, optional
@@ -1321,7 +1321,7 @@ def create_ocr_client(
     if prefer == "offline":
         return OfflineOCRClient()
 
-    # Auto-detect: try server first
+    # Auto detect: try server first
     url = server_url or os.environ.get(
         "UNLIMITED_OCR_URL", DEFAULT_SERVER_URL,
     )
@@ -1338,7 +1338,7 @@ def create_ocr_client(
 
         if prefer == "server":
             logger.warning("OCR server at %s not available, trying other backends", url)
-            # Fall through to auto-detect chain instead of returning unavailable client
+            # Fall through to auto detect chain instead of returning unavailable client
 
     # Try PaddleOCR (free, local) - skip on ROCm (paddle needs CUDA, segfaults on AMD)
     _skip_paddle = shutil.which("rocminfo") is not None

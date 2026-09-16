@@ -1,15 +1,15 @@
 """
-local_runtime: manage a local llama.cpp-family inference server as a first-class
+local_runtime: manage a local llama.cpp-family inference server as a first class
 backend for rexgraph-agent.
 
-The agent talks to any OpenAI-compatible endpoint (``chat_model``). This module makes
-a *local* one first-class: it launches ``llama-server`` (or a compatible server such as
-TurboQuant+ or Cortex.cpp) as a managed SUBPROCESS, health-checks it, and registers its
+The agent talks to any OpenAI compatible endpoint (``chat_model``). This module makes
+a *local* one first class: it launches ``llama-server`` (or a compatible server such as
+TurboQuant+ or Cortex.cpp) as a managed SUBPROCESS, health checks it, and registers its
 URL, so the whole stack (chat, the token perplexity/varentropy metrics,
-agentic_reading) runs on the local model. Guarantees logprobs, since llama-server
+agentic_reading) runs on the local model. Guarantees logprobs, since llama server
 returns them, so the metrics light up.
 
-DECOUPLED BY DESIGN: the engine runs as a subprocess behind the OpenAI-compatible seam
+DECOUPLED BY DESIGN: the engine runs as a subprocess behind the OpenAI compatible seam
 and is never vendored or compiled into the wheel. So llama.cpp, TurboQuant+, Cortex.cpp
 and vLLM are interchangeable by config, and the split that matters stays intact: the
 agent is pure Python, the core is compiled Cython, and neither reaches into the other.
@@ -27,7 +27,7 @@ import time
 
 # The hardware probe moved to the core package: whether a device's memory is unified with
 # system RAM is a fact about the machine, not about this application, and rexgraph needed
-# it for bus topology and was reaching back here to get it. Re-exported so the callers
+# it for bus topology and was reaching back here to get it. Re exported so the callers
 # that already import these from the agent keep working.
 from rexgraph.hardware import (  # noqa: F401
     detect_gpus,
@@ -41,8 +41,8 @@ _STATE: dict = {}
 _EMBED_PROC: subprocess.Popen | None = None    # dedicated embedding worker (the beehive embedder)
 _EMBED_STATE: dict = {}
 
-# Backend-agnostic launch defaults. RexGraph is a GENERAL platform: CUDA, ROCm,
-# Vulkan, Metal, and CPU are all first-class; the backend is a build-time choice of the
+# Backend agnostic launch defaults. RexGraph is a GENERAL platform: CUDA, ROCm,
+# Vulkan, Metal, and CPU are all first class; the backend is a build time choice of the
 # llama.cpp binary you point this at, and the launcher adapts (n_gpu_layers is derived
 # from detected VRAM unless you set it). None of this is tied to any one machine.
 DEFAULTS = {
@@ -56,7 +56,7 @@ DEFAULTS = {
 
 def _fa_value(fa) -> str:
     """Map the flash_attn setting to llama.cpp's `--flash-attn` value. A bool picks on/off;
-    the tri-state string 'on'/'off'/'auto' passes through (so callers/API bodies can request
+    the tri state string 'on'/'off'/'auto' passes through (so callers/API bodies can request
     the build's `auto` mode, which the plain bool config cannot express)."""
     if isinstance(fa, str):
         v = fa.strip().lower()
@@ -64,11 +64,11 @@ def _fa_value(fa) -> str:
             return v
     return "on" if fa else "off"
 
-# GENERAL, size-tiered catalog (not machine-specific). `recommend(budget_gb)` filters it
+# GENERAL, size tiered catalog (not machine specific). `recommend(budget_gb)` filters it
 # to what fits the detected hardware. Repo/file names drift - pass them explicitly to
 # ``pull``; these are guidance + sizing (~Q4). MoE entries note that speed tracks active
 # params, so they punch above their memory footprint on any backend.
-# The BEEHIVE stack (2026): a queen (main driver, MoE-first for unified memory) + focused worker
+# The BEEHIVE stack (2026): a queen (main driver, MoE first for unified memory) + focused worker
 # bees + a tiny embedder that powers the swarm's alignment/hallucination signal. `recommend()`
 # filters to what fits the detected hardware. Names drift, so pass explicit files to `pull`.
 CATALOG = [
@@ -150,7 +150,7 @@ def _compute_gpu(gpus: list) -> dict | None:
 
 def detect_hardware() -> dict:
     """Detect available inference backends + memory so recommendations and launch args
-    adapt to the ACTUAL machine - CUDA/ROCm/Vulkan/Metal/CPU all first-class. Returns
+    adapt to the ACTUAL machine - CUDA/ROCm/Vulkan/Metal/CPU all first class. Returns
     {os, backends, gpu, ram_gb, model_budget_gb, recommended_backend}."""
     import platform
     osname = platform.system()
@@ -173,7 +173,7 @@ def detect_hardware() -> dict:
         gpu = gpu or {"vendor": "apple", "vram_gb": None, "unified": True}
     backends.append("cpu")
     ram = _ram_gb()
-    # Model-fit budget: dedicated VRAM if known; unified GPUs (Apple / AMD iGPU) and the
+    # Model fit budget: dedicated VRAM if known; unified GPUs (Apple / AMD iGPU) and the
     # CPU path draw on system RAM (leave headroom).
     vram = (gpu or {}).get("vram_gb")
     if vram and (gpu or {}).get("unified"):
@@ -194,7 +194,7 @@ def detect_hardware() -> dict:
 
 
 def recommend(budget_gb: float | None = None) -> list[dict]:
-    """Catalog entries that fit ``budget_gb`` (VRAM or unified budget), biggest-that-fits
+    """Catalog entries that fit ``budget_gb`` (VRAM or unified budget), biggest that fits
     first. Defaults to the detected machine's budget."""
     if budget_gb is None:
         budget_gb = detect_hardware()["model_budget_gb"] or 8.0
@@ -203,7 +203,7 @@ def recommend(budget_gb: float | None = None) -> list[dict]:
 
 
 def find_binary(bin_path: str | None = None) -> str | None:
-    """Locate a llama.cpp-family OpenAI server binary (llama-server or compatible).
+    """Locate a llama.cpp-family OpenAI server binary (llama server or compatible).
     Order: explicit arg -> LLAMA_SERVER_BIN env -> PATH -> common build locations."""
     if bin_path and os.path.exists(os.path.expanduser(bin_path)):
         return os.path.expanduser(bin_path)
@@ -226,11 +226,11 @@ def find_binary(bin_path: str | None = None) -> str | None:
 def _auto_ngl(model_path: str) -> int:
     """Pick n_gpu_layers from detected hardware: full offload if the model fits VRAM (or
     unified memory), CPU otherwise - the user can set --ngl for a manual GPU/CPU split.
-    Backend-agnostic (CUDA/ROCm/Vulkan/Metal/CPU)."""
+    Backend agnostic (CUDA/ROCm/Vulkan/Metal/CPU)."""
     hw = detect_hardware()
     gpu = hw.get("gpu")
     if not gpu:
-        return 0                       # CPU-only build/host
+        return 0                       # CPU only build/host
     if gpu.get("unified"):
         return 999                     # unified memory (Apple / AMD iGPU) -> full offload
     vram = gpu.get("vram_gb")
@@ -258,7 +258,7 @@ def _auto_ngl(model_path: str) -> int:
 
 def _server_log_path(port: int) -> str:
     """Where a managed server's stdout+stderr is captured, so a failed launch is diagnosable
-    instead of a black-box 'exit 1'."""
+    instead of a black box 'exit 1'."""
     d = os.path.join(os.environ.get("REXGRAPH_CONFIG_DIR",
                                     os.path.expanduser("~/.config/rexgraph")), "logs")
     os.makedirs(d, exist_ok=True)
@@ -335,7 +335,7 @@ def start(model_path: str, *, port: int | None = None, host: str | None = None,
     args.extend(["--flash-attn", _fa_value(fa)])
     if extra_args:
         args.extend(extra_args)
-    # A locally-built llama.cpp keeps its ggml shared libs next to the binary; make the server
+    # A locally built llama.cpp keeps its ggml shared libs next to the binary; make the server
     # find them without the caller having to set LD_LIBRARY_PATH.
     env = dict(os.environ)
     bindir = os.path.dirname(os.path.abspath(binary))
@@ -375,7 +375,7 @@ def start(model_path: str, *, port: int | None = None, host: str | None = None,
 
 
 def stop() -> None:
-    """Stop the managed server (if any) and clear the chat-backend override."""
+    """Stop the managed server (if any) and clear the chat backend override."""
     global _PROC
     if _PROC is not None and _PROC.poll() is None:
         _PROC.terminate()
@@ -395,7 +395,7 @@ def stop() -> None:
 
 
 def _launch(args, wait: float, binary: str, port: int = 0):
-    """Popen a llama-server with the ggml shared libs on LD_LIBRARY_PATH, capturing its output to a
+    """Popen a llama server with the ggml shared libs on LD_LIBRARY_PATH, capturing its output to a
     log so a failed launch is diagnosable. Returns (proc, logpath)."""
     env = dict(os.environ)
     bindir = os.path.dirname(os.path.abspath(binary))
@@ -413,8 +413,8 @@ def spawn_server(model_path: str, *, port: int | None = None, host: str | None =
                  flash_attn: bool | None = None, embeddings: bool = False,
                  extra_args: list[str] | None = None, bin_path: str | None = None,
                  wait: float = 90.0):
-    """Launch an INDEPENDENT llama-server and return ``(Popen, state)`` WITHOUT touching the
-    module singletons or the global chat-backend registration. The primitive the hive uses for
+    """Launch an INDEPENDENT llama server and return ``(Popen, state)`` WITHOUT touching the
+    module singletons or the global chat backend registration. The primitive the hive uses for
     its worker bees - the CALLER owns the process lifecycle. Ports default into a worker range
     so bees don't collide with the managed chat (`start`) or embedder (`start_embedder`)."""
     binary = find_binary(bin_path)
@@ -456,7 +456,7 @@ def spawn_server(model_path: str, *, port: int | None = None, host: str | None =
 def start_embedder(model_path: str, *, port: int | None = None, host: str | None = None,
                    wait: float = 90.0, bin_path: str | None = None) -> dict:
     """Launch a DEDICATED embedding worker (`llama-server --embeddings`) - the beehive's
-    nomic-embed-text bee. It runs ALONGSIDE the chat model so the swarm's semantic
+    nomic embed text bee. It runs ALONGSIDE the chat model so the swarm's semantic
     alignment/hallucination signal (agent_complex.model_embed_fn) is always live, independent of
     which queen/model is chatting. Registers its URL as the embedding endpoint (`embed_url`)."""
     global _EMBED_PROC
@@ -543,7 +543,7 @@ def pull(repo: str, filename: str, dest_dir: str | None = None) -> str:
 
 def _default_scan_dirs() -> list[str]:
     """Where local models actually land, across the common toolchains. Extend with
-    REXGRAPH_MODEL_DIRS (os.pathsep-separated) for non-standard locations."""
+    REXGRAPH_MODEL_DIRS (os.pathsep-separated) for non standard locations."""
     home = os.path.expanduser("~")
     dirs = [
         os.path.join(home, ".cache", "huggingface", "hub"),      # HF (transformers, vLLM source, hf gguf)
@@ -566,15 +566,15 @@ def _default_scan_dirs() -> list[str]:
 
 
 def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 400) -> list[dict]:
-    """AUTO-DETECT models already on disk: no curated registry, no manual paths. Walks the
+    """AUTO DETECT models already on disk: no curated registry, no manual paths. Walks the
     common model locations (HF hub cache, ollama, LM Studio, ~/models, our pull() dir, plus
     REXGRAPH_MODEL_DIRS) and reports every GGUF file (llama.cpp-loadable, ready for start()),
-    every ollama model (resolved via its manifest, since ollama's blobs are extension-less and
-    content-addressed - see `_source`), and every HF transformers snapshot
+    every ollama model (resolved via its manifest, since ollama's blobs are extension less and
+    content addressed - see `_source`), and every HF transformers snapshot
     (vLLM/transformers-loadable). Each entry carries a `source` (hf-cache/ollama/lmstudio/
     rexgraph/dir), a `loadable` hint (gguf -> start() here; transformers -> serve via
     vLLM/transformers; anything else ollama can hold, e.g. an MLX model, llama.cpp cannot load -
-    reported but not loadable), and a size. De-duped by real path."""
+    reported but not loadable), and a size. De duped by real path."""
     roots = list(_default_scan_dirs())
     for d in (extra_dirs or []):
         d = os.path.expanduser(d)
@@ -611,7 +611,7 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
                         sz = os.path.getsize(fp) / 1e9
                     except OSError:
                         continue
-                    # skip mid-split shards past the first so one model = one entry
+                    # skip mid split shards past the first so one model = one entry
                     if ("-00002-of-" in low or "-00003-of-" in low or
                             (("of-" in low) and ("00001-of-" not in low) and low[low.find("of-") - 6:low.find("of-")].strip("-").isdigit())):
                         continue
@@ -619,10 +619,10 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
                                  "size_gb": round(sz, 2), "format": "gguf",
                                  "loadable": "llama.cpp", "source": _source(fp)}
                     n += 1
-    # 2) Ollama models: stored as content-addressed, EXTENSION-LESS blobs under blobs/, named
+    # 2) Ollama models: stored as content addressed, EXTENSION LESS blobs under blobs/, named
     # only by sha256 digest - so the real name has to come from the manifest at
-    # manifests/<registry>/<namespace>/<name>/<tag>, which we parse to find the model-weight
-    # layer's digest and resolve it to a blob. Ollama can hold non-GGUF models too (e.g. MLX),
+    # manifests/<registry>/<namespace>/<name>/<tag>, which we parse to find the model weight
+    # layer's digest and resolve it to a blob. Ollama can hold non GGUF models too (e.g. MLX),
     # which llama.cpp cannot load - sniff the blob's magic bytes rather than trust the tag, so
     # `format`/`loadable` stay honest for plan_hive's `format == "gguf"` gate.
     for root in roots:
@@ -672,9 +672,9 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
                     n += 1
                     continue
 
-                # Newer shape (e.g. MLX-format models pulled through ollama): no single
-                # "*.model" layer - the weights are split across many per-tensor blobs, so
-                # there is no one file to hand llama-server. Never gguf/llama.cpp: nothing here
+                # Newer shape (e.g. MLX format models pulled through ollama): no single
+                # "*.model" layer - the weights are split across many per tensor blobs, so
+                # there is no one file to hand llama server. Never gguf/llama.cpp: nothing here
                 # is a spawnable single blob regardless of what the tensors are encoded as.
                 tensor_layers = [ly for ly in layers
                                   if str(ly.get("mediaType", "")).endswith(".tensor")]
@@ -716,8 +716,8 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
             if not revs:
                 continue
             rev = revs[0]
-            # gguf-only repos already surfaced above; report a repo as transformers only if it
-            # has config.json (i.e. a real HF model dir), so we don't double-count.
+            # gguf only repos already surfaced above; report a repo as transformers only if it
+            # has config.json (i.e. a real HF model dir), so we don't double count.
             if not os.path.exists(os.path.join(rev, "config.json")):
                 continue
             model_id = name[len("models--"):].replace("--", "/")
@@ -741,14 +741,14 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
 
 
 def _default_probe_targets() -> list[dict]:
-    """Well-known local inference servers. Extend with REXGRAPH_PROBE_URLS (os.pathsep or
-    comma separated base URLs) for non-standard ports/hosts."""
+    """Well known local inference servers. Extend with REXGRAPH_PROBE_URLS (os.pathsep or
+    comma separated base URLs) for non standard ports/hosts."""
     t = [
         {"url": "http://127.0.0.1:11434", "kind": "ollama"},     # Ollama
         {"url": "http://127.0.0.1:8080", "kind": "openai"},      # llama.cpp default
         {"url": "http://127.0.0.1:8000", "kind": "openai"},      # vLLM default
         {"url": "http://127.0.0.1:1234", "kind": "openai"},      # LM Studio
-        {"url": "http://127.0.0.1:5000", "kind": "openai"},      # text-generation-webui
+        {"url": "http://127.0.0.1:5000", "kind": "openai"},      # text generation webui
         {"url": "http://127.0.0.1:8081", "kind": "openai"},
     ]
     raw = os.environ.get("REXGRAPH_PROBE_URLS", "")
@@ -770,8 +770,8 @@ def _default_probe_targets() -> list[dict]:
 
 def probe_endpoints(timeout: float = 0.4) -> list[dict]:
     """PROBE live inference servers already running on this host, not files on disk, actual
-    serving endpoints. Hits Ollama's /api/tags and the OpenAI-compatible /v1/models on the
-    well-known ports (llama.cpp, vLLM, LM Studio, TGI) + REXGRAPH_PROBE_URLS. Returns only the
+    serving endpoints. Hits Ollama's /api/tags and the OpenAI compatible /v1/models on the
+    well known ports (llama.cpp, vLLM, LM Studio, TGI) + REXGRAPH_PROBE_URLS. Returns only the
     reachable ones, each with the model ids it is serving, so the swarm can wire real backends."""
     try:
         import httpx

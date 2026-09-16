@@ -1,16 +1,16 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._spectral: Spectral layout and force-directed refinement.
+rexgraph.core._spectral: Spectral layout and force directed refinement.
 
 Computes 2D vertex positions in two phases:
 
   1. Spectral embedding from L_0 eigenvectors (Fiedler vector and
      third eigenvector as x/y coordinates).
-  2. Force-directed refinement via Fruchterman-Reingold with Coulomb
+  2. Force directed refinement via Fruchterman Reingold with Coulomb
      repulsion, Hooke attraction, and centering forces.
 
-For nV > 200, all-pairs O(nV^2) repulsion is replaced by Barnes-Hut
+For nV > 200, all pairs O(nV^2) repulsion is replaced by Barnes Hut
 quadtree approximation at O(nV log nV) with opening angle 0.5.
 """
 
@@ -53,8 +53,8 @@ def spectral_layout(evecs_in, Py_ssize_t nV,
     eigenvectors are sorted by ascending eigenvalue first.
 
     Parameters
-    ----------
-    evecs_in : array-like, shape (nV, k)
+
+    evecs_in : array like, shape (nV, k)
         Eigenvectors of L_0.
     nV : int
         Number of vertices.
@@ -62,11 +62,11 @@ def spectral_layout(evecs_in, Py_ssize_t nV,
         Canvas dimensions in pixels.
     pad : float
         Fractional padding on each side (default 10%).
-    evals_in : array-like, shape (k,), optional
+    evals_in : array like, shape (k,), optional
         Eigenvalues of L_0 for sorting eigenvectors.
 
     Returns
-    -------
+
     px, py : f64[nV]
         Vertex positions in pixel coordinates.
     """
@@ -132,7 +132,7 @@ cdef void _deterministic_placement(f64[::1] px, f64[::1] py,
                                    Py_ssize_t nV,
                                    double width, double height,
                                    double pad) noexcept nogil:
-    """Place vertices on a grid-like pattern seeded by index."""
+    """Place vertices on a grid like pattern seeded by index."""
     cdef Py_ssize_t i
     cdef double x_lo = pad * width, x_hi = (1.0 - pad) * width
     cdef double y_lo = pad * height, y_hi = (1.0 - pad) * height
@@ -155,7 +155,7 @@ cdef void _rescale_to_canvas(f64[::1] px, f64[::1] py,
                              double width, double height,
                              double pad) noexcept nogil:
     """
-    Linearly rescale coordinate arrays to [pad*dim, (1-pad)*dim].
+    Linearly rescale coordinate arrays to [pad*dim, (1 pad)*dim].
     """
     cdef Py_ssize_t i
     cdef double xmin, xmax, ymin, ymax
@@ -197,7 +197,7 @@ cdef void _rescale_to_canvas(f64[::1] px, f64[::1] py,
             py[i] = py[i] * yscale + yoff
 
 
-# Naive force-directed refinement
+# Naive force directed refinement
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -212,7 +212,7 @@ cdef void _fd_naive_iteration(f64* px, f64* py,
                               double x_lo, double x_hi,
                               double y_lo, double y_hi) noexcept nogil:
     """
-    Single iteration of O(nV^2) force-directed layout.
+    Single iteration of O(nV^2) force directed layout.
 
     Repulsion (Coulomb), attraction (Hooke), and centering forces.
     """
@@ -274,7 +274,7 @@ cdef void _fd_naive_iteration(f64* px, f64* py,
         elif py[i] > y_hi: py[i] = y_hi
 
 
-# Barnes-Hut quadtree
+# Barnes Hut quadtree
 
 
 cdef struct QuadTree:
@@ -446,7 +446,7 @@ cdef void _qt_repulsion(QuadTree* qt, i32 node,
     """
     Repulsive force on vertex at (px, py) from subtree at node.
 
-    Uses Barnes-Hut criterion: if cell_size / distance < theta,
+    Uses Barnes Hut criterion: if cell_size / distance < theta,
     treat the node as a single body.
     """
     if qt.mass[node] == 0.0:
@@ -491,7 +491,7 @@ cdef void _fd_bh_iteration(f64* px, f64* py,
                            double y_lo, double y_hi,
                            double theta) noexcept nogil:
     """
-    Single iteration of Barnes-Hut O(nV log nV) force-directed layout.
+    Single iteration of Barnes Hut O(nV log nV) force directed layout.
     """
     cdef Py_ssize_t i, e
     cdef i32 s, t
@@ -584,13 +584,13 @@ def force_directed_refine(px_in, py_in,
                           double centering=0.008,
                           double width=700.0, double height=500.0):
     """
-    O(nV^2) Fruchterman-Reingold force-directed refinement.
+    O(nV^2) Fruchterman Reingold force directed refinement.
 
     Parameters
-    ----------
-    px_in, py_in : array-like, shape (nV,)
+
+    px_in, py_in : array like, shape (nV,)
         Initial vertex positions (modified in-place).
-    edge_src_in, edge_tgt_in : array-like, shape (nE,)
+    edge_src_in, edge_tgt_in : array like, shape (nE,)
         Edge endpoint arrays.
     nV, nE : int
         Vertex and edge counts.
@@ -608,7 +608,7 @@ def force_directed_refine(px_in, py_in,
         Canvas dimensions.
 
     Returns
-    -------
+
     px, py : f64[nV]
     """
     if nV <= 1:
@@ -673,15 +673,15 @@ def barnes_hut_refine(px_in, py_in,
                       double width=700.0, double height=500.0,
                       double theta=0.5):
     """
-    Barnes-Hut O(nV log nV) force-directed refinement.
+    Barnes Hut O(nV log nV) force directed refinement.
 
-    Uses a quadtree to approximate far-field repulsive forces.
+    Uses a quadtree to approximate far field repulsive forces.
 
     Parameters
-    ----------
-    px_in, py_in : array-like, shape (nV,)
+
+    px_in, py_in : array like, shape (nV,)
         Initial vertex positions (modified in-place).
-    edge_src_in, edge_tgt_in : array-like, shape (nE,)
+    edge_src_in, edge_tgt_in : array like, shape (nE,)
         Edge endpoint arrays.
     nV, nE : int
         Vertex and edge counts.
@@ -691,7 +691,7 @@ def barnes_hut_refine(px_in, py_in,
         Barnes-Hut opening angle (default 0.5).
 
     Returns
-    -------
+
     px, py : f64[nV]
     """
     if nV <= 1:
@@ -755,28 +755,28 @@ def compute_layout(evecs_in,
                    Py_ssize_t iterations=400,
                    evals_in=None):
     """
-    Spectral embedding followed by force-directed refinement.
+    Spectral embedding followed by force directed refinement.
 
-    Selects O(nV^2) or Barnes-Hut O(nV log nV) refinement based
+    Selects O(nV^2) or Barnes Hut O(nV log nV) refinement based
     on vertex count.
 
     Parameters
-    ----------
-    evecs_in : array-like, shape (nV, k)
+
+    evecs_in : array like, shape (nV, k)
         Eigenvectors of L_0.
     nV, nE : int
         Vertex and edge counts.
-    edge_src_in, edge_tgt_in : array-like, shape (nE,)
+    edge_src_in, edge_tgt_in : array like, shape (nE,)
         Edge endpoint arrays.
     width, height : float
         Canvas dimensions.
     iterations : int
         Force-directed iterations.
-    evals_in : array-like, shape (k,), optional
+    evals_in : array like, shape (k,), optional
         Eigenvalues of L_0 for sorting eigenvectors.
 
     Returns
-    -------
+
     px, py : f64[nV]
         Final vertex positions in pixel coordinates.
     """

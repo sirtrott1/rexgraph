@@ -95,7 +95,7 @@ def test_the_leverage_may_be_supplied_so_one_solve_serves_every_sectioning():
     assert a["all"]["mass"] == pytest.approx(b["all"]["mass"])
 
 
-#### the grade axis ###########################################################
+# the grade axis
 
 def _hyper(seed=0, n=24, groups=14):
     """A branching construction: wide relations plus their own contacts, so the
@@ -113,7 +113,7 @@ def _hyper(seed=0, n=24, groups=14):
 
 
 def test_foster_holds_at_every_grade():
-    """sum R_eff_k = rank(B_k) is not a grade-1 fact."""
+    """sum R_eff_k = rank(B_k) is not a grade 1 fact."""
     from rexgraph.faces import auto_hyperface
     rex, _w, _p = _hyper()
     auto_hyperface(rex)
@@ -176,7 +176,7 @@ def test_the_tensor_keeps_its_axes():
     assert axes["grades"] == [1] and axes["sections"] == list(sections)
 
 
-#### declaring, before materialising ##########################################
+# declaring, before materialising
 
 def test_the_candidate_predicate_matches_materialisation():
     """Declare, read, then actually insert. The predicate has to be right every time.
@@ -232,17 +232,17 @@ def test_candidate_readings_do_not_touch_the_complex():
     assert (abs(rex.B1 - before[2]).max() if hasattr(rex.B1, "max") else 0) == 0
 
 
-#### the energy substrate #####################################################
+# the energy substrate
 
 def test_byte_energy_reads_the_string_and_nothing_else():
-    """No complex, no corpus: position-weighted squared bytes."""
+    """No complex, no corpus: position weighted squared bytes."""
     from rexgraph.partition import byte_energy
     assert byte_energy("a") == float(ord("a") ** 2)
     assert byte_energy("ab") == float(ord("a") ** 2 + (ord("b") * 2) ** 2)
     assert byte_energy("") == 0.0
-    # position is 1-based, so order matters and no byte vanishes
+    # position is 1 based, so order matters and no byte vanishes
     assert byte_energy("ab") != byte_energy("ba")
-    # multi-byte characters are read as their utf-8 bytes, not as one code point
+    # multi byte characters are read as their utf-8 bytes, not as one code point
     assert byte_energy("é") == float(sum((b * (i + 1)) ** 2 for i, b
                                               in enumerate("é".encode())))
 
@@ -314,7 +314,7 @@ def test_compose_refuses_mismatched_sections():
         compose_substrates(np.zeros((3, 1, 4)), np.zeros((2, 2)))
 
 
-#### a share is not a finding until you know the null ##########################
+# a share is not a finding until you know the null
 
 def test_hodge_shares_sum_to_one_and_carry_their_null():
     """The decomposition is orthogonal, so the energy shares close."""
@@ -459,7 +459,7 @@ def test_the_candidate_decision_never_rests_on_the_band():
 
     A relative residual either sits at machine level, meaning the column is spanned, or
     at an O(1) fraction of the column, meaning it is not. Nothing real lands between, so
-    a well-conditioned complex should never reach the exact path, and when it does the
+    a well conditioned complex should never reach the exact path, and when it does the
     answer is still the integer one.
     """
     rng = np.random.default_rng(31)
@@ -490,7 +490,7 @@ def test_a_zero_sum_column_passes_nothing_when_its_support_is_seeded_evenly():
 
     This is why `section_response` takes the magnitude at the vertex and not at the
     section. Letting head and argument contributions cancel first scores better on a
-    corpus sample (100.0% vs 94.0% top-1 over 50 queries) and fails where it matters: a
+    corpus sample (100.0% vs 94.0% top 1 over 50 queries) and fails where it matters: a
     section whose vocabulary is unique has degree 1 throughout, so `1/deg` seeding IS
     uniform, its own column cancels to zero, and the most distinctive section in the
     document scores at the floor."""
@@ -653,7 +653,7 @@ def test_the_edge_primary_reading_is_exact_over_the_rationals():
 
 
 def test_the_edge_primary_reading_survives_an_evenly_covered_column():
-    """A zero-sum column passes nothing signed when its support is seeded evenly, which
+    """A zero sum column passes nothing signed when its support is seeded evenly, which
     is where a section is most distinctive. The unsigned total does not cancel."""
     import numpy as np
 

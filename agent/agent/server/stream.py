@@ -1,5 +1,5 @@
 """
-Server-Sent Events (SSE) streaming for progressive analysis results.
+Server Sent Events (SSE) streaming for progressive analysis results.
 
 The pipeline computes stages sequentially. Each stage emits an SSE event
 so the frontend can update as results arrive rather than waiting for
@@ -20,8 +20,8 @@ _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
 def _encode(payload) -> str:
-    """SSE frame body. Non-finite floats go out as null: a bare NaN token would make
-    the browser's JSON.parse throw and kill the stream mid-analysis."""
+    """SSE frame body. Non finite floats go out as null: a bare NaN token would make
+    the browser's JSON.parse throw and kill the stream mid analysis."""
     from rexgraph.io._compat import dumps
     return dumps(payload, nan="null")
 
@@ -46,7 +46,7 @@ async def stream_pipeline(pipeline: AnalysisPipeline, depth: str = "standard") -
 
     loop = asyncio.get_event_loop()
 
-    # Run the pipeline in a thread (Cython is CPU-bound, can't be async)
+    # Run the pipeline in a thread (Cython is CPU bound, can't be async)
     future = loop.run_in_executor(_executor, pipeline.run, depth)
 
     # Yield events as they arrive
@@ -67,7 +67,7 @@ async def stream_pipeline(pipeline: AnalysisPipeline, depth: str = "standard") -
     try:
         await future
     except Exception:
-        # Log the detail server-side; return a generic, properly-escaped message
+        # Log the detail server side; return a generic, properly escaped message
         # (never interpolate str(e) into the SSE frame: it leaks internals and
         # breaks the JSON when the message contains quotes/newlines).
         logging.getLogger(__name__).exception("Pipeline stream failed")

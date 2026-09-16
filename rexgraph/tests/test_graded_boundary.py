@@ -1,13 +1,13 @@
-"""Tests for the general, graded, mixed-arity boundary builder.
+"""Tests for the general, graded, mixed arity boundary builder.
 
 Covers:
-  * ``build_graded_boundaries`` on mixed-arity edges (witness / pairwise / branching)
+  * ``build_graded_boundaries`` on mixed arity edges (witness / pairwise / branching)
     and mixed n-gon faces - arities, signs and ``d^2 = 0``;
-  * a genuine grade-3 complex (soccer-ball solid + octahedron solid + square pyramid)
+  * a genuine grade 3 complex (soccer ball solid + octahedron solid + square pyramid)
     with ``B1 B2 = 0`` AND ``B2 B3 = 0`` sparsely, and correct Betti numbers;
-  * ``RexGraph.from_cells`` round-tripping against ``from_simplicial`` and exposing
+  * ``RexGraph.from_cells`` round tripping against ``from_simplicial`` and exposing
     the full graded boundary list;
-  * back-compat: the classic constructors still yield correct ``graded_boundaries``.
+  * back compat: the classic constructors still yield correct ``graded_boundaries``.
 """
 import numpy as np
 import pytest
@@ -17,9 +17,9 @@ import rexgraph.graded_boundary as gb
 from rexgraph.graph import RexGraph
 
 
-#### -
+
 # build_graded_boundaries: arity, signs, d^2 = 0
-#### -
+
 def test_mixed_arity_edges_positional_signs():
     """Witness (nnz=1), pairwise (nnz=2) and branching (nnz=3) edges in one grade,
     with positional signs (first -1, rest +1)."""
@@ -83,7 +83,7 @@ def test_branching_c2_accepts_exact_rational_syntax_and_normalizes_to_integer():
 
 def test_mixed_ngon_faces_chain_condition():
     """A triangle and a square (quadrilateral) face over a shared edge set: mixed
-    grade-2 arity, and B1 B2 = 0 sparsely."""
+    grade 2 arity, and B1 B2 = 0 sparsely."""
     # Vertices 0..4. Edges around a triangle (0,1,2) and a square (0,2,3,4)? Keep it
     # simple: two independent faces sharing no edge, mixed arity 3 and 4.
     # Triangle 0-1-2 ; square 3-4-5-6 (disjoint) but reuse vertices to stay compact.
@@ -105,16 +105,16 @@ def test_mixed_ngon_faces_chain_condition():
     assert ok and res == 0.0
 
 
-#### -
-# grade-3 complexes: B1B2 = 0, B2B3 = 0, Betti numbers
-#### -
+
+# grade 3 complexes: B1B2 = 0, B2B3 = 0, Betti numbers
+
 @pytest.mark.parametrize("builder,expect", [
     (gb.solid_octahedron_3rex, dict(nV=6, nE=12, nF=8, arities={3})),
     (gb.square_pyramid_3rex, dict(nV=5, nE=8, nF=5, arities={3, 4})),
     (gb.truncated_icosahedron_3rex, dict(nV=60, nE=90, nF=32, arities={5, 6})),
 ])
 def test_grade3_solid_is_contractible(builder, expect):
-    """Every solid 3-ball: d^2=0 through both consecutive pairs, and Betti = (1,0,0,0)
+    """Every solid 3 ball: d^2=0 through both consecutive pairs, and Betti = (1,0,0,0)
     (contractible). The truncated icosahedron is the mixed 5/6-gon soccer ball."""
     cbg = builder()
     assert cbg[0] == expect["nV"]
@@ -132,7 +132,7 @@ def test_grade3_solid_is_contractible(builder, expect):
     # d^2 = 0 for BOTH consecutive pairs (B1B2 and B2B3), sparsely.
     ok, res = gb.verify_chain(B)
     assert ok and res == 0.0
-    # Explicit per-pair check that neither product is silently empty-by-shape.
+    # Explicit per pair check that neither product is silently empty by shape.
     assert (B[0] @ B[1]).nnz == 0 or np.abs((B[0] @ B[1]).data).max() < 1e-12
     assert (B[1] @ B[2]).nnz == 0 or np.abs((B[1] @ B[2]).data).max() < 1e-12
     # Euler characteristic of the solid = 1.
@@ -141,7 +141,7 @@ def test_grade3_solid_is_contractible(builder, expect):
 
 
 def test_soccer_ball_shell_is_2sphere():
-    """The truncated-icosahedron SHELL (drop the volume) is a topological 2-sphere:
+    """The truncated icosahedron SHELL (drop the volume) is a topological 2 sphere:
     Betti = (1, 0, 1) - beta_2 = 1 detects the enclosed void."""
     cbg = gb.truncated_icosahedron_3rex()
     B_shell = gb.build_graded_boundaries(cbg[:3])       # B1, B2 only
@@ -156,11 +156,11 @@ def test_octahedron_shell_is_2sphere():
     assert gb.betti_numbers(B_shell) == [1, 0, 1]
 
 
-#### -
+
 # graded_laplacians
-#### -
+
 def test_graded_laplacians_shapes_and_psd():
-    """Per-grade Hodge Laplacians L_0..L_G have the right shapes and are symmetric
+    """Per grade Hodge Laplacians L_0..L_G have the right shapes and are symmetric
     PSD; harmonic dimension (ker L_g) matches Betti."""
     cbg = gb.solid_octahedron_3rex()
     B = gb.build_graded_boundaries(cbg)
@@ -177,9 +177,9 @@ def test_graded_laplacians_shapes_and_psd():
         assert nker == betti[g]                           # ker L_g == beta_g
 
 
-#### -
-# RexGraph.from_cells: round-trip and graded_boundaries contract
-#### -
+
+# RexGraph.from_cells: round trip and graded_boundaries contract
+
 def test_from_cells_matches_from_simplicial_single_triangle():
     src = np.array([0, 1, 0]); tgt = np.array([1, 2, 2])
     tris = np.array([[0, 1, 2]])
@@ -192,8 +192,8 @@ def test_from_cells_matches_from_simplicial_single_triangle():
 
 
 def test_from_cells_2rex_tetrahedron_chain_valid_and_grades():
-    """A tetrahedron 2-rex built via from_cells: same dimensions as from_simplicial,
-    chain-valid, and graded_boundaries returns exactly 2 grades."""
+    """A tetrahedron 2 rex built via from_cells: same dimensions as from_simplicial,
+    chain valid, and graded_boundaries returns exactly 2 grades."""
     src = np.array([0, 0, 0, 1, 1, 2]); tgt = np.array([1, 2, 3, 2, 3, 3])
     tris = np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]])
     rs = RexGraph.from_simplicial(src, tgt, tris)
@@ -244,15 +244,15 @@ def test_from_cells_respects_isolated_vertex_count():
     assert r.graded_boundaries()[0].shape == (5, 2)
 
 
-#### -
-# Back-compat: classic constructors -> correct graded_boundaries
-#### -
+
+# Back compat: classic constructors -> correct graded_boundaries
+
 def test_hypergraph_is_1rex():
     he_idx = np.array([0, 1, 2, 0, 1, 1, 2], dtype=np.int64)
     he_ptr = np.array([0, 3, 5, 7], dtype=np.int64)
     r = RexGraph.from_hypergraph(he_ptr, he_idx)
     B = r.graded_boundaries()
-    assert len(B) == 1                                  # 1-rex: only B1
+    assert len(B) == 1                                  # 1 rex: only B1
     assert B[0].shape == (3, 3)
 
 
@@ -261,11 +261,11 @@ def test_simplicial_is_2rex():
     tris = np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]])
     r = RexGraph.from_simplicial(src, tgt, tris)
     B = r.graded_boundaries()
-    assert len(B) == 2                                  # 2-rex: B1, B2
+    assert len(B) == 2                                  # 2 rex: B1, B2
     assert B[0].shape == (4, 6) and B[1].shape == (6, 4)
     ok, res = gb.verify_chain(B)
     assert ok and res == 0.0
-    # Tetrahedron surface = 2-sphere: beta_2 = 1.
+    # Tetrahedron surface = 2 sphere: beta_2 = 1.
     assert gb.betti_numbers(B) == [1, 0, 1]
 
 
@@ -274,12 +274,12 @@ def test_graph_is_1rex():
     B = r.graded_boundaries()
     assert len(B) == 1
     assert B[0].shape == (3, 3)
-    assert gb.betti_numbers(B) == [1, 1]                # a 3-cycle: beta_1 = 1
+    assert gb.betti_numbers(B) == [1, 1]                # a 3 cycle: beta_1 = 1
 
 
-#### -
+
 # The two invariants the exact rank path is allowed to exploit
-#### -
+
 def _mixed_b1():
     """Witness, pairwise and branching together, with the wide columns overlapping in
     more than one vertex so they genuinely carry cycles (section 6i, Theorem 19)."""
@@ -312,7 +312,7 @@ def test_the_rank_does_not_depend_on_the_order_columns_are_reduced_in():
 
 
 def test_the_rank_does_not_depend_on_how_each_column_is_scaled():
-    """Which is what licenses cross-multiplying and dividing out the gcd instead of
+    """Which is what licenses cross multiplying and dividing out the gcd instead of
     forming a quotient. A column op scaled by a nonzero integer is still a column op."""
     B = _mixed_b1()
     want = gb._sparse_rank(B)
@@ -336,7 +336,7 @@ def test_the_exact_path_stays_in_the_integers():
 
 def test_a_document_sized_mixed_complex_agrees_with_the_slow_path():
     """The reduction is the only thing that changed, so it must return what the
-    unordered Fraction form returned. Checked against a from-scratch reduction rather
+    unordered Fraction form returned. Checked against a from scratch reduction rather
     than a recorded number."""
     from fractions import Fraction as Fr
     B = _mixed_b1()

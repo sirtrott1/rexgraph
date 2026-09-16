@@ -1,7 +1,7 @@
 """Tests for the finalized Connector seam (agent.connectors + agent.interfaces).
 
 Anchored to structural facts: a triangle has nV=3, nE=3, β₁=1, and the engine
-returns a per-edge character of shape (nE, 4). The contract's length invariants
+returns a per edge character of shape (nE, 4). The contract's length invariants
 must fail loudly on a malformed connector.
 """
 
@@ -12,7 +12,7 @@ from agent.interfaces import Capabilities, Connector, apply_label_privacy, confi
 
 
 class TriangleConnector(BaseConnector):
-    """Trivial in-memory connector: a 3-cycle A->B->C->A. Runs immediately, needs
+    """Trivial in memory connector: a 3 cycle A->B->C->A. Runs immediately, needs
     no live service - the smallest thing that exercises the whole contract."""
 
     CAPABILITIES = Capabilities(weights=True, schemes=("memory",))
@@ -74,12 +74,12 @@ def test_output_builds_a_complex_in_the_engine():
     (src, tgt), meta = TriangleConnector().read(None)
     g = RexGraph(sources=src, targets=tgt)
     chi = np.asarray(g.structural_character, dtype=float)
-    assert chi.shape == (meta["nE"], 4)        # per-edge character over [T,G,F,C]
+    assert chi.shape == (meta["nE"], 4)        # per edge character over [T,G,F,C]
 
 
 def test_labels_are_the_privacy_surface():
     """meta['vertex_labels'] is what label privacy tokenizes - same names must
-    survive the round-trip as stable tokens (structure-preserving)."""
+    survive the round trip as stable tokens (structure preserving)."""
     reset()
     try:
         configure(label_privacy="hash", label_salt="s")
@@ -213,7 +213,7 @@ class TestSQLConnector:
             oi_edges = [i for i, (a, b) in enumerate(meta["edges"])
                         if a == "order_items"]
             assert any(meta["modality"][i]["identifying"] for i in oi_edges)
-            # cardinality weights: the 800-row junction outweighs the rest
+            # cardinality weights: the 800 row junction outweighs the rest
             assert max(meta["weights"]) == 800.0
             # secrets never ride along in provenance
             assert "@" not in meta["source"]
@@ -268,7 +268,7 @@ def test_generic_connector_weights_and_cycle():
     rows = [("a", "b", 3.0), ("b", "c", 1.0), ("c", "a", 2.0)]
     rex, meta = conn.read(rows)
     assert meta["weights"] == [3.0, 1.0, 2.0]
-    assert tuple(to_rexgraph(rex, meta).betti) == (1, 1, 0)   # a 3-cycle
+    assert tuple(to_rexgraph(rex, meta).betti) == (1, 1, 0)   # a 3 cycle
     assert validate_connector(conn, rows).ok
 
 

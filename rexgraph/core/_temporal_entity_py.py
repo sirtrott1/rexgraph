@@ -1,5 +1,5 @@
 """
-rexgraph.core._temporal_entity_py: Pure-Python fallback for entity-level
+rexgraph.core._temporal_entity_py: Pure Python fallback for entity level
 BIOES tagging. Same API as _temporal_entity.pyx, uses numpy vectorization.
 
 Import order: try Cython first, fall back to this.
@@ -42,7 +42,7 @@ def entity_bioes_matrix(birth, death, T):
 
 
 def entity_bioes_gapped(snapshots, edge_ids, directed=False):
-    """Gap-aware per-entity BIOES. Pure Python."""
+    """Gap aware per entity BIOES. Pure Python."""
 
     T = len(snapshots)
     N = len(edge_ids)
@@ -98,7 +98,7 @@ def _tag_span(tags, row, start, end):
 
 
 def vertex_lifecycle(snapshots, directed=False):
-    """Per-vertex birth/death. Pure Python."""
+    """Per vertex birth/death. Pure Python."""
     T = len(snapshots)
     first_seen = {}
     last_seen = {}
@@ -121,7 +121,7 @@ def vertex_lifecycle(snapshots, directed=False):
 
 
 def cross_document_stats(birth, death, doc_boundaries, T):
-    """Cross-document statistics. Pure Python."""
+    """Cross document statistics. Pure Python."""
     N = len(birth)
     d_eff = np.where(death < 0, T, death)
     spans = d_eff - birth

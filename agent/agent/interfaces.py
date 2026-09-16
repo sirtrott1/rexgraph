@@ -4,11 +4,11 @@ agent.interfaces: the embed contract for the engine.
 The engine is sovereign: it reads only what it is pointed at, persists only
 structure, holds no credentials it isn't given, and **emits nothing** unless the
 host wires it up. This module defines the seams a host plugs into and ships
-inert defaults so that, out of the box, the engine is silent and self-contained.
+inert defaults so that, out of the box, the engine is silent and self contained.
 
 Seams:
-  * Logger / Metrics: observability. Default: no-op (no telemetry, ever).
-  * Identity        - who/what is acting. Default: a local single-tenant identity.
+  * Logger / Metrics: observability. Default: no op (no telemetry, ever).
+  * Identity        - who/what is acting. Default: a local single tenant identity.
   * Connector       - read a relational complex from a source. Default: none
                       (the host registers the sources it wants).
   * SecretStore     - connection secrets (see agent.secrets). Default: none held.
@@ -50,7 +50,7 @@ class NullMetrics:
         return None
 
 
-# identity seam (host-injected, not owned)
+# identity seam (host injected, not owned)
 
 @runtime_checkable
 class Identity(Protocol):
@@ -64,7 +64,7 @@ class Identity(Protocol):
 
 
 class LocalIdentity:
-    """Default single-tenant identity for embedded/library use."""
+    """Default single tenant identity for embedded/library use."""
     def __init__(self, workspace: str = "default", role: str = "admin"):
         self._workspace = workspace
         self._role = role
@@ -88,14 +88,14 @@ class Capabilities:
     ``read`` so it knows which analyses are available (e.g. strain needs
     weights; curvature needs faces).
 
-    ``schemes`` lists the source-URI schemes this connector claims (e.g.
+    ``schemes`` lists the source URI schemes this connector claims (e.g.
     ``("postgresql", "sqlite")``), used by the registry to route ``open_connector``.
     """
     topology: bool = True          # can emit B₁ (required; always True)
-    weights: bool = False          # can emit per-edge weights (enables strain)
-    modality: bool = False         # can emit per-edge FK modality (enables lint)
+    weights: bool = False          # can emit per edge weights (enables strain)
+    modality: bool = False         # can emit per edge FK modality (enables lint)
     faces: bool = False            # can emit a B₂ face selection (enables curvature)
-    schemes: tuple[str, ...] = ()  # source-URI schemes this connector handles
+    schemes: tuple[str, ...] = ()  # source URI schemes this connector handles
 
     def summary(self) -> str:
         have = [n for n in ("topology", "weights", "modality", "faces")
@@ -106,10 +106,10 @@ class Capabilities:
 @runtime_checkable
 class Connector(Protocol):
     """Read a relational complex from a source: a live DB, a dump, a stream,
-    an in-memory graph, an ontology. **This is THE seam a customer or the
+    an in memory graph, an ontology. **This is THE seam a customer or the
     services team implements** to teach the engine a new system.
 
-    The contract is deliberately tiny, stable, and read-only:
+    The contract is deliberately tiny, stable, and read only:
 
         read(source) -> (rex, meta)
 
@@ -139,7 +139,7 @@ class Connector(Protocol):
           ==================  ========  ==================================
 
     Invariants every connector MUST preserve (asserted by the validation
-    harness): **read-only** (issues no writes to the source), **structure-only**
+    harness): **read only** (issues no writes to the source), **structure only**
     (returns topology + labels, never cell/row values), and **∂²=0** whenever
     ``faces`` are supplied. Customer/proprietary connectors live *outside* the
     core, depending only on this seam, never editing the engine.
@@ -152,7 +152,7 @@ class Connector(Protocol):
         ...
 
 
-# engine-wide configuration (all inert by default)
+# engine wide configuration (all inert by default)
 
 class _Config:
     def __init__(self):
@@ -170,9 +170,9 @@ _CONFIG = _Config()
 
 def tokenize_labels(labels, salt: str = "") -> list:
     """Deterministically tokenize labels (table/column names). Same name -> same
-    token, so cross-complex coherence (which aligns by shared labels) still
+    token, so cross complex coherence (which aligns by shared labels) still
     works, while the actual names are hidden: the one privacy leak surface a
-    structure-only engine has. Irreversible (SHA-256); the host keeps its own
+    structure only engine has. Irreversible (SHA-256); the host keeps its own
     map if it needs one."""
     import hashlib
     out = []

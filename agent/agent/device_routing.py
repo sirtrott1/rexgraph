@@ -1,4 +1,4 @@
-"""Split a batch of work across device-pinned bees, knowing that they contend.
+"""Split a batch of work across device pinned bees, knowing that they contend.
 
 A llama.cpp server binds its device at spawn and cannot be moved, so placing work
 "on the CPU" means ROUTING it to a bee that was spawned there. The scheduling question
@@ -58,7 +58,7 @@ def plan_split(rates, n_tasks: int, policy: str = "contention") -> dict:
 
     `contention` shares work in proportion to the CONTENDED rates, which is what makes
     every bee finish together: a bee twice as fast should take twice as many, and using
-    the solo rates would over-assign the device that degrades most under sharing.
+    the solo rates would over assign the device that degrades most under sharing.
     """
     rates = [r for r in rates if r.solo > 0]
     if not rates or n_tasks <= 0:
@@ -144,8 +144,8 @@ def best_partition(samples, solo_best: float | None = None):
     (43.13 against 48.28), because the iGPU falls from 38.85 to 32.63. Maximising either
     device alone minimises the machine.
 
-    An earlier version of this file concluded from the 16-thread point alone that
-    co-scheduling never pays. It pays 1.09x at the right partition. A scheduler that
+    An earlier version of this file concluded from the 16 thread point alone that
+    co scheduling never pays. It pays 1.09x at the right partition. A scheduler that
     declines after one sample is measuring its own configuration, not the hardware.
     """
     live = [p for p in samples if p.rates]
@@ -174,6 +174,4 @@ def co_scheduling_pays(rates_or_samples, solo_best: float | None = None) -> tupl
     agg = sum(r.busy for r in live)
     best = max(r.solo for r in live)
     return agg > best, agg, best
-
-
 

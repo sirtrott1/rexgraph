@@ -151,7 +151,7 @@ def test_the_connotation_lexicons_are_vertex_values_not_relations(tmp_path):
     assert not any(isinstance(v, (list, set)) for v in vad.values())
 
 
-#### the grammar layer: frames are oriented relations, recorded not inferred ####
+# the grammar layer: frames are oriented relations, recorded not inferred
 
 _LMF_FRAMES = """<?xml version="1.0" encoding="UTF-8"?>
 <LexicalResource>
@@ -237,7 +237,7 @@ def test_a_digest_written_under_the_older_framing_still_verifies(tmp_path):
     WK.write_index(str(p), idx)
     assert WK.read_index(str(p), verify=True)["n_words"] == 2
 
-    # rewrite the metadata as a pre-change writer would have: algo-1 digest, no stamp
+    # rewrite the metadata as a pre change writer would have: algo 1 digest, no stamp
     from safetensors import safe_open
     from safetensors.numpy import load_file, save_file
     with safe_open(str(p), "numpy") as fh:
@@ -274,7 +274,7 @@ def test_a_tampered_index_is_still_rejected(tmp_path):
         WK.read_index(str(p), verify=True)
 
 
-#### edge types: the gap that made every stored lexical column anonymous ########
+# edge types: the gap that made every stored lexical column anonymous
 def test_edge_types_are_stored_as_codes_beside_a_name_table(tmp_path):
     from agent.adapters.lexical_store import _put
     from agent.rcdb import FileStore

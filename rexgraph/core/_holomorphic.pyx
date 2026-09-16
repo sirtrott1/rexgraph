@@ -3,7 +3,7 @@
 """
 rexgraph.core._holomorphic: Holomorphic Lagrangian structure on RL_4.
 
-Implements the complex analytic structure of the time-space Lagrangian
+Implements the complex analytic structure of the time space Lagrangian
 decomposition on the RL_4 channel hats rather than on the graded Laplacian.
 Both are built on the same relational complex: the graded Laplacian comes
 straight from its boundary maps, the RL_4 hats from its four typed channels.
@@ -46,19 +46,19 @@ np.import_array()
 
 
 def lagrangian_fields(list hats):
-    """Per-edge Lagrangian fields from RL_4 channel hat operators.
+    """Per edge Lagrangian fields from RL_4 channel hat operators.
 
     The time Lagrangian L_t is the diagonal of hat_T (channel 0).
     The space Lagrangian L_s is the diagonal of hat_S = hat_G + hat_F + hat_C
     (channels 1, 2, 3).  The complex Lagrangian is f(e) = L_t(e) + i*L_s(e).
 
     Parameters
-    ----------
+
     hats : list of ndarray, each shape (nE, nE)
         The four RL_4 channel hat operators [hat_T, hat_G, hat_F, hat_C].
 
     Returns
-    -------
+
     dict with keys:
         Lt : f64[nE]       per-edge time Lagrangian
         Ls : f64[nE]       per-edge space Lagrangian (action)
@@ -105,7 +105,7 @@ def lagrangian_fields(list hats):
 
 
 def relational_cr(list hats):
-    """Per-edge Cauchy-Riemann violation in the relational complex.
+    """Per edge Cauchy Riemann violation in the relational complex.
 
     Computes the partial derivatives dTdS(e) = (hat_T @ hat_S)[e,e] / hat_S[e,e]
     and dSdT(e) = (hat_S @ hat_T)[e,e] / hat_T[e,e] from the RL_4 hat operators.
@@ -114,15 +114,15 @@ def relational_cr(list hats):
     On the graded Laplacian (L_1 = L_t + L_s), these are identically equal
     because B_1 B_2 = 0 forces [L_t, L_s] = 0.  On the RL_4 channel hats
     (RL_4 = hat_T + hat_G + hat_F + hat_C), the channels interact and the
-    CR violation is nonzero and category-specific.
+    CR violation is nonzero and category specific.
 
     Parameters
-    ----------
+
     hats : list of ndarray, each shape (nE, nE)
         The four RL_4 channel hat operators [hat_T, hat_G, hat_F, hat_C].
 
     Returns
-    -------
+
     dict with keys:
         dTdS : f64[nE]         per-edge dL_t/dL_s
         dSdT : f64[nE]         per-edge dL_s/dL_t
@@ -183,23 +183,23 @@ def relational_cr(list hats):
 
 
 def cr_saddle_score(list hats):
-    """Mean CR violation scalar for boundary-scan use.
+    """Mean CR violation scalar for boundary scan use.
 
     A thin wrapper around relational_cr that returns only the scalar
     mean, avoiding dict overhead in tight scan loops.
 
     Parameters
-    ----------
+
     hats : list of ndarray, each shape (nE, nE)
 
     Returns
-    -------
+
     float
         Mean per-edge CR violation in the relational complex.
     """
     if len(hats) < 4:
         return 0.0
-    # Reuse the (de-densified) per-edge CR - diag(TS)/diag(ST) are O(nE²) row·col
+    # Reuse the (de densified) per edge CR - diag(TS)/diag(ST) are O(nE²) row·col
     # dots, no nE×nE products.
     cr = relational_cr(hats)['cr']
     return float(np.mean(cr)) if cr.size > 0 else 0.0

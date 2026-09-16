@@ -1,7 +1,7 @@
 """The L0 Fiedler pair, with the kernel deflated rather than thresholded.
 
 L0 = B1 B1^T is PSD and its kernel is not something to discover with a tolerance:
-zero column-sum of B1 propagates to zero row-sum of L0, so the indicator of each
+zero column sum of B1 propagates to zero row sum of L0, so the indicator of each
 connected component is exactly a kernel vector and there are exactly that many. The
 Fiedler value is the smallest eigenvalue in the orthogonal complement of those, which
 is what LOBPCG computes when they are handed to it as constraints.
@@ -15,8 +15,6 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-import scipy.sparse as sp
-from scipy.sparse.linalg import LinearOperator, lobpcg, splu
 
 __all__ = ["fiedler_L0", "kernel_basis", "kernel_from_boundary", "deflated_operator",
            "minimum_norm_gram_solve", "solve_block_width", "leverage_diagonal",
@@ -27,7 +25,7 @@ _DENSE_MAX = 2000          # below this an exact dense eigh is simply cheaper
 
 # For a symmetric eigenproblem the residual bounds the error outright:
 #   |lambda_computed - lambda_true| <= ||r||
-# so ||r||/lambda is a genuine RELATIVE accuracy statement and the only scale-free way
+# so ||r||/lambda is a genuine RELATIVE accuracy statement and the only scale free way
 # to ask whether a Fiedler value is resolved. An absolute test cannot do it: 1.6e-02 is
 # a converged answer for lambda = 5.54 and a meaningless one for lambda = 1.6e-06.
 # Measured, the two regimes sit four orders apart on this ratio (2.8e-03 against
@@ -38,7 +36,7 @@ _REL_RESID_OK = 1e-2       # the value is resolved to better than a percent
 def kernel_basis(L0):
     """Orthonormal basis of ker(L0): the component indicators that actually annihilate it.
 
-    A component indicator is in ker(L0) because zero column-sum of B1 gives zero row-sum
+    A component indicator is in ker(L0) because zero column sum of B1 gives zero row sum
     of L0. That premise fails for the one column in the model that does NOT sum to zero,
     the witness (arity 1, column `(+1)`), and there the indicator is not a kernel vector
     at all: a lone witness has `L0 @ u = u`. So the candidates are CHECKED rather than
@@ -49,13 +47,14 @@ def kernel_basis(L0):
 
     Exact and combinatorial, not a spectral estimate. Returns (U, ncols).
 
-    U IS SPARSE, and has to be: it is a component-indicator matrix, so every row carries
+    U IS SPARSE, and has to be: it is a component indicator matrix, so every row carries
     exactly ONE nonzero and the nnz is nV whatever the component count. As dense it is
     nV x ncomp, which on a real lexical complex of 721,649 vertices and 23,313 components
     asks for 0.13 TB to hold 721,649 numbers. Dense is never the better representation
     here, so it is not offered; callers do `U @ (U.T @ P)` and `U.multiply(U).sum(1)`,
     both of which scipy supports directly.
     """
+    import scipy.sparse as sp
     nV = L0.shape[0]
     ncomp, labels = sp.csgraph.connected_components(L0, directed=False)
     sizes = np.bincount(labels, minlength=ncomp).astype(np.float64)
@@ -91,18 +90,20 @@ def fiedler_L0(L0, k: int = 6):
     The preconditioner is chosen by the solver's own residual, not by a size rule,
     because the two regimes are complementary:
 
-      well-connected graphs   converge under Jacobi, and are exactly the ones a
+      well connected graphs   converge under Jacobi, and are exactly the ones a
                               complete factorization chokes on: on a 10000-vertex
                               random graph splu turns 209796 nonzeros into 82 million
                               and takes 54 s, while Jacobi lands on the same value to
                               5e-15 in half a second.
-      path-like graphs        do not converge under Jacobi (a 2500-path reports
+      path like graphs        do not converge under Jacobi (a 2500 path reports
                               8.97e-06 for 1.58e-06), and are exactly the ones that
                               factorize in milliseconds.
 
     So Jacobi runs first and the RELATIVE residual decides whether to redo the solve
     against the exact factorization. See _REL_RESID_OK.
     """
+    import scipy.sparse as sp
+    from scipy.sparse.linalg import LinearOperator, lobpcg, splu
     L0 = sp.csr_matrix(L0)
     nV = L0.shape[0]
     if nV <= 1:
@@ -124,8 +125,8 @@ def fiedler_L0(L0, k: int = 6):
     Mjac = sp.diags(1.0 / np.where(np.abs(d0) > 1e-300, d0, 1.0))
     with warnings.catch_warnings():
         # Not reaching tol here is the probe's ANSWER, not a problem to report: the
-        # relative-residual test below reads it and re-solves against a factorization.
-        # Narrowed to the two non-convergence notices lobpcg raises for that, so anything
+        # relative residual test below reads it and re solves against a factorization.
+        # Narrowed to the two non convergence notices lobpcg raises for that, so anything
         # else it has to say still reaches the caller.
         warnings.filterwarnings("ignore", message=r"Exited at iteration.*",
                                 category=UserWarning)
@@ -160,57 +161,57 @@ def fiedler_L0(L0, k: int = 6):
     return fval, fvec, evals, evecs
 
 
-def kernel_from_boundary(B1):
+def kernel_from_boundary(B1, *, native=False):
     """`ker(L_0)` from the BOUNDARY alone, without ever forming `L_0 = B_1 B_1^T`.
 
     Same object `kernel_basis` returns, reached without the product. Components come from
     the bipartite incidence, which has the same vertex partition as `L_0`'s graph, and the
-    witness check is one matrix-free apply. This component construction is exact only for
-    zero-sum pairwise C1 columns (plus arity-one witnesses, whose components are checked).
+    witness check is one matrix free apply. This component construction is exact only for
+    zero sum pairwise C1 columns (plus arity one witnesses, whose components are checked).
     A branching relation can leave multiple independent directions inside one support
-    component, so it must be handled by the general minimum-norm Green action or an
+    component, so it must be handled by the general minimum norm Green action or an
     explicitly supplied exact ``ker(B1.T)`` basis; this function refuses rather than
     manufacture an incomplete deflation basis.
     """
-    B = sp.csr_matrix(B1)
+    from rexgraph.native_sparse import as_native, native_coo
+    B = as_native(B1)
     nV = B.shape[0]
-    if nV == 0:
-        return sp.csr_matrix((0, 0), dtype=np.float64), 0
-    C = B.tocsc(copy=True)
-    C.sum_duplicates()
-    C.eliminate_zeros()
-    counts = np.diff(C.indptr)
-    for relation in np.flatnonzero(counts == 2):
-        lo = int(C.indptr[relation])
-        if C.data[lo] + C.data[lo + 1] != 0.0:
+    parent = list(range(nV))
+    witnesses = []
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for column in B.columns():
+        if len(column) > 2:
+            raise ValueError("component kernel deflation is not defined for branching C1 relations")
+        if len(column) == 1:
+            witnesses.extend(column)
+        if len(column) != 2:
+            continue
+        (i, a), (j, b) = column.items()
+        if a + b != 0:
             raise ValueError(
                 "component kernel deflation requires zero-sum pairwise C1 columns; "
                 "supply an exact ker(B1.T) basis or use the general Green operator"
             )
-    if np.any(counts > 2):
-        raise ValueError(
-            "component kernel deflation is not defined for branching C1 relations; "
-            "supply an exact ker(B1.T) basis or use the general Green operator"
-        )
-    big = sp.bmat([[None, B], [B.T, None]], format="csr")
-    _n, labels = sp.csgraph.connected_components(big, directed=False)
-    labels = labels[:nV]
-    uniq, labels = np.unique(labels, return_inverse=True)
-    ncomp = int(uniq.size)
-    sizes = np.bincount(labels, minlength=ncomp).astype(np.float64)
-    U = sp.csr_matrix((1.0 / np.sqrt(sizes[labels]), (np.arange(nV), labels)),
-                      shape=(nV, ncomp), dtype=np.float64)
-    if ncomp:
-        resid = np.abs(B @ (B.T @ U))                     # L_0 U, matrix-free
-        resid = np.asarray(resid.max(axis=0).todense()).ravel() if sp.issparse(resid) \
-            else np.abs(np.asarray(resid)).max(axis=0)
-        keep = np.flatnonzero(resid <= 1e-12)
-        if keep.size != ncomp:
-            U = U[:, keep].tocsr()
-    return U, int(U.shape[1])
+        parent[root(j)] = root(i)
+    roots = [root(i) for i in range(nV)]
+    anchored = {root(i) for i in witnesses}
+    labels = {r: j for j, r in enumerate(sorted(set(roots) - anchored))}
+    sizes = {}
+    for r in roots:
+        sizes[r] = sizes.get(r, 0) + 1
+    rows = [i for i, r in enumerate(roots) if r in labels]
+    U = native_coo(rows, [labels[roots[i]] for i in rows],
+                   [1.0 / np.sqrt(sizes[roots[i]]) for i in rows], (nV, len(labels)))
+    return (U if native else U.as_scipy()), U.shape[1]
 
 
-def deflated_operator(B1, *, kernel=None):
+def deflated_operator(B1, *, kernel=None, native=False):
     """The regularised Laplacian `L_0 + P_H` as an OPERATOR, plus its Jacobi diagonal.
 
     `L_0` is singular, so §6e's Theorem 15 solves through `(L_0 + P_H)^{-1} - P_H`. Every
@@ -227,75 +228,46 @@ def deflated_operator(B1, *, kernel=None):
     action because support components do not span its full kernel. Returns
     `(apply_A, dinv, U, ncomp)` ready for `sparse_character._block_cg`.
     """
-    B = sp.csr_matrix(B1)
-    Bt = B.T.tocsr()
-    U, ncomp = kernel_from_boundary(B) if kernel is None else kernel
-    d = np.asarray(B.multiply(B).sum(axis=1), dtype=np.float64).ravel()
+    from rexgraph.native_sparse import as_native
+    B = as_native(B1)
+    U, ncomp = kernel_from_boundary(B, native=True) if kernel is None else kernel
+    U = as_native(U)
+    d = B.row_inner(B)
     if ncomp:
-        d = d + np.asarray(U.multiply(U).sum(axis=1)).ravel()
-    dinv = np.where(d > 1e-30, 1.0 / d, 1.0)
+        d = d + U.row_inner(U)
+    dinv = np.ones_like(d)
+    np.divide(1.0, d, out=dinv, where=d > 0)
 
     def apply_A(P):
-        out = B @ (Bt @ P)
+        out = B.apply(B.transpose_apply(P))
         if ncomp:
-            out = out + U @ (U.T @ P)
+            out = out + U.apply(U.transpose_apply(P))
         return out
 
-    return apply_A, dinv, U, ncomp
+    return apply_A, dinv, U if native else U.as_scipy(), ncomp
 
 
 def minimum_norm_gram_solve(B, values, *, tol=1e-12, maxit=500):
-    """Numerical Moore--Penrose action ``(B B.T)^+ values`` for arbitrary Ck.
+    """Numerical Moore Penrose action ``(B B.T)^+ values`` for arbitrary Ck.
 
-    This is the general Green lane for a boundary whose kernel is not represented by
-    pairwise component indicators.  It never invents a partial deflation basis and
-    never forms the Gram matrix: LSMR acts on ``B @ (B.T @ x)`` and returns its
-    minimum-norm solution.  It is deliberately labelled numerical; the exact C1/C2
-    topology and rank paths remain in the integer/rational stack.
+    Two native factor solves give ``(B.T)^+ B^+ values``. The identity holds
+    for every rank and shape and preserves the full kernel. Neither solve
+    forms a Gram matrix or claims an exact rational certificate.
     """
-    import scipy.sparse as sp
-    from scipy.sparse.linalg import LinearOperator, lsmr
-
-    boundary = sp.csr_matrix(B)
-    block = np.asarray(values, dtype=np.float64)
-    one = block.ndim == 1
-    if one:
-        block = block[:, None]
-    elif block.ndim != 2:
-        raise ValueError("minimum_norm_gram_solve expects a vector or a two-dimensional block")
-    if block.shape[0] != boundary.shape[0]:
-        raise ValueError(
-            f"minimum_norm_gram_solve RHS has {block.shape[0]} rows for a "
-            f"{boundary.shape[0]}-row boundary"
-        )
-
-    operator = LinearOperator(
-        (boundary.shape[0], boundary.shape[0]),
-        matvec=lambda value: boundary @ (boundary.T @ value),
-        rmatvec=lambda value: boundary @ (boundary.T @ value),
-        dtype=np.float64,
-    )
-    out = np.empty_like(block)
-    for column in range(block.shape[1]):
-        solution = lsmr(
-            operator, block[:, column], atol=tol, btol=tol, conlim=0.0, maxiter=maxit,
-        )
-        if solution[1] not in (0, 1, 2):
-            raise RuntimeError(
-                "minimum-norm Gram solve did not converge, "
-                f"istop={solution[1]}"
-            )
-        out[:, column] = solution[0]
-    return out[:, 0] if one else out
+    from rexgraph.core._hodge import least_squares
+    from rexgraph.native_sparse import as_native
+    boundary = as_native(B)
+    coefficients = least_squares(boundary, values, tol=tol, maxiter=maxit)
+    return least_squares(boundary, coefficients, transpose=True, tol=tol, maxiter=maxit)
 
 
 def solve_block_width(nV, nE, *, panels=6):
-    """How many right-hand sides fit under the configured dense ceiling.
+    """How many right hand sides fit under the configured dense ceiling.
 
     The tall dimension is `nV + nE`, not `nV`, and that distinction IS the bug this
-    exists to close. Block CG holds `panels` dense nV-tall panels (X, R, Z, P, AP and the
-    right-hand side), but `deflated_operator`'s apply is `B @ (B^T P)`, so it forms an
-    nE-tall transient of the same width inside the operator. Blocking on nV alone still
+    exists to close. Block CG holds `panels` dense nV tall panels (X, R, Z, P, AP and the
+    right hand side), but `deflated_operator`'s apply is `B @ (B^T P)`, so it forms an
+    nE tall transient of the same width inside the operator. Blocking on nV alone still
     allocated nE x ncols out of sight of the caller: on one 331 KB book that transient was
     468,291 x 466,489, or 1.59 TiB.
 
@@ -321,7 +293,7 @@ def solve_block_width(nV, nE, *, panels=6):
 
 def leverage_diagonal(B, *, columns=None, kernel=None, block=None,
                       tol=1e-12, maxit=500):
-    """`diag(B^T (B B^T)^+ B)` over `columns`, matrix-free and blocked.
+    """`diag(B^T (B B^T)^+ B)` over `columns`, matrix free and blocked.
 
     This is one object under two names. As a projector it is the LEVERAGE of each column
     on the row space of `B`; as a solve it is the effective resistance `b^T L_0^+ b` of
@@ -350,7 +322,7 @@ def leverage_diagonal(B, *, columns=None, kernel=None, block=None,
         if kernel is not None:
             raise
         # A component indicator does not span ker(B.T) at arbitrary arity.  Use
-        # the full minimum-norm Green action rather than an incomplete deflation.
+        # the full minimum norm Green action rather than an incomplete deflation.
         width = int(block) if block else solve_block_width(Bc.shape[0], Bc.shape[1])
         for lo in range(0, cols.size, width):
             hi = min(lo + width, cols.size)
@@ -381,13 +353,13 @@ def leverage_sketch(B, *, dim=None, epsilon=0.1, seed=0, tol=1e-10, maxit=500,
 
         R_eff(c) = b_c^T L^+ b_c = || B^T L^+ b_c ||^2   (since L^+ L L^+ = L^+)
 
-    and squared lengths survive a random projection. So project the nE-dimensional side
+    and squared lengths survive a random projection. So project the nE dimensional side
     down to `dim` rows once, solve for THOSE, and every relation's share is read off as a
     column norm. The solve count stops depending on the number of relations, which is the
     part that made the exact form unusable on a corpus: 27,192 solves become ~100.
 
     What is given up is exactness, and it is given up in a stated way rather than
-    silently: Johnson-Lindenstrauss puts every entry within a factor `1 +/- epsilon` with
+    silently: Johnson Lindenstrauss puts every entry within a factor `1 +/- epsilon` with
     high probability, and `dim` follows from `epsilon` rather than being tuned. Foster's
     identity still holds in expectation but no longer to the last bit, so a caller that
     needs the sum to close exactly wants `leverage_diagonal`.

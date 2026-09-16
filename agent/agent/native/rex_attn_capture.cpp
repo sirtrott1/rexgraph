@@ -1,12 +1,12 @@
-// rex_attn_capture — Tier-2 attention capture from llama.cpp, strategy A (the stock cb_eval
+// rex_attn_capture ,  Tier 2 attention capture from llama.cpp, strategy A (the stock cb_eval
 // node callback, NO ggml patch). Loads a GGUF model, runs one forward pass over a prompt with
-// Flash-Attention DISABLED (so the softmax(QKᵀ) tensor materializes), captures each layer's
-// "kq_soft_max" tensor via the eval callback, averages over heads, and prints the per-layer
+// Flash Attention DISABLED (so the softmax(QKᵀ) tensor materializes), captures each layer's
+// "kq_soft_max" tensor via the eval callback, averages over heads, and prints the per layer
 // [n_q × n_kv] attention as JSON on stdout. The rexgraph side (agent/agent/attn_introspect.py)
 // feeds each layer's matrix to the RCF analyzer.
 //
-// This exposes what the OpenAI API never surfaces — the internal attention weights — to the
-// relational-complex math, on the Vulkan/llama.cpp stack. Build: see native/build.sh.
+// This exposes what the OpenAI API never surfaces ,  the internal attention weights ,  to the
+// relational complex math, on the Vulkan/llama.cpp stack. Build: see native/build.sh.
 #include "llama.h"
 #include "ggml.h"
 #include "ggml-backend.h"
@@ -20,7 +20,7 @@ struct LayerAttn { long long n_kv, n_q, n_head; std::vector<float> data; };
 struct Capture { std::vector<LayerAttn> layers; };
 
 // The eval callback fires per graph node, twice: ask=true (return true to request the data),
-// then ask=false (data is ready). We want the post-softmax attention weights, named
+// then ask=false (data is ready). We want the post softmax attention weights, named
 // "kq_soft_max" in llama-graph.cpp.
 static bool eval_cb(struct ggml_tensor * t, bool ask, void * user_data) {
     if (t == nullptr || t->name == nullptr) return true;

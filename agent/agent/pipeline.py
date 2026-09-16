@@ -48,7 +48,7 @@ def _sparse_L0(rex):
                 shape=(nV, nV)).tocsr()
             deg = np.asarray(A.sum(axis=1)).ravel()
             return (sparse.diags(deg) - A).tocsr()
-    # Fallback: an already-sparse L0 supplied on the object (e.g. tests, or
+    # Fallback: an already sparse L0 supplied on the object (e.g. tests, or
     # callers holding a sparse Laplacian). Use it ONLY if it's already sparse so
     # we never trigger the dense nV x nV materialization of rex.L0.
     L0 = getattr(rex, "L0", None)
@@ -64,7 +64,7 @@ def _smallest_eigenvalues_L0(rex, k: int = 20) -> np.ndarray | None:
     Never forms a dense Laplacian. Work is bounded (capped iterations); if the
     solver can't converge cheaply on a very large graph it returns ``None`` and
     the caller treats the (optional) spectral indicators as unavailable, rather
-    than OOM-ing or hanging.
+    than OOM ing or hanging.
     """
     try:
         from scipy.sparse.linalg import eigsh
@@ -84,12 +84,12 @@ def _smallest_eigenvalues_L0(rex, k: int = 20) -> np.ndarray | None:
     maxiter = min(20000, max(2000, 50 * k))
     attempts = []
     if n <= 3000:
-        # shift-invert converges fastest for the low end and its LU is cheap for
+        # shift invert converges fastest for the low end and its LU is cheap for
         # small graphs (the common case: documents/schemas). Tiny negative shift
-        # keeps L0 (which is singular) factorizable. Above this size the LU fill-in
-        # can be heavy, so we go straight to the matrix-free solver instead.
+        # keeps L0 (which is singular) factorizable. Above this size the LU fill in
+        # can be heavy, so we go straight to the matrix free solver instead.
         attempts.append({"sigma": -1e-6, "which": "LM"})
-    attempts.append({"which": "SA"})  # matrix-free, bounded memory, for big graphs
+    attempts.append({"which": "SA"})  # matrix free, bounded memory, for big graphs
     for kwargs in attempts:
         try:
             ev = eigsh(L, k=k, return_eigenvectors=False, maxiter=maxiter,
@@ -102,7 +102,7 @@ def _smallest_eigenvalues_L0(rex, k: int = 20) -> np.ndarray | None:
 
 def _strain_equilibrium_sparse(rex, kappa_f, born_face):
     """strain_equilibrium via SPARSE B1/B2 matvecs - no dense boundary
-    operators, O(nnz), scale-free. Mirrors `_rcfe.strain_equilibrium`:
+    operators, O(nnz), scale free. Mirrors `_rcfe.strain_equilibrium`:
       alpha = <B2 κ, B2 pF> / ||B2 pF||²,  δ = face_deficit(κ, alpha, pF),
       σ = B2 δ  (relational strain),  Bianchi: B1 σ = 0."""
     from rexgraph.core._rcfe import face_deficit
@@ -132,7 +132,7 @@ def _strain_equilibrium_sparse(rex, kappa_f, born_face):
 
 
 def _attributed_kappa_sparse(rex, w_e=None):
-    """Per-face attributed curvature κ_f = ||R[:,f]|| with R = B1·diag(w)·B2 - the
+    """Per face attributed curvature κ_f = ||R[:,f]|| with R = B1·diag(w)·B2 - the
     weighted chain residual (Part F; = 0 when w is uniform, since B1B2=0), via sparse
     matvecs, O(nnz). Matches rex.attributed_curvature()['kappa_f'] (vertex
     amplitudes a_v = 1). No dense B1w/B2w/R."""
@@ -195,11 +195,11 @@ class AnalysisPipeline:
         """Run the pipeline to the specified depth.
 
         Parameters
-        ----------
+
         depth : 'quick', 'standard', or 'full'
 
         Returns
-        -------
+
         dict with all stage results merged
         """
         if depth == "quick":
@@ -213,7 +213,7 @@ class AnalysisPipeline:
         # cost grows fast with edges and faces; large or dense graphs can exhaust
         # memory and take down the worker. Beyond a configurable ceiling, keep only
         # the cheap construction stage (nV/nE/nF/chain_valid) and report clearly,
-        # instead of grinding for many seconds and then OOM-ing. Tune with
+        # instead of grinding for many seconds and then OOM ing. Tune with
         # REXGRAPH_MAX_ANALYSIS_NODES / _EDGES (0 disables the guard).
         import os
         nV = int(getattr(self.rex, "nV", 0) or 0)
@@ -253,7 +253,7 @@ class AnalysisPipeline:
                 self.completed_stages.append(stage_name)
                 self._emit(stage_name, error_data)
 
-        # kappa fallback: for text co-occurrence graphs the
+        # kappa fallback: for text co occurrence graphs the
         # structural coherence can be NaN, leaving kappa blank in the UI.
         # When that happens but a Hodge decomposition exists, use the
         # gradient fraction as a coherence proxy so the value is
@@ -371,7 +371,7 @@ class AnalysisPipeline:
                     # Fiedler value = smallest strictly positive eigenvalue, so which
                     # ones are zero has to be decided. dim ker(L0) is beta_0, an integer
                     # the rank tower gives exactly, so skip that many rather than cut at
-                    # a magnitude: a graph with a genuinely tiny gap (a near-disconnected
+                    # a magnitude: a graph with a genuinely tiny gap (a near disconnected
                     # component, which is exactly what the Fiedler value is for) is
                     # indistinguishable from a numerical zero to a threshold.
                     try:
@@ -412,17 +412,17 @@ class AnalysisPipeline:
         result = {}
 
         # THE CHARACTER: O(nnz), the reference's default. Everything here is a
-        #    diagonal, row-norm, star aggregation, sparse matvec, or trace: no
-        #    per-vertex inverse solve, no eigendecomposition (SCALE_PROPAGATOR_CALCULUS
-        #    The per-vertex Green's φ (the GLOBAL moment) is
+        #    diagonal, row norm, star aggregation, sparse matvec, or trace: no
+        #    per vertex inverse solve, no eigendecomposition (SCALE_PROPAGATOR_CALCULUS
+        #    The per vertex Green's φ (the GLOBAL moment) is
         # an optional refinement at the end.
 
-        # (1) Per-EDGE character χ = ĥ_k[e,e]/RL[e,e] - the base character (diagonals).
+        # (1) Per EDGE character χ = ĥ_k[e,e]/RL[e,e] - the base character (diagonals).
         try:
             chi = rex.structural_character
             result["nhats"] = int(rex.nhats)
             if chi is not None and chi.ndim == 2:
-                # The per-cell reading is defined at zero cells and is the empty list.
+                # The per cell reading is defined at zero cells and is the empty list.
                 # The MEAN is not: numpy returns NaN for the mean of an empty slice, and
                 # NaN serialises to a bare NaN token that strict JSON readers reject, so a
                 # complex with no relations would have poisoned the whole payload rather
@@ -433,8 +433,8 @@ class AnalysisPipeline:
         except Exception:
             pass
 
-        # (2) Local ENERGY character diag(RL4²) = ‖RL4[e,:]‖² (row-norms, the short-time
-        #     heat moment), and its per-vertex value via the
+        # (2) Local ENERGY character diag(RL4²) = ‖RL4[e,:]‖² (row norms, the short time
+        #     heat moment), and its per vertex value via the
         #     BOUNDARY/star aggregation: the vertex propagator's local end, no solve.
         try:
             ec = np.asarray(rex.energy_character, dtype=float)
@@ -448,7 +448,7 @@ class AnalysisPipeline:
         except Exception:
             pass
 
-        # (3) Per-VERTEX character via the boundary: χ*(v) = star-average of χ over
+        # (3) Per VERTEX character via the boundary: χ*(v) = star average of χ over
         #     incident edges (B₁ aggregation, O(nnz)) - the default vertex character.
         try:
             chistar = np.asarray(rex.star_character, dtype=float)
@@ -467,7 +467,7 @@ class AnalysisPipeline:
 
         # (4) SCALE BRIDGE (local<->global): the closed-k-walk
         #     moments (L0^k)_vv per vertex - the star neighborhood's structure at each
-        #     scale, plus the clustering signal that separates locally-clustered from
+        #     scale, plus the clustering signal that separates locally clustered from
         #     unclustered members at equal degree. All sparse matvecs, O(nnz).
         try:
             sb = rex.scale_bridge
@@ -479,15 +479,15 @@ class AnalysisPipeline:
         except Exception:
             pass
 
-        # (5) COHERENCE. Default is H₂: the global harmonic-log
-        #     H₂ = -log(tr RL4²/tr RL4)² (Rényi-2, O(nnz) trace) as the graph-level
-        #     coherence, and the per-vertex LOCAL coherence κ_loc (star-consistency of
+        # (5) COHERENCE. Default is H₂: the global harmonic log
+        #     H₂ = -log(tr RL4²/tr RL4)² (Rényi-2, O(nnz) trace) as the graph level
+        #     coherence, and the per vertex LOCAL coherence κ_loc (star consistency of
         #     χ, O(nnz)). No solves, available at every scale.
         try:
             result["harmonic_entropy_H2"] = round(float(rex.harmonic_entropy), 6)
-            # Varentropy self-diagnostic: the H₂-H₃ gap certifies when the
+            # Varentropy self diagnostic: the H₂-H₃ gap certifies when the
             # cheap H₂ coherence is trustworthy - ~0 on flat/unweighted spectra, grows
-            # with weight-induced non-uniformity. One extra sparse matmul.
+            # with weight induced non uniformity. One extra sparse matmul.
             ve = rex.character_varentropy
             result["coherence_varentropy_gap"] = ve["gap"]
             result["coherence_trustworthy"] = bool(ve["gap"] < 0.05)
@@ -506,10 +506,10 @@ class AnalysisPipeline:
         except Exception:
             pass
 
-        # OPTIONAL GLOBAL REFINEMENT: the per-vertex Green's character φ and
+        # OPTIONAL GLOBAL REFINEMENT: the per vertex Green's character φ and
         #    coherence κ_greens (the GLOBAL moment, t->∞: diag of B₁ RL4⁺ ĥ RL4⁺ B₁ᵀ).
         #    This is the one quantity that genuinely needs nV solves (its sandwiched
-        #    two-inverse form resists selected inversion), so it is a bounded add-on,
+        #    two inverse form resists selected inversion), so it is a bounded add on,
         #    NOT the default character. Budget: REXGRAPH_VERTEX_CHARACTER_MAX_NODES
         # (default 1500; 0 = always). The character above is complete without it.
         budget = greens_budget()
@@ -554,7 +554,7 @@ class AnalysisPipeline:
                     orth.get("max_inner", 0)
                 )
 
-            # Per-edge component norms (how much of the signal at
+            # Per edge component norms (how much of the signal at
             # each edge is gradient vs curl vs harmonic)
             grad_norm = hodge_data.get("grad_norm")
             curl_norm = hodge_data.get("curl_norm")
@@ -567,7 +567,7 @@ class AnalysisPipeline:
             if harm_norm is not None:
                 result["harm_norm_per_edge"] = harm_norm.tolist()
 
-            # Face curl (per-face circulation)
+            # Face curl (per face circulation)
             face_curl = hodge_data.get("face_curl")
             if face_curl is not None and len(face_curl) > 0:
                 result["face_curl"] = face_curl.tolist()
@@ -586,17 +586,17 @@ class AnalysisPipeline:
                     float(np.max(np.abs(div_data))), 6
                 )
 
-            # Harmonic mode analysis: combinatorial + low-rank, scale-free.
-            # H = spanning-tree fundamental-cycle basis projected onto ker(B2^T)
-            # (rexgraph.harmonic_sparse); P_harm applied low-rank as
+            # Harmonic mode analysis: combinatorial + low rank, scale free.
+            # H = spanning tree fundamental cycle basis projected onto ker(B2^T)
+            # (rexgraph.harmonic_sparse); P_harm applied low rank as
             # H (H^T H)^-1 H^T flow, never the dense nE×nE projector, no eigensolve.
             # Channel diagonals hat_k[e,e] = structural_character · RL[e,e] (sparse,
-            # hybrid) instead of a per-hat eigendecomposition + V diag(λ) V^T rebuild.
+            # hybrid) instead of a per hat eigendecomposition + V diag(λ) V^T rebuild.
             # The dimension of the harmonic (oscillatory) space is β₁ = betti[1], an
-            # EXACT integer: free, no basis to build. The per-mode harmonic SIGNAL
+            # EXACT integer: free, no basis to build. The per mode harmonic SIGNAL
             # (harmonic_projection = a β₁×β₁ HᵀH solve) is optional detail, gated to
-            # the same latency budget as the per-vertex Green's character; the Hodge
-            # FRACTIONS + per-edge grad/curl/harm norms above (hodge_full, O(nnz)) are
+            # the same latency budget as the per vertex Green's character; the Hodge
+            # FRACTIONS + per edge grad/curl/harm norms above (hodge_full, O(nnz)) are
             # the primary output and are always present.
             import os as _os
             dim_H = int(rex.betti[1])
@@ -608,10 +608,10 @@ class AnalysisPipeline:
             # one token are two spans, so two witnesses on one vertex, and their
             # difference is a cycle. It is a real class (a bigon IS a hole), but it
             # records an occurrence count rather than the shape of the document, and
-            # being 2-sparse it dominates any shortest-cycle reading. Measured across
+            # being 2 sparse it dominates any shortest cycle reading. Measured across
             # the Gutenberg store it carries 37% to 85% of dim_H.
             #
-            # dim_H_simple is beta_1 of the complex with identical-boundary relations
+            # dim_H_simple is beta_1 of the complex with identical boundary relations
             # identified, so the two ALWAYS sum to dim_H: it is a quotient, not a
             # subtraction, and a face that fills a multiplicity cycle is accounted
             # for. ~0.35s at nE 2e6, against the ~5s the betti call beside it costs.
@@ -719,12 +719,12 @@ class AnalysisPipeline:
 
         This is the method that the case studies use to analyze
         survival correlations, drug propagation, query relevance,
-        or any domain-specific edge signal.
+        or any domain specific edge signal.
 
         The decomposition reveals how much of the signal is:
-        - **Gradient** (im B1^T): explainable by vertex-level data.
+        - **Gradient** (im B1^T): explainable by vertex level data.
           Accessible to standard graph methods (Laplacian, PageRank).
-        - **Curl** (im B2): face-level interactions, three-way
+        - **Curl** (im B2): face level interactions, three way
           relationships.  Requires face structure to detect.
         - **Harmonic** (ker L1): topological residual in the kernel
           of the Hodge Laplacian.  Requires the full complex.
@@ -733,16 +733,16 @@ class AnalysisPipeline:
         was gradient.  90.4% was invisible to pairwise methods.
 
         Parameters
-        ----------
+
         signal : f64[nE]
             An edge signal to decompose.
         signal_name : str
             Label for the signal in the output.
 
         Returns
-        -------
+
         dict with Hodge decomposition, channel character, face/void
-        dipole, per-edge components, and orthogonality verification.
+        dipole, per edge components, and orthogonality verification.
         """
         rex = self.rex
         psi = np.ascontiguousarray(signal, dtype=np.float64)
@@ -774,7 +774,7 @@ class AnalysisPipeline:
                 6,
             )
 
-            # Per-edge components
+            # Per edge components
             for comp in ["grad", "curl", "harm"]:
                 arr = h.get(comp)
                 if arr is not None:
@@ -838,12 +838,12 @@ class AnalysisPipeline:
         rex = self.rex
         result = {}
         try:
-            # Brute-force potential-triangle enumeration explodes on dense
+            # Brute force potential triangle enumeration explodes on dense
             # typed multigraphs (e.g. L-R interaction complexes: few cell-
             # type vertices, hundreds of parallel pathway edges), producing
             # tens of thousands of degenerate triangles that mix distinct
             # edge types and cost minutes. When that's the case, use the
-            # optimized spectral / congruence-quotient characterization
+            # optimized spectral / congruence quotient characterization
             # instead: the homologically correct and O(spectral) path.
             if self._void_bruteforce_intractable(rex):
                 return self._stage_void_spectral(rex)
@@ -867,7 +867,7 @@ class AnalysisPipeline:
             # Number of realized faces for comparison
             result["n_faces"] = n_potential - n_voids
 
-            # Per-void harmonic content eta
+            # Per void harmonic content eta
             eta = vc.get("eta")
             if eta is not None and len(eta) > 0:
                 eta_arr = np.asarray(eta, dtype=np.float64)
@@ -878,7 +878,7 @@ class AnalysisPipeline:
                 result["n_nontrivial_voids"] = int(np.sum(eta_arr > 1e-10))
                 result["eta"] = eta_arr.tolist()
 
-            # Per-void fills_beta: would filling this void reduce
+            # Per void fills_beta: would filling this void reduce
             # beta_1?
             fills = vc.get("fills_beta")
             if fills is not None:
@@ -886,7 +886,7 @@ class AnalysisPipeline:
                 result["fills_beta_count"] = int(np.sum(fills_arr))
                 result["fills_beta"] = fills_arr.tolist()
 
-            # Per-void structural character chi_void (n_voids x 4)
+            # Per void structural character chi_void (n_voids x 4)
             chi_void = vc.get("chi_void")
             if chi_void is not None and len(chi_void) > 0:
                 chi_arr = np.asarray(chi_void, dtype=np.float64)
@@ -910,12 +910,12 @@ class AnalysisPipeline:
                         for i in range(4)
                     }
 
-                    # Per-void character (stored for per-entity
+                    # Per void character (stored for per entity
                     # downstream analysis)
                     result["chi_void"] = chi_arr.tolist()
 
             # Kernel dimension of the void Laplacian Lvoid = Bvoid·Bvoidᵀ (nE×nE).
-            # This is an EXACT integer nullity, not a count of near-zero eigenvalues:
+            # This is an EXACT integer nullity, not a count of near zero eigenvalues:
             #   dim ker(Lvoid) = nE - rank(Bvoid)   (since rank(Bvoid Bvoidᵀ)=rank(Bvoid)).
             # Computed on the small sparse Bvoid (nE × n_voids) - the nE×nE Lvoid is
             # never materialized, and there is no eigendecomposition or magic threshold.
@@ -949,11 +949,11 @@ class AnalysisPipeline:
 
     # Above this many estimated potential triangles, exhaustive
     # enumeration is both too slow and dominated by degenerate
-    # parallel-edge combinations; switch to the spectral path.
+    # parallel edge combinations; switch to the spectral path.
     _VOID_TRIANGLE_CAP = 40000
 
     def _void_bruteforce_intractable(self, rex) -> bool:
-        """Cheap upper-bound estimate of the potential-triangle count.
+        """Cheap upper bound estimate of the potential triangle count.
 
         find_potential_triangles is ~O(sum_v C(deg(v), 2)); for a dense
         multigraph the degrees carry parallel edges, so this proxy blows
@@ -969,12 +969,12 @@ class AnalysisPipeline:
             return False
 
     def _stage_void_spectral(self, rex) -> dict:
-        """Void / higher-cell characterization via spectra + quotient.
+        """Void / higher cell characterization via spectra + quotient.
 
         Returns the homologically meaningful invariants without
         enumerating triangles:
-          - beta_1              independent 1-cycles (candidate voids)
-          - shadow_dim          1-cycles filled by faces (= rank B2)
+          - beta_1              independent 1 cycles (candidate voids)
+          - shadow_dim          1 cycles filled by faces (= rank B2)
           - n_voids             open cycles after faces (= beta_1 of R)
           - congruence_classes  parallel typed edges collapsed to classes
           - hypermanifold betti per dimension level
@@ -982,7 +982,7 @@ class AnalysisPipeline:
         result = {"method": "spectral_quotient"}
         try:
             # EXACT integer invariants (no dense nE×nE eigendecomposition of L1):
-            #   cycle-space dim (1-skeleton β₁) = nE - rank(B1) = nE - nV + β₀
+            #   cycle space dim (1 skeleton β₁) = nE - rank(B1) = nE - nV + β₀
             #   shadow_dim (cycles filled by faces) = rank(B2) = nF_hodge - β₂
             #   open cycles (true homological holes) = β₁ = rex.betti[1]
             b0, b1_h, b2 = (int(x) for x in rex.betti)
@@ -1068,7 +1068,7 @@ class AnalysisPipeline:
 
         Computes attributed curvature (how much dynamical weights
         violate the chain condition at each face), the optimal
-        coupling constant alpha, the per-face deficit delta, the
+        coupling constant alpha, the per face deficit delta, the
         relational strain sigma = B2 * delta, and verifies the
         Bianchi identity B1 * sigma = 0.
 
@@ -1108,9 +1108,9 @@ class AnalysisPipeline:
 
         # The weighted geometric signature: curvature R = B₁(W-I)B₂ =
         # deviation from the unweighted ∂²=0 ideal, decomposed by group + weight
-        # concentration. Per-face ‖R[:,f]‖ is kappa_f above; this adds the per-VERTEX
-        # curvature (which junction bends most), the per-edge rank-1 contributions,
-        # weight concentration N_eff, and curvature-per-weight, all sparse, O(nnz).
+        # concentration. Per face ‖R[:,f]‖ is kappa_f above; this adds the per VERTEX
+        # curvature (which junction bends most), the per edge rank 1 contributions,
+        # weight concentration N_eff, and curvature per weight, all sparse, O(nnz).
         try:
             sig = rex.weighted_curvature_signature()
             result["geometric_signature"] = {
@@ -1126,7 +1126,7 @@ class AnalysisPipeline:
 
         # Strain analysis: two regimes
         #
-        # 1. Curvature-only (born_face = 0): pure topological strain
+        # 1. Curvature only (born_face = 0): pure topological strain
         #    from the chain condition violation. Delta = kappa.
         #    This is the "static" strain: how much the current
         #    attribution departs from the chain condition.
@@ -1141,7 +1141,7 @@ class AnalysisPipeline:
         try:
             nF = rex.nF_hodge
 
-            # Curvature-only strain (delta = kappa, born = 0) - sparse B1/B2 matvecs
+            # Curvature only strain (delta = kappa, born = 0) - sparse B1/B2 matvecs
             born_zero = np.zeros(nF, dtype=np.float64)
             se_curv = _strain_equilibrium_sparse(rex, kappa_f, born_zero)
             result["curvature_strain"] = {
@@ -1189,7 +1189,7 @@ class AnalysisPipeline:
                 result["uniform_strain"]["n_under_realized"] = n_pos
                 result["uniform_strain"]["n_over_realized"] = n_neg
 
-            # Use curvature-only as the primary strain report
+            # Use curvature only as the primary strain report
             result["alpha"] = result["curvature_strain"]["alpha"]
             result["strain_norm"] = result["curvature_strain"][
                 "strain_norm"
@@ -1204,7 +1204,7 @@ class AnalysisPipeline:
         except Exception as e:
             result["equilibrium_error"] = str(e)
 
-        # Per-edge strain, read off the curvature-only equilibrium solved above
+        # Per edge strain, read off the curvature only equilibrium solved above
         try:
             sigma = se_curv.get("sigma") if se_curv is not None else None
             if sigma is not None:
@@ -1257,10 +1257,10 @@ class AnalysisPipeline:
         """Sweep the relational strain across the enforcement parameter.
 
         Reconstructs the manual workflow's sigma sweep using the RCFE
-        strain-equilibrium kernel.  We interpolate the per-face "born"
-        target from the curvature-only regime (t=0) to uniform
+        strain equilibrium kernel.  We interpolate the per face "born"
+        target from the curvature only regime (t=0) to uniform
         enforcement (t=1) and record how the equilibrium strain norm and
-        optimal coupling alpha respond.  This is a genuine one-parameter
+        optimal coupling alpha respond.  This is a genuine one parameter
         sweep computed from the compiled kernel, not a placeholder.
 
         Requires faces (nF > 0) and the RCF module.
@@ -1300,10 +1300,10 @@ class AnalysisPipeline:
         return result
 
     def _stage_ricci_flow(self) -> dict:
-        """Discrete Ricci-flow analysis (optional, capability-gated).
+        """Discrete Ricci flow analysis (optional, capability gated).
 
         Evolving the flow past t=0 needs a flow solver, which is not part
-        of this package, so this stage checks for a Ricci-curvature
+        of this package, so this stage checks for a Ricci curvature
         capability on the complex and, when present, reports the attributed
         (relational) curvature as the t=0 state of the flow.  When no
         curvature kernel is available it returns a clean "unavailable"
@@ -1331,11 +1331,11 @@ class AnalysisPipeline:
         }
 
     def _stage_continuum_limit(self) -> dict:
-        """Continuum-limit indicators (optional, capability-gated).
+        """Continuum limit indicators (optional, capability gated).
 
-        Reports spectral-density indicators that track how the discrete
+        Reports spectral density indicators that track how the discrete
         complex approaches a continuum operator as it refines: the
-        low-end eigenvalue spacing of L0 and the harmonic dimension.
+        low end eigenvalue spacing of L0 and the harmonic dimension.
         Returns an "unavailable" marker if a Laplacian can't be formed.
         """
         rex = self.rex

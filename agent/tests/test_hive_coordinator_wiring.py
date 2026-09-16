@@ -56,7 +56,7 @@ def test_run_wave_returns_results_and_falls_back_on_failure():
 
 
 def _stub_hive_with_answers(answers: dict):
-    """A Hive whose ask() returns canned answers and whose bees are all generate-capable stubs."""
+    """A Hive whose ask() returns canned answers and whose bees are all generate capable stubs."""
     from agent.hive import Bee, Hive
     h = Hive("consensustest")
     for name in answers:
@@ -97,7 +97,7 @@ def test_compose_spawns_all_entries_concurrently():
 
 
 def test_spawn_and_attach_route_to_thread_lane_not_proc():
-    # A bee spawn mutates hive state in-process and must run on the thread lane (io_llm), never the
+    # A bee spawn mutates hive state in process and must run on the thread lane (io_llm), never the
     # forkserver proc lane where the mutation would be lost.
     from agent.coordinator_adapter import _to_type
     assert _to_type("spawn") == "io_llm"

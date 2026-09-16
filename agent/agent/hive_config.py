@@ -4,11 +4,11 @@ agent.hive_config: named, switchable, editable hive profiles.
 A profile holds a whole setup in one object: how the swarm is composed (auto from disk, attach
 live servers, or an explicit list of bees), the memory budget, and the engine preferences
 (optimizer, attention, whether the monitor uses the semantic embedder, the routing policy). Pick
-a built-in preset, edit it, save it as a user profile, switch between profiles, and apply one to
+a built in preset, edit it, save it as a user profile, switch between profiles, and apply one to
 bring the hive up.
 
 Layers:
-  - BUILTIN_PROFILES: code-defined presets (read-only), always present.
+  - BUILTIN_PROFILES: code defined presets (read only), always present.
   - user profiles: JSON under <REXGRAPH_CONFIG_DIR>/hive_profiles/, created by save().
   - active pointer: which profile is currently selected (<config>/hive_profiles/active.json).
 
@@ -37,7 +37,7 @@ def _slug(name: str) -> str:
 
 @dataclass
 class SpecialtyRule:
-    """One model-name -> specialty mapping for auto-composition.
+    """One model name -> specialty mapping for auto composition.
 
     `match` and `exclude` are lowercase substrings tested against the model name; a rule fires
     when any `match` hits and no `exclude` does. `exclude` is what makes a broad family match
@@ -73,22 +73,22 @@ BUILTIN_SPECIALTY_RULES: list[SpecialtyRule] = [
 ]
 
 # What a chat bee carries when no rule fires. A generalist is not a specialist in anything, but it
-# must still be reachable: an empty list scores 0 on every cold-hive routing query.
+# must still be reachable: an empty list scores 0 on every cold hive routing query.
 GENERAL_SPECIALTIES = ["general", "assist", "explain"]
 
 _RULES_FILE = "specialty_rules.json"
 
 
 def specialty_rules_path() -> Path:
-    """Where user-defined rules live. Sits beside the profile directory, not inside it: rules are
-    machine-wide, not per-profile."""
+    """Where user defined rules live. Sits beside the profile directory, not inside it: rules are
+    machine wide, not per profile."""
     return _config_dir().parent / _RULES_FILE
 
 
 def load_specialty_rules() -> list[SpecialtyRule]:
-    """User rules if a readable, well-formed file exists, else the builtins.
+    """User rules if a readable, well formed file exists, else the builtins.
 
-    A broken rules file must not take the hive down - auto-composition still has to work - so a
+    A broken rules file must not take the hive down - auto composition still has to work - so a
     parse failure logs nothing and quietly yields the builtins."""
     path = specialty_rules_path()
     try:
@@ -113,26 +113,26 @@ class BeeSpec:
     model: str = ""                  # gguf path (source=path)
     url: str = ""                    # endpoint (source=attach)
     specialties: list[str] = field(default_factory=list)
-    # secret REFERENCE (env var / secret-store name) for an authenticated endpoint. A profile is
+    # secret REFERENCE (env var / secret store name) for an authenticated endpoint. A profile is
     # written to disk as JSON, so only the reference may live here - never the credential.
     api_key_ref: str = ""
 
 
 @dataclass
 class ComputeSpec:
-    """Execution-layer config for a setup: the CPU parallel width and the preferred compute backend.
+    """Execution layer config for a setup: the CPU parallel width and the preferred compute backend.
     Applied via rexgraph.compute before every operation runs (see lifecycle._execute)."""
     threads: int | None = None    # None -> all cores; an int caps the OpenMP / parallel_map width
     backend: str = "auto"            # auto (best available for the host, incl. GPU) | cpu |
                                      # openmp | cuda (also the value for ROCm/AMD hosts) | mps.
                                      # 'auto' now resolves to the host's recommended backend, so
-                                     # a GPU host accelerates the eigen-free tower automatically.
+                                     # a GPU host accelerates the eigen free tower automatically.
 
 
 @dataclass
 class CoordinatorSpec:
-    """Coordinator tuning for a setup: whether the coordinator dispatches hive fan-outs, its pool
-    idle TTLs, worker-core affinity, and the user priority weights. All defaults are neutral, so
+    """Coordinator tuning for a setup: whether the coordinator dispatches hive fan outs, its pool
+    idle TTLs, worker core affinity, and the user priority weights. All defaults are neutral, so
     behavior is unchanged until a user tunes them."""
     enabled: bool = True
     idle_ttl_proc: float = 30.0
@@ -151,16 +151,16 @@ class HiveProfile:
     description: str = ""
     builtin: bool = False
     # composition: how the swarm is brought up
-    compose: str = "auto"            # auto | attach-live | manual | auto+attach
+    compose: str = "auto"            # auto | attach live | manual | auto+attach
     budget_gb: float | None = None    # None -> detected budget
     max_workers: int = 4
     bees: list[BeeSpec] = field(default_factory=list)   # used when compose includes 'manual'
     # engine preferences (surfaced to the rest of the stack; see apply())
-    optimizer: str = "auto"         # auto (routes per model: GreensCochain for cochain-native, else Adam; default) | hodge | adam | greens
-    attention: str = "relational"    # relational (RexGraph-native, default) | standard
+    optimizer: str = "auto"         # auto (routes per model: GreensCochain for cochain native, else Adam; default) | hodge | adam | greens
+    attention: str = "relational"    # relational (RexGraph native, default) | standard
     monitor_embed: bool = True       # monitor uses the embedder bee for semantic alignment
     routing: str = "specialty+history"
-    compute: ComputeSpec = field(default_factory=ComputeSpec)   # execution-layer tuning
+    compute: ComputeSpec = field(default_factory=ComputeSpec)   # execution layer tuning
     coordinator: CoordinatorSpec = field(default_factory=CoordinatorSpec)   # coordinator tuning
     tags: list[str] = field(default_factory=list)
 
@@ -181,7 +181,7 @@ class HiveProfile:
         return cls(**rest, bees=bees, compute=compute, coordinator=coordinator)
 
 
-# built-in presets: always available, read-only
+# built in presets: always available, read only
 
 BUILTIN_PROFILES: list[HiveProfile] = [
     HiveProfile(
@@ -223,7 +223,7 @@ _BUILTIN_BY_ID = {p.id: p for p in BUILTIN_PROFILES}
 
 
 class ProfileStore:
-    """Persistent registry: built-in presets + user-saved profiles + the active pointer."""
+    """Persistent registry: built in presets + user saved profiles + the active pointer."""
 
     def __init__(self, directory: Path | None = None):
         self.dir = directory or _config_dir()
@@ -244,7 +244,7 @@ class ProfileStore:
         return out
 
     def list(self) -> builtins.list[HiveProfile]:
-        """Built-ins first, then user profiles (user profiles with a built-in id override it)."""
+        """Built ins first, then user profiles (user profiles with a built in id override it)."""
         users = self.user_profiles()
         user_ids = {p.id for p in users}
         return [p for p in BUILTIN_PROFILES if p.id not in user_ids] + users
@@ -260,8 +260,8 @@ class ProfileStore:
 
     # mutation (user profiles only)
     def save(self, profile: HiveProfile) -> HiveProfile:
-        """Persist a user profile. A built-in is never overwritten in place: saving one clones it
-        into a user profile with the same id that shadows the built-in (reset means delete it)."""
+        """Persist a user profile. A built in is never overwritten in place: saving one clones it
+        into a user profile with the same id that shadows the built in (reset means delete it)."""
         self.dir.mkdir(parents=True, exist_ok=True)
         if not profile.id:
             profile.id = _slug(profile.name)
@@ -270,7 +270,7 @@ class ProfileStore:
         return profile
 
     def create(self, name: str, base: str | None = None, **overrides) -> HiveProfile:
-        """New user profile, optionally cloned from an existing one (built-in or user)."""
+        """New user profile, optionally cloned from an existing one (built in or user)."""
         src = self.get(base) if base else None
         d = src.to_dict() if src else {}
         d.update(overrides)
@@ -281,7 +281,7 @@ class ProfileStore:
         return self.save(prof)
 
     def delete(self, pid: str) -> bool:
-        """Remove a user profile (or a user override of a built-in). Built-ins themselves persist."""
+        """Remove a user profile (or a user override of a built in). Built ins themselves persist."""
         f = self.dir / f"{pid}.json"
         if f.exists():
             f.unlink()

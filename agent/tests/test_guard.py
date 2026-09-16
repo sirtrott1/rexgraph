@@ -1,4 +1,4 @@
-"""agent.guard: rule-based validity checks, streaming detection, and the guard-bee flow."""
+"""agent.guard: rule based validity checks, streaming detection, and the guard bee flow."""
 from agent.guard import relational_complex_guard
 
 from agent import agent_complex, hive

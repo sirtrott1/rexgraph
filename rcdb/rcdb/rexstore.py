@@ -1,11 +1,11 @@
 """
 rcdb.rexstore: an embedded store for relational complexes. Files, no server.
 
-FileStore reserialized its whole index on every put, so per-put cost grew with the
+FileStore reserialized its whole index on every put, so per put cost grew with the
 store: 4 ms at a hundred records, 41 ms at sixteen hundred, which is O(n^2) ingest
 and about 33 hours for 100k records. It also wrote one file per record, and on a
 network filesystem (EFS, Azure Files, a GCS mount, which is what a cloud VM
-actually has) per-file overhead dominates everything else.
+actually has) per file overhead dominates everything else.
 
 This is the same data laid out for how it is used:
 
@@ -18,7 +18,7 @@ record one and record one million. Opening scans the log once, sequentially, whi
 is the access pattern every filesystem is fastest at, and builds the indexes in
 memory, so a vocabulary query is a dict lookup rather than a scan.
 
-Append-only earns two things beyond speed. A crash can only ever tear the tail,
+Append only earns two things beyond speed. A crash can only ever tear the tail,
 which the length prefix detects, so recovery is truncation rather than repair. And
 history is not a feature bolted on: every version is simply still there, which is
 what the bitemporal model wanted from the start.
@@ -40,10 +40,11 @@ from .core import (
     RCStore,
     _matches,
     _record_labels,
+    _serialized,
 )
 
-#: length prefix for a log entry. 4 bytes little-endian, so a record header is
-#: capped at 4 GiB. Signatures are KB-scale, so the cap is theoretical.
+#: length prefix for a log entry. 4 bytes little endian, so a record header is
+#: capped at 4 GiB. Signatures are KB scale, so the cap is theoretical.
 _LEN = struct.Struct("<I")
 
 MANIFEST = "MANIFEST.json"
@@ -53,15 +54,15 @@ BLOBS = "blobs.pack"
 SEARCH = "search.safetensors"
 FORMAT_VERSION = 1
 
-#: Snapshot when the un-indexed tail grows past this fraction of what is already
+#: Snapshot when the un indexed tail grows past this fraction of what is already
 #: indexed. Writing the index costs ~30 us per record because it rewrites all of
-#: them; NOT writing it costs ~13 us per un-indexed record on EVERY open. So a store
+#: them; NOT writing it costs ~13 us per un indexed record on EVERY open. So a store
 #: opened more than about twice between writes is better off snapshotting, and a
 #: ratio bounds the replay tail without anyone picking a record count. The same
 #: shape as TemporalRex's checkpoint threshold, for the same reason.
 INDEX_TAIL_RATIO = float(os.environ.get("REXGRAPH_INDEX_TAIL_RATIO", "0.5"))
 
-#: below this many un-indexed records, replay is cheaper than the snapshot that
+#: below this many un indexed records, replay is cheaper than the snapshot that
 #: would avoid it: at 500 records replay is 5.7 ms against 12.9 ms to write.
 INDEX_MIN_TAIL = int(os.environ.get("REXGRAPH_INDEX_MIN_TAIL", "1000"))
 
@@ -71,13 +72,13 @@ INDEX_MIN_TAIL = int(os.environ.get("REXGRAPH_INDEX_MIN_TAIL", "1000"))
 #### the index, as tensors
 #
 # Replaying the log builds two things: a label -> records mapping, and a
-# ComplexRecord per entry. Profiling an 8000-record open puts ~33% in the label
-# dictionary and ~26% in per-entry JSON, and both are avoidable, because both are
+# ComplexRecord per entry. Profiling an 8000 record open puts ~33% in the label
+# dictionary and ~26% in per entry JSON, and both are avoidable, because both are
 # already shapes the library has a format for.
 #
 # The label mapping IS a bipartite complex (labels on one side, records on the
 # other, incidence between them) so it stores as a CSR pair of tensors and loads
-# at memory-map speed instead of being rebuilt: 96.8 ms of dictionary building
+# at memory map speed instead of being rebuilt: 96.8 ms of dictionary building
 # becomes ~0.5 ms of tensor read. The documents are concatenated once with an
 # offset tensor addressing them, so a record's signature and meta are parsed when
 # something actually asks for that record rather than for all of them at open.
@@ -287,9 +288,10 @@ _SEARCH_TOKEN_WORDS = 4
 
 
 class RexStore(RCStore):
-    """Append-only local store: two logs, an in-memory index, no server."""
+    """Append only local store: two logs, an in memory index, no server."""
 
     backend = "rex"
+    _cache_corpus = True
 
     def __init__(self, root: str, *, auto_index: bool = True,
                  search_policy=None, search_keys=None):
@@ -412,7 +414,7 @@ class RexStore(RCStore):
         self._search_records = records
 
     def _search_versions(self, label: str) -> set[tuple[str, int]]:
-        """Which record versions carry this exact term, across index and un-indexed tail."""
+        """Which record versions carry this exact term, across index and un indexed tail."""
         if self.search_policy is None:
             return set()
         token = self._label_token(label)
@@ -427,13 +429,13 @@ class RexStore(RCStore):
         return refs
 
     #### log
-    def _load(self) -> None:
+    def _load(self, *, use_index=True) -> None:
         """Load the index if there is one, then replay whatever the log holds beyond
         it. A torn tail is where the process died, so scanning stops there rather
         than trying to interpret a partial record."""
         start_at = 0
         idx = RexIndex(self._index_path)
-        if idx.open():
+        if use_index and idx.open():
             self._index = idx
             start_at = idx.log_bytes
             self._indexed_count = len(idx.ids)
@@ -519,14 +521,14 @@ class RexStore(RCStore):
         for prior in versions:
             if prior.tx_to is None:
                 # tx_to is not written: a version is closed by the arrival of its
-                # successor, so the log stays purely append-only and the closure is
+                # successor, so the log stays purely append only and the closure is
                 # reconstructed identically on every replay.
                 prior.tx_to = rec.tx_from
         versions.append(rec)
         self._blob_at[(rid, rec.version)] = (off, ln)
         if self._protected_labels():
             # Tokens ride the frame, so a replay does not need the key to rebuild the
-            # tail: it re-adds tokens it cannot itself compute.
+            # tail: it re adds tokens it cannot itself compute.
             ref = (rid, int(rec.version))
             self._search_records[self._record_token(*ref)] = ref
             tokens = search_tokens
@@ -547,6 +549,32 @@ class RexStore(RCStore):
         """
         from . import index as _ix
 
+        # Preserve an existing legacy log's framing until explicit compaction.
+        if os.path.exists(self._records_path):
+            with open(self._records_path, "rb") as fh:
+                head = fh.read(len(_ix.LOG_MAGIC))
+            if head and head != _ix.LOG_MAGIC:
+                payload = dumps(entry).encode("utf-8")
+                frame = _LEN.pack(len(payload)) + payload
+                with open(self._records_path, "a+b") as fh:
+                    start = fh.tell()
+                    try:
+                        if fh.write(frame) != len(frame):
+                            raise OSError("short legacy RCDB log write")
+                        fh.flush()
+                        os.fsync(fh.fileno())
+                    except BaseException:
+                        try:
+                            fh.seek(start)
+                            fh.truncate()
+                            fh.flush()
+                            os.fsync(fh.fileno())
+                        except BaseException as rollback:
+                            from .core import PublicationUncertainError
+                            raise PublicationUncertainError(
+                                "legacy RCDB append rollback failed") from rollback
+                        raise
+                return
         rid = entry["id"]
         if entry.get("op") == "delete":
             _ix.log_append(self._records_path, "delete", rid, None)
@@ -625,6 +653,7 @@ class RexStore(RCStore):
         self._maybe_index()
         return self._recs[id][-1]
 
+    @_serialized
     def delete(self, id):
         reclaim = self._claim_delete(id)
         if id not in self._recs:
@@ -711,7 +740,7 @@ class RexStore(RCStore):
             candidates = self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
             residual = predicate
         if wanted and self._protected_labels():
-            # A protected record keeps no plaintext vocabulary to re-check, so the
+            # A protected record keeps no plaintext vocabulary to re check, so the
             # matching VERSION is what the index answered, and only the rest of the
             # predicate is applied to the record.
             out = [r for r in candidates
@@ -719,7 +748,7 @@ class RexStore(RCStore):
                    and _matches(r.signature, residual, r.meta)]
         elif wanted:
             # A public index leaves labels on the record, so the SELECTED version may be
-            # an older one whose vocabulary differs and is re-checked against its own
+            # an older one whose vocabulary differs and is re checked against its own
             # rather than trusted from the index alone.
             out = [r for r in candidates if _matches(r.signature, predicate, r.meta)]
         else:
@@ -742,10 +771,11 @@ class RexStore(RCStore):
             "n_labels": len(self._labels),
         }
 
+    @_serialized
     def compact(self) -> dict[str, Any]:
         """Rewrite both logs keeping only live versions, then swap them in.
 
-        Append-only means deleted records leave their bytes behind. Compaction is
+        Append only means deleted records leave their bytes behind. Compaction is
         the deliberate, occasional cost that buys the O(1) put, not something the
         write path pays on every call.
         """
@@ -756,7 +786,10 @@ class RexStore(RCStore):
         protected_tokens = (self._protected_tokens_by_version()
                             if self._protected_labels() else None)
         before = self.stats()
-        with open(tmp_log, "wb") as lf, open(tmp_pack, "wb") as pf:
+        from . import index as _ix
+        with open(tmp_log, "wb") as lf:
+            lf.write(_ix.LOG_MAGIC)
+        with open(tmp_pack, "wb") as pf:
             for rid in sorted(self._recs):
                 for rec in self._recs[rid]:
                     blob = self._read_blob(rid, rec.version)
@@ -764,14 +797,12 @@ class RexStore(RCStore):
                         continue
                     offset = pf.tell()
                     pf.write(blob)
-                    entry = {"op": "put", "id": rid, "version": rec.version,
-                             "signature": rec.signature, "meta": rec.meta,
-                             "created": rec.created, "tx_from": rec.tx_from,
-                             "valid_from": rec.valid_from, "valid_to": rec.valid_to,
-                             "blob_off": offset, "blob_len": len(blob)}
-                    payload = dumps(entry).encode("utf-8")
-                    lf.write(_LEN.pack(len(payload)))
-                    lf.write(payload)
+                    extra = [offset, len(blob)]
+                    tokens = (() if protected_tokens is None else
+                              protected_tokens.get((rid, int(rec.version)), ()))
+                    if tokens:
+                        extra.extend(self._tokens_extra(tokens))
+                    _ix.log_append(tmp_log, "put", rid, rec, extra=extra)
         os.replace(tmp_log, self._records_path)
         os.replace(tmp_pack, self._blobs_path)
         self._recs, self._blob_at, self._labels = {}, {}, {}
@@ -779,7 +810,7 @@ class RexStore(RCStore):
         self._search_records = {}
         self._index = None
         self._search = None
-        self._load()
+        self._load(use_index=False)
         self.write_index(protected_tokens=protected_tokens)
         return {"before": before, "after": self.stats()}
 
@@ -826,8 +857,9 @@ class RexStore(RCStore):
                 out.setdefault(ref, set()).add(bytes(token))
         return out
 
+    @_serialized
     def write_index(self, *, protected_tokens=None) -> str:
-        """Snapshot the current state as tensors, so the next open memory-maps it
+        """Snapshot the current state as tensors, so the next open memory maps it
         instead of replaying the log."""
         materialized = {rid: self._versions(rid) for rid in self._recs}
         blob_at = dict(self._blob_at)

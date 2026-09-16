@@ -1,15 +1,18 @@
-"""rexgraph.harmonic_sparse: the harmonic plane, combinatorial and low-rank.
+"""rexgraph.harmonic_sparse: the harmonic plane, combinatorial and low rank.
 
 Per the math reference Part V: the harmonic space
 `ker(L1) = ker(B1) ∩ ker(B2ᵀ)` is a **combinatorial** object - a basis of the cycle
-space `ker(B1)` is the set of spanning-tree fundamental cycles (integer ±1 vectors),
+space `ker(B1)` is the set of spanning tree fundamental cycles (integer ±1 vectors),
 projected onto `ker(B2ᵀ)` to remove the face (curl) directions. The harmonic
-projector is applied **low-rank**:
+projector is applied **low rank**:
 
-    P_harm · x = H (HᵀH)⁻¹ Hᵀ x          (H is nE × dim_H, dim_H = β₁ - rank(B2))
+    P_harm · x = H (HᵀH)⁻¹ Hᵀ x          (H is nE × β₁)
+
+Here β₁ = nE - rank(B1) - rank(B2), assuming B1 B2 = 0. The cycle space
+before removing face directions has dimension nE - rank(B1).
 
 so it never forms the dense nE×nE projector and never calls an eigensolver: the
-correct, scale-free replacement for `_harmonic.harmonic_projectors` (which builds
+correct, scale free replacement for `_harmonic.harmonic_projectors` (which builds
 `hb@hbᵀ`, `B1ᵀ pinv(B1B1ᵀ) B1`, and `eye(nE)` - three dense nE×nE matrices) whenever
 only the harmonic component of a flow is needed.
 """
@@ -20,15 +23,15 @@ import numpy as np
 _f64 = np.float64
 
 
-def _cycle_basis_from_edges(nV, nE, src, tgt):
-    """Spanning-tree fundamental cycle basis of `ker(B1)` given the edge endpoint
-    arrays directly (the rex-free core of `cycle_basis`). Returns a sparse integer
-    matrix C (nE × β₁): columns are the fundamental cycles (±1), each a non-tree
-    edge closed by the tree path between its endpoints. Combinatorial (union-find +
+def _cycle_basis_from_edges(nV, nE, src, tgt, *, native=False):
+    """Spanning tree fundamental cycle basis of `ker(B1)` given the edge endpoint
+    arrays directly (the rex free core of `cycle_basis`). Returns a sparse integer
+    matrix C (nE × nullity(B1)): columns are the fundamental cycles (±1), each a non tree
+    edge closed by the tree path between its endpoints. Combinatorial (union find +
     BFS tree paths), no eigensolve, `B1 @ C = 0` by construction."""
     from collections import deque
 
-    import scipy.sparse as sp
+    from rexgraph.native_sparse import empty_native, native_coo
 
     nV, nE = int(nV), int(nE)
     src = np.asarray(src, dtype=np.int64)
@@ -58,7 +61,8 @@ def _cycle_basis_from_edges(nV, nE, src, tgt):
 
     beta1 = len(nontree)
     if beta1 == 0:
-        return sp.csc_matrix((nE, 0), dtype=_f64)
+        result = empty_native((nE, 0))
+        return result if native else result.as_scipy().tocsc()
 
     def tree_path(a, b):
         """Edges (with traversal direction) on the tree path a -> b."""
@@ -88,14 +92,15 @@ def _cycle_basis_from_edges(nV, nE, src, tgt):
             ti, tj = int(src[te]), int(tgt[te])
             rows.append(te); cols.append(c)
             vals.append(1.0 if (ti, tj) == (u, v) else -1.0)
-    return sp.csc_matrix((vals, (rows, cols)), shape=(nE, beta1), dtype=_f64)
+    result = native_coo(rows, cols, vals, (nE, beta1))
+    return result if native else result.as_scipy().tocsc()
 
 
-def _rational_nullspace(rex, nE):
+def _rational_nullspace(rex, nE, *, native=False):
     """ker(B1) over the rationals, via the complex's own exact cycle basis.
 
     `faces.cycle_basis` already dispatches this correctly: a pure pairwise complex takes
-    the spanning-forest traversal, and ANY arity above two takes exact elimination on
+    the spanning forest traversal, and ANY arity above two takes exact elimination on
     ker(B1), because `rank(B1) = n0 - c` is a graph identity that a branching relation
     breaks. Reaching for it here means the branching path is exact rather than a second
     answer to the same question.
@@ -103,41 +108,48 @@ def _rational_nullspace(rex, nE):
     Returned as a sparse float matrix: the basis vectors have their denominators cleared
     to integers, so the conversion is lossless.
     """
-    import scipy.sparse as sp
+    from rexgraph.native_sparse import native_coo
 
-    from rexgraph.faces import cycle_basis as _exact_cycles
-    cols = _exact_cycles(rex)
-    if not cols:
-        return sp.csc_matrix((nE, 0), dtype=_f64)
-    M = np.zeros((nE, len(cols)), dtype=_f64)
-    for j, c in enumerate(cols):
-        for e, v in enumerate(c):
-            if v != 0:
-                M[e, j] = float(v)
-    return sp.csc_matrix(M)
+    from rexgraph.faces import _cycle_kernel_sparse
+    cols = _cycle_kernel_sparse(rex)
+    rows, indices, data = [], [], []
+    for j, column in enumerate(cols):
+        for e, value in column.items():
+            if int(float(value)) != value:
+                raise OverflowError("exact cycle coefficient exceeds the float carrier; use faces.cycle_basis")
+            rows.append(e)
+            indices.append(j)
+            data.append(float(value))
+    result = native_coo(rows, indices, data, (nE, len(cols)))
+    return result if native else result.as_scipy().tocsc()
 
 
 def _exact_nullspace(B1, nE):
-    """ker(B1) from the boundary matrix alone, by dense SVD.
+    """Sparse kernel from a canonical C1 or integral boundary carrier.
 
-    The DENSE ORACLE, not the path. It exists for the callers that hold only a boundary
-    matrix (`_void`'s harmonic content, `_quotient`'s relative cycle basis) and have no
-    complex to ask, and for checking the exact path against something independent.
-    Anything holding a rex goes through `_rational_nullspace`, which is exact and never
-    densifies. Returns a sparse nE × (nE−rank B1) matrix."""
+    Unrecognized numeric columns have no declared rational source here and are
+    refused, not reconstructed by denominator guessing or sent to a dense SVD.
+    """
     import scipy.sparse as sp
-    from scipy.linalg import null_space
-    if nE == 0:
-        return sp.csc_matrix((0, 0), dtype=_f64)
-    B1d = np.asarray(B1.todense() if sp.issparse(B1) else B1, dtype=_f64)
-    ns = null_space(B1d)                                # nE × k, columns span ker(B1)
-    return sp.csc_matrix(np.ascontiguousarray(ns))
+    from rexgraph.graded_boundary import _canonical_c1_columns, _integer_columns
+    B1 = sp.csc_matrix(B1)
+    if B1.shape[1] != nE:
+        raise ValueError("boundary shape does not match the C1 dimension")
+    columns = _canonical_c1_columns(B1)
+    if columns is None:
+        columns = _integer_columns(B1)
+    if columns is None:
+        raise ValueError("native kernel requires canonical C1 or integral boundary coefficients")
+    ns = _integer_nullspace(columns=columns)
+    if ns is None:
+        raise OverflowError("exact cycle coordinate exceeds the float carrier")
+    return ns
 
 
 def _validated_cycle_basis(B1, nE, src=None, tgt=None, rex=None):
     """The combinatorial cycle basis of `ker(B1)`, validated against the true boundary.
 
-    Fast path: the spanning-tree fundamental-cycle basis (integer, combinatorial). For
+    Fast path: the spanning tree fundamental cycle basis (integer, combinatorial). For
     BRANCHING hyperedges (arity != 2) the endpoint reduction can invent "cycles" that are
     NOT in ker(B1), so the basis is checked (‖B1·C‖ = 0 and correct dimension) and, when
     invalid, replaced by the exact nullspace of B1. Simple graphs always take the fast
@@ -178,36 +190,41 @@ def _validated_cycle_basis(B1, nE, src=None, tgt=None, rex=None):
         valid = float(residual) < 1e-9
     if valid:
         return C
-    # branching: exact ker(B1). Through the complex's own rational elimination when
-    # there is a complex to ask; the dense SVD oracle only when there is not.
+    # Branching: read exact primary columns, or recognize the canonical carrier
+    # when only a boundary is supplied. Neither route invokes a spectral oracle.
     if rex is not None:
         return _rational_nullspace(rex, nE)
     return _exact_nullspace(B1, nE)
 
 
-def cycle_basis(rex):
+def cycle_basis(rex, *, native=False):
     """Basis of `ker(B1)` (the cycle space, dim = nE − rank B1) as a sparse matrix.
 
     Combinatorial where that is correct, exact nullspace where branching arity makes the
     endpoint reduction unsound. See `_validated_cycle_basis`."""
-    from rexgraph.core._sparse import to_scipy_csr
+    from rexgraph.graded_boundary import _exact_composition_residual, _integer_columns
+    from rexgraph.faces import _exact_b1_block
+    rex._ensure_clean()
     nE = int(rex.nE)
     # A primary relation at any other arity has no endpoint representation.
     # Its kernel is the exact rational nullspace of its declared boundary, not
-    # a traversal over a chosen two-participant projection.
+    # a traversal over a chosen two participant projection.
     if not rex._is_standard_only:
-        return _rational_nullspace(rex, nE)
+        return _rational_nullspace(rex, nE, native=native)
     src, tgt = rex._ensure_src_tgt()
-    B1 = to_scipy_csr(rex._B1_dual).tocsr().astype(_f64)
-    return _validated_cycle_basis(B1, nE, src, tgt, rex=rex)
+    result = _cycle_basis_from_edges(rex.nV, nE, src, tgt, native=True)
+    columns = _integer_columns(result)
+    if _exact_composition_residual(_exact_b1_block(rex, range(nE)), columns):
+        result = _rational_nullspace(rex, nE, native=True)
+    return result if native else result.as_scipy().tocsc()
 
 
 def _endpoints_from_b1(B1):
     """Derive (src, tgt) per edge from a signed boundary B1 (nV × nE, -1 source /
-    +1 target). Source = the most-negative signed row, target = the most-positive.
+    +1 target). Source = the most negative signed row, target = the most positive.
     For a pairwise edge this is exactly the (−1, +1) endpoints; for a witness or
-    branching column (arity ≠ 2) it picks the extreme-signed endpoints, which is the
-    right reduction for a spanning-tree cycle basis over the 1-skeleton."""
+    branching column (arity ≠ 2) it picks the extreme signed endpoints, which is the
+    right reduction for a spanning tree cycle basis over the 1 skeleton."""
     import scipy.sparse as sp
     B1 = B1.tocsc() if sp.issparse(B1) else sp.csc_matrix(np.asarray(B1, dtype=_f64))
     nV, nE = B1.shape
@@ -227,11 +244,11 @@ def _endpoints_from_b1(B1):
 
 def harmonic_basis_from_boundaries(B1, B2):
     """Basis of the harmonic plane `ker(B1) ∩ ker(B2ᵀ)` from the sparse boundary
-    matrices directly (the rex-free core of `harmonic_basis`, reused by `_void`'s
-    harmonic-content and `_quotient`'s relative cycle basis). Same combinatorial
+    matrices directly (the rex free core of `harmonic_basis`, reused by `_void`'s
+    harmonic content and `_quotient`'s relative cycle basis). Same combinatorial
     cycle basis C = null(B1) projected onto `ker(B2ᵀ)` via H = C · null(B2ᵀC),
-    applied low-rank downstream. Never forms a dense nE×nE projector, never
-    eigendecomposes. Returns a sparse nE × dim_H matrix (dim_H = β₁ − rank(B2)).
+    applied low rank downstream. Never forms a dense nE×nE projector, never
+    eigendecomposes. Returns a sparse nE × β₁ matrix.
 
     Routes through `_validated_cycle_basis`, so a branching complex gets the exact
     nullspace instead of invented cycles outside ker(B1)."""
@@ -246,90 +263,97 @@ def harmonic_basis_from_boundaries(B1, B2):
     B2 = B2.tocsr() if sp.issparse(B2) else sp.csr_matrix(np.asarray(B2, dtype=_f64))
     if B2.shape[1] == 0 or B2.nnz == 0:
         return C
-    M = (B2.T @ C)                                     # nF × β₁ (face flux of cycles)
-    if M.nnz == 0:
-        return C                                       # cycles already flux-free
-    return _face_reduced_frame(C, M)                    # nE × dim_H, integer when M is
+    return _face_reduced_frame(C, B2=B2)
 
 
-def _integer_nullspace(M):
-    """ker(M) for an INTEGER matrix, exactly, as integer columns.
+def _integer_nullspace(M=None, *, columns=None, native=False):
+    """Primitive kernel of an integral sparse matrix, returned as sparse CSC.
 
-    `M` here is `B2^T C`: the face flux of each cycle. Both factors have entries in
-    {-1, 0, +1}, so M is integer and its kernel has an integer basis. Taking it by
-    dense SVD instead returns float columns, and the frame built from them stops
-    being integer, which is the property every exact reading downstream rests on
-    (the coordinates, the closure, the Gram determinant).
-
-    Fraction row reduction, then denominators cleared by the column gcd. Returns a
-    dense array of shape (M.shape[1], dim_ker) holding exact integers, or None when
-    the caller should take the float path: the entries are not integral to begin
-    with, or clearing denominators pushed a coordinate past what a float64 holds
-    exactly. The second case is real, not defensive: elimination on a dense random
-    integer matrix overflows by 40x80. A face-flux matrix is sparse and structured
-    and does not, but the guard is what makes that a measurement rather than a hope.
+    Reduction uses Q-column dictionaries. None means the input is not integral
+    or a primitive coordinate cannot be carried exactly by float64. The exact
+    dictionary kernel itself remains available through _exact_kernel_columns.
     """
-    from fractions import Fraction
-    from math import gcd
-
-    A = np.asarray(M.todense() if hasattr(M, "todense") else M)
-    if not np.array_equal(A, np.round(A)):
+    from rexgraph.native_sparse import native_coo
+    from rexgraph.graded_boundary import (
+        _integer_columns, _exact_kernel_columns, _primitive_kernel_vector,
+    )
+    if columns is None:
+        columns = _integer_columns(M)
+    if columns is None:
         return None
-    rows, cols = A.shape
-    R = [[Fraction(int(round(A[i][j]))) for j in range(cols)] for i in range(rows)]
-    pivots = []
-    r = 0
-    for c in range(cols):
-        p = next((i for i in range(r, rows) if R[i][c] != 0), None)
-        if p is None:
-            continue
-        R[r], R[p] = R[p], R[r]
-        d = R[r][c]
-        R[r] = [x / d for x in R[r]]
-        for i in range(rows):
-            if i != r and R[i][c] != 0:
-                f = R[i][c]
-                R[i] = [a - f * b for a, b in zip(R[i], R[r], strict=False)]
-        pivots.append(c)
-        r += 1
-        if r == rows:
-            break
-    free = [c for c in range(cols) if c not in set(pivots)]
-    if not free:
-        return np.zeros((cols, 0), dtype=np.int64)
-    basis = []
-    for fc in free:
-        v = [Fraction(0)] * cols
-        v[fc] = Fraction(1)
-        for i, pc in enumerate(pivots):
-            v[pc] = -R[i][fc]
-        den = 1
-        for x in v:
-            den = den * x.denominator // gcd(den, x.denominator)
-        iv = [int(x * den) for x in v]
-        g = 0
-        for x in iv:
-            g = gcd(g, abs(x))
-        if g > 1:
-            iv = [x // g for x in iv]
-        basis.append(iv)
-    limit = 1 << 53                       # past this a float64 no longer holds n exactly
-    if any(abs(x) >= limit for col in basis for x in col):
-        return None
-    return np.array([[float(x) for x in col] for col in basis], dtype=np.float64).T
+    rows, indices, values = [], [], []
+    count = 0
+    for vector in _exact_kernel_columns(columns):
+        vector = _primitive_kernel_vector(vector)
+        for i, value in vector.items():
+            try:
+                displayed = float(value)
+            except OverflowError:
+                return None
+            if not np.isfinite(displayed) or int(displayed) != value:
+                return None
+            rows.append(i)
+            indices.append(count)
+            values.append(displayed)
+        count += 1
+    result = native_coo(rows, indices, values, (len(columns), count))
+    return result if native else result.as_scipy().tocsc()
 
 
-def _face_reduced_frame(C, M):
-    """`C @ ker(M)`, exactly when M is integer and by dense SVD when it is not."""
-    import scipy.sparse as sp
+def _face_reduced_frame(C, M=None, *, B2=None, native=False):
+    """C @ ker(M), with sparse exact integer reduction and no spectral fallback."""
+    from rexgraph.native_sparse import as_native, native_coo
 
-    ns = _integer_nullspace(M)
+    from rexgraph.graded_boundary import _integer_columns
+    columns = _integer_columns(C)
+    if columns is None:
+        raise ValueError("native harmonic reduction requires an integral cycle frame")
+    if B2 is not None:
+        lower = _integer_columns(B2.T)
+        if lower is None:
+            raise ValueError("native harmonic reduction requires integral face coefficients")
+        flux = []
+        for column in columns:
+            result = {}
+            for edge, scale in column.items():
+                for face, value in lower[edge].items():
+                    result[face] = result.get(face, 0) + scale*value
+            flux.append({i: value for i, value in result.items() if value})
+        if not any(flux):
+            for column in columns:
+                for value in column.values():
+                    if not np.isfinite(float(value)) or int(float(value)) != value:
+                        raise OverflowError("exact harmonic coordinate exceeds the float carrier")
+            result = as_native(C)
+            return result if native else result.as_scipy().tocsc()
+        ns = _integer_nullspace(columns=flux, native=True)
+    else:
+        ns = _integer_nullspace(M, native=True)
     if ns is None:
-        from scipy.linalg import null_space
-        ns = null_space(np.asarray(M.todense() if hasattr(M, "todense") else M))
-    if ns.shape[1] == 0:
-        return sp.csc_matrix((C.shape[0], 0), dtype=_f64)
-    return sp.csc_matrix(np.asarray(C @ ns, dtype=_f64))
+        raise ValueError(
+            "native harmonic reduction requires integral flux and exactly representable "
+            "primitive coordinates; use the rational dictionary kernel or an explicit "
+            "dense reference oracle")
+    # Accumulate the resulting integral frame with Python integers. A float
+    # sparse product can round before a downstream exact reader sees the result.
+    coefficients = _integer_columns(ns)
+    rows, indices, values = [], [], []
+    for j, vector in enumerate(coefficients):
+        result = {}
+        for k, scale in vector.items():
+            for i, value in columns[k].items():
+                result[i] = result.get(i, 0) + scale*value
+        for i, value in result.items():
+            if not value:
+                continue
+            displayed = float(value)
+            if not np.isfinite(displayed) or int(displayed) != value:
+                raise OverflowError("exact harmonic coordinate exceeds the float carrier")
+            rows.append(i)
+            indices.append(j)
+            values.append(displayed)
+    result = native_coo(rows, indices, values, (C.shape[0], ns.shape[1]))
+    return result if native else result.as_scipy().tocsc()
 
 
 def _b2_csr(rex):
@@ -344,14 +368,14 @@ def _b2_csr(rex):
         return sp.csr_matrix(np.asarray(rex.B2_hodge, dtype=_f64))
 
 
-def harmonic_basis(rex):
+def harmonic_basis(rex, *, native=False):
     """Basis of the harmonic plane `ker(B1) ∩ ker(B2ᵀ)` as a sparse nE × dim_H
     matrix: the cycle basis C projected onto `ker(B2ᵀ)` (H = C · null(B2ᵀC)).
     Spans exactly `ker(L1)` (the same space the dense eigendecomposition returns) but
-    combinatorially and low-rank. dim_H = β₁ - rank(B2) is the oscillatory-mode count.
+    combinatorially. Its column count is β₁ = nE - rank(B1) - rank(B2).
 
     COST, because it is a column per hole and holes are not rare. Building the basis
-    is a spanning tree plus one tree path per non-tree relation, so it scales with
+    is a spanning tree plus one tree path per non tree relation, so it scales with
     dim_H times the path length, and dim_H is a fact about the data rather than a
     tuning knob: one Gutenberg book runs nE 1,991,070 with β₁ 1,769,648, where this
     had not returned after 12 minutes and the result would not have been a feature
@@ -367,18 +391,15 @@ def harmonic_basis(rex):
     Note also that most of β₁ on such a complex is repetition rather than shape:
     `multiplicity_dimension` measured 37% to 85% across the Gutenberg store, and
     `simple_cycle_dimension` is the part that is not."""
-    C = cycle_basis(rex)
+    from rexgraph.native_sparse import NativeSparse
+    C = cycle_basis(rex, native=True)
     if C.shape[1] == 0:
-        return C
-    B2 = _b2_csr(rex)
-    if B2 is None:
-        return C                              # no faces -> harmonic = cycle space
-    M = (B2.T @ C)                            # nF × β₁ (face flux of each cycle)
-    if M.nnz == 0:
-        return C                              # cycles already flux-free
-    # ker(B2^T C) exactly: M is integer, so the frame stays integer and every exact
-    # reading downstream (coordinates, closure, Gram determinant) keeps its footing
-    return _face_reduced_frame(C, M)          # nE × dim_H
+        return C if native else C.as_scipy().tocsc()
+    B2 = rex._B2_hodge_dual
+    if B2 is None or B2.ncol == 0:
+        return C if native else C.as_scipy().tocsc()
+    # Form the face flux over primary integers, before any float sparse product.
+    return _face_reduced_frame(C, B2=NativeSparse(B2), native=native)
 
 
 def _b1_csc(rex):
@@ -387,7 +408,10 @@ def _b1_csc(rex):
     swaps, so nothing here goes near it."""
     from rexgraph.core._sparse import to_scipy_csr
     rex._ensure_clean()
-    return to_scipy_csr(rex._B1_dual).tocsc()
+    matrix = to_scipy_csr(rex._B1_dual).tocsc()
+    matrix.sum_duplicates()
+    matrix.eliminate_zeros()
+    return matrix
 
 
 def multiplicity_groups(rex, min_size=2):
@@ -401,7 +425,7 @@ def multiplicity_groups(rex, min_size=2):
     Grouped up to overall sign, since a column and its negative also cancel. Returns
     `(indices, signs)` pairs, largest group first: `signs[i] * column(indices[i])` is
     the same vector for every member, so the sign is what says whether two members
-    cancel by difference or by sum. Dropping it silently emits non-cycles.
+    cancel by difference or by sum. Dropping it silently emits non cycles.
     """
     B1 = _b1_csc(rex)
     B1.sort_indices()                        # the key is positional, so order matters
@@ -473,15 +497,15 @@ def multiplicity_dimension(rex, groups=None):
     sum(x) = 0}, dimension m - 1; groups have disjoint support, so they are
     independent and the total is exact.
 
-    This is a CHAIN-level quantity: W is a subspace of Z1, not of H1. A face can
+    This is a CHAIN level quantity: W is a subspace of Z1, not of H1. A face can
     fill part of it: put a face on a bigon and W still has dimension 1 while beta_1
     is 0, so subtracting this from `rex.betti[1]` is only valid with no faces. For
     the split of H1 itself use `simple_cycle_dimension`, which is exact either way.
 
     MEASURED on the Gutenberg store, where this is not a rounding effect: 39 to 85
     percent of beta_1 across five documents, the largest single group holding
-    157,674 identical relations. Any shortest-cycle method returns these first,
-    every one of them 2-sparse, so a cycle reading that does not separate them is
+    157,674 identical relations. Any shortest cycle method returns these first,
+    every one of them 2 sparse, so a cycle reading that does not separate them is
     reading occurrence counts and calling them topology.
     """
     if groups is not None:
@@ -535,7 +559,7 @@ def collapse_map(rex, groups=None):
 
 
 def simple_cycle_dimension(rex, groups=None):
-    """beta_1 of the complex with identical-boundary relations identified.
+    """beta_1 of the complex with identical boundary relations identified.
 
     The exact complement of the multiplicity part IN HOMOLOGY:
 
@@ -546,6 +570,9 @@ def simple_cycle_dimension(rex, groups=None):
     `multiplicity_dimension` instead is only right when nothing fills a multiplicity
     cycle, which is why that shortcut is taken only at nF = 0.
     """
+    if groups is None:
+        from rexgraph.native_homology import homology_split
+        return homology_split(rex, 1).simple
     b1 = int(rex.betti[1])
     if int(rex.nF) == 0:
         # nothing can fill a multiplicity cycle, so W injects into H1 and the
@@ -565,8 +592,11 @@ def simple_cycle_dimension(rex, groups=None):
 
 def multiplicity_homology_dimension(rex, groups=None):
     """How much of beta_1 the repeated relations carry: the exact difference
-    `beta_1(X) - simple_cycle_dimension(X)`. Non-negative by construction, and it
+    `beta_1(X) - simple_cycle_dimension(X)`. Non negative by construction, and it
     sums with the simple part to beta_1 whether or not the complex has faces."""
+    if groups is None:
+        from rexgraph.native_homology import homology_split
+        return homology_split(rex, 1).multiplicity
     return int(rex.betti[1]) - int(simple_cycle_dimension(rex, groups=groups))
 
 
@@ -582,7 +612,7 @@ def multiplicity_cycles(rex, groups=None, limit=None):
     rows, cols, vals, j = [], [], [], 0
     for idx, sign in g:
         # canonical(e) = sign[e] * column(e) is equal across the group, so
-        # sign[a]*col(a) - sign[b]*col(b) = 0. A sign-flipped pair therefore
+        # sign[a]*col(a) - sign[b]*col(b) = 0. A sign flipped pair therefore
         # cancels by SUM, not by difference, which is why the signs are carried.
         for (a, sa), (b, sb) in zip(zip(idx[:-1], sign[:-1], strict=False), zip(idx[1:], sign[1:], strict=False), strict=False):
             if limit is not None and j >= limit:
@@ -616,7 +646,7 @@ def as_edge_signal(values, nE, *, what="signal"):
     `RexGraph.signal`, instead of surfacing a scipy matmul dimension mismatch that
     mentions neither nE nor which reading was being taken.
     """
-    if hasattr(values, "detach"):                 # torch, jax-like, anything tracing
+    if hasattr(values, "detach"):                 # torch, jax like, anything tracing
         values = values.detach()
     if hasattr(values, "cpu"):
         values = values.cpu()
@@ -642,71 +672,78 @@ def harmonic_winding(H, flow):
     both exactly, so the winding of the FULL cochain equals the winding of its
     harmonic part and nothing is being discarded by not projecting first.
 
-    It is one sparse matvec, no solve and no metric. `harmonic_basis` keeps the
-    frame integer, so integer data in gives integer windings out and the result is
-    a COUNT rather than a measurement: a number of turns, with no angle, no arc
-    length and no transcendental in it. The dtype reflects that: integer in,
-    integer out.
+    It is one sparse pairing, with no solve or metric. Integer signals on an
+    integer frame are accumulated in Python integers without overflow. The
+    result is cycle circulation, not a normalized number of turns: scaling a
+    frame column scales its pairing by the same amount.
 
-    This is the exact, pre-metric reading. `harmonic_coordinates` is the metric one:
+    This is the exact, pre metric reading. `harmonic_coordinates` is the metric one:
     it applies the inverse Gram (the harmonic metric is HᵀH, not the identity) and
     is necessarily float. Use the winding for anything counted, compared or stored;
     use the coordinates when the answer has to live in the metric.
     """
-    import scipy.sparse as sp
+    from numbers import Integral
+    from fractions import Fraction
+    from rexgraph.graded_boundary import _integer_columns
+    from rexgraph.native_sparse import as_native
+    raw = flow.detach().cpu().numpy() if hasattr(flow, "detach") else np.asarray(flow)
+    raw = np.asarray(raw).ravel()
+    if raw.shape[0] != H.shape[0]:
+        raise ValueError(f"Expected {H.shape[0]} values for the edge flow, got {raw.shape[0]}.")
+    rational = any(isinstance(v, Fraction) for v in raw)
+    integral = (all(isinstance(v, (Integral, Fraction)) and not isinstance(v, (bool, np.bool_)) for v in raw)
+                or (raw.dtype.kind == 'f' and np.all(np.isfinite(raw))
+                    and np.array_equal(raw, np.round(raw))))
+    if integral:
+        columns = _integer_columns(H)
+        if columns is not None:
+            values = [sum((value * (Fraction(raw[i]) if rational else int(raw[i]))
+                           for i, value in column.items()), Fraction(0) if rational else 0)
+                      for column in columns]
+            bounds = np.iinfo(np.int64)
+            dtype = np.int64 if not rational and all(bounds.min <= v <= bounds.max for v in values) else object
+            return np.asarray(values, dtype=dtype)
     if H.shape[1] == 0:
         return np.zeros(0, dtype=_f64)
-    f = as_edge_signal(flow, H.shape[0], what="flow")
-    Hs = H.tocsr() if sp.issparse(H) else sp.csr_matrix(H)
-    w = np.asarray(Hs.T @ f).ravel()
-    exact = np.array_equal(f, np.round(f)) and _frame_is_integer(H)
-    if exact and np.array_equal(w, np.round(w)):
-        return np.atleast_1d(np.round(w).astype(np.int64))
+    f = as_edge_signal(raw, H.shape[0], what="flow")
+    Hs = as_native(H)
+    w = Hs.transpose_apply(f)
     return np.atleast_1d(w)
 
 
 def _frame_is_integer(H):
-    import scipy.sparse as sp
-    d = H.data if sp.issparse(H) else np.asarray(H)
+    from rexgraph.native_sparse import as_native
+    d = as_native(H).data
     return d.size == 0 or np.array_equal(d, np.round(d))
 
 
 def harmonic_coordinates(H, flow):
     """Where `flow` sits on the harmonic frame `H`: f64[dim_H].
 
-    `(HᵀH)⁻¹ Hᵀ flow`, the small side of the harmonic projector. HᵀH is kept
-    SPARSE (cycles share few edges, so it is a sparse SPD dim_H×dim_H Gram) and
-    solved with a sparse factorization, so this scales even when dim_H is large.
-    One coordinate per independent hole.
+    `(HᵀH)⁻¹ Hᵀ flow`, the coordinate side of the harmonic projector. Native
+    LSQR solves on H directly, without constructing the Gram. Work depends
+    on the frame size and convergence. There is one coordinate per independent
+    hole; building the complete frame can itself be expensive.
 
     The numerator `Hᵀ flow` is `harmonic_winding`, and it is the exact half: the
     Gram solve is what turns an integer count into a float coordinate.
     """
-    import scipy.sparse as sp
-    import scipy.sparse.linalg as sla
+    from rexgraph.core._hodge import least_squares
     if H.shape[1] == 0:
         return np.zeros(0, dtype=_f64)
-    Hs = H.tocsr() if sp.issparse(H) else sp.csr_matrix(np.asarray(H, dtype=_f64))
-    Htf = np.asarray(harmonic_winding(H, flow), dtype=_f64)   # dim_H
-    HtH = (Hs.T @ Hs).tocsc()                         # SPARSE SPD dim_H × dim_H
-    try:
-        coords = sla.spsolve(HtH, Htf)                # sparse LU/Cholesky solve
-    except Exception:
-        coords = sla.cg(HtH, Htf, rtol=1e-10, maxiter=2000)[0]
-    return np.atleast_1d(np.asarray(coords, dtype=_f64).ravel())
+    return least_squares(H, as_edge_signal(flow, H.shape[0], what="flow"))
 
 
 def harmonic_projection(H, flow):
-    """Apply the harmonic projector to `flow` LOW-RANK: `P_harm·flow =
+    """Apply the harmonic projector to `flow` LOW RANK: `P_harm·flow =
     H (HᵀH)⁻¹ Hᵀ flow`, never forming the dense nE×nE projector. H =
     `harmonic_basis` (sparse nE × dim_H). Returns f64[nE].
 
     The coordinates it goes through are `harmonic_coordinates`, which callers
     working in the harmonic plane rather than the edge space read directly.
     """
-    import scipy.sparse as sp
+    from rexgraph.native_sparse import as_native
     if H.shape[1] == 0:
         return np.zeros(H.shape[0], dtype=_f64)
     coords = harmonic_coordinates(H, as_edge_signal(flow, H.shape[0], what="flow"))
-    Hs = H.tocsr() if sp.issparse(H) else sp.csr_matrix(np.asarray(H, dtype=_f64))
-    return np.asarray(Hs @ coords).ravel()            # nE
+    return as_native(H).apply(coords)

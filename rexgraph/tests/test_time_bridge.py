@@ -65,8 +65,8 @@ def test_reconstruct_at_time_is_the_bridge():
 
 
 def test_times_must_not_go_backwards():
-    """An out-of-order timestamp makes step_at ambiguous, so it is refused at the
-    point the mistake is made rather than silently mis-answering later."""
+    """An out of order timestamp makes step_at ambiguous, so it is refused at the
+    point the mistake is made rather than silently mis answering later."""
     tr = TemporalRex([])
     tr.append_snapshot(_rex(2), at=100.0)
     with pytest.raises(ValueError):

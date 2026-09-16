@@ -38,7 +38,7 @@ for mode in ("none", "spanning", "clique"):
                 continue
             # PINNED, for the same reason as the construction benchmark: the recorded
             # table is an "rl4" measurement. On 46 identical queries over 10 documents
-            # "boundary" matched it exactly (97.8% top-1, 100% top-5, median 1) at
+            # "boundary" matched it exactly (97.8% top 1, 100% top 5, median 1) at
             # 0.1 s against 115.4 s, which is why it is now the default elsewhere.
             sc, _l = section_response(rex, sect, seeds, t=1.0, seed_weight="invdeg",
                                       n_sections=ns, owner=owner, propagator="rl4")

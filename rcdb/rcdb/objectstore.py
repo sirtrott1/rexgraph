@@ -3,8 +3,8 @@ rcdb.objectstore: the RCDB on cloud object storage. S3, GCS, Azure Blob.
 
 Built on fsspec, so one backend serves every provider: the wire protocol is the
 driver's problem (s3fs, gcsfs, adlfs), and what lives here is the layout. That also
-means it is testable, because fsspec ships an in-memory filesystem that exercises
-the same code path as S3 rather than a stand-in for it.
+means it is testable, because fsspec ships an in memory filesystem that exercises
+the same code path as S3 rather than a stand in for it.
 
 Object storage cannot append, so RexStore's single growing log is the wrong shape.
 What object stores ARE good at is many immutable objects and a cheap prefix listing,
@@ -20,9 +20,10 @@ Opening reads the snapshot if there is one and then the journal segments after i
 which is the same layering FileStore uses locally. Compaction folds the journal into
 a new snapshot and deletes what it replaced.
 
-Immutability is the point rather than a constraint: every object is written once and
-never modified, so there is no read-modify-write to lose a concurrent writer's entry,
-and a half-finished upload leaves an object that simply is not referenced.
+The layout is append oriented, but the sequence and version allocation are local
+to one store handle. Use one writer per store location; immutable looking names
+alone do not provide distributed writer exclusion. A half finished payload upload
+must not become a published record.
 
     store = rcdb.open_store("s3://bucket/prefix")
     store = rcdb.open_store("gs://bucket/prefix")
@@ -43,6 +44,7 @@ from .core import (
     RCStore,
     _matches,
     _record_labels,
+    _serialized,
 )
 
 MANIFEST = "MANIFEST.json"
@@ -77,7 +79,7 @@ def _fs_for(uri: str):
 
 
 class ObjectStore(RCStore):
-    """RCStore over any fsspec-addressable object storage."""
+    """RCStore over any fsspec addressable object storage."""
 
     backend = "object"
 
@@ -88,6 +90,10 @@ class ObjectStore(RCStore):
         self._labels: dict[str, set] = {}
         self._seq = 0
         self._ensure_manifest()
+        # Object providers often synthesize prefixes, but the supported local
+        # fsspec filesystem requires these parent directories to exist.
+        for name in (BLOBS, JOURNAL, "commits"):
+            self.fs.makedirs(self._p(name), exist_ok=True)
         self._load()
 
     #### layout
@@ -206,10 +212,11 @@ class ObjectStore(RCStore):
         from .core import _now
         now = _now() if tx_time is None else float(tx_time)
         v = self.next_version(id)
+        blob = self._serialize_payload(rex)
         # blob first: a crash between the two leaves an unreferenced object, which
         # is inert, rather than a journal entry pointing at nothing.
         with self.fs.open(self._blob_key(id, v), "wb") as fh:
-            fh.write(self._serialize_payload(rex))
+            fh.write(blob)
         rec = ComplexRecord(id=id, signature=sig, created=now, meta=meta or {},
                             version=v, tx_from=now, tx_to=None,
                             valid_from=valid_from if valid_from is not None else now,
@@ -221,6 +228,7 @@ class ObjectStore(RCStore):
             self._labels.setdefault(label, set()).add(id)
         return self._recs[id][-1]
 
+    @_serialized
     def delete(self, id):
         reclaim = self._claim_delete(id)
         if id not in self._recs:
@@ -246,6 +254,8 @@ class ObjectStore(RCStore):
         return self._select_version(self._recs.get(id, []), as_of, valid_at)
 
     def get_version(self, id, version):
+        if not any(r.version == version for r in self.history(id)):
+            return None
         key = self._blob_key(id, int(version))
         if not self.fs.exists(key):
             return None
@@ -299,7 +309,7 @@ class ObjectStore(RCStore):
     def compact(self) -> dict[str, Any]:
         """Fold the journal into a snapshot and delete the segments it replaces.
 
-        A listing whose cost grows with every write is how an object-store index
+        A listing whose cost grows with every write is how an object store index
         degrades; this is what keeps opening cheap.
         """
         before = self.stats()

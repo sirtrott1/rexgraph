@@ -2,7 +2,7 @@
 
 The portable device lane goes through torch, where the product is a chain of
 elementwise expressions. Fused it reaches about 70% of what the memory system can
-stream; unfused, a ninth of that, since each expression round-trips the whole operator.
+stream; unfused, a ninth of that, since each expression round trips the whole operator.
 Neither reaches the popcount the hardware already has, because torch exposes none.
 
 This lane is the same arithmetic compiled once by hipcc: one pass over the planes, one
@@ -19,7 +19,7 @@ It is OPTIONAL. The shared object is built only where hipcc exists, and absent i
 cpu, openmp and cuda lanes are unchanged, so nothing here is required to run rexgraph.
 
 Residency is the caller's decision and is explicit. The planes ARE the operator, so a
-lane that re-sends them per product spends its time on the bus rather than on the
+lane that re sends them per product spends its time on the bus rather than on the
 arithmetic. `resident()` uploads once and returns a handle.
 """
 from __future__ import annotations
@@ -229,7 +229,7 @@ def resident(op, block: int = 256) -> ResidentTernary:
 
 
 def _pm1_hip(op, v):
-    """The one-shot form. Uploads the planes, so it is for a single product only:
+    """The one shot form. Uploads the planes, so it is for a single product only:
     anything repeated should hold a `resident()` handle instead."""
     with ResidentTernary(op) as r:
         return r.matvec(v)
@@ -255,6 +255,8 @@ def channel_tower(bp, bi, nV, w=None, block: int = 256):
     the accumulation is a loop over VERTICES, one thread each, so nothing needs an
     atomic. C is unweighted and F is not, so the vertex mass is carried twice, and a
     witness joins the positive mass rather than taking the head rule.
+    As in the CPU diagonal kernel, signed weights enter through their magnitudes;
+    orientation is read from B1, and the caller's weights are not modified.
     """
     lib = _load()
     if lib is None:
@@ -264,7 +266,7 @@ def channel_tower(bp, bi, nV, w=None, block: int = 256):
     bi = np.ascontiguousarray(bi, dtype=np.int32)
     nE = int(bp.shape[0] - 1)
     wv = (np.ones(nE, np.float64) if w is None
-          else np.ascontiguousarray(w, dtype=np.float64))
+          else np.abs(np.ascontiguousarray(w, dtype=np.float64)))
     vptr, owner, is_head = transpose_incidence(bp, bi, int(nV))
 
     ptrs = {}

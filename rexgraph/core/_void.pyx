@@ -20,7 +20,6 @@ cimport numpy as np
 from libc.math cimport fabs
 from libc.stdlib cimport malloc, free
 from libc.string cimport memset
-from scipy.sparse import csc_matrix
 
 cimport cython
 
@@ -35,7 +34,7 @@ from rexgraph.core._common cimport (
 np.import_array()
 
 
-# Orientation helpers (direct cycle-sign computation)
+# Orientation helpers (direct cycle sign computation)
 
 cdef inline i32 _shared_vertex(i32 pa, i32 ma, i32 pb, i32 mb) noexcept nogil:
     """Return the vertex common to edges a={pa,ma} and b={pb,mb}."""
@@ -52,7 +51,7 @@ def find_potential_triangles_i32(np.ndarray[i32, ndim=1] adj_ptr,
                                   np.ndarray[i32, ndim=1] adj_idx,
                                   np.ndarray[i32, ndim=1] adj_edge,
                                   Py_ssize_t nV, Py_ssize_t nE):
-    """Find all triangles in the 1-skeleton via adjacency CSR.
+    """Find all triangles in the 1 skeleton via adjacency CSR.
 
     For each vertex v, for each pair of neighbors (u, w) with u < w < v (to avoid duplicates):
         if edge (u,w) exists: triangle (u,w,v) found.
@@ -80,8 +79,13 @@ def find_potential_triangles_i32(np.ndarray[i32, ndim=1] adj_ptr,
                 w = ai[nj]
                 if w >= v or w <= u:
                     continue
-                if binary_search_i32(&ai[lo_u], hi_u - lo_u, w) >= 0:
-                    nT += 1
+                pos = binary_search_i32(&ai[lo_u], hi_u - lo_u, w)
+                if pos >= 0:
+                    while pos > 0 and ai[lo_u + pos - 1] == w:
+                        pos -= 1
+                    while pos < hi_u - lo_u and ai[lo_u + pos] == w:
+                        nT += 1
+                        pos += 1
 
     if nT == 0:
         return np.zeros((0, 3), dtype=np.int32), 0
@@ -105,10 +109,14 @@ def find_potential_triangles_i32(np.ndarray[i32, ndim=1] adj_ptr,
                     continue
                 pos = binary_search_i32(&ai[lo_u], hi_u - lo_u, w)
                 if pos >= 0:
-                    te[k, 0] = ae[ni]
-                    te[k, 1] = ae[nj]
-                    te[k, 2] = ae[lo_u + pos]
-                    k += 1
+                    while pos > 0 and ai[lo_u + pos - 1] == w:
+                        pos -= 1
+                    while pos < hi_u - lo_u and ai[lo_u + pos] == w:
+                        te[k, 0] = ae[ni]
+                        te[k, 1] = ae[nj]
+                        te[k, 2] = ae[lo_u + pos]
+                        k += 1
+                        pos += 1
 
     return tri_edges, nT
 
@@ -132,13 +140,13 @@ def _realized_face_keys(B2, Py_ssize_t nE):
     from B2's columns instead of scanning every row of a densified nE x nF. Accepts
     sparse or dense, and returns the sorted key array `classify_triangles` searches.
     """
-    import scipy.sparse as sp
     if B2 is None:
         return np.zeros(0, dtype=np.int64)
-    if sp.issparse(B2):
-        Bc = B2.tocsc()
-        rows, vals, indptr = Bc.indices, np.asarray(Bc.data, dtype=np.float64), Bc.indptr
-        nF = Bc.shape[1]
+    if not isinstance(B2, np.ndarray):
+        from rexgraph.native_sparse import as_native
+        Bc = as_native(B2).dual
+        rows, vals, indptr = Bc.row_idx, np.asarray(Bc.vals_csc, dtype=np.float64), Bc.col_ptr
+        nF = len(indptr) - 1
         keep = np.abs(vals) > 0.5
         cols = np.repeat(np.arange(nF, dtype=np.int64), np.diff(indptr))
         rows, cols = rows[keep].astype(np.int64), cols[keep]
@@ -159,6 +167,8 @@ def _realized_face_keys(B2, Py_ssize_t nE):
     rows_s, cols_s = rows[order], cols[order]
     take = np.isin(cols_s, tri)
     r = rows_s[take].reshape(-1, 3)           # three ascending relations per face
+    if nE > 2097152:
+        return np.array(sorted(int(a)*int(nE)**2 + int(b)*int(nE) + int(c) for a, b, c in r), dtype=object)
     nE64 = np.int64(nE)
     keys = r[:, 0] * nE64 * nE64 + r[:, 1] * nE64 + r[:, 2]
     return np.sort(keys.astype(np.int64))
@@ -167,7 +177,7 @@ def _realized_face_keys(B2, Py_ssize_t nE):
 def classify_triangles(B2, tri_edges, Py_ssize_t nT, Py_ssize_t nE):
     """For each potential triangle, check if it matches a column of B2.
 
-    Realized faces are encoded as sorted-edge integer keys, sorted once,
+    Realized faces are encoded as sorted edge integer keys, sorted once,
     then each potential triangle is matched by binary search - no Python
     set/tuple objects in the hot loop.
 
@@ -175,6 +185,18 @@ def classify_triangles(B2, tri_edges, Py_ssize_t nT, Py_ssize_t nE):
     """
     if nT == 0:
         return np.zeros(0, dtype=np.int32), np.zeros(0, dtype=np.int32), 0
+
+    # A radix nE key needs up to nE**3 - 1. Keep larger axes exact rather
+    # than allowing signed int64 overflow to merge distinct face supports.
+    if nE > 2097152:
+        keys = set(_realized_face_keys(B2, nE))
+        flags = []
+        for triple in np.asarray(tri_edges)[:nT]:
+            a, b, c = sorted(map(int, triple))
+            flags.append(int(a*int(nE)**2 + b*int(nE) + c in keys))
+        large_realized = np.asarray(flags, dtype=np.int32)
+        missing = np.flatnonzero(large_realized == 0).astype(np.int32)
+        return large_realized, missing, len(missing)
 
     cdef i64 nE64 = <i64>nE
 
@@ -208,13 +230,13 @@ def classify_triangles(B2, tri_edges, Py_ssize_t nT, Py_ssize_t nE):
 
 
 cdef inline i64 _sorted_key(i32 e0, i32 e1, i32 e2, i64 nE64) noexcept nogil:
-    """Encode a sorted edge-triple as a single int64 key."""
+    """Encode a sorted edge triple as a single int64 key."""
     cdef i32 lo = e0, hi = e0, mid
     if e1 < lo: lo = e1
     if e2 < lo: lo = e2
     if e1 > hi: hi = e1
     if e2 > hi: hi = e2
-    mid = (e0 + e1 + e2) - lo - hi
+    mid = <i32>((<i64>e0 + <i64>e1 + <i64>e2) - lo - hi)
     return (<i64>lo) * nE64 * nE64 + (<i64>mid) * nE64 + (<i64>hi)
 
 
@@ -256,7 +278,7 @@ def _endpoint_rows(B1, Py_ssize_t nV, Py_ssize_t nE):
     pe = np.zeros(nE, dtype=np.int32)
     me = np.zeros(nE, dtype=np.int32)
     # reversed scatter: the FIRST occurrence in each column lands last and wins, which
-    # is numpy's smallest-index tie-break for equal shares.
+    # is numpy's smallest index tie break for equal shares.
     pos = vals > 0
     if pos.any():
         pe[cols[pos][::-1]] = rows[pos][::-1].astype(np.int32)
@@ -271,9 +293,9 @@ def build_void_boundary(B1, B2, tri_edges, Py_ssize_t nT,
     """Build Bvoid: nE x n_voids CSC of void boundary cycles.
 
     Each void triangle's boundary cycle is oriented directly from the
-    edge endpoints (one shared-vertex traversal), so B1 @ Bvoid = 0 by
+    edge endpoints (one shared vertex traversal), so B1 @ Bvoid = 0 by
     construction. The result is sparse (exactly 3 nonzeros per column) -
-    the previous version brute-forced 8 sign patterns with a full dense
+    the previous version brute forced 8 sign patterns with a full dense
     B1 matvec per void and stored a dense nE x n_voids matrix.
     """
     _, void_indices, n_voids = classify_triangles(B2, tri_edges, nT, nE)
@@ -318,6 +340,7 @@ def build_void_boundary(B1, B2, tri_edges, Py_ssize_t nT,
         dv[3 * c + 1] = -alpha0 * beta1; iv[3 * c + 1] = e1
         dv[3 * c + 2] = alpha0 * delta2; iv[3 * c + 2] = e2
 
+    from scipy.sparse import csc_matrix
     Bvoid = csc_matrix((data, indices, indptr), shape=(nE, n_voids))
     return Bvoid, void_indices, n_voids
 
@@ -376,7 +399,7 @@ def harmonic_content_all(Bvoid, evals_L1, evecs_L1,
 
     Each bv has 3 nonzeros, so the projection touches only 3 rows of the
     harmonic eigenbasis; this gathers those rows and batches all voids
-    with no per-void Python loop and no dense Bvoid.
+    with no per void Python loop and no dense Bvoid.
     """
     if n_voids == 0:
         return np.zeros(0, dtype=np.float64)
@@ -402,16 +425,16 @@ def harmonic_content_all(Bvoid, evals_L1, evecs_L1,
 
 
 def harmonic_content_all_sparse(B1, B2, Bvoid, Py_ssize_t n_voids, Py_ssize_t nE):
-    """Eigen-free harmonic content eta_k = ||P_ker(L1) bv_k||^2 / ||bv_k||^2, via the
-    combinatorial LOW-RANK harmonic projector P_H = H(HᵀH)⁻¹Hᵀ (H =
+    """Eigen free harmonic content eta_k = ||P_ker(L1) bv_k||^2 / ||bv_k||^2, via the
+    combinatorial LOW RANK harmonic projector P_H = H(HᵀH)⁻¹Hᵀ (H =
     harmonic_basis_from_boundaries(B1, B2)) instead of a dense eigendecomposition of
     L1. H spans the same ker(L1) as the dense harmonic eigenbasis, so eta is IDENTICAL
-    (to ~1e-9) - but it is scale-free: the void harmonic content is now available even
+    (to ~1e-9) - but it is scale free: the void harmonic content is now available even
     when no dense L1 spectrum was computed (previously NaN on large graphs).
 
     eta_k = bv_kᵀ P_H bv_k / ||bv_k||^2 = (Hᵀbv_k)ᵀ (HᵀH)⁻¹ (Hᵀbv_k) / ||bv_k||^2,
     batched over all voids: G = Hᵀ Bvoid (dim_H x n_voids), one shared sparse
-    factorization of HᵀH applied to the whole block, no per-void loop, no dense nE x nE.
+    factorization of HᵀH applied to the whole block, no per void loop, no dense nE x nE.
     """
     if n_voids == 0:
         return np.zeros(0, dtype=np.float64)
@@ -508,7 +531,7 @@ def void_character_all(Bvoid, RL, hats, Py_ssize_t nhats,
 
     bv has 3 nonzeros, so each quadratic form is the sum over a 3x3
     submatrix (9 entries) - computed directly instead of a full dense
-    matvec per void. No per-void Python loop, no dense Bvoid, and hats
+    matvec per void. No per void Python loop, no dense Bvoid, and hats
     are consumed one at a time (no nhats*nE*nE stack).
     """
     chi_void = np.zeros((n_voids, nhats), dtype=np.float64)
@@ -678,12 +701,12 @@ def build_void_complex(B1, B2, adj_ptr, adj_idx, adj_edge,
     # needs it dense: void nullity is read from the sparse Bvoid (agent pipeline),
     # and void_strain = tr(Lvoid) is computed directly from Bvoid below. Keep it
     # sparse to avoid the nE x nE materialization on the void path. VoidComplex.Lvoid
-    # is typed `object`; `.toarray()` reproduces the old dense array bit-for-bit.
+    # is typed `object`; `.toarray()` reproduces the old dense array bit for bit.
     result['Lvoid'] = (Bvoid @ Bvoid.T).tocsr()
 
     # Step 4: harmonic content eta_k = ||P_ker(L1) bv_k||^2 / ||bv_k||^2. Prefer the
     # dense eigenbasis when the spectral bundle already provided it (small graphs,
-    # exact oracle); otherwise fall back to the EIGEN-FREE combinatorial low-rank
+    # exact oracle); otherwise fall back to the EIGEN FREE combinatorial low rank
     # projector built from B1/B2 (== the dense value to ~1e-9), so void harmonic
     # content is available at scale instead of NaN.
     if evals_L1 is not None and evecs_L1 is not None:

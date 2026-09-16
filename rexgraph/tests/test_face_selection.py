@@ -103,7 +103,7 @@ class TestContextFaceSelection:
         assert result['nF'] == result['n_triangles']
 
     def test_empty_context_none_realized(self, k4):
-        """All-zero context -> zero faces."""
+        """All zero context -> zero faces."""
         ctx = np.zeros((1, k4.nV), dtype=np.uint8)
         adj_ptr, adj_idx, adj_edge = self._adj(k4)
         result = _faces.context_face_selection(

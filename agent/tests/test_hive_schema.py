@@ -1,4 +1,4 @@
-"""agent.hive_schema: the hive's structure as a versioned, cause-tagged complex."""
+"""agent.hive_schema: the hive's structure as a versioned, cause tagged complex."""
 from agent.hive_schema import HiveSchema
 
 from agent import agent_complex, rcdb
@@ -26,7 +26,7 @@ def test_schema_versions_on_structural_change():
     h = _hive()
     hs = HiveSchema(h, store=rcdb.MemoryStore())
     hs.snapshot(cause="init")
-    # a new task deploys a worker -> the self-schema changes -> a new version
+    # a new task deploys a worker -> the self schema changes -> a new version
     h.add_worker("coder", lambda d, **k: d, capability="analyze", worker_type="analyzer:code")
     v2 = hs.snapshot(cause="new task: code generation")
     assert v2["unchanged"] is False

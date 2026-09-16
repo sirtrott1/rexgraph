@@ -92,7 +92,7 @@ def test_an_allowed_reference_attaches(server, monkeypatch):
 
 
 def test_spawning_a_process_is_admin(server):
-    """spawn starts a subprocess with a caller-chosen path; same class of action."""
+    """spawn starts a subprocess with a caller chosen path; same class of action."""
     client, ah, bh = server
     body = {"name": "x", "model_path": "/nonexistent.gguf"}
     assert client.post("/api/v1/hive/spawn", headers=bh, json=body).status_code == 403

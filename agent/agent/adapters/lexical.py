@@ -13,7 +13,7 @@ The mapping is not a convention, it follows from what each resource IS:
                        invent structure the lexicon does not assert.
 
 So two of the three feed `rexgraph.construct.from_groups` and the third feeds whatever
-consumes a vertex-indexed field. Nothing here builds a complex; these return the data and
+consumes a vertex indexed field. Nothing here builds a complex; these return the data and
 the caller chooses the construction, because the same synset inventory supports several
 and picking one here would hide that choice.
 
@@ -45,10 +45,10 @@ def _open(path):
     return open(p, encoding="utf-8", errors="replace")
 
 
-#### WordNet ###################################################################
+# WordNet
 
 def load_wordnet(path, *, with_examples=False):
-    """Open English WordNet / any WN-LMF lexicon.
+    """Open English WordNet / any WN LMF lexicon.
 
     Streams with `iterparse` and clears as it goes, so a 120k-synset lexicon is read in
     bounded memory rather than held as a tree.
@@ -100,7 +100,7 @@ def load_wordnet(path, *, with_examples=False):
                 for s in el.iter():
                     if s.tag.split("}")[-1] == "Sense" and s.get("id"):
                         sense_of[s.get("id")] = (eid, s.get("synset"))
-                        # `subcat` is a space-separated list of frame ids: the frames
+                        # `subcat` is a space separated list of frame ids: the frames
                         # this sense admits. Several is not ambiguity to resolve here,
                         # it is the sense genuinely taking more than one argument shape.
                         sub = (s.get("subcat") or "").split()
@@ -141,7 +141,7 @@ def wordnet_groups(wn, *, by="lemma", min_size=2, include_relations=True):
     about senses, so it is a parameter and not a default buried in a parser.
 
     `min_size=2` drops singleton synsets, which are a group of one and bound nothing.
-    `include_relations` adds each synset relation as a 2-ary group over the two synsets'
+    `include_relations` adds each synset relation as a 2 ary group over the two synsets'
     members, which is what carries hypernymy into the same complex.
 
     Returns `(groups, labels)` where `labels[i]` says what group `i` came from.
@@ -166,9 +166,9 @@ def wordnet_groups(wn, *, by="lemma", min_size=2, include_relations=True):
     return groups, labels
 
 
-#### Roget ######################################################################
+# Roget
 
-#: a Roget heading: "#123. Name.—N. term, term; ..." with the number and name up front.
+#: a Roget heading: "#123. Name., N. term, term; ..." with the number and name up front.
 _ROGET_HEAD = re.compile(r"^#\s*(\d+)\.\s*(.+?)\.?\s*(?:—|--|—)", re.UNICODE)
 _ROGET_ANY = re.compile(r"^#\s*(\d+)\.\s*(.*)$")
 
@@ -178,7 +178,7 @@ def load_roget(path, *, min_terms=2):
 
     The file is prose with numbered headings, so this is a segmentation and not a schema
     read: a heading opens a category and everything up to the next heading is its body.
-    Terms are split on the separators Roget actually uses, and the cross-reference tails
+    Terms are split on the separators Roget actually uses, and the cross reference tails
     ("&c. 494") are dropped because they point at a category rather than naming a term.
 
     Returns `{number: {"name": str, "terms": [str, ...]}}`.
@@ -200,7 +200,7 @@ def load_roget(path, *, min_terms=2):
         parts = re.split(r"[;,.]", text)
         terms = []
         for t in parts:
-            # a leading "N." / "V." / "Adj." is the part-of-speech heading Roget puts in
+            # a leading "N." / "V." / "Adj." is the part of speech heading Roget puts in
             # front of each run, not the first word of the first term
             t = re.sub(r"^\s*(?:N|V|Adj|Adv|Int|Phr)\.\s*", " ", t, flags=re.IGNORECASE)
             t = re.sub(r"[^A-Za-z' -]", " ", t).strip().lower()
@@ -224,12 +224,12 @@ def load_roget(path, *, min_terms=2):
     return cats
 
 
-#### NRC: values on words, not relations ########################################
+# NRC: values on words, not relations
 
 def load_nrc_vad(path):
     """NRC VAD: `word \\t valence \\t arousal \\t dominance`.
 
-    A 0-cochain on the word vertices, three channels wide. Returns `{word: (v, a, d)}`
+    A 0 cochain on the word vertices, three channels wide. Returns `{word: (v, a, d)}`
     with floats in [0, 1].
     """
     out = {}

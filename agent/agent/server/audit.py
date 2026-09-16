@@ -1,5 +1,5 @@
 """
-agent.server.audit: an append-only trail where an edited entry stops verifying.
+agent.server.audit: an append only trail where an edited entry stops verifying.
 
 A log that records what happened answers "what happened" only if nothing can quietly
 edit it afterwards. A plain journal cannot tell a line that was always there from one
@@ -45,7 +45,7 @@ from pathlib import Path
 
 try:
     import fcntl
-except ImportError:                                  # non-POSIX: one process only
+except ImportError:                                  # non POSIX: one process only
     fcntl = None
 
 #: the digest recorded by the first entry, which has nothing before it
@@ -71,7 +71,7 @@ def _line(obj: dict) -> bytes:
 
 @contextlib.contextmanager
 def _locked_append(p: Path):
-    """Hold `p` exclusively for the duration of the block, yielding an append-mode fd.
+    """Hold `p` exclusively for the duration of the block, yielding an append mode fd.
 
     Both writers in this module read a file and then append to it based on what they
     read, so the lock has to span both halves. Closing the descriptor releases it.
@@ -156,7 +156,7 @@ def record(action: str, *, user: str = "", workspace: str = "default",
     try:
         with _locked_append(p) as fd:
             # The head is read from the file while the lock is held, never from a
-            # process-local cache. Two processes stamping `prev` from their own cached
+            # process local cache. Two processes stamping `prev` from their own cached
             # head both extended the same entry, so the chain forked and `verify`
             # reported a break with nothing tampered, which makes a real break
             # indistinguishable from ordinary concurrency.
@@ -240,7 +240,7 @@ def anchor_path() -> Path:
     The default sits beside the journal, which is convenient and weak: whoever can
     rewrite the trail can rewrite anchors in the same directory. Point
     REXGRAPH_AUDIT_ANCHORS at a sink this service cannot rewrite, another host, an
-    append-only mount, object storage under a retention lock, or an anchor proves
+    append only mount, object storage under a retention lock, or an anchor proves
     nothing the journal does not already prove on its own.
     """
     explicit = os.environ.get("REXGRAPH_AUDIT_ANCHORS")

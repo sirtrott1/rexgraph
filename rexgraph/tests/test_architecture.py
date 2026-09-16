@@ -100,7 +100,7 @@ def test_documented_imports_exist():
             if hasattr(m, n):
                 continue
             # `from package import submodule` resolves through the import system even when
-            # the submodule is not re-exported, so attribute lookup alone under-reports
+            # the submodule is not re exported, so attribute lookup alone under reports
             try:
                 importlib.import_module(f"{mod}.{n}")
             except ImportError:

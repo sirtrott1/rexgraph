@@ -1,19 +1,19 @@
 """
 agent.hive: swarm of local models orchestrated as a relational complex.
 
-A queen (the main driver), worker bees, and an embedder bee, each an OpenAI-compatible endpoint
-(a managed llama.cpp subprocess or an attached live server). Every bee-to-bee interaction is
+A queen (the main driver), worker bees, and an embedder bee, each an OpenAI compatible endpoint
+(a managed llama.cpp subprocess or an attached live server). Every bee to bee interaction is
 recorded into the live agentic relational complex (`agent_complex`), so the monitor/graph populate
 from real traffic.
 
 Composition boundaries:
   - `local_runtime` owns process lifecycle (spawn/health/stop) and hardware detection.
-  - `agent_complex` owns the analysis (load-bearing, coherence, Hodge, alignment, routing).
+  - `agent_complex` owns the analysis (load bearing, coherence, Hodge, alignment, routing).
   - `hive` owns the swarm: which bees exist, their role/specialty, dispatching a query to the
     right bee, and relaying every message through the complex.
 
-A bee is managed (this process spawned its llama-server) or attached (a live endpoint, e.g. an
-Ollama or vLLM server). Routing is query-reweighting over the interaction history
+A bee is managed (this process spawned its llama server) or attached (a live endpoint, e.g. an
+Ollama or vLLM server). Routing is query reweighting over the interaction history
 (`agent_complex.route`) blended with each bee's declared specialties: a fresh hive routes by
 specialty, a warm one routes by which bee has been carrying the relevant work.
 """
@@ -37,7 +37,7 @@ def _budget_slot(identity: str):
     """The compute ceiling, when the server layer is importable.
 
     The hive runs headless too (a CLI, a notebook), where there is no server and no
-    tenant to bound, so an absent budget module is a no-op rather than a hard
+    tenant to bound, so an absent budget module is a no op rather than a hard
     dependency from the swarm onto the web layer.
     """
     try:
@@ -70,8 +70,8 @@ def _stem(token: str) -> set:
     nothing. No single stem is right for every word (classes wants two characters
     removed, bases wants one), so the token carries BOTH candidates and the overlap
     matches on either. Derivational pairs (annotate / annotation) are NOT unified: a
-    specialty meant to catch both declares both. Two- and three-letter tokens pass
-    through, since the old three-character floor is why a query about GO terms
+    specialty meant to catch both declares both. Two- and three letter tokens pass
+    through, since the old three character floor is why a query about GO terms
     matched no ontology bee at all."""
     out = {token}
     if len(token) <= 3:
@@ -95,7 +95,7 @@ def _stems(text: str) -> set:
 
 
 # common function words carry no content; dropping them makes lexical agreement reflect subject
-# matter, so "shares nothing" becomes an exact structural signal rather than stopword-inflated. Not
+# matter, so "shares nothing" becomes an exact structural signal rather than stopword inflated. Not
 # a tuned threshold, noise removal. (The embedding path does not need this.)
 _STOPWORDS = frozenset(
     ["the", "and", "are", "for", "was", "were", "that", "this", "with", "from", "have", "has", "had", "not", "but", "all", "any", "can", "will", "would", "should", "could", "into", "onto", "off", "per", "via", "out", "over", "under", "near", "more", "most", "some", "such", "then", "than", "they", "them", "their", "there", "here", "what", "when", "where", "which", "who", "whom", "how", "why", "our", "your", "its", "his", "her", "about", "also", "been", "being", "does", "did", "done", "each", "other", "same", "only", "very", "just", "like"])
@@ -120,13 +120,13 @@ def _profile_monitor_embed() -> bool:
 
 
 def _default_rules():
-    """Loaded lazily: hive_config imports hive in apply(), so a module-level import would cycle."""
+    """Loaded lazily: hive_config imports hive in apply(), so a module level import would cycle."""
     from agent.hive_config import load_specialty_rules
     return load_specialty_rules()
 
 
 def _specialty_of(name: str, rules=None):
-    """(bee-name base, specialty keywords) for a model name, from the specialty RULES.
+    """(bee name base, specialty keywords) for a model name, from the specialty RULES.
 
     Rules come from config (agent.hive_config.load_specialty_rules), so teaching the hive a new
     model family is a config edit rather than a source edit. Passed explicitly rather than read
@@ -155,9 +155,9 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
     returns the plan.
 
     Only GGUF are spawnable via llama.cpp (transformers snapshots are skipped). The queen is the
-    largest chat model that fits alone. Workers are the remaining chat models, smallest-first,
-    added while the running footprint (file size * kv_factor, for KV-cache overhead) stays under
-    the usable budget (budget * (1-headroom)). The cheapest embedder is always included, even if
+    largest chat model that fits alone. Workers are the remaining chat models, smallest first,
+    added while the running footprint (file size * kv_factor, for KV cache overhead) stays under
+    the usable budget (budget * (1 headroom)). The cheapest embedder is always included, even if
     that pushes the total past the usable budget (a hive with no embedder can't route to it at
     all) - in that case the returned dict's `over_budget` flag is set so callers don't mistake
     the plan for one that fits.
@@ -191,7 +191,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
         nm = _worker_name(m["name"], taken, rules=rules); taken.add(nm)
         _, spec = _specialty_of(m["name"], rules=rules)
         # a generalist worker is not a specialist in anything, but an EMPTY list makes it score 0
-        # on every cold-hive routing query - unreachable until it somehow accrues history. The
+        # on every cold hive routing query - unreachable until it somehow accrues history. The
         # queen already had this fallback; the worker branch did not.
         plan.append({"name": nm, "role": "worker", "path": m["path"], "model": m["name"],
                      "size_gb": m["size_gb"], "specialties": spec or list(GENERAL_SPECIALTIES)})
@@ -211,7 +211,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
 @dataclass
 class Bee:
     """One member of the swarm. Managed bees are subprocesses this hive spawned and owns the
-    lifecycle of; attached bees are pre-existing endpoints the hive only references."""
+    lifecycle of; attached bees are pre existing endpoints the hive only references."""
     name: str
     role: str                       # queen | worker | embedder
     url: str
@@ -222,8 +222,8 @@ class Bee:
     port: int | None = None
     summary: dict | None = None   # model_io.model_summary (arch/params/dim/quant)
     capability: str = "generate"     # generate (chat) | predict | score | embed | analyze | transform
-    worker_type: str = ""            # ':'-scoped kind for the worker-type ontology (e.g. model:mlp)
-    # A secret REFERENCE (env var name / secret-store name) for an authenticated remote provider,
+    worker_type: str = ""            # ':'-scoped kind for the worker type ontology (e.g. model:mlp)
+    # A secret REFERENCE (env var name / secret store name) for an authenticated remote provider,
     # never the credential itself. Resolved per call by _chat_full via agent.secrets.resolve_ref,
     # so nothing that serializes a Bee can ever carry a key. Empty => unauthenticated bee.
     api_key_ref: str = ""
@@ -237,7 +237,7 @@ class Bee:
     n_gpu_layers: int | None = None   # what it was actually spawned with
     tok_s: float | None = None        # measured solo decode rate, filled by observe()
     _proc: object = None             # Popen for managed worker bees (not serialized)
-    _handler: object = None          # local callable for non-chat workers (not serialized)
+    _handler: object = None          # local callable for non chat workers (not serialized)
     # WHICH caller this bee was registered for, when one was named. A tool bee runs
     # under the context bound at registration, so two callers registering the same tool
     # name on one hive would otherwise leave the first caller's bee executing as the
@@ -259,7 +259,7 @@ class Bee:
 @dataclass
 class ChatResult:
     """One bee's structured reply. `content` is the text (None when the model answered with tool
-    calls instead of prose), `tool_calls` the OpenAI-style calls to execute, `finish_reason` why
+    calls instead of prose), `tool_calls` the OpenAI style calls to execute, `finish_reason` why
     generation stopped ('stop' | 'tool_calls' | 'length' | ...), and `reasoning_content` the
     thinking trace backends like llama.cpp --jinja return alongside the answer.
 
@@ -281,19 +281,19 @@ def _chat_full(url: str, model: str, prompt: str | None, system: str | None = No
                *, messages: list[dict] | None = None, tools: list[dict] | None = None,
                tool_choice=None, chat_template_kwargs: dict | None = None,
                api_key_ref: str = "") -> ChatResult | None:
-    """Call one bee's OpenAI-compatible /v1/chat/completions and return the FULL structured reply.
+    """Call one bee's OpenAI compatible /v1/chat/completions and return the FULL structured reply.
 
     `messages` sends a complete history verbatim (the assistant turn carrying tool_calls plus the
     `role: tool` results) - a tool loop cannot be closed with a single prompt string, so this is
-    what makes the hive drivable by a tool-calling harness. `prompt`/`system` remain the
-    single-turn convenience.
+    what makes the hive drivable by a tool calling harness. `prompt`/`system` remain the
+    single turn convenience.
 
     `api_key_ref` is a secret *reference* resolved at call time (agent.secrets.resolve_ref); the
     credential is never held on the Bee nor serialized. An unresolvable reference simply sends no
     Authorization header rather than leaking the reference as a bearer token.
 
     Returns None if unreachable. Targets an explicit url so the call goes to a specific bee, not
-    the globally-resolved chat backend."""
+    the globally resolved chat backend."""
     try:
         import httpx
     except Exception:
@@ -346,12 +346,12 @@ def _chat_full(url: str, model: str, prompt: str | None, system: str | None = No
 def _chat(url: str, model: str, prompt: str, system: str | None = None,
           max_tokens: int = 512, temperature: float = 0.3, timeout: float = 120.0,
           **kw) -> str | None:
-    """Call one bee's OpenAI-compatible /v1/chat/completions. Returns the reply text, or None if
+    """Call one bee's OpenAI compatible /v1/chat/completions. Returns the reply text, or None if
     unreachable or empty. Targets an explicit url so the call goes to a specific bee, not the
-    globally-resolved chat backend.
+    globally resolved chat backend.
 
     The text path every existing caller uses (dispatch/collaborate/consensus/guarded_ask), kept
-    string-returning on purpose. Use `_chat_full` for tool calls and finish_reason."""
+    string returning on purpose. Use `_chat_full` for tool calls and finish_reason."""
     res = _chat_full(url, model, prompt, system=system, max_tokens=max_tokens,
                      temperature=temperature, timeout=timeout, **kw)
     return res.content if res is not None else None
@@ -359,12 +359,12 @@ def _chat(url: str, model: str, prompt: str, system: str | None = None,
 
 class Hive:
     """Swarm orchestrator. Bees are added (spawned or attached), queries are dispatched to the
-    best-matching bee, and every message is recorded into the shared relational complex."""
+    best matching bee, and every message is recorded into the shared relational complex."""
 
     def __init__(self, name: str = "default"):
         self._bees: dict[str, Bee] = {}
         self.name = name
-        # each hive IS its own coordination complex. The 'default' hive uses the process-wide live
+        # each hive IS its own coordination complex. The 'default' hive uses the process wide live
         # complex (so the runtime and existing routes observe it); a named hive is isolated.
         self._own_complex = None
         if name != "default":
@@ -381,7 +381,7 @@ class Hive:
     def _register(self, bee: Bee) -> Bee:
         """Take a bee into the roster, refusing to silently rebind one another caller owns.
 
-        `get_hive()` hands out a process-wide singleton, so two callers that each scope
+        `get_hive()` hands out a process wide singleton, so two callers that each scope
         themselves correctly still meet on one roster. Registration is keyed by bee name,
         so the second would replace the first and the first caller's tool would then run
         under the second's workspace and admin flag with neither told. A name already held
@@ -398,10 +398,10 @@ class Hive:
 
     def attach(self, name: str, url: str, *, role: str = "worker",
                model: str = "", specialties=None, api_key_ref: str = "") -> Bee:
-        """Register a bee for an already-running endpoint (Ollama/vLLM/llama.cpp/etc). The hive
+        """Register a bee for an already running endpoint (Ollama/vLLM/llama.cpp/etc). The hive
         references it but does not own its lifecycle. `role` must be queen|worker|embedder.
 
-        `api_key_ref` names an env var / secret-store entry holding the endpoint's credential, so
+        `api_key_ref` names an env var / secret store entry holding the endpoint's credential, so
         an authenticated remote provider (DeepSeek, OpenAI, ...) can be a bee. Pass the reference,
         never the key: it is resolved per request and never stored or serialized."""
         if role not in VALID_ROLES:
@@ -419,10 +419,10 @@ class Hive:
                    context=None) -> Bee:
         """Register any callable as a worker member. `handler(data, **kw)` runs the worker's
         capability on structured input. This is the general primitive: a trained NN, a statistical
-        model, a rexgraph analyzer, an embedder, or any inference module becomes a first-class hive
+        model, a rexgraph analyzer, an embedder, or any inference module becomes a first class hive
         member, invoked with invoke() and monitored like any bee. `capability` is one of
         predict/score/embed/analyze/transform (generate is the chat path). `worker_type` names its
-        kind for the worker-type ontology (':'-scoped, e.g. 'analyzer:stat:logreg'); it defaults to
+        kind for the worker type ontology (':'-scoped, e.g. 'analyzer:stat:logreg'); it defaults to
         'worker:<capability>' so every worker is typed. No HTTP endpoint involved."""
         bee = Bee(name=name, role="worker", url="", model=model,
                   specialties=list(specialties or []), managed=False,
@@ -459,7 +459,7 @@ class Hive:
 
         `context` is bound at registration and is what keeps this from being the way
         around the boundaries: every call goes through `mcp_tools.call`, so an
-        admin-only tool is refused for a non-admin context, files resolve as handles
+        admin only tool is refused for a non admin context, files resolve as handles
         inside that workspace, and a stored record belonging elsewhere reads as absent.
         A bee is a caller like any other, not a trusted one. `context=None` is the local
         operator, unrestricted, the same rule the rest of the stack uses.
@@ -468,7 +468,7 @@ class Hive:
         the same tool on the same hive is refused rather than silently rebinding the
         first caller's bee to its own workspace. See `_register`.
 
-        Tools are typed `tool:<name>`, so they join the worker-type taxonomy
+        Tools are typed `tool:<name>`, so they join the worker type taxonomy
         `type_complex` builds and are routable and diagnosable like any other member.
         """
         from agent.mcp_tools import TOOLS
@@ -503,7 +503,7 @@ class Hive:
                             sender: str = "user") -> dict:
         """Route a structured request to a worker providing `capability` and invoke it. When more
         than one provides it, `hint` (a query string) breaks ties by specialty overlap. Returns
-        {worker, capability, result}. This is the structured-task analog of dispatch()."""
+        {worker, capability, result}. This is the structured task analog of dispatch()."""
         cands = self.providers(capability)
         if not cands:
             raise ValueError(f"no worker provides capability {capability!r}")
@@ -516,11 +516,11 @@ class Hive:
                 "result": self.invoke(name, data, sender=sender)}
 
     def type_complex(self):
-        """Build the worker-type taxonomy as a relational complex via the ontology code
+        """Build the worker type taxonomy as a relational complex via the ontology code
         (agent.ontology_complex). Worker types are ':'-scoped, so 'analyzer:stat:summary' subsumes
         up through 'analyzer:stat' to 'analyzer'; each worker is an instance of its type. Returns
         (rex, meta), or None when no worker declares a type. The result is the same object the
-        Hodge/ontology diagnosis reads, so the type hierarchy is consistency-checkable (a harmonic
+        Hodge/ontology diagnosis reads, so the type hierarchy is consistency checkable (a harmonic
         subsumption cycle is an inconsistency) and routable like any complex."""
         from agent.ontology_complex import ontology_to_rex, parse_rdf
         triples, seen = [], set()
@@ -540,7 +540,7 @@ class Hive:
         return ontology_to_rex(parse_rdf(triples))
 
     def invoke(self, name: str, data, *, sender: str = "user", record: bool = True, **kw):
-        """Call a non-chat worker (a local model/analyzer) on structured input and return its
+        """Call a non chat worker (a local model/analyzer) on structured input and return its
         result (e.g. predictions). Like ask() for chat bees, the call is recorded into the live
         complex, so a model worker participates in the monitored swarm topology. Use ask() for a
         chat (generate) bee and invoke() for a predict/score/embed/analyze worker."""
@@ -568,7 +568,7 @@ class Hive:
 
     @staticmethod
     def _device_of(n_gpu_layers) -> str:
-        """What `-ngl` actually pins the server to. 0 is CPU-only; anything else puts at
+        """What `-ngl` actually pins the server to. 0 is CPU only; anything else puts at
         least some layers on the accelerator, and a partial split is named as such because
         it is measurably the worst of both: on this laptop every partial split of a 7B
         was slower than pure CPU or pure iGPU (26.66 tok/s at the best split against 47.06
@@ -675,7 +675,7 @@ class Hive:
             known.add(url)
         return added
 
-    # auto-composition: stand up the best hive that fits, from disk
+    # auto composition: stand up the best hive that fits, from disk
 
     def auto_plan(self, budget_gb: float | None = None, **kw) -> dict:
         """Plan a hive (queen, workers, embedder) that fits, from the models on disk and the
@@ -699,7 +699,7 @@ class Hive:
             except Exception as ex:
                 return {"name": e.get("name"), "role": e.get("role"), "ok": False, "error": str(ex)}
 
-        # id is index-prefixed so two plan entries with the same name cannot collide into one wave
+        # id is index prefixed so two plan entries with the same name cannot collide into one wave
         # slot (which would silently drop a spawn).
         tasks = [{"id": f"{i}:{e.get('name') or ''}", "kind": "spawn",
                   "fn": functools.partial(_spawn_one, e),
@@ -748,7 +748,7 @@ class Hive:
     # every interaction is recorded into the relational complex
 
     def relay(self, sender: str, recipient: str, text: str, **meta):
-        """Record one bee-to-bee (or user-to-bee) message into the live agentic complex. This is
+        """Record one bee to bee (or user to bee) message into the live agentic complex. This is
         what makes the monitor/graph reflect real swarm traffic. Call it wherever bees message."""
         self._complex.add_message(sender, recipient, text, **meta)
 
@@ -780,14 +780,14 @@ class Hive:
                  chat_template_kwargs: dict | None = None,
                  record: bool = True) -> ChatResult | None:
         """Ask one bee and get its FULL reply (content + tool_calls + finish_reason +
-        reasoning_content) instead of just text - the path a tool-calling harness drives.
+        reasoning_content) instead of just text - the path a tool calling harness drives.
 
         `tools`/`tool_choice` are forwarded to the backend; `messages` sends a complete history
         verbatim so the assistant's tool_calls turn and the `role: tool` results can be fed back
         to close a tool loop. ask() is unchanged and still returns a bare string, so every
         existing caller (dispatch/collaborate/consensus/guarded_ask) is unaffected.
 
-        Only the text of a reply is relayed into the complex; a tool-call turn has no prose, so
+        Only the text of a reply is relayed into the complex; a tool call turn has no prose, so
         the recorded message names the tools requested and the topology still sees the exchange."""
         bee = self._bees.get(name)
         if bee is None:
@@ -814,10 +814,10 @@ class Hive:
                 self.relay(name, sender, note)
         return res
 
-    # routing: query-reweighting blended with declared specialty
+    # routing: query reweighting blended with declared specialty
 
     def route(self, query: str, top_k: int = 3) -> list[dict]:
-        """Rank bees for a query. Blends the interaction-history relevance (agent_complex.route,
+        """Rank bees for a query. Blends the interaction history relevance (agent_complex.route,
         which bee has been carrying this kind of work) with each bee's declared specialty overlap,
         so a cold hive routes by specialty and a warm one routes by demonstrated load. The queen
         is the fallback so a query always has a home."""
@@ -852,10 +852,10 @@ class Hive:
         """Route a query to the best bee and ask it, in one call. Returns {routed, bee, reply}.
 
         dispatch is the CHAT path (it calls ask()), so among the ranked bees it picks the
-        highest-scoring GENERATE-capable one - analyze/predict/score/embed/transform workers
+        highest scoring GENERATE capable one - analyze/predict/score/embed/transform workers
         are invoked with invoke(), not ask(), and a query can legitimately rank such a worker
         first (e.g. a topology question matching a rexgraph analyzer's specialties). The queen
-        backs a query with no generate-capable specialist match."""
+        backs a query with no generate capable specialist match."""
         ranked = self.route(query)
         chosen = None
         for r in ranked:
@@ -872,7 +872,7 @@ class Hive:
         reply = self.ask(chosen, query, sender=sender, system=system, record=record)
         return {"routed": ranked, "bee": chosen, "reply": reply}
 
-    # collaboration: dynamic delegation that breaks circular-wait deadlocks structurally
+    # collaboration: dynamic delegation that breaks circular wait deadlocks structurally
 
     _HANDOFF_RE = re.compile(r"^\s*HANDOFF\s+([A-Za-z0-9_\-]+)\s*:\s*(.+)", re.I | re.S)
 
@@ -891,13 +891,13 @@ class Hive:
             if cs.hive_shares:
                 _co.register_hive_share(self.name, cs.hive_shares.get(self.name, 1.0))
                 share_frac = _co.share_fraction(self.name)
-                # backstop: drop this hive's share from the registry if the hive is garbage-collected
+                # backstop: drop this hive's share from the registry if the hive is garbage collected
                 # without stop_all (the finalizer holds only the name string, not the hive).
                 import weakref
                 weakref.finalize(self, _co.unregister_hive_share, self.name)
             import os as _os
             cap = _co.capacity(share_frac)
-            budget = max(1, int((_os.cpu_count() or 8) * share_frac))   # core share -> inner-thread budget
+            budget = max(1, int((_os.cpu_count() or 8) * share_frac))   # core share -> inner thread budget
             pools = _co.LanePools(self.name, idle_ttl_proc=cs.idle_ttl_proc,
                                   idle_ttl_thread=cs.idle_ttl_thread, affinity=cs.affinity,
                                   cap=cap, cores_budget=budget)
@@ -918,7 +918,7 @@ class Hive:
         from .hive_config import coordinator_settings
 
         def _serial(ts: list) -> dict:
-            # per-task try/except so one bad fn cannot sink the rest of the wave, and cannot make
+            # per task try/except so one bad fn cannot sink the rest of the wave, and cannot make
             # _run_wave itself raise: that is the whole point of the fallback.
             out = {}
             for t in ts:
@@ -947,13 +947,13 @@ class Hive:
             return _serial(tasks)
 
     def _coordination_loops(self) -> int:
-        """First Betti number of the live inter-agent complex = number of coordination cycles.
-        Cheap (integer rank), so it can be checked after every hand-off."""
+        """First Betti number of the live inter agent complex = number of coordination cycles.
+        Cheap (integer rank), so it can be checked after every hand off."""
         rex = self._complex.interaction_complex()[0]
         return int(rex.betti[1]) if rex is not None else 0
 
     def _resolve_target(self, name: str, subreq: str) -> str | None:
-        """Map a hand-off target to a real generate-capable bee: exact name, else route by the
+        """Map a hand off target to a real generate capable bee: exact name, else route by the
         request, else the queen."""
         b = self._bees.get(name)
         if b is not None and b.capability == "generate":
@@ -965,8 +965,8 @@ class Hive:
         return self.queen.name if self.queen and self.queen.capability == "generate" else None
 
     def _deadlock_breaker(self, cycle_bees) -> str:
-        """Pick a generate-capable bee OUTSIDE the stalled cycle (a fresh perspective), preferring
-        the queen; fall back to the queen or any generate-capable bee."""
+        """Pick a generate capable bee OUTSIDE the stalled cycle (a fresh perspective), preferring
+        the queen; fall back to the queen or any generate capable bee."""
         cyc = set(cycle_bees)
         q = self.queen
         if q is not None and q.capability == "generate" and q.name not in cyc:
@@ -978,14 +978,14 @@ class Hive:
 
     def collaborate(self, task: str, *, sender: str = "user", max_hops: int = 8,
                     max_tokens: int = 512) -> dict:
-        """Solve a task by dynamic delegation, breaking circular-wait deadlocks the instant they form.
+        """Solve a task by dynamic delegation, breaking circular wait deadlocks the instant they form.
 
         Each bee either answers or hands off with ``HANDOFF <name>: <request>``. Only the bee->bee
-        hand-offs are recorded, so the live complex's first Betti number is exactly the count of
-        coordination loops. When a hand-off closes a cycle (planner waits on coder waits on reviewer
-        waits on planner), b1 rises; rather than loop until a timeout, the hive re-routes to a bee
-        outside the cycle and forces a direct resolution. Returns the answer, the hand-off trail, and
-        whether a deadlock was broken and where. A pairwise ping-pong (A<->B) is a single undirected
+        hand offs are recorded, so the live complex's first Betti number is exactly the count of
+        coordination loops. When a hand off closes a cycle (planner waits on coder waits on reviewer
+        waits on planner), b1 rises; rather than loop until a timeout, the hive re routes to a bee
+        outside the cycle and forces a direct resolution. Returns the answer, the hand off trail, and
+        whether a deadlock was broken and where. A pairwise ping pong (A<->B) is a single undirected
         edge, not a loop; the detector fires on genuine 3+-agent circular waits."""
         HANDOFF_SYS = ("You are one member of a team solving a task. If and only if you truly need a "
                        "teammate's input, reply with exactly `HANDOFF <name>: <what you need>` as the "
@@ -1018,7 +1018,7 @@ class Hive:
             if target is None:
                 return {"answer": reply, "bee": current, "trail": trail,
                         "deadlock_broken": False, "hops": hop + 1, "note": "hand-off target unresolved"}
-            self.relay(current, target, subreq)                # the bee->bee hand-off edge
+            self.relay(current, target, subreq)                # the bee->bee hand off edge
             b1 = self._coordination_loops()
             if b1 > prev_b1:                                   # a coordination cycle just closed
                 cycle_bees = involved + ([target] if target not in involved else [])
@@ -1058,7 +1058,7 @@ class Hive:
 
     def _answer_vectors(self, texts, embed_fn):
         """Vectorize answers for the agreement complex: semantic embeddings if an embedder is
-        available, else lexical concept-count vectors. Returns an (n, d) array."""
+        available, else lexical concept count vectors. Returns an (n, d) array."""
         import numpy as np
         if embed_fn is not None:
             E = np.asarray(embed_fn(texts), dtype=np.float64)
@@ -1078,12 +1078,12 @@ class Hive:
         """Answer a query by agreement, not by a single worker's word.
 
         Fans the query to several workers (an explicit ``workers`` list, else the top-k routed
-        generate-capable bees, else one bee sampled k times), builds the agreement complex from
+        generate capable bees, else one bee sampled k times), builds the agreement complex from
         their answers (embedding cosine when an embedder bee is present, else lexical), and returns
         the coherent consensus answer plus a reliability score = how tightly the consensus cluster
         agreed. The divergent worker, the one with low agreement with the rest, is flagged as the likely
         hallucination and dropped from the answer. With embeddings this separates a genuine
-        hallucination from a topically-distinct specialist, which a flat majority vote cannot."""
+        hallucination from a topically distinct specialist, which a flat majority vote cannot."""
         import numpy as np
         gen = self._generate_bees()
         if not gen:
@@ -1120,7 +1120,7 @@ class Hive:
         S = Vn @ Vn.T
         n = len(labels)
         avg = np.array([(S[i].sum() - S[i, i]) / (n - 1) if n > 1 else 1.0 for i in range(n)])
-        # divergence without a magic cutoff: a data-adaptive Tukey lower fence on the agreement
+        # divergence without a magic cutoff: a data adaptive Tukey lower fence on the agreement
         # distribution when there are enough workers (the same principled fence the schema linter
         # uses), else the exact structural signal: a worker whose answer shares nothing with the
         # group (orthogonal, agreement ~ 0). _ZERO is a numerical zero, not a policy threshold.
@@ -1141,8 +1141,8 @@ class Hive:
         else:
             reliability, rep = 0.0, int(np.argmax(avg))
 
-        # per-worker STRUCTURAL reliability: build each answer's own complex and read its varentropy
-        # gap (the eigen-free H2-H3 collision-entropy reliability flag). Independent of agreement -
+        # per worker STRUCTURAL reliability: build each answer's own complex and read its varentropy
+        # gap (the eigen free H2-H3 collision entropy reliability flag). Independent of agreement -
         # it flags an internally incoherent answer, not just an odd one out.
         struct = {}
         try:
@@ -1168,7 +1168,7 @@ class Hive:
 
     def guarded_ask(self, name: str, prompt: str, guard, *, retries: int = 1,
                     autofix: bool = True, max_tokens: int = 512) -> dict:
-        """Ask a bee, then run a validity guard over the reply. On a violation, re-ask once with a
+        """Ask a bee, then run a validity guard over the reply. On a violation, re ask once with a
         correction note; if it still violates and ``autofix`` is set, apply the guard's fix. Returns
         {reply, violations, corrected, ...}. This is the 'guard bee' pattern: a worker that checks
         another's output against known rules and ensures it gets fixed."""
@@ -1230,12 +1230,12 @@ class Hive:
         return out
 
     def monitor(self, embed: bool | None = None, track: bool = False) -> dict:
-        """Run the relational-complex monitor over the swarm's traffic (the same live complex the
+        """Run the relational complex monitor over the swarm's traffic (the same live complex the
         hive records into). `embed=True` uses the embedder bee for the semantic alignment signal;
         `embed=None` (the default) defers to the active profile's `monitor_embed`, which is what
         that field means and what every builtin profile already declares.
         `track=True` snapshots the drift tracker so repeated calls over time expose which worker is
-        starting to detract (a rising-curvature / falling-alignment trend)."""
+        starting to detract (a rising curvature / falling alignment trend)."""
         out = self._complex.monitor(embed_fn=self._embed_fn(embed))
         if track:
             d = agent_complex.get_drift().snapshot(out)
@@ -1244,7 +1244,7 @@ class Hive:
         return out
 
     def snapshot(self) -> dict:
-        """The hive as one unified structure: the worker roster (type + capability), the worker-type
+        """The hive as one unified structure: the worker roster (type + capability), the worker type
         complex, and the live monitor. Model, memory, and topology as a single relational structure."""
         return {
             "workers": [{"name": b.name, "role": b.role, "capability": b.capability,
@@ -1255,8 +1255,8 @@ class Hive:
         }
 
     def persist(self, store=None, *, name: str = "hive") -> str | None:
-        """Catalogue the hive's worker-type structure in the RCDB by structural signature, so the
-        hive is a first-class stored complex (model = memory = database, queryable by topology).
+        """Catalogue the hive's worker type structure in the RCDB by structural signature, so the
+        hive is a first class stored complex (model = memory = database, queryable by topology).
         `store` is an open RCStore or an RCDB uri; omit it to use `rcdb.default_store()` (persistent,
         REXGRAPH_RCDB_URI). Pass memory:// only when a throwaway store is what you want. Returns the record
         id, or None when no typed worker structure exists yet."""
@@ -1277,17 +1277,17 @@ class Hive:
         return name
 
 
-# get_hive() returns the 'default' hive of the process-wide hive network (agent.hive_network),
-# so single-hive callers are unchanged while named hives become available.
+# get_hive() returns the 'default' hive of the process wide hive network (agent.hive_network),
+# so single hive callers are unchanged while named hives become available.
 
 def get_network():
-    """The process-wide hive network: the registry of named hives."""
+    """The process wide hive network: the registry of named hives."""
     from .hive_network import get_network as _gn
     return _gn()
 
 
 def get_hive() -> Hive:
-    """The 'default' hive (get-or-create). Same object every call, as before."""
+    """The 'default' hive (get or create). Same object every call, as before."""
     return get_network().hive("default")
 
 

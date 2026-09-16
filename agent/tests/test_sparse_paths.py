@@ -1,6 +1,6 @@
 """The agent layer asks the library for what the library already computes.
 
-Each case here was a hand-rolled reimplementation that materialized something dense
+Each case here was a hand rolled reimplementation that materialized something dense
 or scanned where an index existed. They are equivalence tests: the rewired path has
 to return what the old one returned, and keep working past the size the old one
 silently gave up at.
@@ -45,7 +45,7 @@ def test_an_edge_between_two_vertices_is_in_both_stars():
 
 
 def test_the_character_path_is_sparse_at_every_size():
-    """`_use_sparse_character` gates the whole scale-free stack. It reads "the dense
+    """`_use_sparse_character` gates the whole scale free stack. It reads "the dense
     RL was not built", and the dense RL is no longer built at any size, so the sparse
     path is what runs rather than a fallback that only large inputs reach."""
     for nv, ne in ((6, 8), (40, 120), (400, 1200)):
@@ -66,8 +66,8 @@ def test_the_interfacing_bundle_is_the_librarys_own():
 
 
 def test_faces_come_from_the_face_solver():
-    """`rexgraph.faces` solves B1 c = 0 and is arity-general; the agent path used to
-    run a triangle-only rule of its own."""
+    """`rexgraph.faces` solves B1 c = 0 and is arity general; the agent path used to
+    run a triangle only rule of its own."""
     from rexgraph.faces import autoface, cycle_basis, face_support
     square = RexGraph(sources=np.array([0, 1, 2, 3], np.int32),
                       targets=np.array([1, 2, 3, 0], np.int32))

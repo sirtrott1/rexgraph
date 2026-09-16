@@ -41,7 +41,7 @@ def test_create_clone_and_persist(store):
 
 
 def test_user_profile_shadows_builtin(store):
-    # saving with a built-in id overrides it in listings; delete restores the preset
+    # saving with a built in id overrides it in listings; delete restores the preset
     store.save(HiveProfile(id="solo", name="My Solo", compose="attach-live"))
     got = store.get("solo")
     assert got.name == "My Solo" and got.compose == "attach-live"
@@ -97,7 +97,7 @@ def test_apply_switches_setups(store, monkeypatch):
     assert res["status"]["n_bees"] == 0                   # prior swarm was cleared on switch
 
 
-# specialty rules: the model-name -> specialty table as CONFIG, not a hardcoded list
+# specialty rules: the model name -> specialty table as CONFIG, not a hardcoded list
 
 def test_builtin_specialty_rules_cover_the_shipped_families():
     rules = hive_config.load_specialty_rules()
@@ -143,7 +143,7 @@ def test_plan_hive_accepts_explicit_rules():
 
 def test_an_unmatched_worker_still_gets_a_general_specialty():
     """The queen already falls back to general specialties when nothing matches; a worker got
-    an EMPTY list, so it scored 0 on every cold-hive routing query."""
+    an EMPTY list, so it scored 0 on every cold hive routing query."""
     models = [{"name": "big-generalist-70b", "path": "/m/a.gguf", "format": "gguf", "size_gb": 20.0},
               {"name": "small-generalist-3b", "path": "/m/b.gguf", "format": "gguf", "size_gb": 2.0}]
     plan = hive.plan_hive(models, budget_gb=64.0)["plan"]

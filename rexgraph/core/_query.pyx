@@ -142,18 +142,14 @@ def signal_impute(RL, np.ndarray[f64, ndim=1] observed_signal,
     RL_mo = RL_d[np.ix_(mis_idx, obs_idx)]
     g_obs = observed_signal[obs_idx]
 
+    # RL_mm is a principal submatrix of a positive definite RL, so it is positive
+    # definite too and its pseudoinverse is its inverse.
+    from rexgraph.core._linalg import metric_cg, spd_solve
+    rhs = -RL_mo @ g_obs
     if should_use_dense_eigen(n_mis):
-        from rexgraph.core._linalg import pinv_spectral, eigh as lp_eigh
-        ev_mm, evec_mm = lp_eigh(RL_mm)
-        RL_mm_pinv = pinv_spectral(ev_mm, evec_mm)
-        g_imputed = -RL_mm_pinv @ RL_mo @ g_obs
+        g_imputed = spd_solve(RL_mm, rhs, strict=True)
     else:
-        from scipy.sparse.linalg import cg
-        rhs = -RL_mo @ g_obs
-        try:
-            g_imputed, _ = cg(RL_mm, rhs, rtol=1e-10, maxiter=1000)
-        except TypeError:                            # SciPy < 1.12 used `tol=`
-            g_imputed, _ = cg(RL_mm, rhs, tol=1e-10, maxiter=1000)
+        g_imputed, _iters, _resid = metric_cg(RL_mm, rhs, tol=1e-10)
 
     imputed[mis_idx] = g_imputed
 
@@ -176,17 +172,20 @@ def spectral_propagate(RL, hats, Py_ssize_t nhats,
                         np.ndarray[f64, ndim=1] source,
                         np.ndarray[f64, ndim=1] target,
                         Py_ssize_t nE):
-    """score = source^T RL^+ target / (||source|| ||target||)."""
-    from rexgraph.core._relational import rl_eigen, rl_pinv_matvec
+    """score = source^T RL^+ target / (||source|| ||target||).
 
-    evals, evecs = rl_eigen(RL)
-    propagated = rl_pinv_matvec(evals, evecs, source)
+    RL is positive definite, so `RL^+ = RL^-1` and one Cholesky gives `RL^-1 source`.
+    """
+    from rexgraph.core._linalg import spd_solve
+
+    RL_d = np.asarray(RL, dtype=np.float64)
+    propagated = spd_solve(RL_d, source, strict=True)
 
     ns = float(np.sqrt(np.dot(source, source)))
     nt = float(np.sqrt(np.dot(target, target)))
     score = float(np.dot(propagated, target)) / (ns * nt) if ns > 1e-15 and nt > 1e-15 else 0.0
 
-    # Per-channel scores
+    # Per channel scores
     typed_scores = np.zeros(nhats, dtype=np.float64)
     for k in range(nhats):
         hat_k = hats[k]
@@ -196,16 +195,14 @@ def spectral_propagate(RL, hats, Py_ssize_t nhats,
             ch_prop = np.asarray(hat_k, dtype=np.float64) @ propagated
         typed_scores[k] = float(np.dot(source, ch_prop))
 
-    # Coverage
-    n_modes = np.sum(evals > 1e-10)
-    coeffs = evecs[:, evals > 1e-10].T @ source
-    n_covered = np.sum(np.abs(coeffs) > 1e-10)
-    coverage = float(n_covered) / float(n_modes) if n_modes > 0 else 0.0
+    # A positive definite RL has no null space, so every mode is covered. The Cholesky
+    # that already succeeded is the proof; there is nothing to count.
+    coverage = 1.0
 
     return {
         'score': score,
         'typed_scores': typed_scores,
-        'energy': float(source @ np.asarray(RL, dtype=np.float64) @ source),
+        'energy': float(source @ RL_d @ source),
         'coverage': coverage,
     }
 
@@ -223,7 +220,7 @@ def explain_edge(B1, B2, K1, RL, hats, Py_ssize_t nhats,
     # Below: boundary vertices
     below = list(np.where(np.abs(B1_d[:, edge_idx]) > 0.5)[0])
 
-    # Above: co-boundary faces
+    # Above: co boundary faces
     above = []
     if nF > 0:
         B2_d = np.asarray(B2, dtype=np.float64)
@@ -246,14 +243,13 @@ def explain_edge(B1, B2, K1, RL, hats, Py_ssize_t nhats,
 
     dominant = int(np.argmax(chi))
 
-    # R_self
-    from rexgraph.core._relational import rl_eigen, rl_pinv_dense
-    evals, evecs = rl_eigen(RL)
-    if should_use_dense_eigen(nE):
-        RLp = rl_pinv_dense(evals, evecs)
-        r_self = float(RLp[edge_idx, edge_idx])
-    else:
-        r_self = float('nan')
+    # R_self = e^T RL^-1 e, the effective resistance at this edge: one solve against
+    # one basis vector, so it needs neither the nE x nE pseudoinverse nor a spectrum.
+    from rexgraph.core._linalg import spd_solve
+    unit = np.zeros(nE, dtype=np.float64)
+    unit[edge_idx] = 1.0
+    column = spd_solve(np.asarray(RL, dtype=np.float64), unit, strict=True)
+    r_self = float(column[edge_idx])
 
     return {
         'below': np.array(below, dtype=np.int32),
@@ -278,7 +274,7 @@ def explain_vertex(B1, RL, hats, Py_ssize_t nhats,
 
     phi_v = np.asarray(phi[vertex_idx], dtype=np.float64)
 
-    # Chi-star for this vertex
+    # Chi star for this vertex
     vp = np.asarray(v2e_ptr, dtype=np.int32)
     vi = np.asarray(v2e_idx, dtype=np.int32)
     lo = int(vp[vertex_idx])

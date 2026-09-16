@@ -31,7 +31,7 @@ than it looks like it does.
                   otherwise identity is TLS's job.
     NOT secrecy   framing is not encryption. Confidentiality is the transport's job.
 
-Frames are self-describing and bounded. Every length is read before any allocation is
+Frames are self describing and bounded. Every length is read before any allocation is
 made against it, so a frame that claims more than the caller allows is refused rather
 than reserved for.
 """
@@ -263,8 +263,8 @@ def chain_report(rex) -> dict:
 
     `rex._chain_col_bounds` is the complex's own predicate, adjudicated over the
     rationals: a face bounds or it does not, with no tolerance deciding the difference.
-    It runs on every declared face, not the Hodge-filtered slice, because the filter
-    exists to keep a non-bounding face out of the homology and a receiver that checks
+    It runs on every declared face, not the Hodge filtered slice, because the filter
+    exists to keep a non bounding face out of the homology and a receiver that checks
     the filtered view reports success on a payload it has already discarded part of.
 
     Returns the offending face indices rather than a boolean, because "invalid" and
@@ -336,13 +336,13 @@ def verify_signature(frame_bytes: bytes, signature: str, key: bytes) -> bool:
 
 
 def fingerprint(rex) -> dict:
-    """What this complex is, by invariants rather than by bytes.
+    """A structural summary, not a complete identity or an isomorphism test.
 
     Betti and the cell counts survive relabeling, so two frames carrying the same
-    complex under different vertex numbering agree here while two genuinely different
-    complexes do not. Useful for addressing and for noticing that a stored object is
-    not the one that was sent; NOT a signature, since anyone can build a complex with
-    a chosen fingerprint.
+    complex under different vertex numbering can agree here. Genuinely different
+    boundaries and weights can also agree. Use io.catalog.object_digest for native
+    stored state identity; this compatibility summary is not a signature or proof
+    that a fetched object equals the one that was sent.
     """
     out = {"nV": int(rex.nV), "nE": int(rex.nE), "nF": int(rex.nF_hodge),
            "nF_declared": int(getattr(rex, "_nF", 0) or 0)}

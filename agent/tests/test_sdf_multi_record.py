@@ -1,6 +1,6 @@
-"""Multi-record SDF reading.
+"""Multi record SDF reading.
 
-`$$$$` separates records in an SDF, which is what distinguishes it from a single-record
+`$$$$` separates records in an SDF, which is what distinguishes it from a single record
 MOL file. Every record is read into one complex; records do not share atom numbering, so
 each lands on its own vertex block and forms its own component.
 

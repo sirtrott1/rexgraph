@@ -53,10 +53,10 @@ class TestChi:
         assert np.all(chi >= -1e-12)
 
     def test_k4_channel_structure(self, k4):
-        """K4 doc-exact channels (T=B1^T B1, G=|B1|^T|B1|, F=T-G, C=line graph):
-        T, G, C have equal per-edge diagonals (1/6 each on K4), so chi_T = chi_G =
-        chi_C per edge; the frustration F is orientation-dependent (Def 3.3 / Sec
-        1.3), so chi_F differs across edges. (The pre-doc normalized/weighted
+        """K4 doc exact channels (T=B1^T B1, G=|B1|^T|B1|, F=T-G, C=line graph):
+        T, G, C have equal per edge diagonals (1/6 each on K4), so chi_T = chi_G =
+        chi_C per edge; the frustration F is orientation dependent (Def 3.3 / Sec
+        1.3), so chi_F differs across edges. (The pre doc normalized/weighted
         channels made chi look uniform; that was an artifact.) Rows stay simplex."""
         chi = k4.structural_character
         names = list(k4._rcf_bundle.get('hat_names', []))
@@ -93,7 +93,7 @@ class TestPhi:
         phi = k4.vertex_character
         # All rows sum to 1
         assert np.allclose(phi.sum(axis=1), 1.0, atol=1e-8)
-        # Standard deviation across vertices is small (near-uniform)
+        # Standard deviation across vertices is small (near uniform)
         assert np.std(phi, axis=0).max() < 0.25
 
 
@@ -160,13 +160,13 @@ class TestStructuralEntropy:
         assert np.log(k4.nhats) + 1e-10 >= H
 
     def test_k4_near_maximum_entropy(self, k4):
-        """K4 chi is near-uniform (T=G=C channels equal, only F deviates), so its
+        """K4 chi is near uniform (T=G=C channels equal, only F deviates), so its
         structural entropy is just below the maximum ln(nhats) - not exactly at it
-        (the doc-exact orientation-dependent F breaks the old exact-uniform artifact)."""
+        (the doc exact orientation dependent F breaks the old exact uniform artifact)."""
         from rexgraph.core._character import structural_entropy
         H = structural_entropy(k4.structural_character, k4.nE, k4.nhats)
         assert 0.0 < H <= np.log(k4.nhats) + 1e-9
-        assert abs(H - np.log(k4.nhats)) < 0.01     # near-max, F-channel deviation only
+        assert abs(H - np.log(k4.nhats)) < 0.01     # near max, F-channel deviation only
 
 
 # Self Response

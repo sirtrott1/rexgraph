@@ -2,7 +2,7 @@
 agent.server.routes.knowledge: schemas, ontologies and scientific files as one complex.
 
 The upload takes any mix of them. What makes the result one thing rather than several
-is the join: each file states its own cross-references, and following them is what
+is the join: each file states its own cross references, and following them is what
 lets a genome annotation, a GO annotation set and the ontology share vertices instead
 of sitting in three disconnected components.
 """
@@ -55,7 +55,7 @@ async def join_files(
     """Join uploaded files into one complex and report what connected.
 
     `download` returns the complex itself instead of the summary: `rex`,
-    `safetensors`, `hdf5`, `zarr` for the complex, or `features` for the per-relation
+    `safetensors`, `hdf5`, `zarr` for the complex, or `features` for the per relation
     structural feature matrix in the labeled vector container. A relational complex
     is not a JSON document and the stack has containers for it.
 

@@ -3,10 +3,10 @@ Information metrics (perplexity, entropy, varentropy) as ONE calculus over two
 carriers: the relational spectrum (structural) and an LLM token distribution (the
 standard LLM metrics).
 
-Perplexity = exp(entropy); entropy has an eigen-free Rényi form
+Perplexity = exp(entropy); entropy has an eigen free Rényi form
 ); varentropy = the spread of surprisal - a known LLM uncertainty
 signal AND the RCF H₂-H₃ reliability gap. Same math, two carriers: a nonnegative
-spectrum (RL4 channels) or a token-probability vector. That is why "these LLM
+spectrum (RL4 channels) or a token probability vector. That is why "these LLM
 metrics work here" - they are the relational entropy calculus applied to tokens.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ import numpy as np
 
 # These live in the sibling rcdb package, because a store needs them on every
 # put to describe what it is storing and cannot import the application to do it.
-# Re-exported so callers here keep the import path they had.
+# Re exported so callers here keep the import path they had.
 from rcdb.analytics import (  # noqa: E402,F401
     coherence_greens,
     coherence_greens_mean,
@@ -43,7 +43,7 @@ def _norm(p) -> np.ndarray:
 
 def entropy(p, order: float = 1.0) -> float:
     """Rényi entropy of order `order` (nats) of a distribution or nonneg spectrum.
-    order=1 -> Shannon; order=2 -> collision (the RCF harmonic-log H₂). Eigen-free for
+    order=1 -> Shannon; order=2 -> collision (the RCF harmonic log H₂). Eigen free for
     integer order (only Σpᵃ)."""
     p = _norm(p)
     if p.size == 0:
@@ -63,7 +63,7 @@ def perplexity(p, order: float = 1.0) -> float:
 def varentropy(p) -> float:
     """Var(-log p) under p: the spread of surprisal ("uncertainty of the
     uncertainty"). ~0 on a flat distribution, grows with heavy tails; equals ½·the
-    Shannon-collision gap to leading order."""
+    Shannon collision gap to leading order."""
     p = _norm(p)
     if p.size == 0:
         return 0.0
@@ -72,13 +72,13 @@ def varentropy(p) -> float:
     return float((p * (s - mean) ** 2).sum())
 
 
-# LLM token metrics (from per-token logprobs)
+# LLM token metrics (from per token logprobs)
 def token_metrics(logprobs) -> dict:
-    """Standard LLM metrics from per-token logprobs (natural log): `perplexity` =
-    exp(-mean logprob) (the cross-entropy PPL), `mean_surprisal` (nats/token), and
+    """Standard LLM metrics from per token logprobs (natural log): `perplexity` =
+    exp(-mean logprob) (the cross entropy PPL), `mean_surprisal` (nats/token), and
     the token `varentropy` (variance of surprisal across tokens) - the same varentropy
     the RCF reliability gap uses, here on the token distribution. High varentropy at
-    low perplexity flags a confident-but-branchy step (a good place to look twice)."""
+    low perplexity flags a confident but branchy step (a good place to look twice)."""
     lp = np.asarray(logprobs, dtype=float).ravel()
     lp = lp[np.isfinite(lp)]
     if lp.size == 0:
@@ -98,7 +98,7 @@ def token_metrics(logprobs) -> dict:
     }
 
 
-# Structural metrics (RCF-native, from a rex; no LLM needed)
+# Structural metrics (RCF native, from a rex; no LLM needed)
 
 def _summ(values) -> dict:
     """Distribution summary (mean/std/min/max/n) of a list of numbers."""
@@ -125,10 +125,10 @@ def _trend(vals) -> str:
 
 
 def session_metrics(coherence_per_turn, perplexity_per_turn=None) -> dict:
-    """Per-SESSION information metrics over a conversation's turns: the trend of
+    """Per SESSION information metrics over a conversation's turns: the trend of
     structural coherence (is the conversation losing structure?) and, when token
     metrics were captured per reply, of perplexity (is the model getting more
-    uncertain?), plus per-metric summaries. Trend is over the last 3 turns."""
+    uncertain?), plus per metric summaries. Trend is over the last 3 turns."""
     out: dict = {"n_turns": len(list(coherence_per_turn))}
     coh = list(coherence_per_turn)
     if any(c is not None for c in coh):
@@ -141,10 +141,10 @@ def session_metrics(coherence_per_turn, perplexity_per_turn=None) -> dict:
 
 
 def corpus_metrics(rexes) -> dict:
-    """Per-CORPUS information metrics: the DISTRIBUTION of each document's structural
+    """Per CORPUS information metrics: the DISTRIBUTION of each document's structural
     metrics (structural perplexity, effective modes, coherence, varentropy gap) across
-    the collection, plus a corpus diversity = the effective number of coherence-distinct
-    documents (exp of the Shannon entropy of the normalized per-document coherence).
+    the collection, plus a corpus diversity = the effective number of coherence distinct
+    documents (exp of the Shannon entropy of the normalized per document coherence).
     The 'how varied / how coherent is this collection' reading."""
     per, cohs = [], []
     for rex in rexes:
@@ -168,8 +168,8 @@ def corpus_metrics(rexes) -> dict:
         "varentropy_gap": _summ([p["varentropy_gap"] for p in per]),
     }
     if len(cohs) > 1:
-        # effective number of coherence-distinct documents (Hill number of the
-        # normalized per-document coherence) - corpus structural diversity.
+        # effective number of coherence distinct documents (Hill number of the
+        # normalized per document coherence) - corpus structural diversity.
         out["corpus_diversity"] = round(perplexity(cohs), 3)
     return out
 
@@ -181,9 +181,9 @@ def reply_metrics(text: str, logprobs=None, token: dict = None,
         model already produced these, so extracting them costs ~0.02 ms.
       structural (only if `structural=True`, ~250 ms): builds the reply's OWN
         relational complex (auto_rex) for structural_perplexity/effective_modes/
-        response_coherence + the fluent-but-hollow advisory. This is the expensive
+        response_coherence + the fluent but hollow advisory. This is the expensive
         tier, computed on demand (when the interface asks), never eagerly on every
-        reply. Best-effort; never raises. Shared by /model/generate and /chat."""
+        reply. Best effort; never raises. Shared by /model/generate and /chat."""
     out: dict = {}
     if token is not None:
         out["token"] = token
@@ -211,7 +211,7 @@ def response_metrics(rex=None, logprobs=None) -> dict:
     response's relational complex and/or the token metrics of its logprobs. When both
     are present the agent can compare them: a low token perplexity but high
     structural perplexity means the text reads fluently yet the relations it asserts
-    are diffuse/unsupported (a fluent-but-hollow answer)."""
+    are diffuse/unsupported (a fluent but hollow answer)."""
     out: dict = {}
     if rex is not None:
         with contextlib.suppress(Exception):

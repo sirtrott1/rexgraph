@@ -58,7 +58,7 @@ def test_e2f_refreshes_after_edge_append():
     g = _line_graph(4)
     _ = g._e2f                               # cache it at nE=3
     g.add_edges(np.array([3], np.int32), np.array([0], np.int32))
-    ptr, idx = g._e2f                        # read triggers flush + must be re-derived
+    ptr, idx = g._e2f                        # read triggers flush + must be re derived
     assert ptr.shape[0] == g._nE + 1 == 5    # CSR ptr length tracks the new edge count
 
 
@@ -101,7 +101,7 @@ def test_add_faces_keeps_b1_caches_warm():
     _ = g.L0                     # B1_ONLY cache
     g.add_faces([np.array([0, 1, 2], np.int32)], [np.array([1, 1, 1], np.float64)])
     _ = g.betti                  # triggers flush + invalidation
-    assert "L0" in g.__dict__    # B1_ONLY survived a face-only append
+    assert "L0" in g.__dict__    # B1_ONLY survived a face only append
 
 
 def test_compact_boundary_kernel_drops_and_renumbers():
@@ -170,8 +170,8 @@ def test_remove_then_append_face_in_one_batch():
 
 def test_remove_edges_and_faces_same_batch():
     # face 0 uses edges [0,1,2]; face 1 uses edges [0,1,2] too. Remove edge 2 (drops both
-    # edge-referencing faces) is too coarse; instead: 4 edges, face 0 on edges [0,1,3] (uses
-    # edge 3), face 1 on edges [0,1,2] (no edge 3). Remove edge 3 -> face 0 auto-dropped;
+    # edge referencing faces) is too coarse; instead: 4 edges, face 0 on edges [0,1,3] (uses
+    # edge 3), face 1 on edges [0,1,2] (no edge 3). Remove edge 3 -> face 0 auto dropped;
     # ALSO remove_faces face 1 -> both gone.
     g = RexGraph(sources=np.array([0, 1, 2, 3], np.int32), targets=np.array([1, 2, 0, 0], np.int32))
     g.add_faces([np.array([0, 1, 3], np.int32)], [np.array([1, 1, 1], np.float64)])   # face 0 uses edge 3
@@ -184,14 +184,17 @@ def test_remove_edges_and_faces_same_batch():
     assert g._nF == 0                                  # both faces gone; correct face targeted
 
 
-def test_selective_invalidation_edge_append_keeps_face_caches():
+def test_edge_append_refreshes_face_carrier_shape_but_keeps_face_gram():
     g = _triangle()
     g.add_faces([np.array([0, 1, 2], np.int32)], [np.array([1, 1, 1], np.float64)])
     _ = g._B2_hodge_dual         # B2_ONLY cache
+    face_gram = g.L2_sparse      # unchanged by adding zero B2 rows
     _ = g.L0                     # B1_ONLY cache
     g.add_edges(np.array([2], np.int32), np.array([0], np.int32))   # edge append
     _ = g.betti                  # trigger flush + invalidation
-    assert "_B2_hodge_dual" in g.__dict__   # B2_ONLY survived an edge-only append
+    from rexgraph.core._sparse import to_scipy_csr
+    assert to_scipy_csr(g._B2_hodge_dual).shape == (4, 1)
+    assert g.L2_sparse is face_gram
     assert "L0" not in g.__dict__           # B1_ONLY invalidated
 
 
@@ -205,7 +208,7 @@ def test_odelta_append_defers_array_work():
 
 def test_append_onto_general_boundary_complex():
     # a complex built via the general boundary constructor (not sources/targets),
-    # then a 2-arity edge appended onto it; the B1 dual must reflect the new column.
+    # then a 2 arity edge appended onto it; the B1 dual must reflect the new column.
     g = RexGraph(boundary_ptr=np.array([0, 2], np.int32),
                  boundary_idx=np.array([0, 1], np.int32))   # one edge (0,1)
     g.add_edges(np.array([1], np.int32), np.array([2], np.int32))   # append edge (1,2)
@@ -230,7 +233,7 @@ def test_compact_returns_identity_on_noop_after_consuming():
     r1 = g.compact()
     assert list(r1.edge_map) == [-1, 0, 1]               # real renumbering returned once
     r2 = g.compact()                                     # no new mutation
-    assert list(r2.edge_map) == [0, 1]                   # identity over the now-2-edge graph, NOT [-1,0,1]
+    assert list(r2.edge_map) == [0, 1]                   # identity over the now 2 edge graph, NOT [-1,0,1]
 
 
 def test_compact_remap_retrievable_after_operator_flush():
@@ -244,7 +247,7 @@ def test_compact_remap_retrievable_after_operator_flush():
 def test_add_hyperedges_arity3_roundtrips():
     from rexgraph.core._sparse import to_scipy_csr
     g = _line_graph(4)                                   # 3 edges over vertices 0..3
-    g.add_hyperedges([np.array([0, 1, 2], np.int32)])    # one arity-3 branching cell
+    g.add_hyperedges([np.array([0, 1, 2], np.int32)])    # one arity 3 branching cell
     assert g._nE == 4
     b1 = to_scipy_csr(g._B1_dual)
     assert b1.shape[1] == 4                               # a 4th column exists
@@ -258,21 +261,21 @@ def test_mixed_edges_and_hyperedges_batch_carries_attribution():
     g.add_hyperedges([np.array([0, 1, 2], np.int32)], w_E=np.array([9.0], np.float64))
     g._ensure_clean()
     assert g._nE == 3
-    # 2-arity edges land first (indices 0,1), the hyperedge last (index 2)
+    # 2 arity edges land first (indices 0,1), the hyperedge last (index 2)
     assert np.allclose(g._w_E, [5.0, 7.0, 9.0])
     from rexgraph.core._sparse import to_scipy_csr
     b1 = to_scipy_csr(g._B1_dual)
-    assert (b1[:, 2] != 0).sum() == 3                     # index 2 is the arity-3 cell
+    assert (b1[:, 2] != 0).sum() == 3                     # index 2 is the arity 3 cell
 
 
 def test_hyperedge_removed_and_compacted():
     g = _line_graph(4)
-    g.add_hyperedges([np.array([0, 1, 2], np.int32)])    # edge 3 = arity-3 cell
+    g.add_hyperedges([np.array([0, 1, 2], np.int32)])    # edge 3 = arity 3 cell
     g._ensure_clean()
     assert g._nE == 4
     g.remove_edges(np.array([0, 0, 0, 1], np.int32))     # remove the hyperedge (index 3)
     g.compact()
-    assert g._nE == 3                                     # general-arity removal works end to end
+    assert g._nE == 3                                     # general arity removal works end to end
 
 
 def test_mutation_path_is_matrix_free(monkeypatch):

@@ -5,7 +5,7 @@ rexgraph.core._transition: Transition operators on the relational complex.
 
 Markov - discrete and continuous stochastic diffusion on k-cells.
 Schrodinger - unitary evolution via Hodge Laplacians (real cos/sin split).
-Differential - ODE integration (RK4) with coupled cross-dimensional dynamics.
+Differential - ODE integration (RK4) with coupled cross dimensional dynamics.
 Rewrite - signal resizing after structural mutation of the rex topology.
 
 All operators are stateless: (state_arrays, operator_data) -> state_arrays.
@@ -16,8 +16,8 @@ Energy decomposition:
     E_RL  = E_kin + alpha_G * E_pot
 
 Coupled derivative uses RL_1 = L_1 + alpha_G * L_O for the edge
-tier, with boundary operators B_1 and B_2 driving cross-dimensional
-coupling. B_2 should be B2_hodge (self-loop faces filtered).
+tier, with boundary operators B_1 and B_2 driving cross dimensional
+coupling. B_2 should be B2_hodge (self loop faces filtered).
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def markov_vertex_step(np.ndarray[f64, ndim=1] p,
                        np.ndarray[f64, ndim=2] W):
     """One discrete Markov step on vertex signals.
 
-    p_new = W @ p where W is column-stochastic (D^{-1}A from B_1).
+    p_new = W @ p where W is column stochastic (D^{-1}A from B_1).
     """
     return W.dot(p)
 
@@ -77,7 +77,7 @@ def markov_multistep(np.ndarray[f64, ndim=1] p,
     """Apply n discrete Markov steps: p_new = W^n @ p.
 
     Returns
-    -------
+
     final : f64[n]
     trajectory : f64[n_steps+1, n]
     """
@@ -94,7 +94,7 @@ def markov_multistep(np.ndarray[f64, ndim=1] p,
 def markov_continuous_expm(np.ndarray[f64, ndim=1] p,
                            object L,
                            double t):
-    """Continuous-time Markov: p(t) = exp(-L*t) @ p(0).
+    """Continuous time Markov: p(t) = exp(-L*t) @ p(0).
 
     Uses scipy expm. L is the Laplacian (generator = -L for diffusion).
     """
@@ -113,7 +113,7 @@ def markov_continuous_spectral(np.ndarray[f64, ndim=1] p,
                                np.ndarray[f64, ndim=1] evals,
                                np.ndarray[f64, ndim=2] evecs,
                                double t):
-    """Continuous-time Markov via spectral decomposition.
+    """Continuous time Markov via spectral decomposition.
 
     p(t) = V diag(exp(-lambda_k * t)) V^T p(0)
 
@@ -121,14 +121,14 @@ def markov_continuous_spectral(np.ndarray[f64, ndim=1] p,
     factors d_k = exp(-lambda_k * t), then accumulates in one pass.
 
     Parameters
-    ----------
+
     p : f64[n]
     evals : f64[k]
     evecs : f64[n, k]
     t : float
 
     Returns
-    -------
+
     p_new : f64[n]
     """
     cdef Py_ssize_t n = p.shape[0], k = evals.shape[0], j, i
@@ -150,13 +150,13 @@ def markov_continuous_spectral(np.ndarray[f64, ndim=1] p,
 
 
 def build_vertex_transition_matrix(np.ndarray[f64, ndim=2] L0):
-    """Column-stochastic transition matrix from L_0.
+    """Column stochastic transition matrix from L_0.
 
     W = I - D^{-1} L_0 where D = diag(L_0).
-    Isolated vertices (d=0) get self-loop (W[i,i] = 1).
+    Isolated vertices (d=0) get self loop (W[i,i] = 1).
 
     Returns
-    -------
+
     W : f64[nV, nV]
     """
     cdef Py_ssize_t n = L0.shape[0], i, j
@@ -183,7 +183,7 @@ def build_vertex_transition_matrix(np.ndarray[f64, ndim=2] L0):
 def build_lazy_transition_matrix(np.ndarray[f64, ndim=2] W, double lazy=0.5):
     """Lazy random walk: W_lazy = lazy * I + (1 - lazy) * W.
 
-    Ensures aperiodicity. Fused single-pass, no temporaries.
+    Ensures aperiodicity. Fused single pass, no temporaries.
     """
     cdef Py_ssize_t n = W.shape[0], i, j
     cdef np.ndarray[f64, ndim=2] WL = np.empty((n, n), dtype=np.float64)
@@ -211,7 +211,7 @@ def schrodinger_evolve_spectral(np.ndarray[f64, ndim=1] f,
     Tracks real and imaginary parts separately.
 
     Returns
-    -------
+
     f_real : f64[n]
     f_imag : f64[n]
     """
@@ -303,14 +303,14 @@ def energy_decomposition(np.ndarray[f64, ndim=1] f_re,
     E_RL   = E_kin + alpha_G * E_pot
 
     Parameters
-    ----------
+
     f_re, f_im : f64[nE]
     L1 : edge Hodge Laplacian
     LO : overlap Laplacian (or None)
     alpha_G : coupling constant
 
     Returns
-    -------
+
     E_kin, E_pot, E_RL : float
     """
     cdef double Ek = kinetic_energy(f_re, f_im, L1)
@@ -328,7 +328,7 @@ def schrodinger_multistep(np.ndarray[f64, ndim=1] f,
     """Evolve through multiple timepoints, recording trajectory.
 
     Returns
-    -------
+
     traj_re : f64[len(times), n]
     traj_im : f64[len(times), n]
     """
@@ -365,7 +365,7 @@ def rk4_integrate(np.ndarray[f64, ndim=1] y0, double t0, double t1,
     """Integrate ODE from t0 to t1 using n_steps of RK4.
 
     Returns
-    -------
+
     y_final : f64[n]
     trajectory : f64[n_steps+1, n]
     times : f64[n_steps+1]
@@ -404,27 +404,27 @@ def coupled_derivative(np.ndarray[f64, ndim=1] flat_state,
                        double alpha1=1.0,
                        double alpha2=1.0,
                        double alpha_G=0.0):
-    """Coupled cross-dimensional diffusion with Relational Laplacian.
+    """Coupled cross dimensional diffusion with Relational Laplacian.
 
     df0/dt = -alpha0 * L_0 @ f0
     df1/dt = -(alpha1 * L_1 + alpha_G * L_O) @ f1 + B_1^T @ f0
     df2/dt = -alpha2 * L_2 @ f2 + B_2^T @ f1
 
-    B_2 should be B2_hodge (self-loop faces filtered) so that the
-    relational complex is exact. The edge-tier operator is the Rex
+    B_2 should be B2_hodge (self loop faces filtered) so that the
+    relational complex is exact. The edge tier operator is the Rex
     Laplacian RL_1 = alpha1 * L_1 + alpha_G * L_O.
 
     Parameters
-    ----------
+
     flat_state : f64[nV + nE + nF]
     sizes : i32[3] = [nV, nE, nF]
     L0, L1, L2, L_O : operators (dense or sparse)
     B1_dense, B2_dense : boundary matrices (or None)
-    alpha0, alpha1, alpha2 : per-tier diffusion rates
+    alpha0, alpha1, alpha2 : per tier diffusion rates
     alpha_G : geometric coupling constant
 
     Returns
-    -------
+
     f64[nV + nE + nF]
     """
     cdef i32[:] sz = sizes
@@ -537,12 +537,12 @@ def rewrite_remove_faces(np.ndarray[f64, ndim=1] f2,
     return new_f2
 
 
-# Adaptive RK45 (Dormand-Prince) integrator
+# Adaptive RK45 (Dormand Prince) integrator
 
 def rk45_step(np.ndarray[f64, ndim=1] y, double t, double dt,
               object derivative_func):
     """
-    Single Dormand-Prince RK45 step with error estimate.
+    Single Dormand Prince RK45 step with error estimate.
 
     Returns (y_new, y_err, dt_next).
     """
@@ -569,10 +569,10 @@ def adaptive_rk45(np.ndarray[f64, ndim=1] y0, double t0, double t1,
                   double dt_min=1e-12, double dt_max=1.0,
                   int max_steps=100000):
     """
-    Adaptive Dormand-Prince RK45 integration with error control.
+    Adaptive Dormand Prince RK45 integration with error control.
 
     Parameters
-    ----------
+
     y0 : (n,) float64
         Initial state.
     t0, t1 : float
@@ -587,7 +587,7 @@ def adaptive_rk45(np.ndarray[f64, ndim=1] y0, double t0, double t1,
         Maximum number of steps.
 
     Returns
-    -------
+
     y_final : (n,) float64
         Final state.
     traj : (n_steps+1, n) float64
@@ -631,7 +631,7 @@ def adaptive_rk45(np.ndarray[f64, ndim=1] y0, double t0, double t1,
             time_list.append(t)
             step += 1
 
-        # Standard Dormand-Prince step size adaptation
+        # Standard Dormand Prince step size adaptation
         if err_norm > 1e-30:
             growth = 0.9 / cpow(err_norm, 0.2)
             if growth > 5.0:
@@ -648,18 +648,18 @@ def adaptive_rk45(np.ndarray[f64, ndim=1] y0, double t0, double t1,
     return y, traj, times
 
 
-# Trotter-Suzuki channel-separated evolution
+# Trotter Suzuki channel separated evolution
 
 def evolve_trotter(np.ndarray[f64, ndim=1] signal,
                    list hat_operators,
                    double t, int n_steps,
                    list channel_order=None):
     """
-    Trotter-Suzuki evolution: exp(sum_i hat_i * t) approximated by
+    Trotter Suzuki evolution: exp(sum_i hat_i * t) approximated by
     product of exp(hat_i * dt) in specified channel order.
 
     Parameters
-    ----------
+
     signal : (nE,) float64
         Edge signal to evolve.
     hat_operators : list of (nE, nE) float64
@@ -672,7 +672,7 @@ def evolve_trotter(np.ndarray[f64, ndim=1] signal,
         Order in which channels are applied. Default [0, 1, 2, 3].
 
     Returns
-    -------
+
     result : (nE,) float64
         Evolved signal.
     traj : (n_steps+1, nE) float64
@@ -705,22 +705,22 @@ def evolve_trotter(np.ndarray[f64, ndim=1] signal,
     return y, traj
 
 
-# Second-order Magnus expansion for time-dependent operators
+# Second order Magnus expansion for time dependent operators
 
 def magnus2_evolve(np.ndarray[f64, ndim=1] signal,
                    object operator_func,
                    double t0, double t1, int n_steps):
     """
-    Second-order Magnus expansion for time-dependent evolution.
+    Second order Magnus expansion for time dependent evolution.
 
     Preserves unitarity by construction. The operator_func returns
     the generator A(t) at time t, and the evolution is:
         U(t0, t1) = exp(Omega_1 + Omega_2)
     where Omega_1 = integral A(t) dt and Omega_2 captures the
-    time-ordering correction.
+    time ordering correction.
 
     Parameters
-    ----------
+
     signal : (nE,) float64
         Initial state.
     operator_func : callable
@@ -731,7 +731,7 @@ def magnus2_evolve(np.ndarray[f64, ndim=1] signal,
         Number of substeps.
 
     Returns
-    -------
+
     result : (nE,) float64
         Evolved signal.
     traj : (n_steps+1, nE) float64
@@ -754,7 +754,7 @@ def magnus2_evolve(np.ndarray[f64, ndim=1] signal,
     cdef np.ndarray[f64, ndim=2] A_mid, A_left, A_right, Omega1, Omega2, U
 
     for step in range(n_steps):
-        # Gauss-Legendre quadrature points for 2nd order
+        # Gauss Legendre quadrature points for 2nd order
         t_mid = t + dt / 2.0
         t_left = t + dt * (0.5 - 1.0 / (2.0 * 3.0 ** 0.5))
         t_right = t + dt * (0.5 + 1.0 / (2.0 * 3.0 ** 0.5))
@@ -790,7 +790,7 @@ def apply_dephasing(np.ndarray[f64, ndim=1] state,
     the edge signal along that face's boundary direction.
 
     Parameters
-    ----------
+
     state : (nV+nE+nF,) float64
         Graded state vector.
     B2 : (nE, nF) float64
@@ -801,7 +801,7 @@ def apply_dephasing(np.ndarray[f64, ndim=1] state,
         Time step.
 
     Returns
-    -------
+
     new_state : (nV+nE+nF,) float64
         State after dephasing.
     """
@@ -824,7 +824,7 @@ def apply_dephasing(np.ndarray[f64, ndim=1] state,
     # Lindblad dephasing: rho -> rho - gamma * dt * sum_f [L_f, [L_f, rho]]
     # For a pure state vector, approximate as:
     # psi -> psi - (gamma*dt/2) * sum_f (L_f L_f^T) psi
-    # (Σ_f L_f L_f^T) psi = B2 (B2^T psi): two mat-vecs, O(nnz), never the nE×nE op.
+    # (Σ_f L_f L_f^T) psi = B2 (B2^T psi): two mat vecs, O(nnz), never the nE×nE op.
     cdef np.ndarray[f64, ndim=1] deph = np.asarray(
         B2 @ (B2.T @ edge_state), dtype=np.float64)
     edge_state = edge_state - (gamma * dt / 2.0) * deph
@@ -843,7 +843,7 @@ def apply_damping(np.ndarray[f64, ndim=1] state,
     gradient (vertex) subspace at rate gamma.
 
     Parameters
-    ----------
+
     state : (nV+nE+nF,) float64
         Graded state vector.
     B1 : (nV, nE) float64
@@ -852,7 +852,7 @@ def apply_damping(np.ndarray[f64, ndim=1] state,
         Damping rate and time step.
 
     Returns
-    -------
+
     new_state : (nV+nE+nF,) float64
         State after damping.
     """
@@ -888,14 +888,14 @@ def interference_visibility(np.ndarray[f64, ndim=1] signal_a,
     Complementarity: V^2 + D^2 <= 1.
 
     Parameters
-    ----------
+
     signal_a, signal_b : (nE,) float64
         Two edge signals.
     P_harm, P_grad, P_curl : (nE, nE) float64
         Hodge projectors.
 
     Returns
-    -------
+
     dict with visibility, distinguishability, complementarity.
     """
     cdef np.ndarray[f64, ndim=1] ha = P_harm @ signal_a
@@ -945,13 +945,13 @@ def apply_transition(int trans_type,
     """Dispatch for applying any transition type.
 
     Parameters
-    ----------
+
     trans_type : int
         TRANS_MARKOV (0), TRANS_SCHRODINGER (1), TRANS_DIFFERENTIAL (2),
         TRANS_REWRITE (3).
     f0, f1, f2 : current state signals
     target_dim : which cell dimension the operator targets (0/1/2)
-    operator_data : dict with operator-specific arrays
+    operator_data : dict with operator specific arrays
         MARKOV: {"W": transition_matrix} or
                 {"L": laplacian, "evals": ..., "evecs": ...}
         SCHRODINGER: {"evals": ..., "evecs": ...} or {"L": laplacian}
@@ -962,7 +962,7 @@ def apply_transition(int trans_type,
     n_steps : number of steps (Markov discrete / RK4)
 
     Returns
-    -------
+
     new_f0, new_f1, new_f2 : updated state signals
         Untouched dimensions are returned as-is (no copy).
     """
@@ -1010,7 +1010,7 @@ def apply_transition(int trans_type,
     else:
         raise ValueError("Unknown transition type: %d" % trans_type)
 
-    # Return untouched signals as-is (no unnecessary copies)
+    # Return untouched signals as is (no unnecessary copies)
     if target_dim == 0: return new_signal, f1, f2
     elif target_dim == 1: return f0, new_signal, f2
     else: return f0, f1, new_signal

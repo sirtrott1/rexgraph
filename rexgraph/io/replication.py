@@ -1,8 +1,8 @@
 """Checkpoint plus ordered, verified mutation replication packages.
 
 The transport's unkeyed SHA-256 chain detects corruption and inconsistent ordering; it
-does not authenticate a producer. An active adversary can fabricate a self-consistent
-unsigned chain when :func:`apply_replication` uses its default no-signature policy.
+does not authenticate a producer. An active adversary can fabricate a self consistent
+unsigned chain when :func:`apply_replication` uses its default no signature policy.
 Require producer signatures through ``MutationPolicy`` and supply the corresponding
 verifiers when authenticity is a security boundary. A signed chain cannot be downgraded
 silently because each mutation binds its policy digest.
@@ -21,6 +21,7 @@ from .transport import unpack as unpack_transport
 
 REPLICATION_VERSION = 1
 MAX_MUTATIONS = 10_000_000
+_CHECKPOINT_UNSET = object()
 
 __all__ = [
     "MAX_MUTATIONS",
@@ -249,6 +250,7 @@ def apply_replication(
     checkpoint_loader: Callable[[bytes], object | None],
     policy=None,
     verifiers: Mapping[str, Any] | None = None,
+    checkpoint_commit=_CHECKPOINT_UNSET,
 ) -> AppliedReplication:
     """Verify, load, and apply a complete ordered replication package.
 
@@ -256,18 +258,26 @@ def apply_replication(
     must return the checkpoint ``RexGraph`` or ``None`` for an explicit empty genesis
     checkpoint. Every mutation is verified against the real prior state before its
     carried canonical result becomes the next state. Authentication additionally requires
-    a signature-requiring ``policy`` and its ``verifiers``; the default policy verifies
+    a signature requiring ``policy`` and its ``verifiers``; the default policy verifies
     integrity and consistency but does not require a producer signature.
+    An explicit ``checkpoint_commit`` also checks the caller's expected parent
+    before loading state. ``None`` requires a root link. Results own their state,
+    including when the mutation stream is empty.
     """
     from rexgraph.graph import RexGraph
 
     from .catalog import object_digest
-    from .mutation import MutationPolicy, mutation_from_bytes, verify_mutation
-    from .rex_state import from_state
+    from .mutation import MutationPolicy, apply_mutation, mutation_from_bytes
+    from .rex_state import from_state, to_state
 
     if not callable(checkpoint_loader):
         raise TypeError("checkpoint_loader must be callable")
     checkpoint_bytes, mutation_bytes, manifest = unpack_replication(blob)
+    if checkpoint_commit is not _CHECKPOINT_UNSET:
+        if checkpoint_commit is not None and (not isinstance(checkpoint_commit, str) or not checkpoint_commit):
+            raise ValueError("checkpoint_commit must be nonempty text or None")
+        if (manifest.checkpoint_commit or None) != checkpoint_commit:
+            raise ValueError("replication checkpoint commit differs from explicit parent")
     checkpoint = checkpoint_loader(checkpoint_bytes)
     if checkpoint is None:
         if checkpoint_bytes:
@@ -289,16 +299,17 @@ def apply_replication(
     current = checkpoint
     parent = manifest.checkpoint_commit or None
     for package in packages:
-        if not verify_mutation(
+        current = apply_mutation(
             package,
             previous=current,
             policy=mutation_policy,
             verifiers=verifier_map,
             parent_digest=parent,
-        ):
-            raise ValueError("replication mutation failed endpoint or policy verification")
-        current = from_state(package.resulting_state)
+        )
         parent = package.link.digest
+    if not packages and current is not None:
+        from copy import deepcopy
+        current = from_state(deepcopy(to_state(current)))
     terminal = "" if current is None else object_digest(current)
     if terminal != manifest.terminal_state:
         raise ValueError("applied replication state does not match terminal identity")

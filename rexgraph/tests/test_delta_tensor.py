@@ -7,7 +7,7 @@ count.
 Two of them were previously one. The channel called orientation read `_signs`,
 which is the gauge, while orientation proper is position 0 of the boundary column,
 the vertex carrying the opposite sign to the arguments. The project measures the
-two apart: reversing a cell moves chi_F, re-signing one moves the cycle
+two apart: reversing a cell moves chi_F, re signing one moves the cycle
 frustration. The delta compared only w_E and sign for a persisting cell, so a
 reversal changed the boundary and was stored as nothing at all.
 
@@ -101,7 +101,7 @@ def test_a_died_cell_is_an_existence_event():
 
 
 def test_the_channels_are_independent():
-    """The whole point. A step that re-signs one cell and adds another must show
+    """The whole point. A step that re signs one cell and adds another must show
     one event in each channel, not two of the same kind."""
     src, tgt = _ring(4)
     tr = TemporalRex([])
@@ -125,7 +125,7 @@ def test_an_unchanged_step_produces_no_events():
 
 
 def test_keys_are_stable_identities_across_time():
-    """A cell re-signed at t=1 and re-signed back at t=2 is the same cell."""
+    """A cell re signed at t=1 and re signed back at t=2 is the same cell."""
     tr = _store([[1, 1, 1, 1], [-1, 1, 1, 1], [1, 1, 1, 1]])
     d = tr.delta_tensor()
     assert list(d["t"]) == [1, 2]
@@ -190,7 +190,7 @@ def test_a_reversal_is_an_orientation_event_not_a_signing_one():
 
 
 def test_a_reversal_survives_the_store():
-    """The delta compared w_E and sign only, so a reversal round-tripped to the
+    """The delta compared w_E and sign only, so a reversal round tripped to the
     column it started from and the two snapshots read as the same complex."""
     tr = _reversal_store()
     want = RexGraph(sources=np.array([0, 2, 2], np.int32),

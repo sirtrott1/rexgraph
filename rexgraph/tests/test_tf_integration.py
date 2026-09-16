@@ -136,7 +136,7 @@ def test_a_tf_tensor_reads_through_the_rexgraph_surface():
 
 
 def test_importing_tf_after_torch_raises_instead_of_aborting():
-    """The failure mode that matters most: in a torch-first process the module must
+    """The failure mode that matters most: in a torch first process the module must
     refuse in a way the caller can see, since the alternative is a bare abort."""
     src = ("import torch\n"
            "from rexgraph.nn import tf_relational as tfr\n"

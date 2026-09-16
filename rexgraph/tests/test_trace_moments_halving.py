@@ -53,15 +53,16 @@ def test_a_max_one_returns_just_the_trace():
 def test_walk_climbs_only_to_half(monkeypatch):
     """The point of the halving: a sweep to order 5 builds X² and X³ and stops.
     Counted at the matmul, so a regression to the full walk fails here."""
+    from rexgraph.native_sparse import NativeSparse
     X = _sym(25, seed=7)
     calls = {"n": 0}
-    orig = sp.csr_matrix.__matmul__
+    orig = NativeSparse.product
 
     def counting(self, other):
         calls["n"] += 1
         return orig(self, other)
 
-    monkeypatch.setattr(sp.csr_matrix, "__matmul__", counting)
+    monkeypatch.setattr(NativeSparse, "product", counting)
     trace_moments(X, 5)
     assert calls["n"] == 2, f"expected ceil(5/2)-1 = 2 matmuls, got {calls['n']}"
     calls["n"] = 0

@@ -9,13 +9,13 @@ over evidence still in dispute, or recent over stale.
 Everything here reads STORED SIGNATURES ONLY. `store.history` returns records without
 touching a blob, and a signature already carries nV/nE/betti1/kappa_mean per version,
 so a candidate's temporal features cost dict arithmetic. `rcdb.trajectory` answers a
-richer question (it reconstructs a complex per version and runs a cross-complex
+richer question (it reconstructs a complex per version and runs a cross complex
 bridge per step), which is the right tool for inspecting one lineage and the wrong
 one to run per candidate inside a query.
 
-No decay constants. A half-life would be a magic number with no defensible value, so
+No decay constants. A half life would be a magic number with no defensible value, so
 recency is the ORDERING of the candidates actually in hand: same information,
-scale-free, and it cannot be wrong about a unit. Stability is likewise a relative
+scale free, and it cannot be wrong about a unit. Stability is likewise a relative
 quantity, built from each step's change measured against its own magnitude.
 """
 
@@ -29,8 +29,8 @@ from typing import Any
 QUANTITIES = ("nV", "nE", "nF", "betti1", "kappa_mean")
 
 # How a caller may combine temporal signal with the structural score. A registry,
-# not a fixed tuple: a domain-specific policy (a pseudotime ordering, a
-# batch-corrected recency) should not mean editing this module. A policy is
+# not a fixed tuple: a domain specific policy (a pseudotime ordering, a
+# batch corrected recency) should not mean editing this module. A policy is
 # `fn(features, recency_weights, doc_id) -> weight`, and the structural score gates
 # it whatever it returns.
 from rexgraph.registry import Registry
@@ -81,7 +81,7 @@ def _relative_change(a: float, b: float) -> float:
 
 
 def temporal_features(store, id: str) -> dict[str, Any]:
-    """Per-record temporal features from the stored signatures. Opens no blob.
+    """Per record temporal features from the stored signatures. Opens no blob.
 
     stability : 1.0 means every revision left the structure where it was; 0.0 means
                 each revision replaced it. A record with one version is fully
@@ -165,14 +165,14 @@ def recency_weights(items: Sequence[dict[str, Any]], *,
 
 def rerank(sections: list[dict[str, Any]], store, *, mode: str = "stability",
            ) -> list[dict[str, Any]]:
-    """Reorder structurally-scored sections by a temporal policy.
+    """Reorder structurally scored sections by a temporal policy.
 
     The structural score is a gate, never a summand: a candidate that matched nothing
     stays at zero whatever its history looks like. Temporal signal reorders relevant
     results; it does not manufacture relevance.
 
     Each section keeps `structural_score` and gains a `temporal` block, so the
-    reordering is auditable and a caller can re-derive it under another policy.
+    reordering is auditable and a caller can re derive it under another policy.
     """
     if mode not in _POLICIES:
         raise ValueError(f"unknown temporal mode {mode!r}, expected one of "

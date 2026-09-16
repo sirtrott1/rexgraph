@@ -1,11 +1,11 @@
-"""Does contention-aware routing actually beat the obvious policies?
+"""Does contention aware routing actually beat the obvious policies?
 
 READ THE PARTITION SWEEP FIRST (bench_device_partition). The contended rates this uses
 depend on how the machine was divided, and the first version of this benchmark ran the
-CPU worker at 16 threads, found co-scheduling lost, and concluded it always does. At
+CPU worker at 16 threads, found co scheduling lost, and concluded it always does. At
 eight threads it wins by 1.09x. One allocation is not a verdict about the hardware.
 
-Two device-pinned bees on one machine (one spawned with -ngl 0 for CPU, one fully
+Two device pinned bees on one machine (one spawned with -ngl 0 for CPU, one fully
 offloaded to the iGPU) and a batch of independent generations to get through. The question
 is the MAKESPAN: when does the last one finish.
 
@@ -128,7 +128,7 @@ def run(n_tasks=16, n_tokens=120):
         # Contended rates, measured under SUSTAINED mutual load. One generation each is
         # not enough: the iGPU finishes 120 tokens in ~3s and the CPU takes ~7s, so the
         # CPU spends over half its window running alone and its "contended" rate comes
-        # out inflated. Planning off that number over-assigns the slow device and makes
+        # out inflated. Planning off that number over assigns the slow device and makes
         # it the straggler: measured, it turned a predicted 35.8s into 46.5s.
         got = _contended_rates(gurl, curl, n_tokens)
         print(f"  contended : igpu {got['g']:.2f} ({100*got['g']/solo_g:.0f}%), "

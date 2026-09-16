@@ -104,7 +104,7 @@ def test_harmonic_count_is_the_betti_sum():
 
 #### the useful direction: a foreign operator
 def test_a_foreign_operator_has_a_nonzero_residual():
-    """The contrapositive, which is the only non-vacuous reading. An operator with a
+    """The contrapositive, which is the only non vacuous reading. An operator with a
     block joining two grades of the SAME parity is not a graded Dirac, and the residual
     says so."""
     from rexgraph.dirac_propagator import equiweight_residual

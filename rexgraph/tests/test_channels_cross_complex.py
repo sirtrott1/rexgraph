@@ -1,6 +1,6 @@
 """
-Tests for per-channel signal decomposition, spectral channel scores,
-group scoring, cross-complex alignment and bridge analysis, new
+Tests for per channel signal decomposition, spectral channel scores,
+group scoring, cross complex alignment and bridge analysis, new
 types, and graph/analysis integration.
 """
 import numpy as np

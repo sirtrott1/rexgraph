@@ -1,5 +1,5 @@
 """
-RexGraph: relational complex analysis with Cython-accelerated internals.
+RexGraph: relational complex analysis with Cython accelerated internals.
 
 Classes:
     RexGraph     - Relational complex with lazily computed structural properties.
@@ -14,10 +14,10 @@ import sys as _sys
 
 # Result/enumeration types. The module lives at ``rexgraph.rextypes`` rather
 # than ``rexgraph.types`` because a module literally named ``types`` inside the
-# package shadows the standard-library ``types`` module whenever this directory
+# package shadows the standard library ``types`` module whenever this directory
 # lands on sys.path[0] (e.g. running a script from inside the package, or
 # ``python -m ...`` from here), which breaks ``enum``/``dataclasses`` and much
-# of the stdlib. We keep ``rexgraph.types`` working as a backwards-compatible
+# of the stdlib. We keep ``rexgraph.types`` working as a backwards compatible
 # import alias via sys.modules: this does NOT put a ``types.py`` file back on
 # disk, so the shadow is gone.
 from . import core, rextypes
@@ -99,12 +99,12 @@ from .rings import (
 )
 from .tower import channel_delta, graded_delta
 # Import this only after the foundational public types above.  graph imports
-# ``rexgraph.core`` during construction, so placing the re-export here keeps
-# package-root import acyclic while making the primary public class available
+# ``rexgraph.core`` during construction, so placing the re export here keeps
+# package root import acyclic while making the primary public class available
 # from the documented package surface.
 from .graph import RexGraph, TemporalRex
 
-__version__ = "1.1.5"
+__version__ = "1.1.6"
 
 __all__ = [
     "core",
@@ -160,7 +160,7 @@ __all__ = [
     "analyze_jump_delta",
     "channel_delta",
     "graded_delta",
-    # rings: the cycle space of the 1-skeleton, basis-free
+    # rings: the cycle space of the 1 skeleton, basis free
     "cycle_vector",
     "cycle_vectors",
     "minimum_cycle_basis",

@@ -181,13 +181,13 @@ def test_an_unreadable_format_version_is_refused(tmp_path):
         ix.read(p)
 
 
-#### the boundary operator is the arrays the index already holds ################
+# the boundary operator is the arrays the index already holds
 
 def test_boundary_operator_is_built_from_the_stored_arrays_not_rebuilt():
     """`rel_ptr`/`rel_idx` ARE the column structure (relation `e` occupies
     `rel_idx[rel_ptr[e]:rel_ptr[e+1]]` with the record first) so B1 is those arrays plus
     the values arity determines. Reconstructing a RexGraph to reach the same matrix
-    measured 40 s on the 61,353-record store against 1.3 s here, byte-identical, and it
+    measured 40 s on the 61,353 record store against 1.3 s here, byte identical, and it
     was paid by the first query of every process."""
     import numpy as np
     from rexgraph.core._sparse import to_scipy_csr
@@ -223,7 +223,7 @@ def test_the_operator_is_cached_so_a_query_does_not_rebuild_it():
     assert a is b
 
 
-#### the accession reading has axes, and one of them is structurally zero ########
+# the accession reading has axes, and one of them is structurally zero
 
 def test_the_record_scalar_is_its_channel_profile_summed():
     """`record_response` returns one float per record, and that float is the profile
@@ -248,7 +248,7 @@ def test_frustration_is_structurally_zero_at_the_accession_grade():
     disagree, which needs a vertex that HEADS one relation and is an ARGUMENT of another.
     Records occupy [0, n) and terms [n, n + n_terms), disjoint, and a record heads every
     relation it is in while a term is always an argument, so no vertex is ever both and
-    the mismatch cannot arise. What is left is topology against co-participation."""
+    the mismatch cannot arise. What is left is topology against co participation."""
     import numpy as np
 
     from agent import rcdb_index as ix
@@ -265,7 +265,7 @@ def test_frustration_is_structurally_zero_at_the_accession_grade():
     d, _n = ix.channel_diagonals(index)
     assert np.allclose(d[:, 0], d[:, 1]), "T and G share their diagonal"
     assert np.allclose(d[:, 2], 0.0), "F is identically zero here"
-    # C is two matvecs standing in for an off-diagonal row sum: check it against the
+    # C is two matvecs standing in for an off diagonal row sum: check it against the
     # assembled operator, which is only affordable at this size
     ref = G.sum(axis=1) - np.diag(G)
     assert np.allclose(d[:, 3], ref), "C must equal the assembled row sum"
@@ -273,11 +273,11 @@ def test_frustration_is_structurally_zero_at_the_accession_grade():
 
 def test_the_seed_degree_is_per_vertex_and_not_per_relation():
     """`boundary_operator` returns CSC, so `np.diff(B.indptr)` counts per COLUMN (per
-    relation) and the seeds are VERTEX indices. Using the wrong one mis-weights every
+    relation) and the seeds are VERTEX indices. Using the wrong one mis weights every
     seed silently and then raises IndexError once a vertex id exceeds the relation count.
 
     That is exactly what happened: it passed on small fixtures because there every vertex
-    id is below nE, and on the 61,353-record store it raised inside a bare `except` that
+    id is below nE, and on the 61,353 record store it raised inside a bare `except` that
     turned an 88 s scan fallback into the observed behaviour. This asserts the shape
     relationship that makes the two distinguishable at fixture size."""
     import numpy as np
@@ -365,7 +365,7 @@ def test_a_frame_carries_a_backend_s_own_row(tmp_path):
 
 def test_the_log_resumes_at_a_byte_offset(tmp_path):
     """A store replays only the frames its snapshot does not hold, so the reader takes
-    the offset it recorded rather than re-reading from the start."""
+    the offset it recorded rather than re reading from the start."""
     p = tmp_path / "index.rexlog"
     ix.log_append(p, "put", "a", dict(CASES)["plain"])
     at = p.stat().st_size
@@ -414,7 +414,7 @@ def test_both_readers_stop_at_the_same_torn_tail(tmp_path, monkeypatch):
         assert compiled == pure, f"cut {cut}"
 
 
-#### accession is confined to the seeds' star ###################################
+# accession is confined to the seeds' star
 
 def _reference_response(index, terms, reading="share"):
     """`|P (P^T x)|` over the whole operator, which is what the reading means."""
@@ -488,7 +488,7 @@ def test_more_than_one_step_still_walks_the_whole_operator():
     assert int((one > 0).sum()) < int((two > 0).sum()), "a second step reaches further"
 
 
-#### the reading over the rationals #############################################
+# the reading over the rationals
 
 def test_the_exact_reading_needs_no_tolerance():
     """Every quantity the accession reading is built from is an exact rational, so the

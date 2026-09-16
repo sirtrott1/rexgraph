@@ -281,11 +281,11 @@ try:
         save_safetensors,
         temporal_rex_to_safetensors,
     )
-    # Discoverable front door for the labeled-vector-corpus container. The stored schema
+    # Discoverable front door for the labeled vector corpus container. The stored schema
     # (object_type="FingerprintCorpus") is unchanged; these are the general names for the
     # same primitive - a stacked (n, d) matrix + labels + feature_names + block_offsets +
     # metadata. Any embedding matrix (model token embeddings, sentence embeddings, the
-    # agent's structural fingerprints) round-trips through here without a new subsystem.
+    # agent's structural fingerprints) round trips through here without a new subsystem.
     save_vectors = fingerprints_to_safetensors
     load_vectors = safetensors_to_fingerprints
     __all__ += [
@@ -348,7 +348,7 @@ def register_format(name, *, save=None, load=None, extensions=()):
     """Register a storage format under `name`.
 
     `save(path, obj, **kwargs)` and `load(path, **kwargs)` are the handlers; either may
-    be None for a read-only or write-only format, in which case the corresponding entry
+    be None for a read only or write only format, in which case the corresponding entry
     point raises. `extensions` are lowercase suffixes (".rcbd") mapped to this format by
     `_detect_format`.
     """
@@ -474,11 +474,11 @@ def _needs(pkg, extra):
 
 
 register_format("rcbd", save=save_rcbd, load=load_rcbd, extensions=[".rcbd"])
-# Source-level format alias for callers that previously passed ``format="rex"``.
+# Source level format alias for callers that previously passed ``format="rex"``.
 # It writes RCBD and has no extension mapping, so it cannot create new `.rex` paths.
 register_format("rex", save=save_rcbd, load=load_rcbd)
 # Legacy `.rex` directories remain readable and an explicit legacy path remains
-# writable for source compatibility. Suffix-less and documented new writes use
+# writable for source compatibility. Suffix less and documented new writes use
 # `.rcbd`; this route never silently relocates a caller's explicit path.
 register_format("rex-legacy", save=save_rcbd, load=load_rcbd, extensions=[".rex"])
 register_format("rcbf", load=load_rcbf, extensions=[".rcbf"])

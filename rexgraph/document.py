@@ -51,7 +51,7 @@ sentence silently into the second. Two was a filter standing where a class belon
 three before it was arbitrary.
 
 Spans address the ORIGINAL bytes throughout, so the text stays an addressable heap and a
-section is recovered by one seek rather than a re-parse.
+section is recovered by one seek rather than a re parse.
 """
 from __future__ import annotations
 
@@ -65,15 +65,15 @@ __all__ = ["build_document", "document_sections", "section_text", "read_document
 def read_document(path, encoding="utf-8"):
     """A file's text exactly as its BYTES decode, and whether spans can address it.
 
-    Never use text-mode `open` for this. Python translates CRLF to LF on read, so the
+    Never use text mode `open` for this. Python translates CRLF to LF on read, so the
     decoded string is shorter than the file and every byte offset past the first line
     ending is wrong. Measured on one book: 3,762 CRLF pairs, 174,311 bytes decoding to
     163,950 characters, and the first bad offset at byte 63. Every span after that point
     addressed another sentence, which no ASCII test fixture can catch because it has no
     line endings to translate.
 
-    Returns `(text, exact)`. `exact` is True when the text re-encodes to the file
-    byte-for-byte, which is exactly the condition under which a span computed from the
+    Returns `(text, exact)`. `exact` is True when the text re encodes to the file
+    byte for byte, which is exactly the condition under which a span computed from the
     text addresses the file. A caller that gets False must not publish a heap pointer.
     """
     with open(path, "rb") as fh:
@@ -88,7 +88,7 @@ def _byte_starts(text, encoding="utf-8"):
     Spans have to be BYTE offsets or they cannot be seeked to. `document_layers` works on
     the decoded string, which is right for the text logic and wrong for the heap: a text
     handle's `seek` takes an opaque cookie, not a character count, so a character span
-    lands mid-codepoint on any file with a multi-byte character and returns a fragment.
+    lands mid codepoint on any file with a multi byte character and returns a fragment.
     (Measured: 'ng! No, it'll never' out of a book whose only oddity was curly quotes.)
 
     utf-8 byte length is a function of the codepoint, so the map is vectorised through
@@ -116,7 +116,7 @@ def _parent_map(child_spans, parent_spans):
 
     Offsets are used rather than containment because the layers come from ONE
     segmentation of one text: a sentence starts inside exactly the paragraph that most
-    recently began, and asking about containment would re-derive that from geometry.
+    recently began, and asking about containment would re derive that from geometry.
     """
     if not parent_spans:
         return np.full(len(child_spans), -1, dtype=np.int64)
@@ -128,7 +128,7 @@ def _parent_map(child_spans, parent_spans):
 def _partition_of(sections, nE):
     """Each cell to its FIRST owning section: the cover collapsed to a partition.
 
-    First-occurrence is not arbitrary. The sections are in document order, so a shared
+    First occurrence is not arbitrary. The sections are in document order, so a shared
     pair is charged to where it first appeared, which is the only assignment that does
     not depend on how the rest of the document turned out.
     """
@@ -246,7 +246,7 @@ def build_document(raw, *, profile=None, encoding=None, min_terms=1, grammar=Non
     for g, fid in enumerate(doc_frames):
         if fid:
             # the frame is the contextual boundary AROUND the span, not a cell filling
-            # it, so it rides the grade-1 column that already exists
+            # it, so it rides the grade 1 column that already exists
             rex.attach_metadata(1, g, "frame", str(fid))
 
     part, orphans = _partition_of(cinfo["sections"], int(rex.nE))
@@ -254,7 +254,7 @@ def build_document(raw, *, profile=None, encoding=None, min_terms=1, grammar=Non
     # the layer is named for what it DOES: `span` when it genuinely divides a
     # sentence, `sentence` when it does not. Testing whether an explicit gate exists was
     # the wrong question: punctuation gates with no profile gate at all, so a document
-    # divided 3-ways from 1 sentence was still being called the sentence layer.
+    # divided 3 ways from 1 sentence was still being called the sentence layer.
     base = "span" if len(groups) > len(sent) else "sentence"
     labels = [f"{base[0]}{g}" for g in order]
     base_b = _to_byte_spans([group_char[g] for g in order], bstart)
@@ -324,11 +324,11 @@ def document_sections(rex, layer="sentence"):
 
 
 def section_text(rex, layer, index, raw=None, *, path=None, encoding="utf-8"):
-    """The prose of one section. No re-parse, no stored copy.
+    """The prose of one section. No re parse, no stored copy.
 
     Spans are BYTE ranges into the original file, so `path` is opened in binary and the
     read is one seek. A text handle cannot be used: its `seek` takes an opaque cookie
-    rather than an offset, and a character count lands mid-codepoint.
+    rather than an offset, and a character count lands mid codepoint.
 
     `raw` may be `bytes` (sliced directly) or `str` (encoded first, which costs one pass
     over the document, so pass bytes or a path in a loop).

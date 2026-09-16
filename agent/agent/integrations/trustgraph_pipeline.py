@@ -1,7 +1,7 @@
 """
 TrustGraph full integration pipeline.
 
-End-to-end workflow: ingest from TrustGraph, build relational complex,
+End to end workflow: ingest from TrustGraph, build relational complex,
 analyze, interpret, write enrichment back.
 
 Usage:
@@ -46,11 +46,11 @@ from agent.integrations.trustgraph_adapter import (
 
 
 class TrustGraphPipeline:
-    """End-to-end pipeline from TrustGraph to structural analysis.
+    """End to end pipeline from TrustGraph to structural analysis.
 
     Connects the DecisionEngine to TrustGraph's API for document
     ingestion, triple export, complex construction, analysis, and
-    enrichment write-back.
+    enrichment write back.
     """
 
     def __init__(
@@ -72,7 +72,7 @@ class TrustGraphPipeline:
         """Create a pipeline for standalone use (no TG instance)."""
         return cls(url=None)
 
-    # Flow-level analysis
+    # Flow level analysis
 
     def analyze_flow(
         self,
@@ -88,7 +88,7 @@ class TrustGraphPipeline:
         selection, and runs the full analysis pipeline.
 
         Parameters
-        ----------
+
         flow : str
             TrustGraph flow identifier.
         depth : str, optional
@@ -97,7 +97,7 @@ class TrustGraphPipeline:
             Edge signal to decompose (e.g., query relevance).
 
         Returns
-        -------
+
         EngineResult
         """
         triples = list(self.adapter.bulk.export_triples(flow=flow))
@@ -114,7 +114,7 @@ class TrustGraphPipeline:
         self._last_result = result
         return result
 
-    # Document-level analysis
+    # Document level analysis
 
     def analyze_documents(
         self,
@@ -128,13 +128,13 @@ class TrustGraphPipeline:
         documents, uses document membership as the context matrix.
 
         Parameters
-        ----------
+
         document_ids : list of str
         flow : str
         depth : str, optional
 
         Returns
-        -------
+
         EngineResult
         """
         all_triples = list(
@@ -176,14 +176,14 @@ class TrustGraphPipeline:
         """Analyze triples without a running TG instance.
 
         Parameters
-        ----------
+
         triples : list of SimpleTriple, Triple, or (s, p, o) tuples
         contexts : dict, optional
         signal : ndarray, optional
         depth : str, optional
 
         Returns
-        -------
+
         EngineResult
         """
         result = self.engine.run(
@@ -209,7 +209,7 @@ class TrustGraphPipeline:
         Otherwise exports triples and builds a new complex.
 
         Parameters
-        ----------
+
         entities : list of str
             Entity names to score.
         flow : str
@@ -220,7 +220,7 @@ class TrustGraphPipeline:
             Metadata with vertex_labels.
 
         Returns
-        -------
+
         dict with confidence scores per view.
         """
         if rex is None:
@@ -258,14 +258,14 @@ class TrustGraphPipeline:
         """Decompose an edge signal on the knowledge graph.
 
         Parameters
-        ----------
+
         signal : f64[nE]
         signal_name : str
         flow : str
         rex : RexGraph, optional
 
         Returns
-        -------
+
         dict with Hodge decomposition, channel character, face/void
         dipole.
         """
@@ -280,7 +280,7 @@ class TrustGraphPipeline:
             rex, signal, signal_name
         )
 
-    # Enrichment write-back
+    # Enrichment write back
 
     def write_enrichment(
         self,
@@ -290,14 +290,14 @@ class TrustGraphPipeline:
         """Write structural enrichment triples back to TrustGraph.
 
         Parameters
-        ----------
+
         result : EngineResult, optional
             If None, uses the last cached result.
         flow : str
             TG flow to write to.
 
         Returns
-        -------
+
         int
             Number of triples written.
         """

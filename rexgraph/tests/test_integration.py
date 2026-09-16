@@ -2,7 +2,7 @@
 Integration tests for rexgraph v2.
 
 Every test calls the actual compiled Cython modules, either directly
-or through the RexGraph API layer. No pure-NumPy reimplementations.
+or through the RexGraph API layer. No pure NumPy reimplementations.
 
 Coverage: all 27+1 Cython modules through RexGraph and direct imports.
 """
@@ -180,9 +180,9 @@ class TestCharacter:
             assert abs(chi[e].sum() - 1.0) < 1e-10
 
     def test_k4_channel_structure(self, k4):
-        # Doc-exact channels: T,G,C diagonals equal (chi_T=chi_G=chi_C per edge);
-        # F is orientation-dependent (Def 3.3), so chi is a simplex point that is
-        # near- but not exactly uniform. (Pre-doc channels made it exactly 1/nhats.)
+        # Doc exact channels: T,G,C diagonals equal (chi_T=chi_G=chi_C per edge);
+        # F is orientation dependent (Def 3.3), so chi is a simplex point that is
+        # near- but not exactly uniform. (Pre doc channels made it exactly 1/nhats.)
         chi = k4.structural_character
         names = list(k4._rcf_bundle.get('hat_names', []))
         iT, iG, iC = names.index('L1_down'), names.index('L_O'), names.index('L_C')
@@ -565,7 +565,7 @@ class TestRL4:
         assert abs(np.trace(r['RL']) - 4.0) < 1e-10
 
     def test_build_RL_keeps_a_zero_trace_channel(self):
-        """A zero-trace Laplacian is kept as a zero hat rather than dropped, so the
+        """A zero trace Laplacian is kept as a zero hat rather than dropped, so the
         channel list has a fixed width. tr(RL) still counts only what carries mass."""
         from rexgraph.core import _relational
         nE = 5
@@ -607,14 +607,14 @@ class TestRL4:
 # Correlational coherence (phi_similarity, fiber_similarity)
 
 class TestCorrelationalCoherence:
-    """Verify cross-dimensional and fiber bundle similarity."""
+    """Verify cross dimensional and fiber bundle similarity."""
 
     def test_phi_similarity_shape(self, k4):
         S = k4.phi_similarity
         assert S.shape == (k4.nV, k4.nV)
 
     def test_phi_similarity_diagonal(self, k4):
-        """Self-similarity must be 1.0."""
+        """Self similarity must be 1.0."""
         S = k4.phi_similarity
         for v in range(k4.nV):
             assert abs(S[v, v] - 1.0) < 1e-10
@@ -823,7 +823,7 @@ class TestDynamicRCFE:
         assert ac['R'].shape == (k4.nV, k4.nF)
 
     def test_attributed_curvature_uniform(self, k4):
-        """Uniform weights and amplitudes give non-negative curvature."""
+        """Uniform weights and amplitudes give non negative curvature."""
         ac = k4.attributed_curvature()
         assert np.all(ac['kappa_f'] >= -1e-10)
 
@@ -970,8 +970,8 @@ class TestFrustrationByType:
     """Frustration rate varies by edge type."""
 
     def test_signed_edges_affect_frustration(self):
-        """The `signs` array is a WEIGHTED-tower signing: it drives the weighted
-        signed-Gramian frustration `L_frustration_weighted`. (The default integer
+        """The `signs` array is a WEIGHTED tower signing: it drives the weighted
+        signed Gramian frustration `L_frustration_weighted`. (The default integer
         `L_frustration` = F = T-G takes orientation from B1 alone, per the doc, and
         is independent of the separate signs array - which cannot fold into B1
         without breaking the chain condition B1B2=0.)"""
@@ -984,8 +984,8 @@ class TestFrustrationByType:
             sources=np.array([0, 1, 0], dtype=np.int32),
             targets=np.array([1, 2, 2], dtype=np.int32),
         )
-        # signs affect the weighted-tower frustration...
+        # signs affect the weighted tower frustration...
         assert not np.allclose(rex.L_frustration_weighted,
                                rex_unsigned.L_frustration_weighted)
-        # ...but the integer F = T - G is orientation-only (signs-array independent)
+        # ...but the integer F = T - G is orientation only (signs array independent)
         assert np.allclose(rex.L_frustration, rex_unsigned.L_frustration)

@@ -1,5 +1,5 @@
 """
-agent.server.routes.model: context-aware model inference and system status.
+agent.server.routes.model: context aware model inference and system status.
 
     POST /api/v1/model/generate   structured prompt with session context
     GET  /api/v1/status           system health
@@ -18,7 +18,7 @@ from agent.server.auth import require_admin
 router = APIRouter(prefix="/v1")
 
 # Reading what the instance is running is ordinary use. Everything that MOVES it is not:
-# the runtime is process-wide, so these start and stop subprocesses, spend disk and VRAM,
+# the runtime is process wide, so these start and stop subprocesses, spend disk and VRAM,
 # and take a model or a profile out from under whoever else is using it. Those are
 # instance operations rather than workspace ones, and they are gated on instance admin.
 _admin = [Depends(require_admin)]
@@ -253,7 +253,7 @@ async def model_generate(
                                         logprobs.append(float(v))
                         except Exception:
                             pass
-            # final metrics frame, token tier only (free); no per-reply complex build
+            # final metrics frame, token tier only (free); no per reply complex build
             if logprobs:
                 try:
                     from agent.metrics import token_metrics
@@ -287,7 +287,7 @@ async def model_generate(
 
             # Metrics on the reply. Token metrics (perplexity/varentropy) are ~free -
             # extracted from the logprobs the model already returned, so always on.
-            # The structural tier (build the reply's own complex, ~250 ms) is opt-in
+            # The structural tier (build the reply's own complex, ~250 ms) is opt in
             # via include_structural, so we never pay it on every reply.
             from agent.metrics import reply_metrics
             metrics = reply_metrics(text, logprobs=logprobs,
@@ -391,7 +391,7 @@ async def system_status():
 
 @router.get("/model/chat-config")
 async def chat_model_config():
-    """Current chat-model setup status (which model chat/synthesis will use)."""
+    """Current chat model setup status (which model chat/synthesis will use)."""
     from agent.chat_model import status
     return status()
 
@@ -401,7 +401,7 @@ async def set_chat_model_config(body: dict = Body(...)):
     """Configure the chat model.
 
     Body: {url?, model?, api_key?}. Pass url="" to clear the override and
-    fall back to auto-resolution (ModelManager / running GPU server / env).
+    fall back to auto resolution (ModelManager / running GPU server / env).
     """
     from agent.chat_model import configure, status
     configure(
@@ -412,7 +412,7 @@ async def set_chat_model_config(body: dict = Body(...)):
     return {"ok": True, "status": status()}
 
 
-# Managed local runtime (llama.cpp-family server as a first-class local backend)
+# Managed local runtime (llama.cpp-family server as a first class local backend)
 @router.get("/model/local/status")
 async def local_runtime_status():
     """Whether a managed local model server is running, its config, whether a
@@ -423,7 +423,7 @@ async def local_runtime_status():
 
 @router.get("/model/local/discover")
 async def local_runtime_discover():
-    """Auto-detect models already on disk: GGUF files (llama.cpp-loadable) and HF
+    """Auto detect models already on disk: GGUF files (llama.cpp-loadable) and HF
     transformers snapshots (vLLM/transformers) across the common toolchain locations
     (HF cache, ollama, LM Studio, ~/models, our pull dir, + REXGRAPH_MODEL_DIRS)."""
     from agent import local_runtime
@@ -434,7 +434,7 @@ async def local_runtime_discover():
 @router.get("/model/local/endpoints")
 async def local_runtime_endpoints():
     """Probe LIVE inference servers running on this host (Ollama / vLLM / llama.cpp /
-    LM Studio / TGI on well-known ports + REXGRAPH_PROBE_URLS). Returns the reachable
+    LM Studio / TGI on well known ports + REXGRAPH_PROBE_URLS). Returns the reachable
     ones and the model ids each is serving, the real backends the swarm can wire to."""
     from agent import local_runtime
     return {"endpoints": local_runtime.probe_endpoints(),
@@ -460,7 +460,7 @@ async def local_runtime_start(body: dict = Body(...)):
 
 @router.post("/model/local/stop", dependencies=_admin)
 async def local_runtime_stop():
-    """Stop the managed local server and clear the chat-backend override."""
+    """Stop the managed local server and clear the chat backend override."""
     from agent import local_runtime
     local_runtime.stop()
     return {"ok": True, "status": local_runtime.status()}
@@ -468,7 +468,7 @@ async def local_runtime_stop():
 
 @router.post("/model/embedder/start", dependencies=_admin)
 async def embedder_start(body: dict = Body(...)):
-    """Launch the dedicated embedding worker (the beehive's nomic-embed bee) ALONGSIDE the chat
+    """Launch the dedicated embedding worker (the beehive's nomic embed bee) ALONGSIDE the chat
     model, so the swarm's alignment/hallucination signal is always live. body: {model_path}."""
     from agent import local_runtime
     mp = body.get("model_path")
@@ -495,9 +495,9 @@ async def embedder_status():
 
 @router.post("/model/introspect")
 async def model_introspect_embeddings(body: dict = Body(...)):
-    """Run the RCF math on the MODEL'S OWN embedding geometry (Tier-1 bridge): embed the
+    """Run the RCF math on the MODEL'S OWN embedding geometry (Tier 1 bridge): embed the
     items on the running local server, build a similarity complex, and return structural
-    perplexity, coherence, Betti, and the load-bearing (bridge) concept pairs.
+    perplexity, coherence, Betti, and the load bearing (bridge) concept pairs.
     body: {texts: [str, ...], top_p?}."""
     from agent import model_introspect
     texts = body.get("texts") or []
@@ -513,16 +513,16 @@ async def model_introspect_embeddings(body: dict = Body(...)):
 
 @router.get("/model/introspect/attention/available")
 async def attention_capture_available():
-    """Whether the Tier-2 attention-capture host is built (llama.cpp cb_eval bridge)."""
+    """Whether the Tier 2 attention capture host is built (llama.cpp cb_eval bridge)."""
     from agent import attn_introspect
     return {"available": attn_introspect.available()}
 
 
 @router.post("/model/introspect/attention", dependencies=_admin)
 async def model_introspect_attention(body: dict = Body(...)):
-    """Tier-2: capture the running model's OWN per-layer attention (llama.cpp cb_eval, no ggml
+    """Tier 2: capture the running model's OWN per layer attention (llama.cpp cb_eval, no ggml
     patch) and run the RCF analysis on each layer - Hodge grad/curl/harmonic, the four channels,
-    Betti, coherence. The model reading its own attention through the relational-complex math.
+    Betti, coherence. The model reading its own attention through the relational complex math.
     body: {prompt: str, layers?: [int], model_path?}."""
     from agent import attn_introspect
     prompt = body.get("prompt")

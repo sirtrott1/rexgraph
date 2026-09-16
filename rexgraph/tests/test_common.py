@@ -96,14 +96,14 @@ class TestConfiguration:
 
     def test_configure_memory_explicit(self):
         """Setting explicit memory limits persists."""
-        # nothing is captured before the change: the finally below resets to auto-detect
+        # nothing is captured before the change: the finally below resets to auto detect
         # rather than to a saved value, so reading the old configuration was never used.
         try:
             configure_memory(max_dense_allocation=500_000_000)
             cfg = get_configuration()
             assert cfg["max_dense_allocation_bytes"] == 500_000_000
         finally:
-            # Reset to auto-detect
+            # Reset to auto detect
             configure_memory()
 
     def test_configure_memory_invalid_fraction(self):
@@ -214,7 +214,7 @@ class TestThreadConfig:
 # Feature Detection
 
 class TestFeatureDetection:
-    """Compile-time and runtime feature detection."""
+    """Compile time and runtime feature detection."""
 
     def test_openmp_is_bool(self):
         assert isinstance(get_openmp_enabled(), bool)

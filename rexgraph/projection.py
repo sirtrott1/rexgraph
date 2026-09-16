@@ -13,7 +13,7 @@ for rational `t`, with `cos^2 + sin^2 = 1` exactly. So a direction taken from a 
 parameter is rational in both components, and the angle between two such directions is a
 rational spread. Nothing here calls sqrt, sin, cos or atan2.
 
-The construction, slot-wise over the channels:
+The construction, slot wise over the channels:
 
     (1 + X) (1 - X) = 1 - X^2
 
@@ -24,7 +24,7 @@ cosine: a sine on one of them puts that axis at its flat maximum exactly where o
 characters cluster, and the picture loses a dimension to the map rather than to the
 complex.
 
-What this is NOT: a refinement. A Hilbert-space projection into the plane converges on a
+What this is NOT: a refinement. A Hilbert space projection into the plane converges on a
 picture by successive approximation. Here the tensor field emits the coordinates directly
 and the arithmetic stays rational the whole way, so there is nothing to converge and no
 tolerance to choose.
@@ -45,7 +45,7 @@ __all__ = ["rational_direction", "direction_spread", "channel_parameters",
 def rational_direction(t) -> tuple:
     """`(cos, sin)` on the unit circle for a rational parameter, exactly.
 
-    The half-angle (Weierstrass) parametrisation. `t = 0` is the positive x axis and
+    The half angle (Weierstrass) parametrisation. `t = 0` is the positive x axis and
     `t = 1` is a quarter turn; every rational `t` gives a rational point, and every
     rational point on the circle arises from one.
     """
@@ -96,7 +96,7 @@ def project(shares) -> tuple:
     `sin` is at its maximum at `t = 1`, so its derivative there is zero, and `t = 1` is
     exactly where the parameters sit for an ordinary complex: `v = chi_2 / chi_1` with
     `chi_0 = chi_1` identically, so a cell with no strong channel preference has `v` near
-    one and the axis annihilates its variation. Measured on a 4-ary relation with its
+    one and the axis annihilates its variation. Measured on a 4 ary relation with its
     spanning cycle, four vertices with genuinely different characters spread 0.136 in x and
     0.005 in y, an aspect of 1:26 that is an artifact of the map rather than a fact about
     the complex. Through the cosine the same four spread 0.136 by 0.175.

@@ -1,6 +1,6 @@
 """beta_0 is n_0 - rank(B_1), which is a component count only on a pairwise graph.
 
-`betti_numbers` took beta_0 from a union-find over components and its docstring called
+`betti_numbers` took beta_0 from a union find over components and its docstring called
 that "equivalently ``n_0 - rank(B_1)``". The two agree when every relation has arity 2
 and part otherwise: rank(B_1) = n_0 - c is a GRAPH identity, and a relation of arity k
 touches k vertices while contributing rank one, so reaching a new vertex stops meaning
@@ -31,7 +31,7 @@ FIXTURES = [
     ("double-T",                   [0, 3, 6],    [0, 1, 2, 0, 1, 3], 2),
     ("three hyperedges on a pair", [0, 3, 6, 9], [0, 1, 2, 0, 1, 3, 0, 1, 4], 2),
     ("hyperedge = mean of two",    [0, 3, 5, 7], [0, 1, 2, 0, 1, 0, 2], 1),
-    # arity-3 contributes rank 1, the disjoint triangle rank 2, so beta_0 = 6 - 3
+    # arity 3 contributes rank 1, the disjoint triangle rank 2, so beta_0 = 6 - 3
     ("k=3 beside a triangle",      [0, 3, 5, 7, 9],
                                    [0, 1, 2, 3, 4, 4, 5, 5, 3], 3),
 ]
@@ -64,7 +64,7 @@ def test_beta0_equals_nullity_of_b1_transpose(name, ptr, idx, want):
 
 
 def test_a_component_count_would_disagree_on_branching():
-    """Pins the distinction rather than assuming it: a lone arity-4 relation is one
+    """Pins the distinction rather than assuming it: a lone arity 4 relation is one
     connected component and has beta_0 = 3."""
     rex = _branching([0, 4], [0, 1, 2, 3])
     assert int(rex.betti[0]) == 3
@@ -84,7 +84,7 @@ def test_pairwise_graphs_are_unchanged():
 
 #### the rank itself
 def test_a_self_loop_does_not_inflate_the_rank():
-    """A self-loop stores -1 and +1 at the same (row, col), so duplicates must be
+    """A self loop stores -1 and +1 at the same (row, col), so duplicates must be
     summed before the column is read. An unsummed duplicate overwrites instead of
     cancelling, leaving a zero column that registers a spurious pivot: rank 2 on a
     matrix of rank 1, which puts both beta_0 and beta_1 out by one."""
@@ -98,12 +98,12 @@ def test_a_self_loop_does_not_inflate_the_rank():
 
 
 def test_the_self_loop_cycle_is_counted():
-    """A self-loop's column is zero, so it lies in ker(B1) and is an independent cycle.
+    """A self loop's column is zero, so it lies in ker(B1) and is an independent cycle.
     The parallel pair contributes another."""
     rex = RexGraph(sources=np.array([0, 0, 1, 1], np.int32),
                    targets=np.array([1, 1, 1, 2], np.int32))
     b = [int(x) for x in rex.betti]
-    assert b[1] == 2                                    # parallel pair + self-loop
+    assert b[1] == 2                                    # parallel pair + self loop
     assert b[0] - b[1] + b[2] == int(rex.nV) - int(rex.nE) + int(rex.nF_hodge)
 
 
@@ -119,7 +119,7 @@ def test_branching_rank_stays_on_the_integer_path(ptr, idx, want_rank):
 
     The stored column carries the share 1/(k-1) and so looks rational, but it has an
     exact INTEGER representative: scaling by (k-1) gives (-(k-1), +1, ..., +1), still
-    zero-sum and still (-1, +1) at k=2. Rank is invariant under column scaling, so the
+    zero sum and still (-1, +1) at k=2. Rank is invariant under column scaling, so the
     rank path is handed that and no fraction ever enters. Reconstructing 1/3 from its
     nearest double would be answering a question that should not be asked.
     """
@@ -144,7 +144,7 @@ def test_the_integer_representative_is_the_share_cleared(k):
 
 
 def test_the_stored_boundary_keeps_the_share():
-    """The channels are not scale-free: T and G weight a wide relation less per leg than
+    """The channels are not scale free: T and G weight a wide relation less per leg than
     a narrow one, and that is the content of the share there. Only the rank path, where
     scale is free, uses the cleared form."""
     import scipy.sparse as sp

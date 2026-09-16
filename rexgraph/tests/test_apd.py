@@ -37,7 +37,7 @@ def _square():
 
 
 def _branching():
-    """One 4-ary relation with two 2-ary legs, so arity varies within a grade."""
+    """One 4 ary relation with two 2 ary legs, so arity varies within a grade."""
     return RexGraph.from_hypergraph(
         np.array([0, 4, 6, 8], dtype=np.int32),
         np.array([0, 1, 2, 3, 0, 1, 1, 2], dtype=np.int32))
@@ -61,8 +61,8 @@ def test_arity_reads_down_and_degree_reads_up():
 
 
 def test_arity_varies_within_a_grade_on_a_branching_complex():
-    """A wide relation and a 2-ary leg live at the same grade, which is the whole reason
-    arity is a per-cell reading rather than a property of the complex."""
+    """A wide relation and a 2 ary leg live at the same grade, which is the whole reason
+    arity is a per cell reading rather than a property of the complex."""
     cells = apd(_branching(), 1)["cells"]
     assert sorted(c["arity"] for c in cells) == [2, 2, 4]
 
@@ -70,7 +70,7 @@ def test_arity_varies_within_a_grade_on_a_branching_complex():
 def test_a_cell_can_be_wide_and_lonely_or_narrow_and_busy():
     """Independence, stated as the thing that would break if arity determined degree.
 
-    A filled triangle with a 4-ary relation hanging off it: the narrow relations are the
+    A filled triangle with a 4 ary relation hanging off it: the narrow relations are the
     busy ones and the wide relation is in nothing, so arity runs OPPOSITE to degree here.
     Any rule deriving one from the other has to pick a direction, and this complex would
     falsify either choice.

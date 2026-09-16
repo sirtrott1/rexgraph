@@ -1,9 +1,9 @@
-"""agent.connectors.graph: property-graph databases (Neo4j shape).
+"""agent.connectors.graph: property graph databases (Neo4j shape).
 
-Nodes -> vertices, relationships -> edges. Harness-validatable here against an
-in-memory ``{"nodes": [...], "relationships": [(src, dst), ...]}`` stand-in;
-the live path (a ``neo4j://`` URI over the bolt driver) is a host-environment
-task: the driver isn't present in-sandbox.
+Nodes -> vertices, relationships -> edges. Harness validatable here against an
+in memory ``{"nodes": [...], "relationships": [(src, dst), ...]}`` stand in;
+the live path (a ``neo4j://`` URI over the bolt driver) is a host environment
+task: the driver isn't present in sandbox.
 """
 from __future__ import annotations
 

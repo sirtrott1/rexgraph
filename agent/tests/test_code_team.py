@@ -1,4 +1,4 @@
-"""agent.code_team: concurrent generate+evaluate, self-heal via debugger, lead unifies a build."""
+"""agent.code_team: concurrent generate+evaluate, self heal via debugger, lead unifies a build."""
 import threading
 import time
 

@@ -63,11 +63,11 @@ class TestChiCosine:
         """K4 edges share the dominant T=G=C structure, so chi cosine similarities
         are high and positive (<= 1), but not all exactly 1: the orientation-
         dependent F channel (doc Def 3.3 / Sec 1.3) splits the edges into a few
-        classes. (Pre-doc uniform-chi made every cosine exactly 1 - an artifact.)"""
+        classes. (Pre doc uniform chi made every cosine exactly 1 - an artifact.)"""
         chi = k4.structural_character
         sim = _fiber.chi_cosine(chi, k4.nE, k4.nhats)
         assert np.all(sim > 0.7) and np.all(sim <= 1.0 + 1e-9)
-        assert sim.max() >= 1.0 - 1e-8                      # self-similarity reaches 1
+        assert sim.max() >= 1.0 - 1e-8                      # self similarity reaches 1
 
 
 # Phi Cosine
@@ -146,7 +146,7 @@ class TestSFBSimilarity:
         assert np.allclose(sfb, sfb.T)
 
     def test_diagonal_zero(self, k4):
-        """sfb only fills off-diagonal (i < j loop), diagonal stays 0."""
+        """sfb only fills off diagonal (i < j loop), diagonal stays 0."""
         sfb = _fiber.sfb_similarity_matrix(
             k4.star_character, k4.vertex_character, k4.nV, k4.nhats)
         assert np.allclose(np.diag(sfb), 0)
@@ -170,7 +170,7 @@ class TestThresholdGraph:
     def test_all_above(self):
         sim = np.ones((3, 3), dtype=np.float64)
         src, tgt, wt, ne = _fiber.threshold_graph(sim, 3, 0.5)
-        assert ne == 3  # 3 upper-triangular pairs
+        assert ne == 3  # 3 upper triangular pairs
 
     def test_none_above(self):
         sim = np.zeros((3, 3), dtype=np.float64)
@@ -222,7 +222,7 @@ class TestSphereProj:
         assert pts.shape == (2, 3)
 
     def test_z_zero_nhats3(self):
-        """nhats=3 maps to the xy-plane (z=0)."""
+        """nhats=3 maps to the xy plane (z=0)."""
         chi = np.array([[0.5, 0.3, 0.2]], dtype=np.float64)
         pts = _fiber.signal_sphere_proj(chi, 1, 3)
         assert pts[0, 2] == 0.0

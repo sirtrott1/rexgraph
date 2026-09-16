@@ -11,7 +11,7 @@ from rexgraph.nn.optim import GreensCochain  # noqa: E402
 
 
 def _ring_task(n=60, C=3):
-    # a homophilous ring of C blocks; labels piecewise-constant along the ring; a few train nodes
+    # a homophilous ring of C blocks; labels piecewise constant along the ring; a few train nodes
     y = np.repeat(np.arange(C), n // C)[:n]
     rows = np.arange(n); cols = (np.arange(n) + 1) % n
     A = sp.coo_matrix((np.ones(2 * n), (np.concatenate([rows, cols]), np.concatenate([cols, rows]))), shape=(n, n))
@@ -43,7 +43,7 @@ def _fit(opt_kind):
 def test_greens_propagates_where_adam_cannot():
     adam_acc = _fit("adam")
     greens_acc = _fit("greens")
-    # Adam only updates the few train-node params -> test nodes stay at chance; Greens propagates
+    # Adam only updates the few train node params -> test nodes stay at chance; Greens propagates
     assert adam_acc < 0.5
     assert greens_acc > 0.75
     assert greens_acc > adam_acc + 0.3
@@ -60,7 +60,7 @@ def test_greens_falls_back_to_adam_without_adj():
 
 
 def test_khop_channels_run_and_propagate():
-    # the 2-hop / 3-hop channels are first-class and still propagate on a homophilous ring
+    # the 2 hop / 3 hop channels are first class and still propagate on a homophilous ring
     for ch in ("twohop", "threehop"):
         adj, y, train = _ring_task()
         n, C = adj.shape[0], int(y.max()) + 1
@@ -74,7 +74,7 @@ def test_khop_channels_run_and_propagate():
 
 def test_generator_selects_the_best_scoring_channel():
     from rexgraph.nn.optim import generate_khop_channel
-    # a mock context signal that prefers 2-hop; the generator must pick it
+    # a mock context signal that prefers 2 hop; the generator must pick it
     scores = {"low": 0.4, "twohop": 0.8, "threehop": 0.5}
     best, got = generate_khop_channel(lambda ch: scores[ch], channels=("low", "twohop", "threehop"))
     assert best == "twohop"

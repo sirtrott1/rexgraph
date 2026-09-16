@@ -1,4 +1,4 @@
-"""Tests for the DB-URI allow-list (dbguard) and the error-response sanitizer."""
+"""Tests for the DB URI allow list (dbguard) and the error response sanitizer."""
 from __future__ import annotations
 
 import os
@@ -9,7 +9,7 @@ from agent.server.security import add_error_sanitizer
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-# dbguard: opt-in DB-URI allow-list
+# dbguard: opt in DB URI allow list
 
 def test_dbguard_off_by_default_allows_anything(monkeypatch):
     for k in ("REXGRAPH_DB_SAFE", "REXGRAPH_DB_BLOCK_LOCAL",
@@ -173,7 +173,7 @@ def test_rate_limiter_tiers_and_exemptions(monkeypatch):
 
 def test_appjsx_served_as_executable_javascript():
     """Regression: app.jsx is loaded via <script src>. Under our
-    X-Content-Type-Options: nosniff header the browser refuses to execute a script
+    X-Content Type Options: nosniff header the browser refuses to execute a script
     unless its MIME type is JavaScript - so StaticFiles must NOT serve it as
     application/octet-stream, or the whole UI silently fails to render."""
     from agent.server.app import app
@@ -226,8 +226,8 @@ def test_a_prefix_is_not_containment():
 
 
 def test_the_config_directory_is_refused_inside_an_allowed_root(tmp_path, monkeypatch):
-    """An allow-list whose widest entry contains the credential store is not an
-    allow-list. auth.json, connections.json and the audit journal all live there."""
+    """An allow list whose widest entry contains the credential store is not an
+    allow list. auth.json, connections.json and the audit journal all live there."""
     from agent.server.handles import path_within
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path / "cfg"))
     (tmp_path / "cfg").mkdir()
@@ -252,7 +252,7 @@ def test_the_home_directory_is_not_allowed_by_default(tmp_path, monkeypatch):
 
 
 def test_ocr_no_longer_answers_questions_about_paths(tmp_path, monkeypatch):
-    """It had no allow-list at all, so "File not found" versus "Unsupported file type"
+    """It had no allow list at all, so "File not found" versus "Unsupported file type"
     was an existence oracle for any path. Containment is decided before existence."""
     from fastapi.testclient import TestClient
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))

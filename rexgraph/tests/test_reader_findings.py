@@ -42,7 +42,7 @@ def _mixed_faces():
 
 def test_chain_valid_and_the_filter_agree():
     """They could not before: this ran on the raw B2 at a 1e-10 tolerance while nF_hodge
-    ran the exact per-face predicate."""
+    ran the exact per face predicate."""
     rex = _mixed_faces()
     assert rex.chain_valid is False
     assert rex.nF_hodge == 1, "the complex still uses the face that bounds"
@@ -162,7 +162,7 @@ def test_the_three_kinds_differ():
     assert len(set(sizes.values())) == 3, f"two joins are the same operation: {sizes}"
 
 
-#### co-participation has one definition
+#### co participation has one definition
 
 
 def test_the_flow_operators_delegate_to_the_library_gramian():

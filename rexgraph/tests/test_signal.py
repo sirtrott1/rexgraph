@@ -201,7 +201,7 @@ class TestEnergyTrajectory:
 class TestPerEdgeEnergy:
 
     def test_sums_to_total(self, k4):
-        """Per-edge energies sum to total E_kin and E_pot."""
+        """Per edge energies sum to total E_kin and E_pot."""
         nE = k4.nE
         evals, evecs = np.linalg.eigh(np.asarray(k4.L1, dtype=np.float64))
         f_E = np.random.RandomState(42).randn(nE).astype(np.float64)

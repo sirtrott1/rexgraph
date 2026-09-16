@@ -9,12 +9,12 @@ The claims under test:
 
 1. `Resnik <= shared_mass`, with equality exactly when at most ONE shared ancestor
    carries weight. That makes Resnik the l-infinity reduction of a set where the exact
-   object is the l-1 reduction: a rank-1 shadow, in Resnik's own space. The weight
+   object is the l-1 reduction: a rank 1 shadow, in Resnik's own space. The weight
    qualifier is real: an ancestor annotated by everything has IC 0 and enters
    neither reduction.
-2. Where two pairs share the same most-informative ancestor and differ in everything
+2. Where two pairs share the same most informative ancestor and differ in everything
    else they share, Resnik cannot tell them apart and the overlap can.
-3. Whether the corpus-free structural reading recovers the ancestor ordering. It does
+3. Whether the corpus free structural reading recovers the ancestor ordering. It does
    NOT: measured at approximately zero rank correlation while Resnik sits near +0.58.
    The two measure different things, and that negative result is recorded here rather
    than quietly dropped.
@@ -133,7 +133,7 @@ def test_the_overlap_matrix_is_symmetric_with_ones_on_the_diagonal():
 
 
 def test_resnik_never_exceeds_the_shared_mass():
-    """The l-infinity reduction of a set of non-negative weights cannot exceed its
+    """The l-infinity reduction of a set of non negative weights cannot exceed its
     l-1 reduction. This is the inequality that makes it a shadow."""
     h = _tree()
     counts = {"A": 3, "B": 3, "C": 5, "D": 1}
@@ -147,7 +147,7 @@ def test_resnik_never_exceeds_the_shared_mass():
 
 
 def test_they_are_equal_exactly_when_one_ancestor_is_shared():
-    """max == sum over a set of non-negative weights iff the set has one element."""
+    """max == sum over a set of non negative weights iff the set has one element."""
     h = _tree()
     counts = {"A": 3, "B": 3, "C": 5, "D": 1}
     ic = information_content(h, counts, total=12)
@@ -192,11 +192,11 @@ def test_a_weightless_ancestor_costs_the_reduction_nothing():
 
 
 def _tie_fixture():
-    """A hierarchy where two pairs share the same most-informative ancestor.
+    """A hierarchy where two pairs share the same most informative ancestor.
 
     `A` and `B` sit under both `M` and `X`; `C` and `D` sit under `M` alone. Extra
     terms under `X` make `X` the commoner of the two, so `M` carries the higher
-    information content and is the most-informative common ancestor for BOTH pairs.
+    information content and is the most informative common ancestor for BOTH pairs.
     Resnik therefore reports the same number for a pair that shares two informative
     ancestors and a pair that shares one.
     """
@@ -212,7 +212,7 @@ def _tie_fixture():
 def test_resnik_ties_two_pairs_the_overlap_separates():
     """The construction that isolates the loss, and the point of the whole reduction.
 
-    Both pairs have `M` as their most-informative common ancestor, so Resnik cannot
+    Both pairs have `M` as their most informative common ancestor, so Resnik cannot
     distinguish them. `A,B` additionally share `X`; `C,D` do not. The overlap sees the
     difference because it sums the shared set instead of taking its maximum.
     """
@@ -337,7 +337,7 @@ def test_the_structural_reading_does_not_recover_the_ancestor_ordering(tmp_path,
 
     The hypothesis was that `spread_similarity` might order term pairs the way the
     ancestor overlap does without ever seeing an annotation count, which would make
-    the corpus dependence in an information-content measure unnecessary.
+    the corpus dependence in an information content measure unnecessary.
 
     Measured on random ontologies of 60, 200 and 500 terms, the rank correlation
     between the structural reading and the ancestor overlap is approximately zero and
@@ -354,7 +354,7 @@ def test_the_structural_reading_does_not_recover_the_ancestor_ordering(tmp_path,
         single ancestor.
 
     Neither replaces the other, and the earlier framing of the fiber reading as a
-    corpus-free substitute for Resnik was wrong.
+    corpus free substitute for Resnik was wrong.
 
     The bounds below are loose and are there so a change that made either measure
     behave differently is noticed, not because the numbers are targets.
@@ -405,7 +405,7 @@ def test_the_structural_reading_does_not_recover_the_ancestor_ordering(tmp_path,
 def test_the_structural_reading_uses_no_annotation_counts(tmp_path):
     """The property that makes the comparison worth making at all: the same ontology
     with different annotation volumes gives the same structural similarity, and would
-    give different information-content similarities."""
+    give different information content similarities."""
     import numpy as np
     from agent.knowledge import join
 

@@ -19,7 +19,7 @@ def test_online_module_imports_no_torch():
 
 
 def test_correction_reduces_region_residual():
-    r = _rex([0, 1, 2], [1, 2, 0])                   # triangle -> L_C is non-None
+    r = _rex([0, 1, 2], [1, 2, 0])                   # triangle -> L_C is non None
     f = GreensCochainField()
     region = np.array([0, 1, 2], np.int64)
     pred = f.predict(r, region)                      # field starts at 0
@@ -87,6 +87,6 @@ def test_l_c_cache_reuses_snapshot_build(monkeypatch):
     f.predict_then_observe(1, changed_edges(snaps[0], snaps[1]), snaps[1])
     f.predict_then_observe(2, changed_edges(snaps[1], snaps[2]), snaps[2])
     # Each distinct snapshot object's L_C is built at most once (cache reuse across the
-    # predict-at-t -> correct-at-(t+1) path). Three distinct snapshots -> at most 3 builds,
-    # versus the no-cache path which rebuilds on every predict AND correct.
+    # predict at-t -> correct at-(t+1) path). Three distinct snapshots -> at most 3 builds,
+    # versus the no cache path which rebuilds on every predict AND correct.
     assert calls["n"] <= 3

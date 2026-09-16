@@ -23,7 +23,7 @@ entries a row contributes
 
     popcount(P & ~(S ^ X)) - popcount(P & (S ^ X))
 
-which is two ANDs, an XOR and two popcounts for 64 multiply-accumulates. That path is
+which is two ANDs, an XOR and two popcounts for 64 multiply accumulates. That path is
 exact: the result is a count difference, an integer, with no rounding anywhere.
 
 Against a general float vector the planes still earn their keep by carrying the
@@ -45,16 +45,16 @@ np.import_array()
 cdef extern from *:
     """
     /* Bit counting, resolved at RUNTIME rather than at build time.
-     *
+
      * The build cannot assume the instruction: a portable wheel is compiled for a
      * baseline target (conda-forge hands us -march=nocona, a 2004 part), and there
      * __builtin_popcountll becomes a CALL to libgcc's software __popcountdi2, once
-     * per 64-bit word. That is what this kernel was doing.
-     *
+     * per 64 bit word. That is what this kernel was doing.
+
      * So the ISA is chosen when the process starts, not when the wheel is built:
-     * AVX-512 VPOPCNTDQ counts eight words per instruction, plain POPCNT counts one,
+     * AVX 512 VPOPCNTDQ counts eight words per instruction, plain POPCNT counts one,
      * and the portable fallback keeps a machine with neither working. Nothing here
-     * is a compile-time flag, so the same binary is correct everywhere and fast
+     * is a compile time flag, so the same binary is correct everywhere and fast
      * where the silicon allows.
      */
     #include <stdint.h>
@@ -121,21 +121,21 @@ cdef extern from *:
     static inline int _pc1(uint64_t b) { return __builtin_popcountll(b); }
 
     /* The float path, against a general vector.
-     *
+
      * The obvious loop walks set bits and gathers v[base+b] one at a time. That reads
      * only the support, which sounds like the efficient choice and is not: it is
      * scalar, every bit is an unpredictable branch, and it reached 3.6 GB/s against a
      * memory system that does 116.
-     *
-     * The bits of a word address SIXTY-FOUR CONSECUTIVE entries of v, so nothing needs
+
+     * The bits of a word address SIXTY FOUR CONSECUTIVE entries of v, so nothing needs
      * gathering. Eight doubles load contiguously, the presence byte becomes a mask,
      * and the sign byte splits it into one masked add and one masked subtract. The
      * whole support of a word is covered by eight of those with no branch on any
      * individual bit.
-     *
+
      * v must be padded to nw*64 doubles so the last word can load a full vector; the
      * caller does that, and the padding is zero so it contributes nothing.
-     *
+
      * Summation order differs from the scalar loop, so the two agree to float rounding
      * rather than bit for bit. Float addition is not associative and no arrangement of
      * it is canonical.
@@ -181,7 +181,7 @@ cdef extern from *:
     }
     #endif
 
-    /* Row blocking. The loop above re-reads the WHOLE of v for every row: 4.3 GB of
+    /* Row blocking. The loop above re reads the WHOLE of v for every row: 4.3 GB of
      * cache traffic against 134 MB of planes on a 8192x65536 operator, so v and not
      * the operator is what the machine is actually moving. Four rows share one load of
      * v, which cuts that traffic fourfold and costs four accumulator registers.
@@ -291,12 +291,12 @@ _blockf_resolve()
 
 
 def bitcount_path() -> str:
-    """Which bit-counting implementation this process resolved to."""
+    """Which bit counting implementation this process resolved to."""
     return (<bytes>_DIS_NAME).decode()
 
 
 def float_path() -> str:
-    """Which float-product implementation this process resolved to."""
+    """Which float product implementation this process resolved to."""
     return (<bytes>_ROWF_NAME).decode()
 
 
@@ -368,7 +368,7 @@ def matvec_pm1(np.ndarray P not None, np.ndarray S not None,
                np.ndarray X not None, np.ndarray K=None, int threads=0):
     """Exact integer product of a ternary operator with a packed +-1 vector.
 
-    `K` is the per-row arity. Pass it when it is already known, which it usually is:
+    `K` is the per row arity. Pass it when it is already known, which it usually is:
     it is a property of the operator and not of the vector, so recomputing it per
     matvec is work the caller has already done once.
     """

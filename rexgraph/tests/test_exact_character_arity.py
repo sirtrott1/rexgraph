@@ -2,7 +2,7 @@
 
 They are two readings of the same operators, so a disagreement is a defect in one of
 them by definition. The exact tower was reading the float channels back and rounding each
-diagonal to an integer, which is a no-op on a pairwise complex (T = 2, F and C integers)
+diagonal to an integer, which is a no op on a pairwise complex (T = 2, F and C integers)
 and destructive on any branching one:
 
     T[e,e] = 1 + 1/(k-1)   is in (1, 3/2] for every k >= 3, so rounding maps EVERY
@@ -12,7 +12,7 @@ and destructive on any branching one:
 
 The second one showed as a rendering collapse: with F identically zero the second channel
 parameter is zero for every cell, so every vertex lands on y = 0 and the picture is a
-line. These hold the agreement, the non-integrality, and the consequence.
+line. These hold the agreement, the non integrality, and the consequence.
 """
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def test_the_diagonals_are_not_integers_once_a_relation_branches():
 
 
 def test_the_pairwise_diagonals_are_integers():
-    """Which is why rounding was invisible: on a 2-ary complex it changes nothing."""
+    """Which is why rounding was invisible: on a 2 ary complex it changes nothing."""
     diagonals, names = exact_channel_diagonals(_rex(*CASES["pairwise triangle"]))
     assert all(d.denominator == 1 for n in names for d in diagonals[n])
 
@@ -88,15 +88,15 @@ def test_the_pairwise_diagonals_are_integers():
                                         (5, "5/4"), (9, "9/8")])
 def test_arity_survives_in_the_boundary_norm(k, expected):
     """T = 1 + 1/(k-1) is how arity reaches the character. Every value for k >= 3 sits in
-    (1, 3/2], so rounding collapsed them all onto 1 and made a 4-ary relation
-    indistinguishable from a 100-ary one."""
+    (1, 3/2], so rounding collapsed them all onto 1 and made a 4 ary relation
+    indistinguishable from a 100 ary one."""
     rex = _rex([0, k], list(range(k)))
     diagonals, _names = exact_channel_diagonals(rex)
     assert diagonals["L1_down"][0] == Fraction(expected)
 
 
 def test_the_orientation_channel_is_not_zeroed():
-    """F on the 5-ary case is [1/2, 0, 1/2]: the middle leg genuinely carries nothing and
+    """F on the 5 ary case is [1/2, 0, 1/2]: the middle leg genuinely carries nothing and
     the two ends genuinely do. Rounding flattened all three to zero while leaving the
     trace nonzero, so every cell read 0/1 and the channel silently died."""
     diagonals, _names = exact_channel_diagonals(_rex(*CASES["5-ary + legs"]))
@@ -113,14 +113,17 @@ def test_the_layout_does_not_collapse_onto_an_axis():
     assert any(Fraction(c["y"]) != 0 for c in cells)
 
 
-def test_a_complex_that_cannot_be_rational_says_so():
-    """The normalized G channel takes a square root, so there is no rational character
-    for it. That is reported as an absence rather than approximated."""
+def test_normalized_diagonals_are_rational_despite_off_diagonal_roots():
+    """Square roots cancel on the diagonal, the only input to character."""
     rex = _rex(*CASES["4-ary + legs"])
     assert rex.g_channel == "raw", "the rational path expects the raw Gramian"
     rex._g_channel = "normalized"
     diagonals, names = exact_channel_diagonals(rex)
-    assert diagonals is None and names == []
+    from rexgraph.sparse_character import build_sparse_channels
+    assert len(names) == 4
+    for name, matrix in build_sparse_channels(rex):
+        assert all(isinstance(x, Fraction) for x in diagonals[name])
+        np.testing.assert_allclose(np.asarray(diagonals[name], float), matrix.diagonal())
 
 
 #### the metric
@@ -141,8 +144,8 @@ def test_the_exact_character_agrees_with_the_float_one_under_weighting(tag, weig
 
 def test_the_two_diagonals_coincide_under_weighting():
     """diag(T) = diag(G) is the identity F is defined by: squaring kills the sign, so all
-    of B1's sign content lives off-diagonal. G is T's unsigned twin and carries the same
-    per-relation metric. Leaving G unweighted broke this at every w != 1."""
+    of B1's sign content lives off diagonal. G is T's unsigned twin and carries the same
+    per relation metric. Leaving G unweighted broke this at every w != 1."""
     rex = _weighted(*CASES["pairwise triangle"], [5.0, 1.0, 1.0])
     diagonals, _names = exact_channel_diagonals(rex)
     assert diagonals["L1_down"] == diagonals["L_O"]
@@ -150,7 +153,7 @@ def test_the_two_diagonals_coincide_under_weighting():
 
 
 def test_coparticipation_stays_unweighted():
-    """C is deliberately not scaled: co-participation is a topological fact about which
+    """C is deliberately not scaled: co participation is a topological fact about which
     relations meet, not a geometric one about how far apart they are."""
     plain = exact_channel_diagonals(_rex(*CASES["pairwise triangle"]))[0]
     heavy = exact_channel_diagonals(

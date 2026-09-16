@@ -1,6 +1,6 @@
 """A reading that is undefined is omitted, never emitted as NaN.
 
-The per-cell readings are defined at zero cells and are the empty list. Their MEANS are
+The per cell readings are defined at zero cells and are the empty list. Their MEANS are
 not: numpy returns NaN for the mean of an empty slice, and NaN serialises to a bare NaN
 token that strict JSON readers reject. Emitting it would poison an entire payload over a
 key that simply has no value, so the key is absent instead.
@@ -17,7 +17,7 @@ from rexgraph import RexGraph
 
 
 def _strict(payload) -> None:
-    """Parse the way a non-Python client does: NaN and Infinity are not JSON."""
+    """Parse the way a non Python client does: NaN and Infinity are not JSON."""
     def reject(token):
         raise ValueError(f"not valid JSON: {token}")
     json.loads(json.dumps(payload), parse_constant=reject)
@@ -130,7 +130,7 @@ def test_the_dense_oracle_still_has_no_tocsc():
 
 
 def test_a_chunk_with_no_relations_reports_no_coherence():
-    """None, not NaN: absence is reported rather than serialised as a non-number."""
+    """None, not NaN: absence is reported rather than serialised as a non number."""
     import warnings as _w
 
     from agent.chunking import _chunk_vertices
@@ -173,9 +173,9 @@ def test_the_consumers_of_an_absent_perplexity_still_behave():
 
     ppl = token_metrics([])["perplexity"]
 
-    # metrics.py gates on truthiness before comparing; None short-circuits, NaN did not
+    # metrics.py gates on truthiness before comparing; None short circuits, NaN did not
     assert not (ppl and ppl < 10.0)
-    # conversation.note_reply_perplexity already special-cased None
+    # conversation.note_reply_perplexity already special cased None
     assert (float(ppl) if ppl is not None else None) is None
 
 
@@ -212,7 +212,7 @@ def test_the_confidence_tool_refuses_to_rank_an_absent_coherence():
     """An undefined reading must not become a verdict.
 
     kappa_mean was NaN on a complex with no cells. Every comparison against NaN is
-    False, so the ladder fell through to its catch-all and told the caller the complex
+    False, so the ladder fell through to its catch all and told the caller the complex
     had "some structural support". Nothing was there to support anything: the failure
     was not the NaN in the payload but the confident answer built on top of it.
     """

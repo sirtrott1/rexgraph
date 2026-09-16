@@ -3,11 +3,11 @@
 A report that prints Euler in one place and Betti in another has stated two numbers that
 must agree and not compared them. Both are integers over the integers here, so the
 comparison is exact and a disagreement is a defect rather than something to interpret.
-That cross-checking is the part a section-by-section summary cannot have, and it is why
+That cross checking is the part a section by section summary cannot have, and it is why
 this is assembled rather than a list of calls.
 
 The arity distribution is the other reason. `nE` alone does not distinguish a complex
-whose relations are all pairwise from one carrying 4-ary relations, and that is the
+whose relations are all pairwise from one carrying 4 ary relations, and that is the
 first thing worth knowing about a relational complex.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ def branching():
     return g
 
 
-#### arity is a first-class reading
+#### arity is a first class reading
 
 
 def test_the_arity_distribution_is_reported(branching):
@@ -66,7 +66,7 @@ def test_a_dropped_face_is_counted_not_absorbed():
     assert shape["faces_dropped"] == 1
 
 
-#### the cross-checks
+#### the cross checks
 
 
 def test_the_identities_hold_on_a_valid_complex(rex):

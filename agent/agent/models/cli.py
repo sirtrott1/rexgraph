@@ -1,4 +1,4 @@
-"""CLI for the model-builder framework.
+"""CLI for the model builder framework.
 
     python -m models list
     python -m models build --archetype cnn --set norm=false --steps 300

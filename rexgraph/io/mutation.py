@@ -9,7 +9,7 @@ from typing import Any
 from .commit import COMMIT_VERSION, CommitLink
 from .manifest import manifest_digest
 from .rex_state import RexState, from_state, to_state, verify_state
-from .temporal_state import FORMAT_VERSION as TEMPORAL_STATE_VERSION
+from .temporal_state import VERIFIED_VERSIONS as TEMPORAL_STATE_VERSIONS
 from .temporal_state import (
     TemporalState,
     from_temporal_state,
@@ -31,6 +31,7 @@ __all__ = [
     "READABLE_VERSIONS",
     "MutationPackage",
     "MutationPolicy",
+    "apply_mutation",
     "mutation_from_bytes",
     "mutation_to_bytes",
     "prepare_mutation",
@@ -91,7 +92,7 @@ class MutationPackage:
 
 
 def _legacy_delta_digest(state: TemporalState) -> str:
-    """Reproduce the reference v1 tensor-only delta identity for migration."""
+    """Reproduce the reference v1 tensor only delta identity for migration."""
     from .rex_state import state_digest
 
     names = sorted(
@@ -317,10 +318,10 @@ def verify_mutation(
     verifiers: dict[str, Any] | None = None,
     parent_digest: str | None | object = _PARENT_UNSET,
 ) -> bool:
-    """Verify v2 state, endpoints, lineage, policy, and every signature requirement."""
+    """Verify canonical state, endpoints, lineage, policy, and every signature requirement."""
     if not isinstance(package, MutationPackage) or package.version != MUTATION_VERSION:
         return False
-    if package.temporal_state.header.get("temporal_state_version") != TEMPORAL_STATE_VERSION:
+    if package.temporal_state.header.get("temporal_state_version") not in TEMPORAL_STATE_VERSIONS:
         return False
     if not verify_temporal_state(package.temporal_state):
         return False
@@ -356,6 +357,28 @@ def verify_mutation(
     return _endpoints_match(package, previous)
 
 
+def apply_mutation(package, *, previous, parent_digest=None, policy=None, verifiers=None):
+    """Verify a canonical mutation and return an independently owned result.
+
+    ``None`` requires a root commit link. It never disables parent verification.
+    This applies carried state, not a reconstruction from a C1 temporal signal.
+    It does not modify the prior state or publish a store version.
+    """
+    from copy import deepcopy
+    from .rex_state import from_state
+
+    if not isinstance(package, MutationPackage):
+        raise TypeError("package must be a MutationPackage")
+    if parent_digest is not None and (not isinstance(parent_digest, str) or not parent_digest):
+        raise ValueError("parent_digest must be nonempty text or None")
+    if policy is not None and not isinstance(policy, MutationPolicy):
+        raise TypeError("policy must be a MutationPolicy")
+    if not verify_mutation(package, previous=previous, parent_digest=parent_digest,
+                           policy=policy, verifiers=verifiers):
+        raise ValueError("mutation failed endpoint or policy verification")
+    return from_state(deepcopy(package.resulting_state))
+
+
 def _signature_hex(value: bytes | None) -> str | None:
     return None if value is None else bytes(value).hex()
 
@@ -367,9 +390,9 @@ def mutation_to_bytes(package: MutationPackage) -> bytes:
     if package.version != MUTATION_VERSION:
         raise ValueError("only MutationPackage v2 may be written")
     if not verify_temporal_state(package.temporal_state):
-        raise ValueError("mutation TemporalState is not verified v2 state")
+        raise ValueError("mutation TemporalState is not verified canonical state")
     if package.transition.delta_state != package.temporal_state.header.get("digest"):
-        raise ValueError("transition does not bind the TemporalState v2 digest")
+        raise ValueError("transition does not bind the canonical TemporalState digest")
     if package.link.transition_digest != package.transition.digest:
         raise ValueError("mutation lineage does not match transition")
     if not _resulting_state_valid(package.resulting_state):
@@ -470,8 +493,8 @@ def mutation_from_bytes(blob: bytes, *, allow_legacy: bool = False) -> MutationP
     state = TemporalState(temporal_tensors, dict(temporal_header))
     state_version = state.header.get("temporal_state_version")
     if version == MUTATION_VERSION:
-        if state_version != TEMPORAL_STATE_VERSION or not verify_temporal_state(state):
-            raise ValueError("mutation TemporalState v2 semantic digest mismatch")
+        if state_version not in TEMPORAL_STATE_VERSIONS or not verify_temporal_state(state):
+            raise ValueError("mutation TemporalState semantic digest mismatch")
         resulting_header = metadata.get("resulting_header")
         if not isinstance(resulting_header, dict):
             raise ValueError("mutation package has no resulting state header")
@@ -520,7 +543,7 @@ def mutation_from_bytes(blob: bytes, *, allow_legacy: bool = False) -> MutationP
         raise ValueError("mutation lineage does not match transition")
     if version == MUTATION_VERSION:
         if transition.delta_state != state.header.get("digest"):
-            raise ValueError("mutation transition does not bind TemporalState v2")
+            raise ValueError("mutation transition does not bind canonical TemporalState")
         if _resulting_state_digest(resulting_state) != transition.resulting_state:
             raise ValueError("mutation transition does not bind carried resulting state")
     elif transition.delta_state != _legacy_delta_digest(state):

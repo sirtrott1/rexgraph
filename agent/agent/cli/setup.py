@@ -1,5 +1,5 @@
 """
-agent.cli.setup: platform-aware dependency installation.
+agent.cli.setup: platform aware dependency installation.
 
 Three tiers:
     1. Tesseract + pymupdf (always, no prompt)
@@ -281,7 +281,7 @@ def install_gpu_backend(
         _ensure_pip_packages(["huggingface_hub"], interactive=False)
         from huggingface_hub import snapshot_download
         # See model_manager.download: the Hub removed local_dir_use_symlinks and a
-        # local_dir download no longer symlinks, so the argument is now a no-op warning.
+        # local_dir download no longer symlinks, so the argument is now a no op warning.
         snapshot_download(
             model,
             local_dir=str(model_dir),
@@ -356,7 +356,7 @@ def auto_setup(
                     if ok:
                         print("  ✓ PaddleOCR installed")
             else:
-                # Non-interactive: install silently
+                # Non interactive: install silently
                 cfg.paddleocr = install_paddleocr(interactive=False)
         else:
             cfg.paddleocr = True
@@ -387,7 +387,7 @@ def auto_setup(
                         print("  ✓ GPU model installed")
                 else:
                     print("  Skipped GPU model")
-            # Non-interactive: skip GPU (too expensive for auto)
+            # Non interactive: skip GPU (too expensive for auto)
         elif interactive:
             print("[3/3] GPU: insufficient VRAM for OCR models")
     elif interactive:
@@ -429,7 +429,7 @@ def smoke_test_rexgraph() -> bool:
 
 
 def main(argv=None) -> int:
-    """CLI entry: rexgraph-setup [--yes] [--skip-gpu]."""
+    """CLI entry: rexgraph setup [--yes] [--skip-gpu]."""
     import argparse
 
     p = argparse.ArgumentParser(

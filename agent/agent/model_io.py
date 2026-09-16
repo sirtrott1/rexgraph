@@ -1,20 +1,20 @@
 """
-model_io - agent-side IO for MODEL artifacts (GGUF / safetensors weights) and the shared
-embedding-corpus persistence path.
+model_io - agent side IO for MODEL artifacts (GGUF / safetensors weights) and the shared
+embedding corpus persistence path.
 
 This is the agent's counterpart to ``rexgraph.io``: rexgraph.io serializes *relational
-complexes* and *vector corpora* (format-level, self-sufficient, no runtime deps); this
-module reads *model files* - which is inference-layer concern and must NOT live in the
-self-sufficient core (it would drag GGUF/transformers deps into a BLAS-only package and
+complexes* and *vector corpora* (format level, self sufficient, no runtime deps); this
+module reads *model files* - which is inference layer concern and must NOT live in the
+self sufficient core (it would drag GGUF/transformers deps into a BLAS only package and
 make a public core path depend on a runtime). Everything here that produces vectors
 EMITS into ``rexgraph.io`` via the one container (``save_vectors``/``load_vectors``), so
-there is a single on-disk format for embeddings across the whole stack.
+there is a single on disk format for embeddings across the whole stack.
 
 Two jobs:
   1. Inspect a model file WITHOUT loading weights - GGUF/safetensors header, tensor
      inventory, arch/params/embedding-dim/quant. Feeds ``local_runtime`` (real size for
      offload decisions) and the UI.
-  2. ``save_embedding_corpus`` / ``load_embedding_corpus`` - the ONE embedding-corpus
+  2. ``save_embedding_corpus`` / ``load_embedding_corpus`` - the ONE embedding corpus
      round-trip, wrapping ``rexgraph.io`` and stamping model provenance. ``model_introspect``
      and any weight-extraction path both go through here (no duplicated persistence).
 """
@@ -37,7 +37,7 @@ _GGML_TYPE = {
     29: "IQ1_M", 30: "BF16",
 }
 
-# Common token-embedding tensor names across architectures (safetensors weight files).
+# Common token embedding tensor names across architectures (safetensors weight files).
 _EMBED_TENSOR_NAMES = (
     "model.embed_tokens.weight", "embed_tokens.weight", "tok_embeddings.weight",
     "transformer.wte.weight", "wte.weight", "gpt_neox.embed_in.weight",
@@ -128,8 +128,8 @@ def read_safetensors_header(path: str) -> dict[str, Any]:
 # unified summary
 
 def model_summary(path: str) -> dict[str, Any]:
-    """Backend-agnostic summary of a model file (GGUF or safetensors) without loading
-    weights: format, on-disk size, architecture, parameter count, layer count, embedding
+    """Backend agnostic summary of a model file (GGUF or safetensors) without loading
+    weights: format, on disk size, architecture, parameter count, layer count, embedding
     dimension, and quant/dtype. Used by ``local_runtime`` for offload decisions and by the
     UI. Missing fields are ``None`` rather than an error."""
     p = os.path.expanduser(path)
@@ -172,10 +172,10 @@ def model_summary(path: str) -> dict[str, Any]:
     return out
 
 
-# embedding-table extraction (weights)
+# embedding table extraction (weights)
 
 def extract_embedding_table(path: str, *, limit: int | None = None) -> dict[str, Any]:
-    """Load a model's token-embedding matrix from a ``.safetensors`` weight file (vocab × dim)
+    """Load a model's token embedding matrix from a ``.safetensors`` weight file (vocab × dim)
     so it can be analyzed as a relational complex or persisted via ``save_embedding_corpus``.
     GGUF is not supported here: its embedding tensor is quantized and needs the runtime to
     dequantize; use ``model_introspect.embed`` against the running server instead."""
@@ -200,7 +200,7 @@ def extract_embedding_table(path: str, *, limit: int | None = None) -> dict[str,
             "vocab": int(mat.shape[0]), "dim": int(mat.shape[1])}
 
 
-# shared embedding-corpus persistence
+# shared embedding corpus persistence
 
 def save_embedding_corpus(matrix, labels, path: str, *, model: str | None = None,
                           source: str | None = None,
@@ -208,7 +208,7 @@ def save_embedding_corpus(matrix, labels, path: str, *, model: str | None = None
                           block_offsets: dict[str, Any] | None = None,
                           **meta) -> str:
     """Persist an embedding corpus (matrix + labels + provenance) through the ONE
-    ``rexgraph.io`` vector container. The single home for embedding round-trips - both
+    ``rexgraph.io`` vector container. The single home for embedding round trips - both
     ``model_introspect`` and weight extraction call this, so there is no duplicated format
     code. Returns the written path."""
     from rexgraph.io import save_vectors

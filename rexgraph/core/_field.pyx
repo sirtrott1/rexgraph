@@ -1,51 +1,51 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._field: Cross-dimensional field dynamics on the relational complex.
+rexgraph.core._field: Cross dimensional field dynamics on the relational complex.
 
 Implements the coupled field operator and wave equation on the (E, F)
 field state, where edges and faces are the independent degrees of freedom
 and vertices are derived via f_V = B_1 f_E.
 
 Field Operator
---------------
+
 The field operator M couples edges and faces through the boundary map B_2:
 
     M = [[ RL_1,   -g * B_2 ],
          [-g * B_2^T,   L_2  ]]
 
 where:
-    RL_1 = L_1 + alpha_G * L_O   (Relational Laplacian on edges)
+    RL_1 = L_down,1 + alpha_G * L_up,1 (this tree's relational Laplacian)
     L_2 = B_2^T B_2              (face Laplacian)
     g = coupling strength between edge and face tiers
     B_2 = edge-face boundary operator (nE x nF)
 
-M is PSD when g is small enough. The default auto-coupling
-g = 1 / max(||B_2||_F, 1) stays in the PSD regime for typical complexes.
+M is PSD only when its block Schur condition holds. The defined auto coupling
+g = 1 / max(||B_2||_F, 1) is not a PSD guarantee and is never reduced to force one.
 
 Vertex observables are always derived from the edge component:
     f_V(t) = B_1 f_E(t)
 
 This is the correct field operator for the rex framework, not the
 (V, E, F) block matrix. The coupled_derivative in _transition.pyx
-provides a backward-compatible V+E+F ODE for historical reasons, but
+provides a backward compatible V+E+F ODE for historical reasons, but
 the mathematically correct operator lives on (E, F) only.
 
 Wave Equation
--------------
+
 The coupled wave equation on (E, F):
     d^2 F/dt^2 = -M F
 
 Solutions are superpositions of normal modes with frequencies
-omega_k = sqrt(lambda_k) where lambda_k are eigenvalues of M.
-Total energy (KE + PE) is exactly conserved.
+omega_k = sqrt(lambda_k) on positive modes. Negative modes evolve with cosh/sinh,
+at growth rate sqrt(-lambda_k). Signed total energy (KE + PE) is conserved.
 
 Heat Equation
--------------
+
 The coupled diffusion on (E, F):
     dF/dt = -M F
 
-Solutions decay exponentially: F(t) = exp(-M t) F(0).
+F(t) = exp(-M t) F(0): positive modes decay and negative modes grow.
 
 All functions are stateless: arrays in, arrays out.
 """
@@ -55,7 +55,7 @@ from __future__ import annotations
 import numpy as np
 cimport numpy as np
 from libc.stdlib cimport malloc, free
-from libc.math cimport fabs, sqrt, cos, sin, exp
+from libc.math cimport fabs, sqrt, cos, sin, cosh, sinh, exp
 from libc.string cimport memcpy
 
 cimport cython
@@ -72,7 +72,7 @@ np.import_array()
 
 
 def _safe_dot(A, x):
-    """Matrix-vector product, dense or sparse."""
+    """Matrix vector product, dense or sparse."""
     return np.asarray(A.dot(x), dtype=np.float64)
 
 
@@ -89,15 +89,15 @@ def build_field_operator(object RL1,
     are derived from the edge block via f_V = B_1 f_E.
 
     Parameters
-    ----------
+
     RL1 : (nE, nE) - Relational Laplacian on edges
     L2 : (nF, nF) - face Laplacian
-    B2 : (nE, nF) - edge-face boundary operator
-    g : float - coupling strength. If negative, auto-computed as
-        1 / max(||B_2||_F, 1) to stay in PSD regime.
+    B2 : (nE, nF) - edge face boundary operator
+    g : float - coupling strength. If negative, auto computed as
+        1 / max(||B_2||_F, 1), without a PSD guarantee.
 
     Returns
-    -------
+
     M : f64[nE+nF, nE+nF] - field operator (dense)
     g_used : float - coupling strength actually used
     is_psd : bool - True if minimum eigenvalue >= -epsilon
@@ -110,7 +110,7 @@ def build_field_operator(object RL1,
     nF = B2_d.shape[1]
     n = nE + nF
 
-    # Auto-compute coupling if not specified
+    # Auto compute coupling if not specified
     cdef double g_used = g
     cdef double b2_frob = 0.0
     cdef f64[:, ::1] b2v = B2_d
@@ -126,28 +126,39 @@ def build_field_operator(object RL1,
     cdef f64[:, ::1] mv = M
     cdef f64[:, ::1] rl1v = RL1_d
 
-    # Top-left: RL_1 (nE x nE)
+    # Top left: RL_1 (nE x nE)
     for i in range(nE):
         memcpy(&mv[i, 0], &rl1v[i, 0], nE * sizeof(f64))
 
-    # Bottom-right: L_2 (nF x nF)
+    # Bottom right: L_2 (nF x nF)
     cdef np.ndarray[f64, ndim=2] L2_d = np.asarray(L2, dtype=np.float64)
     cdef f64[:, ::1] l2v = L2_d
     for i in range(nF):
         memcpy(&mv[nE + i, nE], &l2v[i, 0], nF * sizeof(f64))
 
-    # Off-diagonal: -g * B_2 and -g * B_2^T
+    # Off diagonal: -g * B_2 and -g * B_2^T
     cdef f64 neg_g = -g_used
     for i in range(nE):
         for j in range(nF):
             mv[i, nE + j] = neg_g * b2v[i, j]
             mv[nE + j, i] = neg_g * b2v[i, j]
 
-    # PSD check via minimum eigenvalue
+    # PSD check. A successful Cholesky certifies positive definiteness. The eigenvalue
+    # path stays for what it cannot decide: a PSD operator with a genuine zero mode
+    # fails `dpotrf_` exactly as an indefinite one does, and only the smallest
+    # eigenvalue separates them, which is what `-EPSILON_NORM` is about.
     cdef np.ndarray[f64, ndim=1] evals_check
-    from rexgraph.core._linalg import eigh as _lp_eigh
-    evals_check = _lp_eigh(np.asarray(M, dtype=np.float64))[0]
-    cdef bint is_psd = evals_check[0] >= -get_EPSILON_NORM()
+    cdef bint is_psd
+    from rexgraph.core._linalg import spd_solve
+    if n == 0:
+        is_psd = True
+    elif spd_solve(np.asarray(M, dtype=np.float64), np.zeros(n, dtype=np.float64)) is not None:
+        is_psd = True
+    else:
+        from rexgraph.core._linalg import eigh as _lp_eigh
+        evals_check = _lp_eigh(np.asarray(M, dtype=np.float64),
+                               clip_negative_roundoff=False)[0]
+        is_psd = evals_check[0] >= -get_EPSILON_NORM()
 
     return M, g_used, is_psd
 
@@ -162,17 +173,17 @@ def field_operator_matvec(np.ndarray[f64, ndim=1] F,
     """Apply the field operator M @ F without building the dense matrix.
 
     For large complexes where the dense (nE+nF)^2 matrix is too expensive.
-    Uses operator-vector products directly.
+    Uses operator vector products directly.
 
     Parameters
-    ----------
+
     F : f64[nE + nF] - field state vector
     RL1, L2, B2 : operators (dense or sparse)
     g : coupling strength
     nE, nF : dimensions
 
     Returns
-    -------
+
     MF : f64[nE + nF]
     """
     cdef np.ndarray[f64, ndim=1] f_E = F[:nE]
@@ -201,29 +212,27 @@ def field_eigendecomposition(np.ndarray[f64, ndim=2] M):
     """Eigendecomposition of the field operator.
 
     Parameters
-    ----------
-    M : f64[n, n] - field operator (symmetric, PSD)
+
+    M : f64[n, n] - field operator (symmetric, possibly indefinite)
 
     Returns
-    -------
+
     evals : f64[n] - eigenvalues (sorted ascending)
     evecs : f64[n, n] - eigenvectors as columns
-    freqs : f64[n] - frequencies omega_k = sqrt(max(lambda_k, 0))
+    freqs : f64[n] - positive branch frequencies sqrt(max(lambda_k, 0));
+        retained for compatibility, not a classification of negative modes.
+        Wave evolution reads signed evals directly; negative rates are sqrt(-evals).
     """
     cdef np.ndarray[f64, ndim=1] evals
     cdef np.ndarray[f64, ndim=2] evecs
 
     from rexgraph.core._linalg import eigh as _lp_eigh
-    evals, evecs = _lp_eigh(np.asarray(M, dtype=np.float64))
+    evals, evecs = _lp_eigh(np.asarray(M, dtype=np.float64), clip_negative_roundoff=False)
 
-    # Clean near-zero eigenvalues
+    # Keep computed eigenvalues, including small negative modes. This is a
+    # numerical oracle, not a projection onto a PSD operator or exact kernel.
     cdef f64[::1] ev = evals
     cdef Py_ssize_t n = evals.shape[0], k
-    cdef double eps = get_EPSILON_NORM()
-    for k in range(n):
-        if fabs(ev[k]) < eps:
-            ev[k] = 0.0
-
     # Frequencies
     cdef np.ndarray[f64, ndim=1] freqs = np.empty(n, dtype=np.float64)
     cdef f64[::1] fv = freqs
@@ -240,12 +249,12 @@ def field_spectral_coefficients(np.ndarray[f64, ndim=1] F,
     c_k = evecs[:, k]^T @ F
 
     Parameters
-    ----------
+
     F : f64[n] - field state
     evecs : f64[n, n] - eigenvectors as columns
 
     Returns
-    -------
+
     coeffs : f64[n]
     """
     cdef Py_ssize_t n = F.shape[0], k, j
@@ -271,30 +280,38 @@ def wave_evolve(np.ndarray[f64, ndim=1] F0,
                 np.ndarray[f64, ndim=2] evecs,
                 np.ndarray[f64, ndim=1] freqs,
                 double t):
-    """Exact spectral wave evolution on the field.
+    """Dense numerical spectral reference for wave evolution on the field.
 
     The wave equation d^2F/dt^2 = -M F with F(0) = F0, dF/dt(0) = 0
     has solution:
         F(t) = sum_k c_k cos(omega_k t) v_k
         dF/dt(t) = -sum_k c_k omega_k sin(omega_k t) v_k
+    for nonnegative eigenvalues. Negative eigenvalues use cosh and +rate*sinh,
+    with rate=sqrt(-lambda). No near zero eigenvalue or amplitude is discarded.
 
     Parameters
-    ----------
+
     F0 : f64[n] - initial field state (E+F packed)
     evals : f64[n] - eigenvalues of M
     evecs : f64[n, n] - eigenvectors
-    freqs : f64[n] - frequencies sqrt(evals)
+    freqs : f64[n] - legacy positive branch frequency descriptor; evolution uses evals
     t : float - time
 
     Returns
-    -------
+
     Ft : f64[n] - field state at time t
     dFdt : f64[n] - field velocity at time t
     """
     cdef Py_ssize_t n = F0.shape[0], k, j
+    if evals.shape[0] != n or evecs.shape[0] != n or evecs.shape[1] != n or freqs.shape[0] != n:
+        raise ValueError("field spectral dimensions do not match")
+    if not np.isfinite(t) or not np.all(np.isfinite(F0)) or not np.all(np.isfinite(evals)) or not np.all(np.isfinite(evecs)):
+        raise ValueError("field spectral inputs must be finite")
+    if n == 0:
+        return np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64)
     cdef f64[::1] fv = F0
     cdef f64[:, ::1] ev = evecs
-    cdef f64[::1] wv = freqs
+    cdef f64[::1] lv = evals
 
     # Compute spectral coefficients c_k = v_k^T F0
     cdef f64 *c = <f64 *>malloc(n * sizeof(f64))
@@ -312,20 +329,25 @@ def wave_evolve(np.ndarray[f64, ndim=1] F0,
     cdef np.ndarray[f64, ndim=1] Ft = np.zeros(n, dtype=np.float64)
     cdef np.ndarray[f64, ndim=1] dFdt = np.zeros(n, dtype=np.float64)
     cdef f64[::1] ftv = Ft, dftv = dFdt
-    cdef f64 cos_wt, sin_wt, ck_cos, ck_sin
+    cdef f64 rate, ck_cos, ck_sin
 
     for k in range(n):
-        if fabs(c[k]) < 1e-15:
+        if c[k] == 0.0:
             continue
-        cos_wt = cos(wv[k] * t)
-        sin_wt = sin(wv[k] * t)
-        ck_cos = c[k] * cos_wt
-        ck_sin = -c[k] * wv[k] * sin_wt
+        rate = sqrt(fabs(lv[k]))
+        if lv[k] < 0.0:
+            ck_cos = c[k] * cosh(rate * t)
+            ck_sin = c[k] * rate * sinh(rate * t)
+        else:
+            ck_cos = c[k] * cos(rate * t)
+            ck_sin = -c[k] * rate * sin(rate * t)
         for j in range(n):
             ftv[j] += ck_cos * ev[j, k]
             dftv[j] += ck_sin * ev[j, k]
 
     free(c)
+    if not np.all(np.isfinite(Ft)) or not np.all(np.isfinite(dFdt)):
+        raise FloatingPointError("field spectral wave exceeds numerical range")
     return Ft, dFdt
 
 
@@ -336,19 +358,25 @@ def wave_evolve_trajectory(np.ndarray[f64, ndim=1] F0,
                            np.ndarray[f64, ndim=1] times):
     """Evolve field under wave equation at multiple timepoints.
 
-    Reuses spectral coefficients across all times for O(n * T) work
+    Reuses spectral coefficients across all times for O(n^2 * T) work
     after the initial O(n^2) coefficient computation.
 
     Returns
-    -------
+
     traj : f64[T, n] - field state trajectory
     vel : f64[T, n] - velocity trajectory
     """
     cdef Py_ssize_t n = F0.shape[0], T = times.shape[0]
+    if evals.shape[0] != n or evecs.shape[0] != n or evecs.shape[1] != n or freqs.shape[0] != n:
+        raise ValueError("field spectral dimensions do not match")
+    if not np.all(np.isfinite(times)) or not np.all(np.isfinite(F0)) or not np.all(np.isfinite(evals)) or not np.all(np.isfinite(evecs)):
+        raise ValueError("field spectral inputs must be finite")
+    if n == 0:
+        return np.zeros((T, 0)), np.zeros((T, 0))
     cdef Py_ssize_t k, j, step
     cdef f64[::1] fv = F0
     cdef f64[:, ::1] ev = evecs
-    cdef f64[::1] wv = freqs, tv = times
+    cdef f64[::1] lv = evals, tv = times
 
     # Compute coefficients once
     cdef f64 *c = <f64 *>malloc(n * sizeof(f64))
@@ -365,22 +393,27 @@ def wave_evolve_trajectory(np.ndarray[f64, ndim=1] F0,
     cdef np.ndarray[f64, ndim=2] traj = np.zeros((T, n), dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] vel = np.zeros((T, n), dtype=np.float64)
     cdef f64[:, ::1] trajv = traj, velv = vel
-    cdef f64 t, cos_wt, sin_wt, ck_cos, ck_sin
+    cdef f64 t, rate, ck_cos, ck_sin
 
     for step in range(T):
         t = tv[step]
         for k in range(n):
-            if fabs(c[k]) < 1e-15:
+            if c[k] == 0.0:
                 continue
-            cos_wt = cos(wv[k] * t)
-            sin_wt = sin(wv[k] * t)
-            ck_cos = c[k] * cos_wt
-            ck_sin = -c[k] * wv[k] * sin_wt
+            rate = sqrt(fabs(lv[k]))
+            if lv[k] < 0.0:
+                ck_cos = c[k] * cosh(rate * t)
+                ck_sin = c[k] * rate * sinh(rate * t)
+            else:
+                ck_cos = c[k] * cos(rate * t)
+                ck_sin = -c[k] * rate * sin(rate * t)
             for j in range(n):
                 trajv[step, j] += ck_cos * ev[j, k]
                 velv[step, j] += ck_sin * ev[j, k]
 
     free(c)
+    if not np.all(np.isfinite(traj)) or not np.all(np.isfinite(vel)):
+        raise FloatingPointError("field spectral wave exceeds numerical range")
     return traj, vel
 
 
@@ -389,31 +422,44 @@ def wave_evolve_trajectory(np.ndarray[f64, ndim=1] F0,
 
 def wave_energy(np.ndarray[f64, ndim=1] F,
                 np.ndarray[f64, ndim=1] dFdt,
-                object M):
+                object M,
+                object W=None):
     """Compute wave energy components.
 
-    KE = 0.5 ||dF/dt||^2     (kinetic energy of field motion)
+    KE = 0.5 (dF/dt)^T W (dF/dt) (W defaults to identity)
     PE = 0.5 F^T M F         (potential energy from field operator)
     Total = KE + PE           (conserved under wave evolution)
 
     Parameters
-    ----------
+
     F : f64[n] - field state (E+F packed)
     dFdt : f64[n] - field velocity
     M : f64[n, n] - field operator
+    W : optional positive diagonal vector or SPD form, already validated by caller
 
     Returns
-    -------
+
     KE, PE, total : float
     """
     cdef f64[::1] fv = F, dv = dFdt
     cdef Py_ssize_t n = F.shape[0], j
+    if dFdt.shape[0] != n or getattr(M, "shape", None) != (n, n):
+        raise ValueError("wave energy dimensions do not match")
 
     # KE = 0.5 ||dFdt||^2
     cdef f64 ke = 0.0
     for j in range(n):
         ke += dv[j] * dv[j]
     ke *= 0.5
+    if W is not None:
+        if getattr(W, "ndim", None) == 1:
+            if W.shape[0] != n:
+                raise ValueError("wave metric dimensions do not match")
+            ke = 0.5 * float(np.dot(dFdt, W * dFdt))
+        else:
+            if getattr(W, "shape", None) != (n, n):
+                raise ValueError("wave metric dimensions do not match")
+            ke = 0.5 * float(np.dot(dFdt, W @ dFdt))
 
     # PE = 0.5 F^T M F
     cdef np.ndarray[f64, ndim=1] MF = np.asarray(M.dot(F), dtype=np.float64)
@@ -433,23 +479,23 @@ def field_energy_kin_pot(np.ndarray[f64, ndim=1] F,
     """Compute E_kin and E_pot from the edge component of a field state.
 
     Extracts f_E from the packed field vector F = [f_E, f_F] and computes
-    the topological-geometric energy decomposition on edges only.
+    the topological geometric energy decomposition on edges only.
 
     E_kin = <f_E | L_1 | f_E>   (topological energy from Hodge Laplacian)
     E_pot = <f_E | L_O | f_E>   (geometric energy from overlap Laplacian)
 
-    This is the field-state analog of _state.energy_kin_pot. It takes L1
+    This is the field state analog of _state.energy_kin_pot. It takes L1
     and LO (not RL1), matching the _state interface exactly.
 
     Parameters
-    ----------
+
     F : f64[nE + nF] - packed field state
     L1 : (nE, nE) - Hodge Laplacian on edges
     LO : (nE, nE) - overlap Laplacian on edges
     nE : int - number of edges (to slice F)
 
     Returns
-    -------
+
     E_kin : float - <f_E | L_1 | f_E>
     E_pot : float - <f_E | L_O | f_E>
     ratio : float - E_kin / E_pot (inf if E_pot ~ 0)
@@ -485,17 +531,17 @@ def wave_dimensional_energy(np.ndarray[f64, ndim=1] F,
 
     KE_E = 0.5 ||dF_E/dt||^2
     KE_F = 0.5 ||dF_F/dt||^2
-    PE uses quadratic form on each block (approximate for off-diagonal).
+    PE uses quadratic form on each block (approximate for off diagonal).
     ||F_E||^2 and ||F_F||^2 give signal magnitude per dimension.
 
     Parameters
-    ----------
+
     F : f64[nE + nF] - field state
     dFdt : f64[nE + nF] - velocity
     nE, nF : dimensions
 
     Returns
-    -------
+
     dict with keys: norm_E, norm_F, ke_E, ke_F
     """
     cdef f64[::1] fv = F, dv = dFdt
@@ -533,22 +579,22 @@ def classify_modes(np.ndarray[f64, ndim=1] evals,
         w_E(k) = ||v_k[:nE]||^2 / ||v_k||^2
         w_F(k) = ||v_k[nE:]||^2 / ||v_k||^2
 
-    A mode is edge-dominated if w_E > 1 - threshold,
-    face-dominated if w_F > 1 - threshold,
-    and EF-resonant if both w_E > threshold and w_F > threshold.
+    A mode is edge dominated if w_E > 1 - threshold,
+    face dominated if w_F > 1 - threshold,
+    and EF resonant if both w_E > threshold and w_F > threshold.
 
     Resonant modes are the ones that transfer energy between dimensions.
 
     Parameters
-    ----------
+
     evals : f64[n]
     evecs : f64[n, n]
     nE, nF : dimensions
     threshold : float
 
     Returns
-    -------
-    labels : i32[n] - 0=edge, 1=face, 2=EF-resonant
+
+    labels : i32[n] - 0=edge, 1=face, 2=EF resonant
     weights_E : f64[n] - edge weight fraction per mode
     weights_F : f64[n] - face weight fraction per mode
     n_resonant : int
@@ -585,11 +631,11 @@ def classify_modes(np.ndarray[f64, ndim=1] evals,
         wfv[k] = sf / total
 
         if wev[k] > 1.0 - threshold:
-            lv[k] = 0   # edge-dominated
+            lv[k] = 0   # edge dominated
         elif wfv[k] > 1.0 - threshold:
-            lv[k] = 1   # face-dominated
+            lv[k] = 1   # face dominated
         else:
-            lv[k] = 2   # EF-resonant
+            lv[k] = 2   # EF resonant
             n_res += 1
 
     return labels, wE, wF, n_res
@@ -597,13 +643,13 @@ def classify_modes(np.ndarray[f64, ndim=1] evals,
 
 def resonance_frequencies(np.ndarray[f64, ndim=1] freqs,
                           np.ndarray[i32, ndim=1] labels):
-    """Extract frequencies of EF-resonant modes.
+    """Extract frequencies of EF resonant modes.
 
     These are the frequencies at which energy transfers between
     the edge and face tiers of the relational complex.
 
     Returns
-    -------
+
     res_freqs : f64[n_resonant]
     res_indices : i32[n_resonant]
     """
@@ -643,17 +689,23 @@ def field_diffusion_spectral(np.ndarray[f64, ndim=1] F0,
     F(t) = sum_k c_k exp(-lambda_k t) v_k
 
     Parameters
-    ----------
+
     F0 : f64[n] - initial field state
     evals : f64[n] - eigenvalues of M
     evecs : f64[n, n] - eigenvectors
     t : float
 
     Returns
-    -------
+
     Ft : f64[n] - diffused field state
     """
     cdef Py_ssize_t n = F0.shape[0], k, j
+    if evals.shape[0] != n or evecs.shape[0] != n or evecs.shape[1] != n:
+        raise ValueError("field spectral dimensions do not match")
+    if not np.isfinite(t) or not np.all(np.isfinite(F0)) or not np.all(np.isfinite(evals)) or not np.all(np.isfinite(evecs)):
+        raise ValueError("field spectral inputs must be finite")
+    if n == 0:
+        return np.zeros(0, dtype=np.float64)
     cdef f64[::1] fv = F0
     cdef f64[:, ::1] ev = evecs
     cdef f64[::1] lv = evals
@@ -676,13 +728,15 @@ def field_diffusion_spectral(np.ndarray[f64, ndim=1] F0,
     cdef f64 decay
 
     for k in range(n):
-        if fabs(c[k]) < 1e-15:
+        if c[k] == 0.0:
             continue
         decay = c[k] * exp(-lv[k] * t)
         for j in range(n):
             ftv[j] += decay * ev[j, k]
 
     free(c)
+    if not np.all(np.isfinite(Ft)):
+        raise FloatingPointError("field spectral heat exceeds numerical range")
     return Ft
 
 
@@ -693,10 +747,16 @@ def field_diffusion_trajectory(np.ndarray[f64, ndim=1] F0,
     """Diffuse field through multiple timepoints.
 
     Returns
-    -------
+
     traj : f64[T, n] - diffused field trajectory
     """
     cdef Py_ssize_t n = F0.shape[0], T = times.shape[0]
+    if evals.shape[0] != n or evecs.shape[0] != n or evecs.shape[1] != n:
+        raise ValueError("field spectral dimensions do not match")
+    if not np.all(np.isfinite(times)) or not np.all(np.isfinite(F0)) or not np.all(np.isfinite(evals)) or not np.all(np.isfinite(evecs)):
+        raise ValueError("field spectral inputs must be finite")
+    if n == 0:
+        return np.zeros((T, 0))
     cdef Py_ssize_t k, j, step
     cdef f64[::1] fv = F0
     cdef f64[:, ::1] ev = evecs
@@ -720,13 +780,15 @@ def field_diffusion_trajectory(np.ndarray[f64, ndim=1] F0,
 
     for step in range(T):
         for k in range(n):
-            if fabs(c[k]) < 1e-15:
+            if c[k] == 0.0:
                 continue
             decay = c[k] * exp(-lv[k] * tv[step])
             for j in range(n):
                 trajv[step, j] += decay * ev[j, k]
 
     free(c)
+    if not np.all(np.isfinite(traj)):
+        raise FloatingPointError("field spectral heat exceeds numerical range")
     return traj
 
 
@@ -742,13 +804,13 @@ def derive_vertex_trajectory(np.ndarray[f64, ndim=2] traj_EF,
     first nE components of the packed field state.
 
     Parameters
-    ----------
+
     traj_EF : f64[T, nE+nF] - field trajectory
     B1 : (nV, nE) - boundary operator
     nE : int
 
     Returns
-    -------
+
     traj_V : f64[T, nV]
     """
     cdef Py_ssize_t T = traj_EF.shape[0], step
@@ -785,16 +847,16 @@ def field_rk4_step(np.ndarray[f64, ndim=1] F,
                    Py_ssize_t nE,
                    Py_ssize_t nF,
                    double dt):
-    """Single RK4 step for the second-order wave equation.
+    """Single RK4 step for the second order wave equation.
 
-    Rewrites d^2F/dt^2 = -M F as first-order system:
+    Rewrites d^2F/dt^2 = -M F as first order system:
         d/dt [F, V] = [V, -M F]
     where V = dF/dt.
 
     For large systems where spectral decomposition is too expensive.
 
     Returns
-    -------
+
     F_new : f64[n]
     dFdt_new : f64[n]
     """
@@ -835,7 +897,7 @@ def field_diffusion_rk4_step(np.ndarray[f64, ndim=1] F,
     For large systems where eigendecomposition is impractical.
 
     Returns
-    -------
+
     F_new : f64[n]
     """
     def deriv(np.ndarray[f64, ndim=1] f):

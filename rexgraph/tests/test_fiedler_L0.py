@@ -1,7 +1,7 @@
 """The L0 Fiedler pair: kernel by count, preconditioner by residual.
 
 The shipped path asked ARPACK for which='SM', which is the end of the spectrum Lanczos
-resolves last. On a hub-heavy complex it did not converge at all and the except-branch
+resolves last. On a hub heavy complex it did not converge at all and the except branch
 returned fiedler_val_L0 = 0.0 with a constant eigenvector, which four call sites read
 as a real answer. These pin the replacement against dense ground truth in both
 convergence regimes.
@@ -42,7 +42,7 @@ def test_kernel_basis_is_the_component_indicators():
     U, ncomp = kernel_basis(L)
     assert ncomp == 2
     assert U.shape == (9, 2)
-    # U is sparse now: a component-indicator matrix with one nonzero per row
+    # U is sparse now: a component indicator matrix with one nonzero per row
     assert np.allclose(np.asarray((U.T @ U).todense()), np.eye(2))  # orthonormal
     assert np.allclose(np.asarray((L @ U).todense()), 0.0, atol=1e-12)  # the kernel
 
@@ -119,7 +119,7 @@ def test_spectral_bundle_defers_the_solve():
 
 @pytest.mark.parametrize("route", ["dict", "unpack", "copy"])
 def test_copying_the_bundle_does_not_hand_back_none(route):
-    """dict(bundle) and {**bundle} take CPython's dict-to-dict fast path, which would
+    """dict(bundle) and {**bundle} take CPython's dict to dict fast path, which would
     copy the unresolved slots straight out and report None for a value that exists."""
     n = 2500
     rex = RexGraph(sources=np.arange(n - 1, dtype=np.int32),

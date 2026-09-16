@@ -41,7 +41,7 @@ ZOO = {
 @pytest.mark.parametrize("name", list(ZOO))
 def test_a_gradient_signal_has_no_winding(name):
     """PROVED: <B1^T phi, z> = <phi, B1 z> = 0 for any cycle z. A potential is
-    path-independent, so it winds around nothing."""
+    path independent, so it winds around nothing."""
     rex = ZOO[name]
     H = harmonic_basis(rex)
     B1 = np.asarray(rex.B1_dense, float)
@@ -132,8 +132,8 @@ def test_the_method_on_the_graph_matches_the_function():
 #### reading the holonomy around CHOSEN cycles, which is the only affordable way at scale
 def test_a_rings_mask_becomes_a_signed_chain():
     """rings returns UNSIGNED masks: which relations a ring uses, and nothing about
-    how it closes. That is the set-theoretic encoding, and it does not land in
-    ker(B1). `cycle_vector` orients the walk, so the result is a genuine 1-cycle."""
+    how it closes. That is the set theoretic encoding, and it does not land in
+    ker(B1). `cycle_vector` orients the walk, so the result is a genuine 1 cycle."""
     from rexgraph.rings import cycle_vector, cycle_vectors, shortest_cycles
     rex = ZOO["K5"]
     B1 = np.asarray(rex.B1_dense, float)

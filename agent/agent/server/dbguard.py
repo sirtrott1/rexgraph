@@ -1,9 +1,9 @@
 """
-agent.server.dbguard: opt-in allow-list for database connection URIs.
+agent.server.dbguard: opt in allow list for database connection URIs.
 
 The dbmanager/connectors HTTP routes accept a connection URI and hand it to
-SQLAlchemy ``create_engine`` / schema reflection. On a network-exposed server that
-is an SSRF + local-file-read surface (``sqlite:////etc/passwd``,
+SQLAlchemy ``create_engine`` / schema reflection. On a network exposed server that
+is an SSRF + local file read surface (``sqlite:////etc/passwd``,
 ``postgresql://internal-host/…``). This module gates it.
 
 **Off by default** (nothing set -> every URI is allowed, preserving local/dev use).
@@ -69,9 +69,9 @@ def _host_is_local_or_private(host: str) -> bool:
     except ValueError:
         pass
     # Hostname -> resolve and block if ANY resolved address is loopback/private.
-    # This closes the hostname->private-IP SSRF case (e.g. a name that resolves to
+    # This closes the hostname->private IP SSRF case (e.g. a name that resolves to
     # 169.254.169.254). Unresolvable names fall through: the real connection just
-    # fails. Full DNS-rebinding defense needs connect-time IP pinning (out of scope).
+    # fails. Full DNS rebinding defense needs connect time IP pinning (out of scope).
     try:
         infos = socket.getaddrinfo(host, None)
     except OSError:
@@ -89,7 +89,7 @@ def check_outbound_url(url: str) -> None:
 
     The scheme check is unconditional because it is not policy: `file://` handed to an
     HTTP client is a local file read, and no deployment wants that from a request body.
-    The host policy follows the same opt-in the database one does, so local and single
+    The host policy follows the same opt in the database one does, so local and single
     operator use is unchanged, which also means a default deployment has no host check.
 
     A REDIRECT is not covered. This sees the url the caller supplied, and the client that
@@ -101,7 +101,7 @@ def check_outbound_url(url: str) -> None:
         return
     if "://" not in url:
         # check_db_uri returns early here because a bare name like "edgelist" is a valid
-        # in-memory scheme. Nothing of the sort is a fetchable URL, so the same early
+        # in memory scheme. Nothing of the sort is a fetchable URL, so the same early
         # return let "//169.254.169.254/latest/" past without any check at all.
         raise HTTPException(400, "not a fetchable url")
     parsed = urlparse(url)
@@ -124,7 +124,7 @@ def check_outbound_url(url: str) -> None:
 def check_db_uri(uri: str) -> None:
     """Raise HTTPException(400) if ``uri`` violates the configured DB policy.
 
-    A no-op when no policy env var is set, and for non-URI values (bare in-memory
+    A no op when no policy env var is set, and for non URI values (bare in memory
     scheme names like ``edgelist`` that carry no ``://``).
     """
     if not uri or "://" not in uri or not _policy_active():

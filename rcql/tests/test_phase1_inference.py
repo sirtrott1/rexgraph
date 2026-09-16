@@ -27,7 +27,7 @@ rcdb = pytest.importorskip("rcdb")
 
 
 class Exploding:
-    """A store-shaped source whose methods fail if anything actually calls them.
+    """A store shaped source whose methods fail if anything actually calls them.
 
     The methods must EXIST so the binder's surface scan classifies it as a store; they
     must fail when invoked so a refusal that happened too late is visible. Probing with
@@ -68,7 +68,7 @@ def catalog(tmp_path):
     return cat
 
 
-# ------------------------------------------------------------------ types
+# types
 
 
 def test_the_extended_type_is_backward_compatible():
@@ -112,7 +112,7 @@ def test_a_declared_temporal_mismatch_is_not_a_shared_space():
     assert not left.same_space(right)
 
 
-# ------------------------------------------------------------------ classification
+# classification
 
 
 def test_sources_are_classified_by_surface_not_by_import(store, catalog, rex):
@@ -123,10 +123,15 @@ def test_sources_are_classified_by_surface_not_by_import(store, catalog, rex):
     assert classify(object()) is ValueKind.UNKNOWN
 
 
-# ------------------------------------------------------------------ refusal ordering
+# refusal ordering
 
 
-def test_an_unreachable_operator_is_refused_without_touching_the_source():
+def test_an_unreachable_operator_is_refused_without_touching_the_source(monkeypatch):
+    from dataclasses import replace
+
+    from rcql.signatures import _CATALOGUE
+    monkeypatch.setitem(_CATALOGUE, "RCDB_STATE_HASH", replace(
+        _CATALOGUE["RCDB_STATE_HASH"], unreachable="disabled state_digest test contract"))
     binding = bind("db", Exploding(), SourcePolicy.allow("*"))
     with pytest.raises(UnreachableOperator, match="state_digest"):
         infer(binding, "RCDB_STATE_HASH")
@@ -191,7 +196,7 @@ def test_a_whole_phrase_refuses_a_store_before_a_structural_adapter_runs(store, 
 
 
 def test_a_store_record_becomes_the_source_of_one_structural_phrase(store):
-    """Retrieval, planning and exact C1 analysis compose without an out-of-band bind."""
+    """Retrieval, planning and exact C1 analysis compose without an out of band bind."""
     from rexgraph.io.catalog import object_digest
 
     from rcql import Executor, parse
@@ -215,7 +220,7 @@ def test_a_store_record_becomes_the_source_of_one_structural_phrase(store):
 
 
 def test_a_store_record_version_becomes_the_source_of_one_structural_phrase(store):
-    """A persisted version is an exact selected state, not a clock-time guess."""
+    """A persisted version is an exact selected state, not a clock time guess."""
     from rexgraph.graph import RexGraph
 
     from rcql import Executor, parse
@@ -315,15 +320,19 @@ def test_identity_resolves_a_record_but_does_not_widen_to_structural_read(store)
     from rcql import BoundSource, Executor, parse
 
     executor = Executor(sources={"db": BoundSource(store, SourcePolicy.allow("identity"))})
+    for prefix in ("", "EXPLAIN "):
+        with pytest.raises(PermissionError, match="read"):
+            executor.execute(parse(prefix + 'FROM RCDB_GET($db, "r1") RETURN BETTI(1)'))
+
+    executor = Executor(sources={"db": BoundSource(store, SourcePolicy.allow("identity", "read"))})
     explained = executor.execute(parse(
         'EXPLAIN FROM RCDB_GET($db, "r1") RETURN BETTI(1)'
     )).values[0]
     assert explained["source_state"]["record_id"] == "r1"
-    with pytest.raises(PermissionError, match="read"):
-        executor.execute(parse('FROM RCDB_GET($db, "r1") RETURN BETTI(1)'))
+    assert executor.execute(parse('FROM RCDB_GET($db, "r1") RETURN BETTI(1)')).values == (1,)
 
 
-# ------------------------------------------------------------------ typing and explain
+# typing and explain
 
 
 def test_a_result_is_typed_and_carries_its_source_before_execution(store):
@@ -353,7 +362,7 @@ def test_explain_answers_without_running_and_without_leaking(store):
 
     assert explained["operator"] == "RCDB_SECURITY"
     assert explained["result"]["kind"] == "SecurityStatus"
-    assert explained["requires"] == ["security"]
+    assert explained["requires"] == ["admin", "security"]
 
     # A plan description is structural. It names the operator, the source binding and the
     # declared result, and carries no backend path, no store URI and no live object. The
@@ -366,7 +375,7 @@ def test_explain_answers_without_running_and_without_leaking(store):
     assert explained["policy_digest"] and len(explained["policy_digest"]) == 64
 
 
-# ------------------------------------------------------------------ catalogue shape
+# catalogue shape
 
 
 def test_every_storage_operator_has_a_signature():
@@ -394,7 +403,7 @@ def test_every_runtime_operator_except_source_syntax_has_a_static_signature():
     from rcql.operators import _REGISTRY
 
     # REX(name) is source syntax handled before expression evaluation; its adapter is a
-    # compatibility name passthrough rather than a value-producing operator.
+    # compatibility name passthrough rather than a value producing operator.
     assert set(_REGISTRY) - {"REX"} <= catalogued()
 
 
@@ -430,7 +439,7 @@ def test_primary_cell_contracts_carry_source_grade_basis_and_exact_share_domain(
 
 
 def test_cell_contract_refuses_a_foreign_source_before_execution(rex):
-    """Equal-looking cells from another basis are not silently reinterpreted."""
+    """Equal looking cells from another basis are not silently reinterpreted."""
     left = bind("left", rex, SourcePolicy.allow("*"))
     right = bind("right", rex, SourcePolicy.allow("*"))
     foreign = infer(right, "CELL", (1, 0)).result
@@ -498,10 +507,10 @@ def test_metric_curvature_contract_refuses_wrong_space_and_names_rational_shares
 
 def test_identity_history_and_mutation_are_separate_capabilities():
     """Reading a projected summary is not the right to resolve an identity."""
-    assert lookup("RCDB_LIST").requires == frozenset()
+    assert lookup("RCDB_LIST").requires == frozenset({"records"})
     assert lookup("RCDB_GET").requires == frozenset({"identity"})
-    assert lookup("RCDB_HISTORY").requires == frozenset({"history"})
-    assert lookup("RCDB_SECURITY").requires == frozenset({"security"})
+    assert lookup("RCDB_HISTORY").requires == frozenset({"history", "identity"})
+    assert lookup("RCDB_SECURITY").requires == frozenset({"security", "admin"})
 
 
 def test_the_hashing_operator_declares_its_filesystem_effect():
@@ -521,7 +530,7 @@ def test_typing_a_call_does_not_require_the_machinery_that_would_run_it():
     import sys
     import tempfile
 
-    # The whole pre-execution surface, not just the type layer: binding, signature lookup,
+    # The whole pre execution surface, not just the type layer: binding, signature lookup,
     # inference and planning. EXPLAIN has to be able to answer for a plan without paying
     # for it, so a planner that reached the operator registry would defeat the point even
     # though it never runs an adapter.
@@ -551,8 +560,8 @@ def test_declared_dependencies_match_what_the_package_actually_imports():
     on scipy when scipy is only ever reached through a rexgraph method.
 
     RCQL is meant to compute on the exact tensor carriers of the core library, so numpy
-    here is a temporary consequence of the Rex-math adapters still holding raw arrays. When
-    those move onto the core carriers this test will fail on the now-unused numpy
+    here is a temporary consequence of the Rex math adapters still holding raw arrays. When
+    those move onto the core carriers this test will fail on the now unused numpy
     declaration, which is the intended signal rather than a nuisance.
     """
     import ast as ast_module
@@ -594,9 +603,9 @@ def test_declared_dependencies_match_what_the_package_actually_imports():
 def test_explain_carries_the_state_and_the_frame_it_read(store):
     """A result's meaning includes when it was read and in which basis.
 
-    An identical-looking reading from another version, or in another ordered basis, is a
+    An identical looking reading from another version, or in another ordered basis, is a
     different value. An account that omitted both would let EXPLAIN imply a state and a
-    frame it never established, which is the thing the blueprint forbids.
+    frame it never established, which is the thing the contract forbids.
     """
     binding = bind("db", store, SourcePolicy.allow("*"))
     explained = infer(binding, "RCDB_GET", ("r1",)).explain()

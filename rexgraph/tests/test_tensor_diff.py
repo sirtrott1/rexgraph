@@ -1,7 +1,7 @@
-"""Betti numbers are not a diff, and an entry-wise diff is only legitimate at grade 1.
+"""Betti numbers are not a diff, and an entry wise diff is only legitimate at grade 1.
 
 These pin both halves: that the trichotomy is read exactly where it is defined, and that
-the function refuses where an entry-wise reading would measure the representative rather
+the function refuses where an entry wise reading would measure the representative rather
 than the complex.
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ def test_orientation_is_seen_where_topology_is_not():
     """The whole point: same support, same Betti, different tensor.
 
     Reversing a relation changes no vertex set and no Betti number, so a topological
-    comparison reports nothing. The entry-wise reading reports it exactly.
+    comparison reports nothing. The entry wise reading reports it exactly.
     """
     a = _hg([[0, 1], [1, 2], [2, 0]])
     b = _hg([[1, 0], [1, 2], [2, 0]])          # first relation reversed
@@ -68,7 +68,7 @@ def test_arity_is_not_a_difference_of_its_own():
 
 
 def test_the_merge_preview_is_the_candidate_predicate():
-    """Novel relations split into rank-raising and cycle-closing, and that is exact."""
+    """Novel relations split into rank raising and cycle closing, and that is exact."""
     from rexgraph.graded_boundary import _sparse_rank
     # two components, {0,1,2} and {3,4}. Input relation {0,2} is novel by support and
     # lies inside the first component's span, so it closes a cycle; {2,3} is novel and
@@ -195,7 +195,7 @@ def test_the_marginals_do_sum_when_the_relations_are_independent():
     assert m["marginals_sum_to_joint"] is True
 
 
-#### the operator algebra, and the delta as a member of it #####################
+# the operator algebra, and the delta as a member of it
 
 def _mixed(seed=0, n=12, nV=14):
     """A branching construction with real arity, plus its own contacts."""
@@ -239,7 +239,7 @@ def test_the_chain_condition_and_adjointness():
 
 
 def test_the_difference_is_itself_a_boundary_tensor():
-    """Zero-sum columns are a linear subspace, so the delta lives where its arguments do.
+    """Zero sum columns are a linear subspace, so the delta lives where its arguments do.
 
     This is what makes the diff a calculus rather than a report: D has its own L = D D^T
     with the constant vector in the kernel, so every reading applies to it unchanged.
@@ -253,6 +253,7 @@ def test_the_difference_is_itself_a_boundary_tensor():
     b = _hg([list(reversed(r)) if i in flip else list(r) for i, r in enumerate(rels)])
     D, R = difference_tensor(a, b, verify=True)          # verify IS the assertion
     assert R["max_column_sum"] < 1e-12
+    D = D.as_scipy()  # explicit numerical oracle for the matrix identity
     L = (D @ D.T).tocsr()
     assert np.abs(np.asarray(L.sum(axis=1)).ravel()).max() < 1e-9, (
         "zero column sum propagates to zero row sum of the Laplacian")
@@ -290,6 +291,7 @@ def test_deltas_add_but_their_ranks_do_not():
     D, R = difference_tensor(a, b)
     D1, R1 = difference_tensor(a, mid)
     D2, R2 = difference_tensor(mid, b)
+    D, D1, D2 = (value.as_scipy() for value in (D, D1, D2))
     assert (abs(D1 + D2 - D).max() if (D1 + D2 - D).nnz else 0.0) < 1e-12, (
         "the operators add exactly")
     assert R["frobenius2"] == pytest.approx(R1["frobenius2"] + R2["frobenius2"]), (
@@ -298,18 +300,15 @@ def test_deltas_add_but_their_ranks_do_not():
 
 
 def test_the_difference_refuses_a_broken_alignment():
-    """verify=True asserts the theorem, so it has to be able to fire."""
-    import scipy.sparse as sp
-
+    """Ambiguous labels cannot define an injective endpoint correspondence."""
     from rexgraph.tensor_diff import difference_tensor
     rels, _w = _mixed(seed=9)
     a = _hg(rels)
     D, R = difference_tensor(a, a, verify=True)
     assert R["max_column_sum"] == pytest.approx(0.0)
-    # a column that does not sum to zero is not a boundary column, and the check is the
-    # thing that would catch an alignment dropping an entry
-    bad = sp.csc_matrix(np.array([[1.0], [0.0], [0.0]]))
-    assert abs(float(bad.sum())) > 1e-9
+    with pytest.raises(ValueError, match="unique"):
+        difference_tensor(a, a, ref_labels=["same"]*a.nV,
+                          inp_labels=[str(i) for i in range(a.nV)])
 
 
 def test_parallel_relations_are_matched_not_collapsed():

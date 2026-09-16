@@ -3,7 +3,7 @@ agent.server.budget: a ceiling on the work one caller can ask for at once.
 
 The rate limiter in `security.py` counts requests, which bounds how OFTEN a caller can
 ask and says nothing about how much each ask costs. These requests are not uniform: a
-few hundred bytes can name a complex with millions of cells, and the exact-arithmetic
+few hundred bytes can name a complex with millions of cells, and the exact arithmetic
 paths trade unbounded CPU for an answer with no rounding in it. A caller well inside
 the rate limit can still occupy every core.
 
@@ -19,8 +19,8 @@ Refusal is immediate and says which ceiling was hit. A caller that has to wait t
 out it was refused is a caller holding a connection, which is the thing being defended
 against.
 
-In-process, like the rate limiter: it bounds one server. Several workers behind a proxy
-each get their own ceiling, so set the per-worker number to the share you actually want
+In process, like the rate limiter: it bounds one server. Several workers behind a proxy
+each get their own ceiling, so set the per worker number to the share you actually want
 each to serve.
 """
 
@@ -74,7 +74,7 @@ def deadline_seconds() -> float:
 class Deadline:
     """When a request runs out of time.
 
-    Passed to the work rather than enforced around it: killing a thread mid-computation
+    Passed to the work rather than enforced around it: killing a thread mid computation
     leaves shared state torn, so the operation is asked to stop at a point it chooses.
     Loops that can run long check `expired` and raise.
     """
@@ -192,12 +192,12 @@ def add_compute_budget(app) -> None:
     not remember. So the slot is taken here, where every route inherits it.
 
     Metered per IDENTITY rather than per connection, because one tenant holding several
-    connections is the case worth bounding. Starlette runs the last-registered
+    connections is the case worth bounding. Starlette runs the last registered
     middleware first, so this is registered BEFORE the auth enforcement it must run
     behind: an unauthenticated request is rejected by auth and never reaches a slot,
     and the rate limiter (outermost) is what absorbs a flood of those.
 
-    A deadline is bound for the request so long-running work can check it, the same
+    A deadline is bound for the request so long running work can check it, the same
     shape `scope` uses for the workspace.
     """
     from fastapi.responses import JSONResponse

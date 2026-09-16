@@ -1,9 +1,9 @@
 """Face coefficients are SOLVED from the chain condition, not declared.
 
-A grade-1 column is declared: Definition 2.1 gives it the shape (-1, 1/(k-1), ...). A
-grade-2 column is not. Nothing imposes a shape on it; it is whatever satisfies
+A grade 1 column is declared: Definition 2.1 gives it the shape (-1, 1/(k-1), ...). A
+grade 2 column is not. Nothing imposes a shape on it; it is whatever satisfies
 B1 c_f = 0 on the edges it spans, and what the solution owes is cancellation. So the
-right primitive is a solver over the rationals, and the wrong one is a caller-supplied
+right primitive is a solver over the rationals, and the wrong one is a caller supplied
 sign vector that the library trusts.
 
 `add_faces` trusted the caller. A wrong orientation was silently dropped by the Hodge
@@ -69,7 +69,7 @@ def test_the_solved_column_satisfies_the_chain_condition_exactly(k):
 
 @pytest.mark.parametrize("k", [3, 4, 5, 6, 8])
 def test_a_cycle_face_has_uniform_moduli_and_the_gon_is_its_support(k):
-    """Grade 2 does not inherit the grade-1 share. A cycle's coefficients are uniform, so
+    """Grade 2 does not inherit the grade 1 share. A cycle's coefficients are uniform, so
     the arity ratio reading returns 2 at every k and the gon is |supp(c_f)| instead."""
     from rexgraph.faces import solve_face_column
 
@@ -295,7 +295,7 @@ def test_both_gradient_paths_give_a_basis(traversal):
 
 def test_find_cycles_is_arity_general():
     """A branching relation participates in a cycle exactly when the kernel says so. The
-    old pairwise-walk version could not see this one at all."""
+    old pairwise walk version could not see this one at all."""
     from rexgraph.faces import find_cycles
 
     rex = _branching([0, 3, 5, 7], [0, 1, 2, 0, 1, 0, 2])

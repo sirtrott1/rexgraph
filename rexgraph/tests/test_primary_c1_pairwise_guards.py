@@ -35,7 +35,7 @@ def test_primary_branching_c1_has_no_implicit_endpoint_shadow():
 
 
 def test_package_root_and_public_sparse_boundary_expose_the_primary_carrier():
-    """A core-only user can import the public type without forcing a dense B1."""
+    """A core only user can import the public type without forcing a dense B1."""
     from rexgraph import RexGraph as RootRexGraph
     from rexgraph import TemporalRex as RootTemporalRex
     from rexgraph import relation_identity

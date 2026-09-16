@@ -1,11 +1,11 @@
-"""Branching-hyperedge correctness sweep.
+"""Branching hyperedge correctness sweep.
 
 The audit found NO test exercised the character / moment channels on branching
 hyperedges (arity != 2 columns of B1, from_hypergraph). This closes that gap: it
-pins the whole edge-centric stack - the four channels, RL4, character chi/phi/kappa,
-the moment operators, Green's, and curvature - against a dense-from-B1 reference on
+pins the whole edge centric stack - the four channels, RL4, character chi/phi/kappa,
+the moment operators, Green's, and curvature - against a dense from-B1 reference on
 branching complexes (where two edges can share >1 vertex). Regression home for the
-L_C weighted-line-graph fix and everything it un-broke.
+L_C weighted line graph fix and everything it un broke.
 """
 import numpy as np
 import pytest
@@ -28,9 +28,9 @@ def hg(request):
 
 
 def _dense_chi_rl(B1):
-    """Dense reference: the four trace-normalized channels, RL4, and per-edge chi
+    """Dense reference: the four trace normalized channels, RL4, and per edge chi
     from B1 alone (T signed Gram, G unsigned Gram, F frustration Laplacian, C weighted
-    line-graph Laplacian on shared-vertex counts)."""
+    line graph Laplacian on shared vertex counts)."""
     absB1 = np.abs(B1)
     T = B1.T @ B1
     G = absB1.T @ absB1
@@ -54,7 +54,7 @@ class TestBranchingChannels:
     def test_rl4_psd_trace_nhats(self, hg):
         RL = np.asarray(hg.RL)
         assert np.linalg.eigvalsh(RL).min() > -1e-9              # PSD (L_C was breaking this)
-        assert abs(np.trace(RL) - hg.nhats) < 1e-9              # trace-normalized
+        assert abs(np.trace(RL) - hg.nhats) < 1e-9              # trace normalized
 
     def test_structural_character_matches_dense(self, hg):
         chi_d, _ = _dense_chi_rl(np.asarray(hg.B1, float))

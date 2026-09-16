@@ -1,9 +1,9 @@
 """retrieve_sections ranks over an RCStore.
 
-The consumer half of the seam. retrieve_sections had two modes (an in-memory
+The consumer half of the seam. retrieve_sections had two modes (an in memory
 CorpusBuilder, or a single document) so a persisted corpus was unreachable from
 the query path even after slice 1 put it in the store. Store mode closes that, and
-ranks with the same score_document the in-memory path uses rather than a second
+ranks with the same score_document the in memory path uses rather than a second
 copy of the ranking.
 
 The prefilter is the point: a signature is queryable without touching a blob, so
@@ -75,11 +75,11 @@ def test_top_k_is_honoured(store):
 def test_store_mode_agrees_with_the_in_memory_corpus(store):
     """Store mode must not be a second ranking: same relevant documents, same order.
 
-    Compared over the RELEVANT results only. The in-memory path scores every document
-    and so pads its tail with zero-scoring ones; the store path's label prefilter
+    Compared over the RELEVANT results only. The in memory path scores every document
+    and so pads its tail with zero scoring ones; the store path's label prefilter
     drops anything sharing no vocabulary with the query, which is the point of having
     a prefilter. Agreement on the nonzero prefix is the invariant that matters: a
-    zero-scored document is not a retrieval result.
+    zero scored document is not a retrieval result.
     """
     back = CorpusBuilder.from_store(store)
     query = "boundary map orientation sign"
@@ -91,7 +91,7 @@ def test_store_mode_agrees_with_the_in_memory_corpus(store):
 
 
 def test_the_prefilter_opens_only_candidate_blobs(store):
-    """Signature-first is the whole reason to keep structure beside the payload:
+    """Signature first is the whole reason to keep structure beside the payload:
     scoring every blob in the store would make persistence a pure cost."""
     opened = []
     real_get = store.get
@@ -131,7 +131,7 @@ def test_store_mode_reads_the_corpus_as_it_stood(store):
     assert sections == [] or relation["mode"] != "store"
 
 
-#### the chat path can reach a persisted corpus ################################
+# the chat path can reach a persisted corpus
 
 def test_answer_query_can_answer_from_a_store(store):
     """The whole point of the wiring: `answer_query` had no `store` parameter, so a chat

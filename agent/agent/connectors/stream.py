@@ -1,9 +1,9 @@
 """agent.connectors.stream: streaming platforms (Kafka / Pulsar shape).
 
-Structure-only: topics -> vertices, schema-registry references between topics
--> edges. Harness-validatable here against an in-memory
-``{"topics": [...], "references": [(from, to), ...]}`` stand-in; consuming a
-live cluster is a host-environment task (no broker in-sandbox).
+Structure only: topics -> vertices, schema registry references between topics
+-> edges. Harness validatable here against an in memory
+``{"topics": [...], "references": [(from, to), ...]}`` stand in; consuming a
+live cluster is a host environment task (no broker in sandbox).
 """
 from __future__ import annotations
 

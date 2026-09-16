@@ -1,4 +1,4 @@
-"""agent.query_manager: query-as-complex lifecycle, schema mapping, convergence, memory."""
+"""agent.query_manager: query as complex lifecycle, schema mapping, convergence, memory."""
 import pytest
 
 from agent import query_manager as qm

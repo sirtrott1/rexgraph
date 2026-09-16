@@ -61,7 +61,7 @@ def test_the_channels_move_with_the_metric():
 def test_G_diagonal_still_equals_T_diagonal():
     """|s|^2 = s^2, so weighting cannot separate them on the diagonal. That is not a
     defect to normalise away: it is why F exists, since all the sign content is
-    off-diagonal."""
+    off diagonal."""
     for w in (1.0, 5.0, 100.0):
         chi = np.asarray(_triangle(w).structural_character)[0]
         assert abs(chi[0] - chi[1]) < 1e-12
@@ -74,7 +74,7 @@ def test_the_channels_still_partition_unity_under_weighting(w):
 
 
 def test_the_overlap_gramian_carries_the_weight():
-    """K = |B1|^T W |B1|. Unweighted it is a shared-vertex count, which is
+    """K = |B1|^T W |B1|. Unweighted it is a shared vertex count, which is
     combinatorial; the metric is what makes it geometric."""
     K1 = RexGraph(sources=np.array([0, 1, 2], np.int32),
                   targets=np.array([1, 2, 0], np.int32)).overlap_gramian_sparse.toarray()

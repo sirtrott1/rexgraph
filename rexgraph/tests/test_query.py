@@ -176,4 +176,4 @@ class TestRexGraphIntegration:
         result = k4.propagate(source, target)
         assert isinstance(result, dict)
         assert 'score' in result
-        assert result['score'] > 0  # self-propagation
+        assert result['score'] > 0  # self propagation

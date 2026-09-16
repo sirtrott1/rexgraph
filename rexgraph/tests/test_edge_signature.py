@@ -5,7 +5,7 @@ always has four components in the order T, G, F, C. It does not. The character i
 (nE, nhats) with nhats = 3 or 4: a channel whose trace vanishes is DROPPED, and then the
 remaining columns close up.
 
-Both failure modes follow, and both are silent-or-crash rather than approximate:
+Both failure modes follow, and both are silent or crash rather than approximate:
 
   * IndexError on chi[3] whenever nhats == 3. That is not exotic. Any consistently
     oriented complex has no head-to-tail disagreement, so trace(F) = 0 and F drops.
@@ -66,7 +66,7 @@ def test_group_edges_by_signature_works_when_frustration_is_zero():
 
 def test_the_signature_reads_channels_by_name():
     """The silent half. With F dropped the third column is C, so a positional read
-    reports co-participation as though it were frustration."""
+    reports co participation as though it were frustration."""
     rex = _bipartite()
     chan = {"L1_down": "T", "L_O": "G", "L_SG": "F", "L_C": "C"}
     chi = np.asarray(rex.structural_character)[0]

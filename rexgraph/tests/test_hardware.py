@@ -2,7 +2,7 @@
 
 The tree generated SLURM submission scripts but never read the allocation back:
 thread counts fell through to os.cpu_count(), which on a cluster is the NODE's core
-count, not the job's. An eight-core allocation on a 128-core node would start 128
+count, not the job's. An eight core allocation on a 128 core node would start 128
 workers: oversubscription that on a shared cluster gets the job killed rather than
 merely running slowly. Memory was not detected at all, so nothing could size itself
 to the box.
@@ -37,7 +37,7 @@ def test_cpu_count_respects_scheduler_affinity(monkeypatch):
 
 def test_the_smallest_limit_wins(monkeypatch):
     # the machine's own count is one of the candidates, so it has to be pinned too or
-    # the test measures the host instead of the rule. A three-core runner made the
+    # the test measures the host instead of the rule. A three core runner made the
     # answer 3, correctly, against an expectation of 4.
     monkeypatch.setattr("os.cpu_count", lambda: 64)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "64")
@@ -58,7 +58,7 @@ def test_an_explicit_override_wins(monkeypatch):
 def test_physical_cores_never_exceeds_the_usable_count():
     """SMT siblings are not extra cores, so this is at most `cpu_count` and at least 1.
 
-    It exists because a memory-bound kernel gains nothing from a sibling that shares the
+    It exists because a memory bound kernel gains nothing from a sibling that shares the
     load/store units: `sparse_character._tower_width` reads it for exactly that reason.
     """
     n = hardware.physical_cores()
@@ -87,7 +87,7 @@ def test_memory_respects_a_slurm_allocation(monkeypatch):
 
 
 def test_memory_per_cpu_scales_with_the_allocation(monkeypatch):
-    # per-CPU memory multiplies by cpu_count(), which takes the smallest candidate
+    # per CPU memory multiplies by cpu_count(), which takes the smallest candidate
     # including the machine's own. Pin it, or a small host silently changes the product.
     monkeypatch.setattr("os.cpu_count", lambda: 64)
     monkeypatch.setattr(hardware, "_affinity", lambda: 64)
@@ -149,7 +149,7 @@ def test_an_explicit_set_threads_still_wins(monkeypatch):
 
 #### device selection and op dispatch
 def test_the_character_gpu_path_accepts_a_device():
-    """sparse_character hardcoded torch.device('cuda'), so on a multi-GPU node it
+    """sparse_character hardcoded torch.device('cuda'), so on a multi GPU node it
     always landed on device 0 and could not be pointed anywhere else."""
     import inspect
 
@@ -215,7 +215,7 @@ def test_an_unknown_op_names_what_is_registered():
 
 #### cloud, not just the scheduler
 def test_cloud_detection_never_touches_the_network_by_default(monkeypatch):
-    """The metadata service is a link-local address that HANGS rather than refuses
+    """The metadata service is a link local address that HANGS rather than refuses
     when you are not on that cloud, so detection has to answer from local signals."""
     import socket
 

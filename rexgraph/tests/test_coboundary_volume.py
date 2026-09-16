@@ -47,7 +47,7 @@ def _complete2(n):
 def test_grade_zero_agrees_with_the_cycle_route(name, src, tgt):
     """The same integer from the coboundary side and the cycle side.
 
-    Only WHERE BOTH REDUCE TO THE CYCLE SPACE, which is face-free and pairwise, as every
+    Only WHERE BOTH REDUCE TO THE CYCLE SPACE, which is face free and pairwise, as every
     fixture here is. They are different objects and diverge as soon as either condition
     fails: `test_the_cycle_route_is_a_different_object` pins that."""
     r = _g(src, tgt)
@@ -65,7 +65,7 @@ def test_the_tower_is_the_graded_matrix_tree_theorem(n):
 
 
 def test_grade_one_is_zero_without_faces():
-    """No faces means no grade-1 coboundary, so a field confined there has nowhere to
+    """No faces means no grade 1 coboundary, so a field confined there has nowhere to
     be. Zero is the answer, not an error."""
     assert volume_tower(_g([0, 1, 2], [1, 2, 0]))[1] == 0
 
@@ -79,7 +79,7 @@ def test_a_face_makes_the_grade_one_volume_nonzero():
 
 def test_the_up_laplacian_it_reads_is_the_librarys_own():
     """The operator is `L0 = B1 B1^T` from the library, not a local reconstruction, and
-    a zero-sum column is what makes its row sums vanish."""
+    a zero sum column is what makes its row sums vanish."""
     r = _g([0, 0, 0, 1, 1, 2], [1, 2, 3, 2, 3, 3])
     L = np.asarray(r.L0_sparse.todense())
     assert L.shape == (r.nV, r.nV)
@@ -95,7 +95,7 @@ def test_the_volume_is_exact_and_integral_on_an_integral_boundary():
 
 def test_the_cycle_route_is_a_different_object():
     """`harmonic_gram_det` reads the harmonic frame, which faces shrink; this reads the
-    1-skeleton, which they cannot touch. Equal only where both are the cycle space."""
+    1 skeleton, which they cannot touch. Equal only where both are the cycle space."""
     base = _g([0, 0, 0, 1, 1, 2], [1, 2, 3, 2, 3, 3])
     assert coboundary_volume(base, 0) == harmonic_gram_det(base) == 16
     faced = _g([0, 0, 0, 1, 1, 2], [1, 2, 3, 2, 3, 3])
@@ -118,9 +118,9 @@ def test_branching_reads_the_integer_representative():
 
 
 def test_a_representative_dependent_volume_is_refused():
-    """A lone k=4 relation has a 3-dimensional kernel over one component, so different
+    """A lone k=4 relation has a 3 dimensional kernel over one component, so different
     maximal independent row sets give 1 and 9. Returning either silently is the
-    silent-wrong-answer shape, so it is refused."""
+    silent wrong answer shape, so it is refused."""
     ptr = np.array([0, 4], np.int32)
     idx = np.array([0, 1, 2, 3], np.int32)
     r = RexGraph(boundary_ptr=ptr, boundary_idx=idx)
@@ -131,6 +131,6 @@ def test_a_representative_dependent_volume_is_refused():
 
 def test_a_grade_the_complex_does_not_carry_reads_zero():
     """Past the top grade there is no coboundary, so a field confined there has nowhere
-    to be. Zero is the answer; the old 2-grade cap raised instead and could not reach a
-    3-rex at all."""
+    to be. Zero is the answer; the old 2 grade cap raised instead and could not reach a
+    3 rex at all."""
     assert coboundary_volume(_g([0, 1], [1, 0]), 2) == 0

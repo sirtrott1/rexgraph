@@ -25,9 +25,9 @@ class SourcePolicy:
     def intersection(cls, *policies: SourcePolicy) -> SourcePolicy:
         """Return the policy safe for a value jointly derived from every input.
 
-        A multi-stalk phrase may read each stalk under its own policy, but a result that
+        A multi stalk phrase may read each stalk under its own policy, but a result that
         contains information from all stalks can be exposed only under permissions every
-        contributor grants.  This is intentionally not a source-policy merge: union
+        contributor grants.  This is intentionally not a source policy merge: union
         would escalate one stalk through another, while applying this intersection to
         source reads would incorrectly deny legal independent reads.
         """

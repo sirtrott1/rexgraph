@@ -41,7 +41,7 @@ def _split_delim(line: str, delim: str) -> list[str]:
 
 
 def _split_whitespace(line: str) -> list[str]:
-    # Two-or-more spaces are treated as a column boundary; single spaces
+    # Two or more spaces are treated as a column boundary; single spaces
     # inside a cell are preserved.
     return [c.strip() for c in re.split(r"\s{2,}", line.strip()) if c.strip()]
 
@@ -87,7 +87,7 @@ def _rows_to_frame(rows: list[list[str]]):
     import pandas as pd
 
     header = rows[0]
-    # De-duplicate / fill blank headers.
+    # De duplicate / fill blank headers.
     seen = {}
     cols = []
     for i, hraw in enumerate(header):
@@ -111,9 +111,9 @@ def _rows_to_frame(rows: list[list[str]]):
 
 
 def detect_tables(text: str, min_rows: int = _MIN_ROWS) -> list[pd.DataFrame]:
-    """Extract tables from OCR text as DataFrames (best-effort).
+    """Extract tables from OCR text as DataFrames (best effort).
 
-    Scans for maximal runs of non-empty lines and tries each delimiter
+    Scans for maximal runs of non empty lines and tries each delimiter
     model (explicit delimiters first, then aligned whitespace), keeping
     the parse that yields the most columns.
     """

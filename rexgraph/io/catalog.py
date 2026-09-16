@@ -1,4 +1,4 @@
-"""Bounded local catalog for RexGraph-owned files and stores."""
+"""Bounded local catalog for RexGraph owned files and stores."""
 from __future__ import annotations
 
 import hashlib
@@ -50,10 +50,23 @@ class CatalogEntry:
     records: int | None = None
 
 
+@dataclass(frozen=True)
+class FileCommit:
+    """One recoverable standalone file replacement, not an RCDB lineage record."""
+
+    id: str
+    previous_hash: str
+    sha256: str
+    state_digest: str
+    backup: str
+    actor: str = ""
+    version: None = None
+
+
 class FileCatalog:
     """Index RexGraph files below explicit local roots.
 
-    Public names are root-relative labels. Absolute paths remain private to the catalog.
+    Public names are root relative labels. Absolute paths remain private to the catalog.
     Higher packages can inject kind loaders without making core import those packages.
     """
 
@@ -91,7 +104,7 @@ class FileCatalog:
         return tuple(f"root{index}" for index in range(len(self._roots)))
 
     def refresh(self, *, hash_files: bool = False) -> int:
-        """Rescan roots and atomically replace the in-memory index."""
+        """Rescan roots and atomically replace the in memory index."""
         entries: dict[str, CatalogEntry] = {}
         for index, root in enumerate(self._roots):
             prefix = f"root{index}"
@@ -168,7 +181,7 @@ class FileCatalog:
         return len(self._entries)
 
     def load(self, name: str) -> Any:
-        """Load an entry through a built-in or explicitly injected kind loader."""
+        """Load an entry through a built in or explicitly injected kind loader."""
         entry = self.info(name)
         path = self._resolve(name)
         kind = _kind(path)
@@ -177,7 +190,7 @@ class FileCatalog:
         loader = self._loaders.get(kind)
         if loader is not None:
             return loader(path)
-        if kind in {"rcbd", "rex-legacy", "rcbf", "safetensors"}:
+        if kind in {"rcbd", "rex-legacy", "rcbf", "safetensors", "hdf5", "zarr"}:
             from rexgraph.io import load
 
             return load(str(path))
@@ -188,6 +201,10 @@ class FileCatalog:
 
     def tensors(self, name: str, *, limit: int = 1000) -> list[dict[str, Any]]:
         """Return bounded tensor metadata from one safetensors file."""
+        return self._tensor_metadata(name, limit=limit)
+
+    def _tensor_metadata(self, name, *, limit, terms=()):
+        """Bound matching rows, not the set of header names searched."""
         entry = self.info(name)
         path = self._resolve(name)
         if entry.kind != "safetensors" or _kind(path) != "safetensors":
@@ -195,8 +212,13 @@ class FileCatalog:
         from safetensors import safe_open
 
         rows = []
+        bounded = _bounded_limit(limit)
         with safe_open(str(path), framework="numpy") as handle:
-            for key in list(handle.keys())[:_bounded_limit(limit)]:
+            for key in handle.keys():
+                if terms:
+                    folded = key.casefold()
+                    if not all(term in folded for term in terms):
+                        continue
                 view = handle.get_slice(key)
                 rows.append(
                     {
@@ -205,7 +227,72 @@ class FileCatalog:
                         "dtype": str(view.get_dtype()),
                     }
                 )
+                if len(rows) >= bounded:
+                    break
         return rows
+
+    def commit_mutation(self, name, resulting, *, actor="", expected_hash=None,
+                        expected_version=None, valid_from=None, valid_to=None):
+        """Replace one indexed standalone file using the canonical core writer.
+
+        Retain the old file in a private sibling recovery directory. Regular file
+        publication is atomic; directory publication uses the same locked rename
+        and rollback protocol as RCBD. This is not an RCDB version or a promise of
+        crash atomic directory exchange. Only already indexed native files qualify.
+        """
+        import shutil
+        import tempfile
+        from rexgraph.graph import RexGraph, TemporalRex
+        from . import load, save
+        from .bundle import _bundle_publish_lock
+
+        if not isinstance(resulting, (RexGraph, TemporalRex)):
+            raise TypeError("file replacement requires a native RexGraph or TemporalRex")
+        if not isinstance(actor, str):
+            raise TypeError("file mutation actor must be a string")
+        if any(v is not None for v in (expected_version, valid_from, valid_to)):
+            raise ValueError("standalone files have no RCDB version or validity interval; use expected_hash")
+        if expected_hash is not None and (not isinstance(expected_hash, str) or len(expected_hash) != 64
+                                         or any(c not in "0123456789abcdef" for c in expected_hash)):
+            raise ValueError("expected_hash must be a lowercase SHA-256 digest")
+        entry = self.info(name)
+        if entry.kind not in {"rcbd", "rex-legacy", "safetensors", "hdf5", "zarr"}:
+            raise ValueError("file mutation requires a writable native standalone format")
+        target = self._resolve(name)
+        recovery = Path(tempfile.mkdtemp(prefix=".rexgraph-write-", dir=target.parent))
+        staged, backup = recovery / ("next" + target.suffix), recovery / target.name
+        published = False
+        try:
+            digest = object_digest(resulting)
+            save(str(staged), resulting, format=entry.kind)
+            if object_digest(load(str(staged), format=entry.kind)) != digest:
+                raise ValueError("staged file does not preserve canonical state identity")
+            with _bundle_publish_lock(target.parent):
+                if self._resolve(name) != target or _kind(target) != entry.kind:
+                    raise ValueError("file mutation target changed while preparing replacement")
+                previous = _hash_path(target, entry.kind)
+                if expected_hash is not None and previous != expected_hash:
+                    raise ValueError("file mutation expected_hash conflict")
+                directory = target.is_dir()
+                if directory:
+                    os.replace(target, backup)
+                else:
+                    shutil.copy2(target, backup)
+                try:
+                    os.replace(staged, target)
+                except Exception:
+                    if directory and not target.exists():
+                        os.replace(backup, target)
+                    raise
+                published = True
+                self._entries[name] = self._entry(name, target, entry.kind, hash_file=True)
+            root_name = name.split("/", 1)[0]
+            root = self._roots[int(root_name[4:])]
+            return FileCommit(name, previous, self._entries[name].sha256, digest,
+                              root_name + "/" + backup.relative_to(root).as_posix(), actor)
+        finally:
+            if not published and not backup.exists():
+                shutil.rmtree(recovery)
 
     def search_tensors(
         self,
@@ -216,18 +303,7 @@ class FileCatalog:
     ) -> list[dict[str, Any]]:
         """Search tensor names inside one safetensors file using literal terms."""
         terms = [term.casefold() for term in str(text).split() if term]
-        rows = self.tensors(name, limit=1000)
-        bounded = _bounded_limit(limit)
-        if not terms:
-            return rows[:bounded]
-        found = []
-        for row in rows:
-            value = row["name"].casefold()
-            if all(term in value for term in terms):
-                found.append(row)
-                if len(found) >= bounded:
-                    break
-        return found
+        return self._tensor_metadata(name, limit=limit, terms=terms)
 
     def _resolve(self, name: str) -> Path:
         entry = self.info(name)
@@ -317,8 +393,9 @@ def _walk(root: Path):
         current_path = Path(current)
         directories[:] = sorted(
             name for name in directories if not (current_path / name).is_symlink()
+            and not name.startswith(".rexgraph-write-")
         )
-        if _kind(current_path) in {"rcbd", "rex-legacy", "rcdb"}:
+        if _kind(current_path) in {"rcbd", "rex-legacy", "rcdb", "zarr"}:
             yield current_path
             directories[:] = []
             continue
@@ -330,6 +407,8 @@ def _walk(root: Path):
 
 def _kind(path: Path) -> str | None:
     if path.is_dir():
+        if (path / "zarr.json").is_file() or (path / ".zgroup").is_file():
+            return "zarr"
         manifest = path / "MANIFEST.json"
         if manifest.is_file():
             try:
@@ -351,6 +430,8 @@ def _kind(path: Path) -> str | None:
             return "rcdb"
         return None
     suffix = path.suffix.lower()
+    if suffix in {".h5", ".hdf5"}:
+        return "hdf5"
     if suffix in {".rcbf", ".rex"}:
         from .rcbf import is_rcbf_file
 

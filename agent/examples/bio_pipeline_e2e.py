@@ -1,15 +1,15 @@
 """
-End-to-end biology-pipeline test through the RexGraph agent.
+End to end biology pipeline test through the RexGraph agent.
 
 Mirrors the manual workflow in NEXT_SESSION_BRIEF.md:
-  - multiple 10X scRNA-seq datasets (stand-ins for GSE121861/72056/123366)
-  - marker-gene cell typing
-  - curated ligand-receptor interaction scoring between cell types
-  - full relational-complex analysis (Hodge / void / sigma-sweep / ...)
+  - multiple 10X scRNA seq datasets (stand ins for GSE121861/72056/123366)
+  - marker gene cell typing
+  - curated ligand receptor interaction scoring between cell types
+  - full relational complex analysis (Hodge / void / sigma sweep / ...)
   - TrustGraph ontology enrichment
-  - cross-dataset Poincaré-style structural comparison
+  - cross dataset Poincaré-style structural comparison
 
-Uses synthetic-but-structured 10X data (real GEO downloads aren't available
+Uses synthetic but structured 10X data (real GEO downloads aren't available
 here) with planted cell populations and signaling so every stage has real
 structure to find. Everything runs through the actual agent entry points.
 """
@@ -32,7 +32,7 @@ MARKERS = {
     "Tumor":       ["EPCAM", "KRT8", "KRT18", "KRT19", "MKI67"],
 }
 
-# Curated L-R panel (31 pairs; ligand-producing -> receptor-bearing).
+# Curated L-R panel (31 pairs; ligand producing -> receptor bearing).
 LR_PAIRS = [
     ("TGFB1", "TGFBR1"), ("TGFB1", "TGFBR2"),
     ("VEGFA", "FLT1"), ("VEGFA", "KDR"),
@@ -81,7 +81,7 @@ def _all_genes():
         genes += gs
     for lig, rec in LR_PAIRS:
         genes += [lig, rec]
-    # de-dup, stable order
+    # de dup, stable order
     seen, out = set(), []
     for g in genes:
         if g not in seen:
@@ -140,7 +140,7 @@ def main():
     from agent.corpus import CorpusBuilder
 
     root = tempfile.mkdtemp(prefix="bio_")
-    # three datasets with different tumor-microenvironment compositions
+    # three datasets with different tumor microenvironment compositions
     datasets = {
         "GSE121861": (dict(T_cell=.3, Myeloid=.25, Tumor=.2, Fibroblast=.1,
                            Endothelial=.1, B_cell=.05), 220, 11),
@@ -171,7 +171,7 @@ def main():
         print("    complex: nV=%d nE=%d nF=%d  betti=%s" % (
             rex.nV, rex.nE, rex.nF, list(rex.betti)))
 
-        # STEP 4: full analysis (Hodge / void / sigma-sweep / ...)
+        # STEP 4: full analysis (Hodge / void / sigma sweep / ...)
         import time as _t
         _t0 = _t.time()
         res = AnalysisPipeline(rex).run(depth="full")
@@ -194,10 +194,10 @@ def main():
 
         corpus.add_document(source=d, doc_id=name)
 
-    # STEP 5-6: corpus-level enrichment + Poincaré comparison
+    # STEP 5-6: corpus level enrichment + Poincaré comparison
     print("-" * 64)
     print("CROSS-DATASET (corpus of %d datasets)" % corpus.n_documents)
-    # standard depth is now affordable end-to-end (spectral void path);
+    # standard depth is now affordable end to end (spectral void path);
     # this gives kappa / Hodge invariants alongside the Poincaré matrix.
     corpus.build(depth="standard")
 

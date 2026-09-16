@@ -47,10 +47,10 @@ def _manual_L_SG(nV, nE, src, tgt, signs, vertex_weights):
     boundary sign  b(v,e) = (+1 if v == tgt[e] else -1) * signs[e].
 
     Diagonal: K_s[i,i] = sum_v w(v)                         (b^2 = 1)
-    Off-diag: K_s[i,j] = sum_{v shared} w(v) * b(v,i) * b(v,j)
+    Off diag: K_s[i,j] = sum_{v shared} w(v) * b(v,i) * b(v,j)
     Then L_SG = D_{|K_off|} - K_off.
 
-    NOTE: the off-diagonal sign depends on the boundary *orientation* at the
+    NOTE: the off diagonal sign depends on the boundary *orientation* at the
     shared vertex, not just the edge frustration signs - so K_off has mixed
     signs even when all edge signs are +1.
     """
@@ -134,7 +134,7 @@ class TestVertexWeights:
         assert w[0] < w[1]
 
     def test_k4_uniform(self, k4_data):
-        """K4 is vertex-transitive: all weights equal."""
+        """K4 is vertex transitive: all weights equal."""
         nV, nE, src, tgt = k4_data
         w = _frustration.build_vertex_weights(nV, nE, src, tgt)
         assert np.allclose(w, w[0], atol=1e-12)
@@ -178,7 +178,7 @@ class TestSignedGramian:
             assert abs(Ks[e, e] - expected) < 1e-12
 
     def test_signs_flip_offdiag(self, tri):
-        """Flipping one edge sign negates its off-diagonal entries."""
+        """Flipping one edge sign negates its off diagonal entries."""
         nV, nE, src, tgt = tri
         w = _frustration.build_vertex_weights(nV, nE, src, tgt)
         signs_pos = np.ones(nE, dtype=np.float64)
@@ -186,7 +186,7 @@ class TestSignedGramian:
         signs_neg[0] = -1.0
         Ks_pos = _frustration.build_signed_gramian_dense(nV, nE, src, tgt, signs_pos, w)
         Ks_neg = _frustration.build_signed_gramian_dense(nV, nE, src, tgt, signs_neg, w)
-        # Off-diagonal entries involving edge 0 should flip sign
+        # Off diagonal entries involving edge 0 should flip sign
         for j in range(1, nE):
             if abs(Ks_pos[0, j]) > 1e-15:
                 assert abs(Ks_neg[0, j] + Ks_pos[0, j]) < 1e-12
@@ -216,12 +216,12 @@ class TestBuildLSG:
 
     def test_diagonal_equals_offdiag_abs_sum(self, tri):
         """L_SG = D_{|K_off|} - K_off, so each diagonal entry equals the sum
-        of absolute values of its off-diagonal entries.
+        of absolute values of its off diagonal entries.
 
         Row sums are NOT zero here (unlike a standard vertex graph Laplacian):
-        this is the edge-space object B1^T W B1, whose off-diagonals carry the
+        this is the edge space object B1^T W B1, whose off diagonals carry the
         boundary orientation, so K_off has mixed signs even with all +1 edge
-        signs and the negatives don't cancel the positives row-wise.
+        signs and the negatives don't cancel the positives row wise.
         """
         nV, nE, src, tgt = tri
         L = _frustration.build_L_SG(nV, nE, src, tgt)
@@ -238,7 +238,7 @@ class TestBuildLSG:
         assert np.allclose(L1, L2, atol=1e-14)
 
     def test_matches_manual(self, tri):
-        """Dense L_SG matches manual vertex-driven construction."""
+        """Dense L_SG matches manual vertex driven construction."""
         nV, nE, src, tgt = tri
         signs = np.ones(nE, dtype=np.float64)
         w = _frustration.build_vertex_weights(nV, nE, src, tgt)

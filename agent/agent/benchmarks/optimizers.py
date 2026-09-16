@@ -1,18 +1,18 @@
 """
 benchmarks: standard ML benchmarks for comparing optimizers on real, recognized tasks.
 
-The point: settle optimizer claims (hodge / hodge-arch vs Adam/AdamW/SGD) where the community can
+The point: settle optimizer claims (hodge / hodge arch vs Adam/AdamW/SGD) where the community can
 compare, not on toy data. Each benchmark builds a real model + data + eval metric and runs with ANY
 registered optimizer (`nn.make_optimizer`), streaming loss, so `benchmark_ab` gives a fair,
-held-out comparison and a metric-aware verdict. Every model here is feature-space, so the routing
+held out comparison and a metric aware verdict. Every model here is feature space, so the routing
 default resolves to plain Adam; the hodge arms are named by the caller because they are what is
 under test.
 
 Two kinds:
-  - `ill-cond`: a CONTROLLED ill-conditioned matrix-regression (tunable condition number κ). No
+  - `ill-cond`: a CONTROLLED ill conditioned matrix regression (tunable condition number κ). No
     download, runs anywhere, and it is exactly the regime where per-Hodge-component preconditioning
     is supposed to help: the diagnostic that actually tests the claim.
-  - `mnist` / `fashion-mnist` / `cifar10`: the recognized image-classification benchmarks (loaded
+  - `mnist` / `fashion-mnist` / `cifar10`: the recognized image classification benchmarks (loaded
     via the `datasets` extra), an MLP trained to test accuracy.
 
 Everything degrades cleanly without torch/datasets.
@@ -59,7 +59,7 @@ def run_benchmark(name: str, *, optimizer: str = "auto", steps: int = 200,
                   on_step: Callable = None, label: str | None = None, **kw) -> dict:
     """Run one benchmark with one optimizer. `optimizer` defaults to "auto" (the router), so an
     unnamed run measures what a model of this shape actually trains with; name an optimizer to test
-    a specific one. Returns train + held-out-eval trajectories and the task metric. Graceful:
+    a specific one. Returns train + held out eval trajectories and the task metric. Graceful:
     missing torch/datasets → a clear skip, not a crash."""
     if name not in _BENCH:
         return {"skipped": f"unknown benchmark {name!r} (have: {', '.join(sorted(_BENCH))})"}
@@ -81,9 +81,9 @@ _LR_GRID = (1e-3, 3e-3, 1e-2, 3e-2, 1e-1)
 def benchmark_ab(name: str, *, optimizers=("hodge", "adam"), steps: int = 200,
                  lrs=_LR_GRID, on_step: Callable = None, **kw) -> dict:
     """A/B the same benchmark under each optimizer (same data/seed). FAIR BY DEFAULT: each
-    optimizer is tuned over an lr grid and keeps its best. A fixed-lr comparison only measures
-    lr-sensitivity, not optimizer quality. Verdict on the held-out metric; a sub-1% gap = tie.
-    Pass `lrs=None` (or a single-element list) to skip the sweep."""
+    optimizer is tuned over an lr grid and keeps its best. A fixed lr comparison only measures
+    lr sensitivity, not optimizer quality. Verdict on the held out metric; a sub 1% gap = tie.
+    Pass `lrs=None` (or a single element list) to skip the sweep."""
     if name not in _BENCH:
         return {"skipped": f"unknown benchmark {name!r}", "ab": []}
     higher = _BENCH[name]["higher_better"]
@@ -121,15 +121,15 @@ def benchmark_ab(name: str, *, optimizers=("hodge", "adam"), steps: int = 200,
             "higher_better": higher, "verdict": verdict}
 
 
-#### the controlled ill-conditioned benchmark (the claim test, runs anywhere)
+#### the controlled ill conditioned benchmark (the claim test, runs anywhere)
 def _ill_conditioned(*, optimizer, steps, lr, device, seed, on_step, label,
                      d_in: int = 64, d_out: int = 16, n: int = 512, kappa: float = 1000.0,
                      noise: float = 0.1, **kw):
-    """Multi-output linear regression Y = X·W (+ noise) with X's spectrum set so cond(XᵀX) = κ. The
+    """Multi output linear regression Y = X·W (+ noise) with X's spectrum set so cond(XᵀX) = κ. The
     weight W is a real matrix, so the hodge arm has something to decompose; the Hessian condition
-    number is κ, the regime a per-component preconditioner is claimed to help. `noise` gives a
-    non-trivial optimum (not exactly 0), so the metric measures real generalization. Metric =
-    held-out MSE (lower better)."""
+    number is κ, the regime a per component preconditioner is claimed to help. `noise` gives a
+    non trivial optimum (not exactly 0), so the metric measures real generalization. Metric =
+    held out MSE (lower better)."""
     import rexgraph.nn as nn
     from rexgraph.nn import optim
     _t.manual_seed(seed)
@@ -170,11 +170,11 @@ def _ill_conditioned(*, optimizer, steps, lr, device, seed, on_step, label,
             "improved": bool(evals and evals[-1] < evals[0])}
 
 
-#### recognized image-classification benchmarks (need the `datasets` extra)
+#### recognized image classification benchmarks (need the `datasets` extra)
 def _image_clf(dataset_name, image_key, *, optimizer, steps, lr, device, seed, on_step, label,
                hidden: int = 256, batch: int = 128, train_n: int = 4000, eval_n: int = 1000,
                conv: bool = False, **kw):
-    """Standard image dataset → test accuracy, with an MLP or (conv=True) a small CNN whose 4-tensor
+    """Standard image dataset → test accuracy, with an MLP or (conv=True) a small CNN whose 4 tensor
     kernels exercise the general k-tensor Hodge split. Loads via HF `datasets`."""
     import numpy as np
     from datasets import load_dataset
@@ -248,9 +248,9 @@ def _image_clf(dataset_name, image_key, *, optimizer, steps, lr, device, seed, o
 
 def _matrix_completion(*, optimizer, steps, lr, device, seed, on_step, label,
                        m: int = 40, n: int = 40, rank: int = 3, obs: float = 0.4, **kw):
-    """Low-rank matrix completion: recover M = A·Bᵀ (rank r) from a random `obs` fraction of its
-    entries by fitting U·Vᵀ. NON-CONVEX, and U/V are real matrices, so the hodge arm decomposes them.
-    Metric = MSE on the HELD-OUT (unobserved) entries: generalization on a non-convex problem."""
+    """Low rank matrix completion: recover M = A·Bᵀ (rank r) from a random `obs` fraction of its
+    entries by fitting U·Vᵀ. NON CONVEX, and U/V are real matrices, so the hodge arm decomposes them.
+    Metric = MSE on the HELD OUT (unobserved) entries: generalization on a non convex problem."""
     import rexgraph.nn as nn
     from rexgraph.nn import optim
     _t.manual_seed(seed)

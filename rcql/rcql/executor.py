@@ -2,13 +2,25 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import suppress
 from dataclasses import dataclass
 from fractions import Fraction
 from math import isfinite
 from typing import Any
 
-from .ast import Call, Expr, Literal, MutationQuery, Parameter, Query
+from .ast import (
+    Alias,
+    Call,
+    Expr,
+    ListExpr,
+    Literal,
+    Member,
+    MutationQuery,
+    Parameter,
+    Query,
+    Reference,
+    StructuralEdit,
+    Comparison,
+)
 from .operators import get_operator
 from .optimizer import Rewrite, optimize
 from .types import Exactness
@@ -20,29 +32,15 @@ class Result:
     rewrites: tuple[Rewrite, ...] = ()
     plan: tuple[str, ...] = ()
     exactness: tuple[Exactness, ...] = ()
+    native_plan: dict | None = None
+    provenance: tuple[dict, ...] = ()
+    execution: tuple[dict, ...] = ()
+    aliases: tuple[str | None, ...] = ()
 
+    @property
+    def named_values(self):
+        return {name: value for name, value in zip(self.aliases, self.values, strict=False) if name is not None}
 
-#: What each operator must be permitted to do. The executor asks the source for exactly
-#: this before evaluating, so this table IS the access-control surface: anything absent
-#: falls to "read", which is why every operator that reaches identity, history, files or
-#: the store's own configuration has to be named here.
-_PERMISSION = {
-    "RCDB_SECURITY": "admin",
-    "RCDB_HISTORY": ("history", "identity"),
-    "RCDB_COMMITS": ("history", "identity"),
-    "RCDB_VERIFY": ("history", "identity"),
-    "RCDB_GET": "identity",
-    "RCDB_HASH": "identity",
-    "RCDB_LIST": "records",
-    "RCDB_SEARCH": "records",
-    "SEARCH": "search",
-    "SEARCH_TENSORS": "search",
-    "FILES": "file_read",
-    "FILE_INFO": "file_read",
-    "FILE_HASH": "file_read",
-    "HASH_FILES": "file_read",
-    "TENSORS": "file_read",
-}
 
 # A direct C1 temporal field is carried on the reconstructed current Rex, not on the
 # TemporalRex history object that supplied it.  These operators consume that carrier's
@@ -53,26 +51,17 @@ _CARRIER_SOURCE_OPERATORS = frozenset({
     "WINDING",
 })
 
-# Caching is deliberately an allow-list.  Catalog hashing and storage operations can
-# change a cache, expose a new record state, or consume an external capability, so they
-# must run each time they appear.  These native readings have no such side effect and
-# may safely share a source-bound intermediate across one whole query phrase.
-_MEMOIZABLE_OPERATORS = frozenset({
-    "ACCUMULATE", "APPLY", "ARITY", "BETTI", "BOUNDARY", "CELL", "CELLS", "CHARACTER", "CLOSURE",
-    "COBOUNDARY", "COMPOSITE", "CORELATIONS", "DESCRIBE", "ENCLOSURE", "EXISTENCE",
-    "GRADE", "GREEN", "HARMONIC", "HEAD", "HODGE", "HODGE_COORDS", "HODGE_OPERATOR",
-    "INDICATOR", "METRIC_CURVATURE", "NULLITY", "QUADRANCE", "RANK", "RELATION_SIGNAL", "SHARE",
-    "SHARE_SUPPORT", "SIGNAL_AT", "SIGNAL_FLOW", "SIGNAL_HODGE", "SIGNAL_SOURCE",
-    "SIGNIFICANCE", "SPREAD", "STAR", "TEMPORAL_DELTA", "WINDING", "ZERO",
-})
-
 
 class Executor:
     """Evaluate RCQL against explicit source and parameter bindings."""
 
-    def __init__(self, *, sources=None, params=None):
+    def __init__(self, *, sources=None, params=None, artifacts=None):
+        from .artifact_services import ArtifactServices
+        if artifacts is not None and not isinstance(artifacts, ArtifactServices):
+            raise TypeError("artifacts must be ArtifactServices")
         self.sources = dict(sources or {})
         self.params = dict(params or {})
+        self.artifacts = artifacts
 
     @staticmethod
     def _unwrap(source, permission):
@@ -89,9 +78,9 @@ class Executor:
         """Use one carried field's current Rex for a temporal field operation.
 
         A whole temporal history is not a Rex snapshot, so handing it to a C1 action
-        would lose the field's basis.  Routing is allowed only for the named single-field
+        would lose the field's basis.  Routing is allowed only for the named single field
         operations and only when every carried source candidate agrees by identity;
-        multi-field alignment remains a static-plan responsibility rather than a guess.
+        multi field alignment remains a static plan responsibility rather than a guess.
         """
         if operator not in _CARRIER_SOURCE_OPERATORS:
             return source
@@ -112,10 +101,20 @@ class Executor:
             if expr.name not in self.sources:
                 raise KeyError(f"unknown source ${expr.name}")
             return self.sources[expr.name]
-        if isinstance(expr, Call) and expr.name in {"REX", "CATALOG"} and len(expr.args) == 1:
+        if isinstance(expr, Call) and expr.name in {"REX", "CATALOG", "RCDB"} and len(expr.args) == 1:
             name = self._eval(expr.args[0], None)
+            if not isinstance(name, str):
+                raise TypeError(f"{expr.name} expects a bound source name, not a URI or object")
             if name not in self.sources:
                 raise KeyError(f"unknown source {name!r}")
+            if expr.name == "RCDB":
+                from .binding import classify
+                from .capabilities import BoundSource
+                from .types import ValueKind
+                source = self.sources[name]
+                raw = source.value if isinstance(source, BoundSource) else source
+                if classify(raw) is not ValueKind.RCDB_STORE:
+                    raise TypeError(f"source {name!r} is not an RCDB store")
             return self.sources[name]
         if isinstance(expr, Call) and expr.name == "FILE" and len(expr.args) == 2:
             catalog_name = self._eval(expr.args[0], None)
@@ -143,6 +142,9 @@ class Executor:
             if not isinstance(section, PhraseSheaf):
                 raise TypeError("PHRASE in FROM expects a policy-aware PhraseSheaf")
             return section.as_bound_source()
+        if isinstance(expr, Call) and expr.name in {"VALID_AT", "TRANSACTION_AT"}:
+            selector = "RCDB_VALID_AT" if expr.name == "VALID_AT" else "RCDB_AS_OF"
+            return self._eval_rcdb_source(Call(selector, expr.args))
         if isinstance(expr, Call) and expr.name in {
             "RCDB_GET", "RCDB_VERSION", "RCDB_AS_OF", "RCDB_VALID_AT",
         }:
@@ -187,22 +189,23 @@ class Executor:
                 return BoundSource(snapshot, parent.policy, ref=parent.ref,
                                    temporal=TemporalRef(as_of=float(when)))
             return snapshot
-        raise TypeError("FROM expects a source parameter, REX(name), CATALOG(name), "
+        raise TypeError("FROM expects a source parameter, REX(name), CATALOG(name), RCDB(name), "
                         "FILE(catalog, name), RCDB_GET(store, id), RCDB_VERSION(store, id, "
                         "version), RCDB_AS_OF(store, id, time), RCDB_VALID_AT(store, id, time), "
+                        "TRANSACTION_AT(store, id, time), VALID_AT(store, id, time), "
                         "PHRASE(section), AT(temporal_source, version), or "
                         "AT_TIME(temporal_source, time)")
 
     def _eval_rcdb_source(self, expr: Call):
         """Resolve one selected RCDB state before planning its structural phrase.
 
-        ``RCDB_GET`` keeps its existing one-argument return expression. In FROM position
+        ``RCDB_GET`` keeps its existing one argument return expression. In FROM position
         it is instead a source transform: it consumes an explicit store source and an
         identity, then carries the decoded Rex and the same capability policy onward.
         ``RCDB_VERSION`` makes a persisted version selection explicit rather than
         overloading a scalar whose meaning could be a clock time. ``RCDB_AS_OF`` and
         ``RCDB_VALID_AT`` expose the store's bitemporal selectors with equally explicit
-        transaction-time and valid-time meanings.
+        transaction time and valid time meanings.
         """
         from .binding import bind, classify, resolve
         from .capabilities import BoundSource, SourcePolicy
@@ -222,16 +225,11 @@ class Executor:
         parent_binding = bind(self._source_label(parent_expr),
                               parent.value if isinstance(parent, BoundSource) else parent,
                               parent_policy, source_ref=parent_ref)
-        # Use the declared return-form contract to check store kind and identity before a
+        # Use the declared return form contract to check store kind and identity before a
         # storage adapter is reached. The source form has its own arity, but the surface
-        # it reads is exactly RCDB_GET's one-record identity lookup.
+        # it reads is exactly RCDB_GET's one record identity lookup.
         resolve(parent_binding, "RCDB_GET", (record_id,))
         raw, _policy = self._unwrap(parent, "identity")
-        if not hasattr(raw, "get_record") or not hasattr(raw, "get_version"):
-            raise TypeError(
-                f"{expr.name} in FROM expects a versioned RCDB store with get_record and get_version"
-            )
-
         version = None
         as_of = valid_at = None
         if expr.name == "RCDB_VERSION":
@@ -240,7 +238,7 @@ class Executor:
                 raise TypeError("RCDB_VERSION expects an exact integer record version")
         elif expr.name in {"RCDB_AS_OF", "RCDB_VALID_AT"}:
             when = self._eval(expr.args[2], None)
-            if isinstance(when, bool) or not isinstance(when, (int, float)):
+            if isinstance(when, bool) or not isinstance(when, (int, float, Fraction)):
                 raise TypeError(f"{expr.name} expects a numeric RCDB time")
             if not isfinite(float(when)):
                 raise ValueError(f"{expr.name} expects a finite RCDB time")
@@ -248,31 +246,21 @@ class Executor:
                 as_of = float(when)
             else:
                 valid_at = float(when)
-        if expr.name != "RCDB_VERSION":
-            # Pin the selected version before decoding it. Reading ``get`` and then asking
-            # which version was selected leaves a write-sized race: the value could be an
-            # older state while the provenance names its successor. The version lookup
-            # below instead makes the selected record state exact across that interval.
-            record = raw.get_record(record_id, as_of=as_of, valid_at=valid_at)
-            version = None if record is None else int(record.version)
-
-        if version is None:
+        snapshot = raw.read_record(record_id, version=version, as_of=as_of, valid_at=valid_at)
+        if snapshot is None:
             state = f" version {version}" if version is not None else ""
             raise KeyError(f"RCDB record {record_id!r}{state} is not present")
-        value = raw.get_version(record_id, version)
-        if value is None:
-            raise KeyError(f"RCDB record {record_id!r} version {version} is not present")
+        value = snapshot.value
+        record_id, version = snapshot.record.id, snapshot.record.version
         kind = classify(value)
         if kind not in {ValueKind.REX, ValueKind.TEMPORAL_REX}:
             raise TypeError(f"{expr.name} record {record_id!r} is not a Rex or TemporalRex source")
         # The record id and version name the selected store entry. The canonical object
         # digest names the exact decoded state that structural operators will read, so an
         # EXPLAIN account cannot claim one state while the store returned another.
-        from rexgraph.io.catalog import object_digest
-
         ref = SourceRef(
             name=f"{parent_binding.ref.name}/{record_id}@{version}",
-            state_digest=object_digest(value),
+            state_digest=snapshot.state_digest,
             policy_digest=parent_policy.digest,
             record_id=record_id,
             record_version=version,
@@ -286,7 +274,7 @@ class Executor:
         """Name a bound query source without evaluating an expression under it."""
         if isinstance(expr, Parameter):
             return expr.name
-        if isinstance(expr, Call) and expr.name in {"REX", "CATALOG"}:
+        if isinstance(expr, Call) and expr.name in {"REX", "CATALOG", "RCDB"}:
             if len(expr.args) == 1 and isinstance(expr.args[0], Literal):
                 return str(expr.args[0].value)
             return expr.name.lower()
@@ -294,6 +282,7 @@ class Executor:
             return Executor._source_label(expr.args[0])
         if isinstance(expr, Call) and expr.name in {
             "RCDB_GET", "RCDB_VERSION", "RCDB_AS_OF", "RCDB_VALID_AT",
+            "VALID_AT", "TRANSACTION_AT",
         } and expr.args:
             return Executor._source_label(expr.args[0])
         if isinstance(expr, Call) and expr.name == "PHRASE":
@@ -320,101 +309,197 @@ class Executor:
         return TemporalRef(as_of=float(value))
 
     def _planning_binding(self, source_expr: Expr, source):
-        """Make the same policy-aware binding used by static phrase planning."""
+        """Make the same policy aware binding used by static phrase planning."""
         from .binding import bind
         from .capabilities import BoundSource, SourcePolicy
 
         if isinstance(source, BoundSource):
-            return bind(self._source_label(source_expr), source.value, source.policy,
+            binding = bind(self._source_label(source_expr), source.value, source.policy,
                         temporal=source.temporal or self._source_temporal(source_expr),
                         source_ref=source.ref)
-        return bind(self._source_label(source_expr), source, SourcePolicy.allow("*"),
-                    temporal=self._source_temporal(source_expr))
+        else:
+            binding = bind(self._source_label(source_expr), source, SourcePolicy.allow("*"),
+                           temporal=self._source_temporal(source_expr))
+        return binding
 
     def _eval(self, expr: Expr, source, *, memo: dict[Call, object] | None = None):
+        """Resolve a FROM argument only; expressions execute exclusively as typed DAGs."""
         if isinstance(expr, Literal):
             return expr.value
         if isinstance(expr, Parameter):
             if expr.name not in self.params:
                 raise KeyError(f"unknown parameter ${expr.name}")
             return self.params[expr.name]
-        if isinstance(expr, Call):
-            name = expr.name.upper()
-            cache_this = memo is not None and name in _MEMOIZABLE_OPERATORS
-            if cache_this:
-                try:
-                    return memo[expr]
-                except KeyError:
-                    pass
-                except TypeError:
-                    # A literal can carry an unhashable Python value.  It remains a
-                    # legitimate query input; only this outer expression cannot be
-                    # a memoization key.  Its nested pure fragments may still share.
-                    cache_this = False
-            args = tuple(self._eval(arg, source, memo=memo) for arg in expr.args)
-            permission = _PERMISSION.get(name, "read")
-            raw, policy = self._unwrap(source, permission)
-            value = get_operator(expr.name).fn(self._carrier_source(raw, args, name), *args)
-            if policy is not None and name in {"RCDB_LIST", "RCDB_SEARCH", "RCDB_HISTORY"}:
+        raise TypeError("FROM arguments must be literals or bound parameters; operator calls require a typed query")
+
+    def _execute_dag(self, dag, source, *, computed=None):
+        from .execution_trace import capture_methods
+        from .native_plan import plain
+        computed = {} if computed is None else computed
+        observations = []
+        for node in dag.nodes:
+            expression = node.expression
+            if node.operator is None:
+                if isinstance(expression.expr, Comparison):
+                    from .comparison import evaluate
+                    value = evaluate(expression.expr.operation, *(computed[i] for i in node.inputs))
+                elif isinstance(expression.expr, StructuralEdit):
+                    from rexgraph.structural_edit import edit_relations
+                    self._unwrap(source, "mutate")
+                    value = edit_relations(computed[node.inputs[0]], expression.expr.operation,
+                                           computed[node.inputs[1]])
+                    observations.append({"node": node.id, "operator": expression.expr.operation,
+                        "adapter": "rexgraph.structural_edit.edit_relations", "method_status": "observed",
+                        "methods": [{"method": "native-owned-structural-edit"}], "exactness": "structural"})
+                elif isinstance(expression.expr, ListExpr):
+                    value = [computed[i] for i in node.inputs]
+                elif isinstance(expression.expr, Member):
+                    from .members import project
+                    value = project(computed[node.inputs[0]], expression.expr.name)
+                else:
+                    value = (expression.expr.value if isinstance(expression.expr, Literal)
+                             else self.params[expression.expr.name])
+                computed[node.id] = value
+                continue
+            args = tuple(computed[i] for i in node.inputs)
+            raw, policy = self._unwrap(source, expression.call.signature.requires)
+            with capture_methods(policy_digest=expression.call.binding.ref.policy_digest,
+                                 policy=policy, artifact_services=self.artifacts) as methods:
+                value = get_operator(node.operator).fn(self._carrier_source(raw, args, node.operator), *args)
+            if policy is not None and node.operator in {"RCDB_LIST", "RCDB_SEARCH", "RCDB_HISTORY"}:
                 value = policy.project_record(value)
-            if cache_this:
-                with suppress(TypeError):
-                    memo[expr] = value
-            return value
-        raise TypeError(f"unsupported expression {type(expr).__name__}")
+            computed[node.id] = value
+            observations.append(plain({
+                "node": node.id, "operator": node.operator,
+                "adapter": expression.call.signature.implementation_key,
+                "method_status": "observed" if methods else "unreported",
+                "methods": methods, "exactness": value_exactness(value).value,
+            }))
+        return computed, observations
+
+    def _execute_mutation(self, query, source):
+        from rexgraph.io.catalog import object_digest
+
+        from .mutation_plan import plan_mutation, validate_arguments
+        from .native_plan import plain
+        binding = self._planning_binding(query.source, source)
+        planned = plan_mutation(binding, query, parameters=self.params)
+        serialized = planned.explain()
+        if query.explain:
+            return Result((serialized,), plan=("COMMIT",), exactness=(Exactness.STRUCTURAL,),
+                          native_plan=serialized)
+        dag = planned.inputs.dag()
+        computed, observations = self._execute_dag(dag, source)
+        args = tuple(computed[i] for i in dag.outputs)
+        from .types import ValueKind
+        file = binding.schema.kind is ValueKind.CATALOG_ENTRY_SET
+        validate_arguments(args, file=file)
+        record_id, resulting, actor, valid_from, valid_to, expected, expected_hash = args
+        raw, _policy = self._unwrap(source, ("mutate", "identity", "file_write") if file else ("mutate", "identity"))
+        options = {"actor": actor, "valid_from": valid_from, "valid_to": valid_to}
+        if expected is not None:
+            options["expected_version"] = expected
+        if file:
+            options["expected_hash"] = expected_hash
+        digest = object_digest(resulting)
+        rec = raw.commit_mutation(record_id, resulting, **options)
+        terminal = serialized["outputs"][0]
+        event = plain({
+            "node": terminal, "operator": "COMMIT", "adapter": "catalog.commit_mutation" if file else "rcdb.commit_mutation",
+            "method_status": "observed", "exactness": "structural",
+            "methods": [{"method": "recoverable-native-file-replacement" if file else "rcdb-temporal-mutation-commit", "record_id": rec.id,
+                         "record_version": rec.version, "state_digest": digest,
+                         "expected_version": expected, **({"backup": rec.backup, "expected_hash": expected_hash} if file else {})}],
+        })
+        observations.append(event)
+        provenance = plain({"node": terminal, "logical_operator": "COMMIT",
+                            "record_id": rec.id, "record_version": rec.version,
+                            "state_digest": digest, "policy_digest": binding.ref.policy_digest,
+                            "execution": event})
+        return Result((rec,), plan=(f"COMMIT({record_id!r})",), exactness=(Exactness.STRUCTURAL,),
+                      native_plan=serialized, provenance=(provenance,), execution=tuple(observations))
 
     def execute(self, query: Query | MutationQuery) -> Result:
+        if not isinstance(query, (Query, MutationQuery)):
+            raise TypeError("Executor.execute requires a typed Query or MutationQuery")
         source = self._eval_source(query.source)
         if isinstance(query, MutationQuery):
-            raw, _policy = self._unwrap(source, ("mutate", "identity"))
-            if not hasattr(raw, "commit_mutation"):
-                raise TypeError("RCQL mutation expects an RCDB store")
-            record_id = str(self._eval(query.record_id, source))
-            resulting = self._eval(query.resulting, source)
-            actor = str(self._eval(query.actor, source))
-            valid_from = self._eval(query.valid_from, source)
-            valid_to = self._eval(query.valid_to, source)
-            rec = raw.commit_mutation(record_id, resulting, actor=actor,
-                                      valid_from=valid_from, valid_to=valid_to)
-            return Result((rec,), (), (f"COMMIT({record_id!r})",), (Exactness.STRUCTURAL,))
-        planned, rewrites = optimize(query)
+            return self._execute_mutation(query, source)
+        from .planning import plan_query
+        binding = self._planning_binding(query.source, source)
+        if query.matches:
+            from .matching import execute_match, plan_match
+            return execute_match(self, source, plan_match(binding, query, parameters=self.params))
+        original = plan_query(binding, query, parameters=self.params)
+        planned, rewrites = optimize(query, plan=original, parameters=self.params)
+        phrase = plan_query(binding, planned, parameters=self.params) if rewrites else original
+        dag = phrase.dag()
+        serialized = dag.explain()
+        from dataclasses import asdict
+
+        from .native_plan import plain
+        rewrite_trace = [{"reason": item.reason, "before": format_expr(item.before),
+                          "after": format_expr(item.after),
+                          "predicates": [asdict(p) for p in item.predicates]} for item in rewrites]
+        serialized["rewrites"] = rewrite_trace
         if planned.explain:
             # No expression operator is evaluated in this branch.  The source is bound
             # once so type/capability/provenance checks have a real contract, then the
             # whole AST is typed recursively and returned as a plain structural value.
-            from .planning import plan_query
-
-            phrase = plan_query(
-                self._planning_binding(planned.source, source), planned, parameters=self.params,
-            )
+            explanation = phrase.explain()
+            explanation["native_plan"] = serialized
             return Result(
-                (phrase.explain(),), tuple(rewrites),
+                (explanation,), tuple(rewrites),
                 tuple(format_expr(expr) for expr in planned.returns),
-                (Exactness.STRUCTURAL,),
+                (Exactness.STRUCTURAL,), native_plan=serialized,
             )
         # A normal phrase receives the same contract check as EXPLAIN before even its
         # first adapter runs.  The returned plan is intentionally not discarded work:
         # it is the source/grade/basis/time proof for this execution, while runtime
-        # remains responsible for data-dependent bounds and numerical residuals.
-        from .planning import plan_query
-
-        plan_query(
-            self._planning_binding(planned.source, source), planned, parameters=self.params,
-        )
-        memo: dict[Call, object] = {}
-        values = tuple(self._eval(expr, source, memo=memo) for expr in planned.returns)
+        # remains responsible for data dependent bounds and numerical residuals.
+        from .planning import _plain_source, _plain_type
+        from .types import RCType
+        computed, observations = self._execute_dag(dag, source)
+        values = tuple(computed[i] for i in dag.outputs)
         plan = tuple(format_expr(expr) for expr in planned.returns)
         exactness = tuple(value_exactness(value) for value in values)
-        return Result(values, tuple(rewrites), plan, exactness)
+        logical_returns = tuple(expr.children[0] if isinstance(expr.expr, Alias) else expr
+                                for expr in original.returns)
+        provenance = tuple(plain({
+            "node": node_id, "logical_operator": (logical.call.operator if logical.call else None),
+            "reference": logical.expr.name if isinstance(logical.expr, Reference) else None,
+            "source_state": _plain_source(binding.ref), "policy_digest": binding.ref.policy_digest,
+            "result_type": _plain_type(expression.result) if isinstance(expression.result, RCType) else None,
+            "exactness": arithmetic.value, "rewrites": rewrite_trace,
+            "execution": next((item for item in observations if item["node"] == node_id), None),
+            **({"alias": alias} if alias is not None else {}),
+        }) for node_id, expression, logical, arithmetic, alias in zip(
+            dag.outputs, phrase.returns, logical_returns, exactness, dag.aliases, strict=True))
+        return Result(values, tuple(rewrites), plan, exactness, serialized, provenance, tuple(observations), dag.aliases)
 
 
 
 def format_expr(expr: Expr) -> str:
     """Return a compact RCQL expression string."""
+    if isinstance(expr, Comparison):
+        return f"({format_expr(expr.left)} {expr.operation} {format_expr(expr.right)})"
+    if isinstance(expr, StructuralEdit):
+        return f"{format_expr(expr.state)} {expr.operation} {format_expr(expr.value)}"
+    if isinstance(expr, Alias):
+        return f"{format_expr(expr.value)} AS {expr.name}"
+    if isinstance(expr, Member):
+        return f"{format_expr(expr.value)}.{expr.name}"
+    if isinstance(expr, ListExpr):
+        return "[" + ", ".join(format_expr(item) for item in expr.items) + "]"
     if isinstance(expr, Literal):
-        return repr(expr.value)
+        if isinstance(expr.value, Fraction):
+            return f"{expr.value.numerator}/{expr.value.denominator}"
+        from .planning import _plain_literal
+        return repr(_plain_literal(expr.value))
     if isinstance(expr, Parameter):
         return "$" + expr.name
+    if isinstance(expr, Reference):
+        return expr.name
     if isinstance(expr, Call):
         return f"{expr.name}({', '.join(format_expr(a) for a in expr.args)})"
     return repr(expr)
@@ -425,7 +510,7 @@ def value_exactness(value: Any) -> Exactness:
 
     This reads a finished value, which is not type inference: it cannot answer before the
     work happens and it cannot distinguish a rational that was rendered to a float from a
-    float that was never exact. Signature-driven inference replaces it wherever a
+    float that was never exact. Signature driven inference replaces it wherever a
     signature exists; this remains the fallback for expressions that have none yet.
 
     Deliberately written without importing numpy. An array is recognised by carrying a
@@ -435,13 +520,54 @@ def value_exactness(value: Any) -> Exactness:
     belongs to the binary bundles beneath it.
     """
     from rexgraph.cells import CellBoundary, CellCoboundary, CompositeBinary
+    from rexgraph.chain_map import ChainHomotopy, ChainMap, GradedMap, SymmetryGroup
+    if isinstance(value, SymmetryGroup):
+        return Exactness.STRUCTURAL
+    from rexgraph.cell_neighborhood import Hyperslice
+    from rexgraph.column_expansion import ColumnExpansion, ColumnLegs, PrimaryColumnLift
     from rexgraph.cochain import Chain, Cochain, Field
+    from rexgraph.graded_metric import DiagonalMetric
+    from rexgraph.hodge_coords import HodgeCoords
     from rexgraph.linear_operator import RexOperator
     from rexgraph.metric_field import MetricCurvature
+    from rexgraph.operator_bracket import GradedOperatorBracket
     from rexgraph.sheaf import ExactGlueResult
     from rexgraph.temporal_signal import TemporalSignal, TemporalSignalFlow
+    from rexgraph.type_accession import (
+        AccessionFamily,
+        CrossMetric,
+        FamilyMetric,
+        TypeAccession,
+        TypedFamily,
+        TypedMomentTensor,
+        TypeView,
+    )
+    from rexgraph.weighted_dirac import GradedChain, WeightedDiracOperator
 
-    if isinstance(value, (bool, RexOperator, ExactGlueResult)):
+    from .operators import CharacterResult
+
+    if isinstance(value, (WeightedDiracOperator, GradedOperatorBracket, Hyperslice, ColumnExpansion, ColumnLegs, PrimaryColumnLift)):
+        return Exactness.STRUCTURAL
+    if isinstance(value, GradedChain):
+        return Exactness.RATIONAL if value.exact else Exactness.APPROXIMATE
+
+    if isinstance(value, (TypeAccession, AccessionFamily, CrossMetric, FamilyMetric, GradedMap, ChainMap, ChainHomotopy)):
+        return Exactness.STRUCTURAL
+    if isinstance(value, (TypeView, TypedMomentTensor)):
+        return value_exactness(value.values)
+    if isinstance(value, TypedFamily):
+        kinds = {value_exactness(v) for v in value.views}
+        if kinds <= {Exactness.INTEGER, Exactness.RATIONAL}:
+            return Exactness.RATIONAL if Exactness.RATIONAL in kinds else Exactness.INTEGER
+        return Exactness.APPROXIMATE if kinds <= {Exactness.INTEGER, Exactness.RATIONAL, Exactness.APPROXIMATE} else Exactness.STRUCTURAL
+
+    if isinstance(value, CharacterResult):
+        coefficients = value['values']
+        if all(isinstance(entry, Fraction) for entry in coefficients.flat):
+            return Exactness.RATIONAL
+        return value_exactness(coefficients)
+
+    if isinstance(value, (bool, RexOperator, ExactGlueResult, DiagonalMetric)):
         return Exactness.STRUCTURAL
     if isinstance(value, int):
         return Exactness.INTEGER
@@ -459,6 +585,8 @@ def value_exactness(value: Any) -> Exactness:
         # The carrier is structural: individual channels retain their own
         # exactness, notably a numerical amplitude field beside exact topology.
         return Exactness.STRUCTURAL
+    if isinstance(value, HodgeCoords):
+        return Exactness.APPROXIMATE
     if isinstance(value, TemporalSignalFlow):
         return value_exactness(value.returned_boundary)
     if isinstance(value, MetricCurvature):
@@ -477,6 +605,14 @@ def value_exactness(value: Any) -> Exactness:
             return contracts[0]
         return Exactness.STRUCTURAL
 
+    if isinstance(value, (tuple, list)):
+        contracts = {value_exactness(item) for item in value}
+        if not contracts:
+            return Exactness.STRUCTURAL
+        if contracts <= {Exactness.INTEGER, Exactness.RATIONAL}:
+            return Exactness.RATIONAL if Exactness.RATIONAL in contracts else Exactness.INTEGER
+        return contracts.pop() if len(contracts) == 1 else Exactness.STRUCTURAL
+
     kind = getattr(getattr(value, "dtype", None), "kind", None)
     if kind is not None:
         if kind == "b":
@@ -485,9 +621,17 @@ def value_exactness(value: Any) -> Exactness:
             return Exactness.INTEGER
         if kind == "O":
             flat = getattr(value, "flat", None)
-            if (getattr(value, "size", 1) and flat is not None
-                    and all(isinstance(entry, Fraction) for entry in flat)):
-                return Exactness.RATIONAL
+            if flat is not None:
+                from numbers import Integral
+                seen, integer, rational = False, True, True
+                for entry in flat:
+                    seen = True
+                    integer &= isinstance(entry, Integral) and not isinstance(entry, bool)
+                    rational &= isinstance(entry, (Integral, Fraction)) and not isinstance(entry, bool)
+                if seen and integer:
+                    return Exactness.INTEGER
+                if rational:
+                    return Exactness.RATIONAL
             return Exactness.STRUCTURAL
         if kind in "fc":
             return Exactness.APPROXIMATE

@@ -87,7 +87,7 @@ def test_every_basis_vector_is_actually_a_cycle(build, expected):
 
 def test_the_pairwise_route_is_unchanged():
     """Only branching was rerouted; a pairwise complex still takes the compiled
-    tree-cotree traversal."""
+    tree cotree traversal."""
     g = RexGraph(sources=np.array([0, 1, 2, 3], dtype=np.int32),
                  targets=np.array([1, 2, 3, 0], dtype=np.int32))
     assert not g.has_branching

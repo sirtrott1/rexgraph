@@ -11,7 +11,7 @@ components:
 
 where B_1^T phi lies in im(B_1^T), B_2 psi lies in im(B_2), and eta
 lies in ker(L_1). Orthogonality holds when B_1 B_2 = 0 (the chain
-complex condition). If self-loop faces are present, they must be
+complex condition). If self loop faces are present, they must be
 filtered from B_2 before calling this module; see graph.py B2_hodge.
 
 Potentials are recovered via pseudoinverse:
@@ -19,8 +19,8 @@ Potentials are recovered via pseudoinverse:
 
 Energy orthogonality: ||g||^2 = ||grad||^2 + ||curl||^2 + ||harm||^2.
 
-Dense path (small dimensions): numpy lstsq (LAPACK dgelsd).
-Sparse path (large dimensions): scipy lsqr (iterative).
+Native execution uses LSQR on the boundary factors. The dense routine is a
+reference oracle and is never selected by the public decomposition.
 
 Provides:
     build_flow_signal - oriented edge signal from weights and types
@@ -66,7 +66,7 @@ def build_flow_signal(np.ndarray[f64, ndim=1] weights,
     if the edge type is marked negative in the mask, +1 otherwise.
 
     Parameters
-    ----------
+
     weights : f64[nE]
         Edge weights (magnitudes).
     edge_type_indices : i32[nE] or None
@@ -75,7 +75,7 @@ def build_flow_signal(np.ndarray[f64, ndim=1] weights,
         1 if the type is negative, 0 otherwise.
 
     Returns
-    -------
+
     f64[nE]
         Oriented flow signal.
     """
@@ -108,14 +108,14 @@ def build_flow_signal(np.ndarray[f64, ndim=1] weights,
 def normalize_signal(np.ndarray[f64, ndim=1] x):
     """Scale to [-1, 1] by dividing by max absolute value.
 
-    Returns zeros if the signal is all-zero.
+    Returns zeros if the signal is all zero.
 
     Parameters
-    ----------
+
     x : f64[n]
 
     Returns
-    -------
+
     f64[n]
     """
     cdef double mx = 0.0
@@ -145,12 +145,12 @@ def compute_divergence(B1, np.ndarray[f64, ndim=1] flow):
     """Vertex divergence B_1 g.
 
     Parameters
-    ----------
+
     B1 : DualCSR, shape (nV, nE).
     flow : f64[nE]
 
     Returns
-    -------
+
     f64[nV]
     """
     from rexgraph.core._sparse import matvec
@@ -161,40 +161,40 @@ def compute_face_curl(B2, np.ndarray[f64, ndim=1] flow):
     """Face curl B_2^T g.
 
     Parameters
-    ----------
+
     B2 : DualCSR, shape (nE, nF).
     flow : f64[nE]
 
     Returns
-    -------
+
     f64[nF]
     """
     from rexgraph.core._sparse import rmatvec
     return rmatvec(B2, flow)
 
 
-# Per-edge resistance ratio
+# Per edge resistance ratio
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def compute_rho(np.ndarray[f64, ndim=1] harm,
                 np.ndarray[f64, ndim=1] flow):
-    """Per-edge resistance ratio rho(e) = |eta_e| / |g_e|.
+    """Per edge resistance ratio rho(e) = |eta_e| / |g_e|.
 
-    Fraction of each edge's flow that is harmonic. Zero where the
-    original flow is zero.
+    Local amplitude ratio. It can exceed one when the components cancel
+    on an edge. Zero where the original flow is zero.
 
     Parameters
-    ----------
+
     harm : f64[nE]
         Harmonic component.
     flow : f64[nE]
         Original flow signal.
 
     Returns
-    -------
+
     f64[nE]
-        In [0, 1].
+        Nonnegative; not bounded above by one.
     """
     cdef Py_ssize_t nE = flow.shape[0]
     cdef np.ndarray[f64, ndim=1] rho = np.zeros(nE, dtype=np.float64)
@@ -220,11 +220,11 @@ def compute_energy_percentages(np.ndarray[f64, ndim=1] grad,
     """Energy partition: ||g||^2 = ||grad||^2 + ||curl||^2 + ||harm||^2.
 
     Parameters
-    ----------
+
     grad, curl, harm : f64[nE]
 
     Returns
-    -------
+
     pct_grad, pct_curl, pct_harm : float
         Energy fractions summing to 1.0 (or all 0.0 if total is zero).
     """
@@ -256,11 +256,11 @@ def check_orthogonality(np.ndarray[f64, ndim=1] grad,
 
     When B_1 B_2 = 0, all three inner products should be near machine
     precision. Large values indicate that the chain condition
-    is violated, likely because self-loop faces were not filtered
+    is violated, likely because self loop faces were not filtered
     from B_2.
 
     Returns
-    -------
+
     dict
         grad_curl, grad_harm, curl_harm: absolute inner products.
         max_inner: largest of the three.
@@ -306,7 +306,7 @@ def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
     solving the same systems again.
 
     Parameters
-    ----------
+
     B1 : DualCSR, shape (nV, nE).
     B2 : DualCSR or None, shape (nE, nF).
     flow : f64[nE]
@@ -314,7 +314,7 @@ def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
     L2_mat : ndarray (nF, nF) or None
 
     Returns
-    -------
+
     grad, curl, harm : f64[nE]
     phi : f64[nV]
     psi : f64[nF], empty when there are no faces
@@ -323,10 +323,12 @@ def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
 
     cdef Py_ssize_t nE = flow.shape[0]
 
-    # phi = L_0^+ B_1 g, grad = B_1^T phi
+    # phi = L_0^+ B_1 g, grad = B_1^T phi. L_0 is singular -- its kernel is the component
+    # indicators -- so this is the harmonic complement inverse, (L + Pi_h)^-1 - Pi_h,
+    # rather than a least squares that has to rediscover that null space numerically.
     rhs_grad = matvec(B1, flow)
-    from rexgraph.core._linalg import lstsq as _lp_lstsq
-    phi, _ = _lp_lstsq(np.asarray(L0_mat, dtype=np.float64), np.asarray(rhs_grad, dtype=np.float64))
+    phi = _dense_psd_pinv_apply(np.asarray(L0_mat, dtype=np.float64),
+                                np.asarray(rhs_grad, dtype=np.float64))
     grad = rmatvec(B1, phi)
 
     # psi = L_2^+ B_2^T g, curl = B_2 psi
@@ -334,7 +336,8 @@ def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
                            and L2_mat is not None and L2_mat.shape[0] > 0)
     if has_faces:
         rhs_curl = rmatvec(B2, flow)
-        psi, _ = _lp_lstsq(np.asarray(L2_mat, dtype=np.float64), np.asarray(rhs_curl, dtype=np.float64))
+        psi = _dense_psd_pinv_apply(np.asarray(L2_mat, dtype=np.float64),
+                                    np.asarray(rhs_curl, dtype=np.float64))
         curl = matvec(B2, psi)
     else:
         curl = np.zeros(nE, dtype=np.float64)
@@ -352,68 +355,161 @@ def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
 # Hodge decomposition, sparse path
 
 def _hodge_sparse(B1, B2, np.ndarray[f64, ndim=1] flow, L0_sp, L2_sp):
-    """Sparse Hodge decomposition via lsqr (iterative).
+    """Compatibility entry point for the native Hodge decomposition."""
+    return hodge_decomposition(B1, B2, flow, L0=L0_sp, L2=L2_sp, potentials=True)
 
-    Parameters
-    ----------
-    B1 : DualCSR, shape (nV, nE).
-    B2 : DualCSR or None, shape (nE, nF).
-    flow : f64[nE]
-    L0_sp : scipy.sparse (nV, nV)
-    L2_sp : scipy.sparse (nF, nF) or None
 
-    Returns
-    -------
-    grad, curl, harm : f64[nE]
-    phi : f64[nV]
-    psi : f64[nF], empty when there are no faces
+def _stable_norm(values):
+    scale = float(np.max(np.abs(values), initial=0.0))
+    return 0.0 if scale == 0 else scale * float(np.linalg.norm(values / scale))
+
+
+def least_squares(B, values, *, transpose=False, tol=1e-12, maxiter=2000,
+                  return_info=False):
+    """Minimum norm numerical least squares using native boundary actions.
+
+    LSQR uses Golub Kahan bidiagonalization, starting at zero without damping
+    or right preconditioning. Each iterate is in im(A^T). This fixes the
+    Euclidean minimum norm convention even for rectangular or singular A.
+    Both residual tests are recomputed from the returned iterate. Failure to
+    meet either test raises; no unconverged coefficients are returned.
+
+    Algorithm: Paige and Saunders, ACM TOMS 8(1), 1982, section 4.
+    https://web.stanford.edu/group/SOL/software/lsqr/
     """
-    from rexgraph.core._sparse import to_scipy_csr
-    # scipy.sparse.linalg.lsqr: kept for sparse Hodge path
-    from scipy.sparse.linalg import lsqr as _lsqr
-
-    cdef Py_ssize_t nE = flow.shape[0]
-
-    sp_B1 = to_scipy_csr(B1)
-
-    rhs_grad = sp_B1 @ flow
-    phi = _lsqr(L0_sp.astype(np.float64, copy=False),
-                rhs_grad.astype(np.float64))[0]
-    grad = sp_B1.T @ phi
-
-    cdef bint has_faces = (B2 is not None and B2.ncol > 0
-                           and L2_sp is not None and L2_sp.shape[0] > 0)
-    if has_faces:
-        sp_B2 = to_scipy_csr(B2)
-        rhs_curl = sp_B2.T @ flow
-        psi = _lsqr(L2_sp.astype(np.float64, copy=False),
-                     rhs_curl.astype(np.float64))[0]
-        curl = sp_B2 @ psi
-    else:
-        curl = np.zeros(nE, dtype=np.float64)
-        psi = np.zeros(0, dtype=np.float64)
-
-    harm = flow - grad - curl
-
-    return (np.asarray(grad, dtype=np.float64),
-            np.asarray(curl, dtype=np.float64),
-            np.asarray(harm, dtype=np.float64),
-            np.asarray(phi, dtype=np.float64),
-            np.asarray(psi, dtype=np.float64))
+    from numbers import Integral
+    from rexgraph.native_sparse import as_native
+    from rexgraph.linear_operator import _numeric_array
+    if isinstance(tol, (bool, np.bool_)) or not np.isfinite(tol) or not 0 < tol < 1:
+        raise ValueError("least squares tolerance must lie strictly between zero and one")
+    if isinstance(maxiter, (bool, np.bool_)) or not isinstance(maxiter, Integral) or maxiter < 1:
+        raise ValueError("least squares maxiter must be a positive integer")
+    A = as_native(B)
+    if transpose:
+        A = A.T
+    block = _numeric_array(values, operation="least squares")
+    if np.iscomplexobj(block):
+        raise TypeError("least squares requires real coefficients")
+    one = block.ndim == 1
+    if one:
+        block = block[:, None]
+    if block.ndim != 2 or block.shape[0] != A.shape[0]:
+        raise ValueError("least squares RHS must match the matrix row axis")
+    scale = float(np.max(np.abs(A.data), initial=0.0))
+    A = A.with_data(A.data / scale) if scale else A
+    bound = _stable_norm(A.data)
+    out = np.zeros((A.shape[1], block.shape[1]))
+    observations = []
+    for column in range(block.shape[1]):
+        rhs = block[:, column]
+        rhs_scale = float(np.max(np.abs(rhs), initial=0.0))
+        rhs = rhs / rhs_scale if rhs_scale else rhs
+        bnorm = _stable_norm(rhs)
+        x = np.zeros(A.shape[1])
+        u = rhs.copy()
+        beta = bnorm
+        if beta:
+            u /= beta
+        v = A.transpose_apply(u)
+        alpha = _stable_norm(v)
+        if alpha:
+            v /= alpha
+        w = v.copy()
+        phi_bar, rho_bar = beta, alpha
+        converged = bnorm == 0 or bound == 0 or alpha <= tol * bound
+        relative, normal = (0.0 if bnorm == 0 else 1.0), (alpha / bound if bound else 0.0)
+        iterations = 0
+        for iteration in range(int(maxiter)):
+            if converged:
+                break
+            u = A.apply(v) - alpha * u
+            beta = _stable_norm(u)
+            if beta:
+                u /= beta
+            v = A.transpose_apply(u) - beta * v
+            alpha = _stable_norm(v)
+            if alpha:
+                v /= alpha
+            rho = float(np.hypot(rho_bar, beta))
+            if rho == 0:
+                break
+            cosine, sine = rho_bar / rho, beta / rho
+            theta, rho_bar = sine * alpha, -cosine * alpha
+            phi, phi_bar = cosine * phi_bar, sine * phi_bar
+            x += (phi / rho) * w
+            w = v - (theta / rho) * w
+            residual = A.apply(x) - rhs
+            rnorm = _stable_norm(residual)
+            relative = rnorm / bnorm
+            normal = (_stable_norm(A.transpose_apply(residual)) / bound / rnorm
+                      if rnorm and bound else 0.0)
+            iterations = iteration + 1
+            converged = relative <= tol or normal <= tol
+        if not converged or not np.all(np.isfinite(x)):
+            raise ArithmeticError("native LSQR did not converge to the requested residual tolerance")
+        # Divide and multiply in this order only when both remain representable.
+        # longdouble keeps a finite final result from overflowing its scale ratio.
+        with np.errstate(over='ignore', invalid='ignore'):
+            result = (x.astype(np.longdouble) * np.longdouble(rhs_scale)
+                      / np.longdouble(scale)) if scale else x
+            out[:, column] = result
+        if not np.all(np.isfinite(out[:, column])):
+            raise FloatingPointError("least squares solution is outside float64")
+        observations.append({"iterations": iterations, "relative_residual": relative,
+                             "normal_residual": normal})
+    result = out[:, 0] if one else out
+    info = {"kernel": "native-lsqr", "tol": float(tol), "maxiter": int(maxiter),
+            "columns": observations, "status": "observed"}
+    return (result, info) if return_info else result
 
 
 # Hodge decomposition entry point
+
+cdef _dense_psd_pinv_apply(A, b):
+    """`A^+ b` for a dense symmetric PSD `A`, without a spectrum where one is avoidable.
+
+    Three readings in order, each exact for the case it claims:
+
+    1. `A` positive definite -- `A^+ = A^-1`, and one Cholesky both proves it and solves.
+    2. `A` a Laplacian -- its kernel is the component indicators, so the harmonic-
+       complement inverse `(A + Pi_h)^-1 - Pi_h` applies. The frame is VERIFIED against
+       `A` first: a component frame that is not actually in the kernel would deflate the
+       wrong subspace, which is a wrong answer rather than a slow one.
+    3. Anything else -- SVD least squares, which is the minimum norm solution and so the
+       pseudoinverse action for a singular operator whose kernel is not known.
+    """
+    import scipy.sparse as _sp
+
+    from rexgraph.core._linalg import harmonic_pinv_matvec, lstsq as _lp_lstsq
+    from rexgraph.sparse_interfacing import _component_projector
+    A = np.ascontiguousarray(np.asarray(A, dtype=np.float64))
+    b = np.ascontiguousarray(np.asarray(b, dtype=np.float64).ravel())
+    if A.shape[0] == 0:
+        return np.zeros(0, dtype=np.float64)
+    from rexgraph.core._linalg import spd_solve
+    solved = spd_solve(A, b)
+    if solved is not None:
+        return solved
+    project = _component_projector(_sp.csr_matrix(A))
+    probe = project(np.eye(A.shape[0], dtype=np.float64))
+    if not np.any(A @ probe):
+        # Exactly zero: for a Laplacian built from integer incidence the component
+        # indicators are in the kernel exactly, so this needs no tolerance.
+        return harmonic_pinv_matvec(A, project, b)
+    phi, _rank = _lp_lstsq(A, b)
+    return phi
+
 
 def hodge_decomposition(B1, B2, np.ndarray[f64, ndim=1] flow,
                         L0=None, L2=None, bint potentials=False):
     """Decompose edge signal into gradient, curl, and harmonic.
 
-    B_2 should have self-loop faces filtered out so that B_1 B_2 = 0
+    B_2 should have self loop faces filtered out so that B_1 B_2 = 0
     holds exactly. When this condition holds, the three components are
     mutually orthogonal and their energies sum to ||g||^2.
 
     Parameters
-    ----------
+
     B1 : DualCSR, shape (nV, nE).
     B2 : DualCSR or None, shape (nE, nF_hodge).
         Exclude self-loop faces for exact orthogonality.
@@ -425,7 +521,7 @@ def hodge_decomposition(B1, B2, np.ndarray[f64, ndim=1] flow,
         Face Laplacian. Built internally if None.
 
     Returns
-    -------
+
     grad : f64[nE]
         Gradient component B_1^T phi, in im(B_1^T).
     curl : f64[nE]
@@ -441,46 +537,21 @@ def hodge_decomposition(B1, B2, np.ndarray[f64, ndim=1] flow,
     cdef Py_ssize_t nV = B1.nrow
     cdef Py_ssize_t nF = B2.ncol if B2 is not None else 0
 
-    cdef Py_ssize_t max_lap_dim = nV
-    if nF > max_lap_dim:
-        max_lap_dim = nF
-    # matrix-free by design: always the sparse lsqr path, never a dense SVD solve
-    # (no dimension cutoff). The dense fast path is intentionally not used here.
-    cdef bint use_dense = False
-
-    if L0 is None:
-        if use_dense:
-            from rexgraph.core._sparse import spmm_AAt_dense_f64
-            L0 = spmm_AAt_dense_f64(B1)
-        else:
-            from rexgraph.core._sparse import to_scipy_csr
-            sp_B1 = to_scipy_csr(B1)
-            L0 = sp_B1 @ sp_B1.T
-
-    if L2 is None and nF > 0:
-        if use_dense:
-            from rexgraph.core._sparse import spmm_AtA_dense_f64
-            L2 = spmm_AtA_dense_f64(B2)
-        else:
-            from rexgraph.core._sparse import to_scipy_csr
-            sp_B2 = to_scipy_csr(B2)
-            L2 = sp_B2.T @ sp_B2
-
-    cdef tuple out
-    if use_dense:
-        if L0 is not None and not isinstance(L0, np.ndarray):
-            L0 = np.asarray(L0.toarray() if hasattr(L0, 'toarray') else L0, dtype=np.float64)
-        if L2 is not None and not isinstance(L2, np.ndarray):
-            L2 = np.asarray(L2.toarray() if hasattr(L2, 'toarray') else L2, dtype=np.float64)
-        out = _hodge_dense(B1, B2, flow, L0, L2)
+    from rexgraph.native_sparse import NativeSparse
+    lower = NativeSparse(B1)
+    if lower.shape[1] != nE or (B2 is not None and B2.nrow != nE):
+        raise ValueError("Hodge boundary axes must match the edge signal")
+    phi = (least_squares(lower, flow, transpose=True) if L0 is None else
+           least_squares(L0, lower.apply(flow)))
+    grad = lower.transpose_apply(phi)
+    if nF:
+        upper = NativeSparse(B2)
+        psi = (least_squares(upper, flow) if L2 is None else
+               least_squares(L2, upper.transpose_apply(flow)))
+        curl = upper.apply(psi)
     else:
-        if L0 is not None and isinstance(L0, np.ndarray):
-            from scipy.sparse import csr_matrix
-            L0 = csr_matrix(L0)
-        if L2 is not None and isinstance(L2, np.ndarray):
-            from scipy.sparse import csr_matrix
-            L2 = csr_matrix(L2)
-        out = _hodge_sparse(B1, B2, flow, L0, L2)
+        psi, curl = np.zeros(0), np.zeros(nE)
+    out = (grad, curl, flow - grad - curl, phi, psi)
     return out if potentials else out[:3]
 
 
@@ -492,7 +563,7 @@ def build_hodge(B1, B2,
     """Hodge decomposition with all derived quantities.
 
     Parameters
-    ----------
+
     B1 : DualCSR, shape (nV, nE).
     B2 : DualCSR or None, shape (nE, nF_hodge).
         Exclude self-loop faces for exact orthogonality.
@@ -504,7 +575,7 @@ def build_hodge(B1, B2,
         Precomputed L_2. Built if None.
 
     Returns
-    -------
+
     dict
         grad, curl, harm : f64[nE]
             Raw decomposition components.

@@ -115,7 +115,7 @@ def verify_bianchi(B1, B2, curvature, Py_ssize_t nE, Py_ssize_t nF,
 
 
 def bianchi_residual(B1, B2, curvature, Py_ssize_t nE, Py_ssize_t nF):
-    """Per-face Bianchi residual: ||B1 diag(C) B2[:,f]||."""
+    """Per face Bianchi residual: ||B1 diag(C) B2[:,f]||."""
 
     if nF == 0:
         return np.zeros(0, dtype=np.float64)
@@ -152,7 +152,7 @@ def face_realization_rates(B2, tri_edges, Py_ssize_t nT,
     n_realized = nT - n_voids
     rate = float(n_realized) / nT if nT > 0 else 0.0
 
-    # Per-edge: count triangles containing each edge, fraction realized
+    # Per edge: count triangles containing each edge, fraction realized
     per_edge_total = np.zeros(nE, dtype=np.float64)
     per_edge_real = np.zeros(nE, dtype=np.float64)
 
@@ -174,7 +174,7 @@ def face_realization_rates(B2, tri_edges, Py_ssize_t nT,
     per_edge_rate = np.where(per_edge_total > 0,
                               per_edge_real / per_edge_total, 0.0)
 
-    # Per-vertex: aggregate from incident edges
+    # Per vertex: aggregate from incident edges
     src = np.asarray(sources, dtype=np.int32)
     tgt = np.asarray(targets, dtype=np.int32)
     per_vertex = np.zeros(nV, dtype=np.float64)
@@ -196,7 +196,7 @@ def face_realization_rates(B2, tri_edges, Py_ssize_t nT,
 
 def coupling_tensor(B2, RL, hats, Py_ssize_t nhats,
                      Py_ssize_t nE, Py_ssize_t nF):
-    """Per-face energy decomposition by operator channel.
+    """Per face energy decomposition by operator channel.
 
     tensor[f, k] = sum_{e in boundary(f)} hat_k[e,e] / RL[e,e].
     """
@@ -229,7 +229,7 @@ def relational_integrity(np.ndarray[f64, ndim=1] curvature,
                           Py_ssize_t nF=0):
     """Relational integrity RI = 1 / (1 + kappa_total).
 
-    Also computes per-face RI if B2 is provided.
+    Also computes per face RI if B2 is provided.
     kappa_total = sum_e C(e) * RL[e,e] (= strain).
 
     Returns dict with RI, kappa_total, per_face_RI (if B2 given).
@@ -306,7 +306,7 @@ def attributed_curvature(np.ndarray[f64, ndim=2] B1,
         kappa_f = ||R[:,f]||_2
 
     Parameters
-    ----------
+
     B1 : f64[nV, nE]
     B2 : f64[nE, nF]
     w_e : f64[nE] - edge weights (> 0)
@@ -314,7 +314,7 @@ def attributed_curvature(np.ndarray[f64, ndim=2] B1,
     nV, nE, nF : dimensions
 
     Returns
-    -------
+
     dict with kappa_f, R, B1w, B2w
     """
     if nF == 0:
@@ -370,13 +370,13 @@ def face_deficit(np.ndarray[f64, ndim=1] kappa_f,
     """Face deficit: delta_f = kappa_f - alpha * |Psi_f|^2 (Def 5.1).
 
     Parameters
-    ----------
+
     kappa_f : f64[nF] - attributed curvature per face
     alpha : float - coupling constant
     born_face : f64[nF] - Born probability per face from Dirac state
 
     Returns
-    -------
+
     delta : f64[nF] - deficit per face
     """
     cdef np.ndarray[f64, ndim=1] delta = np.empty(nF, dtype=np.float64)

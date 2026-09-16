@@ -1,7 +1,7 @@
 """
 agent.model_manager: Centralized model lifecycle management.
 
-Owns all loaded models, manages VRAM, handles multi-model loading.
+Owns all loaded models, manages VRAM, handles multi model loading.
 Models load once and persist across requests for the server lifetime.
 
 Usage:
@@ -35,7 +35,7 @@ class ModelType(str, Enum):
     SGLANG_SERVER = "sglang"       # served via SGLang subprocess
     API = "api"                    # remote API (no local model)
     GGUF = "gguf"                  # llama.cpp / GGUF format
-    CUSTOM = "custom"              # user-defined loader
+    CUSTOM = "custom"              # user defined loader
 
 
 @dataclass
@@ -92,7 +92,7 @@ class LoadedModel:
     last_used: float = 0.0
     use_count: int = 0
 
-    # For server-backed models
+    # For server backed models
     server_pid: int = 0
     server_port: int = 0
     server_url: str = ""
@@ -152,7 +152,7 @@ class ModelManager:
         self._load_pipeline_config()
 
     def _load_custom_paths(self):
-        """Load user-configured model paths from config."""
+        """Load user configured model paths from config."""
         try:
             from agent.cli.config import load_config
             cfg = load_config()
@@ -197,10 +197,10 @@ class ModelManager:
 
     def register_adapter(self, model_id: str, adapter: ModelAdapter,
                          purpose: str = "", path: str = "") -> ModelEntry:
-        """Register a custom model with a user-defined loader.
+        """Register a custom model with a user defined loader.
 
-        This is the entry point for fine-tuned models, custom architectures,
-        or any model not supported by the built-in transformers loader.
+        This is the entry point for fine tuned models, custom architectures,
+        or any model not supported by the built in transformers loader.
 
         Example:
 
@@ -272,8 +272,8 @@ class ModelManager:
         filesystem, not just the HF cache or rexgraph cache.
 
         Parameters
-        ----------
-        model_id : identifier (e.g. "my-custom-llm" or "stepfun-ai/GOT-OCR-2.0-hf")
+
+        model_id : identifier (e.g. "my custom llm" or "stepfun-ai/GOT-OCR-2.0-hf")
         path : absolute path to the model directory
         model_type : "transformers", "vllm", "sglang", "gguf"
         purpose : "ocr", "chat", "embedding", etc.
@@ -310,7 +310,7 @@ class ModelManager:
     def get_model_path(self, model_id: str) -> str | None:
         """Resolve the local path for a model.
 
-        Priority: custom path -> rexgraph cache -> HF cache -> model_id as-is.
+        Priority: custom path -> rexgraph cache -> HF cache -> model_id as is.
         """
         # 1. Custom user path
         if model_id in self._custom_paths:
@@ -346,7 +346,7 @@ class ModelManager:
     # Registry
 
     def scan(self) -> list[ModelEntry]:
-        """Scan for all known, downloaded, and custom-path models."""
+        """Scan for all known, downloaded, and custom path models."""
         from agent.cli.config import MODELS_DIR
 
         hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
@@ -387,7 +387,7 @@ class ModelManager:
 
             self._registry[model_id] = entry
 
-        # Add custom-path models not in KNOWN_MODELS
+        # Add custom path models not in KNOWN_MODELS
         for model_id, path in self._custom_paths.items():
             if model_id not in self._registry and os.path.isdir(path):
                 self._registry[model_id] = ModelEntry(
@@ -550,7 +550,7 @@ class ModelManager:
 
     def _load_custom(self, model_id: str, device: str,
                      purpose: str) -> LoadedModel:
-        """Load a model using a user-registered adapter."""
+        """Load a model using a user registered adapter."""
         adapter = self._custom_loaders.get(model_id)
         if adapter is None:
             raise ValueError(f"No adapter registered for {model_id}")
@@ -640,7 +640,7 @@ class ModelManager:
     # Access
 
     def get(self, model_id: str) -> LoadedModel | None:
-        """Get a loaded model. Does NOT auto-load."""
+        """Get a loaded model. Does NOT auto load."""
         lm = self._loaded.get(model_id)
         if lm:
             lm.last_used = time.time()

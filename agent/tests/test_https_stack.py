@@ -1,4 +1,4 @@
-"""Tests for the HTTPS stack: HSTS hardening + the built-in TLS adapters."""
+"""Tests for the HTTPS stack: HSTS hardening + the built in TLS adapters."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ def test_hsts_only_on_tls():
     https = TestClient(app, base_url="https://testserver")
     http = TestClient(app, base_url="http://testserver")
     assert https.get("/api/health").headers.get("strict-transport-security")
-    # no HSTS leaked onto plain-HTTP responses
+    # no HSTS leaked onto plain HTTP responses
     assert http.get("/api/health").headers.get("strict-transport-security") is None
 
 
@@ -25,7 +25,7 @@ def test_https_config_precedence(monkeypatch, tmp_path):
     res = security.generate_self_signed_cert()
     if "error" in res:
         pytest.skip("cryptography not installed")
-    cfg = security.get_https_config()                 # config-dir certs discovered
+    cfg = security.get_https_config()                 # config dir certs discovered
     assert cfg.get("ssl_certfile") and cfg.get("ssl_keyfile")
 
     # explicit env certs take precedence and are returned verbatim

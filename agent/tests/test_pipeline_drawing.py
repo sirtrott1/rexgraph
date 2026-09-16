@@ -73,7 +73,7 @@ def test_a_bounded_picture_says_what_it_left_out(rex):
 
 
 def test_a_face_whose_relations_were_not_drawn_is_not_counted(rex):
-    """It is skipped in the document, so counting the payload's faces would over-report
+    """It is skipped in the document, so counting the payload's faces would over report
     exactly where the report matters."""
     assert AnalysisPipeline(rex, draw_limit=2).run(depth="quick")["drawing"]["faces_drawn"] == 0
     assert AnalysisPipeline(rex).run(depth="quick")["drawing"]["faces_drawn"] == 1

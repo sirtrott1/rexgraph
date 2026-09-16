@@ -1,10 +1,10 @@
-"""Self-interfacing in one solve.
+"""Self interfacing in one solve.
 
 Reading a query's induced flow through the typed channels means scoring psi against
 itself, but `target_signal` had to be supplied by the caller and psi is computed
 inside the bundle. Callers therefore ran the bundle twice (once with a throwaway
 zero target purely to obtain psi, then again with it) paying two L0^+ solves for
-one reading. That is the dominant per-candidate cost in store-backed retrieval.
+one reading. That is the dominant per candidate cost in store backed retrieval.
 
 `target_signal=None` now means "score psi against itself", which the bundle can do
 with the psi it already has.
@@ -33,7 +33,7 @@ def _targets(rex, k=5):
 
 
 def test_none_target_equals_passing_psi_back_in():
-    """The contract: the one-solve path must give exactly the answer the two-call
+    """The contract: the one solve path must give exactly the answer the two call
     dance gave, not merely a similar one."""
     rex = _graph()
     ti, tw = _targets(rex)
@@ -43,11 +43,11 @@ def test_none_target_equals_passing_psi_back_in():
     two_call = rex.interfacing_vector(ti, tw, psi)
     one_call = rex.interfacing_vector(ti, tw, None)
 
-    assert np.allclose(one_call["iv"], two_call["iv"], rtol=1e-9, atol=1e-12)
-    assert np.allclose(one_call["sphere_pos"], two_call["sphere_pos"],
+    assert np.allclose(one_call["scores"], two_call["scores"], rtol=1e-9, atol=1e-12)
+    assert np.allclose(one_call["channel_direction"], two_call["channel_direction"],
                        rtol=1e-9, atol=1e-12)
     assert np.allclose(one_call["psi"], two_call["psi"], rtol=1e-9, atol=1e-12)
-    assert np.isclose(one_call["coverage"], two_call["coverage"], rtol=1e-9)
+    assert one_call["coverage"] is two_call["coverage"] is None
 
 
 def test_none_target_still_returns_the_whole_bundle():
@@ -67,14 +67,14 @@ def test_an_explicit_target_is_unaffected():
     target = rng.standard_normal(int(rex.nE))
     a = rex.interfacing_vector(ti, tw, target)
     b = rex.interfacing_vector(ti, tw, target)
-    assert np.allclose(a["iv"], b["iv"])
+    assert np.allclose(a["scores"], b["scores"])
 
 
 def test_the_scorer_no_longer_builds_a_whole_bundle_per_document():
     """The scorer used to call interfacing_vector per candidate, paying a whole
     interfacing bundle, and passing target=None, which scores psi against itself
     rather than interfacing with anything. It reads coherence_response now, which is
-    demand-driven at the seed, so interfacing_vector is not on that path at all."""
+    demand driven at the seed, so interfacing_vector is not on that path at all."""
     import inspect
 
     scoring = pytest.importorskip(

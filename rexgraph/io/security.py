@@ -38,7 +38,7 @@ class KeyProvider(Protocol):
 
 @dataclass(frozen=True)
 class StaticKeyProvider:
-    """Small in-process key provider intended for tests."""
+    """Small in process key provider intended for tests."""
 
     keys: dict[str, bytes]
 
@@ -104,10 +104,9 @@ def _decode_header(blob: bytes, max_header: int) -> tuple[dict, bytes, int]:
 
 
 def _parse_info(data: dict) -> tuple[EnvelopeInfo, bytes]:
-    try:
-        version = int(data.get("version", 0))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("invalid encrypted envelope version") from exc
+    version = data.get("version")
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise ValueError("invalid encrypted envelope version")
     if version != ENVELOPE_VERSION:
         raise ValueError(f"unsupported encrypted envelope version {version}")
     if data.get("algorithm") != "AES-256-GCM":

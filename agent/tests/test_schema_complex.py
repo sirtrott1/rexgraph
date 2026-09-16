@@ -60,7 +60,7 @@ class TestDialectParsing:
                'author_id INT REFERENCES public."user"(id), '
                'reply_to INT REFERENCES post(id));')
         m = sc.parse_schema_ddl(ddl, dialect="postgres")
-        # self-referential post.reply_to recorded; author_id -> user is a real FK
+        # self referential post.reply_to recorded; author_id -> user is a real FK
         d = sc.diagnose_schema(m)
         assert "post" in d["self_referential_tables"]
 
@@ -186,7 +186,7 @@ class TestDiagnosis:
         top = central[0]
         assert top["table"] == "core"
         assert top["impact"] == 5 and top["referenced_by"] == 5
-        assert "role" in top          # a plain-language role label is present
+        assert "role" in top          # a plain language role label is present
 
     def test_isolated_table_flagged(self):
         spec = {"tables": [
@@ -200,7 +200,7 @@ class TestDiagnosis:
 class TestCoparticipation:
     def test_associative_entity_gives_bounded_recursion(self):
         # enrollment binds student & course, which are also directly related:
-        # a genuine co-participation -> curl (bounded), not harmonic (broken)
+        # a genuine co participation -> curl (bounded), not harmonic (broken)
         spec = {"tables": [
             {"name": "student", "primary_key": ["id"],
              "foreign_keys": [{"columns": ["course_id"], "references": "course"}]},
@@ -226,7 +226,7 @@ class TestCoparticipation:
         assert r["hodge"]["persistent_circulation_harmonic"] > 0
 
     def test_pure_mn_junction_no_false_cycle(self):
-        # a clean M:N junction (student <- enrollment -> course, no student-course
+        # a clean M:N junction (student <- enrollment -> course, no student course
         # edge) is a span, not a cycle: valid, no harmonic tension
         spec = {"tables": [
             {"name": "student", "primary_key": ["id"]},
@@ -248,7 +248,7 @@ class TestCoparticipation:
                               {"columns": ["child_id"], "references": "component"}]}]}
         r = sc.diagnose(spec, fmt="json")
         assert "assembly" in r["associative_entities"]
-        # a 2-cell (bigon) is present, so there is no persistent harmonic hole
+        # a 2 cell (bigon) is present, so there is no persistent harmonic hole
         assert r["coparticipation_faces"]
         assert r["hodge"]["persistent_circulation_harmonic"] == 0
         assert r["verdict"] != "cycles_present"
@@ -291,10 +291,10 @@ class TestStrain:
         r = sc.schema_strain(sc.parse_schema_json(spec), weights={"t0->hub": 100.0})
         assert r["has_geometry"] is False
         assert r["total_strain"] == 0.0
-        # fan-out load (per-edge) and star curvature (per-vertex) both fire on the span
+        # fan out load (per edge) and star curvature (per vertex) both fire on the span
         assert r["relation_load"] and r["relation_load"][0]["relation"] == "t0 -> hub"
         assert r["relation_load"][0]["load"] == 100.0
-        assert r["table_strain"]                       # per-vertex star curvature
+        assert r["table_strain"]                       # per vertex star curvature
         assert r["table_strain"][0]["table"] in ("hub", "t0")
 
     def test_lagrangian_curvature_closes_span_gap(self):
@@ -312,7 +312,7 @@ class TestStrain:
             {"name": "B", "foreign_keys": [{"columns": ["a"], "references": "A"}]},
             {"name": "C", "foreign_keys": [{"columns": ["a"], "references": "A"},
                                            {"columns": ["b"], "references": "B"}]}]}))
-        # both computed; the heavy-weight span should not be lower than balanced
+        # both computed; the heavy weight span should not be lower than balanced
         assert lc["curvature"] is not None
         # a mutual FK (warehouse<->manager) is a bigon -> a face -> has_geometry
         spec = {"tables": [
@@ -431,8 +431,8 @@ class TestRelationLint:
 
 class TestDDLFallbackParser:
     """Regression tests for the regex fallback (_parse_ddl_regex), which runs
-    when sqlglot is absent. It must not shred parenthesised, comma-separated
-    constraint lists (a prior bug split PRIMARY KEY(a,b) mid-list, dropping the
+    when sqlglot is absent. It must not shred parenthesised, comma separated
+    constraint lists (a prior bug split PRIMARY KEY(a,b) mid list, dropping the
     PK and inventing a phantom column)."""
 
     def test_top_level_splitter_keeps_parens_intact(self):
@@ -460,5 +460,5 @@ class TestDDLFallbackParser:
                "FOREIGN KEY (x, y) REFERENCES p(x, y));")
         m = sc._parse_ddl_regex(ddl)
         fk = next(fk for fk in m.foreign_keys if fk.from_table == "c")
-        assert fk.from_cols == ["x", "y"]                 # multi-col FK intact
+        assert fk.from_cols == ["x", "y"]                 # multi col FK intact
         assert fk.to_table == "p" and fk.to_cols == ["x", "y"]

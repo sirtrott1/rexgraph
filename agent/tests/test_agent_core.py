@@ -2,7 +2,7 @@
 Test the agent layer logic without requiring compiled rexgraph.
 
 Exercises: input type detection, feature matrix adapter edge construction,
-correlation adapter, spectral clustering, auto-threshold, and session basics.
+correlation adapter, spectral clustering, auto threshold, and session basics.
 """
 
 import os
@@ -42,7 +42,7 @@ def test_detect_input_type():
     assert detect_input_type(R) == "correlation"
     print("  ✓ correlation matrix -> correlation")
 
-    # Adjacency matrix (square, integer-valued, not correlation-like)
+    # Adjacency matrix (square, integer valued, not correlation like)
     A = np.zeros((10, 10))
     for i in range(9):
         A[i, i+1] = 1
@@ -137,7 +137,7 @@ def test_feature_matrix_adapter():
     assert has_edge, "Expected edge between correlated features 0 and 5"
     print("  ✓ Correlated features connected by edges")
 
-    # Check negative signs for anti-correlated features
+    # Check negative signs for anti correlated features
     for k in range(edges.nE):
         if (edges.sources[k] == 2 and edges.targets[k] == 15) or \
            (edges.sources[k] == 15 and edges.targets[k] == 2):
@@ -188,7 +188,7 @@ def test_spectral_clustering():
 
     np.random.seed(42)
     n = 20
-    # Build a block-diagonal correlation matrix (2 clear clusters)
+    # Build a block diagonal correlation matrix (2 clear clusters)
     R = np.zeros((n, n))
     R[:10, :10] = 0.6
     R[10:, 10:] = 0.6
@@ -263,19 +263,21 @@ def test_correlation_adapter():
 
 
 def test_agent_package_imports_without_pandas():
-    # The platform must be pandas-optional: importing the package (which imports auto) in a fresh
+    # The platform must be pandas optional: importing the package (which imports auto) in a fresh
     # interpreter must NOT drag in pandas. pandas is a soft dep, loaded only if a DataFrame/table
     # feature is actually exercised.
     import subprocess
     import sys
     import textwrap
+    import os
     code = textwrap.dedent("""
         import sys
         import agent                  # runs __init__ -> from .auto import ...
         assert 'pandas' not in sys.modules, 'agent import pulled in pandas'
         print('OK')
     """)
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    flags = ["-I"] if os.environ.get("REXGRAPH_TEST_INSTALLED") == "1" else []
+    r = subprocess.run([sys.executable, *flags, "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, f"agent import loaded pandas or failed:\n{r.stdout}\n{r.stderr}"
 
 
@@ -304,7 +306,7 @@ def test_session():
 
 
 def test_csv_missing_values_stay_numeric():
-    # A numeric feature CSV with blank cells and NA-style tokens must still classify as feature_csv
+    # A numeric feature CSV with blank cells and NA style tokens must still classify as feature_csv
     # and keep those columns (as float with NaN), matching pandas read_csv/select_dtypes behavior.
     import os
     import tempfile

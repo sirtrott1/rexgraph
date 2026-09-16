@@ -8,13 +8,13 @@ def _rex(src, tgt):
     return RexGraph(sources=np.asarray(src, np.int32), targets=np.asarray(tgt, np.int32))
 
 
-# steady leaf growth (t0..t3) then a cycle-close (t4, an edge between existing vertices) then a leaf (t5)
+# steady leaf growth (t0..t3) then a cycle close (t4, an edge between existing vertices) then a leaf (t5)
 _STREAM = [
     ([0, 0, 1], [1, 2, 3]),
     ([0, 0, 1, 2], [1, 2, 3, 4]),
     ([0, 0, 1, 2, 3], [1, 2, 3, 4, 5]),
     ([0, 0, 1, 2, 3, 4], [1, 2, 3, 4, 5, 6]),
-    ([0, 0, 1, 2, 3, 4, 4], [1, 2, 3, 4, 5, 6, 0]),   # cycle-close: the surprise
+    ([0, 0, 1, 2, 3, 4, 4], [1, 2, 3, 4, 5, 6, 0]),   # cycle close: the surprise
     ([0, 0, 1, 2, 3, 4, 4, 5], [1, 2, 3, 4, 5, 6, 0, 7]),
 ]
 
@@ -24,7 +24,7 @@ def test_gate_fires_only_on_the_surprising_step():
     events = [g.observe(_rex(s, t))["event"] for s, t in _STREAM]
     assert events[0] is False                 # first observation is never an event (no baseline)
     assert sum(events) == 1                    # exactly one surprise in this stream
-    assert events[4] is True                   # and it is the cycle-close step, not the steady leaves
+    assert events[4] is True                   # and it is the cycle close step, not the steady leaves
 
 
 def test_gate_quiet_on_noop():
@@ -35,7 +35,7 @@ def test_gate_quiet_on_noop():
     assert abs(o["delta"]) < 1e-9 and o["event"] is False
 
 
-#### what the gate can and cannot see, and why a benchmark got it wrong ########
+# what the gate can and cannot see, and why a benchmark got it wrong
 def test_H_T_of_disjoint_relations_is_exactly_ln_n_at_any_arity():
     """n relations sharing no vertex have H_T = ln(n) EXACTLY: a function of the
     count alone, carrying nothing about content or arity.
@@ -57,7 +57,7 @@ def test_H_T_of_disjoint_relations_is_exactly_ln_n_at_any_arity():
 
 
 def _stream(extra):
-    """Eight steady-growth snapshots, then one more built from `extra` term ids."""
+    """Eight steady growth snapshots, then one more built from `extra` term ids."""
     import numpy as np
     from rexgraph.graph import RexGraph
 
@@ -77,7 +77,7 @@ def _stream(extra):
 
 def test_the_event_is_a_cycle_close_which_means_CONTINUATION_not_departure():
     """The gate's documented case: an edit over vertices that already exist collapses
-    the H_T delta against a steady leaf-growth baseline.
+    the H_T delta against a steady leaf growth baseline.
 
     The POLARITY is the part a caller gets wrong. In a conversation complex a cycle
     close is a turn RETURNING to what was already said, so the event means continuation.

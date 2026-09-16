@@ -9,9 +9,9 @@ The registry holds every swappable component:
                hodge / hodgesgd (back-compat, tie plain Adam)
     model:      registered externally (the library ships no model)
 
-RexGraph-native pieces are the registered defaults; the traditional option is selected by name
+RexGraph native pieces are the registered defaults; the traditional option is selected by name
 and is interoperable. Each `build_*` falls back to a safe default with a logged note on an
-unavailable or mis-constructed component rather than raising. `inventory()` reports what is
+unavailable or mis constructed component rather than raising. `inventory()` reports what is
 available.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ _REG: dict[str, dict[str, dict]] = {"attention": {}, "optimizer": {}, "model": {
 
 def register(kind: str, name: str, factory: Callable, *, native: bool = False,
              default: bool = False, description: str = "", available_fn: Callable = None):
-    """Register a component. `native` marks it as a RexGraph-native piece; `default` makes it the
+    """Register a component. `native` marks it as a RexGraph native piece; `default` makes it the
     one chosen when no name is given."""
     _REG.setdefault(kind, {})[name] = {
         "factory": factory, "native": native, "default": default,
@@ -100,7 +100,7 @@ def build_attention(name: str | None, d: int, n_head: int, **kw):
 
 def build_optimizer(params, name: str | None = None, lr: float | None = None, **kw):
     """Construct the optimizer chosen by name (defaults to plain Adam, the honest default for
-    standard feature-space models). Delegates to `optim.build_optimizer`; requires torch."""
+    standard feature space models). Delegates to `optim.build_optimizer`; requires torch."""
     from rexgraph.nn import optim
     return optim.build_optimizer(params, method=(name or "adam"), lr=lr, **kw)
 
@@ -111,7 +111,7 @@ if _HAS_TORCH:
     import math
 
     class StandardCausalAttention(_nn.Module):
-        """Scaled-dot-product causal multi-head attention (PyTorch), wrapped to the same
+        """Scaled dot product causal multi head attention (PyTorch), wrapped to the same
         (out, diag) interface as the relational block so they are interchangeable."""
         def __init__(self, d: int, n_head: int, **kw):
             super().__init__()
@@ -162,23 +162,23 @@ if _HAS_TORCH:
              description="HodgeAdam, ARCHITECTURE-AWARE - attention heads as independent Hodge "
                          "blocks (Track-2, where the structural edge should show).")
 
-# Example models and a training-demo loop are not shipped here. rexgraph.nn provides the parts
+# Example models and a training demo loop are not shipped here. rexgraph.nn provides the parts
 # to build and train models (registry, builders, optimizers, attention blocks, propagators);
 # assembled example nets live outside the library.
 
 
-# architecture-aware optimizer names that need the model (not just params) to build head-blocks
+# architecture aware optimizer names that need the model (not just params) to build head blocks
 _ARCH_OPT = {"hodge-arch", "hodgearch", "hodge-groups", "hodgegroups"}
 
 
 def make_optimizer(name: str, model, trainable, *, n_heads: int = 1, lr=None, **kw):
     """Build the optimizer, routing per model type. This is the honest router: ``"auto"`` (the
-    default) picks GreensCochain for a relational-native model whose parameters are cochains on a
-    complex, and plain Adam for a standard feature-space model, because the two families were
+    default) picks GreensCochain for a relational native model whose parameters are cochains on a
+    complex, and plain Adam for a standard feature space model, because the two families were
     benchmarked and neither optimizer is universally better, they are correct for different model
     shapes. Specifically, ``"auto"``:
 
-      * if `model` exposes a ``greens_groups()`` method returning a list of param-group dicts
+      * if `model` exposes a ``greens_groups()`` method returning a list of param group dicts
         (each with ``"params"`` and a ``"green_adj"`` complex operator, optionally
         ``"green_channel"`` / ``"green_lam"``), builds GreensCochain over those groups plus one
         remainder group for the model's other trainable params, and returns
@@ -186,8 +186,8 @@ def make_optimizer(name: str, model, trainable, *, n_heads: int = 1, lr=None, **
       * otherwise builds plain ``torch.optim.Adam`` over `trainable` and returns ``Adam(auto)``.
 
     Named modes still work: ``"greens"`` -> GreensCochain directly; ``"hodge-arch"`` -> the
-    architecture-aware HodgeAdam, which needs the model to group attention-projection weights into
-    per-head Hodge blocks (back-compat); ``"hodge"`` / ``"hodgesgd"`` / ``"adam"`` / ``"sgd"`` /
+    architecture aware HodgeAdam, which needs the model to group attention projection weights into
+    per head Hodge blocks (back compat); ``"hodge"`` / ``"hodgesgd"`` / ``"adam"`` / ``"sgd"`` /
     ``"adamw"`` -> the matching optim.build_optimizer path. Extra kwargs (e.g. ``gamma_curl``) pass
     through to the underlying optimizer. On any failure ``"auto"``/``"hodge-arch"`` fall back to
     plain Adam. Returns (optimizer, label)."""
@@ -231,7 +231,7 @@ def make_optimizer(name: str, model, trainable, *, n_heads: int = 1, lr=None, **
 
 
 def build_model(spec: dict):
-    """Build a model from a spec dict, e.g. {model:'my-net', ...kwargs}. The library ships no model
+    """Build a model from a spec dict, e.g. {model:'my net', ...kwargs}. The library ships no model
     of its own; register one with `register("model", name, Factory)` first. Unknown name falls
     back to the default if one exists. Returns (model, resolved_name)."""
     if not _HAS_TORCH:

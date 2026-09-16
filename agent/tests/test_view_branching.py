@@ -21,7 +21,7 @@ LOST = 3
 
 @pytest.fixture
 def rex():
-    """A 4-ary relation over {0,1,2,3} with 2-ary legs. Vertex 3 is only in the wide one."""
+    """A 4 ary relation over {0,1,2,3} with 2 ary legs. Vertex 3 is only in the wide one."""
     r = RexGraph.from_hypergraph(
         np.array([0, 4, 6, 8, 10], dtype=np.int32),
         np.array([0, 1, 2, 3, 0, 1, 1, 2, 2, 4], dtype=np.int32))

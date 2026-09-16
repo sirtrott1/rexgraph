@@ -1,6 +1,6 @@
 """
-train: training loops for a built model, single run, multistep (staged) training, and multi-model
-fusion (ensemble / data-split / stacking). The optimizer is built by `R.make_optimizer(optimizer,
+train: training loops for a built model, single run, multistep (staged) training, and multi model
+fusion (ensemble / data split / stacking). The optimizer is built by `R.make_optimizer(optimizer,
 ...)` with `optimizer="auto"` by default, which routes per model: GreensCochain for a model whose
 parameters are a cochain on a complex (it exposes `greens_groups()`), plain Adam otherwise. Every
 archetype here is feature-space, so in practice that is Adam; any other optimizer is opt-in by name.
@@ -31,7 +31,7 @@ def _forward_loss(model, bundle, idx, kind):
         V = out.shape[-1]
         return _F.cross_entropy(out.reshape(-1, V), y[idx].reshape(-1)), out
     if kind == "hypergraph":
-        out = model(X)                                       # full-graph
+        out = model(X)                                       # full graph
         return _F.cross_entropy(out[idx], y[idx]), out
     raise ValueError(f"unknown data kind {kind!r}")
 
@@ -55,7 +55,7 @@ def _evaluate(model, bundle, kind):
 @_t.no_grad()
 def predict_on(model, bundle, kind, split=None):
     """Run a trained model on a bundle (a named split, or all rows when split is None).
-    Returns (predictions ndarray, metric-or-None). Metric is accuracy, or -MSE for
+    Returns (predictions ndarray, metric or None). Metric is accuracy, or -MSE for
     regression, and is None when the bundle carries no labels (pure inference)."""
     model.eval()
     sel = bundle.splits[split] if split else None
@@ -81,7 +81,7 @@ def predict_on(model, bundle, kind, split=None):
 
 
 def _lr_at(step, total, base, schedule, warmup):
-    """Per-step learning rate: linear warmup then a cosine or linear decay, or flat (schedule=None)."""
+    """Per step learning rate: linear warmup then a cosine or linear decay, or flat (schedule=None)."""
     if warmup and step < warmup:
         return base * (step + 1) / warmup
     p = min(1.0, (step - warmup) / max(1, total - warmup))
@@ -101,12 +101,12 @@ def _set_lr(opt, lr):
 def train_one(model, bundle, *, optimizer="auto", steps=200, lr=None, batch=64,
               n_heads=1, device=None, seed=0, on_step=None,
               amp=False, schedule=None, warmup=0, grad_accum=1, resume=None) -> dict:
-    """Train `model` on `bundle` with a rexgraph.nn optimizer. Returns the eval-metric trajectory
+    """Train `model` on `bundle` with a rexgraph.nn optimizer. Returns the eval metric trajectory
     and which optimizer ran (metric = test accuracy, or -MSE for regression).
 
     `steps` counts optimizer updates. `amp=True` runs bf16 autocast on CUDA (ignored on CPU).
     `schedule` in {None, 'cosine', 'linear'} with `warmup` steps sets the lr per step. `grad_accum`
-    averages that many micro-batches per update. `resume` (a checkpoint path) loads weights first."""
+    averages that many micro batches per update. `resume` (a checkpoint path) loads weights first."""
     _t.manual_seed(seed)
     dev = _device(device)
     if resume:                                                # continue from a saved checkpoint
@@ -152,9 +152,9 @@ def train_one(model, bundle, *, optimizer="auto", steps=200, lr=None, batch=64,
 
 
 def train_multistep(model, bundle, stages: list[dict], *, device=None, seed=0) -> dict:
-    """Train one model through a sequence of stages on the same (or per-stage) data. Each stage is
-    a dict of train_one overrides: a curriculum, an optimizer schedule, or a warmup-to-refine lr
-    schedule. A stage that names no optimizer gets the "auto" route. Returns per-stage results."""
+    """Train one model through a sequence of stages on the same (or per stage) data. Each stage is
+    a dict of train_one overrides: a curriculum, an optimizer schedule, or a warmup to refine lr
+    schedule. A stage that names no optimizer gets the "auto" route. Returns per stage results."""
     results = []
     for s, stage in enumerate(stages):
         b = stage.pop("bundle", bundle) if isinstance(stage, dict) else bundle
@@ -170,7 +170,7 @@ def train_fusion(specs, bundle, *, mode="ensemble", steps=200, optimizer="auto",
     """Train multiple models and fuse them. `specs` is a list of (archetype_name, cfg_overrides).
       - mode='ensemble'  : each model trains on the full data; predictions are averaged.
       - mode='split'     : the training set is partitioned across models, then ensembled.
-      - mode='stack'     : base models train, their logits are concatenated, and a linear meta-head
+      - mode='stack'     : base models train, their logits are concatenated, and a linear meta head
                            is trained on top.
     Returns the fused test metric and each base model's metric."""
     from . import archetypes as A
@@ -195,7 +195,7 @@ def train_fusion(specs, bundle, *, mode="ensemble", steps=200, optimizer="auto",
 
     te = bundle.splits["test"]
     if mode == "stack":
-        # meta-head on concatenated base logits (fit on train, eval on test)
+        # meta head on concatenated base logits (fit on train, eval on test)
         fused_acc = _stack(models, bundle, kind, dev, seed)
     else:
         avg = sum(_probs(m) for m in models) / len(models)

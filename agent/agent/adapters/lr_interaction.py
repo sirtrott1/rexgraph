@@ -1,15 +1,15 @@
 """
-Ligand-receptor interaction adapter.
+Ligand receptor interaction adapter.
 
-Reconstructs the core biology workflow's cell-cell communication step:
-given a *cell-type x gene* mean-expression table and a set of curated
-ligand-receptor (L-R) pairs, score directed interactions
+Reconstructs the core biology workflow's cell cell communication step:
+given a *cell type x gene* mean expression table and a set of curated
+ligand receptor (L-R) pairs, score directed interactions
 
     score(A -> B) = sum over (L, R) pairs of  mean_expr[A, L] * mean_expr[B, R]
 
 and turn cell types into vertices and interactions into typed, directed
 edges.  Each L-R pair becomes an edge *type*, so ``typed_face_selection``
-can separate same-pathway triangles (faces) from cross-pathway ones
+can separate same pathway triangles (faces) from cross pathway ones
 (voids) exactly as the manual workflow did.
 
 The output is an :class:`EdgeConstruction`, so it flows through
@@ -28,7 +28,7 @@ from . import DomainAdapter, EdgeConstruction
 logger = logging.getLogger(__name__)
 
 # A small default panel so the adapter is usable without external files.
-# These are widely-used, well-characterised human L-R pairs; callers with
+# These are widely used, well characterised human L-R pairs; callers with
 # a curated panel (CellPhoneDB, etc.) should pass their own.
 DEFAULT_LR_PAIRS: list[tuple[str, str]] = [
     ("TGFB1", "TGFBR1"),
@@ -91,10 +91,10 @@ def _as_type_gene_frame(expression, gene_names=None, cell_types=None):
 
 
 class LRInteractionAdapter(DomainAdapter):
-    """Score ligand-receptor interactions between cell types.
+    """Score ligand receptor interactions between cell types.
 
     Example
-    -------
+
     >>> adapter = LRInteractionAdapter()
     >>> ec = adapter.build(
     ...     expression_df,               # index = cell type, cols = gene
@@ -120,7 +120,7 @@ class LRInteractionAdapter(DomainAdapter):
         """Build directed L-R interaction edges between cell types.
 
         Parameters
-        ----------
+
         expression : DataFrame | dict | ndarray
             Cell-type x gene mean expression.
         lr_pairs : list of (ligand, receptor)
@@ -152,7 +152,7 @@ class LRInteractionAdapter(DomainAdapter):
             )
             return self._empty()
 
-        # Per-gene "expressed" mask (optional gate).
+        # Per gene "expressed" mask (optional gate).
         if expressed_frac > 0:
             col_max = np.maximum(mat.max(axis=0), 1e-12)
             expressed = mat >= (expressed_frac * col_max)
@@ -169,13 +169,13 @@ class LRInteractionAdapter(DomainAdapter):
 
         for pi, (lig, rec) in enumerate(usable):
             li, ri = gidx[lig], gidx[rec]
-            for a in range(nT):          # ligand-producing type
+            for a in range(nT):          # ligand producing type
                 if not expressed[a, li]:
                     continue
                 la = mat[a, li]
                 if la <= 0:
                     continue
-                for b in range(nT):      # receptor-bearing type
+                for b in range(nT):      # receptor bearing type
                     if a == b and not self_interactions:
                         continue
                     if not expressed[b, ri]:
@@ -233,7 +233,7 @@ class LRInteractionAdapter(DomainAdapter):
         )
 
     def interpret(self, results: dict) -> dict:
-        """Label results with cell-communication semantics."""
+        """Label results with cell communication semantics."""
         out = dict(results)
         out.setdefault("domain", "cell_communication")
         out.setdefault(

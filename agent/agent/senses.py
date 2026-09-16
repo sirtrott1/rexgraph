@@ -80,7 +80,7 @@ class SenseModel:
                 "abstain": False}
 
 
-#### the query path ########################################################
+# the query path
 _INVENTORY = None
 
 

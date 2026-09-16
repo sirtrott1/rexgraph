@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Tier-2 attention-capture host against a local llama.cpp build.
+# Build the Tier 2 attention capture host against a local llama.cpp build.
 # Usage: LLAMA_DIR=~/llama.cpp bash build.sh (LLAMA_DIR defaults to ~/llama.cpp)
 # Produces ./rex_attn_capture next to this script; agent.attn_introspect finds it there.
 set -e

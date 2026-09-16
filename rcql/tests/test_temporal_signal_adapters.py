@@ -4,6 +4,7 @@ from __future__ import annotations
 from fractions import Fraction
 
 import numpy as np
+import pytest
 from rexgraph.graph import RexGraph, TemporalRex
 from rexgraph.metric_field import MetricCurvature
 from rexgraph.temporal_signal import TemporalSignal, TemporalSignalFlow
@@ -18,6 +19,24 @@ from rcql.operators import (
     temporal_delta,
 )
 from rcql.types import Exactness
+
+
+def test_temporal_delta_signature_names_the_transition_not_a_grade():
+    from rcql import lookup, operator_inventory, parse
+    assert lookup("TEMPORAL_DELTA").inputs[0].describe() == "step: int"
+    assert lookup("TEMPORAL_DELTA").inputs == lookup("DELTA").inputs
+    row = next(row for row in operator_inventory() if row["name"] == "TEMPORAL_DELTA")
+    assert row["current"]["inputs"] == ["step: int"]
+    executor = Executor(sources={"t": _timeline()})
+    result = executor.execute(parse('FROM $t RETURN TEMPORAL_DELTA(step=1), DELTA(step=1)'))
+    assert result.values[0].events == result.values[1].events
+
+
+@pytest.mark.parametrize("step", [0, 2, -1, True, 1.5])
+def test_temporal_delta_refuses_nontransition_indices(step):
+    executor = Executor(sources={"t": _timeline()})
+    with pytest.raises((TypeError, ValueError)):
+        executor.execute(query(source("t"), call("TEMPORAL_DELTA", step)))
 
 
 def _timeline():
@@ -127,7 +146,7 @@ def test_one_phrase_reuses_its_exact_temporal_delta_before_multiple_field_action
     assert set(result.values[0]) == {"gradient", "curl", "harmonic"}
     assert isinstance(result.values[1], MetricCurvature)
     # TEMPORAL_DELTA reconstructs the preceding and current states exactly once;
-    # the second whole-phrase use consumes that same carrier rather than replaying it.
+    # the second whole phrase use consumes that same carrier rather than replaying it.
     assert observed_steps == [0, 1]
 
 

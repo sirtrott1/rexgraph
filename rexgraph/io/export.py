@@ -1,7 +1,7 @@
-"""Lineage-sealed, in-memory Parquet export for derived RexGraph partitions.
+"""Lineage sealed, in memory Parquet export for derived RexGraph partitions.
 
-Encryption wraps the complete Parquet byte artifact in one RexGraph AES-GCM envelope.
-It is not Parquet modular column encryption and provides no per-column key isolation.
+Encryption wraps the complete Parquet byte artifact in one RexGraph AES GCM envelope.
+It is not Parquet modular column encryption and provides no per column key isolation.
 An encrypted export must be opened whole before projection or predicate pushdown; that
 tradeoff is deliberate for a handoff artifact and is not suitable for a working store.
 """
@@ -117,7 +117,7 @@ def parquet_bytes(
 
     Logical names are sorted before physical columns are built, so equivalent mappings
     produce identical bytes regardless of caller insertion order. This deliberately
-    normalizes the order-preserving reference writer.
+    normalizes the order preserving reference writer.
     """
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -146,10 +146,10 @@ def export_parquet(
     key_id: str | None = None,
     keys=None,
 ) -> tuple[bytes, ExportManifest]:
-    """Return plain Parquet or one whole-artifact encrypted envelope and its manifest.
+    """Return plain Parquet or one whole artifact encrypted envelope and its manifest.
 
     ``key_id`` selects the single RexGraph envelope key. It does not select Parquet
-    modular column keys, and consumers must not infer per-column isolation. The whole
+    modular column keys, and consumers must not infer per column isolation. The whole
     artifact must be decrypted before PyArrow can project or filter it.
     """
     if not isinstance(partition_digest, str) or not partition_digest:

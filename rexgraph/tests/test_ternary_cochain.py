@@ -1,6 +1,6 @@
-"""The composite-binary cochain: a {-1,0,1} cochain over cells, held as bitplanes.
+"""The composite binary cochain: a {-1,0,1} cochain over cells, held as bitplanes.
 
-The cochain is where a relational-native model is actually dense: `Z[nE, C]` has no
+The cochain is where a relational native model is actually dense: `Z[nE, C]` has no
 sparsity to exploit and no embedding beside it, so it is the one operator in the flow
 layer that a packed ternary form fits. The adjacency is weighted and the boundary is
 already stored without values, and neither is packed here.
@@ -59,7 +59,7 @@ def test_reduction_keeps_the_sign_structure():
 
 
 def test_a_uniform_cochain_is_exactly_composite_binary():
-    """`ones` IS a composite-binary field at scale 1, so it reduces to itself.
+    """`ones` IS a composite binary field at scale 1, so it reduces to itself.
 
     This is the case a magnitude cutoff gets exactly backwards: every entry sits at the
     mean, so a deadzone there zeroes the whole cochain and retains none of its mass,
@@ -100,7 +100,7 @@ def test_an_exact_composite_binary_field_recovers_exactly():
 def test_the_tower_carries_what_one_level_leaves():
     """Each level reduces the residual of the one above, so mass falls monotonically
     and `bits_per_entry` is two per level. Measured on real weights: one level retains
-    about 0.79 of a 256-block's mass, two about 0.95, three about 0.98."""
+    about 0.79 of a 256 block's mass, two about 0.95, three about 0.98."""
     a = np.random.default_rng(6).standard_normal((32, 256))
     t = residual_tower(a, max_levels=4)
     masses = t["masses"]
@@ -111,7 +111,7 @@ def test_the_tower_carries_what_one_level_leaves():
 
 
 def test_packed_bytes_counts_the_word_padding():
-    """A row pads to a whole 64-bit word, so a narrow cochain wastes most of it. The
+    """A row pads to a whole 64 bit word, so a narrow cochain wastes most of it. The
     idealised 'two bits an entry' is wrong below 64 classes and this is why."""
     assert packed_bytes((1000, 64)) == 1000 * 1 * 8 * 2
     assert packed_bytes((1000, 4)) == packed_bytes((1000, 64))      # same cost, 16x the waste
@@ -146,7 +146,7 @@ def test_predict_returns_one_class_per_cell():
 
 def test_quantising_a_trained_cochain_keeps_most_of_its_signal():
     """The measurement that decides whether the primitive is usable at all. On a
-    co-participation task at 4 classes the float cochain held 0.4933 against a 0.25
+    co participation task at 4 classes the float cochain held 0.4933 against a 0.25
     floor and the ternary one 0.4760, so 93% of the signal above chance survives and
     87% of the predictions are identical. Reproduced small here."""
     pytest.importorskip("torch")

@@ -1,4 +1,4 @@
-"""RCQL application of exact local-section gluing."""
+"""RCQL application of exact local section gluing."""
 from fractions import Fraction
 
 import numpy as np
@@ -51,7 +51,7 @@ def test_explain_types_phrase_gluing_without_executing_it():
     assert call["operator"] == "GLUE"
     assert call["result"]["kind"] == "ExactGlueResult"
     assert call["result"]["grade"] == 1
-    assert "cross-state gluing requires an explicit chain-preserving correspondence map" in (
+    assert "cross-state section comparison requires explicit incidence restrictions; no chain-map certificate or complex merge is inferred" in (
         call["preconditions"]
     )
 

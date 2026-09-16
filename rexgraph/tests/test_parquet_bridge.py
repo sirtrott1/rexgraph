@@ -401,7 +401,7 @@ class TestParquetModularEncryption:
             (write_character_table, read_character_table, k4, "edge_idx"),
             (write_vertex_character_table, read_vertex_character_table, k4, "vertex_idx"),
             (write_void_table, read_void_table, triangle, "void_idx"),
-            (write_void_table, read_void_table, k4, "void_idx"),  # empty-table branch
+            (write_void_table, read_void_table, k4, "void_idx"),  # empty table branch
         ]
         for i, (writer, reader, rex, protected_column) in enumerate(cases):
             path = tmp_path / f"direct_{i}.parquet"
@@ -587,7 +587,7 @@ class TestVoidTable:
         assert np.allclose(loaded["eta"], eta)
 
     def test_empty_roundtrip(self, k4, tmp_path_pq):
-        """k4 has no voids -> empty-schema write still round-trips."""
+        """k4 has no voids -> empty schema write still round trips."""
         assert k4.void_complex.get("n_voids", 0) == 0
         write_void_table(k4, tmp_path_pq)
         loaded = read_void_table(tmp_path_pq)

@@ -4,7 +4,7 @@ These readings are meant to be used from an agent, a model's feature path, or a
 layer someone writes later, so the input door matters as much as the arithmetic.
 Two failures were legible only to someone who already knew the internals: a torch
 tensor carrying grad surfaced torch's own "Can't call numpy() on Tensor that
-requires grad", and a wrong-length signal surfaced a scipy matmul dimension
+requires grad", and a wrong length signal surfaced a scipy matmul dimension
 mismatch naming neither nE nor the reading being taken.
 """
 
@@ -28,7 +28,7 @@ def _tri():
     lambda n: np.arange(n, dtype=np.float64),
     lambda n: np.arange(n, dtype=np.float32),
     lambda n: list(range(n)),
-    lambda n: np.arange(n * 2, dtype=np.float64)[::2],      # non-contiguous
+    lambda n: np.arange(n * 2, dtype=np.float64)[::2],      # non contiguous
     lambda n: np.arange(n, dtype=np.float64).reshape(-1, 1),  # 2-D column
 ])
 def test_every_ordinary_container_is_accepted(make):
@@ -77,7 +77,7 @@ def test_the_helper_says_nE_and_the_role():
     ([], []),                 # empty
     ([0], [1]),               # one relation, no cycle
     ([0, 0], [1, 2]),         # a tree
-    ([0, 1], [0, 1]),         # self-loops
+    ([0, 1], [0, 1]),         # self loops
 ])
 def test_the_degenerate_complexes_do_not_raise(src, tgt):
     """An agent sweeping a corpus meets all of these, and none of them is an error."""

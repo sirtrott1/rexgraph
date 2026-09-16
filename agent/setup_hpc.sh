@@ -107,7 +107,7 @@ pip install -e "./rcdb[sql,objectstore,crypto]"
 pip install -e ./rcql
 pip install -e ./agent[server]
 
-# Install GPU-specific packages
+# Install GPU specific packages
 echo ""
 if [ "$GPU_TYPE" = "rocm" ]; then
     echo "Installing ROCm PyTorch..."

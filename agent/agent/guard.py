@@ -1,14 +1,14 @@
-"""agent.guard: rule-based, real-time validity checks on generated content.
+"""agent.guard: rule based, real time validity checks on generated content.
 
 A guard is a lightweight worker in the hive. It watches a stream of generated
 tokens (or a finished reply) against a set of rules, flags violations the instant
-the offending text completes, and can auto-fix or trigger a re-generation. It is
+the offending text completes, and can auto fix or trigger a re generation. It is
 the deterministic counterpart to hive.consensus(): consensus catches statistical
 hallucination by agreement across workers; a guard catches specific, known
 violations by rule - a forbidden term, a required invariant, a schema constraint.
 
 The canonical example: if a model forgets the owner's definition and falls back
-to "chain complex" instead of "relational complex", the guard flags it mid-stream
+to "chain complex" instead of "relational complex", the guard flags it mid stream
 and fixes it, while leaving the legitimate "chain condition" untouched.
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ class GuardRule:
     name: str
     pattern: str                              # regex marking a violation
     message: str
-    fix: str | None = None                 # replacement (regex sub) for auto-correct
+    fix: str | None = None                 # replacement (regex sub) for auto correct
     allow: str | None = None               # regex whose matches inside a hit are exempt
     flags: int = re.IGNORECASE
 
@@ -46,7 +46,7 @@ class GuardRule:
         return out
 
     def apply_fix(self, text: str) -> str:
-        """Substitute `fix` for every non-exempt hit.
+        """Substitute `fix` for every non exempt hit.
 
         `fix` is expanded as a regex template, so it may carry group references and a
         rule can preserve what it matched. That is how the plural is kept: a fix of

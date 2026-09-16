@@ -1,5 +1,5 @@
-"""The hive network (agent.hive_network): hives as cells one grade up - inter-hive routing,
-cross-hive capability dispatch, and the network-grade RCFE field."""
+"""The hive network (agent.hive_network): hives as cells one grade up - inter hive routing,
+cross hive capability dispatch, and the network grade RCFE field."""
 import pytest
 
 from agent import agent_complex
@@ -27,7 +27,7 @@ def _net():
 
 def test_network_routes_and_cross_hive_capability_dispatch():
     net = _net()
-    assert net.route("protein binding")[0]["hive"] == "bio"           # routed by inter-hive specialty
+    assert net.route("protein binding")[0]["hive"] == "bio"           # routed by inter hive specialty
     assert net.dispatch_capability("predict", [1, 2, 3])["hive"] == "bio"   # predict lives in bio
     assert net.dispatch_capability("score", [1, 2, 3])["hive"] == "chem"    # score lives in chem
     with pytest.raises(ValueError):
@@ -46,7 +46,7 @@ def test_network_grade_field_and_drift():
 
 
 def test_network_persist_stores_ambient_and_subcomplexes():
-    """persist catalogues the inter-hive complex and each member hive as a subcomplex in one store."""
+    """persist catalogues the inter hive complex and each member hive as a subcomplex in one store."""
     from agent.rcdb import open_store
     store = open_store("memory://")
     net = _net()

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-rexgraph-auth - CLI authentication and server management.
+rexgraph auth - CLI authentication and server management.
 
-Enable auth (turns the API from open to token-gated):
+Enable auth (turns the API from open to token gated):
     rexgraph-auth create --name admin --role admin --save   # make a token first
     rexgraph-auth enable                                     # prompts to set a disable passphrase
     rexgraph-auth status                                     # check state (no token)
@@ -66,7 +66,7 @@ def _load_creds() -> dict:
 def _save_creds(creds: dict):
     _cred_file().parent.mkdir(parents=True, exist_ok=True)
     _cred_file().write_text(json.dumps(creds, indent=2))
-    os.chmod(str(_cred_file()), 0o600)  # owner-only
+    os.chmod(str(_cred_file()), 0o600)  # owner only
 
 
 def get_stored_auth() -> tuple:
@@ -241,7 +241,7 @@ def _prompt_passphrase(confirm: bool) -> str:
 
 
 def cmd_enable(args):
-    """Enable bearer-token authentication on the server (run on the host)."""
+    """Enable bearer token authentication on the server (run on the host)."""
     url = args.url or _load_creds().get("url", "http://localhost:8000")
     token = args.admin_token or _load_creds().get("token", "")
     # Set the disable passphrase at enable time so auth can later be turned off.
@@ -277,7 +277,7 @@ def cmd_passphrase(args):
 
 
 def cmd_disable(args):
-    """Disable authentication (open access). Host-local and passphrase-gated."""
+    """Disable authentication (open access). Host local and passphrase gated."""
     url = args.url or _load_creds().get("url", "http://localhost:8000")
     token = args.admin_token or _load_creds().get("token", "")
     passphrase = _prompt_passphrase(confirm=False)
@@ -362,7 +362,7 @@ def cmd_logout(args):
 
 
 def cmd_gen_cert(args):
-    """Generate a self-signed TLS certificate for development/HPC."""
+    """Generate a self signed TLS certificate for development/HPC."""
     import subprocess
 
     out_dir = Path(args.out)
@@ -466,11 +466,11 @@ def cmd_member(args):
 
 
 def cmd_network_init(args):
-    """Stand up the shared multi-user posture in one step: the default for a networked deployment.
+    """Stand up the shared multi user posture in one step: the default for a networked deployment.
 
     Creates the first admin, a recovery key, and turns auth on with a disable passphrase. Run it on
     the server host while auth is still off (a local caller is admin until then). Solo/local use needs
-    none of this - leaving auth off keeps the single local-admin identity."""
+    none of this - leaving auth off keeps the single local admin identity."""
     url = args.url or _load_creds().get("url", "http://localhost:8000")
     token = args.admin_token or _load_creds().get("token", "")
     name = args.name or "admin"
@@ -524,7 +524,7 @@ def main():
         description="rexgraph authentication and server management")
     sub = parser.add_subparsers(dest="command")
 
-    # create (low-level; 'member add' is the managed, rotate-per-user path)
+    # create (low level; 'member add' is the managed, rotate per user path)
     p = sub.add_parser("create", help="Create an API token (low-level; prefer 'member add')")
     p.add_argument("--name", required=True, help="Token user_id/label")
     p.add_argument("--role", default="user", choices=["user", "admin", "read", "write"],
@@ -534,7 +534,7 @@ def main():
     p.add_argument("--admin-token", help="Admin token for auth")
     p.add_argument("--save", action="store_true", help="Save as default credential")
 
-    # member (managed roster: per-workspace admin/user roles, one token per user)
+    # member (managed roster: per workspace admin/user roles, one token per user)
     p = sub.add_parser("member", help="Manage a workspace's members (add/list/revoke)")
     p.add_argument("action", choices=["add", "list", "revoke"], help="What to do")
     p.add_argument("--name", help="Member user id (for add/revoke)")
@@ -547,7 +547,7 @@ def main():
     p.add_argument("--url", help="Server URL")
     p.add_argument("--admin-token", help="Admin token for auth")
 
-    # network-init (the shared multi-user default for a networked deployment)
+    # network init (the shared multi user default for a networked deployment)
     p = sub.add_parser("network-init",
                        help="Stand up shared multi-user auth: first admin + recovery key + auth on")
     p.add_argument("--name", default="admin", help="First admin user id (default: admin)")
@@ -592,7 +592,7 @@ def main():
     # logout
     sub.add_parser("logout", help="Remove stored credentials")
 
-    # gen-cert
+    # gen cert
     p = sub.add_parser("gen-cert", help="Generate self-signed TLS certificate")
     p.add_argument("--out", default="certs", help="Output directory (default: certs/)")
     p.add_argument("--domain", help="Domain name (default: localhost)")

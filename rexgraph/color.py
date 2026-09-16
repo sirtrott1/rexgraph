@@ -3,7 +3,7 @@
 A palette is a decision someone made. This is not one: a cell's channel character is
 mixed into the channel operators of K7, the complete graph on seven vertices, its spectrum
 is read as wavelengths against the Balmer limit, and those are integrated through the CIE
-colour-matching functions into sRGB. So the colour of a cell is a physical consequence of
+colour matching functions into sRGB. So the colour of a cell is a physical consequence of
 its character rather than a lookup, two cells the same colour have the same character, and
 nothing here has a range to normalise or a legend that could lie.
 
@@ -81,7 +81,7 @@ def _k7_boundary() -> np.ndarray:
 
 @lru_cache(maxsize=1)
 def k7_hats() -> tuple:
-    """The four trace-normalised channel operators of K7, as exact Fractions.
+    """The four trace normalised channel operators of K7, as exact Fractions.
 
     Returned as a tuple of tuples so the cache can hold it. Integer throughout until the
     normalisation, which is a ratio of integers, so no float enters here at all.
@@ -103,7 +103,7 @@ def k7_hats() -> tuple:
 
 
 def _cie(wl):
-    """CIE 1931 colour-matching functions, the Wyman-Sloan-Shirley Gaussian fit."""
+    """CIE 1931 colour matching functions, the Wyman Sloan Shirley Gaussian fit."""
     def lobe(w, peak, lo, hi):
         t = (w - peak) * np.where(w < peak, lo, hi)
         return np.exp(-0.5 * t * t)
@@ -163,7 +163,7 @@ def _linear_rgb(chi, dLT) -> np.ndarray:
 
 
 def _spectrum(chi) -> np.ndarray:
-    """The positive eigenvalues of one cell's channel-weighted K7 operator.
+    """The positive eigenvalues of one cell's channel weighted K7 operator.
 
     The one place the character is mixed into the hats, so `spectral_color` and `exposure`
     read the same operator by construction rather than by two copies agreeing.

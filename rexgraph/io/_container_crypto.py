@@ -62,7 +62,7 @@ class ContainerEncryptionConfig:
 
     Values are key identifiers and exact logical tensor names, never key bytes.
     Any tensor not named by ``tensor_keys`` or ``plaintext_tensors`` is protected
-    by ``footer_key``.  This fail-closed default prevents a newly added state
+    by ``footer_key``.  This fail closed default prevents a newly added state
     tensor from becoming plaintext by omission.
     """
 
@@ -334,7 +334,7 @@ def _statistics_aad(manifest: dict[str, Any], member: dict[str, Any]) -> bytes:
 
 def _chunk_ranges(nbytes: int, chunk_size: int) -> list[tuple[int, int]]:
     if nbytes == 0:
-        # An encrypted empty tensor still carries a key-authenticated envelope, so
+        # An encrypted empty tensor still carries a key authenticated envelope, so
         # possession of no data does not become possession of the protected grade.
         return [(0, 0)]
     return [
@@ -356,7 +356,7 @@ def _encode_chunk_statistics(
     dtype: np.dtype,
     ranges: list[tuple[int, int]],
 ) -> bytes:
-    """Encode fixed-size per-chunk min/max/null facts without length leakage."""
+    """Encode fixed size per chunk min/max/null facts without length leakage."""
     ordered = dtype.kind in {"b", "i", "u", "f", "m", "M"}
     zero = b"\0" * dtype.itemsize
     payload = bytearray(_STATISTICS_HEADER.pack(_STATISTICS_MAGIC, len(ranges)))
@@ -451,7 +451,7 @@ def _protect_tensor_members(
     """Protect named contiguous arrays inside an indexed safetensors envelope.
 
     The returned arrays are explicit uint8 storage entries.  The returned metadata
-    is string-only and can be handed directly to ``safetensors.save_file``.
+    is string only and can be handed directly to ``safetensors.save_file``.
     """
     if not isinstance(kind, str) or not kind:
         raise ValueError("container kind must be a nonempty string")
@@ -464,7 +464,7 @@ def _protect_tensor_members(
     policy, chunk_size, plaintext_manifest, footer_key = _encryption_policy(
         encryption_properties, logical_names
     )
-    bundle_id = secrets.token_hex(16)  # random per export; never content-derived
+    bundle_id = secrets.token_hex(16)  # random per export; never content derived
     storage: dict[str, np.ndarray] = {}
     members: list[dict[str, Any]] = []
 
@@ -600,9 +600,9 @@ def protect_tensors(
 ) -> tuple[dict[str, np.ndarray], dict[str, str]]:
     """Protect arrays for a safetensors outer container.
 
-    Directory backends use the private three-value helper so they can choose
+    Directory backends use the private three value helper so they can choose
     native ``.npy`` storage for explicitly plaintext members.  The public
-    common seam retains its two-value return contract.
+    common seam retains its two value return contract.
     """
     storage, outer_metadata, _ = _protect_tensor_members(
         tensors,
@@ -1001,7 +1001,7 @@ def read_protected_tensor(
     index: int | slice | None = None,
     _chunk_cache: dict[tuple[str, str, int], bytes] | None = None,
 ) -> np.ndarray:
-    """Read one logical tensor, decrypting only touched first-axis chunks."""
+    """Read one logical tensor, decrypting only touched first axis chunks."""
     member = _member_by_name(manifest, logical_name)
     byte_start, byte_stop, output_shape = _first_axis_selection(member, index)
     ranges = [tuple(pair) for pair in member["chunk_plain_ranges"]]
@@ -1016,7 +1016,7 @@ def read_protected_tensor(
         or (member["plain_nbytes"] == 0 and chunk_index == 0)
     ]
     if protected and not chosen:
-        # An empty first-axis selection returns no payload, but it must still
+        # An empty first axis selection returns no payload, but it must still
         # prove possession of the tensor's key instead of becoming an auth bypass.
         chunk_size = member["chunk_size"]
         chosen = [min(byte_start // chunk_size, member["chunk_count"] - 1)]
@@ -1147,7 +1147,7 @@ def _query_protected_indices(
     chunk_cache: dict[tuple[str, str, int], bytes] | None = None,
     statistics_cache: dict[str, list[dict[str, Any]]] | None = None,
 ) -> np.ndarray:
-    """Return first-axis positions matching one scalar predicate."""
+    """Return first axis positions matching one scalar predicate."""
     if operator not in _PREDICATE_OPERATORS:
         raise ValueError(
             f"unsupported predicate operator {operator!r}; "
@@ -1211,7 +1211,7 @@ def _read_protected_indices(
     *,
     chunk_cache: dict[tuple[str, str, int], bytes] | None = None,
 ) -> np.ndarray:
-    """Gather first-axis rows while opening every touched chunk at most once."""
+    """Gather first axis rows while opening every touched chunk at most once."""
     member = _member_by_name(manifest, logical_name)
     shape = tuple(member["shape"])
     if not shape:

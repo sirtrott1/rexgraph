@@ -1,9 +1,9 @@
 """
 agent.server.routes.rcdb: the Relational Complex Database over HTTP.
 
-Stores every analysed complex as a first-class record and lets you query
+Stores every analysed complex as a first class record and lets you query
 the database *by structure* (Betti, coherence, voids), not just by id.
-The backend is chosen per-deployment via the ``REXGRAPH_RCDB_URI`` env
+The backend is chosen per deployment via the ``REXGRAPH_RCDB_URI`` env
 var (default: a file store under the config dir), so the same API runs on
 SQLite locally and Postgres in production.
 """
@@ -19,8 +19,8 @@ from agent.server.artifacts import complex_file, plain
 router = APIRouter(prefix="/v1/db")
 
 def _store():
-    """The process-wide default store. Resolution lives in `agent.rcdb.default_store`
-    so HTTP and non-HTTP callers share one store instead of two resolvers."""
+    """The process wide default store. Resolution lives in `agent.rcdb.default_store`
+    so HTTP and non HTTP callers share one store instead of two resolvers."""
     from agent.rcdb import default_store
     return default_store()
 
@@ -160,7 +160,7 @@ async def db_similar(body: dict = Body(...)):
 async def db_record_work(body: dict = Body(...)):
     """Record one state of the platform's own work.
 
-    Body: {kind: 'pipeline-run'|'conversation', labels, edges?, lineage_id?, tags?,
+    Body: {kind: 'pipeline run'|'conversation', labels, edges?, lineage_id?, tags?,
     when?}. The lineage is one record holding a TemporalRex: each call appends a
     step and stores it as the next version, so the state has both a version and a
     position in time.

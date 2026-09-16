@@ -1,6 +1,6 @@
-"""agent.hive: tool-calling and authenticated bees on the chat path.
+"""agent.hive: tool calling and authenticated bees on the chat path.
 
-The hive's only generation path is `hive._chat`. For a tool-driving harness it must be able to
+The hive's only generation path is `hive._chat`. For a tool driving harness it must be able to
 (a) send `tools`/`tool_choice` and read back `tool_calls`/`finish_reason`/`reasoning_content`, and
 (b) authenticate to a remote provider without ever persisting the credential.
 

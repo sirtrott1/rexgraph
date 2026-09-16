@@ -118,5 +118,5 @@ def test_tegra_is_not_called_discrete():
     """A Grace or Orin part is unified, and this probe cannot measure it, so it must not
     assert the PCIe answer for it."""
     devs = LR._probe_nvidia(64 * 1024 ** 3)
-    for d in devs:                      # no-op where nvidia-smi is absent
+    for d in devs:                      # no op where nvidia smi is absent
         assert d["unified"] in (False, None)

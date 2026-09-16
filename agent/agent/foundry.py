@@ -2,16 +2,16 @@
 
 A ModelFoundry lets the LM bees BUILD neural networks live on data and register each trained model
 as a worker bee. That makes a hive HIERARCHY: language models on top, the networks they built as
-workers beneath. The LMs then drive the NNs with hive.invoke(). Every NN bee is placement-aware:
-it trains and serves on a chosen device, resolved through rexgraph.compute (a live-probed GPU/iGPU
-when available, else a CPU core), so a multi-core worker team and an iGPU can be filled at once on a
-shared-memory machine.
+workers beneath. The LMs then drive the NNs with hive.invoke(). Every NN bee is placement aware:
+it trains and serves on a chosen device, resolved through rexgraph.compute (a live probed GPU/iGPU
+when available, else a CPU core), so a multi core worker team and an iGPU can be filled at once on a
+shared memory machine.
 
     foundry = ModelFoundry(hive)
     foundry.forge("classifier", "mlp", data=my_data, device="auto")   # trains + registers a bee
     hive.invoke("classifier", new_data)                                # an LM drives the NN
 
-Placement of the LM bees themselves (an iGPU queen + CPU-core workers) is `place_llm()`, a thin wrap
+Placement of the LM bees themselves (an iGPU queen + CPU core workers) is `place_llm()`, a thin wrap
 over hive.spawn's n_gpu_layers.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ import re
 import tempfile
 from typing import Any
 
-# archetypes whose conv path is CPU-only here; everything else can ride the GPU/iGPU
+# archetypes whose conv path is CPU only here; everything else can ride the GPU/iGPU
 _CPU_ONLY = {"cnn"}
 _GPU_BACKENDS = {"cuda", "rocm", "hip", "gpu"}
 
@@ -71,7 +71,7 @@ def resolve_device(archetype: str, requested: str = "auto") -> str:
 def place_llm(hive, name: str, model_path: str, *, on: str = "igpu", role: str = "worker",
               ctx_size: int = 4096, wait: float = 90.0, **kw):
     """Bring up a managed llama.cpp bee placed on the iGPU ('igpu'/'gpu' -> all layers offloaded) or
-    across the CPU cores ('cpu' -> 0 gpu layers). The iGPU-queen + CPU-worker pattern: spawn the
+    across the CPU cores ('cpu' -> 0 gpu layers). The iGPU queen + CPU worker pattern: spawn the
     queen on the iGPU and the optimized workers on the cores, all sharing unified memory."""
     ngl = 99 if on in ("igpu", "gpu") else 0
     return hive.spawn(name, model_path, role=role, ctx_size=ctx_size,
@@ -80,7 +80,7 @@ def place_llm(hive, name: str, model_path: str, *, on: str = "igpu", role: str =
 
 def bundle_from_rows(rows: list[dict], *, target: str, features: list[str] | None = None):
     """Turn database/query rows into a vector DataBundle for training: numeric feature columns become
-    X (non-numeric features are label-encoded), the target column becomes integer classes y. This is
+    X (non numeric features are label encoded), the target column becomes integer classes y. This is
     what lets a forged NN learn on the ACTUAL data instead of a synthetic set."""
     import numpy as np
 
@@ -99,7 +99,7 @@ def bundle_from_rows(rows: list[dict], *, target: str, features: list[str] | Non
     X = (np.stack([encode([r.get(f) for r in rows]) for f in feats], axis=1)
          if feats else np.zeros((len(rows), 1), dtype="float32"))
     raw_y = [r.get(target) for r in rows]
-    classes = {v: i for i, v in enumerate(sorted(set(map(str, raw_y))))}   # label-encode -> 0..k-1
+    classes = {v: i for i, v in enumerate(sorted(set(map(str, raw_y))))}   # label encode -> 0..k-1
     y = np.array([classes[str(v)] for v in raw_y], dtype="int64")
     return _data._vector_bundle(X, y)
 
@@ -113,7 +113,7 @@ class ModelFoundry:
             hive = hivemod.get_hive()
         self.hive = hive
         self.store_dir = store_dir or tempfile.mkdtemp(prefix="foundry-")
-        self.forged: list[dict[str, Any]] = []          # the NN sub-hive this foundry built
+        self.forged: list[dict[str, Any]] = []          # the NN sub hive this foundry built
 
     def forge(self, name: str, archetype: str, *, data=None, params=None, steps: int = 100,
               device: str = "auto", capability: str = "predict", specialties=None,
@@ -130,7 +130,7 @@ class ModelFoundry:
         except Exception:
             if dev == "cpu":
                 raise
-            dev = "cpu"                                  # visible-but-unusable GPU -> degrade once
+            dev = "cpu"                                  # visible but unusable GPU -> degrade once
             res = models.run(archetype, params=params, data=data, steps=steps, device=dev,
                              optimizer=optimizer, seed=seed, save_to=path)
         wtype = f"model:{archetype}"
@@ -202,7 +202,7 @@ class ModelFoundry:
         return card
 
     def forge_many(self, specs: list[dict]) -> list[dict[str, Any]]:
-        """Forge several NNs (each spec: {name, archetype, ...}) into the sub-hive."""
+        """Forge several NNs (each spec: {name, archetype, ...}) into the sub hive."""
         return [self.forge(s.pop("name"), s.pop("archetype"), **s) for s in (dict(x) for x in specs)]
 
     def invoke(self, name: str, data=None, **kw):
@@ -210,7 +210,7 @@ class ModelFoundry:
         return self.hive.invoke(name, data, **kw)
 
     def roster(self) -> list[dict[str, Any]]:
-        """The NN sub-hive: each network, its archetype, and its device placement."""
+        """The NN sub hive: each network, its archetype, and its device placement."""
         return [dict(c) for c in self.forged]
 
 

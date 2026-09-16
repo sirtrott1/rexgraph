@@ -13,7 +13,7 @@ The live surface is `rexgraph.harmonic_sparse` for the frame and projection, and
 `rexgraph.hodge_coords` for coordinates, the metric, closure and the Gram
 determinant. `harmonic_product_structure` here and `harmonic_closure` there
 compute the same object; the latter does it off the small Gram with no
-eigendecomposition. Kept for the prime-coupling experiments, which have no
+eigendecomposition. Kept for the prime coupling experiments, which have no
 equivalent elsewhere.
 """
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import numpy as np
 
-# re-exported on purpose: this module is a wrapper, so `from rexgraph.harmonic import
+# re exported on purpose: this module is a wrapper, so `from rexgraph.harmonic import
 # harmonic_projectors` is part of what it is for. The names flagged below are unused
 # HERE and reachable THROUGH here, which is the distinction noqa is recording.
 try:

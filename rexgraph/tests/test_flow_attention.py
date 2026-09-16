@@ -11,9 +11,9 @@ from rexgraph.flow.attention import (
 )
 from rexgraph.graph import RexGraph
 
-# A real-data check, pointed at whatever the operator supplies. The path used to
+# A real data check, pointed at whatever the operator supplies. The path used to
 # be a literal naming a specific private dataset, which put a dataset (and its
-# location on one machine) into a tree that is meant to be dataset-agnostic.
+# location on one machine) into a tree that is meant to be dataset agnostic.
 # Unset, the test skips, which is what it already did when the file was absent.
 _REAL_DATA_ENV = "REXGRAPH_TEST_BINDING_TSV"
 _REAL_DATA_PATH = os.path.expanduser(os.environ.get(_REAL_DATA_ENV, ""))
@@ -26,7 +26,7 @@ def _submode_task(seed=1, nT=80, E=5000):
     submode = rng.randint(0, 2, E)
     sm_aff = rng.randn(nT, 2) * 2.0
     y = sm_aff[t, submode] + rng.randn(E) * 0.2
-    f = (submode + rng.randn(E) * 0.25).reshape(-1, 1)          # the inside feature reveals the sub-mode
+    f = (submode + rng.randn(E) * 0.25).reshape(-1, 1)          # the inside feature reveals the sub mode
     rex = RexGraph(sources=t.astype(np.int32), targets=(lig + nT).astype(np.int32))
     return rex, y, f, submode
 
@@ -41,8 +41,8 @@ def test_attention_beats_uniform_on_submode_task():
     rng = np.random.RandomState(0); is_m = rng.rand(len(y)) < 0.2; obs = ~is_m
     ptr, idx = coparticipation_neighbors(rex)
     uni = coparticipation_attention(ptr, idx, f, y, obs, gamma=0.0)              # uniform settle
-    att = coparticipation_attention(ptr, idx, f, y, obs, proj=np.eye(1), gamma=4.0)  # inside-compat attention
-    assert _r2(uni, y, is_m) < 0.6                       # uniform blurs the sub-modes
+    att = coparticipation_attention(ptr, idx, f, y, obs, proj=np.eye(1), gamma=4.0)  # inside compat attention
+    assert _r2(uni, y, is_m) < 0.6                       # uniform blurs the sub modes
     assert _r2(att, y, is_m) >= 0.85                     # attention resolves them (grounded 0.92)
 
 
@@ -52,12 +52,12 @@ def test_fit_learns_the_compatibility():
     m = CoParticipationAttention(inside_dim=f.shape[1])
     m.fit_self_supervised(rex, f, np.where(obs, y, 0.0), obs_mask=obs, mask_frac=0.2, seed=2)
     pred = m.predict(rex, f, y, obs)
-    assert _r2(pred, y, is_m) >= 0.80          # the fit (self-supervised) recovers most of the attention gain
+    assert _r2(pred, y, is_m) >= 0.80          # the fit (self supervised) recovers most of the attention gain
 
 
 def _load_binding_subcomplex(n_rows=6000):
-    """Real affinity-table subcomplex: read the first `n_rows` data rows to a temp TSV (fast), build
-    the edge-primal complex (ID2=target as source, ID1=ligand as destination), and the pKd target.
+    """Real affinity table subcomplex: read the first `n_rows` data rows to a temp TSV (fast), build
+    the edge primal complex (ID2=target as source, ID1=ligand as destination), and the pKd target.
     Returns None if the preserved data file is absent (so CI without the file still passes)."""
     if not os.path.exists(_REAL_DATA_PATH):
         return None
@@ -108,7 +108,7 @@ def test_attention_path_is_matrix_free(monkeypatch):
     for n in ("spmm_AAt_dense_f64", "spmm_AtA_dense_f64"): spy(_sparse, n)
     for n in ("eigsh", "svds"): spy(ssla, n)
     for n in ("eig", "eigh", "eigvals", "eigvalsh", "svd", "lstsq", "pinv"): spy(nla, n)
-    # build the sub-mode task, run neighbors + attention + the fit, all on the attention path
+    # build the sub mode task, run neighbors + attention + the fit, all on the attention path
     rex, y, f, submode = _submode_task()
     obs = np.ones(len(y), dtype=bool)
     ptr, idx = coparticipation_neighbors(rex)
@@ -133,10 +133,10 @@ def test_binding_subcomplex_honest_ceiling():
 
     ptr, idx = coparticipation_neighbors(rex)
 
-    # face 1: unsupervised - the zero-parameter uniform co-participation settle (gamma=0)
+    # face 1: unsupervised - the zero parameter uniform co participation settle (gamma=0)
     uniform = coparticipation_attention(ptr, idx, inside, y, obs, gamma=0.0)
 
-    # face 2: self-supervised - fit (proj, gamma) from the observed 80% ALONE, predict the held-out 20%
+    # face 2: self supervised - fit (proj, gamma) from the observed 80% ALONE, predict the held out 20%
     m_self = CoParticipationAttention(inside_dim=inside.shape[1])
     m_self.fit_self_supervised(rex, inside, np.where(obs, y, 0.0), obs_mask=obs, mask_frac=0.2, seed=2)
     self_supervised = m_self.predict((ptr, idx), inside, y, obs)
@@ -157,9 +157,9 @@ def test_binding_subcomplex_honest_ceiling():
         % (rex.nE, rex.nV, r2_uniform, r2_self_supervised, r2_supervised)
     )
 
-    # co-participation structure alone predicts binding strength well above chance
+    # co participation structure alone predicts binding strength well above chance
     assert r2_uniform > 0.4
     # honest ceiling: the learned compatibility must not HURT relative to the uniform settle;
-    # binding is structure-dominated and thin (one Kd scalar per relation), so a large gain over
+    # binding is structure dominated and thin (one Kd scalar per relation), so a large gain over
     # uniform is NOT expected here and must not be asserted; only that attention does no harm
     assert r2_self_supervised >= r2_uniform - 0.02

@@ -3,7 +3,7 @@
 The head is the participant carrying the -1 coefficient in the boundary column, and the
 composite binary puts it first in the stored support. Rebuilding membership with
 ``np.nonzero`` returns rows in ascending vertex order, which silently reorients any
-relation whose head is not its lowest-numbered participant.
+relation whose head is not its lowest numbered participant.
 """
 
 from __future__ import annotations

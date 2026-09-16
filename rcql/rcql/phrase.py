@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from rexgraph.sheaf import ExactGlueResult, ExactGluingObstruction, ExactSheaf
+from rexgraph.sheaf import ExactGlueResult, ExactGluingObstruction, ExactSectionCheck, ExactSheaf
 
 from .binding import Binding
 from .capabilities import BoundSource, SourcePolicy
@@ -24,6 +24,7 @@ __all__ = [
     "PhraseGluingObstruction",
     "PhraseMapError",
     "PhraseSheaf",
+    "PhraseSectionCheck",
     "PhraseStalk",
     "UndeclaredRestrictionError",
 ]
@@ -34,14 +35,14 @@ class PhraseMapError(ValueError):
 
 
 class UndeclaredRestrictionError(PhraseMapError):
-    """A cross-state phrase incidence has no explicitly declared restriction map."""
+    """A cross state phrase incidence has no explicitly declared restriction map."""
 
 
 @dataclass(frozen=True)
 class PhraseGluingObstruction:
     """One exact gluing strain, named in the phrase's stalk vocabulary.
 
-    ``exact`` retains the canonical index-level representative.  The named fields are
+    ``exact`` retains the canonical index level representative.  The named fields are
     an observation layer only: they make a returned strain actionable without replacing
     its exact transported values or residual.
     """
@@ -63,7 +64,7 @@ class PhraseGluingObstruction:
 
     @property
     def residual(self):
-        """Exact left-minus-right strain at ``correspondence``."""
+        """Exact left minus right strain at ``correspondence``."""
         return self.exact.residual
 
 
@@ -77,6 +78,15 @@ class PhraseGlueResult(ExactGlueResult):
     """
 
     named_components: tuple[tuple[str, ...], ...]
+    named_obstructions: tuple[PhraseGluingObstruction, ...]
+    contributors: tuple[SourceRef, ...]
+    policy: SourcePolicy
+
+
+@dataclass(frozen=True)
+class PhraseSectionCheck(ExactSectionCheck):
+    """Compact exact compatibility with named residuals and all source policies."""
+
     named_obstructions: tuple[PhraseGluingObstruction, ...]
     contributors: tuple[SourceRef, ...]
     policy: SourcePolicy
@@ -126,17 +136,23 @@ class PhraseCorrespondence:
 
 
 class PhraseSheaf(ExactSheaf):
-    """A local-to-global section over state stalks and explicit correspondences.
+    """A local to global section over state stalks and explicit correspondences.
 
     The internal relational complex has C0 cells for selected state stalks and C1 cells
-    for declared correspondences.  Its exact grade-zero sheaf compares the transported
+    for declared correspondences.  Its exact grade zero sheaf compares the transported
     local sections at each correspondence.  Unlike :class:`rexgraph.sheaf.ExactSheaf`,
-    identity is *not* a default on this cross-state boundary: every incidence must be
+    identity is *not* a default on this cross state boundary: every incidence must be
     given a restriction map before ``glue`` can run.
+
+    Named ``stalk_dims`` and ``correspondence_dims`` permit different coordinate
+    spaces and rectangular restrictions. These are section coordinate maps, not
+    certificates of a graded chain map between the source complexes. Values are
+    assigned explicitly by the caller; record keys/shapes never infer alignment.
     """
 
     def __init__(self, stalks: Sequence[PhraseStalk],
-                 correspondences: Sequence[PhraseCorrespondence], *, stalk_dim: int = 1):
+                 correspondences: Sequence[PhraseCorrespondence], *, stalk_dim: int = 1,
+                 stalk_dims=None, correspondence_dims=None):
         self.stalks = tuple(stalks)
         self.correspondences = tuple(correspondences)
         if not self.stalks:
@@ -182,6 +198,9 @@ class PhraseSheaf(ExactSheaf):
         )
         super().__init__(
             rex, stalk_dim=stalk_dim, grade=0, require_declared_restrictions=True,
+            stalk_dims=self._named_dimensions(stalk_dims, names, "stalk_dims"),
+            mediator_dims=self._named_dimensions(
+                correspondence_dims, correspondence_names, "correspondence_dims"),
         )
         self._policy = SourcePolicy.intersection(
             *(stalk.source.source.policy for stalk in self.stalks)
@@ -196,7 +215,17 @@ class PhraseSheaf(ExactSheaf):
 
     @property
     def stalk_dim(self) -> int:
+        """The uniform default; actual per cell widths are stalk_dimensions."""
         return self.d
+
+    @staticmethod
+    def _named_dimensions(values, names, context):
+        if values is None:
+            return None
+        from collections.abc import Mapping
+        if not isinstance(values, Mapping) or set(values) != set(names):
+            raise PhraseMapError(f"{context} must name every declared cell exactly once")
+        return tuple(values[name] for name in names)
 
     @property
     def policy(self) -> SourcePolicy:
@@ -215,10 +244,11 @@ class PhraseSheaf(ExactSheaf):
 
     def as_bound_source(self) -> BoundSource:
         """Expose this phrase's Rex only under its derived intersection policy."""
+        self.check_state()
         return BoundSource(self.rex, self.policy, ref=self.source_ref)
 
     def assign(self, stalk: str, values: object) -> None:
-        """Assign one exact local section to a selected source-state stalk."""
+        """Assign one exact local section to a selected source state stalk."""
         self._binding(stalk).source.require("read")
         super().assign(self._stalk(stalk), values)
 
@@ -234,11 +264,14 @@ class PhraseSheaf(ExactSheaf):
         )
 
     def identity(self, stalk: str, correspondence: str) -> None:
-        """Declare, rather than assume, identity on one cross-state incidence."""
+        """Declare, rather than assume, identity on one cross state incidence."""
+        width = self.stalk_dimensions[self._stalk(stalk)]
+        if width != self.mediator_dimensions[self._correspondence(correspondence)]:
+            raise PhraseMapError("identity requires equal stalk and correspondence dimensions")
         self.restrict(
             stalk, correspondence,
-            [[1 if row == column else 0 for column in range(self.stalk_dim)]
-             for row in range(self.stalk_dim)],
+            [[1 if row == column else 0 for column in range(width)]
+             for row in range(width)],
         )
 
     def correspondence_cell(self, name: str):
@@ -253,8 +286,7 @@ class PhraseSheaf(ExactSheaf):
 
         return composite_binary(self.correspondence_cell(name))
 
-    def glue(self) -> PhraseGlueResult:
-        """Glue only after every cross-state incidence map is explicitly declared."""
+    def _require_section(self):
         for stalk in self.stalks:
             stalk.source.source.require("read")
         missing = self.missing_restrictions()
@@ -263,9 +295,42 @@ class PhraseSheaf(ExactSheaf):
             raise UndeclaredRestrictionError(
                 "cross-state phrase gluing requires an explicit restriction at " + detail
             )
+
+    def check_state(self) -> None:
+        super().check_state()
+        # Selected database versions carry a native payload digest. Do not claim
+        # that provenance after a caller mutates the detached payload in place.
+        from rexgraph.graph import RexGraph, TemporalRex
+        from rexgraph.io.catalog import object_digest
+        checked = set()
+        for stalk in self.stalks:
+            value, ref = stalk.source.value, stalk.source.ref
+            key = (id(value), ref.state_digest)
+            if key in checked or ref.state_digest is None or not isinstance(value, (RexGraph, TemporalRex)):
+                continue
+            stalk.source.source.require("read")
+            if object_digest(value) != ref.state_digest:
+                raise PhraseMapError(f"selected state for stalk {stalk.name!r} changed; bind a fresh phrase")
+            checked.add(key)
+
+    def _named_obstructions(self, obstructions):
+        return tuple(PhraseGluingObstruction(
+            item, self.stalks[item.left_cell].name, self.stalks[item.right_cell].name,
+            self.correspondences[item.mediator].name) for item in obstructions)
+
+    def check_section(self) -> PhraseSectionCheck:
+        """One exact incidence certificate, without all pair enumeration."""
+        self._require_section()
+        result = super().check_section()
+        return PhraseSectionCheck(
+            result.incidence_count, result.comparison_count, result.obstructions,
+            self._named_obstructions(result.obstructions), self.contributors, self.policy)
+
+    def glue(self) -> PhraseGlueResult:
+        """Glue only after every cross state incidence map is explicitly declared."""
+        self._require_section()
         exact = super().glue()
         names = tuple(stalk.name for stalk in self.stalks)
-        correspondence_names = tuple(item.name for item in self.correspondences)
         return PhraseGlueResult(
             gluable=exact.gluable,
             glued=exact.glued,
@@ -275,15 +340,7 @@ class PhraseSheaf(ExactSheaf):
                 tuple(names[index] for index in component)
                 for component in exact.components
             ),
-            named_obstructions=tuple(
-                PhraseGluingObstruction(
-                    obstruction,
-                    names[obstruction.left_cell],
-                    names[obstruction.right_cell],
-                    correspondence_names[obstruction.mediator],
-                )
-                for obstruction in exact.obstructions
-            ),
+            named_obstructions=self._named_obstructions(exact.obstructions),
             contributors=tuple(stalk.source.ref for stalk in self.stalks),
             policy=self.policy,
         )
@@ -331,7 +388,9 @@ class PhraseSheaf(ExactSheaf):
                 {"name": item.name, "stalks": list(item.stalks)}
                 for item in self.correspondences
             ],
-            "version": 1,
+            "stalk_dimensions": list(self.stalk_dimensions),
+            "correspondence_dimensions": list(self.mediator_dimensions),
+            "version": 2,
         })
 
     @classmethod

@@ -1,7 +1,7 @@
 """
 agent.ontology_reasoning: classification, consistency and module extraction, exactly.
 
-A description-logic reasoner answers three questions: are these axioms consistent,
+A description logic reasoner answers three questions: are these axioms consistent,
 which classes are equivalent, and what does this fragment of the ontology contribute.
 It answers them with a tableau, and when the answer is "inconsistent" what comes back
 is a refutation a person cannot read.
@@ -26,7 +26,7 @@ unsatisfiable exactly when it lies below two classes asserted disjoint. That is
 descent in the subsumption order, read off the directed boundary, and it is exact.
 
 Holonomy is still reported, because balance of the signed complex is a real
-gauge-invariant quantity and a frustrated cycle localises where a disjointness meets
+gauge invariant quantity and a frustrated cycle localises where a disjointness meets
 the hierarchy. It is simply not the same question as consistency.
 
 **Classification is a quotient.** Two classes are equivalent when they are
@@ -248,7 +248,7 @@ def consistency(rc: ReasoningComplex, *, limit: int = 50) -> dict:
 def frustration(rc: ReasoningComplex) -> dict:
     """Sign holonomy over a cycle basis: where a disjointness meets the hierarchy.
 
-    A cycle whose edge signs multiply to -1 is frustrated. Gauge-invariant and real,
+    A cycle whose edge signs multiply to -1 is frustrated. Gauge invariant and real,
     but NOT consistency: two disjoint siblings under a shared parent frustrate a
     cycle and assert nothing contradictory. Reported because it localises the
     interaction between the disjointness axioms and the hierarchy.
@@ -303,7 +303,7 @@ def equivalence_classes(rc: ReasoningComplex) -> dict:
 def classification(rc: ReasoningComplex) -> dict:
     """The full relative reading of the ontology modulo its own hierarchy.
 
-    `betti_rel` is the homology of the pair: what the non-hierarchical axioms
+    `betti_rel` is the homology of the pair: what the non hierarchical axioms
     contribute that the hierarchy does not already account for.
     """
     rex = rc.rex
@@ -337,7 +337,7 @@ def _hodge_pcts(h) -> dict:
 def module_extraction(rc: ReasoningComplex, terms) -> dict:
     """What a set of terms contributes beyond the rest of the ontology.
 
-    The signature-based module a reasoner extracts by syntactic locality is here the
+    The signature based module a reasoner extracts by syntactic locality is here the
     relative homology of the pair (whole, complement), which is exact and does not
     depend on a locality notion.
     """
@@ -369,7 +369,7 @@ def module_extraction(rc: ReasoningComplex, terms) -> dict:
 
 
 def cardinality(rc: ReasoningComplex, *, limit: int = 100) -> dict:
-    """Per-class relation counts, by predicate.
+    """Per class relation counts, by predicate.
 
     A cardinality restriction is a statement about how many times a class stands in a
     named relation. The complex holds that directly as the typed degree of the class's

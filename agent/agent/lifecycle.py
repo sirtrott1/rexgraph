@@ -3,11 +3,11 @@ agent.lifecycle: shared operations spine for the agent platform.
 
 One interface for every phase of an agent's life: serve (bring the swarm up), train (optimizer,
 device, data export), build (assemble an agent pipeline), deploy (generate a container bundle),
-test (smoke-verify the stack). Each phase reads the active hive profile (`hive_config`) for its
+test (smoke verify the stack). Each phase reads the active hive profile (`hive_config`) for its
 configuration, runs the underlying function, and records a persistent RunLog, so serve/train/
 build/deploy/test are driven the same way from the CLI, the API, and the UI, with logging.
 
-`@register_phase("name")` adds a phase (a custom deploy target, an eval suite, a fine-tune loop)
+`@register_phase("name")` adds a phase (a custom deploy target, an eval suite, a fine tune loop)
 that works everywhere `run()` is exposed. The spine owns dispatch, logging, and provenance; the
 handler owns the work.
 """
@@ -77,7 +77,7 @@ PHASES: dict[str, dict] = {}
 
 def register_phase(name: str, description: str = ""):
     """Register a lifecycle phase handler `fn(ctx: RunContext) -> dict`. The returned dict is the
-    run result. Registering shadows a built-in of the same name (custom deploy/eval/train)."""
+    run result. Registering shadows a built in of the same name (custom deploy/eval/train)."""
     def deco(fn: Callable):
         PHASES[name] = {"fn": fn, "description": description or (fn.__doc__ or "").strip()}
         return fn
@@ -156,13 +156,13 @@ _counter = 0
 def _run_id(phase: str) -> str:
     global _counter
     _counter += 1
-    # time-ordered id (sortable) + phase + counter; no randomness needed
+    # time ordered id (sortable) + phase + counter; no randomness needed
     return f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{phase}-{_counter:03d}"
 
 
 def _apply_compute(ctx: RunContext) -> None:
-    """Apply the active setup's execution-layer config (CPU thread width + preferred backend) before
-    the phase runs, so every operation on every surface honors it. Process-global and run-logged."""
+    """Apply the active setup's execution layer config (CPU thread width + preferred backend) before
+    the phase runs, so every operation on every surface honors it. Process global and run logged."""
     spec = getattr(ctx.profile, "compute", None) if ctx.profile else None
     if spec is None:
         return
@@ -181,7 +181,7 @@ def _phase_device(ctx: RunContext) -> str:
     the model lifecycle: an explicit ``device`` param wins; otherwise the active setup's
     ``ComputeSpec.backend`` (default 'auto') is resolved through ``rexgraph.nn.pick_device``, so
     'auto' rides the compute stack's recommended backend (GPU when usable), 'cpu' forces CPU, and a
-    GPU request on a CPU-only host degrades cleanly. Returns a device string (never None)."""
+    GPU request on a CPU only host degrades cleanly. Returns a device string (never None)."""
     dev = ctx.params.get("device")
     if dev is None:
         spec = getattr(ctx.profile, "compute", None) if ctx.profile else None
@@ -197,7 +197,7 @@ def _execute(ctx: RunContext):
     rl, phase = ctx.run, ctx.run.phase
     try:
         ctx.log(f"phase '{phase}' start (profile={rl.profile or 'none'})")
-        _apply_compute(ctx)                      # honor the setup's execution-layer tuning
+        _apply_compute(ctx)                      # honor the setup's execution layer tuning
         rl.result = PHASES[phase]["fn"](ctx) or {}
         rl.status = "ok"
         ctx.log(f"phase '{phase}' ok")
@@ -213,7 +213,7 @@ def _execute(ctx: RunContext):
 
 def run(phase: str, *, profile_id: str | None = None, background: bool = False,
         **params) -> RunLog:
-    """Execute a lifecycle phase for the active (or named) profile, with run-logging. The single
+    """Execute a lifecycle phase for the active (or named) profile, with run logging. The single
     call every surface (CLI/API/UI) goes through: dispatch, provenance, and audit in one place.
     With `background=True` it returns immediately (status 'running') and the phase runs in a daemon
     thread, persisting each logged step so a client can poll `get(id)` and stream progress. Returns
@@ -235,7 +235,7 @@ def run(phase: str, *, profile_id: str | None = None, background: bool = False,
     return rl
 
 
-# built-in phases (wired to the real underlying functions)
+# built in phases (wired to the real underlying functions)
 
 @register_phase("serve", "Bring the hive up per the active setup (compose/attach the swarm).")
 def _serve(ctx: RunContext) -> dict:
@@ -253,7 +253,7 @@ def _serve(ctx: RunContext) -> dict:
 @register_phase("train", "Build + train a model archetype (mlp/cnn/lm/hgnn) with your optimizer.")
 def _train(ctx: RunContext) -> dict:
     """Build and train any model archetype on your data (file/parquet/.rcbd/synthetic), with the
-    active setup's optimizer (auto by default: GreensCochain for cochain-native models, else Adam).
+    active setup's optimizer (auto by default: GreensCochain for cochain native models, else Adam).
     mode ∈ {single, multistep, fusion}. Streams the
     loss into the run log and can checkpoint through the rexgraph IO layer (`save_to`)."""
     from agent import models
@@ -308,7 +308,7 @@ def _ingest(ctx: RunContext) -> dict:
 
 @register_phase("pipeline", "End-to-end: source -> complex -> RCDB -> train -> predict -> hive worker -> SQL sink.")
 def _pipeline(ctx: RunContext) -> dict:
-    """Thread the data-to-agent flow as one operation. Every stage is optional and driven by params:
+    """Thread the data to agent flow as one operation. Every stage is optional and driven by params:
 
         source | triples/url+flow   -> a relational-complex DataBundle (rexgraph.io or TrustGraph)
         rcdb_uri                     -> catalogue the complex in the RCDB
@@ -324,7 +324,7 @@ def _pipeline(ctx: RunContext) -> dict:
     p = ctx.profile
     out: dict = {"stages": []}
 
-    # 1-3: source -> relational-complex bundle (a rexgraph.io/SQL source, or a TrustGraph core)
+    # 1-3: source -> relational complex bundle (a rexgraph.io/SQL source, or a TrustGraph core)
     if ctx.params.get("triples") or ctx.params.get("flow"):
         ctx.log("stage: TrustGraph core -> relational complex")
         bundle = models.bundle_from_core(ctx.params.get("triples"), url=ctx.params.get("url"),
@@ -404,8 +404,8 @@ def _pipeline(ctx: RunContext) -> dict:
 
 @register_phase("bench", "Benchmark optimizers against each other on a recognized task.")
 def _bench(ctx: RunContext) -> dict:
-    """Run an optimizer benchmark, or a fair lr-tuned A/B. params: benchmark (ill-cond / mnist /
-    fashion-mnist / cifar10 / matrix-completion), optimizer, steps, ab (bool), optimizers (for A/B).
+    """Run an optimizer benchmark, or a fair lr tuned A/B. params: benchmark (ill cond / mnist /
+    fashion mnist / cifar10 / matrix completion), optimizer, steps, ab (bool), optimizers (for A/B).
     Streams progress into the run log."""
     from agent import benchmarks
     name = ctx.params.get("benchmark", "ill-cond")
@@ -431,8 +431,8 @@ def _bench(ctx: RunContext) -> dict:
 
 @register_phase("finetune", "LoRA-fine-tune a real HF model with your optimizer, A/B vs Adam.")
 def _finetune(ctx: RunContext) -> dict:
-    """Fine-tune a Hugging Face model (default Qwen2.5-0.5B-Instruct) with the setup's optimizer
-    (auto by default) against Adam on a held-out eval split, streaming both loss curves.
+    """Fine tune a Hugging Face model (default Qwen2.5-0.5B-Instruct) with the setup's optimizer
+    (auto by default) against Adam on a held out eval split, streaming both loss curves.
     Produces a loadable LoRA adapter. Needs the [finetune] extra; returns a skip message if it is
     absent."""
     from agent import finetune
@@ -599,7 +599,7 @@ def main(argv=None):
         if a.threads is not None: comp["threads"] = a.threads
         if a.backend is not None: comp["backend"] = a.backend
         d["compute"] = comp
-        prof = store.save(hive_config.HiveProfile.from_dict(d))          # shadows a built-in
+        prof = store.save(hive_config.HiveProfile.from_dict(d))          # shadows a built in
         eff = _compute.apply_config(comp)
         print(f"setup '{prof.id}' compute -> threads={eff['threads'] or 'all'} backend={eff['backend']}")
         return

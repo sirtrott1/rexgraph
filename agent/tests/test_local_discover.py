@@ -1,4 +1,4 @@
-"""Auto-detection of models already on disk (local_runtime.discover_local_models)."""
+"""Auto detection of models already on disk (local_runtime.discover_local_models)."""
 import json
 import os
 
@@ -14,8 +14,8 @@ def _touch(path, size_bytes=1024):
 def _blob(path, header=b"", size_bytes=1024):
     """A blob of the stated size, written SPARSE past the header.
 
-    Sizes here are GB-scale on purpose: discovery reports size_gb rounded to two
-    decimals, so a megabyte-scale fixture rounds to 0.0 and cannot exercise an
+    Sizes here are GB scale on purpose: discovery reports size_gb rounded to two
+    decimals, so a megabyte scale fixture rounds to 0.0 and cannot exercise an
     assertion about the reported size. truncate() makes that free on any filesystem
     that supports sparse files, which is every one the suite runs on."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -26,7 +26,7 @@ def _blob(path, header=b"", size_bytes=1024):
 
 
 def _ollama_manifest(path, digest):
-    """A minimal ollama manifest: schemaVersion + a single model-weight layer pointing at
+    """A minimal ollama manifest: schemaVersion + a single model weight layer pointing at
     `digest` (the ollama registry manifest format - see docs.ollama.com/api - trimmed to
     the fields discover_local_models actually needs)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -68,7 +68,7 @@ def test_discover_reports_hf_transformers_snapshot(tmp_path, monkeypatch):
     _touch(str(snap / "config.json"), 200)
     _touch(str(snap / "model.safetensors"), 4_000_000)
     monkeypatch.setenv("REXGRAPH_MODEL_DIRS", "")
-    # point _default_scan_dirs at our fake hub by monkeypatching HOME so the hf-cache path matches
+    # point _default_scan_dirs at our fake hub by monkeypatching HOME so the hf cache path matches
     monkeypatch.setattr(local_runtime, "_default_scan_dirs", lambda: [str(hub)])
 
     models = local_runtime.discover_local_models()
@@ -78,7 +78,7 @@ def test_discover_reports_hf_transformers_snapshot(tmp_path, monkeypatch):
 
 
 def test_discover_finds_ollama_gguf_model_via_manifest(tmp_path, monkeypatch):
-    # ollama stores models as content-addressed, EXTENSION-LESS blobs under blobs/ - the
+    # ollama stores models as content addressed, EXTENSION LESS blobs under blobs/ - the
     # real name only exists in the manifest, which we must parse to recover it.
     root = tmp_path / ".ollama" / "models"
     digest_hex = "a" * 64
@@ -97,7 +97,7 @@ def test_discover_finds_ollama_gguf_model_via_manifest(tmp_path, monkeypatch):
 
 
 def test_discover_reports_non_gguf_ollama_model_as_not_loadable(tmp_path, monkeypatch):
-    # ollama can also store non-GGUF (e.g. MLX) models. llama.cpp cannot load those, so we
+    # ollama can also store non GGUF (e.g. MLX) models. llama.cpp cannot load those, so we
     # must not lie and call them "gguf"/"llama.cpp" just because they came from ollama - sniff
     # the actual blob bytes rather than trusting the tag name.
     root = tmp_path / ".ollama" / "models"
@@ -117,9 +117,9 @@ def test_discover_reports_non_gguf_ollama_model_as_not_loadable(tmp_path, monkey
 
 
 def test_discover_reports_tensor_sharded_ollama_model_as_not_loadable(tmp_path, monkeypatch):
-    # Real-world shape (verified against an actual installed `ollama pull` of an MLX model):
+    # Real world shape (verified against an actual installed `ollama pull` of an MLX model):
     # some ollama models have NO single "*.model" layer at all - they are split into many
-    # per-tensor "*.tensor" layer blobs instead. There is no one file to hand llama-server, so
+    # per tensor "*.tensor" layer blobs instead. There is no one file to hand llama server, so
     # this can never be format=="gguf"/loadable=="llama.cpp" no matter what the tag says.
     root = tmp_path / ".ollama" / "models"
     digests = [f"{c * 64}" for c in ("c", "d")]

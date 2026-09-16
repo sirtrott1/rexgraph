@@ -2,12 +2,12 @@
 
 The old dashboard positioned vertices by the eigenvectors of L0. That is a linear
 grouping: the coordinate says where a cut fell, not what the cell is, and producing it
-costs a dense eigendecomposition. Nothing here has a spectral-embedding mode, and that
+costs a dense eigendecomposition. Nothing here has a spectral embedding mode, and that
 is the point rather than an omission.
 
 The character already IS a position. phi(v) lives in the simplex over the channel hats,
 so the coordinates are the cell's shares of topology, geometry, frustration and
-co-participation. These tests hold the embedding to being a change of coordinates: a
+co participation. These tests hold the embedding to being a change of coordinates: a
 cell that is purely one channel lands on that channel's corner, and equal shares land
 at the centre. Nothing is fitted, so there is nothing to converge.
 """
@@ -89,7 +89,7 @@ def test_character_positions_are_exact_at_full_dimension(rex):
 
 
 def test_a_lower_dimension_says_it_is_a_projection(rex):
-    """A 2D picture of a 3-simplex has lost something, and reporting it as exact would
+    """A 2D picture of a 3 simplex has lost something, and reporting it as exact would
     make a projection look like a reading."""
     out = character_positions(rex, dim=2)
     assert out["exact"] is False
@@ -102,7 +102,7 @@ def test_edge_character_positions_are_per_relation(rex):
 
 
 def test_positions_are_deterministic(rex):
-    """No iteration, no seed, no force-directed refinement to converge."""
+    """No iteration, no seed, no force directed refinement to converge."""
     a = character_positions(rex, dim=3)["positions"]
     b = character_positions(rex, dim=3)["positions"]
     assert np.array_equal(a, b)
@@ -158,7 +158,7 @@ def test_reach_refuses_a_seed_outside_the_complex(rex):
 
 
 def test_a_disconnected_component_is_not_reached(rex):
-    """Transport, not topology-by-cut: heat does not cross where there is no relation."""
+    """Transport, not topology by cut: heat does not cross where there is no relation."""
     g = RexGraph(sources=np.array([0, 2], dtype=np.int32),
                  targets=np.array([1, 3], dtype=np.int32))
     reached = {r["vertex"]: r["value"] for r in reach(g, [0], limit=4)["reached"]}
@@ -231,7 +231,7 @@ def test_length_carries_arity_across_the_payload():
 
 
 def _closed():
-    """A 4-ary relation with the 4-cycle spanning it, hyperfaces attached."""
+    """A 4 ary relation with the 4 cycle spanning it, hyperfaces attached."""
     from rexgraph.faces import auto_hyperface
 
     rex = RexGraph.from_hypergraph(
@@ -263,7 +263,7 @@ def test_a_face_reports_its_gon_not_the_relations_offered():
 
 
 def test_the_orientation_reading_is_the_gauge_invariant_one():
-    """Per-face parity is the representative's sign; orientability is not."""
+    """Per face parity is the representative's sign; orientability is not."""
     from agent.graph_view import render_payload
 
     payload = render_payload(_closed())

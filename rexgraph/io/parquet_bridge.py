@@ -8,13 +8,13 @@ the algebraic/topological framework:
 
 Boundary table: the general boundary operator d_1
 (Definition 3.1).  One row per (edge, boundary_vertex) pair, which handles
-standard, self-loop, branching, and witness edges (Definition 3.2).
+standard, self loop, branching, and witness edges (Definition 3.2).
 
-Edge table - per-edge data: source/target (for standard edges),
+Edge table - per edge data: source/target (for standard edges),
 edge type (Definition 3.2), weight, and optional Hodge components
 (Theorem 3.8/4.5).
 
-Vertex table: per-vertex data, layout from overlap-correct
+Vertex table: per vertex data, layout from overlap correct
 spectral embedding (Definition 6.7), degree from L_0,
 Fiedler vector entries, etc.
 
@@ -29,7 +29,7 @@ death_cell, lifetime.
 Filtration table - filtration values f: C_k -> R
 on the relational complex.
 
-Metrics table: generic per-cell numeric metrics.
+Metrics table: generic per cell numeric metrics.
 
 All `pyarrow` imports are lazy.  No pandas dependency.
 
@@ -93,8 +93,8 @@ def _pq():
         ) from exc
 
 
-#: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
-#: existing call sites keep working; `dumps` is what applies the non-finite policy.
+#: the one encoder (rexgraph.io._compat). Re exported under the local name so the
+#: existing call sites keep working; `dumps` is what applies the non finite policy.
 import contextlib
 
 from ._compat import dumps as _dumps
@@ -114,24 +114,24 @@ def parquet_encryption_properties(
     column_keys: dict[str, Sequence[str]],
     plaintext_footer: bool = False,
 ) -> Any:
-    """Build PyArrow file-encryption properties from caller-owned KMS objects.
+    """Build PyArrow file encryption properties from caller owned KMS objects.
 
-    ``footer_key`` and the keys of ``column_keys`` are master-key identifiers,
+    ``footer_key`` and the keys of ``column_keys`` are master key identifiers,
     never raw key material.  ``column_keys`` maps each identifier to the physical
     columns it protects inside *one* Parquet file.  Rex grade tables are separate
-    files, so grade-level disclosure is a caller-owned file/bundle key policy;
+    files, so grade level disclosure is a caller owned file/bundle key policy;
     column keys are a finer policy within each file.  PME authorizes columns, not
-    rows: row-group pruning remains a performance mechanism, never access control.
+    rows: row group pruning remains a performance mechanism, never access control.
 
     The footer is encrypted by default, hiding the schema and Rex metadata from a
     keyless reader.  Set ``plaintext_footer=True`` explicitly for a distribution
     file whose schema may be public; PyArrow still signs that plaintext footer.
 
     Core neither owns a KMS client nor sees key bytes.  It constructs PyArrow's
-    high-level configuration and delegates creation of the opaque
-    ``FileEncryptionProperties`` to the caller-supplied ``CryptoFactory``.
+    high level configuration and delegates creation of the opaque
+    ``FileEncryptionProperties`` to the caller supplied ``CryptoFactory``.
     """
-    _pq()  # preserve parquet_bridge's lazy optional-dependency error
+    _pq()  # preserve parquet_bridge's lazy optional dependency error
     from pyarrow.parquet.encryption import EncryptionConfiguration
 
     normalized = {str(key_id): list(names) for key_id, names in column_keys.items()}
@@ -152,7 +152,7 @@ def write_parquet(
     metadata: dict[str, Any] | None = None,
     encryption_properties: Any | None = None,
 ) -> None:
-    """Write a dict of equal-length 1D arrays to Parquet.
+    """Write a dict of equal length 1D arrays to Parquet.
 
     For 2D arrays, columns are split into `{name}_0`, `{name}_1`,
     etc. and reassembled by read_parquet().
@@ -206,7 +206,7 @@ def read_parquet(
     pa, pq = _pq()
     parquet_path = os.fspath(path)
 
-    # The split-column map lives in schema metadata, so inspect the footer before
+    # The split column map lives in schema metadata, so inspect the footer before
     # choosing the physical projection.  Reading a schema does not load column
     # data; passing the expanded projection to read_table is what prevents an
     # unrequested (and, under modular encryption, potentially undecryptable)
@@ -301,7 +301,7 @@ def write_boundary_table(
     representation: it handles all edge types from Definition 3.2:
 
     - Standard edges: 2 rows per edge (source, target)
-    - Self-loops: 2 rows, same vertex
+    - Self loops: 2 rows, same vertex
     - Branching edges: geq 3 rows
     - Witness edges: 1 row
 
@@ -349,7 +349,7 @@ def read_boundary_table(
     """Read boundary table and reconstruct `boundary_ptr`/`boundary_idx`.
 
     Returns
-    -------
+
     dict with `boundary_ptr`, `boundary_idx`, `nV`, `nE`,
     `directed`, and the raw columns.
     """
@@ -380,7 +380,7 @@ def read_boundary_table(
     }
 
 
-# Edge table (Definition 3.2, per-edge properties)
+# Edge table (Definition 3.2, per edge properties)
 
 
 def write_edge_table(
@@ -390,7 +390,7 @@ def write_edge_table(
     include: list[str] | None = None,
     encryption_properties: Any | None = None,
 ) -> None:
-    r"""Write per-edge data to Parquet.
+    r"""Write per edge data to Parquet.
 
     One row per edge.  Columns:
 
@@ -401,9 +401,9 @@ def write_edge_table(
     - `weight` - if weighted
 
     Parameters
-    ----------
+
     rex : RexGraph
-    path : str or path-like
+    path : str or path like
     include : list of str, optional
         Extra per-edge arrays: `"hodge_gradient"`,
         `"hodge_curl"`, `"hodge_harmonic"` (Theorem 3.8/4.5).
@@ -498,7 +498,7 @@ def write_vertex_table(
     include: list[str] | None = None,
     encryption_properties: Any | None = None,
 ) -> None:
-    r"""Write per-vertex data to Parquet.
+    r"""Write per vertex data to Parquet.
 
     Default columns:
 
@@ -507,9 +507,9 @@ def write_vertex_table(
     - `x`, `y` - spectral layout (Definition 6.7)
 
     Parameters
-    ----------
+
     rex : RexGraph
-    path : str or path-like
+    path : str or path like
     include : list of str, optional
         `"fiedler_vector_L0"`, `"eigenvalues_L0"`, `"layout_3d"`.
     """
@@ -823,7 +823,7 @@ def write_metrics_table(
     index_name: str = "cell_idx",
     encryption_properties: Any | None = None,
 ) -> None:
-    """Write per-cell metrics to Parquet.  All arrays must have equal length."""
+    """Write per cell metrics to Parquet.  All arrays must have equal length."""
     if not metrics:
         raise ValueError("metrics dict cannot be empty")
     lengths = {len(np.asarray(v)) for v in metrics.values()}
@@ -913,7 +913,7 @@ def write_character_table(
     *,
     encryption_properties: Any | None = None,
 ):
-    """Write per-edge structural character to Parquet.
+    """Write per edge structural character to Parquet.
 
     One row per edge. Columns: edge_idx, chi_0, chi_1, ..., chi_{nhats-1}.
     Column names use hat_names if available (e.g. chi_L1_down, chi_L_O, chi_L_SG).
@@ -939,7 +939,7 @@ def write_character_table(
 
 
 def read_character_table(path, *, decryption_properties: Any | None = None):
-    """Read per-edge structural character from Parquet.
+    """Read per edge structural character from Parquet.
 
     Returns dict with edge_idx and chi columns.
     """
@@ -961,7 +961,7 @@ def write_vertex_character_table(
     *,
     encryption_properties: Any | None = None,
 ):
-    """Write per-vertex character (phi, kappa) to Parquet.
+    """Write per vertex character (phi, kappa) to Parquet.
 
     One row per vertex. Columns: vertex_idx, phi_0..phi_{nhats-1}, kappa.
     """
@@ -990,7 +990,7 @@ def write_vertex_character_table(
 
 
 def read_vertex_character_table(path, *, decryption_properties: Any | None = None):
-    """Read per-vertex character from Parquet."""
+    """Read per vertex character from Parquet."""
     _, pq = _pq()
     table = pq.read_table(path, decryption_properties=decryption_properties)
     result = {}

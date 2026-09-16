@@ -1,12 +1,12 @@
 """
-Cross-document corpus analysis: orchestration over rexgraph Cython kernels.
+Cross document corpus analysis: orchestration over rexgraph Cython kernels.
 
-Takes multiple documents of any supported format, builds per-document
+Takes multiple documents of any supported format, builds per document
 relational complexes via ``auto_rex`` (CSV, JSON, DataFrames, Parquet,
 Arrow, HDF5, Zarr, .rcbd bundles, raw text, images, PDFs), resolves
-shared entities, constructs cross-document complexes via the existing
+shared entities, constructs cross document complexes via the existing
 ``_joins`` and ``_cross_complex`` kernels, runs BIOES temporal tagging
-via ``_temporal``, and provides propagator-based query matching via
+via ``_temporal``, and provides propagator based query matching via
 ``_query.spectral_propagate()``.
 
 Every operation delegates to compiled Cython kernels.
@@ -70,7 +70,7 @@ class DocumentRecord:
     date: str | None = None
     text: str = ""
 
-    # Per-document RexGraph (set after build)
+    # Per document RexGraph (set after build)
     rex: Any = None
     edge_construction: Any = None
     analysis: dict[str, Any] = field(default_factory=dict)
@@ -80,7 +80,7 @@ class DocumentRecord:
 
 @dataclass
 class QueryResult:
-    """Result of a propagator-based corpus query."""
+    """Result of a propagator based corpus query."""
 
     query_text: str
     ranked_sections: list[dict[str, Any]] = field(default_factory=list)
@@ -92,16 +92,16 @@ class QueryResult:
 def _extract_entities(text: str, min_len: int = 3) -> list[str]:
     """Extract candidate entities from text.
 
-    Uses capitalization and noun-phrase heuristics.
+    Uses capitalization and noun phrase heuristics.
     Returns deduplicated, lowercased entity strings.
     """
-    # Capitalized multi-word phrases (e.g. "United States", "Machine Learning")
+    # Capitalized multi word phrases (e.g. "United States", "Machine Learning")
     cap_phrases = re.findall(
         r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', text,
     )
     # Single capitalized words (not at sentence start)
     single_caps = re.findall(r'(?<=[.!?]\s)[A-Z][a-z]+\b', text)
-    # Also grab mid-sentence capitals
+    # Also grab mid sentence capitals
     mid_caps = re.findall(r'(?<=[a-z]\s)([A-Z][a-zA-Z]{2,})\b', text)
 
     entities = set()
@@ -123,7 +123,7 @@ def _extract_entities(text: str, min_len: int = 3) -> list[str]:
 #
 # One mechanism, in agent.scoring: the interfacing vector (Poisson lift -> typed
 # channel operators -> bilinear score). What used to be here was a label Jaccard
-# plus a cosine between MEAN structural characters plus a hand-rolled spectral term,
+# plus a cosine between MEAN structural characters plus a hand rolled spectral term,
 # blended under fixed 0.3/0.35/0.35 weights: three approximations of the thing the
 # library already computes exactly. Lexical overlap is now a candidate prefilter
 # only; it decides what to look at, not what is relevant.
@@ -136,7 +136,7 @@ def score_document(doc, query_ec, query_chi=None, mode="hybrid") -> float:
     `reading=False` is what `interfacing_score` documents for "callers ranking a large
     candidate set who want the diagnostics only on what survives", and ranking is exactly
     this. Taking the default ran `agentic_reading` on every candidate: measured on one
-    1,469-relation document, 81.26 s a call against 0.52 s, so a ten-candidate retrieval
+    1,469 relation document, 81.26 s a call against 0.52 s, so a ten candidate retrieval
     spent thirteen minutes producing diagnostics for nine documents it was about to
     discard. `score_document_full` keeps the reading, for the ones that survive.
     """
@@ -162,7 +162,7 @@ def count_shared_entities(labels_a, labels_b) -> int:
 
 
 class CorpusBuilder:
-    """Cross-document corpus analysis using existing Cython kernels.
+    """Cross document corpus analysis using existing Cython kernels.
 
     Accepts any input type that auto_rex handles: CSV edge lists,
     feature matrices, DataFrames, JSON, Parquet, Arrow IPC, HDF5,
@@ -190,7 +190,7 @@ class CorpusBuilder:
         self.documents: list[DocumentRecord] = []
         self._built = False
 
-        # Cross-document state (populated by build())
+        # Cross document state (populated by build())
         self._merged_rex = None
         self._shared_labels: list[str] = []
         self._doc_edge_types: np.ndarray | None = None
@@ -208,7 +208,7 @@ class CorpusBuilder:
         """Add a document to the corpus.
 
         Parameters
-        ----------
+
         source : str
             File path (CSV, JSON, PDF, image, Parquet, HDF5, .rcbd, etc.)
             or raw text.  Type is auto-detected by ``auto_rex``.
@@ -220,7 +220,7 @@ class CorpusBuilder:
             Pre-extracted text.  If None, OCR is run on ``source``.
 
         Returns
-        -------
+
         str : the doc_id assigned
         """
         if doc_id is None:
@@ -255,14 +255,14 @@ class CorpusBuilder:
         """Add a document built as ONE field carrying its own layers.
 
         The difference from `add_document` is the construction, and it is not cosmetic.
-        `add_document` routes through the flat co-occurrence adapter, which expands each
+        `add_document` routes through the flat co occurrence adapter, which expands each
         sentence into pairs; this builds the canonical document complex (branching
         sentence relations, a sentence PARTITION carrying byte spans, and paragraph and
         chapter layers as parent maps over it) so the record is queryable by layer and
         every section is provable and addressable.
 
         The complex is built here rather than in `build()`, so `doc.rex` is already
-        canonical when cross-document analysis runs and nothing re-routes it through the
+        canonical when cross document analysis runs and nothing re routes it through the
         adapter. `build()` skips a document that already has a `rex`.
 
         `build_kw` reaches `rexgraph.document.build_document` (`min_agreement`,
@@ -309,7 +309,7 @@ class CorpusBuilder:
         """Walk a directory and add each supported file as a document.
 
         Parameters
-        ----------
+
         directory : str
             Root directory to scan.
         recursive : bool
@@ -321,7 +321,7 @@ class CorpusBuilder:
             Date applied to all documents in the directory.
 
         Returns
-        -------
+
         list of str : doc_ids of added documents
         """
         import os
@@ -380,15 +380,15 @@ class CorpusBuilder:
 
     # Build
     def build(self, depth: str = "standard", stage_callback=None) -> None:
-        """Build per-document complexes and cross-document structure.
+        """Build per document complexes and cross document structure.
 
         Accepts any input that auto_rex handles: CSV, JSON, DataFrames,
         Parquet, Arrow, HDF5, Zarr, .rcbd bundles, raw text, images, and
-        PDFs.  Each document becomes a RexGraph; cross-document analysis
+        PDFs.  Each document becomes a RexGraph; cross document analysis
         uses the existing Cython kernels.
 
         Parameters
-        ----------
+
         depth : str
             Analysis depth ('quick', 'standard', 'full').
         stage_callback : callable, optional
@@ -410,13 +410,13 @@ class CorpusBuilder:
         from agent.pipeline import AnalysisPipeline
 
         for doc in self.documents:
-            # Content-addressed cache: skip rebuild + analysis when we've
+            # Content addressed cache: skip rebuild + analysis when we've
             # seen identical input at this depth before.
             cache_key = None
             # A document built by `add_layered_document` already carries the canonical
-            # complex. The content-addressed cache is keyed on text + depth + adapter
+            # complex. The content addressed cache is keyed on text + depth + adapter
             # kwargs, none of which distinguish the two constructions, so a hit here
-            # would REPLACE the layered complex with an adapter-built one that happens
+            # would REPLACE the layered complex with an adapter built one that happens
             # to share a key. Skip the lookup rather than widen the key: the work is
             # already done for this document.
             if getattr(doc, "rex", None) is None \
@@ -450,14 +450,14 @@ class CorpusBuilder:
             try:
                 if getattr(doc, "rex", None) is not None:
                     # built canonically by `add_layered_document`: one field carrying its
-                    # own layers. Re-routing it through the adapter would replace a
+                    # own layers. Re routing it through the adapter would replace a
                     # branching construction with a pairwise one.
                     rex = doc.rex
                 elif getattr(doc, "edge_construction", None) is not None:
                     # An adapter already built the edges outside auto_rex
-                    # (e.g. OCR-layout so document structure is preserved,
-                    # or a single-cell / L-R construction). Use them
-                    # directly so we don't re-route through the flat
+                    # (e.g. OCR layout so document structure is preserved,
+                    # or a single cell / L-R construction). Use them
+                    # directly so we don't re route through the flat
                     # TextAdapter.
                     # Faces are asked for, not assumed, and a document complex
                     # wants them: with none, curl is identically 0 and every loop
@@ -526,7 +526,7 @@ class CorpusBuilder:
                 pipe.on_stage(_cb)
             doc.analysis = pipe.run(depth=depth)
 
-            # Populate the cache for next time (best-effort).
+            # Populate the cache for next time (best effort).
             if cache_key is not None:
                 with contextlib.suppress(Exception):
                     _cache.store_rex_and_analysis(
@@ -555,7 +555,7 @@ class CorpusBuilder:
                 rex.targets.copy(),
             ))
 
-    # Cross-document analysis (calls Cython kernels)
+    # Cross document analysis (calls Cython kernels)
     def cross_document_kappa(
         self,
         doc_a: int = 0,
@@ -625,7 +625,7 @@ class CorpusBuilder:
         doc_a: int = 0,
         doc_b: int = 1,
     ) -> dict[str, Any]:
-        """Full cross-document structural bridge.
+        """Full cross document structural bridge.
 
         Calls ``_cross_complex.cross_complex_bridge()``.
         """
@@ -723,10 +723,10 @@ class CorpusBuilder:
         }
 
     def metrics(self) -> dict:
-        """Per-DOCUMENT and per-CORPUS information metrics: each built document's
+        """Per DOCUMENT and per CORPUS information metrics: each built document's
         structural perplexity (effective modes), coherence, and varentropy reliability
-        gap, plus their corpus-level distribution and diversity (the effective number
-        of coherence-distinct documents). Same Rényi calculus as the token/response
+        gap, plus their corpus level distribution and diversity (the effective number
+        of coherence distinct documents). Same Rényi calculus as the token/response
         metrics; see agent.metrics."""
         from agent.metrics import corpus_metrics, structural_metrics
         docs = [d for d in self.documents if d.rex is not None]
@@ -804,7 +804,7 @@ class CorpusBuilder:
             })
 
         # doc_id breaks ties: without a ranking term that varies with vocabulary,
-        # every non-matching document scores exactly 0, and enumeration order
+        # every non matching document scores exactly 0, and enumeration order
         # would otherwise decide the tail differently per caller.
         results.sort(key=lambda r: (-r["score"], str(r["doc_id"])))
         return QueryResult(
@@ -821,10 +821,10 @@ class CorpusBuilder:
     _count_shared_entities = staticmethod(count_shared_entities)
 
     def to_triples(self) -> list:
-        """Generate TrustGraph triples with cross-document provenance.
+        """Generate TrustGraph triples with cross document provenance.
 
         Calls ``TrustGraphAdapter.to_enrichment_triples()`` per
-        document, then adds cross-document provenance triples.
+        document, then adds cross document provenance triples.
         """
         self._ensure_built()
         from agent.integrations.trustgraph_adapter import TrustGraphAdapter
@@ -847,10 +847,10 @@ class CorpusBuilder:
                     o=t.o,
                 ))
 
-        # Cross-document consistency triples. Only document PAIRS that share ≥1
+        # Cross document consistency triples. Only document PAIRS that share ≥1
         # entity can emit a triple (the n_shared > 0 gate), so build an inverted
         # index (entity label -> docs containing it) once and bridge only the
-        # co-occurring pairs - instead of the old all-pairs O(D²) scan that ran a
+        # co occurring pairs - instead of the old all pairs O(D²) scan that ran a
         # full alignment for every pair, including the (usually many) that share
         # nothing. Output is identical; a corpus with a hub entity in every doc
         # still bridges those pairs (they genuinely share), only faster to reach.
@@ -892,9 +892,9 @@ class CorpusBuilder:
         """Run TrustGraph ontology enrichment over the whole corpus.
 
         Generates enrichment triples for every document (KEGG / GO /
-        CellPhoneDB-style ontology mappings via the TrustGraph adapter),
+        CellPhoneDB style ontology mappings via the TrustGraph adapter),
         then runs the standalone TrustGraph engine over them and returns
-        a JSON-safe summary.  This is the pipeline hook the manual
+        a JSON safe summary.  This is the pipeline hook the manual
         workflow used to produce its enrichment triples.
 
         Returns a dict with ``available`` False and a ``reason`` when the
@@ -938,7 +938,7 @@ class CorpusBuilder:
             pass
         analysis = getattr(result, "analysis", None)
         if isinstance(analysis, dict):
-            # Keep only small scalar-ish fields to stay SSE-friendly.
+            # Keep only small scalar ish fields to stay SSE friendly.
             keep = {}
             for k, v in analysis.items():
                 if isinstance(v, (int, float, str, bool)) or v is None:
@@ -1037,19 +1037,19 @@ class CorpusBuilder:
         except Exception as e:
             return {"error": str(e)}
 
-    # Cross-dataset comparison
+    # Cross dataset comparison
     def cross_dataset_comparison(self, metric: str = "bottleneck") -> dict:
         """Compare structural invariants across *all* documents at once.
 
-        Produces the multi-dataset comparison the Poincaré critical-surface
-        analysis needed: a pairwise persistence-distance matrix plus a
-        per-document invariant table (betti, Hodge fractions, kappa) and
-        shared-entity / kappa-correlation bridges.  Every distance comes
+        Produces the multi dataset comparison the Poincaré critical surface
+        analysis needed: a pairwise persistence distance matrix plus a
+        per document invariant table (betti, Hodge fractions, kappa) and
+        shared entity / kappa correlation bridges.  Every distance comes
         from the compiled ``_persistence`` kernels via
         :meth:`persistence_distance`.
 
         Parameters
-        ----------
+
         metric : str
             Which persistence-distance field to place in the matrix
             ('bottleneck', 'wasserstein', or 'landscape_distance').
@@ -1059,7 +1059,7 @@ class CorpusBuilder:
         n = len(docs)
         ids = [d.doc_id for d in docs]
 
-        # Per-document invariant table.
+        # Per document invariant table.
         invariants = []
         for d in docs:
             rel = d.analysis.get("relational", {}) if d.analysis else {}
@@ -1075,7 +1075,7 @@ class CorpusBuilder:
                 "pct_harmonic": hodge.get("pct_harmonic"),
             })
 
-        # Pairwise persistence-distance matrix (symmetric, zero diagonal).
+        # Pairwise persistence distance matrix (symmetric, zero diagonal).
         matrix = [[0.0] * n for _ in range(n)]
         errors = []
         for i in range(n):
@@ -1094,7 +1094,7 @@ class CorpusBuilder:
                     errors.append(f"{ids[i]}~{ids[j]}: {e}")
                 matrix[i][j] = matrix[j][i] = val
 
-        # Shared-entity / kappa bridges.
+        # Shared entity / kappa bridges.
         bridges = []
         for i in range(n):
             for j in range(i + 1, n):
@@ -1128,14 +1128,14 @@ class CorpusBuilder:
     #
     # One record per document, so the store IS the corpus rather than somewhere a
     # corpus gets copied to. Everything retrieval needs (labels, source text) already
-    # rides in the rex's _agent_meta and round-trips through the canonical serializer;
+    # rides in the rex's _agent_meta and round trips through the canonical serializer;
     # what goes in `meta` is only what a reader needs WITHOUT opening the blob.
 
     def persist(self, store=None, *, prefix: str = "", tags: list[str] | None = None,
                 valid_from=None) -> list[str]:
         """Write each built document into an RCStore. Returns the ids written.
 
-        Re-persisting an unchanged corpus is a no-op on version numbers: each document
+        Re persisting an unchanged corpus is a no op on version numbers: each document
         goes through `version_if_changed`, so repeated ingests do not spam the lineage.
         """
         from agent import rcdb
@@ -1200,7 +1200,7 @@ class CorpusBuilder:
         return corpus
 
     def _rehydrate(self):
-        """Mark a store-loaded corpus built without re-running the per-document
+        """Mark a store loaded corpus built without re running the per document
         pipeline: the rexes are already the analyzed ones that were persisted."""
         for doc in self.documents:
             if doc.rex is not None and not doc.analysis:
@@ -1221,7 +1221,7 @@ class CorpusBuilder:
         return [d.doc_id for d in self.documents]
 
     def summary(self) -> str:
-        """Human-readable corpus summary."""
+        """Human readable corpus summary."""
         lines = [f"Corpus: {self.n_documents} documents"]
         for doc in self.documents:
             status = f"{doc.rex.nV}V {doc.rex.nE}E {doc.rex.nF}F" if doc.rex else "no rex"

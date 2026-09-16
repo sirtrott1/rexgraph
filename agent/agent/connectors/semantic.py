@@ -27,7 +27,7 @@ class SemanticConnector(BaseConnector):
         rex, meta = ontology_to_rex(model)
         if rex is None:
             raise ConnectorError("no subsumption/definition structure in the triples")
-        # Rebuild edges in the engine's own order (model.edges minus self-loops)
+        # Rebuild edges in the engine's own order (model.edges minus self loops)
         # so the contract's edge list aligns 1:1 with the rex's edges.
         edges = [(a, b) for (a, b, _pred, _kind) in model.edges if a != b]
         return self.result(rex, vertex_labels=list(meta["vertex_labels"]),

@@ -16,7 +16,7 @@ def _delta_between(prev, curr, directed=False):
 
 def _cell_state_full(rex):
     """_cell_state, but with w_E/signs materialized to their zeros/ones defaults
-    instead of None, matching the 4-tuple shape TemporalRex._last_state stores
+    instead of None, matching the 4 tuple shape TemporalRex._last_state stores
     internally (_append_index_entry always fills these before diffing)."""
     ptr, idx, w_E, signs = _cell_state(rex)
     nE = int(ptr.shape[0] - 1)
@@ -84,7 +84,7 @@ def test_apply_edge_delta_replays_born_died_modified():
                     w_E=np.array([10.0, 20.0], np.float64))
     curr = RexGraph(sources=np.array([0, 2], np.int32), targets=np.array([1, 3], np.int32),
                     w_E=np.array([99.0, 30.0], np.float64))
-    d = _delta_between(prev, curr)          # the same helper the delta-store tests use
+    d = _delta_between(prev, curr)          # the same helper the delta store tests use
     live = RexGraph(sources=np.array([0, 1], np.int32), targets=np.array([1, 2], np.int32),
                     w_E=np.array([10.0, 20.0], np.float64))
     apply_edge_delta(live, d)
@@ -298,23 +298,23 @@ def test_parallel_relations_survive_delta_store_serialization(tmp_path):
 
 
 def test_reconstruct_at_with_deaths_across_deltas():
-    # moderate churn against a stable 9-vertex path core (0-1-2-...-8) so at
+    # moderate churn against a stable 9 vertex path core (0-1-2-...-8) so at
     # least one reconstruct_at call replays 2+ real deltas including an edge
     # death, not just checkpoints. This is the regression case for the
-    # stable-vertex-id bug: in-place delta replay (apply_edge_delta ->
+    # stable vertex id bug: in place delta replay (apply_edge_delta ->
     # remove_edges -> compact on the next _ensure_clean) renumbers vertices
     # to a contiguous range once an edge death orphans one (dropping the
-    # orphan and shifting every higher-numbered live vertex down). A later
+    # orphan and shifting every higher numbered live vertex down). A later
     # delta's died/mod keys were computed by _ensure_index against the
-    # ORIGINAL, un-shifted vertex-id scheme, so they silently fail to match
-    # the now-renumbered live complex: a death that should land is dropped
+    # ORIGINAL, un shifted vertex id scheme, so they silently fail to match
+    # the now renumbered live complex: a death that should land is dropped
     # (its np.isin match comes back empty) and a phantom edge from the
-    # renumbering shows up instead. reconstruct_at must do a key-level
+    # renumbering shows up instead. reconstruct_at must do a key level
     # replay (never mutating a live rex, never renumbering) instead.
     #
     # Step 1 (t=0 -> t=1) drops edge (0,1), orphaning vertex 0 and shifting
-    # every vertex 1..8 down by one under in-place replay. Step 2 (t=1 -> t=2)
-    # drops edge (7,8): its died-key was computed against the original ids
+    # every vertex 1..8 down by one under in place replay. Step 2 (t=1 -> t=2)
+    # drops edge (7,8): its died key was computed against the original ids
     # (7, 8), which no longer resolves once vertex 8 has been silently
     # renumbered to 7, so the buggy replay leaves a phantom (0, 1) edge in
     # place and fails to remove the dead (7, 8) cell.
@@ -344,7 +344,7 @@ def test_reconstruct_at_with_deaths_across_deltas():
 
 
 def _as_delta_backed(built):
-    """Force a snapshots-backed TemporalRex into delta-backed mode: build the
+    """Force a snapshots backed TemporalRex into delta backed mode: build the
     checkpoint/delta index while snapshots are still materialized, then drop
     the materialized snapshots so every analysis member must go through
     `reconstruct_at` via `_all_snapshots`/`_snapshot_at`."""
@@ -364,7 +364,7 @@ def test_analysis_works_delta_backed():
     from rexgraph.graph import TemporalRex
     built = TemporalRex([(x.sources, x.targets) for x in s])
     ref_life = built.edge_lifecycle
-    # a delta-backed store: same data, but force _snapshots_materialized = False
+    # a delta backed store: same data, but force _snapshots_materialized = False
     delta_backed = TemporalRex([(x.sources, x.targets) for x in s])
     delta_backed._ensure_index()
     delta_backed._snapshots_materialized = False
@@ -386,7 +386,7 @@ def test_temporal_index_delta_backed_matches_snapshots_backed():
     # temporal_index returns (checkpoints, deltas, checkpoint_times); checkpoints
     # and deltas are ragged lists of (time, arrays...) tuples, so compare the
     # checkpoint_times array and each checkpoint's (time, sources, targets)
-    # element-by-element rather than np.asarray()-ing the whole ragged structure
+    # element by element rather than np.asarray()-ing the whole ragged structure
     s = _growing_snapshots()
     from rexgraph.graph import TemporalRex
     ref_cps, ref_deltas, ref_cp_times = TemporalRex([(x.sources, x.targets) for x in s]).temporal_index
@@ -457,7 +457,7 @@ def test_ensure_index_is_atomic_on_failure(monkeypatch):
     graphs = [RexGraph(sources=np.arange(k, dtype=np.int32),
                        targets=np.arange(1, k + 1, dtype=np.int32)) for k in (2, 3, 4, 5)]
     trex = TemporalRex([(g.sources, g.targets) for g in graphs])
-    # make the per-entry index build blow up on the 2nd entry
+    # make the per entry index build blow up on the 2nd entry
     orig = TemporalRex._append_index_entry
     calls = {"n": 0}
     def boom(self, *a, **k):
@@ -468,7 +468,7 @@ def test_ensure_index_is_atomic_on_failure(monkeypatch):
     monkeypatch.setattr(TemporalRex, "_append_index_entry", boom)
     with pytest.raises(RuntimeError):
         trex._ensure_index()
-    assert trex._index_cp_times is None            # rolled back to unbuilt, not half-built
+    assert trex._index_cp_times is None            # rolled back to unbuilt, not half built
     # after removing the fault, a retry rebuilds cleanly
     monkeypatch.setattr(TemporalRex, "_append_index_entry", orig)
     trex._ensure_index()
@@ -583,8 +583,8 @@ def test_branching_arity_reconstruct():
     # t=0: an ordinary edge (0,1) plus a branching hyperedge over {2,3,4} (arity 3)
     s0 = RexGraph(boundary_ptr=np.array([0, 2, 5], np.int32),
                   boundary_idx=np.array([0, 1, 2, 3, 4], np.int32))
-    # t=1: edge (0,1) persists unchanged; the arity-3 hyperedge dies and a new
-    # arity-4 hyperedge over {2,3,4,5} is born, so reconstruct_at must replay a
+    # t=1: edge (0,1) persists unchanged; the arity 3 hyperedge dies and a new
+    # arity 4 hyperedge over {2,3,4,5} is born, so reconstruct_at must replay a
     # born/died pair at the KEY level and preserve the new cell's full arity
     s1 = RexGraph(boundary_ptr=np.array([0, 2, 6], np.int32),
                   boundary_idx=np.array([0, 1, 2, 3, 4, 5], np.int32))
@@ -685,12 +685,12 @@ def test_delta_serialized_smaller_than_full_snapshots(tmp_path):
     pytest.importorskip("safetensors")
     from rexgraph.graph import TemporalRex
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, temporal_rex_to_safetensors
-    # a large stable base with a SMALL per-step edit (a handful of edges swapped
+    # a large stable base with a SMALL per step edit (a handful of edges swapped
     # each step, real world "big graph, tiny periodic edits" shape): full
-    # per-step serialization pays for the whole boundary CSR every step, the
-    # delta index pays for one full checkpoint plus O(churn) per-step deltas.
+    # per step serialization pays for the whole boundary CSR every step, the
+    # delta index pays for one full checkpoint plus O(churn) per step deltas.
     # (A tiny-graph/many-steps version of this test is dominated by the
-    # safetensors per-tensor header overhead on both sides rather than by the
+    # safetensors per tensor header overhead on both sides rather than by the
     # actual O(nE) vs O(churn) payload difference, so it does not exercise the
     # property this test is checking; this shape does.)
     rng = np.random.default_rng(0)
@@ -775,7 +775,7 @@ def test_serialization_preserves_full_attribution(tmp_path):
 
 
 def test_face_signs_survive_serialization():
-    """test_face_signs_survive_reconstruct only checks the in-memory replay path;
+    """test_face_signs_survive_reconstruct only checks the in memory replay path;
     this checks the same signed face survives an actual serialize -> load ->
     reconstruct round trip through the APPEND path (Slice D's real usage)."""
     pytest.importorskip("safetensors")

@@ -1,4 +1,4 @@
-"""agent.agentic_db: a live database as a first-class member of the agentic RCDB.
+"""agent.agentic_db: a live database as a first class member of the agentic RCDB.
 
 An AgenticDB wraps a live SQL database (any SQLAlchemy dialect) and makes it
 interoperate with the hive and the Relational Complex Database (agent.rcdb):
@@ -6,7 +6,7 @@ interoperate with the hive and the Relational Complex Database (agent.rcdb):
   * Its schema is reflected into a relational complex and stored in the RCDB, so
     the database's *structure* is queryable topology (circular FK dependencies,
     hub tables, missing-FK voids) and part of agentic memory.
-  * A natural-language question is mapped onto that schema complex by the query
+  * A natural language question is mapped onto that schema complex by the query
     manager: the tables it touches, and, crucially, the JOIN is derived from
     the schema's FK graph (shortest paths, junction tables auto-inserted), not
     guessed by a model. A question referencing tables with no relational path is
@@ -17,7 +17,7 @@ interoperate with the hive and the Relational Complex Database (agent.rcdb):
     database through the swarm (hive.invoke), every call recorded in the monitor.
 
 Safety: the connection URI is checked against the DB policy (agent.server.dbguard
-- anti-SSRF / allow-lists) before use.
+- anti SSRF / allow lists) before use.
 """
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ class AgenticDB:
     #### structure
     def health(self) -> dict[str, Any]:
         """Full topological diagnosis of the live schema (circular FK deps, hierarchy vs
-        tension, missing-FK voids, hub tables). The database's structure, as a complex."""
+        tension, missing FK voids, hub tables). The database's structure, as a complex."""
         return sc.diagnose_schema(self.model)
 
     def tables(self) -> list[dict[str, Any]]:
@@ -94,7 +94,7 @@ class AgenticDB:
     def _table_names(self) -> set:
         return set(self.model.table_names())
 
-    #### schema-topological SQL
+    #### schema topological SQL
     def _pk(self, table: str) -> str:
         for t in self.model.tables:
             if t.name == table and t.primary_key:
@@ -160,7 +160,7 @@ class AgenticDB:
     def close(self) -> None:
         """Release the engine's connection pool.
 
-        _execute closes each checked-out connection, which returns it to the pool; the
+        _execute closes each checked out connection, which returns it to the pool; the
         pool itself is what holds the sockets, and nothing disposed it. Idempotent, so a
         caller and a context manager exit can both call it.
         """
@@ -232,7 +232,7 @@ class AgenticDB:
                      limit: int = 500) -> dict[str, Any]:
         """Pull rows (a table name or a SELECT) and analyze the DATA as a relational complex:
         cluster records by shared values (connected components), rank them by structural centrality
-        (coherence), and flag isolated outliers. The row-level companion to `health()`/schema
+        (coherence), and flag isolated outliers. The row level companion to `health()`/schema
         topology: here the returned data is the complex, not the schema."""
         if source in self._table_names():
             rows = self.extract(source, limit=limit).get("rows", [])
@@ -248,8 +248,8 @@ class AgenticDB:
 
     #### guarded write
     def modify(self, statement: str) -> dict[str, Any]:
-        """A guarded write. Read-only unless opened writable; a single INSERT/UPDATE/DELETE
-        only; DDL and multi-statement input are refused."""
+        """A guarded write. Read only unless opened writable; a single INSERT/UPDATE/DELETE
+        only; DDL and multi statement input are refused."""
         if not self.writable:
             return {"ok": False, "error": "database is read-only (open with writable=True)"}
         s = statement.strip().rstrip(";")

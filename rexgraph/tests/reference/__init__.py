@@ -1,8 +1,8 @@
 """
-Pure-numpy reference implementations of rexgraph.core kernels.
+Pure numpy reference implementations of rexgraph.core kernels.
 
 These exist as test fixtures: every Cython kernel in rexgraph.core has a
-pure-numpy reference here that the math-correctness tests compare against.
+pure numpy reference here that the math correctness tests compare against.
 
 The pattern is:
     rexgraph.core._overlap.build_L_O          <- compiled Cython kernel

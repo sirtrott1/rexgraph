@@ -1,12 +1,12 @@
 """
 model_introspect: run the RCF relational math on the model's own internals, pulled
-live from the running llama.cpp server (Tier-1 bridge: embeddings + logits over the
-OpenAI-compatible API - no PyTorch, no C++ patch).
+live from the running llama.cpp server (Tier 1 bridge: embeddings + logits over the
+OpenAI compatible API - no PyTorch, no C++ patch).
 
 The model's embedding geometry becomes a relational complex analyzed by the same
 compiled Cython kernels + moment engine, reading the model at inference on the
-Vulkan/llama.cpp stack. (Raw per-layer attention is Tier-2: it needs
-a ggml patch to expose the tensors, then a zero-copy float* -> the Cython extern/pointer
+Vulkan/llama.cpp stack. (Raw per layer attention is Tier 2: it needs
+a ggml patch to expose the tensors, then a zero copy float* -> the Cython extern/pointer
 ABI, so it is kept as a separate optional module, not vendored.)
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ def embed(texts, url=None, model=None, timeout: float = 60.0) -> np.ndarray:
 def _complex_from_vectors(V: np.ndarray, labels, top_p: float = 0.9) -> dict:
     """Vectors -> relational complex -> RCF metrics. The shared analysis body: build a cosine
     graph over the rows, sparsify with the nucleus (top_p) rule, and read structural
-    perplexity, coherence, Betti, and the load-bearing (bridge) pairs via effective
+    perplexity, coherence, Betti, and the load bearing (bridge) pairs via effective
     resistance. Used by both live embeddings and a reloaded corpus so the math lives once."""
     from agent import metrics as _M
     from agent.integrations.huggingface_analyzer import extract_attention_rex
@@ -84,17 +84,17 @@ def _complex_from_vectors(V: np.ndarray, labels, top_p: float = 0.9) -> dict:
         "structural": _M.structural_metrics(rex),
         "coherence_mean": round(coherence_mean(rex), 4),
         "betti": [int(b) for b in rex.betti],
-        "bridges": bridges,   # load-bearing concept links in the embedding space
+        "bridges": bridges,   # load bearing concept links in the embedding space
     }
 
 
 def embedding_complex(texts, url=None, top_p: float = 0.9, persist: str = None) -> dict:
     """The model's EMBEDDING GEOMETRY as a relational complex: embed the items and run the
     RCF moment engine on the cosine graph - "which concepts are central vs bridge vs
-    frustrated in the model's own representation space." Tier-1: no PyTorch, no C++ patch -
+    frustrated in the model's own representation space." Tier 1: no PyTorch, no C++ patch -
     the compiled Cython core reading the C++ engine's output over the API. If ``persist`` is
     a path, the embedding matrix is saved (via ``model_io``/``rexgraph.io``) so it can be
-    re-analyzed later with ``embedding_complex_from_corpus`` without re-embedding."""
+    re analyzed later with ``embedding_complex_from_corpus`` without re embedding."""
     labels = [str(t)[:48] for t in texts]
     url_r, model = (None, None)
     with contextlib.suppress(Exception):
@@ -108,8 +108,8 @@ def embedding_complex(texts, url=None, top_p: float = 0.9, persist: str = None) 
 
 
 def embedding_complex_from_corpus(path: str, top_p: float = 0.9) -> dict:
-    """Re-run the embedding-geometry analysis on a corpus saved by ``embedding_complex(...,
-    persist=path)`` - no server call, no re-embedding. Same math as the live path."""
+    """Re run the embedding geometry analysis on a corpus saved by ``embedding_complex(...,
+    persist=path)`` - no server call, no re embedding. Same math as the live path."""
     from agent import model_io
     V, labels, _names, _meta = model_io.load_embedding_corpus(path)
     labs = list(labels) if labels is not None else list(range(V.shape[0]))

@@ -1,9 +1,9 @@
 """A path, a store URI and a connection string are parameters, not permissions.
 
 Several routes took one of those from the request body and acted on it directly: /ml/run
-wrote weights to any path and read data from any path, /ml/ingest opened a caller-named
-store outside the workspace-scoped view, and the schema router reflected a live database
-without consulting the allow-list the other two database routers use.
+wrote weights to any path and read data from any path, /ml/ingest opened a caller named
+store outside the workspace scoped view, and the schema router reflected a live database
+without consulting the allow list the other two database routers use.
 """
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ def test_text_level_analysis_stays_ordinary_use(tenants):
     "/api/v1/ops/runs/r1",
 ])
 def test_reading_instance_operations_matches_performing_them(tenants, path):
-    """The courier and the lifecycle run store are process-wide. Binding a store and
+    """The courier and the lifecycle run store are process wide. Binding a store and
     starting a run are admin operations, so reading what is bound and what was run are
     too; a survey otherwise lists records through a store view bound by someone else."""
     client, _ah, bh = tenants
@@ -197,7 +197,7 @@ def test_help_names_the_verbs_that_are_actually_governed(tenants):
 @pytest.mark.parametrize("field", ["save_to", "data"])
 def test_a_tilde_path_is_expanded_before_it_is_checked(client, field):
     """Path.resolve() leaves "~" alone but every sink calls expanduser, so "~/x" resolved
-    to "<cwd>/~/x", passed as inside the allow-list, and then wrote to the real home
+    to "<cwd>/~/x", passed as inside the allow list, and then wrote to the real home
     directory. Fired: a save_to of "~/x" put 3.6 MB of weights in $HOME."""
     import uuid
     from pathlib import Path
@@ -236,7 +236,7 @@ def test_a_builder_step_with_non_dict_params_is_a_bad_request(client):
 @pytest.mark.parametrize("url", ["//169.254.169.254/latest/", "not-a-url", "/etc/passwd"])
 def test_a_value_with_no_scheme_is_not_a_fetchable_url(client, url):
     """check_db_uri returns early on a value with no '://' because a bare name like
-    'edgelist' is a valid in-memory scheme. Nothing of the sort is fetchable, so the same
-    early return let a protocol-relative url past without any check."""
+    'edgelist' is a valid in memory scheme. Nothing of the sort is fetchable, so the same
+    early return let a protocol relative url past without any check."""
     r = client.post("/api/v1/trustgraph/health", json={"url": url, "flow": "f"})
     assert r.status_code == 400, r.text

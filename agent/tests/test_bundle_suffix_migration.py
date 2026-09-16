@@ -2,7 +2,7 @@
 
 The rename is only half a migration if the legacy half is untested: `doc_path` resolves
 through a DEFAULT suffix, so moving that default is exactly the change that could make
-every pre-rename document unreachable without any test noticing.
+every pre rename document unreachable without any test noticing.
 """
 import numpy as np
 import pytest

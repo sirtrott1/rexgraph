@@ -1,6 +1,6 @@
 """Tests for the structural chat/query engine, model layer, and their
-wiring into the server (model setup, per-query complex, retrieval,
-grounded synthesis, chat cache, pipeline<->chat, cross-document)."""
+wiring into the server (model setup, per query complex, retrieval,
+grounded synthesis, chat cache, pipeline<->chat, cross document)."""
 
 
 import pytest
@@ -241,7 +241,7 @@ def test_scores_are_a_coherent_mass_not_a_mixture_of_incommensurable_terms():
 
 
 def test_hybrid_ranking_is_not_decided_by_the_spectral_term_alone():
-    """With the terms commensurable, the vocabulary-matched document must win."""
+    """With the terms commensurable, the vocabulary matched document must win."""
     c = _mini_corpus()
     qr = c.query("hodge decomposition gradient curl harmonic projection", top_k=3,
                  mode="hybrid")
@@ -262,7 +262,7 @@ def test_retrieved_sections_are_not_capped_at_two_sentences():
 
 
 def test_section_sentence_budget_is_a_named_setting():
-    """The budget must be a named, env-overridable setting rather than an inline literal."""
+    """The budget must be a named, env overridable setting rather than an inline literal."""
     from agent import query_engine
 
     assert isinstance(query_engine.SECTION_SENTENCES, int)

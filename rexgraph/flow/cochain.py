@@ -1,17 +1,17 @@
-"""rexgraph.flow.cochain: an edge-cochain classifier trained THROUGH the co-participation channel.
+"""rexgraph.flow.cochain: an edge cochain classifier trained THROUGH the co participation channel.
 
 The complex IS the model. The parameters are a bare cochain ``Z[nE, C]`` (forward = Z, one class
 logit vector per edge, no features and no embeddings); the class is carried to the masked/unlabelled
 edges not by the forward pass but by the OPTIMIZER, whose gradient is preconditioned by the complex's
-unsigned co-participation Green's function. Two edges co-participate iff they share an incident vertex
+unsigned co participation Green's function. Two edges co participate iff they share an incident vertex
 (``abs(B1).T @ abs(B1)``, unsigned so a shared vertex never cancels); a BRANCHING vertex of arity K
-makes all K edges mutual co-participants, and that adjacency is the operator the gradient is solved
-through. On such structure the co-participation channel takes masked-edge classification from an
+makes all K edges mutual co participants, and that adjacency is the operator the gradient is solved
+through. On such structure the co participation channel takes masked edge classification from an
 arbitrary constant (plain Adam sends no gradient to a masked edge, so its row never leaves its init)
 to strong generalization: the optimizer itself propagates the training signal across the complex.
 
 The model exposes ``greens_groups()`` so ``make_optimizer("auto")`` routes it to ``GreensCochain``
-automatically. Everything here is matrix-free and sparse: no signs, no dense operator, no eigensolve.
+automatically. Everything here is matrix free and sparse: no signs, no dense operator, no eigensolve.
 """
 from __future__ import annotations
 
@@ -33,20 +33,20 @@ __all__ = ["coparticipation_adjacency"]
 
 
 def coparticipation_adjacency(rex, restrict_vertices: NDArray | None = None):
-    """Normalised unsigned co-participation adjacency over the complex's edges, as a torch sparse
+    """Normalised unsigned co participation adjacency over the complex's edges, as a torch sparse
     tensor ``[nE, nE]`` ready to hand to ``GreensCochain`` as ``green_adj``.
 
-    Built matrix-free from the signed incidence ``rex._B1_dual`` (nV x nE): ``abs(B1).T @ abs(B1)``
-    is the (self-inclusive) co-participation adjacency over edges, since entry ``(e, e')`` is nonzero
+    Built matrix free from the signed incidence ``rex._B1_dual`` (nV x nE): ``abs(B1).T @ abs(B1)``
+    is the (self inclusive) co participation adjacency over edges, since entry ``(e, e')`` is nonzero
     exactly when edges e and e' share an incident vertex. abs(B1) (not the signed B1) avoids a
     spurious zero from sign cancellation on a shared vertex; the diagonal is dropped, then the
-    operator is renormalised ``D^-1/2 (C + I) D^-1/2`` so it is the low-pass operator GreensCochain
+    operator is renormalised ``D^-1/2 (C + I) D^-1/2`` so it is the low pass operator GreensCochain
     expects. ``restrict_vertices`` (a boolean mask over vertices, or an array of vertex ids to keep)
     keeps only those vertices as connectors (e.g. the target side alone) for ablations. A branching
     vertex of arity K contributes a K-clique here, so arity>2 hyperedges are represented natively.
 
     This operator NEVER TOUCHES B2, so a learner using it is blind to every face in the
-    complex and attaching hyperfaces leaves it bit-identical. `hyperflow.flow_adjacency`
+    complex and attaching hyperfaces leaves it bit identical. `hyperflow.flow_adjacency`
     is the version that reads both grades; use that one where the curl tier matters.
     """
     if not _HAS_TORCH:  # pragma: no cover (env without torch)
@@ -66,14 +66,14 @@ def coparticipation_adjacency(rex, restrict_vertices: NDArray | None = None):
             keep[rv.astype(np.int64)] = True
         else:
             keep = rv
-        # restricting the CONNECTORS is not a sub-operator of the full Gramian, so this
+        # restricting the CONNECTORS is not a sub operator of the full Gramian, so this
         # branch genuinely has to form its own
         abs_b1 = abs_b1.multiply(keep.reshape(-1, 1)).tocsr()
         coparticip = (abs_b1.T @ abs_b1).tocsr()
     coparticip.setdiag(0)
     coparticip.eliminate_zeros()
     renorm = (coparticip + sp.eye(coparticip.shape[0])).tocoo()
-    deg = np.asarray(coparticip.sum(1)).ravel() + 1.0  # self-loop-inclusive degree
+    deg = np.asarray(coparticip.sum(1)).ravel() + 1.0  # self loop inclusive degree
     dinv = 1.0 / np.sqrt(np.maximum(deg, 1e-12))
     a_hat = (sp.diags(dinv) @ renorm @ sp.diags(dinv)).tocoo()
     idx = np.vstack([a_hat.row, a_hat.col])
@@ -85,9 +85,9 @@ def coparticipation_adjacency(rex, restrict_vertices: NDArray | None = None):
 if _HAS_TORCH:
 
     class CoParticipationCochain(_torch.nn.Module):
-        """Edge-cochain classifier over a relational complex, trained through the co-participation
+        """Edge cochain classifier over a relational complex, trained through the co participation
         Green's channel (see the module docstring). ``forward()`` returns the bare cochain ``Z``;
-        ``greens_groups()`` hands GreensCochain the co-participation ``green_adj`` for that cochain, so
+        ``greens_groups()`` hands GreensCochain the co participation ``green_adj`` for that cochain, so
         ``make_optimizer("auto")`` routes training through the complex automatically.
 
         Args:
@@ -102,7 +102,7 @@ if _HAS_TORCH:
                      green_channel="low", restrict_vertices=None, dtype=None):
             super().__init__()
             dtype = _torch.float64 if dtype is None else dtype
-            self._rex = rex  # kept so the complex (and thus the operator) can re-serialize
+            self._rex = rex  # kept so the complex (and thus the operator) can re serialize
             self._restrict = None if restrict_vertices is None else np.asarray(restrict_vertices)
             self._adj = coparticipation_adjacency(rex, restrict_vertices)
             n_edges = int(self._adj.shape[0])
@@ -144,14 +144,14 @@ if _HAS_TORCH:
 
         def save_safetensors(self, path):
             """Persist the model to ONE `.safetensors` file: the complex through the canonical
-            rex-state serializer, the trained cochain and any connector restriction as namespaced
+            rex state serializer, the trained cochain and any connector restriction as namespaced
             extra tensors, and the Green's knobs as extra metadata. Reload with
             :meth:`load_safetensors`. Returns the written path."""
             from rexgraph.io.safetensors_bridge import rex_to_safetensors
 
             extra = {"cochain/Z": self.Z.detach().cpu().numpy()}
             if self._restrict is not None:
-                # normalise to a full-length bool mask stored as uint8, so reload is unambiguous
+                # normalise to a full length bool mask stored as uint8, so reload is unambiguous
                 # (safetensors demotes bool->uint8, which coparticipation_adjacency would otherwise
                 # misread as an index array).
                 n_vertices = abs(to_scipy_csr(self._rex._B1_dual)).shape[0]
@@ -175,7 +175,7 @@ if _HAS_TORCH:
         @classmethod
         def load_safetensors(cls, path):
             """Rebuild a model saved by :meth:`save_safetensors`: reconstruct the complex, rebuild the
-            co-participation operator (identical, since the complex round-trips losslessly), and load
+            co participation operator (identical, since the complex round trips losslessly), and load
             the trained cochain. The reloaded model predicts identically to the saved one."""
             from rexgraph.io.safetensors_bridge import load_extra, load_safetensors
 

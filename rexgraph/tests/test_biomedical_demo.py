@@ -1,4 +1,4 @@
-"""The local biomedical demo is provenance-first and needs no network to construct."""
+"""The local biomedical demo is provenance first and needs no network to construct."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def test_mtor_demo_preserves_primary_relations_and_constructs_declared_faces(tmp
     assert len(membership) == 2
     assert all(len(relation["members"]) == 3 for relation in membership)
     assert primary["rex"].chain_valid
-    # The k-ary primary-relation support is connected; that projection diagnostic is
+    # The k-ary primary relation support is connected; that projection diagnostic is
     # deliberately not substituted for the complex's own beta_0 calculation.
     from rexgraph.biomedical_demo import _shape
     assert _shape(primary["rex"])["support_projection_components"] == 1

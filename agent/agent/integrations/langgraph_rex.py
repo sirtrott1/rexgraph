@@ -128,7 +128,7 @@ class RexStateGraph:
 
         rex = RexGraph(sources=sources, targets=targets, w_E=w_E, signs=signs_arg)
 
-        # Type-based face selection if we have typed transitions
+        # Type based face selection if we have typed transitions
         types = [t["type"] for t in self._transitions]
         unique_types = sorted(set(types))
         if len(unique_types) > 1:
@@ -225,7 +225,7 @@ class RexStateGraph:
     def should_continue(self, harmonic_threshold: float = 0.4) -> dict:
         """Should the agent continue executing?
 
-        If the execution path is harmonic-dominated (stuck in topological
+        If the execution path is harmonic dominated (stuck in topological
         loops that can't be broken by local decisions), the agent should stop.
 
         Returns dict with recommendation and Hodge fractions.
@@ -279,11 +279,11 @@ class RexStateGraph:
             # Which edges carry the independent cycles is structural, so it is read from
             # the harmonic basis rather than from the harmonic part of some chosen flow.
             #
-            # This previously projected the all-ones flow and kept edges where
+            # This previously projected the all ones flow and kept edges where
             # |harm| > 1e-6. That answers a different question, the harmonic content of
             # that one flow, and it fails outright whenever the chosen flow happens to be
-            # orthogonal to the harmonic space. A plain 4-cycle with two edges reversed is
-            # enough: beta_1 is 1, the all-ones harmonic part is 2.22e-16, and the
+            # orthogonal to the harmonic space. A plain 4 cycle with two edges reversed is
+            # enough: beta_1 is 1, the all ones harmonic part is 2.22e-16, and the
             # threshold returns no edges at all while the method still reports
             # has_cycles True. The magnitude is also frame dependent, so no threshold on
             # it is the structural answer.
@@ -308,7 +308,7 @@ class RexStateGraph:
         return result
 
     def decompose_path(self, path: list[str]) -> dict:
-        """Hodge-decompose a specific execution path.
+        """Hodge decompose a specific execution path.
 
         Given a sequence of state visits, construct the path signal
         on the edge space and decompose it.
@@ -361,12 +361,12 @@ class RexStateGraph:
             return {"error": str(e)}
 
     def channel_profile(self) -> dict:
-        """Four-channel decomposition of the state graph.
+        """Four channel decomposition of the state graph.
 
         T (Hodge): structural transitions, the agent follows the graph
         G (Overlap): geometric shortcuts, transitions sharing context
         F (Frustration): conflicted transitions, sign disagreements
-        C (Copath): higher-order structure, meta-transitions
+        C (Copath): higher order structure, meta transitions
         """
         rex = self.rex
         try:
@@ -423,7 +423,7 @@ class RexStateGraph:
 
 
 def _interpret_path_hodge(h: dict) -> str:
-    """Human-readable interpretation of a path's Hodge decomposition."""
+    """Human readable interpretation of a path's Hodge decomposition."""
     g, c, hm = h.get("pct_grad", 0), h.get("pct_curl", 0), h.get("pct_harm", 0)
     parts = []
     if g > 0.6:

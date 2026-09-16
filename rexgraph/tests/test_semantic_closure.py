@@ -3,7 +3,7 @@
 The open question in graph engineering, phrased as the analogue of statistical
 significance: given a query about one entity, what is enough? Too little and the answer is
 a fragment; too much and you have returned the database. Sixty years of debate, and the
-deep-learning answer was to hope a big enough model would work it out.
+deep learning answer was to hope a big enough model would work it out.
 
 There is an exact stopping rule for a relational complex and it needs no threshold. Expand
 the seed's neighbourhood a hop at a time, read the SHAPE of the subcomplex it induces, and
@@ -104,7 +104,7 @@ def test_an_isolated_seed_closes_immediately():
     assert sorted(out["relations"]) == [0]
 
 
-#### it is arity-general, like everything else here
+#### it is arity general, like everything else here
 
 
 def test_a_branching_relation_is_one_hop_not_k():

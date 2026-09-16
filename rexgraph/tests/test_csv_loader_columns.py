@@ -1,7 +1,7 @@
 """
 Tests for load_edge_csv hardening: explicit source/target/weight columns,
-usecols restriction, delimiter/header override, and non-finite weight
-rejection. Targets arbitrary-schema data such as wide multi-column TSV exports.
+usecols restriction, delimiter/header override, and non finite weight
+rejection. Targets arbitrary schema data such as wide multi column TSV exports.
 """
 import numpy as np
 import pytest

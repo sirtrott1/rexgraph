@@ -3,11 +3,11 @@
 """
 rexgraph.core._rex: Structural operations for the relational complex.
 
-Array-level kernels for constructing, modifying, querying, and
+Array level kernels for constructing, modifying, querying, and
 projecting rex structures at all dimension levels.
 
 Every function has i32 and i64 typed variants plus a dispatcher
-that auto-selects by dtype.
+that auto selects by dtype.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ cdef enum:
     _EDGE_BRANCHING = 2   # |supp(d1(e))| >= 3
     _EDGE_WITNESS   = 3   # |supp(d1(e))| = 1, multiplicity 1
 
-# Python-accessible constants
+# Python accessible constants
 EDGE_STANDARD  = _EDGE_STANDARD
 EDGE_SELF_LOOP = _EDGE_SELF_LOOP
 EDGE_BRANCHING = _EDGE_BRANCHING
@@ -46,7 +46,7 @@ EDGE_WITNESS   = _EDGE_WITNESS
 def classify_edges_standard_i32(Py_ssize_t nE,
                                 np.ndarray[i32, ndim=1] sources,
                                 np.ndarray[i32, ndim=1] targets):
-    """Classify 2-boundary edges: STANDARD(0) or SELF_LOOP(1)."""
+    """Classify 2 boundary edges: STANDARD(0) or SELF_LOOP(1)."""
     cdef np.ndarray[i32, ndim=1] out = np.empty(nE, dtype=np.int32)
     cdef i32[::1] ov = out, sv = sources, tv = targets
     cdef Py_ssize_t j
@@ -58,7 +58,7 @@ def classify_edges_standard_i32(Py_ssize_t nE,
 def classify_edges_standard_i64(Py_ssize_t nE,
                                 np.ndarray[i64, ndim=1] sources,
                                 np.ndarray[i64, ndim=1] targets):
-    """Classify 2-boundary edges. int64 variant."""
+    """Classify 2 boundary edges. int64 variant."""
     cdef np.ndarray[i32, ndim=1] out = np.empty(nE, dtype=np.int32)
     cdef i32[::1] ov = out
     cdef i64[::1] sv = sources, tv = targets
@@ -69,7 +69,7 @@ def classify_edges_standard_i64(Py_ssize_t nE,
 
 
 def classify_edges_standard(Py_ssize_t nE, sources, targets):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if sources.dtype == np.int64:
         return classify_edges_standard_i64(nE, sources, targets)
     return classify_edges_standard_i32(nE, sources, targets)
@@ -176,7 +176,7 @@ def classify_edges_general_i64(Py_ssize_t nE,
 
 
 def classify_edges_general(Py_ssize_t nE, boundary_ptr, boundary_idx):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if boundary_ptr.dtype == np.int64:
         return classify_edges_general_i64(nE, boundary_ptr, boundary_idx)
     return classify_edges_general_i32(nE, boundary_ptr, boundary_idx)
@@ -184,7 +184,7 @@ def classify_edges_general(Py_ssize_t nE, boundary_ptr, boundary_idx):
 
 def classify_edges(nE, sources=None, targets=None,
                    boundary_ptr=None, boundary_idx=None):
-    """Classify edges by boundary type. Auto-dispatches."""
+    """Classify edges by boundary type. Auto dispatches."""
     if boundary_ptr is not None:
         return classify_edges_general(nE, boundary_ptr, boundary_idx)
     return classify_edges_standard(nE, sources, targets)
@@ -239,7 +239,7 @@ def derive_vertex_set_i64(Py_ssize_t nE,
 
 
 def derive_vertex_set(nE, sources, targets):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if sources.dtype == np.int64:
         return derive_vertex_set_i64(nE, sources, targets)
     return derive_vertex_set_i32(nE, sources, targets)
@@ -277,38 +277,55 @@ def build_vertex_to_edge_csr_i32(Py_ssize_t nV, Py_ssize_t nE,
     return vptr, vidx
 
 
+ctypedef fused support_idx:
+    i32
+    i64
+
+
 def build_vertex_to_edge_csr_general(Py_ssize_t nV, Py_ssize_t nE,
-                                     np.ndarray[i32, ndim=1] boundary_ptr,
-                                     np.ndarray[i32, ndim=1] boundary_idx):
+                                     const support_idx[::1] boundary_ptr,
+                                     const support_idx[::1] boundary_idx):
     """CSR: vertex to incident edge indices, at any arity.
 
-    The transpose of the edge-to-vertex boundary CSR, which is where a relation's WHOLE
+    The transpose of the edge to vertex boundary CSR, which is where a relation's WHOLE
     support lives. The (sources, targets) form above can only carry two vertices, so on a
     branching relation it reports the first two and the rest read as isolated; this one
     counts every vertex the boundary column actually touches. On a pairwise complex the
     two agree exactly, edge order and all, because there the boundary CSR IS
     (sources, targets).
     """
-    cdef i32[::1] bp = boundary_ptr, bi = boundary_idx
-    cdef Py_ssize_t j, t, nnz = bp[nE]
-    cdef np.ndarray[i32, ndim=1] deg = np.zeros(nV, dtype=np.int32)
-    cdef i32[::1] d = deg
+    cdef const support_idx[::1] bp = boundary_ptr, bi = boundary_idx
+    cdef Py_ssize_t j, t, nnz
+    if nV < 0 or nE < 0 or bp.shape[0] != nE + 1:
+        raise ValueError("incidence dimensions and pointer length disagree")
+    nnz = bi.shape[0]
+    if bp[0] != 0 or bp[nE] != nnz:
+        raise ValueError("incidence pointers must span all support slots")
+    for j in range(nE):
+        if bp[j] < 0 or bp[j] > bp[j + 1]:
+            raise ValueError("incidence pointers must be nondecreasing")
+    for t in range(nnz):
+        if bi[t] < 0 or bi[t] >= nV:
+            raise ValueError("incidence vertex is outside its declared axis")
+    dtype = np.int32 if support_idx is i32 else np.int64
+    deg = np.zeros(nV, dtype=dtype)
+    cdef support_idx[::1] d = deg
     for t in range(nnz):
         d[bi[t]] += 1
-    cdef np.ndarray[i32, ndim=1] vptr = np.empty(nV + 1, dtype=np.int32)
-    cdef i32[::1] vp = vptr
+    vptr = np.empty(nV + 1, dtype=dtype)
+    cdef support_idx[::1] vp = vptr
     vp[0] = 0
     for j in range(nV): vp[j + 1] = vp[j] + d[j]
-    cdef np.ndarray[i32, ndim=1] vidx = np.empty(nnz, dtype=np.int32)
-    cdef i32[::1] vi = vidx
-    cdef np.ndarray[i32, ndim=1] cur = vptr[:nV].copy()
-    cdef i32[::1] c = cur
+    vidx = np.empty(nnz, dtype=dtype)
+    cdef support_idx[::1] vi = vidx
+    cur = vptr[:nV].copy()
+    cdef support_idx[::1] c = cur
     cdef Py_ssize_t pos
     for j in range(nE):
         for t in range(bp[j], bp[j + 1]):
             pos = c[bi[t]]
-            vi[pos] = <i32>j
-            c[bi[t]] = <i32>(pos + 1)
+            vi[pos] = <support_idx>j
+            c[bi[t]] = <support_idx>(pos + 1)
     return vptr, vidx
 
 
@@ -343,7 +360,7 @@ def build_vertex_to_edge_csr_i64(Py_ssize_t nV, Py_ssize_t nE,
 
 
 def build_vertex_to_edge_csr(nV, nE, sources, targets):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if sources.dtype == np.int64:
         return build_vertex_to_edge_csr_i64(nV, nE, sources, targets)
     return build_vertex_to_edge_csr_i32(nV, nE, sources, targets)
@@ -406,7 +423,7 @@ def build_edge_to_face_csr_i64(Py_ssize_t nE, Py_ssize_t nF,
 
 
 def build_edge_to_face_csr(nE, nF, B2_col_ptr, B2_row_idx):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if B2_col_ptr.dtype == np.int64:
         return build_edge_to_face_csr_i64(nE, nF, B2_col_ptr, B2_row_idx)
     return build_edge_to_face_csr_i32(nE, nF, B2_col_ptr, B2_row_idx)
@@ -419,7 +436,7 @@ def clique_expand_branching_i32(Py_ssize_t nE,
                                 np.ndarray[i32, ndim=1] boundary_idx,
                                 np.ndarray[i32, ndim=1] edge_types):
     """
-    Clique-expand branching edges: k boundary points produce C(k,2) standard
+    Clique expand branching edges: k boundary points produce C(k,2) standard
     edges at weight 1/(k-1). Returns (src, tgt, weights, parent_edge).
     """
     cdef i32[::1] bp = boundary_ptr, bi = boundary_idx, et = edge_types
@@ -487,7 +504,7 @@ def clique_expand_branching_i64(Py_ssize_t nE,
                                 np.ndarray[i64, ndim=1] boundary_ptr,
                                 np.ndarray[i64, ndim=1] boundary_idx,
                                 np.ndarray[i32, ndim=1] edge_types):
-    """Clique-expand branching edges. int64 variant."""
+    """Clique expand branching edges. int64 variant."""
     cdef i64[::1] bp = boundary_ptr, bi = boundary_idx
     cdef i32[::1] et = edge_types
     cdef Py_ssize_t j, k, a, b, start, end, sz, n_out, pos, n_uniq
@@ -551,7 +568,7 @@ def clique_expand_branching_i64(Py_ssize_t nE,
 
 
 def clique_expand_branching(nE, boundary_ptr, boundary_idx, edge_types):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if boundary_ptr.dtype == np.int64:
         return clique_expand_branching_i64(nE, boundary_ptr, boundary_idx, edge_types)
     return clique_expand_branching_i32(nE, boundary_ptr, boundary_idx, edge_types)
@@ -564,7 +581,7 @@ def hyperslice_vertex_general(i32 v,
                               np.ndarray[i32, ndim=1] v2e_idx,
                               np.ndarray[i32, ndim=1] boundary_ptr,
                               np.ndarray[i32, ndim=1] boundary_idx):
-    """Hyperslice(v) at any arity: above=incident relations, lateral=co-participants.
+    """Hyperslice(v) at any arity: above=incident relations, lateral=co participants.
 
     The pairwise form takes the ONE other endpoint of each incident edge. A k-ary
     relation has k-1 others, so this walks the relation's whole boundary column instead.
@@ -914,7 +931,7 @@ def compact_boundary_i64(np.ndarray[i64, ndim=1] boundary_ptr,
 
 
 def compact_boundary(boundary_ptr, boundary_idx, live_edges):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if boundary_ptr.dtype == np.int64:
         return compact_boundary_i64(boundary_ptr, boundary_idx, live_edges)
     return compact_boundary_i32(boundary_ptr, boundary_idx, live_edges)
@@ -958,7 +975,7 @@ def betti_deltas(Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF,
 
 def from_graph_i32(Py_ssize_t nV, np.ndarray[i32, ndim=1] src,
                    np.ndarray[i32, ndim=1] tgt):
-    """Simple graph to 1-rex."""
+    """Simple graph to 1 rex."""
     cdef Py_ssize_t nE = src.shape[0], j
     cdef np.ndarray[i32, ndim=1] et = np.zeros(nE, dtype=np.int32)
     cdef i32[::1] sv = src, tv = tgt, ev = et
@@ -969,7 +986,7 @@ def from_graph_i32(Py_ssize_t nV, np.ndarray[i32, ndim=1] src,
 
 def from_graph_i64(Py_ssize_t nV, np.ndarray[i64, ndim=1] src,
                    np.ndarray[i64, ndim=1] tgt):
-    """Simple graph to 1-rex. int64 variant."""
+    """Simple graph to 1 rex. int64 variant."""
     cdef Py_ssize_t nE = src.shape[0], j
     cdef np.ndarray[i32, ndim=1] et = np.zeros(nE, dtype=np.int32)
     cdef i64[::1] sv = src, tv = tgt
@@ -980,7 +997,7 @@ def from_graph_i64(Py_ssize_t nV, np.ndarray[i64, ndim=1] src,
 
 
 def from_graph(nV, src, tgt):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if src.dtype == np.int64: return from_graph_i64(nV, src, tgt)
     return from_graph_i32(nV, src, tgt)
 
@@ -988,7 +1005,7 @@ def from_graph(nV, src, tgt):
 def from_hypergraph_i32(Py_ssize_t nV,
                         np.ndarray[i32, ndim=1] hedge_ptr,
                         np.ndarray[i32, ndim=1] hedge_idx):
-    """Hypergraph to branching 1-rex."""
+    """Hypergraph to branching 1 rex."""
     cdef Py_ssize_t nH = hedge_ptr.shape[0] - 1, j, sz
     cdef np.ndarray[i32, ndim=1] et = np.empty(nH, dtype=np.int32)
     cdef i32[::1] hp = hedge_ptr, ev = et
@@ -1006,7 +1023,7 @@ def from_hypergraph_i32(Py_ssize_t nV,
 def from_hypergraph_i64(Py_ssize_t nV,
                         np.ndarray[i64, ndim=1] hedge_ptr,
                         np.ndarray[i64, ndim=1] hedge_idx):
-    """Hypergraph to branching 1-rex. int64 variant."""
+    """Hypergraph to branching 1 rex. int64 variant."""
     cdef Py_ssize_t nH = hedge_ptr.shape[0] - 1, j, sz
     cdef np.ndarray[i32, ndim=1] et = np.empty(nH, dtype=np.int32)
     cdef i64[::1] hp = hedge_ptr
@@ -1023,7 +1040,7 @@ def from_hypergraph_i64(Py_ssize_t nV,
 
 
 def from_hypergraph(nV, hedge_ptr, hedge_idx):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if hedge_ptr.dtype == np.int64:
         return from_hypergraph_i64(nV, hedge_ptr, hedge_idx)
     return from_hypergraph_i32(nV, hedge_ptr, hedge_idx)
@@ -1038,7 +1055,7 @@ def from_simplicial_2complex_i32(Py_ssize_t nV,
                                   np.ndarray[f64, ndim=1] tri_s0,
                                   np.ndarray[f64, ndim=1] tri_s1,
                                   np.ndarray[f64, ndim=1] tri_s2):
-    """Simplicial 2-complex to 2-rex B2 in CSC."""
+    """Simplicial 2 complex to 2 rex B2 in CSC."""
     cdef Py_ssize_t nT = tri_e0.shape[0], nnz = 3 * nT, t
     cdef np.ndarray[i32, ndim=1] cp = np.empty(nT + 1, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] ri = np.empty(nnz, dtype=np.int32)
@@ -1068,7 +1085,7 @@ def from_simplicial_2complex_i64(Py_ssize_t nV,
                                   np.ndarray[f64, ndim=1] tri_s0,
                                   np.ndarray[f64, ndim=1] tri_s1,
                                   np.ndarray[f64, ndim=1] tri_s2):
-    """Simplicial 2-complex to 2-rex. int64 variant."""
+    """Simplicial 2 complex to 2 rex. int64 variant."""
     cdef Py_ssize_t nT = tri_e0.shape[0], nnz = 3 * nT, t
     cdef np.ndarray[i64, ndim=1] cp = np.empty(nT + 1, dtype=np.int64)
     cdef np.ndarray[i64, ndim=1] ri = np.empty(nnz, dtype=np.int64)
@@ -1092,7 +1109,7 @@ def from_simplicial_2complex_i64(Py_ssize_t nV,
 def from_simplicial_2complex(nV, edge_src, edge_tgt,
                               tri_e0, tri_e1, tri_e2,
                               tri_s0, tri_s1, tri_s2):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if tri_e0.dtype == np.int64:
         return from_simplicial_2complex_i64(nV, edge_src, edge_tgt,
                                              tri_e0, tri_e1, tri_e2, tri_s0, tri_s1, tri_s2)
@@ -1121,7 +1138,7 @@ def build_Bk_from_cells_i64(Py_ssize_t n_lower,
 
 
 def build_Bk_from_cells(n_lower, cell_ptr, cell_idx, cell_signs):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if cell_ptr.dtype == np.int64:
         return build_Bk_from_cells_i64(n_lower, cell_ptr, cell_idx, cell_signs)
     return build_Bk_from_cells_i32(n_lower, cell_ptr, cell_idx, cell_signs)
@@ -1135,7 +1152,7 @@ def verify_chain_condition_Bk_i32(Py_ssize_t n_rows_prev,
                                    np.ndarray[i32, ndim=1] Bk_ri,
                                    np.ndarray[f64, ndim=1] Bk_v,
                                    double tol=1e-10):
-    """Verify Bk-1 * Bk = 0 via sparse matvec. Returns (ok, max_err)."""
+    """Verify Bk 1 * Bk = 0 via sparse matvec. Returns (ok, max_err)."""
     cdef i32[::1] rp = Bkm1_rp, ci = Bkm1_ci, cp = Bk_cp, ri = Bk_ri
     cdef f64[::1] vp = Bkm1_v, vk = Bk_v
     cdef Py_ssize_t nc = cp.shape[0] - 1, nr = rp.shape[0] - 1
@@ -1166,7 +1183,7 @@ def verify_chain_condition_Bk_i64(Py_ssize_t n_rows_prev,
                                    np.ndarray[i64, ndim=1] Bk_ri,
                                    np.ndarray[f64, ndim=1] Bk_v,
                                    double tol=1e-10):
-    """Verify Bk-1 * Bk = 0. int64 variant."""
+    """Verify Bk 1 * Bk = 0. int64 variant."""
     cdef i64[::1] rp = Bkm1_rp, ci = Bkm1_ci, cp = Bk_cp, ri = Bk_ri
     cdef f64[::1] vp = Bkm1_v, vk = Bk_v
     cdef Py_ssize_t nc = cp.shape[0] - 1, nr = rp.shape[0] - 1
@@ -1191,7 +1208,7 @@ def verify_chain_condition_Bk_i64(Py_ssize_t n_rows_prev,
 
 def verify_chain_condition_Bk(n_rows_prev, Bkm1_rp, Bkm1_ci, Bkm1_v,
                                Bk_cp, Bk_ri, Bk_v, tol=1e-10):
-    """Auto-dispatch by dtype."""
+    """Auto dispatch by dtype."""
     if Bkm1_rp.dtype == np.int64:
         return verify_chain_condition_Bk_i64(n_rows_prev, Bkm1_rp, Bkm1_ci, Bkm1_v,
                                               Bk_cp, Bk_ri, Bk_v, tol)
@@ -1251,7 +1268,7 @@ def coboundary_edge_i64(i64 e, np.ndarray[i64, ndim=1] e2f_ptr,
 # Convenience dispatchers
 
 def build_1rex(nV, nE, sources, targets):
-    """Build 1-rex from edge arrays. Returns dict of all derived structure."""
+    """Build 1 rex from edge arrays. Returns dict of all derived structure."""
     nV_d, degree, in_deg, out_deg = derive_vertex_set(nE, sources, targets)
     if nV_d > nV: nV = nV_d
     etypes = classify_edges_standard(nE, sources, targets)
@@ -1267,7 +1284,7 @@ def build_1rex(nV, nE, sources, targets):
 def hyperslice(cell_dim, cell_idx, **kw):
     """Hyperslice at any dimension.
 
-    Dispatches to the arity-general kernels when the boundary CSR is supplied, which is
+    Dispatches to the arity general kernels when the boundary CSR is supplied, which is
     where a relation's whole support lives. The (sources, targets) path below it is the
     pairwise one and reports two vertices per relation whatever its arity.
     """

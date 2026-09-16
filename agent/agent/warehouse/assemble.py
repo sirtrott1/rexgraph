@@ -1,7 +1,7 @@
-"""The self-assembling forge-and-persist loop: ingest any weighted edge list as an
-edge-primal relational complex, dispatch a per-tier HGNN sweep through the Hive Coordinator (CPU
-proc + iGPU threads), keep the per-tier best, deploy it as a bee, infer per edge, and persist a
-model-agnostic record to the RCDB. Fully programmatic and idempotent."""
+"""The self assembling forge and persist loop: ingest any weighted edge list as an
+edge primal relational complex, dispatch a per tier HGNN sweep through the Hive Coordinator (CPU
+proc + iGPU threads), keep the per tier best, deploy it as a bee, infer per edge, and persist a
+model agnostic record to the RCDB. Fully programmatic and idempotent."""
 from __future__ import annotations
 
 import logging
@@ -65,7 +65,7 @@ def assemble(path, *, store, hive=None, source=None, target=None, weight=None, u
 
         units = work_units(tasks)
         placement = coord.plan(units)
-        results = coord.pools.run(units, placement, cost=coord.cost)   # per-task isolation drops failures
+        results = coord.pools.run(units, placement, cost=coord.cost)   # per task isolation drops failures
     finally:
         pools.shutdown()
 
@@ -91,7 +91,7 @@ def assemble(path, *, store, hive=None, source=None, target=None, weight=None, u
             logger.warning("tier %d deploy failed: %s", ti, ex)
             best["bee"] = None
 
-        # persist a model-agnostic RCDB record: the tier complex + typed/tensor context + model card
+        # persist a model agnostic RCDB record: the tier complex + typed/tensor context + model card
         tier_rex = _subcomplex(ed, ctx["mask"])
         rid = f"tier-{ti}"
         meta = {"tier": ti, "n_edges": int(ctx["mask"].shape[0]),

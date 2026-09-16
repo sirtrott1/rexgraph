@@ -1,6 +1,6 @@
 """Coherence has one entry point, and the O(nV*solve) read is not it.
 
-The global Green's coherence costs one block-CG solve per vertex, and 22 agent call
+The global Green's coherence costs one block CG solve per vertex, and 22 agent call
 sites reached for it to compute a scalar. These pin the contract that replaced them:
 `coherence_kappa`/`coherence_mean` answer at any scale, `coherence_greens` is gated
 and returns None rather than a substitute, and the two are different quantities
@@ -97,7 +97,7 @@ def test_signature_kappa_mean_is_the_scale_free_read():
 
 
 def test_no_agent_module_reaches_past_the_primitive():
-    """The wiring itself, so the next caller cannot re-introduce the hot path: no
+    """The wiring itself, so the next caller cannot re introduce the hot path: no
     agent module outside ALLOWED_GREENS_CALLERS may touch `.coherence`."""
     offenders = []
     for f in AGENT_SRC.rglob("*.py"):

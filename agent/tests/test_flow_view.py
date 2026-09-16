@@ -8,7 +8,7 @@ because there are 2 distinct star characters. That picture is true and useless.
 
 What such data does have is flow. The gradient part of a signal descends a potential,
 `phi = L0^+ B1 g`, solved by the library's own LSQR seam, which deflates L0's
-per-component constant kernel exactly. `phi` is a coordinate derived FROM the data rather
+per component constant kernel exactly. `phi` is a coordinate derived FROM the data rather
 than invented for it, so two cells with the same structure and different measurements
 separate, and they separate by how much the measurement differs.
 """

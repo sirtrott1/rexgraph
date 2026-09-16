@@ -1,8 +1,8 @@
-"""Primary graded-cell values and exact local readings of a relational complex.
+"""Primary graded cell values and exact local readings of a relational complex.
 
 Relations are cells, not rows in a derived table.  These carriers retain the
 source Rex, grade, and basis position needed to ask direct questions about one
-cell, its boundary, its co-relations, or its upward enclosure.  Chains and
+cell, its boundary, its co relations, or its upward enclosure.  Chains and
 cochains remain coefficient spaces *over* these cells; they do not replace the
 primary cell structure.
 """
@@ -15,8 +15,8 @@ from typing import Any
 import numpy as np
 
 from rexgraph.cochain import Chain, Cochain
-from rexgraph.graded_boundary import graded_boundaries_from_rex
 from rexgraph.linear_operator import boundary_operator, coboundary_operator
+from rexgraph.native_sparse import boundary_carriers
 
 __all__ = [
     "Cell",
@@ -39,7 +39,7 @@ __all__ = [
 
 def _grade_sizes(rex) -> tuple[int, ...]:
     rex._ensure_clean()
-    boundaries = graded_boundaries_from_rex(rex)
+    boundaries = boundary_carriers(rex)
     if not boundaries:
         return (0,)
     return tuple([int(boundaries[0].shape[0])] + [int(B.shape[1]) for B in boundaries])
@@ -48,8 +48,8 @@ def _grade_sizes(rex) -> tuple[int, ...]:
 def cell_count(rex, grade: int, *, allow_empty_upper: bool = False) -> int:
     """Return the carried cell count at one grade.
 
-    The one permitted non-carried space is the empty grade immediately above the
-    top.  It names the codomain of the top co-boundary, never an invented cell
+    The one permitted non carried space is the empty grade immediately above the
+    top.  It names the codomain of the top co boundary, never an invented cell
     population.
     """
     grade = int(grade)
@@ -82,7 +82,7 @@ class Cell:
 
 @dataclass(frozen=True, eq=False)
 class CellSet:
-    """An ordered-basis selection at one grade of one source Rex."""
+    """An ordered basis selection at one grade of one source Rex."""
 
     source: Any
     grade: int
@@ -114,7 +114,7 @@ class CellSet:
 
 @dataclass(frozen=True, eq=False)
 class GradedCellPattern:
-    """A source-bound pattern of selected cells across one or more grades."""
+    """A source bound pattern of selected cells across one or more grades."""
 
     source: Any
     cell_sets: tuple[CellSet, ...]
@@ -150,7 +150,7 @@ class CompositeBinary:
     ``boundary`` is ``share - head`` and ``integer_boundary`` is its projective
     integer representative for arity at least two.  A witness has its own
     positive C0 boundary and no head/share split.  A deliberate ``[v, v]``
-    self-loop has existence at ``v`` and a zero C0 boundary; it therefore has
+    self loop has existence at ``v`` and a zero C0 boundary; it therefore has
     no head/share split either, while remaining a carried primary relation.
     """
 
@@ -178,7 +178,7 @@ class CompositeBinary:
 
 @dataclass(frozen=True, eq=False)
 class CellBoundary:
-    """A cell's direct lower-grade participants and its coefficient chain."""
+    """A cell's direct lower grade participants and its coefficient chain."""
 
     cell: Cell
     cells: CellSet | None
@@ -198,7 +198,7 @@ class CellBoundary:
 
 @dataclass(frozen=True, eq=False)
 class CellCoboundary:
-    """A cell's direct co-relations and its cochain coefficient reading."""
+    """A cell's direct co relations and its cochain coefficient reading."""
 
     cell: Cell
     cells: CellSet
@@ -206,7 +206,7 @@ class CellCoboundary:
 
     @property
     def source(self):
-        """The source relational complex of the co-boundary reading."""
+        """The source relational complex of the co boundary reading."""
         return self.cell.source
 
     @property
@@ -216,7 +216,7 @@ class CellCoboundary:
 
 
 def cell(source, grade: int, index: int) -> Cell:
-    """Address one primary cell by grade and ordered-basis index."""
+    """Address one primary cell by grade and ordered basis index."""
     return Cell(source, grade, index)
 
 
@@ -243,10 +243,10 @@ def _exact_c1_boundary(source, index: int) -> tuple[list[int], np.ndarray]:
 
 
 def composite_binary(value: Cell) -> CompositeBinary:
-    """Read the exact 0/1 existence, head, and share-support tensors of one C1 cell.
+    """Read the exact 0/1 existence, head, and share support tensors of one C1 cell.
 
     The only repeated incidence admitted by the primary carrier is an exact
-    ``[v, v]`` self-loop.  It has a first-class zero-boundary composite instead
+    ``[v, v]`` self loop.  It has a first class zero boundary composite instead
     of being mistaken for an arbitrary repeated branching relation.
     """
     if not isinstance(value, Cell):
@@ -276,7 +276,7 @@ def composite_binary(value: Cell) -> CompositeBinary:
     integer_values = boundary
     if not witness:
         integer_values = [Fraction(len(support) - 1) * coefficient for coefficient in boundary]
-    # This is an exact integral representative, not a float-rounded rendering.
+    # This is an exact integral representative, not a float rounded rendering.
     integer_boundary = np.asarray(
         [int(coefficient) for coefficient in integer_values], dtype=np.int64
     )
@@ -399,7 +399,7 @@ def coboundary_of(value: Cell | CellSet) -> CellCoboundary | Cochain:
 
 
 def corelations(value: Cell | CellSet) -> CellSet:
-    """Return direct higher-grade co-relations of one cell or cell pattern."""
+    """Return direct higher grade co relations of one cell or cell pattern."""
     if isinstance(value, Cell):
         return coboundary_of(value).cells
     if not isinstance(value, CellSet):

@@ -2,7 +2,7 @@
 
 build_sparse_character_cheap says it works "from DIAGONALS only" and then built the
 four edge x edge channel operators to read their diagonals off. That assembly costs
-sum_v deg(v)^2 nonzeros, which one hub detonates: on a GO-shaped complex (max degree
+sum_v deg(v)^2 nonzeros, which one hub detonates: on a GO shaped complex (max degree
 24256) it was 112 s for four arrays of length nE.
 
 The closed forms below are exact for a signed pairwise unweighted complex and are
@@ -51,10 +51,10 @@ def test_closed_form_matches_the_assembled_diagonal(seed):
 
 def test_the_four_readings_are_what_the_model_says():
     """T is the boundary column's squared norm, G shares T's diagonal because squaring
-    kills the sign, C is the line-graph degree, F is twice the disagreement count."""
+    kills the sign, C is the line graph degree, F is twice the disagreement count."""
     rex = _triangle()
     d = channel_diagonals(rex)
-    assert np.allclose(d['L1_down'], 2.0)          # every 2-ary column has norm^2 = 2
+    assert np.allclose(d['L1_down'], 2.0)          # every 2 ary column has norm^2 = 2
     assert np.allclose(d['L_O'], d['L1_down'])     # identical diagonals
     assert np.allclose(d['L_C'], 2.0)              # each edge meets 2 others
     assert np.all(d['L_SG'] >= 0.0)
@@ -74,7 +74,7 @@ def test_gate_rejects_weighting():
 
 
 def test_gate_rejects_non_binary_relations():
-    """A branching column carries -1 and 1/(k-1), so the sign-count reading of F and
+    """A branching column carries -1 and 1/(k-1), so the sign count reading of F and
     the T/G diagonal identity both stop holding."""
     B1 = sp.csc_matrix(np.array([[-1.0, 0.0], [0.5, -1.0], [0.5, 1.0]]))
 
@@ -86,7 +86,7 @@ def test_gate_rejects_non_binary_relations():
 
 
 def test_character_is_unchanged_by_the_closed_form():
-    """chi / chi_star / traces / rl_diag against the assemble-then-read computation."""
+    """chi / chi_star / traces / rl_diag against the assemble then read computation."""
     for seed in range(6):
         rex = _random(14, 36, seed)
         cheap = rex._sparse_character

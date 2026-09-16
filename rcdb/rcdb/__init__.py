@@ -6,7 +6,7 @@ tested and reasoned about on its own. It interoperates with an application throu
 `configure_hooks`, which injects activity recording, request scoping, metadata privacy
 and similarity scoring; with none of them set the store works alone.
 
-The public surface is re-exported here so a caller writes `from rcdb import MemoryStore`
+The public surface is re exported here so a caller writes `from rcdb import MemoryStore`
 rather than reaching into a submodule, and the submodules stay importable for anything
 this list does not carry.
 """
@@ -15,8 +15,11 @@ from .core import (
     ComplexRecord,
     FileStore,
     MemoryStore,
+    PublicationUncertainError,
     RCStore,
+    RecordSnapshot,
     SQLStore,
+    VersionConflictError,
     available_backends,
     cluster_complexes,
     compare,
@@ -63,19 +66,24 @@ from .rexstore import (
     RexIndex,
     RexStore,
 )
+from .corpus import CorpusSnapshot
 
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.1.5"
+__version__ = "1.1.6"
 
 __all__ = [
+    "CorpusSnapshot",
     "ComplexRecord",
     "FileStore",
     "IndexKeyProvider",
     "IndexPolicy",
     "MemoryStore",
+    "PublicationUncertainError",
     "ObjectStore",
     "RCStore",
+    "RecordSnapshot",
+    "VersionConflictError",
     "RexIndex",
     "RexStore",
     "SQLStore",

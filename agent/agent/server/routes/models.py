@@ -26,7 +26,7 @@ from ..auth import require_admin
 router = APIRouter(prefix="/v1/models")
 
 # Reading which models exist is ordinary use. Everything that MOVES one is not: the
-# runtime is process-wide, so a pull spends disk and bandwidth, and a stop or an unload
+# runtime is process wide, so a pull spends disk and bandwidth, and a stop or an unload
 # takes a model out from under whoever else is using it. Those are instance operations
 # rather than workspace ones, and they are gated on instance admin.
 _admin = [Depends(require_admin)]

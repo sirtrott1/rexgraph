@@ -1,4 +1,4 @@
-"""rexgraph._env: best-effort, dependency-light host/environment detection.
+"""rexgraph._env: best effort, dependency light host/environment detection.
 
 This module answers three questions about *the machine RexGraph is running on right now*, so
 nothing downstream is hardcoded to one laptop, one env manager, or one GPU:
@@ -15,10 +15,10 @@ nothing downstream is hardcoded to one laptop, one env manager, or one GPU:
                               by the REXGRAPH_BACKEND environment variable.
     summary()                 a human-readable diagnostic report of all of the above.
 
-EVERYTHING here is best-effort and never raises: probes are wrapped in try/except, third-party
+EVERYTHING here is best effort and never raises: probes are wrapped in try/except, third party
 libraries are checked with importlib.util.find_spec (never imported as a hard dependency), and
 external tools are run through subprocess with a short timeout. The library must import and run on
-a bare, CPU-only, no-toolchain box.
+a bare, CPU only, no toolchain box.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ __all__ = [
     "REXGRAPH_BACKEND_ENV",
 ]
 
-# The environment variable a user sets to force a backend, overriding auto-detection.
+# The environment variable a user sets to force a backend, overriding auto detection.
 REXGRAPH_BACKEND_ENV = "REXGRAPH_BACKEND"
 
 # Backend preference from most to least capable. recommend_backend() walks this over the
@@ -48,11 +48,11 @@ REXGRAPH_BACKEND_ENV = "REXGRAPH_BACKEND"
 BACKEND_PRIORITY = ["cuda", "rocm", "vulkan", "metal", "cpu"]
 
 
-#### -
+
 # small, safe helpers
-#### -
+
 def _run(cmd: list[str], timeout: float = 4.0) -> str | None:
-    """Run a command, returning stdout (best-effort) or None. Never raises."""
+    """Run a command, returning stdout (best effort) or None. Never raises."""
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return (p.stdout or "") + (p.stderr or "")
@@ -87,13 +87,13 @@ def _first_version_tuple(text: str | None) -> tuple | None:
     return tuple(int(g) for g in m.groups() if g is not None)
 
 
-#### -
+
 # Python environment / toolchain
-#### -
+
 def _detect_manager() -> str:
-    """Best-effort name of the environment manager governing the active interpreter."""
+    """Best effort name of the environment manager governing the active interpreter."""
     prefix = sys.prefix
-    # conda family: a conda-meta dir in the prefix, or CONDA_PREFIX pointing here.
+    # conda family: a conda meta dir in the prefix, or CONDA_PREFIX pointing here.
     conda_meta = os.path.join(prefix, "conda-meta")
     conda_prefix = os.environ.get("CONDA_PREFIX")
     if os.path.isdir(conda_meta) or (conda_prefix and os.path.realpath(conda_prefix) == os.path.realpath(prefix)):
@@ -106,7 +106,7 @@ def _detect_manager() -> str:
             return "mamba"
         if os.environ.get("CONDA_EXE") or _have("conda"):
             return "conda"
-        # a conda-style prefix with no obvious frontend on PATH
+        # a conda style prefix with no obvious frontend on PATH
         return "conda"
     # PEP 405 virtualenv: prefix differs from the base interpreter prefix.
     in_venv = (getattr(sys, "base_prefix", sys.prefix) != sys.prefix) or bool(os.environ.get("VIRTUAL_ENV"))
@@ -137,10 +137,10 @@ def _cc_version(path_or_name: str | None) -> tuple | None:
 
 
 def _detect_compiler() -> dict[str, Any]:
-    """Locate the env's C compiler and the system C compiler and check MAJOR-version consistency.
+    """Locate the env's C compiler and the system C compiler and check MAJOR version consistency.
 
-    A prior bug: conda-provided gcc-14 (the env's linker) tried to link objects built by the
-    system's gcc-16, and LTO failed. When the env compiler and the bare system compiler differ in
+    A prior bug: conda provided gcc 14 (the env's linker) tried to link objects built by the
+    system's gcc 16, and LTO failed. When the env compiler and the bare system compiler differ in
     major version, we surface a warning so the build path can pin one toolchain.
     """
     info: dict[str, Any] = {
@@ -148,7 +148,7 @@ def _detect_compiler() -> dict[str, Any]:
         "system_cc": None, "system_version": None,
         "consistent": True, "warning": None,
     }
-    # The env's compiler: honor CC, else a conda-style triplet cc in the prefix bin, else PATH cc.
+    # The env's compiler: honor CC, else a conda style triplet cc in the prefix bin, else PATH cc.
     env_cc = os.environ.get("CC")
     if not env_cc:
         bindir = os.path.join(sys.prefix, "bin")
@@ -184,7 +184,7 @@ def _detect_compiler() -> dict[str, Any]:
 
 
 def detect_python_env() -> dict[str, Any]:
-    """Describe the active Python environment manager and toolchain (best-effort, never raises)."""
+    """Describe the active Python environment manager and toolchain (best effort, never raises)."""
     env: dict[str, Any] = {
         "manager": "system",
         "python": sys.executable,
@@ -219,9 +219,9 @@ def detect_python_env() -> dict[str, Any]:
     return env
 
 
-#### -
+
 # Compute backend detection
-#### -
+
 def _cpu_backend() -> dict[str, Any]:
     cores = os.cpu_count() or 1
     simd: list[str] = []
@@ -446,13 +446,13 @@ def recommend_backend(available: Any = None) -> str:
     """The best backend name for this host.
 
     Priority:
-      1. The REXGRAPH_BACKEND environment variable, if set and non-empty: it WINS (explicit
+      1. The REXGRAPH_BACKEND environment variable, if set and non empty: it WINS (explicit
          user/operator override, returned verbatim, lower-cased).
       2. Otherwise the first backend in BACKEND_PRIORITY (cuda > rocm > vulkan > metal > cpu)
          that is actually available on this host.
       3. Otherwise 'cpu' (always a valid fallback).
 
-    `available` may be omitted (auto-detected), a list of backend names, or the list of dicts
+    `available` may be omitted (auto detected), a list of backend names, or the list of dicts
     returned by detect_compute_backends().
     """
     override = os.environ.get(REXGRAPH_BACKEND_ENV)
@@ -465,11 +465,11 @@ def recommend_backend(available: Any = None) -> str:
     return "cpu"
 
 
-#### -
-# human-readable report
-#### -
+
+# human readable report
+
 def summary() -> str:
-    """A human-readable diagnostic of the Python env, toolchain, and compute backends."""
+    """A human readable diagnostic of the Python env, toolchain, and compute backends."""
     lines: list[str] = []
     try:
         env = detect_python_env()

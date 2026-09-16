@@ -234,7 +234,7 @@ def generate_slurm_training(
 ):
     """Export structural features as safetensors for model training.
 
-    Reads a built corpus from workspace, extracts per-chunk features,
+    Reads a built corpus from workspace, extracts per chunk features,
     and saves as safetensors for PyTorch/JAX/HuggingFace.
     """
     return _header("rexgraph-training", partition, time_limit, mem, 4, account) + "\n" + _activate(conda_env) + textwrap.dedent(f"""\

@@ -120,7 +120,7 @@ def test_zero_column_sum_propagates_to_zero_row_sum(k):
 
 
 def test_expanding_a_relation_reports_holes_that_are_not_there():
-    """Why the branching edge is not a convenience. Five 3-ary trips carry no cycle;
+    """Why the branching edge is not a convenience. Five 3 ary trips carry no cycle;
     clique expansion invents ten edges and nine of them, star expansion invents five
     vertices and four."""
     trips = [("mule", "alpha", "beta"), ("ox", "beta", "gamma"), ("ant", "gamma", "alpha"),
@@ -155,7 +155,7 @@ def _acts(*rows):
 
 
 def test_direction_is_positional_because_a_column_and_its_negation_are_one_cell():
-    """The library canonicalises an explicit sign, which is right: re-signing is a gauge.
+    """The library canonicalises an explicit sign, which is right: re signing is a gauge.
     So orientation is WHICH participant carries the single -1, and encoding a read as the
     negated write silently produces the write."""
     same = RexGraph(boundary_ptr=np.array([0, 2, 4], np.int32),

@@ -53,7 +53,7 @@ def test_insertion_order_still_does_not_matter():
     assert state_digest(a) == state_digest(b)
 
 
-#### migration: an old bundle is old, not corrupt ###############################
+# migration: an old bundle is old, not corrupt
 
 @pytest.fixture
 def rex():
@@ -151,9 +151,9 @@ def test_a_state_round_trips_under_the_new_framing(rex):
 
 
 def test_a_rex_bundle_cannot_downgrade_integrity_by_deleting_the_seal(rex, tmp_path):
-    """Reproduce the on-disk downgrade: altered tensors plus deleted declarations
+    """Reproduce the on disk downgrade: altered tensors plus deleted declarations
     must be refused before reconstruction. A genuine unsealed legacy bundle can still
-    be migrated only through the explicit opt-in."""
+    be migrated only through the explicit opt in."""
     import json
 
     from rexgraph.io import load_rcbd, save_rcbd

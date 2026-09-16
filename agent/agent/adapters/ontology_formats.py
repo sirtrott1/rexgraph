@@ -13,13 +13,13 @@ Every parser here returns the same thing: `ParsedOntology`, carrying
     meta      what the file said about itself
 
 `agent.ontology_complex.parse_rdf` consumes the triples unchanged, so the diagnosis
-is the same one the typed-triple path already gets. Nothing here interprets: `is_a`
+is the same one the typed triple path already gets. Nothing here interprets: `is_a`
 stays `is_a` and the mapping to gradient/definition/object happens where it already
 happened.
 
 Parsers use the standard library. `owlready2`, `rdflib` and `goatools` are not
 required. These layouts are specified and stable, and the subset an ontology's
-skeleton needs (subsumption, equivalence, typed relations) is the well-behaved part
+skeleton needs (subsumption, equivalence, typed relations) is the well behaved part
 of each of them.
 
 The RDF/XML and Turtle readers cover that skeleton, not the whole specification. A
@@ -64,7 +64,7 @@ class ParsedOntology:
     def named_triples(self) -> list[tuple[str, str, str]]:
         """The triples with ids replaced by names where a name is known.
 
-        This is what a reader wants on screen. It is not what an identity-preserving
+        This is what a reader wants on screen. It is not what an identity preserving
         pipeline wants, so it is a method rather than the default.
         """
         def nm(x):
@@ -105,7 +105,7 @@ def _text_of(source) -> str:
 _OBO_REL_TAGS = {"is_a", "relationship", "intersection_of", "union_of",
                  "equivalent_to", "disjoint_from", "inverse_of"}
 
-#: OBO tags naming the SAME term rather than a related one. `alt_id` is a merged-in
+#: OBO tags naming the SAME term rather than a related one. `alt_id` is a merged in
 #: id and `xref` is the term in another vocabulary; both resolve to this term, so
 #: they are aliases and emitting them as edges would relate a term to itself.
 _OBO_ALIAS_TAGS = {"alt_id", "xref"}
@@ -180,7 +180,7 @@ def parse_obo(source) -> ParsedOntology:
                 # `intersection_of: part_of GO:x` is ONE conjunct of the definition,
                 # stated through a relation. Emitting the relation and the
                 # membership both would put two parallel edges on one axiom, which
-                # reads as a 2-cycle the term does not have.
+                # reads as a 2 cycle the term does not have.
                 current.setdefault("_rels", []).append((parts[0], parts[1]))
             elif parts:
                 current.setdefault("_rels", []).append((tag, parts[0]))
@@ -309,7 +309,7 @@ def parse_turtle(source) -> ParsedOntology:
     """Turtle, over the subset an ontology's skeleton uses.
 
     Handles `@prefix`, the `a` keyword, `;` (same subject) and `,` (same predicate)
-    continuations, and `.` termination. Blank-node collections and nested brackets
+    continuations, and `.` termination. Blank node collections and nested brackets
     are counted in `meta['unparsed']` rather than guessed at.
     """
     text = _text_of(source)
@@ -376,7 +376,7 @@ def parse_rdfxml(source) -> ParsedOntology:
     """RDF/XML, which is what a `.owl` file usually is.
 
     Reads the class skeleton: every `owl:Class` / `rdf:Description` with an
-    `rdf:about`, and its object-valued children (`rdfs:subClassOf`,
+    `rdf:about`, and its object valued children (`rdfs:subClassOf`,
     `owl:equivalentClass`, `owl:disjointWith` and any other `rdf:resource`).
     Restriction bodies are counted in `meta['unparsed']`.
     """
@@ -432,7 +432,7 @@ def parse_rdfxml(source) -> ParsedOntology:
 def parse_gaf(source) -> ParsedOntology:
     """GO Annotation File: what relates gene products to ontology terms.
 
-    17 tab-separated columns. The triple is (gene product, relation, term), where the
+    17 tab separated columns. The triple is (gene product, relation, term), where the
     relation is the Qualifier column when it names one (`involved_in`, `enables`,
     `located_in`, `part_of`) and otherwise the relation the Aspect column stands for.
 
@@ -470,7 +470,7 @@ def parse_gaf(source) -> ParsedOntology:
         pred = rel or GAF_ASPECT.get(aspect, DEFAULT_ANNOTATION)
         triples.append((symbol, pred, term))
         # the row names this product several ways: DB:accession, the symbol, and a
-        # pipe-separated synonym list. Whichever a genome annotation used, it
+        # pipe separated synonym list. Whichever a genome annotation used, it
         # reaches this product through one of them.
         other = set()
         if cols[1].strip():
@@ -729,7 +729,7 @@ def load_ontology_file(path, *, fmt: str | None = None, named: bool = True, **_k
 
 
 def register(register_reader=None) -> None:
-    """Register every ontology format with the file-reader registry.
+    """Register every ontology format with the file reader registry.
 
     Called at import of `agent.adapters.formats` so an ontology file is openable by
     the same `read(path)` that opens a `.pdb`.

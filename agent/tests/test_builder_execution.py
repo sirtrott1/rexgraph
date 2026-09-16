@@ -75,7 +75,7 @@ def test_an_unknown_template_falls_back_to_default():
     assert AgentBuilder.template("no-such-template") == AgentBuilder.template("default")
 
 
-#### config round-trip
+#### config round trip
 
 
 @pytest.mark.parametrize("suffix", [".json", ".yaml", ".yml"])
@@ -174,7 +174,7 @@ def test_an_empty_config_runs_and_reports_nothing():
 
 
 def test_defaults_reach_every_step(doc):
-    """`defaults` is the config-level parameter block. A step's own params win."""
+    """`defaults` is the config level parameter block. A step's own params win."""
     res = AgentBuilder({
         "name": "d", "defaults": {"depth": "quick"},
         "steps": [{"type": "corpus"}, {"type": "chunk", "params": {"min_chars": 20}}],

@@ -54,7 +54,7 @@ def _open_pair(src_kind, dst_kind, tmp_path):
     A SQL store holds a connection pool, and the migration tests open two at a time. A
     comment saying the caller owns them closed nothing; this does, including when an
     assertion fails partway through. The dict dedupes in case the two are ever the same
-    object, since close is idempotent but double-closing a shared handle is not a
+    object, since close is idempotent but double closing a shared handle is not a
     property worth relying on.
     """
     src = _open(src_kind, tmp_path, "_a")
@@ -122,7 +122,7 @@ def test_an_existing_filestore_still_opens(tmp_path):
     root = tmp_path / "legacy"
     store = rcdb.FileStore(str(root))
     _put(store, "a", ["legacy", "x", "y", "z"])
-    # collapse it back to the old single-document index
+    # collapse it back to the old single document index
     recs = store._read_index()
     payload = {rid: [r.to_dict() for r in versions] for rid, versions in recs.items()}
     for name in os.listdir(root):
@@ -215,8 +215,8 @@ def test_recommend_backend_explains_itself():
 
 # object storage
 #
-# Exercised over fsspec's in-memory filesystem, which is the SAME code path S3 takes
-# rather than a stand-in for it: what differs on a real bucket is the driver's wire
+# Exercised over fsspec's in memory filesystem, which is the SAME code path S3 takes
+# rather than a stand in for it: what differs on a real bucket is the driver's wire
 # protocol, not this layout.
 
 def _objstore(tag=""):
@@ -240,8 +240,8 @@ def test_an_object_store_answers_the_whole_contract():
 
 
 def test_nothing_is_ever_rewritten(store=None):
-    """Object storage has no append and no in-place update, so every object must be
-    written once. A read-modify-write index is how a concurrent writer's entry gets
+    """Object storage has no append and no in place update, so every object must be
+    written once. A read modify write index is how a concurrent writer's entry gets
     lost on S3."""
     store = _objstore("immutable")
     _put(store, "a")
@@ -270,7 +270,7 @@ def test_reopening_replays_the_journal():
 
 
 def test_compaction_folds_the_journal_into_a_snapshot():
-    """A listing whose cost grows with every write is how an object-store index
+    """A listing whose cost grows with every write is how an object store index
     degrades; compaction is what keeps opening cheap."""
     store = _objstore("compact")
     for k in range(12):

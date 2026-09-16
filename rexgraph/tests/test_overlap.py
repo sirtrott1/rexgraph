@@ -92,7 +92,7 @@ class TestSimilarity:
         assert np.allclose(S, S.T, atol=1e-12)
 
     def test_S_diagonal_positive(self):
-        """Diagonal of normalized similarity is positive (self-similarity)."""
+        """Diagonal of normalized similarity is positive (self similarity)."""
         nV, nE, s, t = _triangle()
         S, d_ov = _overlap.build_overlap_adjacency(nV, nE, s, t)
         assert np.all(np.diag(S) > 0)
@@ -144,7 +144,7 @@ class TestVertexWeights:
         assert np.allclose(L_default, L_uniform, atol=1e-12)
 
     def test_weights_change_result(self):
-        """Non-uniform weights produce a different L_O."""
+        """Non uniform weights produce a different L_O."""
         nV, nE, s, t = _triangle()
         w = np.array([1.0, 2.0, 0.5], dtype=np.float64)
         L_weighted = _overlap.build_L_O(nV, nE, s, t, method="dense", vertex_weights=w)

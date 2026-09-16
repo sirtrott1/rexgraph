@@ -1,4 +1,5 @@
 """Shared test fixtures and configuration for rexgraph."""
+import os
 import pathlib
 import sys
 
@@ -17,6 +18,8 @@ def _ensure_sibling(name: str) -> None:
     each as a namespace package, and an empty one imports fine and then fails on the first
     real attribute.
     """
+    if os.environ.get("REXGRAPH_TEST_INSTALLED") == "1":
+        return
     try:
         module = __import__(name)
         if getattr(module, "__file__", None):
@@ -34,7 +37,7 @@ _ensure_sibling("rcdb")
 
 @pytest.fixture
 def small_graph():
-    """4-vertex, 5-edge, 1-face test graph."""
+    """4 vertex, 5 edge, 1 face test graph."""
     edges = [(0,1),(1,2),(0,2),(0,3),(1,3)]
     sources = np.array([e[0] for e in edges], dtype=np.int32)
     targets = np.array([e[1] for e in edges], dtype=np.int32)

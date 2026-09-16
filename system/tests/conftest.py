@@ -6,11 +6,14 @@ source checkout without anything being installed into the caller's environment.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 
 def _ensure_rcql() -> None:
+    if os.environ.get("REXGRAPH_TEST_INSTALLED") == "1":
+        return
     try:
         import rcql
         if hasattr(rcql, "parse"):

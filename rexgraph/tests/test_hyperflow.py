@@ -3,7 +3,7 @@
 The HGNN built its complex with `from_hypergraph(groups)` and nothing else. That is a
 FOREST OF STARS: every column is one group, nothing closes, beta_1 = 0. Curl and harmonic
 are both empty, so EVERYTHING IS GRADIENT, and a "flow layer" over it is ordinary message
-passing with no structural content to offer. It lost to a parameter-matched MLP, which is
+passing with no structural content to offer. It lost to a parameter matched MLP, which is
 the correct outcome for a model whose structure carries nothing.
 
 The construction that has a flow carries BOTH grades in one complex:
@@ -228,7 +228,7 @@ def test_the_boundary_pairing_is_what_makes_it_additive():
 
 def test_the_decomposition_uses_the_library_projector():
     """Not dense lstsq. The harmonic part must agree with harmonic_projection applied
-    directly, which is the low-rank sparse-Gram path."""
+    directly, which is the low rank sparse Gram path."""
     from rexgraph.harmonic_sparse import harmonic_basis, harmonic_projection
 
     fc = build_flow_complex(GROUPS, close=True)

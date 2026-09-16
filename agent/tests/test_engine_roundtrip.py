@@ -10,7 +10,7 @@ rationale. Two things are worth holding it to:
 
 `EngineResult.save`/`load` writes the complex through rexgraph.io plus JSON sidecars.
 A result that loads back without its plan or its analysis is a result that cannot be
-reopened, so the round-trip is checked per format.
+reopened, so the round trip is checked per format.
 """
 from __future__ import annotations
 
@@ -182,7 +182,7 @@ def test_a_signal_is_decomposed_when_one_is_given():
         assert abs(sum(parts) - 1.0) < 1e-6, f"the Hodge split does not sum to 1: {d}"
 
 
-#### result round-trip
+#### result round trip
 
 
 @pytest.mark.parametrize("suffix", [".rcbd", ".h5", ".zarr"])

@@ -1,6 +1,6 @@
 """One JSON encoder, one NaN policy, applied everywhere JSON is written.
 
-The io layer grew nine independent numpy-JSON encoders with four different NaN
+The io layer grew nine independent numpy JSON encoders with four different NaN
 policies, and none of them worked for float64. np.float64 subclasses Python float,
 so json.dumps serializes it directly and never consults default(). The encoder
 that documents "NaN/Inf become 0" silently emitted a bare NaN token instead, which
@@ -98,7 +98,7 @@ def test_every_json_writer_shares_the_one_encoder():
 
     Checks the property, not the plumbing: no io module may DEFINE its own encoder,
     and each must route its writes through _compat.dumps. An earlier version of this
-    test asserted a back-compat alias instead, and so failed when the (by then dead)
+    test asserted a back compat alias instead, and so failed when the (by then dead)
     alias was cleaned up, while the property it cared about still held.
     """
     import inspect
@@ -122,9 +122,9 @@ def test_no_module_reintroduces_a_raw_numpy_dumps():
     NaN policy on a float subclass, so any new use of it is the same bug returning.
 
     Reads the SOURCE TREE, so it only means anything in a checkout. Run against an
-    installed wheel its glob resolves inside site-packages, finds 57 files instead of
-    500-odd and no agent/ at all, and the assertion below fires on the layout rather
-    than on a regression. That is the self-check working, not a failure, so the guard
+    installed wheel its glob resolves inside site packages, finds 57 files instead of
+    500 odd and no agent/ at all, and the assertion below fires on the layout rather
+    than on a regression. That is the self check working, not a failure, so the guard
     skips instead.
     """
     import pathlib

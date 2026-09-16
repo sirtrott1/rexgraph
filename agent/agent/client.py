@@ -88,7 +88,7 @@ class RexClient:
         return self._get("/rex/v1/hello")
 
     def rex_verify(self, rex) -> dict:
-        """Ask the server whether a complex is well-formed, without storing it."""
+        """Ask the server whether a complex is well formed, without storing it."""
         import httpx
 
         from rexgraph.protocol import encode

@@ -3,7 +3,7 @@ Backend bridge for the model lifecycle: pick_device rides the rexgraph.compute e
 ComputeSpec.backend threads through the train/load/infer/save lifecycle, and a checkpoint saved on
 one backend loads (map_location) and infers on the resolved backend.
 
-Runs on either a CPU-only or a single-GPU host: every GPU move is guarded behind the resolved
+Runs on either a CPU only or a single GPU host: every GPU move is guarded behind the resolved
 device, so the assertions are written against invariants (GPU only when a GPU is actually usable),
 not against a fixed device.
 """
@@ -21,8 +21,8 @@ def test_pick_device_auto_consistent_with_compute_stack():
     dev = optim.pick_device("auto")
     kind = dev.split(":")[0]
     assert isinstance(dev, str) and kind in ("cpu", "cuda", "mps")
-    # invariant: a non-cpu device only when THAT backend is actually usable. gpu_count() is not
-    # the oracle for "a GPU exists" - it counts CUDA/ROCm devices for multi-GPU column tiling, so
+    # invariant: a non cpu device only when THAT backend is actually usable. gpu_count() is not
+    # the oracle for "a GPU exists" - it counts CUDA/ROCm devices for multi GPU column tiling, so
     # it is 0 on Apple silicon by design while MPS is perfectly usable.
     if kind == "cuda":
         assert compute.gpu_count() > 0
@@ -38,7 +38,7 @@ def test_pick_device_auto_consistent_with_compute_stack():
 
 def test_pick_device_explicit_overrides_and_cpu_safety():
     assert optim.pick_device("cpu") == "cpu"            # cpu always forces CPU
-    assert optim.pick_device("openmp") == "cpu"         # a CPU compute-backend name maps to cpu
+    assert optim.pick_device("openmp") == "cpu"         # a CPU compute backend name maps to cpu
     # a GPU request degrades cleanly on a host with no usable GPU
     if compute.gpu_count() == 0:
         assert optim.pick_device("cuda") == "cpu"
@@ -47,7 +47,7 @@ def test_pick_device_explicit_overrides_and_cpu_safety():
         assert optim.pick_device("cuda").split(":")[0] == "cuda"
 
 
-# (b) lifecycle round-trip: build -> train -> save -> load(map_location) -> infer
+# (b) lifecycle round trip: build -> train -> save -> load(map_location) -> infer
 
 def test_lifecycle_roundtrip_save_load_infer_on_resolved_backend(tmp_path):
     from agent.models import store
@@ -64,10 +64,10 @@ def test_lifecycle_roundtrip_save_load_infer_on_resolved_backend(tmp_path):
     bundle.to(dev)
     T.train_one(model, bundle, steps=3, device=dev, seed=0)
 
-    # reference output from the in-memory trained model
+    # reference output from the in memory trained model
     ref, _ = T.predict_on(model, bundle, bundle.kind)
 
-    # SAVE (weights written device-agnostically) then LOAD onto the resolved device
+    # SAVE (weights written device agnostically) then LOAD onto the resolved device
     store.save_checkpoint(ckpt, model, "mlp", cfg, bundle=bundle)
     loaded, conf = store.load_checkpoint(ckpt, device=dev)
 
@@ -81,7 +81,7 @@ def test_lifecycle_roundtrip_save_load_infer_on_resolved_backend(tmp_path):
 
 
 def test_predict_maps_checkpoint_onto_resolved_device(tmp_path):
-    """The high-level predict() path resolves the device through pick_device and runs there."""
+    """The high level predict() path resolves the device through pick_device and runs there."""
     from agent import models
     dev = optim.pick_device("auto")
     ckpt = str(tmp_path / "m")

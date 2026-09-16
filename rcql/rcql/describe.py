@@ -4,13 +4,13 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
-from rexgraph.graded_boundary import graded_boundaries_from_rex
+from rexgraph.native_sparse import boundary_carriers
 
 
 def describe_rex(rex) -> dict[str, Any]:
     """Return the structural shape of a Rex without computing dense operators."""
     rex._ensure_clean()
-    B = graded_boundaries_from_rex(rex)
+    B = boundary_carriers(rex)
     sizes = [int(B[0].shape[0])] + [int(M.shape[1]) for M in B] if B else [0]
     out = {
         "kind": "Rex",

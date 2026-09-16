@@ -1,7 +1,7 @@
 """
 OCR adapter: image / PDF -> typed relational complex.
 
-Bridges Baidu's Unlimited-OCR with the rexgraph agent pipeline.
+Bridges Baidu's Unlimited OCR with the rexgraph agent pipeline.
 Takes an image path, PDF path, or directory of images, runs OCR
 to extract text, then builds a relational complex encoding the
 text's relational structure.
@@ -97,7 +97,7 @@ def _classify_block(text: str) -> str:
     if not lines:
         return "paragraph"
 
-    # Table: has pipe-separated rows
+    # Table: has pipe separated rows
     pipe_lines = sum(1 for l in lines if "|" in l and l.count("|") >= 2)
     if pipe_lines >= 2:
         return "table"
@@ -211,7 +211,7 @@ class OCRAdapter(DomainAdapter):
     """Convert images/PDFs to typed relational complexes via OCR.
 
     Parameters
-    ----------
+
     client : UnlimitedOCRClient or OfflineOCRClient, optional
         Pre-configured OCR client.  If not provided, one is
         created automatically using ``create_ocr_client()``.
@@ -247,17 +247,17 @@ class OCRAdapter(DomainAdapter):
         face_selection: str = "auto",
         detect_tables: bool = True,
     ) -> EdgeConstruction:
-        """Build a relational complex from *already-extracted* OCR text.
+        """Build a relational complex from *already extracted* OCR text.
 
         This is the entry point the pipeline should use when OCR has
         already run (e.g. in the main process, with the model cached in
-        VRAM).  It skips the OCR-extraction step in :meth:`build` and
+        VRAM).  It skips the OCR extraction step in :meth:`build` and
         preserves document structure via the ``layout`` strategy, which
         keeps headings / tables / columns as typed edges instead of
-        flattening everything into word co-occurrence.
+        flattening everything into word co occurrence.
 
         Parameters
-        ----------
+
         text : str
             Text previously produced by an OCR backend.
         strategy : str
@@ -269,7 +269,7 @@ class OCRAdapter(DomainAdapter):
             layout fallback).
 
         Returns
-        -------
+
         EdgeConstruction
         """
         if not text or len(text.strip()) < 10:
@@ -280,7 +280,7 @@ class OCRAdapter(DomainAdapter):
 
         # If the OCR output is really a table, recover its structure so
         # column headers become vertex labels (as a native CSV would),
-        # instead of dissolving into word co-occurrence.
+        # instead of dissolving into word co occurrence.
         if detect_tables:
             try:
                 from agent.adapters.table_detect import detect_tables as _dt
@@ -317,7 +317,7 @@ class OCRAdapter(DomainAdapter):
         """Build a relational complex from image/PDF via OCR.
 
         Parameters
-        ----------
+
         data : str or list of str
             Image file path, PDF file path, directory of images,
             or list of image file paths.
@@ -338,7 +338,7 @@ class OCRAdapter(DomainAdapter):
             PDF rasterization DPI.
 
         Returns
-        -------
+
         EdgeConstruction
         """
         # Step 1: Extract text via OCR
@@ -416,7 +416,7 @@ class OCRAdapter(DomainAdapter):
         max_vocab: int = 500,
         face_selection: str = "auto",
     ) -> EdgeConstruction:
-        """Delegate to TextAdapter for word co-occurrence construction."""
+        """Delegate to TextAdapter for word co occurrence construction."""
         adapter = self._get_text_adapter()
         return adapter.build(
             text,
@@ -431,7 +431,7 @@ class OCRAdapter(DomainAdapter):
 
         Uses the largest detected frame and routes it through the same
         DataFrame classification auto_rex uses, so an OCR'd CSV yields
-        the column-labelled complex a native CSV would.
+        the column labelled complex a native CSV would.
         """
         frame = max(frames, key=lambda f: f.shape[0] * f.shape[1])
         numeric = frame.select_dtypes(include=["number"])
@@ -494,7 +494,7 @@ class OCRAdapter(DomainAdapter):
         )
 
     def interpret(self, results: dict) -> dict:
-        """Add OCR-specific interpretation to analysis results."""
+        """Add OCR specific interpretation to analysis results."""
         interp = dict(results)
         interp["domain"] = "document_ocr"
 

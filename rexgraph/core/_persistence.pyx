@@ -3,14 +3,14 @@
 """
 rexgraph.core._persistence: Persistent homology on the relational complex.
 
-Given a 2-rex and a filtration function on cells, computes persistence
+Given a 2 rex and a filtration function on cells, computes persistence
 pairs tracking birth and death of homological features.
 
 Filtration sources include vertex/edge/face signals, Hodge components,
 Laplacian eigenvectors, Jaccard overlap, temporal appearance order,
 and spectral layout distances.
 
-Column reduction (left-to-right) over Z/2 or Z coefficients. The
+Column reduction (left to right) over Z/2 or Z coefficients. The
 combined boundary matrix merges B1 and B2 into a single operator D
 indexed by (filtration_value, dimension, cell_index).
 """
@@ -54,7 +54,7 @@ def filtration_sublevel_vertex(np.ndarray[f64, ndim=1] f0,
     boundary vertices.
 
     Parameters
-    ----------
+
     f0 : f64[nV]
         Vertex signal.
     boundary_ptr : i32[nE+1]
@@ -64,7 +64,7 @@ def filtration_sublevel_vertex(np.ndarray[f64, ndim=1] f0,
     B2_col_ptr, B2_row_idx : CSC of B2
 
     Returns
-    -------
+
     filt_v : f64[nV], filt_e : f64[nE], filt_f : f64[nF]
     """
     cdef Py_ssize_t nV = f0.shape[0]
@@ -223,7 +223,7 @@ def filtration_spectral(np.ndarray[f64, ndim=1] eigenvector,
     Filtration from a Laplacian eigenvector (e.g., Fiedler vector of L0).
 
     Uses absolute value of the eigenvector as the filter function.
-    Nodes near zero-crossings (partition boundary) enter first.
+    Nodes near zero crossings (partition boundary) enter first.
     """
     cdef np.ndarray[f64, ndim=1] f0 = np.abs(eigenvector)
     return filtration_sublevel_vertex(f0, boundary_ptr, boundary_idx,
@@ -236,7 +236,7 @@ def filtration_rips(np.ndarray[f64, ndim=2] positions,
                     np.ndarray[i32, ndim=1] B2_col_ptr,
                     np.ndarray[i32, ndim=1] B2_row_idx):
     """
-    Vietoris-Rips filtration from vertex positions (e.g., spectral layout).
+    Vietoris Rips filtration from vertex positions (e.g., spectral layout).
 
     f(v) = 0 (all vertices present at start)
     f(e) = max pairwise distance among ALL boundary vertices of e
@@ -357,17 +357,17 @@ def filtration_temporal_general(list snapshots,
 
     Each snapshot is (boundary_ptr, boundary_idx).
     Edge identity = sorted tuple of boundary vertices.
-    Handles branching edges, self-loops, witness edges.
+    Handles branching edges, self loops, witness edges.
 
     Parameters
-    ----------
+
     snapshots : list of (boundary_ptr, boundary_idx) per timestep
     nV, nE : vertex/edge count of the canonical rex
     boundary_ptr, boundary_idx : general boundary of the canonical rex
     B2_col_ptr, B2_row_idx : B2 CSC of the canonical rex
 
     Returns
-    -------
+
     filt_v, filt_e, filt_f : f64 arrays
     """
     cdef Py_ssize_t T = len(snapshots), t, e, j
@@ -442,7 +442,7 @@ def build_filtration_order(np.ndarray[f64, ndim=1] filt_v,
     Sort all cells by (filtration_value, dimension, original_index).
 
     Returns
-    -------
+
     order : i64[N]
         Permutation of [0, N) where N = nV + nE + nF.
     cell_dim : i32[N]
@@ -453,7 +453,7 @@ def build_filtration_order(np.ndarray[f64, ndim=1] filt_v,
         Filtration value of each cell in sorted order.
 
     Convention: cells 0..nV-1 are vertices, nV..nV+nE-1 are edges,
-    nV+nE..nV+nE+nF-1 are faces in the pre-sorted ordering.
+    nV+nE..nV+nE+nF-1 are faces in the pre sorted ordering.
     """
     cdef Py_ssize_t nV = filt_v.shape[0], nE = filt_e.shape[0]
     cdef Py_ssize_t nF = filt_f.shape[0], N = nV + nE + nF
@@ -501,11 +501,11 @@ def build_boundary_matrix(np.ndarray[i64, ndim=1] order,
     Build the combined boundary matrix D as a list of columns.
 
     Uses general boundary (boundary_ptr/boundary_idx) for all edge types.
-    D is stored as a list of sorted row-index sets. Over Z/2, only
+    D is stored as a list of sorted row index sets. Over Z/2, only
     membership matters, not signs.
 
     Returns
-    -------
+
     boundary_cols : list of list of int
         D[j] = sorted boundary indices.
     """
@@ -516,7 +516,7 @@ def build_boundary_matrix(np.ndarray[i64, ndim=1] order,
 
     # Map original vertex/edge id -> its column position j (filtration
     # order). Typed arrays initialised to -1 replace the previous Python
-    # dicts, so the per-column lookups below are O(1) array reads.
+    # dicts, so the per column lookups below are O(1) array reads.
     cdef np.ndarray[i32, ndim=1] pmv = np.full(nV, -1, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] pme = np.full(nE, -1, dtype=np.int32)
     cdef i32[::1] pos_map_v = pmv, pos_map_e = pme
@@ -573,7 +573,7 @@ def build_boundary_matrix(np.ndarray[i64, ndim=1] order,
 
 def reduce_boundary_matrix_mod2(list boundary_cols):
     """
-    Standard left-to-right column reduction over Z/2.
+    Standard left to right column reduction over Z/2.
 
     The persistence algorithm: for each column j (left to right),
     if another column j' < j has the same pivot (lowest nonzero row),
@@ -581,12 +581,12 @@ def reduce_boundary_matrix_mod2(list boundary_cols):
     is zero.
 
     Parameters
-    ----------
+
     boundary_cols : list of list of int
         Sparse columns (sorted row indices).
 
     Returns
-    -------
+
     reduced : list of list of int
         Reduced boundary matrix columns.
     pivot_to_col : dict
@@ -625,7 +625,7 @@ def reduce_boundary_matrix(list boundary_cols,
     Slower than Z/2 but preserves orientation information.
 
     Returns
-    -------
+
     reduced : list of list of (int, int)
         (row_idx, coefficient) pairs.
     pivot_to_col : dict
@@ -683,7 +683,7 @@ def extract_persistence_pairs(dict pivot_to_col,
     A column j with pivot at row i: cell j kills the class born at i.
 
     Returns
-    -------
+
     pairs : f64[n_pairs, 5]
         Each row: [birth_value, death_value, dimension, birth_cell_idx, death_cell_idx]
         birth_cell_idx and death_cell_idx are original indices in their dimension.
@@ -743,7 +743,7 @@ def persistence_diagram(np.ndarray[f64, ndim=1] filt_v,
 
 
     Returns
-    -------
+
     dict with keys:
       'pairs'     : f64[n, 5] - [birth, death, dim, birth_cell, death_cell]
       'essential' : f64[n, 3] - [birth, inf, dim]
@@ -792,7 +792,7 @@ def persistence_barcodes(np.ndarray[f64, ndim=2] pairs,
     Extract barcodes (birth, death) for a specific dimension.
 
     Parameters
-    ----------
+
     pairs : f64[n, 5]
         From persistence_diagram.
     essential : f64[n, 3]
@@ -801,7 +801,7 @@ def persistence_barcodes(np.ndarray[f64, ndim=2] pairs,
         Dimension to filter (-1 = all).
 
     Returns
-    -------
+
     barcodes : f64[k, 2]
         (birth, death) pairs, sorted by persistence.
     """
@@ -838,12 +838,12 @@ def bottleneck_distance(np.ndarray[f64, ndim=2] dgm1,
     for the exact Hungarian algorithm). Sufficient for most applications.
 
     Parameters
-    ----------
+
     dgm1, dgm2 : f64[n, 2]
         (birth, death) pairs, finite entries only.
 
     Returns
-    -------
+
     distance : float
     """
     cdef Py_ssize_t n1 = dgm1.shape[0], n2 = dgm2.shape[0]
@@ -965,17 +965,17 @@ def wasserstein_distance(np.ndarray[f64, ndim=2] dgm1,
     return total ** (1.0 / p)
 
 
-# Rex-specific enrichment
+# Rex specific enrichment
 
 def enrich_pairs_edge_type(np.ndarray[f64, ndim=2] pairs,
                            np.ndarray[np.uint8_t, ndim=1] edge_types):
     """
     Annotate dim-1 persistence pairs with edge type at birth and death.
 
-    Type codes: 0=standard, 1=self-loop, 2=branching, 3=witness.
+    Type codes: 0=standard, 1=self loop, 2=branching, 3=witness.
 
     Returns
-    -------
+
     annotations : i32[n_pairs, 2]
         [birth_edge_type, death_edge_type].
         -1 for non-edge cells.
@@ -1005,13 +1005,13 @@ def enrich_pairs_hodge(np.ndarray[f64, ndim=2] pairs,
     Annotate dim-1 pairs with the dominant Hodge component at the birth edge.
 
     Parameters
-    ----------
+
     pairs : f64[n, 5]
     grad_energy, curl_energy, harm_energy : f64[nE]
         Per-edge energy in each Hodge component (from _hodge.pyx decomposition).
 
     Returns
-    -------
+
     dominant : i32[n]
         0=gradient, 1=curl, 2=harmonic, -1=non-edge.
     fractions : f64[n, 3]
@@ -1055,12 +1055,12 @@ def persistence_entropy(np.ndarray[f64, ndim=2] barcodes):
 
 
     Parameters
-    ----------
+
     barcodes : f64[n, 2]
         (birth, death) finite pairs only.
 
     Returns
-    -------
+
     entropy : float
     """
     cdef Py_ssize_t n = barcodes.shape[0], i
@@ -1108,14 +1108,14 @@ def relative_persistence(np.ndarray[f64, ndim=1] filt_v,
 
 
     Parameters
-    ----------
+
     filt_v, filt_e, filt_f : filtration values on full complex
     boundary_ptr, boundary_idx : general edge boundary representation
     B2_col_ptr, B2_row_idx : B2 in CSC
     v_mask, e_mask, f_mask : subcomplex masks (from _quotient.pyx)
 
     Returns
-    -------
+
     Same as persistence_diagram, but computed on R/I.
     """
     filt_v_q = filt_v[~v_mask.astype(bool)]
@@ -1194,7 +1194,7 @@ def persistence_landscape(np.ndarray[f64, ndim=2] barcodes,
 
 
     Parameters
-    ----------
+
     barcodes : f64[n, 2]
         (birth, death) finite pairs.
     grid : f64[G]
@@ -1203,7 +1203,7 @@ def persistence_landscape(np.ndarray[f64, ndim=2] barcodes,
         Number of landscape functions.
 
     Returns
-    -------
+
     landscapes : f64[k_max, G]
     """
     cdef Py_ssize_t n = barcodes.shape[0], G = grid.shape[0]

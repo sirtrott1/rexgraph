@@ -36,7 +36,7 @@ class Snapshot:
     params: dict[str, Any]         # parameters used at this step
     rex_path: str | None        # path to serialized bundle (if saved)
     results: dict | None        # cached analysis results (in memory)
-    summary: str = ""              # one-line summary of this step
+    summary: str = ""              # one line summary of this step
 
 
 class Session:
@@ -81,7 +81,7 @@ class Session:
         """Record a new analysis state.
 
         Parameters
-        ----------
+
         rex : RexGraph
             The current analysis state.
         action : str

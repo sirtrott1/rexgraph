@@ -1,5 +1,5 @@
 """
-Server-side session store.
+Server side session store.
 
 Manages active sessions in memory with disk persistence via .rcbd bundles
 (legacy .rex bundles are still read).
@@ -96,7 +96,7 @@ class SessionStore:
     def delete(self, session_id: str):
         """Delete a session, if it is this workspace's to delete.
 
-        `get` already refuses another tenant's session, so a delete of one is a no-op
+        `get` already refuses another tenant's session, so a delete of one is a no op
         rather than a destruction. That is the whole fix: this route let any caller
         remove any session, and deletion is the one operation an owner cannot undo.
         """

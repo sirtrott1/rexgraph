@@ -36,7 +36,7 @@ def main(doc="pg76245", layer="sentence", take=60):
 
     # `grade_leverage` is the public accessor and it DELEGATES to the same batch at
     # k=1, but it also generalises to any grade and RETURNS THE RANK, which is the
-    # Foster self-test. Calling the private batch meant hand-rolling that check, and I
+    # Foster self test. Calling the private batch meant hand rolling that check, and I
     # got the weighted form wrong doing it.
     reff, rank = grade_leverage(rex, 1)
     reff = np.asarray(reff)

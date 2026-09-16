@@ -1,6 +1,6 @@
 """Packaging metadata: a shipped subsystem must have an install path.
 
-A module that hard-imports a third-party package, with no extra that declares it, cannot be
+A module that hard imports a third party package, with no extra that declares it, cannot be
 enabled by ANY `pip install rexgraph-agent[...]` invocation - the feature ships dead. That is a
 distribution bug the runtime test suite cannot see, because it only ever observes the import
 failing in an environment somebody set up by hand.
@@ -25,7 +25,7 @@ def _extras(meta) -> dict[str, list[str]]:
 
 
 def _resolve(extras: dict[str, list[str]], name: str, _seen=None) -> set[str]:
-    """Flatten one extra, following `rexgraph-agent[a,b]` self-references."""
+    """Flatten one extra, following `rexgraph-agent[a,b]` self references."""
     _seen = _seen if _seen is not None else set()
     if name in _seen:
         return set()
@@ -42,7 +42,7 @@ def _resolve(extras: dict[str, list[str]], name: str, _seen=None) -> set[str]:
 
 
 def test_object_storage_is_installable(meta):
-    """agent/agent/objectstore.py hard-imports fsspec; some extra has to declare it."""
+    """agent/agent/objectstore.py hard imports fsspec; some extra has to declare it."""
     declared = set()
     for name in _extras(meta):
         declared |= _resolve(_extras(meta), name)
@@ -52,7 +52,7 @@ def test_object_storage_is_installable(meta):
 
 
 def test_dev_extra_is_self_sufficient_for_the_test_suite(meta):
-    """[dev] documents itself as self-sufficient for pytest. agent/tests/test_store_interop.py
+    """[dev] documents itself as self sufficient for pytest. agent/tests/test_store_interop.py
     exercises the object store, so fsspec has to be reachable from [dev]."""
     assert "fsspec" in _resolve(_extras(meta), "dev")
 
@@ -68,7 +68,7 @@ def test_container_sealing_is_installable(meta):
 
 
 def test_dev_extra_can_run_the_sealing_tests(meta):
-    """[dev] documents itself as self-sufficient for pytest, and agent/tests/test_kms.py
+    """[dev] documents itself as self sufficient for pytest, and agent/tests/test_kms.py
     seals a real bundle."""
     assert "cryptography" in _resolve(_extras(meta), "dev")
 
@@ -80,7 +80,7 @@ def _agent_modules():
 
 
 def _module_level_imports(path):
-    """Top-level package names imported at MODULE scope, so an install must provide them.
+    """Top level package names imported at MODULE scope, so an install must provide them.
 
     An import inside a function is a soft dependency: the module loads without it and only
     a caller reaching that path pays. One at module scope is not optional at all.
@@ -99,7 +99,7 @@ def _module_level_imports(path):
 def test_a_sibling_imported_at_module_scope_is_a_declared_dependency(meta):
     """The gap that let the store move out of the agent without the agent saying so.
 
-    agent.metrics and agent.scoring re-export from rcdb.analytics, and agent.rcdb and its
+    agent.metrics and agent.scoring re export from rcdb.analytics, and agent.rcdb and its
     four siblings are surfaces over the package, all at module scope. An install without
     rexgraph-rcdb therefore fails at import, which no other test here would have caught.
     """

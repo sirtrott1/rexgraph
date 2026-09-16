@@ -4,7 +4,7 @@
 rexgraph.core._interfacing: Interfacing vector and channel scoring.
 
 Maps a set of source vertices through typed response operators and
-projects onto a target edge vector to produce per-channel scores.
+projects onto a target edge vector to produce per channel scores.
 The interfacing vector I lives on S^{n-1} after normalization and
 classifies entities by their structural mechanism.
 
@@ -58,14 +58,14 @@ def build_vertex_source(np.ndarray[i32, ndim=1] target_indices,
     target weight and w(t) is the vertex weight (e.g. IDF).
 
     Parameters
-    ----------
+
     target_indices : i32[n_targets]
     target_weights : f64[n_targets]
     vertex_weights : f64[nV]
     nV : int
 
     Returns
-    -------
+
     f64[nV]
     """
     cdef np.ndarray[f64, ndim=1] rho = np.zeros(nV, dtype=np.float64)
@@ -91,7 +91,7 @@ cdef void _build_edge_signal(const f64* rho,
                               int nV, int nE) noexcept nogil:
     """psi = B1^T @ L0^+ @ rho. All BLAS/LAPACK, no Python.
 
-    L0p_rho_buf: pre-allocated nV workspace for L0^+ @ rho.
+    L0p_rho_buf: pre allocated nV workspace for L0^+ @ rho.
     """
     # L0^+ @ rho via spectral pseudoinverse matvec
     spectral_pinv_matvec(evals_L0, evecs_L0, rho, L0p_rho_buf, nV, 1e-10)
@@ -108,7 +108,7 @@ def build_edge_signal(np.ndarray[f64, ndim=1] rho,
     """Edge gradient of vertex Poisson solution: psi = B1^T @ L0^+ @ rho.
 
     Parameters
-    ----------
+
     rho : f64[nV]
         Vertex source vector.
     B1 : f64[nV, nE]
@@ -119,7 +119,7 @@ def build_edge_signal(np.ndarray[f64, ndim=1] rho,
     nV, nE : int
 
     Returns
-    -------
+
     f64[nE]
     """
     cdef np.ndarray[f64, ndim=1] psi = np.empty(nE, dtype=np.float64)
@@ -147,10 +147,10 @@ def build_response_operators(np.ndarray[f64, ndim=2] B1,
 
     S_T acts on EDGE signals, so it has to be nE x nE: the interfacing score is
     <target | S_T | psi> with target and psi both edge vectors. The nV x nV form
-    B1 @ L0^+ @ B1^T that earlier text gave here is the vertex-space operator.
+    B1 @ L0^+ @ B1^T that earlier text gave here is the vertex space operator.
 
     Parameters
-    ----------
+
     B1 : f64[nV, nE]
     evals_L0 : f64[nV]
     evecs_L0 : f64[nV, nV]
@@ -159,7 +159,7 @@ def build_response_operators(np.ndarray[f64, ndim=2] B1,
     nV, nE : int
 
     Returns
-    -------
+
     dict with S_T, S_G, S_F, L0_pinv
     """
     # L0^+ via spectral decomposition
@@ -185,7 +185,7 @@ def build_response_operators(np.ndarray[f64, ndim=2] B1,
     }
 
 
-# Per-channel scores
+# Per channel scores
 
 cdef void _channel_scores_3(const f64* psi, const f64* target,
                               const f64* S_T, const f64* S_G, const f64* S_F,
@@ -211,10 +211,10 @@ def channel_scores(np.ndarray[f64, ndim=1] psi,
                     np.ndarray[f64, ndim=2] S_F,
                     np.ndarray[f64, ndim=1] target,
                     int nE):
-    """Per-channel interfacing scores I_X = target^T @ S_X @ psi.
+    """Per channel interfacing scores I_X = target^T @ S_X @ psi.
 
     Parameters
-    ----------
+
     psi : f64[nE]
         Edge signal from build_edge_signal.
     S_T, S_G, S_F : f64[nE, nE]
@@ -224,7 +224,7 @@ def channel_scores(np.ndarray[f64, ndim=1] psi,
     nE : int
 
     Returns
-    -------
+
     f64[3]
         Scores for topological, geometric, frustration channels.
     """
@@ -244,7 +244,7 @@ cdef f64 _schrodinger_score(const f64* psi, const f64* target,
                               int nE) noexcept nogil:
     """I_Sch = sum_j |c_j|^2 * |<target, v_j>|^2.
 
-    c_j = <v_j, psi>, time-averaged Born probability projected onto target.
+    c_j = <v_j, psi>, time averaged Born probability projected onto target.
     """
     cdef int j, i
     cdef f64 cj, tj, result = 0.0
@@ -270,13 +270,13 @@ def schrodinger_score(np.ndarray[f64, ndim=1] psi,
                        np.ndarray[f64, ndim=2] evecs_RL,
                        np.ndarray[f64, ndim=1] target,
                        int nE):
-    """Schrodinger channel: time-averaged Born probability on target.
+    """Schrodinger channel: time averaged Born probability on target.
 
     I_Sch = sum_j |c_j|^2 * |<target, v_j>|^2 where c_j = <v_j, psi>.
     Only eigenmodes with evals > 0 contribute.
 
     Parameters
-    ----------
+
     psi : f64[nE]
     evals_RL : f64[nE]
     evecs_RL : f64[nE, nE]
@@ -284,7 +284,7 @@ def schrodinger_score(np.ndarray[f64, ndim=1] psi,
     nE : int
 
     Returns
-    -------
+
     float
     """
     return float(_schrodinger_score(&psi[0], &target[0],
@@ -296,14 +296,14 @@ def schrodinger_score(np.ndarray[f64, ndim=1] psi,
 def quality_gate(np.ndarray[f64, ndim=2] scores):
     """Bayesian quality gate: q(x) = x / (x + median(|x|)).
 
-    Applied per-channel (column) across all entities (rows).
+    Applied per channel (column) across all entities (rows).
 
     Parameters
-    ----------
+
     scores : f64[n_entities, n_channels]
 
     Returns
-    -------
+
     f64[n_entities, n_channels]
     """
     cdef int n_ent = scores.shape[0]
@@ -313,7 +313,7 @@ def quality_gate(np.ndarray[f64, ndim=2] scores):
     cdef int d, c
     cdef f64 med, x
 
-    # Per-channel median of absolute values
+    # Per channel median of absolute values
     cdef np.ndarray[f64, ndim=1] abs_col
     for c in range(n_ch):
         abs_col = np.abs(scores[:, c])
@@ -334,12 +334,12 @@ def interfacing_vector(np.ndarray[f64, ndim=1] scores,
     """I = scores * quality elementwise.
 
     Parameters
-    ----------
+
     scores : f64[n_channels]
     quality : f64[n_channels]
 
     Returns
-    -------
+
     f64[n_channels]
     """
     cdef int n = scores.shape[0]
@@ -357,11 +357,11 @@ def sphere_position(np.ndarray[f64, ndim=1] iv):
     """Project to unit sphere: iv / ||iv||.
 
     Parameters
-    ----------
+
     iv : f64[n_channels]
 
     Returns
-    -------
+
     f64[n_channels]
     """
     cdef int n = iv.shape[0]
@@ -407,7 +407,7 @@ def coverage(np.ndarray[f64, ndim=1] psi,
     C = count(|c_j| > probe_floor) / count(lambda_j > 0).
 
     Parameters
-    ----------
+
     psi : f64[nE]
     evals_RL : f64[nE]
     evecs_RL : f64[nE, nE]
@@ -416,7 +416,7 @@ def coverage(np.ndarray[f64, ndim=1] psi,
         Minimum projection magnitude. Typically 1 / nV^3.
 
     Returns
-    -------
+
     float in [0, 1]
     """
     return float(_coverage(&psi[0], &evals_RL[0], &evecs_RL[0, 0],
@@ -439,13 +439,13 @@ def source_efficiency(np.ndarray[i32, ndim=1] target_indices,
     incident to target vertices.
 
     Parameters
-    ----------
+
     target_indices : i32[n_targets]
     B1 : f64[nV, nE]
     nV, nE : int
 
     Returns
-    -------
+
     float in [0, 1]
     """
     cdef i32[::1] ti = target_indices
@@ -483,14 +483,14 @@ def confidence_flags(f64 coverage_val, f64 efficiency, f64 phi_T):
         CHANNEL_CONFLICT - efficiency < 0.5 and phi_T < 2/3
 
     Parameters
-    ----------
+
     coverage_val : float
     efficiency : float
     phi_T : float
         Topological channel fraction of vertex character.
 
     Returns
-    -------
+
     dict with flag, reasons list
     """
     cdef f64 pf = 1.0 - exp(-1.0)
@@ -506,7 +506,7 @@ def confidence_flags(f64 coverage_val, f64 efficiency, f64 phi_T):
     return {'flag': reasons[0], 'reasons': reasons}
 
 
-# One-call entry point
+# One call entry point
 
 def build_interfacing_bundle(np.ndarray[i32, ndim=1] target_indices,
                               np.ndarray[f64, ndim=1] target_weights,
@@ -523,11 +523,11 @@ def build_interfacing_bundle(np.ndarray[i32, ndim=1] target_indices,
     """Full interfacing vector computation.
 
     Chains: vertex source -> edge signal -> response operators ->
-    per-channel scores -> Schrodinger score -> sphere position ->
+    per channel scores -> Schrodinger score -> sphere position ->
     coverage -> efficiency -> confidence.
 
     Parameters
-    ----------
+
     target_indices : i32[n_targets]
         Vertex indices of source entity targets.
     target_weights : f64[n_targets]
@@ -552,7 +552,7 @@ def build_interfacing_bundle(np.ndarray[i32, ndim=1] target_indices,
     nV, nE : int
 
     Returns
-    -------
+
     dict
         rho : f64[nV], vertex source
         psi : f64[nE], edge signal
@@ -585,7 +585,7 @@ def build_interfacing_bundle(np.ndarray[i32, ndim=1] target_indices,
     # Schrodinger score
     sch = schrodinger_score(psi, evals_RL, evecs_RL, target, nE)
 
-    # Assemble 4-channel vector (T, G, F, Sch)
+    # Assemble 4 channel vector (T, G, F, Sch)
     cdef np.ndarray[f64, ndim=1] iv_raw = np.empty(4, dtype=np.float64)
     iv_raw[0] = scores_3[0]
     iv_raw[1] = scores_3[1]

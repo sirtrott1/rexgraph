@@ -2,7 +2,7 @@
 
 The build itself is covered by `test_document.py`. What is tested here is the driver:
 that a resumed run does not duplicate, that a finished artifact stores identically to one
-built in-process, that one bad file does not end a run, and that the record still
+built in process, that one bad file does not end a run, and that the record still
 addresses its own prose.
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ def corpus(tmp_path):
     return [str(tmp_path / f"pg{i}.txt") for i in range(3)]
 
 
-#### the artifact a worker hands back ###########################################
+# the artifact a worker hands back
 
 def test_a_prepared_put_stores_what_an_ordinary_put_stores(corpus):
     """The whole point of `put_prepared` is that it is the same record by a cheaper
@@ -71,7 +71,7 @@ def test_the_analytics_columns_are_off_by_default_and_betti_is_not(corpus):
     assert r["sig"]["betti1"] >= 0
 
 
-#### resume ####################################################################
+# resume
 
 def test_a_second_run_over_the_same_paths_writes_nothing(tmp_path, corpus):
     store = FileStore(str(tmp_path / "store"))
@@ -102,7 +102,7 @@ def test_resume_off_is_how_a_real_new_version_is_written(tmp_path, corpus):
     assert len(store.history(doc_id_for(corpus[0]))) == 2
 
 
-#### one bad file ##############################################################
+# one bad file
 
 def test_a_file_that_fails_is_recorded_and_the_run_continues(tmp_path):
     """61,354 documents means the run must survive whatever is in the corpus."""
@@ -124,7 +124,7 @@ def test_an_empty_corpus_is_not_an_error(tmp_path):
     assert ingest_corpus([], store, profile=ENGLISH_GUTENBERG)["total"] == 0
 
 
-#### what the record carries ###################################################
+# what the record carries
 
 def test_the_layers_survive_into_the_store(tmp_path, corpus):
     """A stored document that lost its sectionings is a bag of relations: the layers are
@@ -151,7 +151,7 @@ def test_the_heap_pointer_resolves_to_the_documents_own_prose(tmp_path, corpus):
     assert rec.meta["encoding_exact"] is True
     assert os.path.exists(rec.meta["heap"])
     rex = store.get(rec.id)
-    # the pointer's whole purpose: one seek into the file, no stored copy, no re-parse
+    # the pointer's whole purpose: one seek into the file, no stored copy, no re parse
     text = section_text(rex, "chapter", 0, path=rec.meta["heap"])
     assert text.strip(), "a chapter span must resolve to prose"
     with open(rec.meta["heap"], "rb") as fh:
@@ -183,7 +183,7 @@ def test_the_id_is_stable_across_runs_and_directories():
     assert doc_id_for("/other/pg102.txt") == doc_id_for("/a/b/pg102.txt")
 
 
-#### the blob is framed and compressed ##########################################
+# the blob is framed and compressed
 
 def test_a_blob_round_trips_through_the_frame():
     from agent.rcdb import compress_blob, decompress_blob
@@ -195,7 +195,7 @@ def test_a_blob_round_trips_through_the_frame():
 
 
 def test_an_uncompressed_blob_written_before_this_still_reads():
-    """Stores exist. A raw safetensors file opens with a little-endian u64 header
+    """Stores exist. A raw safetensors file opens with a little endian u64 header
     length, so its first four bytes would have to read an 823 MB header to collide with
     the magic, and the format caps a header at 100 MB. The two are distinguishable
     exactly, so a legacy blob passes through rather than being guessed at."""
@@ -232,11 +232,11 @@ def test_digests_are_derived_so_compression_actually_reaches_the_blob(corpus):
     rex, _i = build_document(raw, profile=ENGLISH_GUTENBERG)
     blob = serialize_complex(rex)
     # a compressed blob must not itself compress further by much: if it did, something
-    # incompressible-and-derivable is still riding along
+    # incompressible and derivable is still riding along
     assert len(zlib.compress(blob, 9)) > 0.9 * len(blob)
 
 
-#### migrating a store written before compression ###############################
+# migrating a store written before compression
 
 def _write_legacy_blobs(store):
     """Rewrite every blob as raw, uncompressed bytes: a store from before framing."""
@@ -267,8 +267,8 @@ def test_recompress_shrinks_a_legacy_store_and_keeps_every_complex(tmp_path, cor
 
 
 def test_recompress_is_idempotent(tmp_path, corpus):
-    """An already-framed blob is skipped, so running it twice costs nothing and a store
-    is never double-compressed."""
+    """An already framed blob is skipped, so running it twice costs nothing and a store
+    is never double compressed."""
     store = FileStore(str(tmp_path / "store"))
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
     first = store.recompress()
@@ -278,7 +278,7 @@ def test_recompress_is_idempotent(tmp_path, corpus):
 
 
 def test_a_blob_that_cannot_be_read_is_left_alone(tmp_path, corpus):
-    """Verify then replace. A failure must leave the original byte-for-byte, because a
+    """Verify then replace. A failure must leave the original byte for byte, because a
     migration that damages what it cannot convert is worse than one that refuses."""
     store = FileStore(str(tmp_path / "store"))
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
@@ -296,7 +296,7 @@ def test_a_blob_that_cannot_be_read_is_left_alone(tmp_path, corpus):
 def test_recompress_gives_the_same_answer_on_a_worker_pool(tmp_path, corpus):
     """Only file CONTENTS change (no record, index or log entry is touched) so the
     parallel path must agree with the serial one exactly. Both arms have to start from
-    byte-identical input, so the store is COPIED rather than ingested twice."""
+    byte identical input, so the store is COPIED rather than ingested twice."""
     import shutil
 
     src = FileStore(str(tmp_path / "serial"))
@@ -323,7 +323,7 @@ def test_recompress_gives_the_same_answer_on_a_worker_pool(tmp_path, corpus):
 
 
 def test_force_rewrites_an_already_framed_blob(tmp_path, corpus):
-    """The magic says a blob is compressed, not which rex-state format_version it holds.
+    """The magic says a blob is compressed, not which rex state format_version it holds.
     When the format moves, a store that is already framed still needs rewriting."""
     store = FileStore(str(tmp_path / "store"))
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)

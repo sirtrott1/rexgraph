@@ -36,7 +36,7 @@ def _write_csv(rows, path):
 
 
 def _simple_csv(tmp_path):
-    """Simple 3-edge CSV with type and effect columns."""
+    """Simple 3 edge CSV with type and effect columns."""
     path = os.path.join(tmp_path, "edges.csv")
     _write_csv([
         {"source": "A", "target": "B", "type": "binding", "effect": "stimulation", "score": "0.9"},

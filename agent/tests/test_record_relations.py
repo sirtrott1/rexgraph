@@ -1,13 +1,13 @@
 """A record set becomes relations at their observed arity, never pairwise projections.
 
 One link value observed across k records is one k-ary relation among those records. The
-records are its derived grade-zero participants. Emitting k-1 pairwise facts instead
+records are its derived grade zero participants. Emitting k-1 pairwise facts instead
 asserts relations the data never contained and erases the arity from the boundary.
 
 Two readings come out of this and they are not interchangeable. The support projection
 asks which records are joined by a chain of shared values; H0 asks the algebraic question
 about the complex. Four records sharing one value give one support component and a
-grade-zero Betti number of 3, and both are correct answers to different questions.
+grade zero Betti number of 3, and both are correct answers to different questions.
 """
 
 from __future__ import annotations
@@ -132,8 +132,8 @@ def test_the_head_is_deterministic_and_carries_no_claim():
 def test_an_isolated_record_is_a_participant_with_no_relation():
     """Linking to nothing is not the same as being observed standalone.
 
-    A record that shares no link value is a grade-zero participant that belongs to no
-    relation. Giving it an arity-one relation of its own would assert an observation the
+    A record that shares no link value is a grade zero participant that belongs to no
+    relation. Giving it an arity one relation of its own would assert an observation the
     source never made.
     """
     rows = [{"id": "a", "k": "x"}, {"id": "b", "k": "x"}, {"id": "c", "k": "y"}]
@@ -151,9 +151,9 @@ def test_an_isolated_record_is_a_participant_with_no_relation():
 
 
 def test_no_column_is_manufactured_that_breaks_the_zero_sum_law():
-    """An arity-one column carries a single +1 and does not sum to zero.
+    """An arity one column carries a single +1 and does not sum to zero.
 
-    Inventing one per unlinked record would break the zero-sum law across the complex in
+    Inventing one per unlinked record would break the zero sum law across the complex in
     order to represent an absence. Leaving the participant unattached keeps every column a
     boundary and still counts the record in H0.
     """
@@ -164,7 +164,7 @@ def test_no_column_is_manufactured_that_breaks_the_zero_sum_law():
     from rexgraph import Cell
     from rexgraph.cells import composite_binary
 
-    # exact, not rounded: the zero-sum law is the definition of a boundary, so checking it
+    # exact, not rounded: the zero sum law is the definition of a boundary, so checking it
     # through a float rendering would accept a column that only nearly sums to zero
     sums = [sum(composite_binary(Cell(rex, 1, j)).boundary.values)
             for j in range(int(rex.nE))]

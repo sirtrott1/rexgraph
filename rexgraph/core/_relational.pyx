@@ -92,7 +92,7 @@ cdef void _build_RL_4(const f64* L1, const f64* L_O, const f64* L_SG,
 def build_RL(list laplacians, list names):
     """Build the relational Laplacian from N typed Laplacians.
 
-    Each Laplacian is trace-normalized. Those with tr < epsilon are
+    Each Laplacian is trace normalized. Those with tr < epsilon are
     skipped. The result is RL = sum of active hats, with
     Every channel is kept, including one carrying no mass, which contributes a
     zero hat. So `nhats` is the number of channels the complex has rather than
@@ -103,12 +103,12 @@ def build_RL(list laplacians, list names):
     For N=3 and N=4, C-level fast paths avoid Python overhead entirely.
 
     Parameters
-    ----------
+
     laplacians : list of f64[nE, nE]
     names : list of str, same length
 
     Returns
-    -------
+
     dict with RL, hats, nhats, trace_values, hat_names
     """
     cdef int n_input = len(laplacians)
@@ -117,7 +117,7 @@ def build_RL(list laplacians, list names):
     cdef int nE = laplacians[0].shape[0]
 
     # Typed arrays declared at function scope (Cython 3 requirement).
-    # Used by 3-hat and 4-hat fast paths; unused in general path.
+    # Used by 3 hat and 4 hat fast paths; unused in general path.
     cdef np.ndarray[f64, ndim=2] _a0, _a1, _a2, _a3
     cdef np.ndarray[f64, ndim=2] _h0, _h1, _h2, _h3
     cdef np.ndarray[f64, ndim=2] _RL
@@ -200,7 +200,7 @@ def build_RL(list laplacians, list names):
         tr_k = 0
         _trace_normalize_inplace(&hat_k[0, 0], &tr_k, nE)
         # kept whatever its trace; a zeroed hat adds nothing to RL. See the
-        # three-input path above for why a degenerate channel is still a channel.
+        # three input path above for why a degenerate channel is still a channel.
         active_hats.append(hat_k)
         active_traces.append(float(tr_k))
         active_names.append(names[k])
@@ -273,14 +273,14 @@ def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
                            np.ndarray[f64, ndim=2] B1):
     """Green cache via SPD Cholesky solve - no eigendecomposition, no full pinv.
 
-    For RL3/RL4 the relational Laplacian is full-rank symmetric positive definite
-    (the overlap/frustration/co-participation channels fill the cycle-space kernel
+    For RL3/RL4 the relational Laplacian is full rank symmetric positive definite
+    (the overlap/frustration/co-participation channels fill the cycle space kernel
     of L1_down), so RL^+ = RL^-1 exactly. This factors RL once (Cholesky, dpotrf)
     and solves RL @ X = B1^T (dpotrs) to get B1_RLp = B1 @ RL^-1 and
     S0 = B1 RL^-1 B1^T directly, WITHOUT forming the dense nE x nE pseudoinverse
     and WITHOUT the O(nE^3) symmetric eigendecomposition the spectral path uses.
 
-    Returns the same-shaped cache (B1_RLp, S0) with 'spd_solve': True so the phi
+    Returns the same shaped cache (B1_RLp, S0) with 'spd_solve': True so the phi
     kernel consumes B1_RLp directly. Returns None if RL is empty or not numerically
     SPD (Cholesky info != 0) - the caller then falls back to build_green_cache
     (spectral pinv), so behaviour is preserved on any degenerate RL.
@@ -289,7 +289,7 @@ def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
     cdef int nE = B1.shape[1]
     if nE == 0 or nV == 0:
         return None
-    # Cholesky factor of RL (lower), column-major working copy.
+    # Cholesky factor of RL (lower), column major working copy.
     cdef np.ndarray[f64, ndim=2] A = np.asfortranarray(RL.astype(np.float64, copy=True))
     cdef char uplo = b'L'
     cdef int n = nE
@@ -297,7 +297,7 @@ def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
     dpotrf_(&uplo, &n, &A[0, 0], &n, &info)
     if info != 0:
         return None                      # not SPD -> caller uses spectral fallback
-    # Solve RL @ X = B1^T  =>  X = RL^-1 B1^T   (nE x nV, column-major RHS).
+    # Solve RL @ X = B1^T  =>  X = RL^-1 B1^T   (nE x nV, column major RHS).
     cdef np.ndarray[f64, ndim=2] Xf = np.array(B1.T, dtype=np.float64, order='F')
     cdef int nrhs = nV
     dpotrs_(&uplo, &n, &nrhs, &A[0, 0], &n, &Xf[0, 0], &n, &info)
@@ -314,12 +314,20 @@ def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
 
 
 def rl_cg_solve(np.ndarray[f64, ndim=2] RL, np.ndarray[f64, ndim=1] b):
-    """Solve RL x = b by DENSE SVD least squares (LAPACK dgelsd), not by conjugate
-    gradient. The name is historical: there is no iteration to budget here, and the
-    cost is a dense factorization of a copy of RL. For the matrix-free iterative
-    solve use `rexgraph.sparse_character._block_cg`, which is what the eigen-free
-    tower actually runs on.
+    """Solve `RL x = b` by Cholesky, falling back to dense SVD least squares.
+
+    RL is positive definite, so the system has a unique solution and `dpotrf_` both
+    proves that and produces it. The least squares branch is kept for a degenerate or
+    empty RL, where that reading is the only one defined.
+
+    The name is historical: there is no conjugate gradient iteration here, and the cost
+    is a dense factorization. For the matrix free iterative solve use
+    `rexgraph.sparse_character._block_cg`.
     """
+    from rexgraph.core._linalg import spd_solve
+    solved = spd_solve(RL, b)
+    if solved is not None:
+        return solved
     cdef int n = RL.shape[0]
     cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(RL.copy())
     cdef np.ndarray[f64, ndim=1] B = b.copy()
@@ -362,7 +370,7 @@ def build_line_graph(np.ndarray[f64, ndim=2] K1, int nE):
 
 def build_L_coPC(line_graph_info):
     """Combinatorial Laplacian of the WEIGHTED line graph: L_C = D_L - A_L,
-    with A_L[e1,e2] = number of vertices shared by edges e1,e2 (the co-participation
+    with A_L[e1,e2] = number of vertices shared by edges e1,e2 (the co participation
     multiplicity) and D_L = diag(row sums of A_L).
 
     Uses the combinatorial (unsigned) Laplacian D - A, NOT the topological
@@ -371,20 +379,20 @@ def build_L_coPC(line_graph_info):
     (the combinatorial overlap Laplacian and L_C are the same matrix on a simple
     graph, so hat_G = hat_C to machine precision).
 
-    Caveat, so this is not re-derived as a fault: the SHIPPED RL4 G channel
+    Caveat, so this is not re derived as a fault: the SHIPPED RL4 G channel
     (L_O in build_sparse_channels) is NOT this combinatorial form. It is the raw
     Gramian |B1|^T |B1| (default) or its normalized I - D^-1/2 K D^-1/2 form, kept
     DISTINCT from L_C on purpose so the four channels are not redundant. So the
     shipped hat_G differs from hat_C by 1/((k-2)k) on K_k, which is expected. The
     G = C statement here is about the combinatorial overlap Laplacian only.
 
-    Edge weights are the shared-vertex COUNTS (line_graph_info['weights']), so L_C is
-    a proper zero-row-sum PSD Laplacian at ANY arity, including branching hyperedges
+    Edge weights are the shared vertex COUNTS (line_graph_info['weights']), so L_C is
+    a proper zero row sum PSD Laplacian at ANY arity, including branching hyperedges
     where two edges share >1 vertex. On simple graphs every weight is 1, so this is
-    identical to the old unit-weight form (and K_k, being simple, keeps G = C exactly).
+    identical to the old unit weight form (and K_k, being simple, keeps G = C exactly).
 
     The topological form B1_L^T B1_L differs from D_L - A_L by introducing
-    orientation-dependent signs in the off-diagonal entries, producing
+    orientation dependent signs in the off diagonal entries, producing
     21 distinct eigenvalues on K_7 instead of the expected 3.
     """
     cdef int nV_L = line_graph_info['nV_L']
@@ -407,8 +415,8 @@ def build_L_coPC(line_graph_info):
     for j in range(nE_L):
         s = sv[j]
         t = tv[j]
-        w = wv[j]                    # shared-vertex count (line-graph edge weight)
-        # Off-diagonal: -A_L (negative weighted adjacency)
+        w = wv[j]                    # shared vertex count (line graph edge weight)
+        # Off diagonal: -A_L (negative weighted adjacency)
         lv[s, t] -= w
         lv[t, s] -= w
         # Diagonal: D_L (weighted degree = row sum of A_L)

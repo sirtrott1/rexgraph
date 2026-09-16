@@ -69,7 +69,7 @@ class TestEdgeListJSON:
         ]
         path = str(tmp_path / "edges.json")
         _write_json(data, path)
-        rex = load_json(path)  # auto-detect
+        rex = load_json(path)  # auto detect
         assert rex.nE == 2
 
     def test_with_weight(self, tmp_path):
@@ -159,7 +159,7 @@ class TestNetworkXJSON:
         }
         path = str(tmp_path / "nx.json")
         _write_json(data, path)
-        rex = load_json(path)  # auto-detect as networkx
+        rex = load_json(path)  # auto detect as networkx
         assert rex.nE == 1
 
 
@@ -179,7 +179,7 @@ class TestAdjacencyJSON:
         data = [[0, 1], [1, 0]]
         path = str(tmp_path / "adj.json")
         _write_json(data, path)
-        rex = load_json(path)  # auto-detect
+        rex = load_json(path)  # auto detect
         assert rex.nV == 2
         assert rex.nE == 1
 
@@ -202,7 +202,7 @@ class TestMatrixCSV:
             path, labels=["g1", "g2", "g3"])
         rex = load_matrix_csv(path)
         assert rex.nV == 3
-        assert rex.nE == 3  # all 3 upper-triangle entries nonzero
+        assert rex.nE == 3  # all 3 upper triangle entries nonzero
 
     def test_threshold(self, tmp_path):
         path = str(tmp_path / "matrix.csv")
@@ -220,7 +220,7 @@ class TestMatrixCSV:
         assert rex.nE == 0
 
 
-# Auto-detection
+# Auto detection
 
 class TestAutoDetect:
 
@@ -243,10 +243,10 @@ class TestAutoDetect:
             load_json(path)
 
 
-# Signed-topology round-trip fidelity (Wave-0 correctness)
+# Signed topology round trip fidelity (Wave 0 correctness)
 
 def _signed_directed_faced_graph():
-    """A signed, directed 2-rex with a filled face (negative orientation
+    """A signed, directed 2 rex with a filled face (negative orientation
     entry in B2) AND a branching edge (>2 boundary vertices).
 
     This exercises every field that defines the signed complex:
@@ -267,7 +267,7 @@ def _signed_directed_faced_graph():
 
 
 class TestSignedTopologyRoundtrip:
-    """The signed complex must survive a native-JSON round-trip EXACTLY."""
+    """The signed complex must survive a native JSON round trip EXACTLY."""
 
     def _assert_same(self, rex, rex2):
         assert np.array_equal(rex2._boundary_ptr, rex._boundary_ptr)

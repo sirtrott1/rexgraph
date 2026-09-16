@@ -1,4 +1,4 @@
-"""Agent-layer runner for the core mTOR biomedical demonstration.
+"""Agent layer runner for the core mTOR biomedical demonstration.
 
 ``rexgraph.biomedical_demo`` builds the relational complexes and writes the core
 provenance artifacts. It deliberately imports neither RCDB nor the agent, because
@@ -9,7 +9,7 @@ injected callbacks instead:
     persist(case, output_dir) -> dict      what was stored, for the summary
     render(rex, vertex_labels) -> str      an SVG for the affinity panel
 
-This module supplies both. It owns the RCDB import, the governed two-version
+This module supplies both. It owns the RCDB import, the governed two version
 commit, the agent renderer, and the command line. Nothing here belongs in core.
 
 The store keeps two records. The primary complex is written once, since it is the
@@ -55,7 +55,7 @@ def persist(case: dict[str, Any], output_dir: str | Path) -> dict[str, Any]:
             meta={
                 "role": "primary relational complex",
                 "target": case["case"]["target_accession"],
-                # the manifest mixes per-file entries with plain descriptive strings, so
+                # the manifest mixes per file entries with plain descriptive strings, so
                 # only the entries that actually carry a checksum are recorded as sources
                 "sources": {
                     name: item["sha256"]

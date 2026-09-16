@@ -5,8 +5,8 @@ run), so while one piece is being written another is being tested: evaluation ov
 across the team. A lead then unifies the passing pieces into a single module and runs the whole
 test set against it (the integration "commit"). The team rides the reactive layer (agent.
 reactive_hive): it grows review/test roles up front, and when a piece fails it deploys a debugger
-and retries with the failure as feedback: a self-healing build, every structural change versioned
-in the hive's self-schema.
+and retries with the failure as feedback: a self healing build, every structural change versioned
+in the hive's self schema.
 
 Generation is pluggable: a task may carry a `generate(task, feedback)` callable (deterministic), a
 static `code` string, or fall back to the hive's chat path. Evaluation is real: the code and its
@@ -57,7 +57,7 @@ def _run_tests(code: str, tests: list) -> dict[str, Any]:
         with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
             f.write(harness); path = f.name
         # sys.executable, not "python": a bare `python` is absent on macOS and on any
-        # non-activated venv, so every piece would score 0/N and the build would read as
+        # non activated venv, so every piece would score 0/N and the build would read as
         # "the model wrote bad code" when nothing ever ran.
         out = subprocess.run([sys.executable, path], capture_output=True, text=True, timeout=10)
         head, _, err = out.stdout.strip().partition("|")
@@ -73,7 +73,7 @@ def _run_tests(code: str, tests: list) -> dict[str, Any]:
 
 
 class CodeTeam:
-    """A concurrent, self-healing code team on top of ReactiveHive."""
+    """A concurrent, self healing code team on top of ReactiveHive."""
 
     def __init__(self, hive=None, reactive: ReactiveHive | None = None, *, store=None,
                  generate: Callable | None = None, max_workers: int = 4):
@@ -114,7 +114,7 @@ class CodeTeam:
 
     #### the build
     def build(self, tasks: list[dict]) -> dict[str, Any]:
-        """Generate + evaluate all pieces concurrently, self-heal failures, then unify a build."""
+        """Generate + evaluate all pieces concurrently, self heal failures, then unify a build."""
         reactions: list[dict] = []
         reactions += self.reactive.require("review", "test")     # grow the evaluators up front
 
@@ -122,7 +122,7 @@ class CodeTeam:
         with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
             pieces = list(ex.map(self._gen_eval, tasks))
 
-        # self-heal: a failing piece deploys a debugger and retries with the error as feedback
+        # self heal: a failing piece deploys a debugger and retries with the error as feedback
         failed = [p for p in pieces if not p["verdict"]["ok"]]
         if failed:
             reactions += self.reactive.require("debug")

@@ -125,7 +125,7 @@ def test_l_gb_channel_tensor_diagonal_zero():
 
 
 def test_l_gb_channel_tensor_symmetric():
-    """Self-tensor is symmetric."""
+    """Self tensor is symmetric."""
     B1, B2 = _build_kn_with_b2(6)
     hats = _reference_channels(B1, B2)
     tensor = l_gb_channel_tensor(hats)

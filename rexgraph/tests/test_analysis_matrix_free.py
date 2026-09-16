@@ -56,13 +56,13 @@ def test_the_graded_state_is_norm_preserving(rex):
 
 
 def test_the_dirac_low_spectrum_matches_the_dense_one(rex):
-    """Compared by MAGNITUDE, which is the well-defined question.
+    """Compared by MAGNITUDE, which is the well defined question.
 
     D's spectrum is symmetric about zero and degenerate, so "the k nearest zero" can be
     satisfied by different signed picks when the cut falls inside a tied group: here
     {0, +/-1, +/-1.732 twice}, where k=6 takes three of four tied at 1.732. Both routes
     are right and the signed lists still differ, so asserting on them would be pinning
-    an arbitrary tie-break rather than the spectrum.
+    an arbitrary tie break rather than the spectrum.
     """
     from rexgraph.analysis import _dirac_low_spectrum
     k = 6

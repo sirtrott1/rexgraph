@@ -13,8 +13,8 @@ with the cause. The hive's evolution becomes a tracked lineage: a starting schem
 that mutates in response to queries, data, issues, and deployments, queryable by
 topology like everything else.
 
-This reuses the substrate that already exists: hive.type_complex's worker-type
-ontology, rcdb.version_if_changed's change-only lineage, and the RCDB store.
+This reuses the substrate that already exists: hive.type_complex's worker type
+ontology, rcdb.version_if_changed's change only lineage, and the RCDB store.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from .ontology_complex import ontology_to_rex, parse_rdf
 
 
 class HiveSchema:
-    """The hive's self-structure, snapshotted as a versioned complex in the RCDB."""
+    """The hive's self structure, snapshotted as a versioned complex in the RCDB."""
 
     def __init__(self, hive, *, store: rcdb.RCStore | None = None, lineage_id: str = "hive"):
         self.hive = hive
@@ -35,14 +35,14 @@ class HiveSchema:
         # name -> {"kind": str, "links": [(bee_name, relation)]}
         self.resources: dict[str, dict[str, Any]] = {}
 
-    #### the self-schema as triples -> a complex
+    #### the self schema as triples -> a complex
     def triples(self) -> list[tuple[str, str, str]]:
         """(subject, predicate, object) triples describing the hive's whole structure."""
         t: list[tuple[str, str, str]] = []
         for b in self.hive.bees():
             wt = b.worker_type or f"role:{b.role}"
             parts = wt.split(":")
-            for i in range(1, len(parts)):                      # worker-type subsumption chain
+            for i in range(1, len(parts)):                      # worker type subsumption chain
                 t.append((":".join(parts[:i + 1]), "rdfs:subClassOf", ":".join(parts[:i])))
             t.append((b.name, "rdf:type", wt))                  # the worker is an instance of its type
             t.append((b.name, "provides", f"cap:{b.capability}"))

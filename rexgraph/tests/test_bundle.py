@@ -38,7 +38,7 @@ from rexgraph.io.bundle import (
 
 
 class _BundleAeadProperties:
-    """Test-only opaque AEAD property; core never receives the keys."""
+    """Test only opaque AEAD property; core never receives the keys."""
 
     authenticated_encryption = True
 
@@ -291,7 +291,7 @@ class TestTemporalRex:
         assert isinstance(loaded, TemporalRex)
         assert loaded.T == 2
 
-    def test_snapshot_files(self, tmp_path):
+    def test_canonical_temporal_files(self, tmp_path):
         from rexgraph.graph import TemporalRex
         snaps = [
             (np.array([0, 1], dtype=np.int32),
@@ -300,7 +300,12 @@ class TestTemporalRex:
         trex = TemporalRex(snaps)
         path = str(tmp_path / "temporal.rcbd")
         save_rcbd(path, trex)
-        assert os.path.isdir(os.path.join(path, "snapshots", "0"))
+        from rexgraph.io.rex_state import fname_encode
+        with open(os.path.join(path, "MANIFEST.json")) as handle:
+            manifest = json.load(handle)
+        assert manifest["temporal_state"]["encoding"] == "delta"
+        assert os.path.isfile(os.path.join(path, fname_encode("checkpoint/0/boundary_idx") + ".npy"))
+        assert load_rcbd(path).at(0).nE == 2
 
 
 # RCBDBundle API
@@ -334,11 +339,11 @@ class TestRCBDBundleAPI:
         assert bp.shape == (k4.nE + 1,)
 
 
-# Signed-topology round-trip fidelity (Wave-0 correctness)
+# Signed topology round trip fidelity (Wave 0 correctness)
 
 def _signed_directed_faced_graph():
-    """Signed, directed 2-rex with a filled face (negative B2 orientation
-    entry) AND a branching edge. Exercises the full signed-complex contract."""
+    """Signed, directed 2 rex with a filled face (negative B2 orientation
+    entry) AND a branching edge. Exercises the full signed complex contract."""
     boundary_ptr = np.array([0, 2, 4, 6, 9], dtype=np.int32)
     boundary_idx = np.array([0, 1, 0, 2, 1, 2, 1, 2, 3], dtype=np.int32)
     B2_col_ptr = np.array([0, 3], dtype=np.int32)

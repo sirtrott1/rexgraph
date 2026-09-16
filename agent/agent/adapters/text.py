@@ -41,7 +41,7 @@ def _tokenize(text: str) -> list[tuple[list[str], int, int]]:
     for i, part in enumerate(raw_sents):
         if i % 2 == 0:  # content part (not delimiter)
             words = re.findall(r'[a-zA-Z0-9]+(?:\'[a-zA-Z]+)?', part.lower())
-            if len(words) >= 1:  # allow single-word sentences
+            if len(words) >= 1:  # allow single word sentences
                 results.append((words, offset, offset + len(part)))
         offset += len(part)
     return results
@@ -55,12 +55,12 @@ def _build_cooccurrence(
     stopwords: set | None = None,
 ) -> tuple[dict[str, int], dict[tuple[int, int], float],
            dict[tuple[int, int], int], dict[tuple[int, int], list[int]]]:
-    """Build word co-occurrence graph from tokenized sentences.
+    """Build word co occurrence graph from tokenized sentences.
 
     Returns
-    -------
+
     vocab : dict mapping word to vertex index
-    edges : dict mapping (src, tgt) to co-occurrence weight
+    edges : dict mapping (src, tgt) to co occurrence weight
     types : dict mapping (src, tgt) to type index
     edge_sents : dict mapping (src, tgt) to list of sentence indices
     """
@@ -93,7 +93,7 @@ def _build_cooccurrence(
     top = sorted(freq.items(), key=lambda x: -x[1])[:max_vocab]
     vocab = {w: i for i, (w, _) in enumerate(top)}
 
-    # Count co-occurrences and track sentence membership
+    # Count co occurrences and track sentence membership
     cooc = defaultdict(int)
     dist_sum = defaultdict(int)
     dist_count = defaultdict(int)
@@ -114,7 +114,7 @@ def _build_cooccurrence(
                 dist_sum[(a, b)] += d
                 dist_count[(a, b)] += 1
                 edge_sents[(a, b)].append(sent_idx)
-                # Track reading order: does the lower-index vertex come first in text?
+                # Track reading order: does the lower index vertex come first in text?
                 if vocab[w_i] <= vocab[w_j]:
                     forward_count[(a, b)] += 1  # natural order
 
@@ -228,7 +228,7 @@ class TextAdapter(DomainAdapter):
         ], dtype=np.float64)
         type_labels = np.array([cooc_types[e] for e in edge_list], dtype=np.int32)
 
-        # Build edge-to-key mapping
+        # Build edge to key mapping
         edge_key_to_idx = {e: i for i, e in enumerate(edge_list)}
 
         # Build sentence spans
@@ -287,7 +287,7 @@ class TextAdapter(DomainAdapter):
         aligns on a vocabulary neither of them has.
 
         `sources`/`targets` come back EMPTY, which is honest rather than lossy: there are
-        no 2-ary relations in this construction, and `build_rex_from_edges` reads the
+        no 2 ary relations in this construction, and `build_rex_from_edges` reads the
         supports out of `branching`.
         """
         from rexgraph.construct import from_text
@@ -318,7 +318,7 @@ class TextAdapter(DomainAdapter):
                                    document_vertex=False, verify=False)
         except ValueError:
             # no sentence cleared the filter. A vocabulary still exists and callers
-            # align on labels, so return it rather than raising: a one-word query is a
+            # align on labels, so return it rather than raising: a one word query is a
             # true reading of the input, not an error.
             from rexgraph.construct import _TOKEN
             toks = [w for w in re.findall(_TOKEN, text.lower()) if w]

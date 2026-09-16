@@ -30,23 +30,23 @@ spread cannot carry and not a variant of one.
 What the sign means is settled for the pairwise case and measured for the rest. By hand
 on a triangle whose edges run consistently around the cycle, `<b_i, L0+ b_j> = -1/3`, and
 reversing one edge flips it to `+1/3`; on a tree it is exactly 0, because distinct edges
-share no current path. So NEGATIVE is co-oriented along a shared cycle.
+share no current path. So NEGATIVE is co oriented along a shared cycle.
 
 That does NOT license reading the fraction as "these relations disagree". On a knowledge
 complex every relation is built with the same convention (the record at position 0), so
 there is no orientation disagreement present to find, and the fraction reads the geometry
 of how supports overlap instead. Measured on 1373 Complex Portal complexes against the
-file's own GO annotations, with the shared-subunit count HELD FIXED by stratification,
+file's own GO annotations, with the shared subunit count HELD FIXED by stratification,
 functionally related pairs score HIGHER: pooled +0.0411 +- 0.0045, z = +9.12, 11 of 14
 strata agreeing, and only rho +0.21 against the raw overlap. So it is coupling, it is not
 a rescaled overlap count, and it is not conflict. The mean Gram does not survive the same
-control (its per-stratum sign flips), so the FRACTION is the reading and the mean is not.
+control (its per stratum sign flips), so the FRACTION is the reading and the mean is not.
 """
 from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["section_readings", "section_response", "section_coverage",
+__all__ = ["section_readings", "section_response", "section_coverage", "document_field",
            "coupling_fraction",
            "grade_leverage", "section_tensor",
            "candidate_readings", "byte_energy", "energy_tensor", "compose_substrates",
@@ -59,7 +59,7 @@ def section_readings(rex, sections, *, leverage=None, verify=True):
     `sections` maps a name to the relation indices it contains. Sections may overlap, and
     group sections DO: a pairwise relation belongs to every group holding both its
     members. The closure identity is asserted only for a genuine partition, meaning the
-    sections are disjoint AND cover every relation; an overlapping cover double-counts
+    sections are disjoint AND cover every relation; an overlapping cover double counts
     mass and closing on the rank is not something it can be expected to do.
 
     Returns `{name: {n, mass, own_rank, efficiency, own_cycles, share, gap}}`.
@@ -120,9 +120,9 @@ def section_readings(rex, sections, *, leverage=None, verify=True):
 
 
 def coupling_fraction(rex, sections, *, field=None):
-    """Fraction of each section's field-Gram off-diagonals that are POSITIVE.
+    """Fraction of each section's field Gram off diagonals that are POSITIVE.
 
-    NEGATIVE is co-oriented along a shared cycle and 0 is no shared current path, both
+    NEGATIVE is co oriented along a shared cycle and 0 is no shared current path, both
     verified by hand on a triangle and a tree. On a uniformly oriented complex the
     fraction reads coupling geometry rather than disagreement, and it separates
     functionally related sections from unrelated ones with the overlap held fixed; the
@@ -160,7 +160,7 @@ def coupling_fraction(rex, sections, *, field=None):
 
 
 def _leverage_of(B, *, block=None):
-    """diag of the projector onto row(B), matrix-free and in blocks.
+    """diag of the projector onto row(B), matrix free and in blocks.
 
     `R_eff(c) = b_c^T (B B^T)^+ b_c` with the kernel deflated, which is the same solve
     `_effective_resistance_batch` runs at grade 1, so both go through the one primitive
@@ -174,12 +174,12 @@ def _leverage_of(B, *, block=None):
 def grade_leverage(rex, k, *, verify=True):
     """The leverage at grade `k`: the diagonal of the projector onto row(B_k).
 
-    Nothing about the grade-1 reading was about grade 1. `R_eff(e) = z^T B^T (B B^T)^+ B
+    Nothing about the grade 1 reading was about grade 1. `R_eff(e) = z^T B^T (B B^T)^+ B
     z` is the e-th diagonal of the orthogonal projector onto the row space, so writing it
     for `B_k` is the same expression with a different operator, and every reading built on
     it comes with it: a cell's mass, its share of the cycle space, and a section's gap.
 
-    Foster generalises with it and is the self-test at every grade::
+    Foster generalises with it and is the self test at every grade::
 
         sum_c R_eff_k(c) = rank(B_k)        so   sum_c (1 - R_eff_k(c)) = dim ker(B_k)
 
@@ -221,7 +221,7 @@ def section_tensor(rex, sections, *, grades=None, leverage=None, verify=True):
     The readings per (section, grade) are the ones the leverage supports there: `n`,
     `mass`, `own_rank`, `efficiency`, `own_cycles`, `share`, `gap`, plus the section's OWN
     Hodge blocks as exact integers. The blocks come from the rank tower restricted to the
-    section, which is what makes them coordinates rather than a per-grade constant::
+    section, which is what makes them coordinates rather than a per grade constant::
 
         gradient(S, k) = rank(B_k |S)                  what its own boundary spans
         curl(S, k)     = rank(B_{k+1} |S)              what its own faces fill
@@ -340,7 +340,7 @@ def candidate_readings(rex, candidates, *, shares=True):
     rebuild.
 
     `candidates` is an iterable of vertex supports. With `shares=True` each becomes the
-    zero-sum column `(-1, 1/(k-1), ...)` the model uses at any arity; pass explicit
+    zero sum column `(-1, 1/(k-1), ...)` the model uses at any arity; pass explicit
     `(support, values)` pairs to read a column verbatim.
 
     Returns a list of `{support, k, kind, spans_new, quadrance, closes}` in the order
@@ -359,7 +359,7 @@ def candidate_readings(rex, candidates, *, shares=True):
     # NO DECOMPOSITION OF B. range(B) = range(B B^T) = ker(L0) orthogonal, so "is this
     # column spanned" is a test against the KERNEL, which has dimension beta_0 and is
     # tiny, rather than against a factorisation of the whole operator. The quadrance is
-    # then one deflated CG solve, matrix-free, exactly as _effective_resistance_batch
+    # then one deflated CG solve, matrix free, exactly as _effective_resistance_batch
     # does it. The earlier version densified B and took its SVD, which is 1.05 GB at
     # nV 4000 and nE 33k and is not what this library does anywhere else.
     # L0 is never formed here either: membership is a kernel test and the quadrance is
@@ -372,7 +372,7 @@ def candidate_readings(rex, candidates, *, shares=True):
     except ValueError:
         # Branching C1 has a larger kernel than its support components.  Range
         # membership remains an exact rank question; quadrance takes the general
-        # minimum-norm Green action below instead of an incomplete deflation.
+        # minimum norm Green action below instead of an incomplete deflation.
         _apply = dinv = U = None
         general_boundary = True
     rank_B = None                    # exact rank is computed only if adjudication needs it
@@ -395,14 +395,14 @@ def candidate_readings(rex, candidates, *, shares=True):
             if k == 1:
                 # A WITNESS, and the answer is exact without a solve. Its column is
                 # `(+1)`, which SUMS TO ONE; every existing boundary column sums to zero,
-                # so their span lies inside the zero-sum subspace and `(+1)` is outside
+                # so their span lies inside the zero sum subspace and `(+1)` is outside
                 # it. A witness therefore always adds rank and closes nothing, at any
                 # size and against any complex.
                 #
                 # Reporting `spans_new: False` here said the opposite of the truth. It
                 # also erased the class. A vocative ("Take away your mother, Jerry.")
                 # IS a witness, a participant that exists and bounds nothing, and calling
-                # it a non-answer silently turns that sentence into a different one.
+                # it a non answer silently turns that sentence into a different one.
                 out.append({"support": sup.tolist(), "k": 1, "kind": "witness",
                             "spans_new": True, "quadrance": 0.0, "closes": 0.0})
                 continue
@@ -416,7 +416,7 @@ def candidate_readings(rex, candidates, *, shares=True):
         # never be the thing that decides it. It is also the case that the projection is
         # right almost always: over 1200 candidates on 300 random complexes it never
         # disagreed with the exact rank. Deciding everything exactly anyway cost 52s
-        # against the projection's 0.11s at nE 3268, because fraction-free elimination
+        # against the projection's 0.11s at nE 3268, because fraction free elimination
         # over the whole operator runs per candidate.
         #
         # So the projection RULES, and the exact rank ADJUDICATES. The residual is
@@ -440,8 +440,8 @@ def candidate_readings(rex, candidates, *, shares=True):
         else:
             nb = float(np.linalg.norm(b)) or 1.0
             # a column lies in range(B) exactly when it is orthogonal to ker(L0), so the
-            # test is |U^T b| and costs nV x beta_0. In-span leaves this at machine level and
-            # out-of-span leaves an O(1) fraction of the column, thirteen orders apart, so
+            # test is |U^T b| and costs nV x beta_0. In span leaves this at machine level and
+            # out of span leaves an O(1) fraction of the column, thirteen orders apart, so
             # the band picks the method and the integer rank settles anything between.
             rel = (float(np.linalg.norm(U.T @ b)) / nb) if U.shape[1] else 0.0
             if rel > 1e-6:
@@ -472,14 +472,14 @@ def candidate_readings(rex, candidates, *, shares=True):
     return out
 
 
-#### the second substrate #####################################################
+# the second substrate
 #
 # Every reading above is taken ON the complex, so all of them read one propagated signal
 # and inherit its statistics. The byte energy does not: it reads the ENCODING, before any
-# relation exists, and it is the only corpus-free quantity here.
+# relation exists, and it is the only corpus free quantity here.
 #
 # Theorem 27 is the rule for putting them together, and it is a prohibition. Carrying the
-# energy as a source and solving `L0 u = B1 E` re-imports the frequency coupling the
+# energy as a source and solving `L0 u = B1 E` re imports the frequency coupling the
 # energy was free of, and the propagated readings then INVERT: dissipated power ranks
 # function words above content words, exactly reversing the ungated energy. So the
 # composition is multiplicative and the substrates stay apart.
@@ -492,7 +492,7 @@ def byte_energy(label) -> float:
     """`E(w) = sum (byte * position)^2` over the utf-8 encoding of `label`.
 
     No complex, no corpus, no neighbours: this is a property of the string. Position is
-    1-based so the first byte contributes rather than vanishing.
+    1 based so the first byte contributes rather than vanishing.
     """
     return float(sum((b * (i + 1)) ** 2
                      for i, b in enumerate(str(label).encode("utf-8"))))
@@ -503,13 +503,13 @@ def energy_tensor(rex, sections, labels, *, moments=("total", "mean", "spread"))
 
     A section's energy is read off the labels of the vertices its cells touch. Only the
     incidence is used, to find WHICH labels; no solve, no field and no propagation, which
-    is what keeps it corpus-free.
+    is what keeps it corpus free.
 
         total    sum of the byte energies of the section's distinct vertices
         mean     total / number of them
         spread   peak / total, so a section dominated by one long label reads high
 
-    PICK THE MOMENT DELIBERATELY. Per VERTEX the energy is corpus-free, and measured on
+    PICK THE MOMENT DELIBERATELY. Per VERTEX the energy is corpus free, and measured on
     prose it sits at rho = +0.175 against the structural reading while the structural
     readings sit at -0.737 with frequency among themselves. Per SECTION that only
     survives for `mean`. Over 135 sentence sections of the same corpus::
@@ -520,7 +520,7 @@ def energy_tensor(rex, sections, labels, *, moments=("total", "mean", "spread"))
 
     `total` is a sum over the section's vertices and `spread` is a share of it, so both
     carry how BIG the section is, which the structural readings already say. `mean` is
-    the size-free one and is the moment that earns a separate axis.
+    the size free one and is the moment that earns a separate axis.
 
     `labels` is indexed by vertex. Returns `(E, moment_names)`.
     """
@@ -599,7 +599,7 @@ def hodge_share(rex, signal, *, grade=1):
     nothing, because 89% may be less than chance.
 
     So every share comes back with its dimensional null and the EXCESS over it. A signal
-    is gradient-like when its gradient share exceeds `r_k / n_k`, not when it is large.
+    is gradient like when its gradient share exceeds `r_k / n_k`, not when it is large.
 
     Returns `{share, null, excess, dims, n}` with the first three keyed by
     `gradient`, `curl`, `harmonic`.
@@ -628,395 +628,180 @@ def hodge_share(rex, signal, *, grade=1):
             "dims": dims, "residual": abs(sum(share.values()) - 1.0)}
 
 
-def section_coverage(rex, sections, seeds, *, seed_weight="invdeg",
-                     n_sections=None, owner=None):
-    """How EVENLY each section's relations are covered by a seed set.
+def response_seeds(rex, seeds, seed_weight="invdeg"):
+    """Validate C0 seed indices as a set; never truncate a float to an index."""
+    from numbers import Integral
+    from rexgraph.graph import RexGraph
+    if not isinstance(rex, RexGraph):
+        raise TypeError("response requires a native RexGraph")
+    rex._ensure_clean()
+    if seed_weight not in {"invdeg", "flat"}:
+        raise ValueError("seed_weight must be invdeg or flat")
+    if isinstance(seeds, (str, bytes)) or np.ndim(seeds) != 1:
+        raise TypeError("seeds must be a one dimensional integer sequence")
+    values = list(seeds)
+    if any(isinstance(v, (bool, np.bool_)) or not isinstance(v, Integral) for v in values):
+        raise TypeError("seeds must contain integers, not booleans or floats")
+    if any(v < 0 or v >= rex.nV for v in values):
+        raise ValueError("seed index is outside C0")
+    return np.asarray(sorted(set(map(int, values))), dtype=np.int64)
 
-    A companion reading to :func:`section_response`, not a replacement, and the two are
-    for different query shapes. Per relation,
 
-        m_e = (|B1|^T x)_e     unsigned: how much seed its support carries      (G side)
-        g_e = ( B1^T x)_e      signed:   how unevenly it carries it             (T side)
-        coverage_e = m_e - |g_e|
-
-    which is the T/G off-diagonal mismatch on a seeded cochain. It is NOT the spread:
-    Corollary 25.2 of the spread tower separates the signed reading from the spread as its
-    own quantity, and this is the signed one.
-
-    Why it exists. Every boundary column sums to zero, so `g_e = x . sum(column) = 0`
-    exactly when the support is seeded UNIFORMLY: the gate shuts, and a shut gate means
-    the query covers that relation evenly. But it equally means the query never touched
-    it, which is the opposite fact, so the imbalance has to be read against the mass
-    present. That is what the subtraction does.
-
-    WHICH READING TO USE IS A PROPERTY OF THE QUERY, measured at n=149 per regime, top-1
-    over the section a query was lifted from:
-
-        query is...          magnitude   coverage
-        the whole section       94.6%      38.3%
-        half of it              71.8%      53.0%
-        a quarter of it         33.6%      51.0%     <- coverage wins
-
-    A query that quotes its section is the easy end of that curve and is not what a real
-    question looks like; somewhere between a half and a quarter the two swap. Spread was
-    tried as a third reading and carries nothing (0.7% / 1.3% / 2.7%), for an exact
-    reason: on a column seeded at one coordinate the angle is `1 - c[j]^2/Q(c)`,
-    a function of arity and role with the query divided out.
-
-    Returns `(scores, labels)` aligned to the sectioning's own order, like
-    `section_response`.
-    """
-    import numpy as np
-
-    from rexgraph.core._sparse import to_scipy_csr
-
-    seeds = np.asarray(seeds, dtype=int).ravel()
-    nV, nE = int(rex.nV), int(rex.nE)
+def response_owner(rex, sections, owner=None, n_sections=None):
+    """Resolve one C1 partition, refusing implicit first owner selection for covers."""
+    from numbers import Integral
+    from rexgraph.sectioning import sectionings_of
+    if getattr(sections, "is_derived", False):
+        sections = sections.resolved(sectionings_of(rex))
     labels = list(getattr(sections, "labels", []) or [])
     if owner is None:
-        owner = np.asarray(sections.owner_cochain(nE), dtype=np.int64)
+        if getattr(sections, "grade", None) != 1:
+            raise ValueError("section response requires a C1 sectioning")
+        ptr = np.asarray(sections.indptr)
+        indices = np.asarray(sections.indices)
+        if (ptr.ndim != 1 or ptr.size != len(labels) + 1 or ptr[0] != 0
+                or ptr[-1] != indices.size or np.any(np.diff(ptr) < 0)
+                or getattr(sections, "n_cells", 0) not in {0, rex.nE}):
+            raise ValueError("section membership axes do not match the source")
+        if (indices.ndim != 1 or np.any(indices < 0) or np.any(indices >= rex.nE)
+                or np.unique(indices).size != indices.size):
+            raise ValueError("section response requires disjoint valid C1 memberships; give an explicit owner for a cover")
+        owner = sections.owner_cochain(rex.nE)
         n_sections = len(sections) if n_sections is None else n_sections
-    n_sections = int(n_sections if n_sections is not None else (owner.max() + 1))
-    out = np.zeros(max(n_sections, 0), dtype=np.float64)
-    if seeds.size == 0 or nV == 0 or nE == 0 or n_sections == 0:
-        return out, labels
-
-    ok = seeds[(seeds >= 0) & (seeds < nV)]
-    if ok.size == 0:
-        return out, labels
-    ind = np.zeros(nV, dtype=np.float64)
-    if str(seed_weight) == "invdeg":
-        deg = np.asarray(rex.degree, dtype=np.float64)
-        ind[ok] = 1.0 / np.maximum(deg[ok], 1.0)
-    else:
-        ind[ok] = 1.0
-
-    exact = _coverage_exact(rex, ok, owner, n_sections)
-    if exact is not None:
-        return exact, labels
-    B = to_scipy_csr(rex._B1_dual).tocsr()
-    per_cell = (abs(B).T @ ind) - np.abs(B.T @ ind)
-    keep = owner >= 0
-    np.add.at(out, owner[keep], per_cell[keep])
-    return out, labels
+    raw = np.asarray(owner)
+    if raw.ndim != 1 or raw.size != rex.nE or (raw.size and raw.dtype.kind not in "iu"):
+        raise ValueError("owner must contain one integer per C1 cell")
+    if n_sections is None:
+        n_sections = max(map(int, raw), default=-1) + 1
+    if isinstance(n_sections, (bool, np.bool_)) or not isinstance(n_sections, Integral) or n_sections < 0:
+        raise ValueError("n_sections must be a nonnegative integer")
+    if any(int(v) < -1 or int(v) >= n_sections for v in raw):
+        raise ValueError("owner is outside the section axis")
+    if labels and len(labels) != n_sections:
+        raise ValueError("labels must match the section axis")
+    return np.asarray(raw, dtype=np.int64), int(n_sections), labels
 
 
-def _edge_terms(rex, seeds):
-    """The contributions a seed set makes to each relation, as integers.
+def _edge_terms(rex, seeds, seed_weight="invdeg"):
+    """Read coalesced primary integer columns with their original share divisors."""
+    from rexgraph.native_rank import primary_columns
+    seeds = response_seeds(rex, seeds, seed_weight)
+    degrees = np.maximum(np.diff(np.asarray(rex._v2e[0], dtype=np.int64))[seeds], 1)
+    if seed_weight == "flat":
+        degrees = np.ones(seeds.size, dtype=np.int64)
+    which = {int(v): i for i, v in enumerate(seeds)}
+    items, selected, carried = [], [], []
+    for e, column in enumerate(primary_columns(rex, integer=True)):
+        for vertex, value in column.items():
+            if vertex in which:
+                items.append(e)
+                selected.append(which[vertex])
+                carried.append(value)
+    den = np.maximum(np.diff(np.asarray(rex._boundary_ptr, dtype=np.int64)) - 1, 1)
+    return tuple(np.asarray(v, dtype=np.int64) for v in (items, carried, selected, degrees, den))
 
-    Scaling a boundary column by `(k-1)` clears the share, so a seed carries `-(k-1)`
-    where it heads the relation and `+1` where it argues. With the vertex degrees and
-    the arities as the two denominators, the reading is exact.
+
+def _response_ratio(rex, seeds, *, reading, seed_weight, owner=None, n_sections=0, exact=False):
+    from rexgraph.core import _exact_ratio
+    if reading not in {"mass", "coverage"}:
+        raise ValueError("relation reading must be mass or coverage")
+    if not isinstance(exact, (bool, np.bool_)):
+        raise TypeError("exact must be boolean")
+    item, signed, seed, deg, den = _edge_terms(rex, seeds, seed_weight)
+    return _exact_ratio.axis_ratio(item, np.abs(signed) if reading == "mass" else signed,
+        seed, deg, den, rex.nE, 0, owner, n_sections,
+        _exact_ratio.SUM if reading == "mass" else _exact_ratio.COVERAGE, exact=exact)
+
+
+def document_field(rex, seeds, *, reading="mass", seed_weight="invdeg", exact=True):
+    """C1 response on one native document, retaining its canonical relation axis.
+
+    mass = |B1| transpose x. coverage = mass - |B1 transpose x|.
+    x is the seed indicator, optionally divided by stored incidence degree.
+    This reads supplied C0 seeds, not text tokens, corpus selection or similarity.
+    Relation metrics and declared gauge signs do not enter these readings.
     """
-    import numpy as np
-
-    ptr = np.asarray(rex._boundary_ptr, dtype=np.int64)
-    idx = np.asarray(rex._boundary_idx, dtype=np.int64)
-    nE = int(rex.nE)
-    if ptr.size != nE + 1:
-        return None
-    arity = np.diff(ptr)
-    km1 = np.maximum(arity - 1, 1)
-    deg = np.bincount(idx, minlength=int(rex.nV)).astype(np.int64)
-    seeds = np.asarray(seeds, dtype=np.int64)
-    rank = np.full(int(rex.nV), -1, dtype=np.int64)
-    rank[seeds] = np.arange(seeds.size, dtype=np.int64)
-    here = rank[idx]
-    take = here >= 0
-    if not take.any():
-        return None
-    cell = np.repeat(np.arange(nE, dtype=np.int64), arity)[take]
-    at_head = np.zeros(idx.size, dtype=bool)
-    at_head[ptr[:-1][arity > 0]] = True
-    signed = np.where(at_head[take], -km1[cell], 1).astype(np.int64)
-    return cell, here[take], signed, np.maximum(deg[seeds], 1).astype(np.int64), km1, nE
+    from rexgraph.cochain import Cochain
+    values = _response_ratio(rex, seeds, reading=reading, seed_weight=seed_weight, exact=exact)
+    return Cochain(1, values, source=rex)
 
 
-def _mass_exact(rex, seeds, owner, n_sections):
-    """The edge-primary reading, exactly, or None where the kernel is not built.
+def section_coverage(rex, sections, seeds, *, seed_weight="invdeg",
+                     n_sections=None, owner=None, exact=False):
+    """Sum mass minus absolute signed response per declared C1 section.
 
-        mass[e] = SUM over seeds v in e of |B[v,e]|/deg[v]
-
-    A relation answers with what its own boundary column carries from the seeds, which
-    is one hop and is read where the data is. The vertex reading `|B(B^T x)|` is two,
-    and a vertex is the boundary of the relations rather than the thing they carry.
-
-    The unsigned total is what survives an evenly covered column: `B^T x` is exactly
-    zero there, so a signed reading shuts precisely where a section is most
-    distinctive.
+    Balanced non witness columns can have zero signed response under uniform
+    seeding. Witnesses are not balanced. Repeated slots coalesce before
+    magnitudes are taken, so a cancelling loop contributes zero.
     """
-    import numpy as np
-
-    try:
-        from rexgraph.core import _exact_ratio
-    except ImportError:
-        return None
-    got = _edge_terms(rex, seeds)
-    if got is None:
-        return np.zeros(max(n_sections, 0), dtype=np.float64)
-    cell, which, signed, deg, km1, nE = got
-    return _exact_ratio.axis_ratio(
-        cell, np.abs(signed), which, deg, km1, nE,
-        int(_exact_ratio.frac_bits_for(int(km1.max(initial=1)), deg.size, nE)),
-        np.asarray(owner, dtype=np.int64), int(max(n_sections, 0)),
-        _exact_ratio.SUM)
-
-
-def _mass_channels(rex, seeds, owner, n_sections, labels):
-    """The edge-primary reading resolved into the character's channels.
-
-    A relation's mass is carried to its section through that relation's own profile, so
-    the axes survive the accumulation instead of collapsing in it.
-    """
-    import numpy as np
-
-    try:
-        from rexgraph.core import _exact_ratio
-    except ImportError:
-        return np.zeros((max(n_sections, 0), 4), dtype=np.float64), labels, []
-    got = _edge_terms(rex, seeds)
-    names = list(getattr(rex, "character_channels", None)
-                 or ["topology", "geometry", "frustration", "coparticipation"])
-    if got is None:
-        return np.zeros((max(n_sections, 0), len(names)), dtype=np.float64), labels, names
-    cell, which, signed, deg, km1, nE = got
-    per_cell = _exact_ratio.axis_ratio(
-        cell, np.abs(signed), which, deg, km1, nE,
-        int(_exact_ratio.frac_bits_for(int(km1.max(initial=1)), deg.size, nE)),
-        None, 0, _exact_ratio.SUM)
-    chi = np.asarray(rex.structural_character, dtype=np.float64)
-    if chi.ndim != 2 or chi.shape[0] != nE:
-        out = np.zeros(max(n_sections, 0), dtype=np.float64)
-        np.add.at(out, owner[owner >= 0], per_cell[owner >= 0])
-        return out, labels, []
-    prof = np.zeros((max(n_sections, 0), chi.shape[1]), dtype=np.float64)
-    keep = owner >= 0
-    for k in range(chi.shape[1]):
-        np.add.at(prof[:, k], owner[keep], per_cell[keep] * chi[keep, k])
-    return prof, labels, names[:chi.shape[1]]
-
-
-def _coverage_exact(rex, seeds, owner, n_sections):
-    """Coverage over the rationals, or None where the kernel is not built.
-
-    Every quantity is one: a boundary entry is -1 at position 0 and `1/(k-1)` after it,
-    a seed weight is `1/deg`, and the reading is the unsigned total less the magnitude
-    of the signed one. Scaling a column by `(k-1)` clears the share to integers, so the
-    contribution is `-(k-1)` where the seed heads the relation and `+1` where it argues.
-    """
-    import numpy as np
-
-    try:
-        from rexgraph.core import _exact_ratio
-    except ImportError:
-        return None
-
-    ptr = np.asarray(rex._boundary_ptr, dtype=np.int64)
-    idx = np.asarray(rex._boundary_idx, dtype=np.int64)
-    nE = int(rex.nE)
-    if ptr.size != nE + 1:
-        return None
-    arity = np.diff(ptr)
-    km1 = np.maximum(arity - 1, 1)
-    deg = np.bincount(idx, minlength=int(rex.nV)).astype(np.int64)
-
-    seeds = np.asarray(seeds, dtype=np.int64)
-    rank = np.full(int(rex.nV), -1, dtype=np.int64)
-    rank[seeds] = np.arange(seeds.size, dtype=np.int64)
-    here = rank[idx]
-    take = here >= 0
-    if not take.any():
-        return np.zeros(max(n_sections, 0), dtype=np.float64)
-
-    cell = np.repeat(np.arange(nE, dtype=np.int64), arity)[take]
-    at_head = np.zeros(idx.size, dtype=bool)
-    at_head[ptr[:-1][arity > 0]] = True
-    carried = np.where(at_head[take], -km1[cell], 1).astype(np.int64)
-    return _exact_ratio.axis_ratio(
-        cell, carried, here[take],
-        np.maximum(deg[seeds], 1).astype(np.int64), km1.astype(np.int64), nE,
-        int(_exact_ratio.frac_bits_for(int(km1.max(initial=1)), seeds.size, nE)),
-        np.asarray(owner, dtype=np.int64), int(max(n_sections, 0)),
-        _exact_ratio.COVERAGE)
+    return section_response(rex, sections, seeds, seed_weight=seed_weight,
+        n_sections=n_sections, owner=owner, propagator="coverage", exact=exact)
 
 
 def section_response(rex, sections, seeds, *, t=1.0, seed_weight="invdeg",
                      n_sections=None, owner=None, propagator="mass",
-                     channels=False):
-    """How strongly each SECTION answers a seed set, by diffusion on the field.
+                     channels=False, exact=False):
+    """Sum a query response over a declared C1 section partition.
 
-    This is the lookup the layer design exists for. A query names vertices; heat from
-    those vertices spreads through the document's own relations (`propagate_signal`, the
-    script-15 scale bridge), and each section's answer is that response restricted to the
-    cells it owns. Nothing scans the text, nothing pattern-matches, and no section is
-    scored by how many words it happens to share: the field decides, and the partition
-    says where the answer lives.
+    mass reads |B1| transpose x on primary relations. coverage subtracts
+    |B1 transpose x| from that mass. Both use sparse exact ratio accumulation,
+    with one final rounding in numerical mode. exact=True retains Fractions.
+    The input is a seed set; duplicate indices do not change its meaning.
 
-    Cost is one diffusion plus one pass over `nnz(B1)`: the (vertex, relation) incidences
-    are walked once and each contributes to its cell's owner. No section is materialised
-    and no text is read.
+    boundary reads |B1 B1 transpose x| on vertices, then sums that reading
+    across the nonzero incidences of each section's relations. rl4 uses the
+    existing propagated signal instead. These distinct numerical readings
+    are not substituted for mass. The scale t applies to rl4 only.
 
-    `t` is the scale, not a threshold. Small t keeps the answer to the star around the
-    seeds; larger t lets it reach the document's global role. Both are true readings of
-    the same propagator at different scales, which is why the caller picks rather than
-    the library. It applies to `propagator="rl4"` only.
+    channels=True resolves numerical relation contributions through the
+    source's T, G, F and C character channels. G means the unsigned down
+    channel, not the upper Hodge sector. Exact channel profiles are not
+    implemented here. Scalar results have shape (n_sections,); profiles
+    have shape (n_sections, n_channels), including empty seed sets.
 
-    `propagator` picks WHICH operator carries the signal, and the two are different
-    readings rather than one made faster:
-
-      "mass"      the EDGE-PRIMARY reading. A relation answers with what its own
-                  boundary column carries from the seeds, `SUM over seeds v in e of
-                  |B[v,e]|/deg[v]`, and a section sums the relations it owns. One hop,
-                  read where the data is, and exact: every quantity is rational and
-                  `rexgraph.core._exact_ratio` evaluates it over the integers.
-      "boundary"  L0 = B1 B1^T applied MATRIX-FREE, never formed. The short-time moment:
-                  the seeded mass lands on exactly the relations that name the query's
-                  terms and is read back at the VERTICES they bound.
-      "rl4"       S0 = B1 f(RL4) B1^T through `propagate_signal`, the full edge-space
-                  relational operator and the script-15 scale bridge. `f` is a matrix
-                  exponential, so this reading is transcendental and no arithmetic makes
-                  it exact; the other two are ratios of integers.
-
-    The two hops are what separate them. A vertex is the boundary of the relations
-    rather than the thing they carry, so `|B(B^T x)|` reads a derived object and
-    compounds its denominators through pairs, which is why it is float where the rest of
-    this module is exact. Measured on 193 queries lifted from 10 Gutenberg books, one
-    query per sampled section, `owner` supplied to both so neither pays to derive it:
-
-        mass        top-1 61.7%   median rank  1    3.9 ms
-        boundary    top-1 10.9%   median rank 23    2.1 ms
-
-    `mass` is the default. It costs a little more per call and localises five times as
-    often, and it is the reading that is exact.
-
-    The unsigned total is also what survives an evenly covered column, where `B^T x` is
-    exactly zero and a signed reading shuts precisely where a section is most
-    distinctive.
-
-    The default is "boundary" because it was MEASURED equal and is not close on cost. On
-    46 identical queries over 10 Gutenberg documents, both read 97.8% top-1 and 100%
-    top-5 with median rank 1, in 115.4 s against 0.1 s: a factor of 1154. RL4 is not
-    affordable at document scale for a reason the structure explains: two relations
-    co-participate when they share a vertex, and a common word puts most spans in contact
-    with most others, so RL4 carries 15 to 58 MILLION nonzeros at nE 7,000 to 17,000.
-    "rl4" stays available because it reads the four channels and this task does not
-    exercise them.
-
-    A second boundary step was tried and is WORSE, not better: 0.0% top-1 against 97.8%.
-    The same thing happens one grade up on the corpus index. One application is the
-    reading; further ones smear it.
-
-    `seed_weight="invdeg"` is what makes the reading work, and it is a structural
-    statement rather than a tuned one. A vertex's degree is how many relations it
-    participates in, so a word appearing in 952 of a book's 1,469 sentences says nothing
-    about WHERE an answer is; weighting each seed by `1/deg` lets a diffuse participant
-    contribute diffusely. That is inverse document frequency derived from the complex's
-    own incidence instead of imported as a corpus statistic, and no vertex is excluded.
-
-    The accumulation is a SUM and there is no averaging option, because the sum is the
-    field integrated over the section and that is the exact quantity. A mean would be a
-    statistic standing in for a reading the field already gives: charge accumulates over
-    a region, it is not averaged over it. Measured, ranking the section a query was
-    lifted FROM over 20 queries on one book, the sum is also simply correct:
-
-        flat seeding, sum       median rank  38-42     top-1   0%   top-10   0%
-        invdeg,       sum       median rank   2        top-1  50%   top-10 100%
-
-   , and normalising by incidence count returned every three-word line in the book. I
-    had read the raw sum's apparent size-bias as the defect and normalised; the bias was
-    in the SEEDS, and it left with them. `t` moved none of this (0.05, 0.3 and 1.0 rank
-    identically), so scale was never what was wrong either.
-
-    `channels=True` returns the response RESOLVED INTO THE FOUR CHANNELS instead of
-    summed into one number: `(n_sections, 4)` over `rex.structural_character`'s
-    (topology, geometry, frustration, co-participation), plus their names. A section then
-    answers with a PROFILE rather than a scalar, which is the difference between "this
-    section responds 0.42" and "this section responds, and it responds by
-    co-participation rather than by topology".
-
-    The scalar is the profile summed over its channels, so nothing is added by asking for
-    it: what is added is not having thrown the axes away. `chi` is a property of the
-    DOCUMENT and not of the query, exact rationally (`rational_trig.exact_character`) and
-    O(nnz) as floats, so it costs one cached read per document rather than a solve.
-
-    Returns `(scores, labels)`, or `(profiles, labels, channel_names)` with `channels`.
+    Without owner, sections must be a disjoint C1 sectioning. Unowned cells
+    may be omitted. A cover requires an explicit owner choice. Source
+    section order and labels are retained; no text or store is read.
     """
-    import numpy as np
-
-    from rexgraph.core._sparse import to_scipy_csr
-
-    seeds = np.asarray(seeds, dtype=int).ravel()
-    nV, nE = int(rex.nV), int(rex.nE)
-    labels = list(getattr(sections, "labels", []) or [])
-    if owner is None:
-        owner = np.asarray(sections.owner_cochain(nE), dtype=np.int64)
-        n_sections = len(sections) if n_sections is None else n_sections
-    n_sections = int(n_sections if n_sections is not None else (owner.max() + 1))
-    out = np.zeros(max(n_sections, 0), dtype=np.float64)
-    if seeds.size == 0 or nV == 0 or nE == 0 or n_sections == 0:
-        return out, labels
-
-    ind = np.zeros(nV, dtype=np.float64)
-    ok = seeds[(seeds >= 0) & (seeds < nV)]
-    if ok.size == 0:
-        return out, labels
-    if str(seed_weight) == "invdeg":
-        deg = np.asarray(rex.degree, dtype=np.float64)
-        ind[ok] = 1.0 / np.maximum(deg[ok], 1.0)
+    if propagator not in {"mass", "coverage", "boundary", "rl4"}:
+        raise ValueError("propagator must be mass, coverage, boundary or rl4")
+    if not isinstance(channels, (bool, np.bool_)) or not isinstance(exact, (bool, np.bool_)):
+        raise TypeError("channels and exact must be booleans")
+    if exact and (channels or propagator not in {"mass", "coverage"}):
+        raise ValueError("exact section response supports scalar mass and coverage only")
+    seeds = response_seeds(rex, seeds, seed_weight)
+    owner, n_sections, labels = response_owner(rex, sections, owner, n_sections)
+    if propagator in {"mass", "coverage"} and not channels:
+        return _response_ratio(rex, seeds, reading=propagator, seed_weight=seed_weight,
+            owner=owner, n_sections=n_sections, exact=exact), labels
+    if propagator in {"mass", "coverage"}:
+        per_cell = document_field(rex, seeds, reading=propagator,
+                                  seed_weight=seed_weight, exact=False).numpy()
     else:
-        ind[ok] = 1.0
-    if str(propagator) == "mass":
-        got = _mass_exact(rex, ok, owner, n_sections)
-        if got is not None:
-            if not channels:
-                return got, labels
-        # the profile carries the same per relation reading through the character
-        return _mass_channels(rex, ok, owner, n_sections, labels)
-    if str(propagator) == "rl4":
-        resp = np.abs(np.asarray(rex.propagate_signal(ind, mode="heat", t=float(t)),
-                                 dtype=np.float64).ravel())
-    else:
-        Bc = to_scipy_csr(rex._B1_dual).tocsr()
-        resp = np.abs(Bc @ (Bc.T @ ind))       # L0 applied, never formed
-
-    # THE MAGNITUDE IS TAKEN AT THE VERTEX, and that is not a detail.
-    #
-    # Deferring it to the section, so head and argument contributions cancel first, reads
-    # better on a corpus sample: 100.0% top-1 against 94.0% over 50 queries on 10
-    # documents, and is WRONG, because a zero-sum column passes nothing when its support
-    # is seeded uniformly: `B^T x = x . sum(column) = 0`, exactly. The gate shuts.
-    #
-    # That is worst precisely where a section is most distinctive. A section whose terms
-    # appear nowhere else has degree 1 throughout, so `1/deg` seeding IS uniform and its
-    # own column cancels to zero; the signed reading then scores it near the floor. The
-    # corpus sample hid this because repeated vocabulary makes the degrees uneven and lets
-    # residue leak through. `test_section_response_finds_the_section_a_query_was_lifted_from`
-    # does not hide it: the source section fell to 0.154 against another section's 0.846.
-    #
-    # So the cancellation is real and it is informative: it means the query covers that
-    # column evenly, but it is not a ranking signal, and the vertex magnitude is what
-    # survives it.
-
-    B = to_scipy_csr(rex._B1_dual).tocoo()
-    # one pass over the incidences: each (vertex, relation) hands its response to the
-    # section that owns the relation. A cell with no owner (-1) contributes nothing.
-    cell_owner = owner[B.col]
-    keep = cell_owner >= 0
+        from rexgraph.native_sparse import NativeSparse
+        if isinstance(t, (bool, np.bool_)) or not np.isfinite(t) or t < 0:
+            raise ValueError("response scale must be finite and nonnegative")
+        B = NativeSparse(rex._B1_dual)
+        ind = np.zeros(rex.nV, dtype=np.float64)
+        degree = np.maximum(np.diff(np.asarray(rex._v2e[0], dtype=np.int64))[seeds], 1)
+        ind[seeds] = 1.0 / degree if seed_weight == "invdeg" else 1.0
+        resp = np.abs(rex.propagate_signal(ind, mode="heat", t=float(t)) if propagator == "rl4"
+                      else B.apply(B.transpose_apply(ind)))
+        per_cell = np.zeros(rex.nE, dtype=np.float64)
+        for e, column in enumerate(B.columns()):
+            per_cell[e] = sum(resp[v] for v in column)
+    keep = owner >= 0
     if not channels:
-        np.add.at(out, cell_owner[keep], resp[B.row[keep]])
+        out = np.zeros(n_sections, dtype=np.float64)
+        np.add.at(out, owner[keep], per_cell[keep])
         return out, labels
-
-    chi = np.asarray(rex.structural_character, dtype=np.float64)
-    if chi.ndim != 2 or chi.shape[0] != nE:
-        np.add.at(out, cell_owner[keep], resp[B.row[keep]])
-        return out, labels, []
+    from rexgraph.sparse_character import build_sparse_character_cheap
+    chi = np.asarray(build_sparse_character_cheap(rex)["chi"], dtype=np.float64)
+    if chi.ndim != 2 or chi.shape[0] != rex.nE:
+        raise ValueError("character rows must match C1")
     names = list(getattr(rex, "character_channels", None)
                  or ["topology", "geometry", "frustration", "coparticipation"])
-    prof = np.zeros((max(n_sections, 0), chi.shape[1]), dtype=np.float64)
-    # each incidence hands its response to the owning section THROUGH the relation's
-    # channel profile, so the axes survive the accumulation instead of collapsing in it
-    mass = resp[B.row[keep]]
-    cols = B.col[keep]
+    prof = np.zeros((n_sections, chi.shape[1]), dtype=np.float64)
     for k in range(chi.shape[1]):
-        np.add.at(prof[:, k], cell_owner[keep], mass * chi[cols, k])
+        np.add.at(prof[:, k], owner[keep], per_cell[keep] * chi[keep, k])
     return prof, labels, names[:chi.shape[1]]

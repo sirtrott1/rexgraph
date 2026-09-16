@@ -44,10 +44,8 @@ def test_a_ratio_a_double_cannot_hold_comes_back_correctly_rounded():
         assert _one(1, 1, d) == float(Fraction(1, d)), d
 
 
-def test_the_two_denominators_are_never_multiplied_together():
-    """The reason the kernel has no width bound. Forty seeds each with an 18 bit degree
-    puts their common multiple past seven hundred bits; dividing the axes separately
-    keeps every intermediate inside 128."""
+def test_large_coprime_denominators_remain_exact():
+    """The denominator can exceed fixed integer width; its rational value remains."""
     rng = random.Random(3)
     s = 40
     deg = [rng.getrandbits(18) + 1 for _ in range(s)]
@@ -99,8 +97,7 @@ def test_against_the_rationals_over_random_shapes():
 
 
 def test_the_scaling_leaves_room_for_the_sum():
-    """`frac_bits_for` is what keeps the accumulation inside 128 bits, so it has to
-    shrink as either the contributions or the seed count grow."""
+    """The legacy precision hint retains its formula, but no longer limits accuracy."""
     wide = _ex.frac_bits_for(1, 1)
     assert wide > 100
     assert _ex.frac_bits_for(1 << 30, 1) < wide
@@ -111,7 +108,7 @@ def test_the_scaling_leaves_room_for_the_sum():
 def test_a_signed_contribution_cancels_where_it_should():
     """A boundary entry at position 0 carries the opposite sign to the arguments, so a
     column whose support is seeded evenly sums to zero. SUM says so and ABS agrees."""
-    # -2 at the head against +1 twice: the column is zero-sum at k=3
+    # -2 at the head against +1 twice: the column is zero sum at k=3
     got = _run([0, 0, 0], [-2, 1, 1], [0, 0, 0], [1], [1], 1, mode=_ex.SUM)
     assert got[0] == 0.0
     assert _run([0, 0, 0], [-2, 1, 1], [0, 0, 0], [1], [1], 1, mode=_ex.ABS)[0] == 0.0
@@ -125,8 +122,7 @@ def test_coverage_is_what_a_zero_sum_column_leaves_behind():
 
 
 def test_grouping_sums_items_before_the_rounding():
-    """A group's value is its items summed in fixed point, so the group rounds once
-    rather than once per item."""
+    """A group sums exact rationals and rounds once, not once per item."""
     item = [0, 1, 2]
     carried = [1, 1, 1]
     seed = [0, 0, 0]

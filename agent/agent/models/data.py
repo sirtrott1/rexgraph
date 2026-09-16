@@ -5,7 +5,7 @@ A DataBundle carries one training set. `kind` tells the trainer how to feed the 
 (vector / image / sequence / hypergraph), `X`/`y` are the tensors, `meta` carries shapes
 (feat_dim, n_classes, vocab, ...), `splits` holds train/val/test index tensors, and `extra`
 holds structure (e.g. a hypergraph's CSR incidence). Build a bundle from files, a HF dataset,
-or a per-archetype synthetic generator.
+or a per archetype synthetic generator.
 """
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def load_table(source, *, x_cols=None, y_col="label", limit=None):
 
 
 def load_text(source, *, vocab_size=256, seq_len=64, limit=None):
-    """Load a text file into a byte-level sequence DataBundle for LM training."""
+    """Load a text file into a byte level sequence DataBundle for LM training."""
     p = os.path.expanduser(str(source))
     with open(p, "rb") as f:
         data = f.read()
@@ -125,7 +125,7 @@ def synth_images(n=800, c=3, hw=16, n_classes=4, seed=0):
 
 
 def synth_sequences(n=1024, vocab=24, seq_len=24, period=6, seed=0):
-    """Periodic-copy task: the token at t equals the token `period` steps back. Routing
+    """Periodic copy task: the token at t equals the token `period` steps back. Routing
     information a fixed hop distance is what the propagator is built for."""
     rng = np.random.default_rng(seed)
     base = rng.integers(0, vocab, (n, period))
@@ -138,8 +138,8 @@ def synth_sequences(n=1024, vocab=24, seq_len=24, period=6, seed=0):
 
 def synth_hypergraph(n_nodes=500, n_hyperedges=600, edge_size=5, n_classes=4,
                      feat_dim=16, homophily=0.75, oriented=False, feat_noise=1.4, seed=0):
-    """Contextual hypergraph SBM (homophily) or, with oriented=True, a potential-gradient task
-    where the hyperedge orientation carries the signal (features near-noise)."""
+    """Contextual hypergraph SBM (homophily) or, with oriented=True, a potential gradient task
+    where the hyperedge orientation carries the signal (features near noise)."""
     rng = np.random.default_rng(seed)
     if oriented:
         potential = rng.normal(size=n_nodes)

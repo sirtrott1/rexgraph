@@ -189,7 +189,7 @@ class TestBatchReads:
 
     @staticmethod
     def _write_table_multibatch(table, path, max_chunksize):
-        """Write a table split into several record batches (multi-batch file)."""
+        """Write a table split into several record batches (multi batch file)."""
         import pyarrow as pa
         import pyarrow.ipc as ipc
 
@@ -199,7 +199,7 @@ class TestBatchReads:
     def test_multi_batch_streaming_matches_single_read(self):
         # Arrays of different lengths -> padded to a common flat length, then
         # written across MANY small record batches. Each streamed chunk holds
-        # only a slice of every column, so the reader must reshape per-batch.
+        # only a slice of every column, so the reader must reshape per batch.
         arrays = {
             "boundary_ptr": np.arange(21, dtype=np.int64),
             "boundary_idx": (np.arange(40, dtype=np.int64) % 20),
@@ -253,7 +253,7 @@ class TestBatchReads:
                 combined = np.concatenate(acc[name])
                 assert np.array_equal(combined, full)
 
-            # Graph reconstructs identically from the full (single-shot) table.
+            # Graph reconstructs identically from the full (single shot) table.
             rex2 = arrow_to_rex(table)
             assert (rex2.nV, rex2.nE, rex2.nF) == (rex.nV, rex.nE, rex.nF)
         finally:

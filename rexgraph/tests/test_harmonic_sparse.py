@@ -1,10 +1,10 @@
-"""Eigen-free harmonic plane == dense eigendecomposition (the tower thesis).
+"""Eigen free harmonic plane == dense eigendecomposition (the tower thesis).
 
-The combinatorial, low-rank harmonic projector in ``harmonic_sparse`` (spanning-tree
-cycle basis + reduced null-space, NO dense nE x nE eigendecomposition) must produce
+The combinatorial, low rank harmonic projector in ``harmonic_sparse`` (spanning tree
+cycle basis + reduced null space, NO dense nE x nE eigendecomposition) must produce
 exactly the same projector onto ker(L1) as the dense ``_harmonic.harmonic_projectors``
-(which forms hb @ hbᵀ from a full eigensolve). If these agree, the eigen-free path can
-replace the dense one with no loss - which is the whole point of the eigen-free tower.
+(which forms hb @ hbᵀ from a full eigensolve). If these agree, the eigen free path can
+replace the dense one with no loss - which is the whole point of the eigen free tower.
 """
 import numpy as np
 import pytest
@@ -29,7 +29,7 @@ def _P_sparse(rex):
     dim = Hd.shape[1]
     if dim == 0:
         return np.zeros((Hd.shape[0], Hd.shape[0])), 0
-    # low-rank exact-rational projector H (HᵀH)⁻¹ Hᵀ (materialized only for the test)
+    # low rank exact rational projector H (HᵀH)⁻¹ Hᵀ (materialized only for the test)
     return Hd @ np.linalg.inv(Hd.T @ Hd) @ Hd.T, dim
 
 
@@ -38,7 +38,7 @@ def _cycle(nv):
 
 
 def _two_cycles_one_filled():
-    # 6 vertices, 7 edges (two 4-cycles sharing edge 1-2); fill cycle A (0-1-2-3-0),
+    # 6 vertices, 7 edges (two 4 cycles sharing edge 1-2); fill cycle A (0-1-2-3-0),
     # whose boundary is e0+e1+e2-e3 -> exactly one harmonic mode (cycle B) remains.
     return RexGraph.from_cells([6,
         [[0, 1], [1, 2], [2, 3], [0, 3], [1, 4], [4, 5], [2, 5]],
@@ -69,7 +69,7 @@ def test_sparse_harmonic_projector_equals_dense(name):
 
 
 def test_projector_is_idempotent_and_annihilates_gradient():
-    """The eigen-free projector is a true Hodge projector: P²=P and P·B1ᵀ = 0
+    """The eigen free projector is a true Hodge projector: P²=P and P·B1ᵀ = 0
     (harmonic ⟂ gradient), computed with no eigensolve."""
     rex = _two_cycles_one_filled()
     Ps, dim = _P_sparse(rex)
@@ -88,7 +88,7 @@ def test_filled_complex_does_not_crash():
 
 @pytest.mark.parametrize("name", list(CASES))
 def test_harmonic_basis_from_boundaries_matches_rex(name):
-    """The rex-free `harmonic_basis_from_boundaries(B1, B2)` (reused by _void /
+    """The rex free `harmonic_basis_from_boundaries(B1, B2)` (reused by _void /
     _quotient) spans exactly the same harmonic plane as `harmonic_basis(rex)`:
     same dim_H, annihilates B1, and its column span contains the rex basis."""
     from rexgraph.core._sparse import to_scipy_csr
@@ -108,7 +108,7 @@ def test_harmonic_basis_from_boundaries_matches_rex(name):
 
 
 def test_harmonic_basis_from_boundaries_stays_in_ker_b1_on_branching():
-    """The rex-free core must validate its combinatorial cycle basis like cycle_basis
+    """The rex free core must validate its combinatorial cycle basis like cycle_basis
     does. Without that, the endpoint reduction invents cycles on branching hyperedges
     and returns vectors outside ker(B1), which _void and _quotient then consume."""
     import scipy.sparse as sp
@@ -131,12 +131,12 @@ def test_harmonic_basis_from_boundaries_stays_in_ker_b1_on_branching():
     if dense.size:
         assert float(np.abs(B1 @ dense).max()) < 1e-9
 
-    # and it must agree with the rex-taking wrapper
+    # and it must agree with the rex taking wrapper
     assert harmonic_basis(h).shape[1] == got.shape[1]
 
 
 def test_harmonic_basis_from_boundaries_matches_cycle_basis_on_a_branching_cycle():
-    """A branching complex that does carry cycles: the rex-free core must return a
+    """A branching complex that does carry cycles: the rex free core must return a
     basis of the right dimension that B1 annihilates."""
     import scipy.sparse as sp
 

@@ -1,11 +1,11 @@
-"""Live-endpoint probing (local_runtime.probe_endpoints) + monitor graph edges."""
+"""Live endpoint probing (local_runtime.probe_endpoints) + monitor graph edges."""
 from agent.agent_complex import AgentComplex
 
 from agent import local_runtime
 
 
 def test_probe_parses_openai_and_ollama(monkeypatch):
-    # two fake live servers: an OpenAI-compatible one and an Ollama one
+    # two fake live servers: an OpenAI compatible one and an Ollama one
     class FakeResp:
         def __init__(self, payload):
             self._p = payload

@@ -131,7 +131,7 @@ class TestBianchi:
         assert ok
 
     def test_residual_zero(self, k4):
-        """Per-face Bianchi residual is zero."""
+        """Per face Bianchi residual is zero."""
         C = _rcfe.compute_curvature(k4.B2_hodge, k4.nE, k4.nF_hodge)
         res = _rcfe.bianchi_residual(k4.B1, k4.B2_hodge, C,
                                       k4.nE, k4.nF_hodge)

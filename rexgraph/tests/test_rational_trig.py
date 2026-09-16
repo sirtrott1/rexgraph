@@ -178,13 +178,13 @@ def test_the_spread_difference_is_the_determinant_difference():
     T = gram(cols, exact=True)
     G = gram([np.abs(c) for c in cols], exact=True)
     s_T, s_G, diff, denom = cross_spread(T, G)
-    assert diff == (gram_determinant([np.abs(c) for c in cols])
-                    - gram_determinant(cols)) / denom
+    assert diff == (gram_determinant(cols)
+                    - gram_determinant([np.abs(c) for c in cols])) / denom
     assert s_T - s_G == diff
 
 
 def test_the_signed_gram_sees_a_triangle_and_the_unsigned_one_does_not():
-    """The set-theoretic encoding cannot see an odd cycle. det T vanishes because the
+    """The set theoretic encoding cannot see an odd cycle. det T vanishes because the
     columns are dependent; det G does not, because the unsigned columns are not."""
     from rexgraph.graded_boundary import _rex_b1_csr
     rex = RexGraph(sources=np.asarray([0, 1, 2], np.int32),
@@ -327,7 +327,7 @@ def test_a_zero_vector_is_not_given_a_right_angle():
 ])
 def test_grade_spread_detects_odd_cycles(name, src, tgt, has_odd_cycle):
     """`det T = 0` on any cycle, `det G = 0` on a bipartite component. Their
-    difference is non-zero exactly where the two disagree, which is an odd cycle."""
+    difference is non zero exactly where the two disagree, which is an odd cycle."""
     rex = RexGraph(sources=np.asarray(src, np.int32),
                    targets=np.asarray(tgt, np.int32))
     out = rex.grade_spread(1)
@@ -340,7 +340,7 @@ def test_grade_spread_reports_the_shared_denominator():
                    targets=np.asarray([1, 2, 0], np.int32))
     out = rex.grade_spread(1)
     assert out["shared_denominator"] == "8"     # three columns of quadrance 2
-    assert out["difference_exact"] == "1/2"
+    assert out["difference_exact"] == "-1/2"
 
 
 def test_grade_spread_refuses_a_grade_that_is_not_there():
@@ -360,7 +360,7 @@ def test_grade_spread_says_so_when_a_grade_is_empty():
 #### the harmonic shadow, against the existing API
 
 # `harmonic_shadow`, `hypermanifold` and `dimensional_subsumption` are cached
-# properties that already exist and are already eigen-free. What is tested here is the
+# properties that already exist and are already eigen free. What is tested here is the
 # identity connecting them to `face_fills_a_hole`, which is their pointwise companion.
 
 

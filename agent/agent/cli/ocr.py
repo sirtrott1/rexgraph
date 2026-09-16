@@ -1,5 +1,5 @@
 """
-agent.cli.ocr: command-line entry point for OCR + the GPU server.
+agent.cli.ocr: command line entry point for OCR + the GPU server.
 
     rexgraph-ocr status              show platform, backends, server state
     rexgraph-ocr serve [opts]        start the GPU inference/OCR server
@@ -7,7 +7,7 @@ agent.cli.ocr: command-line entry point for OCR + the GPU server.
     rexgraph-ocr run FILE...         OCR files and print/save the text
     rexgraph-ocr setup [--yes]       install OCR/GPU dependencies
 
-This is the console-script target declared in pyproject as
+This is the console script target declared in pyproject as
 ``rexgraph-ocr = "agent.cli.ocr:ocr_main"``. It is a *CLI*, not a server
 route: the OCR HTTP endpoint lives in ``agent.server.routes.ocr``.
 """

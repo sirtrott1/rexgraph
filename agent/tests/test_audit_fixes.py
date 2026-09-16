@@ -1,5 +1,5 @@
 """
-Tests for the audit-driven agent fixes.
+Tests for the audit driven agent fixes.
 
 These exercise the parts that run without the compiled Cython core, so
 they pass in a source checkout.  Paths that require compiled kernels
@@ -47,7 +47,7 @@ def test_lr_adapter_no_matching_pairs():
     assert ec.nE == 0  # graceful empty, no crash
 
 
-# 1.2 single-cell / 10X adapter
+# 1.2 single cell / 10X adapter
 def _make_synthetic_10x(dirpath):
     from scipy import sparse
     from scipy.io import mmwrite
@@ -162,7 +162,7 @@ def test_build_rex_from_edges_fastpath():
     assert r1.nE == r2.nE == 3
 
 
-# 2.1 OCRAdapter.build_from_text without re-OCR
+# 2.1 OCRAdapter.build_from_text without re OCR
 def test_ocr_build_from_text_layout():
     from agent.adapters.ocr import OCRAdapter
     text = (
@@ -272,11 +272,11 @@ def test_optional_stages_graceful_without_faces():
 # auto_rex must treat long text as text, not as a filesystem path
 def test_auto_rex_accepts_text_longer_than_the_filename_limit():
     """auto.py probed Path(data).is_file() on the raw input. On Python 3.13 that
-    propagates OSError ENAMETOOLONG for any text carrying a path-like segment past
+    propagates OSError ENAMETOOLONG for any text carrying a path like segment past
     the filesystem name limit, so 12% of a real corpus was dropped with a warning."""
     from agent.auto import auto_rex
 
-    # a path-like segment well past the 255-byte component limit
+    # a path like segment well past the 255 byte component limit
     text = ("alpha beta gamma delta " * 40) + "\n" + ("x" * 400) + "\nalpha beta gamma delta\n"
     assert len(text) > 255
     rex = auto_rex(text)
@@ -355,7 +355,7 @@ def test_harmonic_wrapper_is_declared_for_installation():
 
 def test_inverse_centrality_ratio_does_not_warn_on_an_isolated_vertex():
     """np.where(deg > 0, med / deg, 0.0) evaluated med/deg for every entry first, so any
-    complex with a zero-degree vertex emitted a divide-by-zero RuntimeWarning."""
+    complex with a zero degree vertex emitted a divide by zero RuntimeWarning."""
     import warnings
 
     import numpy as np

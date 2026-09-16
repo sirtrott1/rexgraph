@@ -1,6 +1,6 @@
 """Rings: the cycles a structure actually has, without choosing a basis.
 
-Everything here reads the CYCLE SPACE Z1 = ker(B1), the 1-skeleton alone. Faces
+Everything here reads the CYCLE SPACE Z1 = ker(B1), the 1 skeleton alone. Faces
 are not consulted at any point, so on a complex that has them these counts are
 dim Z1 = nE - rank(B1) and NOT beta_1: filling K4 with one face leaves a minimum
 cycle basis of three while beta_1 is two, and a bigon with a face on it still has
@@ -9,20 +9,20 @@ which is the case every example below is stated in.
 
 A cycle basis holds exactly dim Z1 cycles, and for most structures that is fewer
 than the rings the structure has. Cubane has six square faces and dim Z1 five;
-C60 has thirty-two faces and dim Z1 thirty-one. Every basis drops one, and
+C60 has thirty two faces and dim Z1 thirty one. Every basis drops one, and
 nothing in the notion of a basis says which. That is the standing complaint
 against "the smallest set of smallest rings": the answer depends on an arbitrary
 choice made inside the algorithm.
 
 The cycle space is a lattice, so ask a lattice question instead. Two are useful
-and both are basis-free:
+and both are basis free:
 
     shortest    the lattice's minimal vectors, the cycles of least weight
     relevant    the cycles that are not a sum of strictly shorter cycles
 
 `relevant` is the one chemistry wants. It is the union of every minimum cycle
 basis, so it contains each ring some basis would pick and never has to break a
-tie. On C60 it returns all thirty-two faces where `shortest` returns the twelve
+tie. On C60 it returns all thirty two faces where `shortest` returns the twelve
 pentagons, since a hexagon is not a minimal vector.
 
 Everything here is GF(2) linear algebra on integer bitmasks: exact, no tolerance
@@ -45,7 +45,7 @@ __all__ = [
 
 
 def _edge_ends(rex):
-    """(src, tgt) per cell, and a check that every cell is 2-ary.
+    """(src, tgt) per cell, and a check that every cell is 2 ary.
 
     A ring is a closed walk through relations that each join two vertices. A
     branching relation joins k of them at once and a walk through it is not
@@ -73,7 +73,7 @@ def _adjacency(nV, src, tgt):
 
 
 def _bfs(adj, nV, root):
-    """Shortest-path tree from `root`: distance and the edge reaching each vertex."""
+    """Shortest path tree from `root`: distance and the edge reaching each vertex."""
     dist = [-1] * nV
     via = [-1] * nV
     prev = [-1] * nV
@@ -133,7 +133,7 @@ def cycle_candidates(rex):
     """Horton's candidate set: every cycle that any minimum basis could contain.
 
     For each vertex v and each relation (x, y), the closed walk
-    `path(v,x) + (x,y) + path(y,v)` taken in a shortest-path tree rooted at v.
+    `path(v,x) + (x,y) + path(y,v)` taken in a shortest path tree rooted at v.
     Returned as `(weight, bitmask)` pairs, deduplicated and sorted by weight.
     """
     src, tgt = _edge_ends(rex)
@@ -154,7 +154,7 @@ def cycle_candidates(rex):
 
 
 def _reduce(mask, basis):
-    """Reduce against a GF(2) row-echelon basis keyed by leading bit."""
+    """Reduce against a GF(2) row echelon basis keyed by leading bit."""
     while mask:
         lead = mask.bit_length() - 1
         row = basis.get(lead)
@@ -165,7 +165,7 @@ def _reduce(mask, basis):
 
 
 def minimum_cycle_basis(rex, candidates=None):
-    """One minimum-weight cycle basis, as `(weight, bitmask)` pairs.
+    """One minimum weight cycle basis, as `(weight, bitmask)` pairs.
 
     Horton's algorithm: take candidates in increasing weight, keep the ones that
     are independent over GF(2). The total weight is minimal and is an invariant;
@@ -185,7 +185,7 @@ def minimum_cycle_basis(rex, candidates=None):
 def shortest_cycles(rex, candidates=None):
     """The lattice's minimal vectors: every cycle of least weight.
 
-    Basis-free. On cubane this is all six faces; on C60 it is the twelve
+    Basis free. On cubane this is all six faces; on C60 it is the twelve
     pentagons only, the hexagons being one longer.
     """
     cands = cycle_candidates(rex) if candidates is None else candidates
@@ -198,7 +198,7 @@ def shortest_cycles(rex, candidates=None):
 def relevant_cycles(rex, candidates=None):
     """The cycles that are not a sum of strictly shorter cycles.
 
-    Basis-free, and the union of every minimum cycle basis, so it holds each ring
+    Basis free, and the union of every minimum cycle basis, so it holds each ring
     that some basis would pick without having to break the tie. This is the
     canonical answer to "what rings does this structure have".
     """
@@ -231,8 +231,8 @@ def cycle_vector(rex, cycle):
     Everything in this module returns UNSIGNED masks, which say which relations a
     ring uses and nothing about how it closes. A mask is not a chain: the signs are
     the whole content of the boundary, and the unsigned support is exactly the
-    set-theoretic encoding that fails to land in ker(B1). This orients the walk, so
-    the result is a genuine 1-cycle and `B1 @ v == 0` holds exactly.
+    set theoretic encoding that fails to land in ker(B1). This orients the walk, so
+    the result is a genuine 1 cycle and `B1 @ v == 0` holds exactly.
 
     Accepts either an int bitmask or a `(weight, mask)` pair as `cycle_candidates`,
     `shortest_cycles`, `relevant_cycles` and `minimum_cycle_basis` return.

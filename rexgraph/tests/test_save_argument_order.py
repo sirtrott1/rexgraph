@@ -16,7 +16,7 @@ import rexgraph.io as rio
 from rexgraph.faces import autoface
 from rexgraph.graph import RexGraph
 
-# a branching relation and a face, so the round-trip carries arity and grade 2
+# a branching relation and a face, so the round trip carries arity and grade 2
 BP = np.array([0, 3, 5, 7, 9], np.int32)
 BI = np.array([0, 1, 2, 0, 1, 1, 2, 2, 3], np.int32)
 
@@ -62,7 +62,7 @@ def test_the_swapped_order_warns_and_still_works(tmp_path):
 
 
 def test_the_registry_holds_the_saver_directly():
-    """No argument-swapping adapter stands between the registry and the function."""
+    """No argument swapping adapter stands between the registry and the function."""
     assert not hasattr(rio, "_save_safetensors")
 
 

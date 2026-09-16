@@ -176,7 +176,7 @@ def signal_sphere_proj(np.ndarray[f64, ndim=2] chi,
 
     nhats is 4 (the channels are exactly L1_down, L_O, L_SG and L_C) or fewer, since a
     channel carrying nothing is dropped as inactive: two disjoint relations have no
-    co-participation and no frustration and read nhats=2. So
+    co participation and no frustration and read nhats=2. So
 
         4   the regular tetrahedron
         3   the equilateral triangle, flat in z
@@ -230,7 +230,7 @@ def phi_similarity_score(np.ndarray[f64, ndim=1] phi_a,
                           int nhats):
     """φ-similarity: 1 - ½||φ_a - φ_b||₁.
 
-    Same metric as cross-dimensional coherence but between two vertices.
+    Same metric as cross dimensional coherence but between two vertices.
     Returns scalar in [0, 1]. 1 = identical character, 0 = maximally different.
     """
     cdef f64[::1] a = phi_a, b = phi_b
@@ -272,7 +272,7 @@ def sfb_similarity_matrix(np.ndarray[f64, ndim=2] fchi,
     S_fb[i,j] = max(cos(fchi_i, fchi_j), 0) * phi_similarity(phi_i, phi_j).
 
     Combines structural character cosine (fiber alignment) with
-    vertex character agreement (cross-dimensional coherence between vertices).
+    vertex character agreement (cross dimensional coherence between vertices).
     """
     cdef np.ndarray[f64, ndim=2] sfb = np.zeros((n, n), dtype=np.float64)
     cdef f64[:, ::1] sv = sfb, fv = fchi, pv = phi
@@ -314,15 +314,15 @@ def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
                           str face_fill='clique'):
     """Build a relational complex from pairwise fiber bundle similarity.
 
-    1. Threshold S_fb to produce edges (1-skeleton).
+    1. Threshold S_fb to produce edges (1 skeleton).
     2. Fill faces (see ``face_fill``).
     3. Build B1 and B2 from the face set.
-    4. Compute Betti numbers (EIGEN-FREE: exact integer rank / Euler, never SVD).
+    4. Compute Betti numbers (EIGEN FREE: exact integer rank / Euler, never SVD).
 
     Edges connect entities with S_fb above threshold.
 
     Parameters
-    ----------
+
     sfb_matrix : f64[n_entities, n_entities]
         Fiber bundle similarity matrix. S_fb[i,j] in [0, 1].
     threshold : float
@@ -342,7 +342,7 @@ def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
             ``triangles`` is empty (0, 3) and ``face_lengths`` (i32[nF]) is added.
 
     Returns
-    -------
+
     dict
         src, tgt : i32 arrays, edge endpoints
         weights : f64 array, S_fb values for each edge
@@ -377,7 +377,7 @@ def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
     B1 = to_dense_f64(B1_dual)
 
     if face_fill == 'cycle':
-        # Arbitrary-arity faces = fundamental cycle basis (n-gon faces, as
+        # Arbitrary arity faces = fundamental cycle basis (n-gon faces, as
         # similarity_complex). Every fundamental cycle is independent, so rank(B2)=nF
         # and beta follows from Euler with NO rank computation (beta_1 = 0, beta_2 = 0).
         from rexgraph.core._cycles import find_fundamental_cycles
@@ -412,7 +412,7 @@ def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
     # For each u, for each neighbor v > u, intersect N(u) and N(v)
     # for w > v. Each triangle is found exactly once. Pass 1 counts,
     # pass 2 fills the final arrays directly - the previous version
-    # built Python lists of int-tuples and then copied them over.
+    # built Python lists of int tuples and then copied them over.
     cdef Py_ssize_t u, v, w
     cdef Py_ssize_t j_v, lo_v, hi_v, lo_w, hi_w
     cdef Py_ssize_t p_u, p_w
@@ -445,7 +445,7 @@ def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
                     p_w += 1
 
     if nF == 0:
-        # 1-skeleton only, no faces
+        # 1 skeleton only, no faces
         from rexgraph.core._cycles import cycle_space_dimension
         beta_1_nf = cycle_space_dimension(nV, nE, src, tgt)
         beta_0 = beta_1_nf - nE + nV
@@ -457,7 +457,7 @@ def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
             'triangles': np.zeros((0, 3), dtype=np.int32),
         }
 
-    # Build B2 from triangles: each triangle is a 3-cycle. Pass 2 fills
+    # Build B2 from triangles: each triangle is a 3 cycle. Pass 2 fills
     # these arrays directly during a second enumeration.
     cdef np.ndarray[i32, ndim=1] cycle_edges = np.empty(nF * 3, dtype=np.int32)
     cdef np.ndarray[f64, ndim=1] cycle_signs = np.empty(nF * 3, dtype=np.float64)
@@ -508,13 +508,13 @@ def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
     B2 = to_dense_f64(B2_dual)
 
     # Betti numbers via Euler relation and rank computation.
-    # beta_0 from connected components via union-find.
+    # beta_0 from connected components via union find.
     from rexgraph.core._cycles import cycle_space_dimension
     beta_1_no_faces = cycle_space_dimension(nV, nE, src, tgt)
     beta_0 = beta_1_no_faces - nE + nV
 
-    # beta_1 = beta_1_no_faces - rank(B2), beta_2 = nF - rank(B2). Exact, eigen-free
-    # rank of the INTEGER B2 via rational column reduction (no SVD, no spectrum-Betti);
+    # beta_1 = beta_1_no_faces - rank(B2), beta_2 = nF - rank(B2). Exact, eigen free
+    # rank of the INTEGER B2 via rational column reduction (no SVD, no spectrum Betti);
     # overlapping triangles share edges, so rank(B2) may be < nF.
     cdef int rank_B2 = 0
     if B2 is not None:

@@ -18,7 +18,7 @@ that was the whole of RCType before this and the extension has to be compatible 
 than a replacement. Everything added is optional and defaults to unknown.
 
 Unknown is a real answer here and is distinct from a claim. ``exactness=None`` means the
-contract has not been established, which is what the current post-execution dtype
+contract has not been established, which is what the current post execution dtype
 inspection produces; it must not be read as APPROXIMATE.
 """
 
@@ -26,6 +26,168 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
+
+
+@dataclass(frozen=True)
+class PredicateResult:
+    """A checked condition, not a prose precondition or a numerical tolerance."""
+
+    name: str
+    status: str
+    evidence: str
+
+
+@dataclass(frozen=True)
+class MetricDescriptor:
+    """A contraction form, distinct from a channel scale or a type accession."""
+
+    construction: str
+    basis: BasisRef
+    shape: tuple[int | None, int | None]
+    coefficient_domain: Domain
+    arithmetic: Exactness
+    positive_definite: bool | None = None
+    coefficient_digest: str | None = None
+
+
+@dataclass(frozen=True)
+class CoordinateDescriptor:
+    """Explicit type coordinates, distinct from an equally sized cell basis."""
+
+    name: str
+    keys: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AccessionDescriptor:
+    """A type axis and declared measurement map, separate from the ambient basis."""
+
+    name: str
+    basis: BasisRef
+    shape: tuple[int, int]
+    coefficient_domain: Domain
+    coefficient_digest: str
+    nnz: int
+    construction: str = "sparse-ambient-endomorphism"
+    chain_preserving: bool | None = None
+    coordinates: CoordinateDescriptor | None = None
+
+
+@dataclass(frozen=True)
+class CrossMetricDescriptor:
+    """Ordered sparse cross block; no symmetry or positivity is asserted."""
+
+    left: AccessionDescriptor
+    right: AccessionDescriptor
+    shape: tuple[int, int]
+    coefficient_domain: Domain
+    arithmetic: Exactness
+    coefficient_digest: str
+    nnz: int
+    construction: str = "sparse-cross-pairing"
+
+
+@dataclass(frozen=True)
+class RealizationDescriptor:
+    """Sparse map from accession coordinates into its declared ambient basis."""
+
+    accession: AccessionDescriptor
+    shape: tuple[int, int]
+    coefficient_domain: Domain
+    coefficient_digest: str
+    nnz: int
+    construction: str = "sparse-type-realization"
+    injective: bool | None = None
+    chain_preserving: bool | None = None
+
+
+@dataclass(frozen=True)
+class FamilyMetricDescriptor:
+    """PSD direct sum form represented by E* M E, not stored cross blocks."""
+
+    metric: MetricDescriptor
+    realizations: tuple[RealizationDescriptor, ...]
+    shape: tuple[int, int]
+    coefficient_domain: Domain
+    arithmetic: Exactness
+    coefficient_digest: str
+    construction: str = "factored-family-metric"
+    psd: bool = True
+    positive_definite: bool | None = None
+
+
+@dataclass(frozen=True)
+class GradedMapDescriptor:
+    """Whole finite tower, with ordered spaces and boundary state digests."""
+
+    domain: tuple[CoordinateDescriptor, ...]
+    codomain: tuple[CoordinateDescriptor, ...]
+    shapes: tuple[tuple[int, int], ...]
+    domain_digest: str
+    codomain_digest: str
+    coefficient_digest: str
+    nnz: tuple[int, ...]
+    construction: str = "exact-sparse-graded-map"
+    chain_preserving: bool | None = None
+
+
+@dataclass(frozen=True)
+class OperatorDescriptor:
+    """The two spaces of a map, independent of its display/type name.
+
+    Euclidean actions and explicit diagonal metric adjoints retain separate
+    contracts. Metrics/accessions are never inferred from array shapes.
+    ``arithmetic`` describes default application, not the structural handle;
+    exact_action/transpose advertise separate certified Q capabilities.
+    """
+
+    construction: str
+    domain: BasisRef
+    codomain: BasisRef
+    shape: tuple[int | None, int | None]
+    coefficient_domain: Domain
+    arithmetic: Exactness
+    metric: str = "euclidean-cell"
+    symmetric: bool | None = None
+    psd: bool | None = None
+    kernel_policy: str | None = None
+    parameters: tuple[tuple[str, object], ...] = ()
+    transpose_available: bool = False
+    exact_action: bool = False
+    exact_transpose: bool = False
+    action_variance: str = "cochain"
+    adjoint_domain_metric: MetricDescriptor | None = None
+    adjoint_codomain_metric: MetricDescriptor | None = None
+    grade_metrics: tuple[MetricDescriptor, ...] = ()
+    metric_self_adjoint: bool | None = None
+    metric_psd: bool | None = None
+    primal_operator: OperatorDescriptor | None = None
+    operands: tuple[OperatorDescriptor, ...] = ()
+    metric_skew_adjoint: bool | None = None
+    euclidean_skew_adjoint: bool | None = None
+
+
+@dataclass(frozen=True)
+class GradedOperatorDescriptor:
+    """Direct sum spaces stay graded; total shape is not a single cell basis."""
+
+    construction: str
+    bases: tuple[BasisRef, ...]
+    sizes: tuple[int, ...]
+    grade_metrics: tuple[MetricDescriptor, ...]
+    anti: bool | None
+    active_boundaries: tuple[int, ...]
+    exact_action: bool
+    coefficient_domain: Domain
+    arithmetic: Exactness
+    action_variance: str = "chain"
+    transpose_available: bool = True
+    metric_self_adjoint: bool | None = None
+    metric_skew_adjoint: bool | None = None
+    symmetric: bool = False
+    psd: bool = False
+    operands: tuple[GradedOperatorDescriptor, ...] = ()
+    bracket_kind: str | None = None
 
 
 class Exactness(str, Enum):
@@ -64,7 +226,7 @@ class Domain(str, Enum):
 
     An integer domain computed by a floating action is INTEGER over APPROXIMATE, and a
     rational value rendered to a float is RATIONAL over ROUNDED. Collapsing the two loses
-    exactly the distinction the blueprint asks for.
+    exactly the distinction the typed contract asks for.
     """
 
     INTEGER = "integer"
@@ -110,20 +272,41 @@ class ValueKind(str, Enum):
     CELL_BOUNDARY = "CellBoundary"
     CELL_COBOUNDARY = "CellCoboundary"
     COMPOSITE_BINARY = "CompositeBinary"
+    HYPERSLICE = "Hyperslice"
+    COLUMN_EXPANSION = "ColumnExpansion"
+    COLUMN_LEGS = "ColumnLegs"
+    PRIMARY_COLUMN_LIFT = "PrimaryColumnLift"
+    REX_PARTITION = "RexPartition"
+    BOUNDARY_DIFFERENCE = "BoundaryDifference"
+    ARTIFACT_BYTES = "ArtifactBytes"
 
     # algebra
     CHAIN = "Chain"
+    GRADED_CHAIN = "GradedChain"
+    GRADED_OPERATOR = "GradedOperator"
     COCHAIN = "Cochain"
     FIELD = "Field"
     OPERATOR = "Operator"
     GRAM = "Gram"
     METRIC = "Metric"
+    TYPE_ACCESSION = "TypeAccession"
+    CROSS_METRIC = "CrossMetric"
+    FAMILY_METRIC = "FamilyMetric"
+    GRADED_MAP = "GradedMap"
+    CHAIN_MAP = "ChainMap"
+    CHAIN_HOMOTOPY = "ChainHomotopy"
+    ACCESSION_FAMILY = "AccessionFamily"
+    TYPE_VIEW = "TypeView"
+    TYPED_FAMILY = "TypedFamily"
+    MOMENT_TENSOR = "TypedMomentTensor"
     EXACT_SHEAF = "ExactSheaf"
     EXACT_GLUE = "ExactGlueResult"
+    EXACT_SECTION_CHECK = "ExactSectionCheck"
 
     # structure
     REX = "Rex"
     TEMPORAL_REX = "TemporalRex"
+    TURN_FIELD = "TurnFieldSource"
     DELTA = "Delta"
     TEMPORAL_EVENT = "TemporalSignalEvent"
     SIGNAL_FLOW = "TemporalSignalFlow"
@@ -159,7 +342,9 @@ class ValueKind(str, Enum):
 
     # compatibility and rendering
     QUERY_TABLE = "QueryTable"
+    SEQUENCE = "Sequence"
     STRUCTURAL_DESCRIPTION = "StructuralDescription"
+    OPERATOR_SIGNATURE_SET = "OperatorSignatureSet"
 
     # the absence of a determined kind, which is not a kind
     UNKNOWN = "Unknown"
@@ -175,7 +360,7 @@ class BasisRef:
 
     source_id: str
     grade: int
-    ordering: str = "canonical"
+    ordering: str | tuple[object, ...] = "canonical"
 
 
 @dataclass(frozen=True)
@@ -233,6 +418,15 @@ class RCType:
     shape: ShapeRef | None = None
     capabilities: frozenset[str] = field(default_factory=frozenset)
     effects: frozenset[Effect] = field(default_factory=frozenset)
+    operator: OperatorDescriptor | None = None
+    metric: MetricDescriptor | None = None
+    accessions: tuple[AccessionDescriptor, ...] = ()
+    cross_metric: CrossMetricDescriptor | None = None
+    member_shapes: tuple[tuple[int | None, ...], ...] = ()
+    family_metric: FamilyMetricDescriptor | None = None
+    graded_map: GradedMapDescriptor | None = None
+    graded_operator: GradedOperatorDescriptor | None = None
+    graded_bases: tuple[BasisRef, ...] = ()
 
     def with_(self, **changes) -> RCType:
         """A copy with fields replaced, since a type is immutable once inferred."""

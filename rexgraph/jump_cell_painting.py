@@ -1,4 +1,4 @@
-"""Temporal relational-tensor readings for JUMP Cell Painting plate profiles.
+"""Temporal relational tensor readings for JUMP Cell Painting plate profiles.
 
 The adapter keeps a perturbation identifier and a named CellProfiler field section as
 the boundary participants of one primary C1 relation.  Its measured profile value is a
@@ -6,7 +6,7 @@ separate C1 metric coefficient.  A Day 1 to Day 4 comparison therefore keeps the
 relation basis while exposing an amplitude delta directly on C1, before deriving a C0
 source or any Green response.
 
-This is a morphology-assay adapter.  Its deterministic orientation names the
+This is a morphology assay adapter.  Its deterministic orientation names the
 perturbation as the distinguished boundary participant only so the relation tensor has
 a stable convention; it does not assert activation, inhibition, or a causal mechanism.
 No C2 cells are fabricated from the profile table, so a zero curl sector is an honest
@@ -42,7 +42,7 @@ __all__ = [
 
 # The standard analysis view keeps the six morphology families present for every
 # compartment.  Neighbors and Cytoplasm_Location remain available to callers through
-# ``field_sections`` but are not silently mixed into this matched 18-section field.
+# ``field_sections`` but are not silently mixed into this matched 18 section field.
 DEFAULT_JUMP_SECTIONS = (
     "Cells_AreaShape", "Cells_Correlation", "Cells_Granularity", "Cells_Intensity",
     "Cells_RadialDistribution", "Cells_Texture",
@@ -55,7 +55,7 @@ DEFAULT_JUMP_SECTIONS = (
 
 @dataclass(frozen=True)
 class CellPaintingPlate:
-    """One plate's per-gene, per-CellProfiler-section profile means."""
+    """One plate's per gene, per CellProfiler section profile means."""
 
     path: Path
     sections: tuple[str, ...]
@@ -65,7 +65,7 @@ class CellPaintingPlate:
 
 @dataclass(frozen=True)
 class JumpCellPaintingStudy:
-    """Two time-aligned Cell Painting snapshots over a stable C1 relation basis."""
+    """Two time aligned Cell Painting snapshots over a stable C1 relation basis."""
 
     temporal: TemporalRex
     day1: RexGraph
@@ -109,7 +109,7 @@ def load_jump_plate(path: str | Path, *, perturbation: str = "trt") -> CellPaint
 
     A well contributes its finite feature values to a named section such as
     ``Cells_Intensity``.  The plate value for a gene/section is the arithmetic mean of
-    the available well-section means.  Both levels are explicit so a missing feature or
+    the available well section means.  Both levels are explicit so a missing feature or
     well is omitted rather than coerced to zero.
     """
     profile_path = Path(path).expanduser().resolve()
@@ -196,7 +196,7 @@ def build_jump_cell_painting_temporal(
 ) -> JumpCellPaintingStudy:
     """Build the Day 1/Day 4 C1 assay field over a declared section vocabulary.
 
-    The default is the standard matched 18-section morphology field.  Supplying
+    The default is the standard matched 18 section morphology field.  Supplying
     ``field_sections`` is an explicit change of the metric space, useful for a focused
     analysis but never hidden in a generic profile import.
     """
@@ -247,7 +247,7 @@ def analyze_jump_delta(study: JumpCellPaintingStudy, *, top: int = 10) -> dict:
     """Read direct C1 delta, derived Green response, and C1-metric curvature.
 
     The returned C0 source is a derived boundary reading.  The Hodge split starts from
-    the direct C1 amplitude delta, where non-potential sectors can exist; the Green
+    the direct C1 amplitude delta, where non potential sectors can exist; the Green
     action starts from that derived C0 source.  The two are intentionally reported as
     different mathematical readings rather than competing descriptions of one path.
     """

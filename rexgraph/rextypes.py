@@ -2,7 +2,7 @@
 rexgraph.rextypes: typed containers for relational complex data structures.
 
 Enumerations mirror integer codes from the Cython layer so that
-Python-level code (graph.py, analysis.py) can refer to them without
+Python level code (graph.py, analysis.py) can refer to them without
 importing .pyx modules.
 
 NamedTuples wrap the dicts and tuples returned by the Cython layer.
@@ -117,7 +117,7 @@ class TransitionKind(IntEnum):
 
 
 class EnergyRegime(IntEnum):
-    """E_kin/E_pot ratio classification for per-edge or per-timestep regimes.
+    """E_kin/E_pot ratio classification for per edge or per timestep regimes.
 
     Mirrors DEF ENERGY_KINETIC/CROSSOVER/POTENTIAL in _temporal.pyx.
     """
@@ -227,7 +227,7 @@ class SpectralBundle(NamedTuple):
     build_all_laplacians. Includes Hodge Laplacians (L0, L1, L2),
     their eigendecompositions, Betti numbers, overlap/frustration
     analysis, coupling constants, and the relational Laplacian RL
-    with its trace-normalized hat operators.
+    with its trace normalized hat operators.
     """
 
     # L0 (vertex Laplacian)
@@ -281,7 +281,7 @@ class SpectralBundle(NamedTuple):
     alpha_T: float
     """Total coupling: tr(L1) / tr(L_O)."""
 
-    # RL_1 = L1 + alpha_G * L_O (legacy 2-term relational Laplacian)
+    # RL_1 = L1 + alpha_G * L_O (legacy 2 term relational Laplacian)
     RL_1: object
     """Two-term relational Laplacian, f64[nE, nE] or None."""
     evals_RL_1: NDArray | None
@@ -746,7 +746,7 @@ class FieldPerturbationResult(NamedTuple):
 
 
 class WaveState(NamedTuple):
-    """Position + velocity state for the second-order wave equation.
+    """Position + velocity state for the second order wave equation.
 
     Used by _field.wave_evolve() and _field.field_rk4_step().
     """
@@ -760,7 +760,7 @@ class WaveState(NamedTuple):
 
 
 class SchrodingerState(NamedTuple):
-    """Real and imaginary parts of a unitary-evolved signal.
+    """Real and imaginary parts of a unitary evolved signal.
 
     From _transition.schrodinger_evolve_spectral().
     """
@@ -801,7 +801,7 @@ class Filtration(NamedTuple):
 
 
 class PersistenceEnrichment(NamedTuple):
-    """Rex-specific metadata for persistence pairs."""
+    """Rex specific metadata for persistence pairs."""
 
     edge_type_annotations: NDArray
     """Edge type code (0-3) for each dim-1 pair's birth edge."""
@@ -877,7 +877,7 @@ class FaceData(NamedTuple):
 
 
 class CoupledEvolution(NamedTuple):
-    """Result of coupled cross-dimensional diffusion via RK4."""
+    """Result of coupled cross dimensional diffusion via RK4."""
 
     y_final: NDArray
     """Final state vector (f_0, f_1, f_2), shape (nV+nE+nF,)."""
@@ -1024,7 +1024,11 @@ class StructuralSummary(NamedTuple):
 
 
 class InterfacingResult(NamedTuple):
-    """Interfacing vector and confidence diagnostics from build_interfacing_bundle."""
+    """Legacy dense oracle result, not the native interfacing dictionary schema.
+
+    Native bundles carry three scores and None for basis dependent diagnostics;
+    interfacing_vector_oracle explicitly supplies the legacy four mode reading.
+    """
     rho: NDArray
     """Vertex source vector, f64[nV]."""
     psi: NDArray
@@ -1048,7 +1052,7 @@ class InterfacingResult(NamedTuple):
 
 
 class ChannelProfile(NamedTuple):
-    """Multi-channel profile from multi_channel_profile."""
+    """Multi channel profile from multi_channel_profile."""
     iv_T: float
     """Interfacing vector topological component."""
     iv_G: float
@@ -1072,7 +1076,7 @@ class ChannelProfile(NamedTuple):
 
 
 class FiltrationResult(NamedTuple):
-    """Character-based quotient filtration from quotient_filtration_by_character."""
+    """Character based quotient filtration from quotient_filtration_by_character."""
     thresholds: NDArray
     """Chi threshold at each step, f64[n_steps]."""
     beta0: NDArray
@@ -1092,7 +1096,7 @@ class FiltrationResult(NamedTuple):
 
 
 class CrossComplexBridge(NamedTuple):
-    """Cross-complex bridge analysis from cross_complex_bridge."""
+    """Cross complex bridge analysis from cross_complex_bridge."""
     kappa: dict
     """Kappa correlation: {correlation, n_shared, kappa_A_shared, kappa_B_shared, mean_A, mean_B}."""
     void: dict

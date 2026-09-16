@@ -8,8 +8,8 @@ caches betti and coherence on the instance, a 157x difference that read as a
 backend result. A vocabulary lookup that had gone from 0.5 ms to 3.5 ms was a list
 scan hiding inside an index whose whole purpose was to remove scans.
 
-Both were caught by re-measuring rather than by reasoning, so this exists to make
-re-measuring the cheap thing to do:
+Both were caught by re measuring rather than by reasoning, so this exists to make
+re measuring the cheap thing to do:
 
     python -m agent.bench_stack                 # run and print
     python -m agent.bench_stack --save out.json # record it

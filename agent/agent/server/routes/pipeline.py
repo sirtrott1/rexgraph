@@ -4,8 +4,8 @@ agent.server.routes.pipeline: SSE pipeline endpoint.
 Architecture:
   - Files are split by type: OCR (PDF/image) vs direct (CSV/TSV/JSON/text)
   - OCR runs in the main process (model cached in VRAM)
-  - Analysis runs in a subprocess (crash-isolated from server)
-  - Non-OCR files are passed as paths to auto_rex which routes them
+  - Analysis runs in a subprocess (crash isolated from server)
+  - Non OCR files are passed as paths to auto_rex which routes them
     through the correct loader (csv_loader, json_loader, etc.)
   - Results feed into both Sessions and Workspace persistence
 """
@@ -36,7 +36,7 @@ _executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
 # Isolated + warm analysis workers. A `forkserver` imports the heavy stack once,
 # then each analysis forks from it cheaply; a crash/OOM in a child never touches
-# the server. Created lazily and cached (the first request pays the one-time
+# the server. Created lazily and cached (the first request pays the one time
 # forkserver+preload startup; the rest are fast forks).
 _ANALYSIS_CTX = None
 
@@ -138,7 +138,7 @@ def _ingest_files(file_paths, ocr_client, event_queue, use_fusion=False):
     Returns (ocr_texts, ocr_doc_ids, direct_paths).
 
     When ``use_fusion`` is set and more than one OCR backend is available,
-    each document is run through every backend and the highest-confidence
+    each document is run through every backend and the highest confidence
     result is kept.
     """
     import re
@@ -188,7 +188,7 @@ def _ingest_files(file_paths, ocr_client, event_queue, use_fusion=False):
                         text = ""
                 if not text:
                     if ocr_client is None:
-                        # No OCR backend was initialised (direct-only
+                        # No OCR backend was initialised (direct only
                         # batch). Skip rather than dereference None.
                         print(f"[ingest]   {p.name} -> skipped (no OCR backend)", file=sys.stderr, flush=True)
                         continue
@@ -261,7 +261,7 @@ def _analysis_subprocess(ocr_texts, ocr_doc_ids, direct_paths,
         runner.on_phase(on_phase)
 
         # run() now builds one corpus from whatever is present, so a
-        # single call handles texts-only, files-only, and mixed batches
+        # single call handles texts only, files only, and mixed batches
         # without dropping either.
         result = runner.run(
             files=direct_paths or None,
@@ -451,7 +451,7 @@ async def stream_pipeline(
 
             # Only initialise an OCR backend if at least one uploaded file
             # actually needs OCR. A pure CSV/JSON/TSV/text batch must never
-            # load an OCR model or fail on OCR-init.
+            # load an OCR model or fail on OCR init.
             ocr_needed = any(
                 os.path.splitext(p)[1].lower() in OCR_EXTENSIONS
                 for p in temp_paths
@@ -492,18 +492,18 @@ async def stream_pipeline(
 
             # Phase 2, analysis: always in an isolated subprocess.
             #
-            # The compiled core runs with bounds-checks off, so a pathological or
-            # oversized input can segfault or OOM. Running it in-process would take
+            # The compiled core runs with bounds checks off, so a pathological or
+            # oversized input can segfault or OOM. Running it in process would take
             # the whole server down with it (a crash we actually hit on a 100k-node
             # graph). Isolating it means such a failure kills only the child; the
             # server survives and returns an error for that one request.
             #
-            # To avoid paying a fresh-interpreter re-import tax (~0.3-0.5s) on every
-            # request, we use a `forkserver`: a clean, single-threaded helper that
+            # To avoid paying a fresh interpreter re import tax (~0.3-0.5s) on every
+            # request, we use a `forkserver`: a clean, single threaded helper that
             # imports numpy/scipy/the analysis stack ONCE, then each request forks
             # from it: warm AND isolated. Forking from that helper (not the
             # multithreaded server, and before any OCR/torch is loaded) also avoids
-            # fork-with-threads hazards and never inherits a CUDA context.
+            # fork with threads hazards and never inherits a CUDA context.
             ctx = _analysis_ctx()
             analysis_queue = ctx.Queue()
             proc = ctx.Process(
@@ -570,9 +570,9 @@ async def stream_pipeline(
                            'REXGRAPH_MAX_ANALYSIS_EDGES."}\n\n')
         finally:
             # Always let analysis finish before deleting temp files, even if the
-            # client disconnected mid-run, so the worker never reads a file that
+            # client disconnected mid run, so the worker never reads a file that
             # cleanup already removed, for both the subprocess and the
-            # in-process paths.
+            # in process paths.
             if proc is not None:
                 try:
                     if proc.is_alive():

@@ -5,7 +5,7 @@ rexgraph.core._joins: legacy dense pairwise join operations.
 
 This module scans dense B1 columns through endpoint thresholds, so it cannot
 read a primary branching C1 relation whose canonical shares are <= 1/2.  The
-arity-general primary join is ``rexgraph.joins.join``; it reads oriented
+arity general primary join is ``rexgraph.joins.join``; it reads oriented
 boundary support directly and carries faces only when their full boundary
 survives.  These routines are retained for their historical dense pairwise
 result contract and oracle coverage.
@@ -161,7 +161,7 @@ def inner_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssiz
                 B2j[e_map[e], j] = B2R[e, f]
 
     # Betti
-    # Betti from EXACT integer rank (rational column reduction, eigen-free - no SVD)
+    # Betti from EXACT integer rank (rational column reduction, eigen free - no SVD)
     import scipy.sparse as _sp
     from rexgraph.graded_boundary import _sparse_rank
     r1 = _sparse_rank(_sp.csc_matrix(B1j)) if min(nVj, nEj) > 0 else 0
@@ -217,7 +217,7 @@ def outer_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssiz
     B2j[:nE_R, :nF_R] = B2R
     B2j[nE_R:nE_R+nE_S, nF_R:nF_R+nF_S] = B2S
 
-    # Betti from EXACT integer rank (rational column reduction, eigen-free - no SVD)
+    # Betti from EXACT integer rank (rational column reduction, eigen free - no SVD)
     import scipy.sparse as _sp
     from rexgraph.graded_boundary import _sparse_rank
     r1 = _sparse_rank(_sp.csc_matrix(B1j)) if min(nVj, nEj) > 0 else 0
@@ -282,11 +282,11 @@ def left_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssize
         B1j[s, nE_R + j] = -1.0
         B1j[t, nE_R + j] = 1.0
 
-    # Only R faces (S faces would need cross-edge B2 construction)
+    # Only R faces (S faces would need cross edge B2 construction)
     B2j = np.zeros((nEj, nF_R), dtype=np.float64)
     B2j[:nE_R, :] = B2R
 
-    # Betti from EXACT integer rank (rational column reduction, eigen-free - no SVD)
+    # Betti from EXACT integer rank (rational column reduction, eigen free - no SVD)
     import scipy.sparse as _sp
     from rexgraph.graded_boundary import _sparse_rank
     r1 = _sparse_rank(_sp.csc_matrix(B1j)) if min(nV_R, nEj) > 0 else 0
@@ -314,7 +314,7 @@ def attribute_merge(Py_ssize_t nV_R, Py_ssize_t nE_R,
                      f64 alpha=0.5):
     """Blend attributes at shared vertices.
 
-    merged = (1-alpha)*R + alpha*S at shared cells.
+    merged = (1 alpha)*R + alpha*S at shared cells.
     """
     cdef i32[::1] sv = shared_vertices
     merged_amps = amps_R.copy()

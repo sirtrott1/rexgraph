@@ -3,16 +3,16 @@
 SQL bridge for RexGraph analysis results.
 
 Stores the same table types as :mod:`parquet_bridge` into SQL databases
-(SQLite, PostgreSQL, or any SQLAlchemy-compatible backend).  Each table
+(SQLite, PostgreSQL, or any SQLAlchemy compatible backend).  Each table
 maps to a specific part of the algebraic/topological framework:
 
 Boundary table: the general boundary operator d_1
 (Definition 3.1).  One row per (edge, boundary_vertex) pair.
 
-Edge table - per-edge data: source/target, boundary size, edge type
+Edge table - per edge data: source/target, boundary size, edge type
 (Definition 3.2), weight, optional Hodge components (Theorem 3.8/4.5).
 
-Vertex table: per-vertex data, degree from L_0, spectral
+Vertex table: per vertex data, degree from L_0, spectral
 layout (Definition 6.7), Fiedler vector entries.
 
 Face table: the B_2 operator (Definition 4.1).  One row
@@ -23,7 +23,7 @@ Z/2.
 
 Filtration table - filtration values f: C_k -> R.
 
-Temporal table: per-timestep Betti numbers and cell counts from a
+Temporal table: per timestep Betti numbers and cell counts from a
 TemporalRex.
 
 All `sqlalchemy` imports are lazy. No pandas: reads and writes go through
@@ -112,11 +112,11 @@ _ENGINE_CACHE: dict[str, Any] = {}
 def get_engine(conn_str: str):
     """Get a SQLAlchemy engine.
 
-    For in-memory SQLite, returns a shared `StaticPool`-backed engine
+    For in memory SQLite, returns a shared `StaticPool`-backed engine
     so multiple calls see the same database.
 
     Parameters
-    ----------
+
     conn_str : str
         SQLAlchemy connection string, e.g. `"sqlite:///graph.db"`
         or `"sqlite:///:memory:"`.
@@ -126,11 +126,11 @@ def get_engine(conn_str: str):
     low = conn_str.lower()
     if low.startswith("sqlite") and (":memory:" in low or "file::memory:" in low):
         # `uri=true` MUST live in the URL query string: SQLAlchemy's pysqlite
-        # dialect only builds a driver-level URI connection when it sees it
+        # dialect only builds a driver level URI connection when it sees it
         # there. Passing uri via connect_args instead makes the dialect strip
         # `?cache=shared` and hand the bare string "file::memory:" to
         # sqlite3.connect() as a plain filename -> it silently creates an
-        # on-disk file literally named "file::memory:" instead of an in-memory DB.
+        # on disk file literally named "file::memory:" instead of an in memory DB.
         mapped = "sqlite+pysqlite:///file::memory:?cache=shared&uri=true"
         if mapped not in _ENGINE_CACHE:
             _ENGINE_CACHE[mapped] = create_engine(
@@ -140,7 +140,7 @@ def get_engine(conn_str: str):
             )
         return _ENGINE_CACHE[mapped]
 
-    # Cached like the in-memory branch above. This used to build a NEW engine on every
+    # Cached like the in memory branch above. This used to build a NEW engine on every
     # call, and an engine owns a connection pool: a caller that asks per operation, as
     # the workspace persistence layer does, opened one pool per save and left every one
     # of them for the collector. An engine is meant to be long lived and shared by
@@ -153,7 +153,7 @@ def get_engine(conn_str: str):
 def dispose_engines() -> None:
     """Dispose every cached engine and forget them.
 
-    The cache is process-wide and deliberately long lived, so this exists for the cases
+    The cache is process wide and deliberately long lived, so this exists for the cases
     that need the pools actually released: a test that has finished with a database, or
     a process shutting a workspace down.
     """
@@ -167,7 +167,7 @@ def dispose_engines() -> None:
 
 def _ensure_engine(conn):
     """Normalize a URI string, an Engine, or a live Connection to an Engine. Accepting a Connection
-    keeps the pandas-era flexibility (pandas.read_sql took both) so callers that pass engine.connect()
+    keeps the pandas era flexibility (pandas.read_sql took both) so callers that pass engine.connect()
     (e.g. models/store.py) keep working under the SQLAlchemy Core path."""
     import sqlalchemy as sa
     if isinstance(conn, str):
@@ -207,7 +207,7 @@ def _py(v):
 
 def _table_exists(engine, name: str) -> bool:
     """Check whether `name` exists as a table, via inspection (never a
-    string-interpolated query against the table name)."""
+    string interpolated query against the table name)."""
     _sa()
     import sqlalchemy as sa
     return sa.inspect(engine).has_table(name)
@@ -219,7 +219,7 @@ def _write_df(data: dict[str, NDArray], engine, table: str,
 
     Persists each column's numpy dtype string into the companion `<table>_meta`
     row so a later read can cast back exactly (SQLite otherwise widens, e.g.
-    int32 -> int64, on the way through a generic driver-level fetch).
+    int32 -> int64, on the way through a generic driver level fetch).
     """
     _sa()
     import sqlalchemy as sa
@@ -251,7 +251,7 @@ def _read_table(engine, table: str, *, where: str = "", where_params: dict | Non
                 order_by: str = "", columns: list[str] | None = None) -> dict[str, np.ndarray]:
     """Read a SQL table into a dict of arrays via SQLAlchemy Core reflection.
 
-    The table name is never string-interpolated: `sa.Table(..., autoload_with=engine)`
+    The table name is never string interpolated: `sa.Table(..., autoload_with=engine)`
     reflects it and `sa.select()` builds the query. Each column is cast back to the
     numpy dtype recorded at write time (see `_write_df`), so integer width and other
     dtype fidelity survive the round trip through the database.
@@ -323,8 +323,8 @@ def _read_meta(engine, table: str) -> dict:
     return json.loads(row[0])
 
 
-#: the one encoder (rexgraph.io._compat). Re-exported under the local name so the
-#: existing call sites keep working; `dumps` is what applies the non-finite policy.
+#: the one encoder (rexgraph.io._compat). Re exported under the local name so the
+#: existing call sites keep working; `dumps` is what applies the non finite policy.
 from ._compat import dumps as _dumps
 
 # Boundary table (Definition 3.1)
@@ -340,7 +340,7 @@ def write_boundary_sql(
     """Write the general boundary operator d_1 to SQL.
 
     One row per (edge, boundary_vertex) pair.  Handles all edge types
-    from Definition 3.2: standard, self-loop, branching, witness.
+    from Definition 3.2: standard, self loop, branching, witness.
 
     Columns: `edge_idx`, `vertex_idx`, `position`.
     """
@@ -414,7 +414,7 @@ def write_edge_sql(
     include: list[str] | None = None,
     if_exists: str = "replace",
 ) -> None:
-    r"""Write per-edge data to SQL.
+    r"""Write per edge data to SQL.
 
     Columns: `edge_idx`, `source`, `target`, `boundary_size`,
     `edge_type`, `edge_type_name`, `endpoints`, `weight` (if weighted).
@@ -422,7 +422,7 @@ def write_edge_sql(
     Uses the general boundary d_1 to derive source/target,
     with `-1` for witness edges (Definition 3.2).  `endpoints` holds
     the full ordered signed boundary vertex list (JSON) per edge so
-    branching edges (arity>2) round-trip without truncation.
+    branching edges (arity>2) round trip without truncation.
     """
     _, _, _, _, sat = _sa()
     engine = _ensure_engine(conn)
@@ -438,7 +438,7 @@ def write_edge_sql(
     # `source`/`target` only capture the first two endpoints; a branching edge
     # (Definition 3.2) has k>2 boundary vertices.  Store the full, ordered
     # signed endpoint list per edge, the same general boundary CSR held in
-    # the boundary table, so arity>2 topology round-trips instead of being
+    # the boundary table, so arity>2 topology round trips instead of being
     # silently truncated.
     endpoints: list[str] = []
     for e in range(nE):
@@ -539,7 +539,7 @@ def write_vertex_sql(
     include: list[str] | None = None,
     if_exists: str = "replace",
 ) -> None:
-    r"""Write per-vertex data to SQL.
+    r"""Write per vertex data to SQL.
 
     Default columns: `vertex_idx`, `degree` (from L_0),
     `x`, `y` (spectral layout, Definition 6.7).
@@ -855,7 +855,7 @@ def read_filtration_sql(
     }
 
 
-# Temporal table (TemporalRex per-timestep summaries)
+# Temporal table (TemporalRex per timestep summaries)
 
 
 def write_temporal_sql(
@@ -865,7 +865,7 @@ def write_temporal_sql(
     *,
     if_exists: str = "replace",
 ) -> None:
-    r"""Write per-timestep summary from a TemporalRex to SQL.
+    r"""Write per timestep summary from a TemporalRex to SQL.
 
     Columns: `timestep`, `nE`, `nF`, `beta_0`, `beta_1`,
     `beta_2`, `euler_characteristic`.
@@ -941,7 +941,7 @@ def read_temporal_sql(
     return result
 
 
-# Metrics table (generic per-cell numerics)
+# Metrics table (generic per cell numerics)
 
 
 def write_metrics_sql(
@@ -952,10 +952,10 @@ def write_metrics_sql(
     cell_dim: int = 0,
     if_exists: str = "replace",
 ) -> None:
-    """Write per-cell metrics to SQL.
+    """Write per cell metrics to SQL.
 
     Parameters
-    ----------
+
     metrics : dict of arrays
         All equal length.
     conn : str or Engine
@@ -1032,7 +1032,7 @@ def read_sql_batches(
     """Stream SQL results as batches of arrays.
 
     Parameters
-    ----------
+
     conn : str or Engine
     table_or_query : str
         Table name or SQL query.
@@ -1040,7 +1040,7 @@ def read_sql_batches(
         Rows per batch.
 
     Yields
-    ------
+
     dict of name -> ndarray per batch
     """
     _sa()
@@ -1092,7 +1092,7 @@ def write_character_sql(
     table: str = "character",
     if_exists: str = "replace",
 ):
-    """Write per-edge structural character to SQL.
+    """Write per edge structural character to SQL.
 
     Columns: edge_idx, chi_L1_down, chi_L_O, chi_L_SG.
     """
@@ -1114,7 +1114,7 @@ def write_character_sql(
 
 
 def read_character_sql(conn, *, table: str = "character"):
-    """Read per-edge character from SQL."""
+    """Read per edge character from SQL."""
     engine = _ensure_engine(conn)
     return _read_table(engine, table)
 
@@ -1126,7 +1126,7 @@ def write_vertex_character_sql(
     table: str = "vertex_character",
     if_exists: str = "replace",
 ):
-    """Write per-vertex character (phi, kappa) to SQL."""
+    """Write per vertex character (phi, kappa) to SQL."""
     _, _, _, _, sat = _sa()
     engine = _ensure_engine(conn)
     phi = rex.vertex_character
@@ -1148,7 +1148,7 @@ def write_vertex_character_sql(
 
 
 def read_vertex_character_sql(conn, *, table: str = "vertex_character"):
-    """Read per-vertex character from SQL."""
+    """Read per vertex character from SQL."""
     engine = _ensure_engine(conn)
     return _read_table(engine, table)
 
@@ -1209,7 +1209,7 @@ def reconstruct_rex_sql(
     face: str | None = None,
     edge: str | None = None,
 ):
-    """Rebuild a full `RexGraph` from separately-named SQL tables.
+    """Rebuild a full `RexGraph` from separately named SQL tables.
 
     Each `write_*_sql` function takes an explicit table name (there is no
     fixed prefix convention shared across them), so this takes the actual

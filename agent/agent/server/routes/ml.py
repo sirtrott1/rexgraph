@@ -14,7 +14,7 @@ router = APIRouter(prefix="/v1")
 
 @router.get("/ml/archetypes")
 async def ml_archetypes():
-    """List every model archetype with its use-case, data kind, and tunable params."""
+    """List every model archetype with its use case, data kind, and tunable params."""
     from agent import models
     return {"archetypes": models.list_archetypes()}
 
@@ -34,14 +34,14 @@ async def ml_run(body: dict = Body(...)):
     if not arch:
         raise HTTPException(400, "need 'archetype'")
     # `data` is read and `save_to` is written as the server user, so both are held to
-    # the same allow-list every other caller-supplied path is: save_to reached
+    # the same allow list every other caller supplied path is: save_to reached
     # Path(expanduser(p)).mkdir(parents=True) and then wrote weights there.
     from ..handles import path_allowed
     for field in ("data", "save_to"):
         value = body.get(field)
         if value is None or value == "":
             continue
-        # A non-string skipped the check entirely and then crashed at the sink, which
+        # A non string skipped the check entirely and then crashed at the sink, which
         # reported a 500 for what is a bad request.
         if not isinstance(value, str):
             raise HTTPException(400, f"'{field}' must be a path")
@@ -60,7 +60,7 @@ async def ml_run(body: dict = Body(...)):
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e)) from e
     # structural training diagnosis: the trajectory is an eval METRIC (higher is better); negate it
-    # into a loss-proxy so the monitor reads a descent and names any issue + cause.
+    # into a loss proxy so the monitor reads a descent and names any issue + cause.
     traj = result.get("trajectory") or []
     if traj:
         try:
@@ -93,7 +93,7 @@ async def ml_ingest(body: dict = Body(...)):
                                    optimizer=body.get("optimizer", "auto"),
                                    steps=int(body.get("steps", 150)))
     if body.get("rcdb_uri"):
-        # A caller-named store URI writes outside the workspace-scoped view that
+        # A caller named store URI writes outside the workspace scoped view that
         # default_store() provides, and trustgraph opened it directly. Inside a request
         # the workspace store is used and the named one is ignored; outside a request
         # the operator's own choice stands.

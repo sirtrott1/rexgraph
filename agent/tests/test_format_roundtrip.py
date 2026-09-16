@@ -1,6 +1,6 @@
 """Every input type in, a complex out, through every serializer, and back.
 
-Real files, not fixtures-of-fixtures. This is the walkthrough a user performs when
+Real files, not fixtures of fixtures. This is the walkthrough a user performs when
 they point the software at their data: whatever they have loads, and whatever loads
 survives being stored and read again.
 """
@@ -130,8 +130,8 @@ def test_a_complex_survives_every_serializer(samples, tmp_path, name):
 
     assert _shape(deserialize_complex(serialize_complex(rex))) == want, "rcdb"
 
-    # arrow round-trips the complex through rex_to_arrow / arrow_to_rex.
-    # write_arrow_ipc is the lower-level array-dict transport, not this.
+    # arrow round trips the complex through rex_to_arrow / arrow_to_rex.
+    # write_arrow_ipc is the lower level array dict transport, not this.
     from rexgraph.io import HAS_ARROW, arrow_to_rex, rex_to_arrow
     if HAS_ARROW:
         assert _shape(arrow_to_rex(rex_to_arrow(rex))) == want, "arrow"
@@ -195,7 +195,7 @@ def test_an_isolated_record_survives_wherever_it_sits(tmp_path):
 
 
 def test_an_unbonded_atom_is_its_own_component(tmp_path):
-    """A counter-ion bonds to nothing and is still an atom."""
+    """A counter ion bonds to nothing and is still an atom."""
     from agent.auto import auto_rex
     p = tmp_path / "iso.sdf"
     p.write_text("m\n t\n\n  3  1  0  0  0  0  0  0  0  0999 V2000\n"
@@ -228,7 +228,7 @@ def test_waters_are_not_bonded_to_the_chain(tmp_path):
 
 
 def test_a_multi_model_pdb_loads(tmp_path):
-    """Every NMR structure repeats its serials per MODEL. Round-tripping index to
+    """Every NMR structure repeats its serials per MODEL. Round tripping index to
     serial and back made that a KeyError."""
     from agent.auto import auto_rex
     body = "".join(
@@ -253,7 +253,7 @@ def test_a_plain_chain_still_bonds(tmp_path):
 
 
 def test_vcf_finds_gt_where_format_says_it_is(tmp_path):
-    """GT was read as sub-field 0 unconditionally, so a DP-only record's read depth
+    """GT was read as sub field 0 unconditionally, so a DP only record's read depth
     became "carries" and a 0/0 sample behind a DP field got an edge."""
     from agent.auto import auto_rex
     head = ("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"
@@ -277,7 +277,7 @@ def test_vcf_finds_gt_where_format_says_it_is(tmp_path):
 
 
 def test_gff_coordinates_are_inclusive(tmp_path):
-    """GFF is 1-based inclusive; the overlap sweep is half-open like BED. Passing
+    """GFF is 1 based inclusive; the overlap sweep is half open like BED. Passing
     them through unconverted made features sharing one base read as disjoint."""
     from agent.auto import auto_rex
     head = "##gff-version 3\n"
@@ -331,7 +331,7 @@ def test_a_malformed_mol_record_is_an_error_not_filler(tmp_path):
 
 
 def test_multi_record_sdf_still_reads_every_record(tmp_path):
-    """The counts check must not cost the valid multi-record case."""
+    """The counts check must not cost the valid multi record case."""
     from agent.auto import auto_rex
 
     def rec(n):
@@ -407,8 +407,8 @@ def test_reader_options_reach_the_reader(tmp_path):
 
 def test_a_face_is_a_filled_cycle_of_any_gon(tmp_path):
     """Faces come from `rexgraph.faces`, which solves B1 c = 0 exactly and reads the
-    gon off the cycle basis. The agent path used to run a triangle-only, type-gated
-    rule instead, so a 4-gon could never close and a ring with a double bond in it
+    gon off the cycle basis. The agent path used to run a triangle only, type gated
+    rule instead, so a 4 gon could never close and a ring with a double bond in it
     was rejected for having edges that disagreed."""
     import numpy as np
     from rexgraph.graph import RexGraph
@@ -457,7 +457,7 @@ def test_faces_are_not_assumed(tmp_path):
 
 
 def test_a_bipartite_complex_closes_at_its_own_gon(tmp_path):
-    """A VCF is samples against variants, so its cycles are 4-gons. Under the old
+    """A VCF is samples against variants, so its cycles are 4 gons. Under the old
     triangle rule it could never close one."""
     from agent.auto import auto_rex
     p = tmp_path / "t.vcf"
@@ -473,7 +473,7 @@ def test_a_bipartite_complex_closes_at_its_own_gon(tmp_path):
 def test_an_isolated_vertex_survives_a_save(tmp_path):
     """beta_0 must not move across a save.
 
-    The boundary arrays only witness vertices that carry a relation, so a 0-cell
+    The boundary arrays only witness vertices that carry a relation, so a 0 cell
     incident to nothing is invisible to them. The state header records nV and the
     reader dropped it, so an isolated vertex lived in memory and vanished on reload.
     """
@@ -484,7 +484,7 @@ def test_an_isolated_vertex_survives_a_save(tmp_path):
                              save_hdf5, save_rcbd, save_safetensors, save_zarr)
 
     rex = RexGraph(sources=np.array([0, 1], np.int32), targets=np.array([1, 2], np.int32))
-    rex._nV = 6                                   # three isolated 0-cells
+    rex._nV = 6                                   # three isolated 0 cells
     assert (rex.nV, int(rex.betti[0])) == (6, 4)
 
     stem = str(tmp_path / "iso")

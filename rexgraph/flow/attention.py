@@ -1,19 +1,19 @@
-"""rexgraph.flow.attention: matrix-free co-participation attention.
+"""rexgraph.flow.attention: matrix free co participation attention.
 
-Two edges co-participate iff they share an incident vertex (most often a
-high-arity branching vertex, but the same structural test applies to any
+Two edges co participate iff they share an incident vertex (most often a
+high arity branching vertex, but the same structural test applies to any
 shared endpoint). A masked edge's signal is predicted from its observed
-co-participants, each weighted by a learned compatibility over the two
+co participants, each weighted by a learned compatibility over the two
 edges' inside tensors. Setting gamma=0 collapses the weighting to uniform,
-which is the zero-parameter settle: no learned compatibility at all, just
-"average what the co-participants say".
+which is the zero parameter settle: no learned compatibility at all, just
+"average what the co participants say".
 
-Everything here is matrix-free and sparse. The co-participation neighborhood
+Everything here is matrix free and sparse. The co participation neighborhood
 is read directly off the signed incidence B1 (nV x nE): `absB1.T @ absB1` is
-the (unweighted, by-shared-vertex-count) edge-to-edge adjacency, since entry
+the (unweighted, by shared vertex count) edge to edge adjacency, since entry
 (e, e') is nonzero exactly when edges e and e' share an incident vertex.
 Using abs(B1) rather than the signed B1 avoids a spurious zero from sign
-cancellation on a shared vertex; the diagonal (every edge co-participates
+cancellation on a shared vertex; the diagonal (every edge co participates
 with itself) is dropped before the CSR is handed back. No dense operator,
 no eigendecomposition.
 """
@@ -28,15 +28,15 @@ __all__ = ["coparticipation_neighbors", "coparticipation_attention", "CoParticip
 
 
 def coparticipation_neighbors(rex) -> tuple[NDArray, NDArray]:
-    """CSR of each edge's co-participants (edges sharing an incident vertex).
+    """CSR of each edge's co participants (edges sharing an incident vertex).
 
-    Built matrix-free from the signed incidence `rex._B1_dual` (nV x nE):
-    for each vertex, the edges incident to it are mutual co-participants, so
-    `abs(B1).T @ abs(B1)` is exactly the (self-inclusive) co-participation
-    adjacency over edges. The diagonal (self co-participation) is dropped.
+    Built matrix free from the signed incidence `rex._B1_dual` (nV x nE):
+    for each vertex, the edges incident to it are mutual co participants, so
+    `abs(B1).T @ abs(B1)` is exactly the (self inclusive) co participation
+    adjacency over edges. The diagonal (self co participation) is dropped.
 
     Returns `(nbr_ptr, nbr_idx)`, both int32: `nbr_idx[nbr_ptr[e]:nbr_ptr[e+1]]`
-    is edge e's co-participants, self excluded.
+    is edge e's co participants, self excluded.
     """
     # the SHARE, pinned, whatever the character's c_channel is set to: attention moves
     # signal, and moving it through a branching vertex has to divide rather than multiply.
@@ -57,13 +57,13 @@ def coparticipation_attention(
     proj: NDArray | None = None,
     gamma: float = 0.0,
 ) -> NDArray:
-    """Predict each edge's signal from its OBSERVED co-participants.
+    """Predict each edge's signal from its OBSERVED co participants.
 
-    For edge e, aggregate over its observed co-participants e' with weight
+    For edge e, aggregate over its observed co participants e' with weight
     `exp(-gamma * ||z_e - z_e'||^2)`, where `z = inside @ proj` (or
     `z = inside` when proj is None): `pred_e = sum(w * signal_e') / sum(w)`.
-    gamma=0 makes every weight 1, i.e. the uniform zero-parameter settle.
-    An edge with no observed co-participant falls back to the global mean
+    gamma=0 makes every weight 1, i.e. the uniform zero parameter settle.
+    An edge with no observed co participant falls back to the global mean
     of the observed signal (or 0.0 if nothing at all is observed).
     """
     signal = np.asarray(signal, dtype=np.float64)
@@ -98,32 +98,32 @@ def coparticipation_attention(
 
 
 class CoParticipationAttention:
-    """Co-participation attention whose compatibility is LEARNED, not hand-set.
+    """Co participation attention whose compatibility is LEARNED, not hand set.
 
     The `coparticipation_attention` function needs a `proj`/`gamma` handed to it;
     this class fits those two tiny parameters from the data itself, by
-    self-supervised masked reconstruction, so the data supervises the fit
-    rather than a hand-picked constant. The recipe:
+    self supervised masked reconstruction, so the data supervises the fit
+    rather than a hand picked constant. The recipe:
 
-    1. Split the OBSERVED edges into an inner-train and an inner-val subset
+    1. Split the OBSERVED edges into an inner train and an inner val subset
        (keyed on `seed`, sized by `mask_frac`).
-    2. Predict inner-val's signal from inner-train ALONE, through the same
-       matrix-free `coparticipation_attention` kernel.
-    3. Minimize that inner-val reconstruction MSE over (proj, gamma) with a
-       gradient-free optimizer (Nelder-Mead over the flattened, tiny
+    2. Predict inner val's signal from inner train ALONE, through the same
+       matrix free `coparticipation_attention` kernel.
+    3. Minimize that inner val reconstruction MSE over (proj, gamma) with a
+       gradient free optimizer (Nelder Mead over the flattened, tiny
        parameter vector: a handful of numbers, not a network).
 
-    The fitted params are then used by `predict` against the TRUE held-out
+    The fitted params are then used by `predict` against the TRUE held out
     set. Nothing here is a dense solve or an eigendecomposition: fitting is
-    just repeated calls into the matrix-free kernel over a shrinking
+    just repeated calls into the matrix free kernel over a shrinking
     training/validation split of the observed edges.
     """
 
     def __init__(self, inside_dim: int, proj_dim: int = 2):
         self.inside_dim = int(inside_dim)
         self.proj_dim = int(proj_dim)
-        # identity-like init: as close to "no rotation" as a possibly
-        # non-square (inside_dim x proj_dim) matrix allows.
+        # identity like init: as close to "no rotation" as a possibly
+        # non square (inside_dim x proj_dim) matrix allows.
         proj = np.zeros((self.inside_dim, self.proj_dim), dtype=np.float64)
         for i in range(min(self.inside_dim, self.proj_dim)):
             proj[i, i] = 1.0
@@ -140,17 +140,17 @@ class CoParticipationAttention:
         seed: int = 0,
         steps: int = 300,
     ) -> CoParticipationAttention:
-        """Fit (proj, gamma) by self-supervised masked reconstruction.
+        """Fit (proj, gamma) by self supervised masked reconstruction.
 
         `signal` is assumed zeroed at any edge not actually observed (the
         same sentinel convention `coparticipation_attention` already uses
-        for its no-co-participant fallback); pass `obs_mask` explicitly to
+        for its no co participant fallback); pass `obs_mask` explicitly to
         override that inference instead of relying on it. The observed
-        edges are split (by `seed`) into an inner-train set and an
-        inner-val set of size roughly `mask_frac` of the observed edges;
-        the compatibility is optimized so that predicting inner-val from
-        inner-train ALONE (via `coparticipation_attention`) minimizes the
-        inner-val reconstruction MSE. The winning (proj, gamma) are stored
+        edges are split (by `seed`) into an inner train set and an
+        inner val set of size roughly `mask_frac` of the observed edges;
+        the compatibility is optimized so that predicting inner val from
+        inner train ALONE (via `coparticipation_attention`) minimizes the
+        inner val reconstruction MSE. The winning (proj, gamma) are stored
         on `self` and this instance is returned.
         """
         inside = np.asarray(inside, dtype=np.float64)
@@ -212,10 +212,10 @@ class CoParticipationAttention:
         signal: NDArray,
         obs_mask: NDArray,
     ) -> NDArray:
-        """Predict every edge's signal from its OBSERVED co-participants.
+        """Predict every edge's signal from its OBSERVED co participants.
 
-        `rex_or_nbrs` accepts either a rex (co-participation neighbors are
-        rebuilt) or an already-built `(nbr_ptr, nbr_idx)` pair (skips the
+        `rex_or_nbrs` accepts either a rex (co participation neighbors are
+        rebuilt) or an already built `(nbr_ptr, nbr_idx)` pair (skips the
         rebuild), so a caller that already has the neighbors from `fit_self_
         supervised`'s rex does not have to recompute them.
         """

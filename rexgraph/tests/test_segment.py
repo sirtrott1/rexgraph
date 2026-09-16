@@ -22,7 +22,7 @@ def _texts(text, **kw):
     return [text[a:a + n] for a, n in segment_sentences(text, **kw)[0]]
 
 
-#### the period is not the boundary ############################################
+# the period is not the boundary
 
 def test_a_title_period_does_not_end_a_sentence():
     assert _texts("Dr. Smith went home. He slept.") == [
@@ -47,7 +47,7 @@ def test_the_lexicon_can_only_veto_never_create():
 
 def test_a_decimal_point_is_not_a_terminator_at_all():
     """No space follows, so the candidate never opens: this is not a veto, it is not a
-    candidate. Keeping the two apart matters, because a veto is corpus-specific and this
+    candidate. Keeping the two apart matters, because a veto is corpus specific and this
     is structural."""
     sig, _sup = boundary_signals("pi is 3.14159 and that is all")
     assert not sig["terminator"].any()
@@ -85,7 +85,7 @@ def test_end_of_text_closes_the_final_sentence():
     assert _texts("One thing happened. Another did too.")[-1] == "Another did too."
 
 
-#### the encoding decides, exactly ##############################################
+# the encoding decides, exactly
 
 def test_a_script_change_is_exactly_a_change_of_byte_width():
     """No level and no statistic. In utf-8 Latin costs 1 byte and Greek 2, so notation
@@ -103,7 +103,7 @@ def test_width_is_a_property_of_the_encoding_not_the_character():
 
 
 def test_an_all_greek_text_needs_no_baseline_at_all():
-    """The old median-normalised form had to ask what was 'ordinary for this text'. Byte
+    """The old median normalised form had to ask what was 'ordinary for this text'. Byte
     width does not: every character here is exactly 2, and a run of uniform width has no
     internal boundary to find."""
     w = encoding_width("αβγδε ζηθικ λμνξο")
@@ -122,7 +122,7 @@ def test_empty_text_has_no_widths_and_raises_nothing():
     assert encoding_width("").size == 0
 
 
-#### layers, and refusing to invent one ########################################
+# layers, and refusing to invent one
 
 def test_paragraphs_split_on_the_blank_line_the_author_wrote():
     spans, how = segment_paragraphs("one one one\n\ntwo two two\n\nthree")
@@ -135,7 +135,7 @@ def test_a_text_with_no_blank_line_is_one_paragraph_and_says_so():
 
 
 def test_chapters_are_absent_rather_than_invented():
-    """The load-bearing refusal. A book with no headings supports no chapter layer, and
+    """The load bearing refusal. A book with no headings supports no chapter layer, and
     guessing one would produce divisions no reader could confirm."""
     spans, titles, how = segment_chapters("just prose\n\nmore prose\n\nand more",
                                           headings=ENGLISH_GUTENBERG.headings)
@@ -171,7 +171,7 @@ def test_a_profileless_reading_claims_nothing():
 
 
 def test_paragraphs_split_on_crlf_too():
-    """A CRLF file separates paragraphs with "\r\n\r\n", which an LF-only pattern cannot
+    """A CRLF file separates paragraphs with "\r\n\r\n", which an LF only pattern cannot
     match: every such document read as ONE block. Two real books, 3,762 and 6,345 CRLF
     pairs, were doing exactly that."""
     spans, how = segment_paragraphs("one one one\r\n\r\ntwo two two\r\n\r\nthree")
@@ -203,7 +203,7 @@ def test_empty_input_yields_no_sentences_rather_than_raising(bad):
     assert spans == [] and how == "empty"
 
 
-#### the leverage share field ##################################################
+# the leverage share field
 
 def test_the_sketch_falls_back_to_exact_when_it_would_cost_more():
     """A projection wider than the thing it projects is not a saving, and reporting it
@@ -258,7 +258,7 @@ def test_every_entry_point_reads_bytes_as_text_not_as_its_repr():
 
 
 def test_a_decoded_document_keeps_its_non_ascii_boundaries():
-    """The decode has to use the real encoding, not latin-1 by accident: a multi byte
+    """The decode has to use the real encoding, not latin 1 by accident: a multi byte
     terminator would otherwise split a sentence in the middle of a character."""
     from rexgraph.segment import segment_sentences
 

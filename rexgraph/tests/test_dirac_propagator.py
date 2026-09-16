@@ -1,8 +1,8 @@
-"""Tests for the sparse graded Dirac operator and its tensor-state propagators.
+"""Tests for the sparse graded Dirac operator and its tensor state propagators.
 
 Everything is checked against the DENSE reference in ``rexgraph.core._dirac`` (the
-assembled operator + its eigendecomposition), on a mixed-arity complex (pairwise
-AND branching edges, a face) so the arity-generality is exercised, not assumed.
+assembled operator + its eigendecomposition), on a mixed arity complex (pairwise
+AND branching edges, a face) so the arity generality is exercised, not assumed.
 """
 
 import numpy as np
@@ -20,9 +20,9 @@ from rexgraph.graph import RexGraph
 
 
 def _mixed_complex():
-    """A 1-rex mixing arities: a branching (3-ary) edge plus ordinary pairwise edges,
+    """A 1 rex mixing arities: a branching (3 ary) edge plus ordinary pairwise edges,
     no faces. ``from_hypergraph`` builds grade-0/1 only, so this exercises the
-    witness/pairwise/branching arity generality of the vertex-edge Dirac block.
+    witness/pairwise/branching arity generality of the vertex edge Dirac block.
     """
     he_idx = np.array([0, 1, 2,   0, 1,   1, 2,   0, 2], dtype=np.int64)
     he_ptr = np.array([0, 3, 5, 7, 9], dtype=np.int64)
@@ -30,8 +30,8 @@ def _mixed_complex():
 
 
 def _tetra_2rex():
-    """A genuine 2-rex (tetrahedron): 4 vertices, 6 edges, 4 triangular faces -
-    exercises the full graded Dirac with a non-empty grade-2 (face) sector."""
+    """A genuine 2 rex (tetrahedron): 4 vertices, 6 edges, 4 triangular faces -
+    exercises the full graded Dirac with a non empty grade 2 (face) sector."""
     src = np.array([0, 0, 0, 1, 1, 2])
     tgt = np.array([1, 2, 3, 2, 3, 3])
     tris = np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]])
@@ -39,8 +39,8 @@ def _tetra_2rex():
 
 
 def _cycle_complex(nv):
-    """A 1-rex cycle of ``nv`` vertices with pairwise edges - large enough (N = 2*nv)
-    to push a wide state block onto the parallel column-tiling path of matvec."""
+    """A 1 rex cycle of ``nv`` vertices with pairwise edges - large enough (N = 2*nv)
+    to push a wide state block onto the parallel column tiling path of matvec."""
     src = np.arange(nv, dtype=np.int64)
     tgt = (np.arange(nv, dtype=np.int64) + 1) % nv
     he_idx = np.empty(2 * nv, dtype=np.int64)
@@ -95,7 +95,7 @@ def test_d_squared_is_block_diagonal_laplacian():
     sd = dirac_from_rex(g)
     D = sd.to_scipy().toarray()
     D2 = D @ D
-    # off-diagonal (grade-crossing) blocks of D^2 must vanish: B1 B2 = 0
+    # off diagonal (grade crossing) blocks of D^2 must vanish: B1 B2 = 0
     s1, s2 = sd.grade_slice(0), sd.grade_slice(2) if sd.n_grades > 2 else None
     if s2 is not None:
         assert np.allclose(D2[s1, s2], 0.0, atol=1e-10)
@@ -125,11 +125,11 @@ def test_light_propagator_matches_dense_eigen():
 
 def test_light_imaginary_part_crosses_grades():
     """The curl (imaginary) part transports amplitude OFF the starting grade; the
-    off-diagonal boundary blocks are what carry it. A pure ``e^{-tD^2}`` heat stays
-    in-grade. This is the whole point of working in the Dirac vector space."""
+    off diagonal boundary blocks are what carry it. A pure ``e^{-tD^2}`` heat stays
+    in grade. This is the whole point of working in the Dirac vector space."""
     g = _mixed_complex()
     sd = dirac_from_rex(g)
-    # Start off-constant. A boundary column sums to zero, so B1^T annihilates the
+    # Start off constant. A boundary column sums to zero, so B1^T annihilates the
     # constant vector on grade 0 (level linking: zero column sums put 1 in ker L0).
     # Seeding every vertex equally therefore transports nothing, and would test the
     # kernel rather than the transport this is about. The constant case is asserted
@@ -150,7 +150,7 @@ def test_light_imaginary_part_crosses_grades():
     assert e_re[0] > 1e-6, f"the even part lost its own grade: {e_re}"
     assert e_re[1] < 1e-9, f"cos(tD) is even and must not cross a grade: {e_re}"
 
-    # pure per-grade heat e^{-tD^2} keeps grade-0 input on grade 0 only
+    # pure per grade heat e^{-tD^2} keeps grade 0 input on grade 0 only
     h = sd.heat_squared(psi0, t=0.7, order=200)
     e_h = sd.grade_energy(h)
     assert e_h[0] > 1e-6
@@ -160,7 +160,7 @@ def test_light_imaginary_part_crosses_grades():
 
 def test_the_constant_vector_is_annihilated():
     """The other side of the same fact. Every boundary column sums to zero, so
-    B1^T 1 = 0 and a uniform grade-0 seed has nowhere to go: the Dirac off-diagonal
+    B1^T 1 = 0 and a uniform grade 0 seed has nowhere to go: the Dirac off diagonal
     block sends it to zero and no grade is crossed. This is the property that makes
     beta_0 count components at all, and it holds at every arity because the share
     1/(k-1) is what delivers the zero sum."""
@@ -176,8 +176,8 @@ def test_the_constant_vector_is_annihilated():
 
 
 def test_full_2rex_with_faces_matches_dense():
-    """Tetrahedron 2-rex: assembled D, matvec, D^2=blkdiag(L0,L1,L2), and the light
-    propagator all match the dense reference with a real grade-2 (face) sector."""
+    """Tetrahedron 2 rex: assembled D, matvec, D^2=blkdiag(L0,L1,L2), and the light
+    propagator all match the dense reference with a real grade 2 (face) sector."""
     g = _tetra_2rex()
     B1, B2, D_dense, sizes = _dense_refs(g)
     sd = dirac_from_rex(g)
@@ -188,7 +188,7 @@ def test_full_2rex_with_faces_matches_dense():
     x = rng.standard_normal(sd.N)
     assert np.allclose(sd.matvec(x), D_dense @ x, atol=1e-12)
 
-    # D^2 grade-crossing block (grade 0 <-> grade 2) vanishes: B1 B2 = 0
+    # D^2 grade crossing block (grade 0 <-> grade 2) vanishes: B1 B2 = 0
     D2 = D_dense @ D_dense
     assert np.allclose(D2[sd.grade_slice(0), sd.grade_slice(2)], 0.0, atol=1e-10)
 
@@ -204,7 +204,7 @@ def test_full_2rex_with_faces_matches_dense():
 
 def test_face_sector_receives_grade2_transport():
     """Amplitude seeded on edges reaches the FACE sector under the curl part - a
-    two-hop V/E/F Dirac genuinely couples grade 1 to grade 2 through B2."""
+    two hop V/E/F Dirac genuinely couples grade 1 to grade 2 through B2."""
     g = _tetra_2rex()
     sd = dirac_from_rex(g)
     psi0 = np.zeros(sd.N)
@@ -216,8 +216,8 @@ def test_face_sector_receives_grade2_transport():
 
 
 def test_grade_general_witness_edge_only():
-    """A 1-rex of witness (arity-1) + branching edges, no faces: the Dirac is still
-    well-formed (two grades) and matvec matches dense."""
+    """A 1 rex of witness (arity 1) + branching edges, no faces: the Dirac is still
+    well formed (two grades) and matvec matches dense."""
     he_idx = np.array([0,   0, 1,   0, 1, 2], dtype=np.int64)   # witness, edge, branch
     he_ptr = np.array([0, 1, 3, 6], dtype=np.int64)
     g = RexGraph.from_hypergraph(he_ptr, he_idx)
@@ -232,8 +232,8 @@ def test_grade_general_witness_edge_only():
 
 
 def test_block_matvec_parallel_equals_serial():
-    """A wide state block takes the parallel column-tiling path of matvec; its result
-    must be bit-for-bit (<=1e-12) the serial core. Sized past the parallel gate so the
+    """A wide state block takes the parallel column tiling path of matvec; its result
+    must be bit for bit (<=1e-12) the serial core. Sized past the parallel gate so the
     threaded branch is genuinely exercised."""
     from rexgraph import dirac_propagator as dp
 
@@ -249,7 +249,7 @@ def test_block_matvec_parallel_equals_serial():
     assert np.allclose(parallel, serial, atol=1e-12, rtol=0.0), \
         f"parallel/serial max|Δ|={np.abs(parallel - serial).max():.2e}"
 
-    # a single vector / 1-column block stays serial and is still correct vs dense
+    # a single vector / 1 column block stays serial and is still correct vs dense
     _, _, D_dense, _ = _dense_refs(g)
     v = rng.standard_normal(sd.N)
     assert np.allclose(sd.matvec(v), D_dense @ v, atol=1e-12)
@@ -257,7 +257,7 @@ def test_block_matvec_parallel_equals_serial():
 
 def test_dirac_light_free_function_smoke():
     """dirac_light builds the operator from a rex and returns (re, im) with the default
-    grade-0 seed; matches the class method on the same seed and shows grade crossing."""
+    grade 0 seed; matches the class method on the same seed and shows grade crossing."""
     g = _mixed_complex()
     sd = dirac_from_rex(g)
     psi0 = np.zeros(sd.N)
@@ -279,8 +279,8 @@ def test_dirac_light_free_function_smoke():
 
 
 def test_dirac_heat_free_function_smoke():
-    """dirac_heat runs e^{-tD^2} from a rex with the default seed; per-grade heat keeps
-    grade-0 input on grade 0 (no grade crossing) and matches the class method."""
+    """dirac_heat runs e^{-tD^2} from a rex with the default seed; per grade heat keeps
+    grade 0 input on grade 0 (no grade crossing) and matches the class method."""
     g = _mixed_complex()
     sd = dirac_from_rex(g)
     psi0 = np.zeros(sd.N)
@@ -297,7 +297,7 @@ def test_dirac_heat_free_function_smoke():
 
 def test_trajectory_energy_conservation_and_shape():
     """trajectory propagates the light state at many times; total Born energy is
-    conserved (unitary e^{-itD}) and per-grade energy shows amplitude leaving grade 0."""
+    conserved (unitary e^{-itD}) and per grade energy shows amplitude leaving grade 0."""
     g = _tetra_2rex()
     sd = dirac_from_rex(g)
     psi0 = np.zeros(sd.N)
@@ -339,7 +339,7 @@ def test_graded_boundaries_property_is_used_when_present():
 
 
 def test_deprecated_heat_diag_warns_but_still_correct():
-    """The retired edge-space heat diagonal stays importable: it emits a
+    """The retired edge space heat diagonal stays importable: it emits a
     DeprecationWarning yet still returns the correct diag(e^{-tL}) numbers (checked
     against the dense matrix exponential) so existing callers do not crash."""
     from scipy.linalg import expm
@@ -362,9 +362,9 @@ def test_deprecated_heat_diag_warns_but_still_correct():
 
 
 def test_from_cells_3rex_dirac_is_grade_general():
-    """A from_cells 3-rex (solid octahedron: V/E/F/Volume) propagates through ALL
+    """A from_cells 3 rex (solid octahedron: V/E/F/Volume) propagates through ALL
     four grades - RexGraph.sparse_dirac reads graded_boundaries() so B3 participates
-    (the pre-integration seam silently truncated to V/E). A uniform face seed lies in
+    (the pre integration seam silently truncated to V/E). A uniform face seed lies in
     ker(B2), so its curl transport lands purely on the volume via B3^T."""
     from rexgraph.graded_boundary import solid_octahedron_3rex, verify_chain
     g = RexGraph.from_cells(solid_octahedron_3rex())
@@ -381,7 +381,7 @@ def test_from_cells_3rex_dirac_is_grade_general():
 
 def test_heat_character_accessor_is_quiet():
     """The superseded heat_character accessor still works and does NOT emit the
-    experimental DeprecationWarning (it calls the warning-free internal impl)."""
+    experimental DeprecationWarning (it calls the warning free internal impl)."""
     import warnings
     g = _tetra_2rex()
     with warnings.catch_warnings():

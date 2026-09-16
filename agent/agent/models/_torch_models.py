@@ -2,7 +2,7 @@
 
 Split from `archetypes.py` so that listing the archetypes does not require torch.
 The classes here subclass `nn.Module` at module scope, so importing this module
-imports torch; `archetypes` holds the registry, the defaults and the use-cases, which
+imports torch; `archetypes` holds the registry, the defaults and the use cases, which
 are ordinary data and are what `rexgraph-models --help`, `/api/v1/ml/archetypes` and
 `list_archetypes()` need. Building a model needs the ml extra; naming one does not.
 
@@ -142,5 +142,4 @@ def _build_hgnn(cfg, bundle):
                 bundle.meta.get("n_classes", cfg["n_classes"]),
                 bundle.extra["he_ptr"], bundle.extra["he_idx"],
                 cfg["d_hid"], cfg["n_layers"], cfg["flow"])
-
 

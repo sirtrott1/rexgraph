@@ -11,7 +11,7 @@ Neither trade is necessary. The layer hierarchy supplies the LEVELS and a binary
 runs INSIDE each sibling set, so a proof carries log2 of each fanout instead of all of
 it while the path still reads sentence -> paragraph -> chapter -> document. Measured on
 a 314 KB book (2,802 sentences, 1,122 paragraphs, 36 chapters): 14 hashes at the median
-against 70 for the flat-sibling form and 12 for the binary tree that names nothing. 448
+against 70 for the flat sibling form and 12 for the binary tree that names nothing. 448
 bytes to keep the semantics, against 384 to throw them away.
 
 Two consequences fall out rather than being built:
@@ -28,7 +28,7 @@ Two consequences fall out rather than being built:
                               same decision, not two.
 
 What it buys over the flat digest, which stays as the container seal: an inclusion proof
-that travels without the document, and a single-sentence update that rehashes a path
+that travels without the document, and a single sentence update that rehashes a path
 instead of the book (10.5 us against 3.0 ms, 281x).
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ EMPTY = b"\x00" * DIGEST_SIZE
 
 
 def _h(*parts):
-    """One node hash. Parts are length-prefixed so concatenation is unambiguous."""
+    """One node hash. Parts are length prefixed so concatenation is unambiguous."""
     d = hashlib.blake2b(digest_size=DIGEST_SIZE)
     for p in parts:
         b = p if isinstance(p, bytes) else str(p).encode("utf-8")
@@ -78,7 +78,7 @@ def _path(levels, idx):
             break
         sib = idx ^ 1
         if sib >= len(lv):
-            sib = idx                       # the self-paired odd node
+            sib = idx                       # the self paired odd node
         out.append((lv[sib], bool(sib > idx)))
         idx //= 2
     return out
@@ -119,12 +119,12 @@ def _leaf_digests(rex, sect):
 
     A leaf commits to the section's identity (its label), where it lives in the source
     (its span, when it has one) and the boundary columns of the cells it owns. The last
-    is the structural content: the columns carry the signs, so a re-orientation changes
+    is the structural content: the columns carry the signs, so a re orientation changes
     the leaf even when the support does not, which is the thing a digest over the support
     alone would miss.
     """
-    from rexgraph.core._sparse import to_scipy_csr
-    B = to_scipy_csr(rex._B1_dual).tocsc()
+    rex._ensure_clean()
+    B = rex._B1_dual
     out = []
     for i in range(sect.n_sections):
         cells = np.sort(np.asarray(sect.cells(i), dtype=np.int64))
@@ -132,9 +132,9 @@ def _leaf_digests(rex, sect):
         if sect.spans is not None and i < len(sect.spans):
             parts.append(np.asarray(sect.spans[i], dtype=np.int64).tobytes())
         for c in cells.tolist():
-            lo, hi = B.indptr[c], B.indptr[c + 1]
-            parts.append(B.indices[lo:hi].astype(np.int64).tobytes())
-            parts.append(np.ascontiguousarray(B.data[lo:hi], dtype=np.float64).tobytes())
+            lo, hi = B.col_ptr[c], B.col_ptr[c + 1]
+            parts.append(np.asarray(B.row_idx[lo:hi], dtype=np.int64).tobytes())
+            parts.append(np.ascontiguousarray(B.vals_csc[lo:hi], dtype=np.float64).tobytes())
         out.append(_h(*parts))
     return out
 
@@ -147,7 +147,7 @@ class LayerMerkle:
     def __init__(self, chain, leaves, levels, groups, roots, parents, root):
         self.chain = list(chain)          #: finest -> coarsest, then the implicit root
         self.leaves = list(leaves)
-        self.levels = levels              #: {layer: [levels-per-sibling-set]}
+        self.levels = levels              #: {layer: [levels per sibling set]}
         self.groups = groups              #: {layer: [[child indices]]}
         self.roots = roots                #: {layer: [digest per section]}, free
         self.parents = parents            #: {layer: parent array over the finer layer}
@@ -190,7 +190,7 @@ def build_merkle(rex, *, base=None, leaves=None):
 
     `leaves` skips `_leaf_digests`, which is the only part that touches B1. Passing the
     STORED leaves rebuilds the interior alone, which is what verifying a loaded bundle
-    needs: it checks that those leaves hash to that root without re-deriving them from
+    needs: it checks that those leaves hash to that root without re deriving them from
     the complex, so leaf tampering and root tampering are both caught.
     """
     from rexgraph.sectioning import sectionings_of
@@ -231,7 +231,7 @@ def build_merkle(rex, *, base=None, leaves=None):
                        below[0] if below else EMPTY)
 
 
-#### serialisation #############################################################
+# serialisation
 
 def pack_merkle(rex, t, h, *, base=None):
     """Store the LEAVES and the root; every interior node is recomputable from them.

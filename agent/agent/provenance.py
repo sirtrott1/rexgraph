@@ -41,7 +41,7 @@ def index_leverage(index):
     """The leverage over a stored index, computed once and cached against its digest.
 
     The index is the complex, so this is a property OF THE STORE and not of a query. It
-    is invalidated by a write, which is what the digest tracks, so a read-heavy corpus
+    is invalidated by a write, which is what the digest tracks, so a read heavy corpus
     pays the solve once and every subsequent query is a lookup.
     """
     from agent import rcdb_index as ix
@@ -69,7 +69,7 @@ def store_provenance(index, doc_ids, *, response=None, coupling=False, field=Non
     rex, lev = index_leverage(index)
     want = [str(d) for d in doc_ids]
     # rows_for is the index's own lookup: one hash over the id table rather than a scan
-    # of every row per query. Hand-rolling the scan made a retrieval O(records) in
+    # of every row per query. Hand rolling the scan made a retrieval O(records) in
     # Python on a structure that answers it directly.
     rows = [int(r) for r in ix.rows_for(index, ids=want)]
     owner = ix.rel_owner(index)
@@ -88,7 +88,7 @@ def query_provenance(rex, retrieved, *, response=None, leverage=None, labels=Non
     """The exact structural provenance of one answer.
 
     `retrieved` is the relation indices the answer rests on. `response` is an optional
-    1-cochain over the relations (the field the answer was read from), which adds the
+    1 cochain over the relations (the field the answer was read from), which adds the
     Hodge split; without it the structural readings are still returned.
 
     `coupling` is OFF by default because it is the only reading here that costs a solve.

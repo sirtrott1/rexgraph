@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-rexgraph-run: headless pipeline for CLI and HPC batch processing.
+rexgraph run: headless pipeline for CLI and HPC batch processing.
 
 Usage:
     python -m agent.cli.run_pipeline paper.pdf
@@ -271,7 +271,7 @@ def main():
         else:
             print(json_str)
     else:
-        # Human-readable summary
+        # Human readable summary
         print("\n── Results ──\n")
         for doc in output.get("documents", []):
             print("  %s: %dV %dE %dF  betti=%s  κ=%s" % (

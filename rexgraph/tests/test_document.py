@@ -1,6 +1,6 @@
 """A document as one field with layers: the canonical construction, once.
 
-The load-bearing test here is the alignment one. `from_text` drops a sentence that fails
+The load bearing test here is the alignment one. `from_text` drops a sentence that fails
 its filters, so group j is not sentence j, and aligning spans by position silently
 misaddresses everything after the first drop: a section would then point at another
 sentence's bytes and every proof and citation built on it would be confidently wrong.
@@ -47,11 +47,11 @@ def _words(s):
     return set(re.findall(r"[a-z']{3,}", s.lower()))
 
 
-#### the alignment the whole citation layer rests on ###########################
+# the alignment the whole citation layer rests on
 
 def test_every_section_span_contains_that_section_s_own_words(doc):
     """The regression. A section's cells name words; those words must appear in the
-    bytes the section's span points at. Off-by-one from a dropped sentence breaks this
+    bytes the section's span points at. Off by one from a dropped sentence breaks this
     on every section after the first drop and on none before it."""
     rex, info = doc
     labels = list(sectionings_of(rex)["sentence"].labels)
@@ -69,7 +69,7 @@ def test_every_section_span_contains_that_section_s_own_words(doc):
 def test_the_kept_map_holds_even_when_nothing_is_dropped(doc):
     """`from_text` compacts whenever it drops, so group j is not sentence j and a
     positional map misaddresses everything after the first drop. At min_terms=1 nothing
-    drops (a one-term span is a witness, not a failure), so the map is the identity here
+    drops (a one term span is a witness, not a failure), so the map is the identity here
     but the LAST section is still the one a smoke test would miss."""
     rex, info = doc
     assert info["n_dropped"] == 0, "witnesses are kept, so nothing is filtered"
@@ -102,7 +102,7 @@ def test_section_text_without_raw_or_path_refuses(doc):
         section_text(rex, "sentence", 0)
 
 
-#### the three choices the builder makes ########################################
+# the three choices the builder makes
 
 def test_the_sentence_layer_is_a_partition(doc):
     """Not the cover: only the partition closes exactly, and Merkle requires it."""
@@ -136,7 +136,7 @@ def test_no_pairs_are_enumerated_by_default(doc):
     assert int(rex.nE) == info["n_sentences"], "one relation per sentence, and no more"
 
 
-#### methods, and refusing to invent a layer ####################################
+# methods, and refusing to invent a layer
 
 def test_each_layer_records_the_convention_it_matched(doc):
     _rex, info = doc
@@ -162,7 +162,7 @@ def test_a_text_with_no_usable_sentence_refuses_rather_than_guessing():
         build_document("   \n\n   \n")
 
 
-#### it composes with what was built on top ####################################
+# it composes with what was built on top
 
 def test_the_merkle_tree_builds_over_the_document_hierarchy(doc):
     rex, _info = doc
@@ -197,7 +197,7 @@ def test_asking_for_a_layer_the_document_lacks_names_what_it_has(doc):
         document_sections(rex, "stanza")
 
 
-#### spans are BYTE offsets, and only a multi-byte text proves it ###############
+# spans are BYTE offsets, and only a multi byte text proves it
 
 _UNICODE = (
     "The narrator said “this is a curly quotation” quite deliberately here. "
@@ -218,7 +218,7 @@ def unicode_doc(tmp_path):
 def test_seeking_a_path_matches_slicing_the_text_on_multibyte_input(unicode_doc):
     """The bug this pins returned 'ng! No, it'll never' from a real book: spans were
     CHARACTER offsets, and a text handle's seek takes an opaque cookie, so every span
-    after the first multi-byte character landed mid-codepoint. ASCII fixtures cannot
+    after the first multi byte character landed mid codepoint. ASCII fixtures cannot
     catch it, so this one must contain curly quotes, accents and Greek."""
     (rex, info), path = unicode_doc
     assert info["span_units"] == "bytes"
@@ -228,7 +228,7 @@ def test_seeking_a_path_matches_slicing_the_text_on_multibyte_input(unicode_doc)
         by_raw = section_text(rex, "sentence", i, _UNICODE)
         assert by_path == by_raw, f"section {i} disagrees between seek and slice"
         assert by_path.strip(), f"section {i} is empty"
-        # a fragment starting mid-word is the signature of the old bug
+        # a fragment starting mid word is the signature of the old bug
         assert not by_path.lstrip().startswith(("ng", "”", "”")), by_path[:20]
 
 
@@ -238,7 +238,7 @@ def test_byte_spans_address_the_encoded_file_not_the_decoded_string(unicode_doc)
     s = sectionings_of(rex)["sentence"]
     for a, n in s.spans:
         chunk = raw_bytes[int(a):int(a) + int(n)]
-        # a valid span decodes cleanly; a character-offset span would split a codepoint
+        # a valid span decodes cleanly; a character offset span would split a codepoint
         chunk.decode("utf-8")
 
 
@@ -254,10 +254,10 @@ def test_a_section_containing_multibyte_text_round_trips_exactly(unicode_doc):
 
 
 def test_crlf_line_endings_do_not_shift_any_span(tmp_path):
-    """The bug that survived the multi-byte fix. Python's TEXT mode translates CRLF to
+    """The bug that survived the multi byte fix. Python's TEXT mode translates CRLF to
     LF, so the decoded string is shorter than the file and every offset past the first
     line ending is wrong. On one real book: 174,311 bytes decoding to 163,950 chars,
-    3,762 CRLF pairs, and all 1,469 sections misaddressed. An LF-only fixture cannot
+    3,762 CRLF pairs, and all 1,469 sections misaddressed. An LF only fixture cannot
     catch it, so this one must use CRLF.
     """
     from rexgraph.document import read_document
@@ -278,7 +278,7 @@ def test_crlf_line_endings_do_not_shift_any_span(tmp_path):
 
 
 def test_read_document_reports_when_spans_cannot_address_the_file(tmp_path):
-    """Undecodable bytes make the decode lossy, so the text no longer re-encodes to the
+    """Undecodable bytes make the decode lossy, so the text no longer re encodes to the
     file and a span means nothing against it. That must be reported, not assumed."""
     from rexgraph.document import read_document
     p = tmp_path / "bad.txt"
@@ -324,10 +324,10 @@ def test_every_column_is_a_zero_sum_relation_at_its_own_arity(doc):
         assert np.allclose(col[col > 0], 1.0 / (k - 1)), "share is 1/(k-1)"
 
 
-#### the lookup: field diffusion over the exact partition ######################
+# the lookup: field diffusion over the exact partition
 
 def test_section_response_finds_the_section_a_query_was_lifted_from():
-    """The lookup the layers exist for. No text is scanned and nothing is re-segmented:
+    """The lookup the layers exist for. No text is scanned and nothing is re segmented:
     the query's vertices seed the document's own field, heat spreads through its
     relations, and the response is read back over the partition stored at ingest."""
     import re
@@ -386,7 +386,7 @@ def test_an_empty_seed_set_answers_zero_rather_than_raising():
     assert scores.shape == (sect.n_sections,) and not np.any(scores)
 
 
-#### the span layer: gating inside the sentence #################################
+# the span layer: gating inside the sentence
 
 _GATED = CorpusProfile(
     name="en-gated", markers=ENGLISH_GUTENBERG.markers,
@@ -433,7 +433,7 @@ def test_the_vocative_witness_appears_at_the_span_layer():
     assert 3 in set(map(int, rex.edge_types)), "a witness exists"
     assert info["n_spans"] > info["n_sentences"], "the comma divided one sentence"
     # punctuation gates without any profile listing it, so the vocative is found even
-    # with no function-word gate: a mark is a delimiter by nature
+    # with no function word gate: a mark is a delimiter by nature
     assert set(map(int, rex.edge_types)) == {2, 3}, "one branching relation, one witness"
 
 
@@ -460,9 +460,9 @@ def test_every_layer_still_covers_the_same_cells():
 
 def test_both_propagators_find_the_section_and_the_boundary_one_is_free():
     """`section_response` carries two readings, not one made faster: "rl4" runs
-    S0 = B1 f(RL4) B1^T and "boundary" applies L0 = B1 B1^T matrix-free. Measured over 46
-    identical queries on 10 Gutenberg documents they agree exactly (97.8% top-1, 100%
-    top-5, median rank 1) at 115.4 s against 0.1 s, so "boundary" is the default. RL4 is
+    S0 = B1 f(RL4) B1^T and "boundary" applies L0 = B1 B1^T matrix free. Measured over 46
+    identical queries on 10 Gutenberg documents they agree exactly (97.8% top 1, 100%
+    top 5, median rank 1) at 115.4 s against 0.1 s, so "boundary" is the default. RL4 is
     not affordable at document scale because a common word puts most spans in contact with
     most others: 15 to 58 million nonzeros at nE 7,000 to 17,000."""
     import numpy as np
@@ -487,16 +487,16 @@ def test_both_propagators_find_the_section_and_the_boundary_one_is_free():
 
 
 def test_the_propagator_is_a_real_switch_and_mass_is_the_default():
-    """Every reading must be reachable and the default must be the edge-primary one.
+    """Every reading must be reachable and the default must be the edge primary one.
 
     `mass` reads at the relation, which is where the data is, and is exact. `boundary`
     reads `|B(B^T x)|` at the vertices, which is a derived object over two hops, and is
     float because its denominators compound through pairs. On 337 queries lifted from
-    14 Gutenberg books of 56 to 104,962 sections: 66.2% top-1 at median rank 1 against
+    14 Gutenberg books of 56 to 104,962 sections: 66.2% top 1 at median rank 1 against
     12.5% at median rank 20.
 
     Note what is NOT asserted here: that a second boundary step degrades localisation.
-    That is real but it needs thousands of sections to show, and on a nine-section
+    That is real but it needs thousands of sections to show, and on a nine section
     fixture a test would pass or fail for reasons unrelated to the claim. The
     measurements live in `section_response`'s docstring.
     """

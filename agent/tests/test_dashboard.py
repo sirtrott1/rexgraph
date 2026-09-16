@@ -1,4 +1,4 @@
-"""agent.dashboard: the hive-network snapshot + terminal render."""
+"""agent.dashboard: the hive network snapshot + terminal render."""
 from agent.dashboard import hive_dashboard, render
 
 from agent import agent_complex

@@ -1,5 +1,5 @@
 """
-Base adapter defining the contract for domain-specific edge construction.
+Base adapter defining the contract for domain specific edge construction.
 
 Every adapter takes raw data and produces an EdgeConstruction: the typed
 edges, signs, and labels that feed into RexGraph.from_graph() and
@@ -46,9 +46,9 @@ class EdgeConstruction:
     weights: NDArray          # float64, magnitude per edge (>= 0)
     signs: NDArray            # float64, +1 or -1 per edge
     type_labels: NDArray      # int32, type index per edge
-    vertex_labels: list[str]  # human-readable vertex names
+    vertex_labels: list[str]  # human readable vertex names
     n_types: int              # number of distinct edge types
-    type_names: list[str]     # human-readable name per type index
+    type_names: list[str]     # human readable name per type index
 
     #: relations of arity above two, as vertex lists, one per relation.
     #:
@@ -74,7 +74,7 @@ class EdgeConstruction:
     #: only position there is and structural equivalence is what the picture shows.
     embedding: list = field(default_factory=list)
 
-    #: per-cell attributes, `{grade: {cell_index: {key: value}}}`.
+    #: per cell attributes, `{grade: {cell_index: {key: value}}}`.
     #:
     #: The same shape as `RexGraph._cell_metadata`, so `build_rex_from_edges` hands it
     #: straight to `attach_metadata` and it serialises columnar through `rex_state`,
@@ -87,7 +87,7 @@ class EdgeConstruction:
     #: An attribute put here can be queried, filtered and drawn.
     attributes: dict = field(default_factory=dict)
 
-    # Text-position mapping (populated by TextAdapter and OCRAdapter)
+    # Text position mapping (populated by TextAdapter and OCRAdapter)
     edge_spans: list[EdgeSpan] = field(default_factory=list)
     sentence_spans: list[SentenceSpan] = field(default_factory=list)
     source_text: str = ""
@@ -114,7 +114,7 @@ class EdgeConstruction:
 
     @property
     def nE(self) -> int:
-        """Relations, at ANY arity: the 2-ary ones plus the branching ones.
+        """Relations, at ANY arity: the 2 ary ones plus the branching ones.
 
         `len(self.sources)` alone counts only what (sources, targets) can hold, so a
         construction carrying its relations in `branching` reported zero and every
@@ -144,10 +144,10 @@ class EdgeConstruction:
 
 
 class DomainAdapter:
-    """Base class for domain-specific edge construction.
+    """Base class for domain specific edge construction.
 
     Subclasses implement build() to turn raw data into edges.
-    Optionally override interpret() to add domain-specific meaning
+    Optionally override interpret() to add domain specific meaning
     to analysis results.
     """
 
@@ -157,22 +157,22 @@ class DomainAdapter:
         """Construct typed edges from domain data.
 
         Parameters
-        ----------
+
         data : any
             Domain-specific input (array, DataFrame, file path, etc.)
         **kwargs
             Adapter-specific options.
 
         Returns
-        -------
+
         EdgeConstruction
         """
         raise NotImplementedError
 
     def interpret(self, results: dict) -> dict:
-        """Add domain-specific interpretation to analysis results.
+        """Add domain specific interpretation to analysis results.
 
         Default: pass through unchanged. Override in subclasses to add
-        domain-meaningful labels, clinical mappings, etc.
+        domain meaningful labels, clinical mappings, etc.
         """
         return results

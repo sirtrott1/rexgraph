@@ -204,7 +204,7 @@ class TestSignalConstruction:
         assert np.allclose(normed, 0)
 
 
-#### edge primacy is what reaches all three Hodge spaces ########################
+# edge primacy is what reaches all three Hodge spaces
 
 def _three_part_complex():
     """Two triangles bridged, one of them filled. The filled cycle carries curl, the
@@ -220,7 +220,7 @@ def _three_part_complex():
 
 
 def _branching_with_a_cycle():
-    """Every 3-subset of 4 vertices: four arity-3 columns over four vertices, so the
+    """Every 3 subset of 4 vertices: four arity 3 columns over four vertices, so the
     rank cannot exceed 3 and beta_1 is 1. Branching, and genuinely cyclic."""
     import numpy as np
 
@@ -242,10 +242,10 @@ def _shares(rex, z):
 
 
 def test_a_vertex_field_reaches_only_the_gradient_space():
-    """A per-VERTEX parameter can only appear on the edges as `B1^T x`, and `im(B1^T)` IS
+    """A per VERTEX parameter can only appear on the edges as `B1^T x`, and `im(B1^T)` IS
     the gradient space. So its curl and harmonic parts are zero for every x, at any
     width, and no optimiser or amount of data changes that. This is the limit that rules
-    out embedding tables, factorisations and per-token vectors as the learned object."""
+    out embedding tables, factorisations and per token vectors as the learned object."""
     import numpy as np
 
     from rexgraph.core._sparse import to_scipy_csr
@@ -262,9 +262,9 @@ def test_a_vertex_field_reaches_only_the_gradient_space():
 
 
 def test_an_edge_field_reaches_the_parts_the_complex_actually_has():
-    """A cochain defined on the EDGES is a general 1-cochain, not in the image of
+    """A cochain defined on the EDGES is a general 1 cochain, not in the image of
     anything, so it carries whatever the complex has. On the faced fixture that is all
-    three; on the face-free one curl is empty and it reaches the other two."""
+    three; on the face free one curl is empty and it reaches the other two."""
     import numpy as np
 
     rng = np.random.default_rng(1)
@@ -284,9 +284,9 @@ def test_an_edge_field_reaches_the_parts_the_complex_actually_has():
 
 
 def test_what_a_vertex_field_cannot_fit_IS_the_non_gradient_part():
-    """Per SAMPLE, not on average. The best least-squares fit over ALL x (the ceiling,
+    """Per SAMPLE, not on average. The best least squares fit over ALL x (the ceiling,
     not one optimiser's result) leaves exactly the curl plus harmonic energy of the
-    target. Verified to machine precision on a pairwise-with-face complex and on a
+    target. Verified to machine precision on a pairwise with face complex and on a
     branching one."""
     import numpy as np
 

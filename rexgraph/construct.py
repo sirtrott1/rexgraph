@@ -36,13 +36,13 @@ __all__ = ["from_groups", "group_sections", "from_text", "precedence_field",
 
 def from_groups(groups, *, min_pair_count=1, owner_vertex=False,
                 pair_mode="none", verify=True):
-    """The mixed construction over `groups`, an iterable of member-id iterables.
+    """The mixed construction over `groups`, an iterable of member id iterables.
 
-    Members are any hashable labels; they are mapped to vertices in first-seen order and
+    Members are any hashable labels; they are mapped to vertices in first seen order and
     the mapping comes back so a caller can read a relation's support in its own terms.
 
     `min_pair_count` drops pairs seen fewer than that many times, which is how a text
-    corpus keeps its co-occurrence graph from being noise. A dropped pair simply is not
+    corpus keeps its co occurrence graph from being noise. A dropped pair simply is not
     asserted; nothing is reweighted.
 
     `owner_vertex` prepends one vertex per group to its own wide relation, so the group
@@ -72,7 +72,7 @@ def from_groups(groups, *, min_pair_count=1, owner_vertex=False,
     not on how), and so is closure. What differs is the CYCLE count, and the difference is
     not information: the data said "these k members are one group", one fact, while the
     clique asserts C(k,2) separate pairwise facts it never stated. Measured on a fixture
-    with one arity-40 group: rank 59 both ways, group still closes both ways, cycles 1303
+    with one arity 40 group: rank 59 both ways, group still closes both ways, cycles 1303
     against 221. On Wiktionary the whole corpus is 84,162,599 clique pairs against
     1,882,554 spanning ones, 45x, with 82% of the clique coming from the 0.57% of groups
     at arity >= 100. Clique expansion is what the model exists not to need; "clique" stays
@@ -84,7 +84,7 @@ def from_groups(groups, *, min_pair_count=1, owner_vertex=False,
     """
     from rexgraph.graph import RexGraph
 
-    gs = [list(dict.fromkeys(g)) for g in groups]      # de-dup, keep order
+    gs = [list(dict.fromkeys(g)) for g in groups]      # de dup, keep order
     if not gs:
         raise ValueError("no groups given: there is nothing to construct")
 
@@ -128,7 +128,7 @@ def from_groups(groups, *, min_pair_count=1, owner_vertex=False,
 
     if verify and pair_mode != "none":
         # An explicitly requested pairwise section is expected to carry the
-        # corresponding closure reading.  The primary-only mode is not a
+        # corresponding closure reading.  The primary only mode is not a
         # failed pairwise construction: its relations are the source facts and
         # no generated contacts were promised.
         r1 = (int(rex.rank_tower()["ranks"][0])
@@ -158,7 +158,7 @@ def group_sections(groups, vertex_of, pair_index, *, owner_vertex=False):
     return out
 
 
-#### text ######################################################################
+# text
 #
 # A sentence is a group over the words it uses, so `from_groups` already does the work.
 # What text adds is that the sentence is a THING (it gets its own vertex, distinguished
@@ -167,8 +167,8 @@ def group_sections(groups, vertex_of, pair_index, *, owner_vertex=False):
 # The two readings a corpus supports want DIFFERENT tokenisations, and the library must
 # not pick:
 #
-#   topical / semantic   drop function words. They co-occur with everything, so left in
-#                        they swamp the co-occurrence graph.
+#   topical / semantic   drop function words. They co occur with everything, so left in
+#                        they swamp the co occurrence graph.
 #   syntactic / order    KEEP function words. They are most of what order is about, and
 #                        removing them is what makes an adjacency measurement meaningless.
 #
@@ -195,7 +195,7 @@ def _orient(group, grammar):
     try:
         hit = grammar.head_of(group)
     except Exception:
-        # `grammar` is caller-supplied and optional, so a source that cannot answer
+        # `grammar` is caller supplied and optional, so a source that cannot answer
         # for this group makes NO CLAIM, which is what None already means here. It is
         # not "the first token heads it", and nothing downstream reads it as that.
         return group, None
@@ -258,7 +258,7 @@ def from_text(text, *, sentences=None, stopwords=None, token_pattern=_TOKEN,
         # ORIENTATION. Position carries it, so a grammar reorders rather than adding a
         # second mechanism: the frame says which participant heads, and the head takes
         # the -1. Without a grammar the text's own order stands, which is the
-        # approximation: right for a verb-initial clause, wrong for a noun phrase.
+        # approximation: right for a verb initial clause, wrong for a noun phrase.
         g, fid = _orient(g, grammar)
         frames.append(fid)
         groups.append(g)
@@ -291,14 +291,14 @@ def first_occurrences(sequences):
 
     This is a step on the SEQUENCES and deliberately not an option inside
     `precedence_field`, because where it happens decides whether a control is a control.
-    An all-pairs precedence reading uses each token's position, so a token appearing
+    An all pairs precedence reading uses each token's position, so a token appearing
     several times holds the earliest of several positions; that is a multiplicity channel
     riding alongside the order channel. Permuting a sequence that still has repeats
     leaves that channel intact, so the "order destroyed" control still carries it and the
     comparison reports the OPPOSITE conclusion. This was measured, twice.
 
     So reduce FIRST, then read and shuffle the reduced sequences. Do NOT reduce for an
-    adjacency reading: removing a repeat makes two non-neighbours adjacent.
+    adjacency reading: removing a repeat makes two non neighbours adjacent.
     """
     out = []
     for toks in sequences:
@@ -311,7 +311,7 @@ def first_occurrences(sequences):
 
 
 def precedence_field(info, sequences=None, *, adjacent_only=False):
-    """Order as a 1-cochain: net precedence on each pair relation of the complex.
+    """Order as a 1 cochain: net precedence on each pair relation of the complex.
 
     Which vertex sits at position 0 IS the orientation, so "a precedes b" is already an
     oriented relation and needs no new mechanism. The field is zero on the wide relations
@@ -322,7 +322,7 @@ def precedence_field(info, sequences=None, *, adjacent_only=False):
     otherwise every ordered pair within a sentence counts, which is the topical one.
 
     `sequences` defaults to `info["sequences"]` and is taken AS GIVEN: nothing is
-    deduplicated here. For an all-pairs reading pass `first_occurrences(...)` and shuffle
+    deduplicated here. For an all pairs reading pass `first_occurrences(...)` and shuffle
     THOSE for a control; see that function for why doing it in the other order inverts
     the answer.
     """
@@ -353,26 +353,26 @@ def precedence_field(info, sequences=None, *, adjacent_only=False):
     return f
 
 
-#### spans #####################################################################
+# spans
 #
-# `from_text` above is VERTEX-PRIMARY and that is its defect: a sentence becomes one wide
+# `from_text` above is VERTEX PRIMARY and that is its defect: a sentence becomes one wide
 # relation over its word SET, so multiplicity has to be deduplicated away and function
 # words have to be dropped or kept by policy. Both problems are the same problem, and it
 # is that the token stream's structure was collapsed into a bag before anything read it.
 #
-# Edge-primary says the SPAN is the relation and the tokens are its boundary. Then:
+# Edge primary says the SPAN is the relation and the tokens are its boundary. Then:
 #
 #   function words are not noise to filter, they DELIMIT. "the cat" is a span with `the`
 #   distinguished at position 0. Dropping it destroys the boundary; leaving it in a bag
-#   drowns the co-occurrence graph. As a span head it is structural and the policy
+#   drowns the co occurrence graph. As a span head it is structural and the policy
 #   question does not arise.
 #
 #   multiplicity is not a confound. Two occurrences of `the` sit in two different spans,
-#   which are two different cells sharing a boundary vertex. There is no first-occurrence
+#   which are two different cells sharing a boundary vertex. There is no first occurrence
 #   rule, so there is nothing for a shuffle control to get wrong.
 #
 # Segmenting at function words is NOT a syntactic parse and is not claimed to be one. It
-# is a parser-free segmentation whose boundaries are exactly the tokens a bag-of-words
+# is a parser free segmentation whose boundaries are exactly the tokens a bag of words
 # reading throws away.
 
 
@@ -417,7 +417,7 @@ def spans_of(tokens, delimiters, *, with_gates=False):
 
 def from_spans(spans, *, min_pair_count=1, sentence_of=None, pair_mode="none",
                verify=True):
-    """Spans as relations over their tokens: the edge-primary reading of a token stream.
+    """Spans as relations over their tokens: the edge primary reading of a token stream.
 
     `spans` is an iterable of token lists (see `spans_of`). Each becomes one relation
     with its first token distinguished.  Pairwise contacts are absent by default because
@@ -426,12 +426,12 @@ def from_spans(spans, *, min_pair_count=1, sentence_of=None, pair_mode="none",
 
     `sentence_of` optionally maps span index -> sentence id. When given, `info` gains
     `sentence_sections` (sentence id -> the relation ids of its spans), which is the
-    grade-2 candidate for text: a sentence is a cell over its spans rather than a bag
-    over its words. Whether that grade-2 reading says anything is untested.
+    grade 2 candidate for text: a sentence is a cell over its spans rather than a bag
+    over its words. Whether that grade 2 reading says anything is untested.
 
     Returns `(rex, info)` with the same shape `from_groups` returns, plus `spans`.
     """
-    # a one-token span is a WITNESS (column `(+1)`, sum one, `L0 u = u`) which is a
+    # a one token span is a WITNESS (column `(+1)`, sum one, `L0 u = u`) which is a
     # cell class, not a failure. Filtering it here deleted the vocative reading: "Take
     # away your mother, Jerry." and "...mother Jerry." differ in exactly whether Jerry is
     # a witness or the fifth member of a branching relation.
@@ -454,27 +454,27 @@ def from_spans(spans, *, min_pair_count=1, sentence_of=None, pair_mode="none",
 
 
 def mixed_rank(rex, info):
-    """`rank(B_1)` of a mixed construction in near-linear time, or None if not applicable.
+    """`rank(B_1)` of a mixed construction in near linear time, or None if not applicable.
 
     The exact integer elimination is quadratic in the fill it creates, which is 127s at
     350k relations. For THIS construction it is avoidable, and the reason is the same one
     that makes the construction worth having.
 
-    The pair relations inside a group span the whole zero-sum space on that group's
-    vertices, of dimension `k-1`, so the group's own column, which is zero-sum on exactly
+    The pair relations inside a group span the whole zero sum space on that group's
+    vertices, of dimension `k-1`, so the group's own column, which is zero sum on exactly
     those vertices, is already in their span and contributes NO rank. The pairs are then a
     pairwise boundary map, where `dim ker(L_0)` really is the component count (Theorem 14
     holds at arity two and only there), so::
 
         rank(B_1) = nV - components(pairs)
 
-    by union-find.
+    by union find.
 
     THE GUARD IS THE POINT. This needs every group CONNECTED in the surviving pair graph.
     `min_pair_count > 1` drops pairs and can fragment a group, and a fragmented group's
     column is no longer spanned, so it does add rank: measured, the shortcut read 35
     against a true 49. It also does not generalise beyond this construction, since two
-    arity-3 relations over the same three vertices both add rank while being one
+    arity 3 relations over the same three vertices both add rank while being one
     component. So this returns None unless the construction it was built for is the
     construction in hand, and the caller falls back to the exact path.
     """
@@ -488,7 +488,7 @@ def mixed_rank(rex, info):
         return None                                  # not the complex this info describes
     pairs = Bint[:, n_wide:]
 
-    # union-find over the PAIR graph only, then every group must land in one component
+    # union find over the PAIR graph only, then every group must land in one component
     nV = int(rex.nV)
     parent = np.arange(nV, dtype=np.int64)
 

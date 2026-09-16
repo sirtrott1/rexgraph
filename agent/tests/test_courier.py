@@ -71,6 +71,33 @@ def test_a_changed_record_is_carried_as_a_new_version(pair):
     assert [r.signature["nV"] for r in dst.history("alpha-schema")] == [3, 5]
 
 
+@pytest.mark.parametrize("change", ["weights", "boundary"])
+def test_equal_shape_invariants_are_not_equal_payloads(pair, change):
+    from rexgraph.io.catalog import object_digest
+    src, dst = pair
+    c = _courier(src, dst)
+    c.deliver("alpha", "beta")
+    before = src.get_record("alpha-work")
+    v = np.arange(4, dtype=np.int32)
+    changed = (RexGraph(sources=v, targets=np.roll(v, -1), w_E=np.array([1., 2., 3., 4.]))
+               if change == "weights" else RexGraph.from_graph([0, 1, 2, 2], [1, 2, 0, 3]))
+    after = src.put("alpha-work", changed)
+    assert structure_of(before.signature) == structure_of(after.signature)
+    assert object_digest(dst.get("alpha-work")) != object_digest(changed)
+    trip = c.deliver("alpha", "beta")
+    assert trip["carried"] == 1 and trip["held"] == 1
+    assert dst.read_record("alpha-work").state_digest == object_digest(changed)
+
+
+def test_a_display_alias_does_not_hide_a_literal_copy_target(pair):
+    src, dst = pair
+    src.put("x@1", _rex(3))
+    dst.put("x", _rex(3))
+    trip = _courier(src, dst).deliver("alpha", "beta", carry=CarrySpec(ids=["x@1"]))
+    assert trip["carried"] == 1 and trip["held"] == 0
+    assert dst.read_record("x@1", version=1).record.id == "x@1"
+
+
 def test_the_carry_spec_narrows_by_tag(pair):
     src, dst = pair
     trip = _courier(src, dst).deliver("alpha", "beta", carry=CarrySpec(tags=["hive-schema"]))
@@ -103,7 +130,7 @@ def test_retagging_at_the_destination_does_not_make_it_look_new(pair):
     src, dst = pair
     c = _courier(src, dst)
     c.deliver("alpha", "beta")
-    # the destination re-files what it received under its own tag
+    # the destination re files what it received under its own tag
     dst.put("alpha-work", dst.get("alpha-work"), meta=dst.get_record("alpha-work").meta,
             tags=["reviewed"])
     trip = c.deliver("alpha", "beta")
@@ -172,6 +199,13 @@ def test_an_unreadable_record_does_not_strand_the_trip(pair):
                 raise ValueError("blob is corrupt")
             return self._real.get_version(id, version)
 
+        def read_record(self, id, **selectors):
+            # Snapshot consumers use the new contract. A transparent proxy must
+            # intercept that method too, not return the inner store's bound read.
+            if id == "alpha-schema":
+                raise ValueError("blob is corrupt")
+            return self._real.read_record(id, **selectors)
+
     c = Courier("mule")
     c.attach_store("alpha", Blocked(src))
     c.attach_store("beta", dst)
@@ -209,7 +243,7 @@ def test_dedup_survives_a_backend_boundary(tmp_path):
     memory store keeps the object, so the two record different optional analytics
     (labels_sample, n_labels, n_voids) for the SAME complex. Comparing the whole
     signature minus provenance therefore called every record changed the moment it
-    crossed backends, and a courier re-carried everything on every trip."""
+    crossed backends, and a courier re carried everything on every trip."""
     src = rcdb.open_store(f"file://{tmp_path}/a")
     dst = rcdb.open_store(f"file://{tmp_path}/b")
     src.put("schema", _rex(3), meta={"kind": "hive-schema"}, tags=["hive-schema"])
@@ -223,7 +257,7 @@ def test_dedup_survives_a_backend_boundary(tmp_path):
 
 def test_a_changed_record_still_reads_as_changed_across_backends(tmp_path):
     """The half worth checking as hard as the false positive: a comparison narrow enough
-    to stop re-carrying could also stop noticing real change."""
+    to stop re carrying could also stop noticing real change."""
     src = rcdb.open_store(f"file://{tmp_path}/a")
     dst = rcdb.open_store(f"file://{tmp_path}/b")
     src.put("work", _rex(3), meta={"kind": "x"}, tags=["x"])

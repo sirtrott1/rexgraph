@@ -146,7 +146,7 @@ class TestBarcodes:
             result['pairs'], result['essential'], target_dim=0)
         bars_1 = _persistence.persistence_barcodes(
             result['pairs'], result['essential'], target_dim=1)
-        # Both should be valid 2-column arrays
+        # Both should be valid 2 column arrays
         if bars_0.shape[0] > 0:
             assert bars_0.shape[1] == 2
         if bars_1.shape[0] > 0:

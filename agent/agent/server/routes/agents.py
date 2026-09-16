@@ -1,7 +1,7 @@
 """
 agent.server.routes.agents: route surface for the agentic relational complex over the swarm.
 
-Feed inter-agent messages, then read the monitor (load-bearing agents,
+Feed inter agent messages, then read the monitor (load bearing agents,
 interaction Hodge, alignment, divergence) and the router (query to most relevant
 agent). The complex uses the RCF machinery. `agent.agent_complex.record` is
 called wherever agents or models message, so this route reads live traffic.
@@ -29,7 +29,7 @@ _CONSEQUENTIAL = {"kill", "set", "require", "forge"}
 router = APIRouter(prefix="/v1")
 
 # Reading what the instance is running is ordinary use. Everything that MOVES it is not:
-# the runtime is process-wide, so these start and stop subprocesses, spend disk and VRAM,
+# the runtime is process wide, so these start and stop subprocesses, spend disk and VRAM,
 # and take a model or a profile out from under whoever else is using it. Those are
 # instance operations rather than workspace ones, and they are gated on instance admin.
 _admin = [Depends(require_admin)]
@@ -41,7 +41,7 @@ _streams = {"n": 0}
 
 @router.post("/agents/message")
 async def agent_message(body: dict = Body(...)):
-    """Append one inter-agent interaction to the live complex. body: {from, to, text}."""
+    """Append one inter agent interaction to the live complex. body: {from, to, text}."""
     from agent import agent_complex
     s = body.get("from") or body.get("sender")
     r = body.get("to") or body.get("recipient")
@@ -54,7 +54,7 @@ async def agent_message(body: dict = Body(...)):
 
 @router.get("/agents/monitor")
 async def agent_monitor(embed: bool = False):
-    """Monitor the live swarm: load-bearing agents (effective resistance), interaction Hodge (coherent/circulating/persistent), deadlock cycles, cross-agent alignment, divergence flags. ?embed=true uses the running model's semantic embeddings (separates hallucination from a topically distinct specialist); otherwise a lexical fallback."""
+    """Monitor the live swarm: load bearing agents (effective resistance), interaction Hodge (coherent/circulating/persistent), deadlock cycles, cross agent alignment, divergence flags. ?embed=true uses the running model's semantic embeddings (separates hallucination from a topically distinct specialist); otherwise a lexical fallback."""
     from agent import agent_complex
     ef = agent_complex.model_embed_fn() if embed else None
     return agent_complex.get_live().monitor(embed_fn=ef)
@@ -74,7 +74,7 @@ async def agent_route(body: dict = Body(...)):
 async def agent_reset():
     """Clear this workspace's live agentic complex.
 
-    Ordinary use again: this was gated on instance admin while one process-wide complex
+    Ordinary use again: this was gated on instance admin while one process wide complex
     meant clearing it wiped every tenant's. It names its own workspace now, so it cannot.
     """
     from agent import agent_complex
@@ -95,7 +95,7 @@ async def agents_activity(scope: str = None, entity: str = None, action: str = N
 async def agents_events(request: Request):
     """Live event stream (SSE). Pushes each activity event the instant it happens: worker
     deploy/remove, model use.open/use.close, hive create/remove - so the UI reflects CLI/API actions
-    with no polling. One-way and read-only (the same auth middleware gates it); 15s heartbeat;
+    with no polling. One way and read only (the same auth middleware gates it); 15s heartbeat;
     concurrent streams are capped so a client cannot exhaust connections."""
     import asyncio
     import json
@@ -126,7 +126,7 @@ async def agents_events(request: Request):
                     ev = await asyncio.wait_for(q.get(), timeout=15)
                     yield "data: " + json.dumps(ev) + "\n\n"
                 except asyncio.TimeoutError:
-                    yield ": ping\n\n"                 # heartbeat: keep-alive + detect a dead client
+                    yield ": ping\n\n"                 # heartbeat: keep alive + detect a dead client
         finally:
             activity.get_log().unsubscribe(on_event)
             _streams["n"] -= 1
@@ -138,7 +138,7 @@ async def agents_events(request: Request):
 
 @router.get("/agents/usage")
 async def agents_usage():
-    """Model-usage portal. Per model: when it was instantiated, how long it has run, and its ACTIVE
+    """Model usage portal. Per model: when it was instantiated, how long it has run, and its ACTIVE
     concurrent uses (what it is doing right now), plus total uses this session."""
     from agent import activity
     return {"usage": activity.get_log().usage()}
@@ -146,9 +146,9 @@ async def agents_usage():
 
 @router.get("/agents/dashboard")
 async def agents_dashboard():
-    """Full hive-network dashboard snapshot: roster, coordination health, information flow (who ->
-    whom + the Hodge draining/circulating read), per-worker load/coherence/alignment, and the NNs
-    the LMs forged. Read-only."""
+    """Full hive network dashboard snapshot: roster, coordination health, information flow (who ->
+    whom + the Hodge draining/circulating read), per worker load/coherence/alignment, and the NNs
+    the LMs forged. Read only."""
     from agent import hive as hivemod
     from agent.dashboard import hive_dashboard
     return hive_dashboard(hivemod.get_hive())

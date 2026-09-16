@@ -38,7 +38,7 @@ def k4_arrays():
 
 @pytest.fixture
 def self_loop_arrays():
-    """Graph with a self-loop."""
+    """Graph with a self loop."""
     src = np.array([0, 1, 2], dtype=np.int32)
     tgt = np.array([1, 2, 2], dtype=np.int32)
     return src, tgt, 3, 3
@@ -141,7 +141,7 @@ class TestCSRIncidence:
         assert 2 in v0_edges
 
     def test_e2f_shape(self):
-        """Edge-to-face CSR from B2 in CSC format."""
+        """Edge to face CSR from B2 in CSC format."""
         # Single triangle: 3 edges, 1 face. B2 has 3 nonzeros.
         nE, nF = 3, 1
         B2_cp = np.array([0, 3], dtype=np.int32)
@@ -298,7 +298,7 @@ class TestSubsumption:
         assert types[1] == _rex.EDGE_BRANCHING  # 3 vertices
 
     def test_from_simplicial_2complex(self):
-        """Simplicial 2-complex produces B2 in CSC with correct structure."""
+        """Simplicial 2 complex produces B2 in CSC with correct structure."""
         src = np.array([0, 1, 0], dtype=np.int32)
         tgt = np.array([1, 2, 2], dtype=np.int32)
         # 1 triangle using edges 0, 1, 2
@@ -380,9 +380,9 @@ class TestConvenience:
 
 
 def test_dense_materialization_sums_duplicate_entries():
-    """to_dense_f64 assigned instead of accumulating, so a self-loop (which stores
+    """to_dense_f64 assigned instead of accumulating, so a self loop (which stores
     -1 and +1 at the same (row, col)) densified to a spurious +1 witness column
-    rather than the zero column that d(self-loop) = v - v = 0 requires."""
+    rather than the zero column that d(self loop) = v - v = 0 requires."""
     import numpy as np
 
     from rexgraph.graph import RexGraph
@@ -390,7 +390,7 @@ def test_dense_materialization_sums_duplicate_entries():
     r = RexGraph(sources=np.array([0, 0, 1, 1], np.int32),
                  targets=np.array([1, 1, 1, 2], np.int32))
     B1 = np.asarray(r.B1, dtype=float)
-    assert int(np.asarray(r.edge_types)[2]) == 1          # edge 2 is the self-loop
+    assert int(np.asarray(r.edge_types)[2]) == 1          # edge 2 is the self loop
     assert np.allclose(B1[:, 2], 0.0), f"self-loop column should be zero, got {B1[:, 2]}"
     # the other columns are untouched
     assert np.allclose(B1[:, 0], [-1, 1, 0])
@@ -398,8 +398,8 @@ def test_dense_materialization_sums_duplicate_entries():
 
 
 def test_signed_gram_matches_the_dense_boundary_with_a_self_loop():
-    """With the dense form correct, L1_down = B1^T B1 holds on a self-loop complex
-    too: the kernel already treats the self-loop's signed contribution as cancelling."""
+    """With the dense form correct, L1_down = B1^T B1 holds on a self loop complex
+    too: the kernel already treats the self loop's signed contribution as cancelling."""
     import numpy as np
 
     from rexgraph.graph import RexGraph
@@ -413,18 +413,18 @@ def test_signed_gram_matches_the_dense_boundary_with_a_self_loop():
 
 
 def test_self_loop_limitations_that_remain_are_pinned():
-    """Two consequences of a self-loop are NOT fixed by the dense accumulation, and
+    """Two consequences of a self loop are NOT fixed by the dense accumulation, and
     this pins them so a future change is deliberate rather than accidental.
 
     1. The unsigned Gramian cannot be recovered from the dense SIGNED B1. L_O needs
-       per-entry magnitudes (|-1| + |+1| = 2 at the shared vertex); the dense form has
+       per entry magnitudes (|-1| + |+1| = 2 at the shared vertex); the dense form has
        already summed them to 0, and |0| = 0. |sum| != sum|.|, so the kernel is right
        and the dense signed view simply cannot express it.
-    2. RESOLVED, and not by the change I first credited. beta_1 undercounted a self-loop
-       because the EXACT RANK was wrong: a self-loop stores -1 and +1 at the same
+    2. RESOLVED, and not by the change I first credited. beta_1 undercounted a self loop
+       because the EXACT RANK was wrong: a self loop stores -1 and +1 at the same
        (row, col), the reduction built each column with a dict, and the unsummed pair
        overwrote rather than cancelled, so a zero column took a spurious pivot. With that
-       fixed beta_1 is 2 here (parallel pair + self-loop), which is the value this
+       fixed beta_1 is 2 here (parallel pair + self loop), which is the value this
        docstring used to call the mathematically correct one, and Euler closes. See
        test_beta0_rank.py::test_a_self_loop_does_not_inflate_the_rank.
     """
@@ -442,8 +442,8 @@ def test_self_loop_limitations_that_remain_are_pinned():
     assert L_O[2, 2] == 4.0                      # |-1|^2 + |+1|^2 at the shared vertex
     assert (np.abs(B1).T @ np.abs(B1))[2, 2] == 0.0
 
-    # 2. beta_1 now counts the self-loop, and Euler closes
+    # 2. beta_1 now counts the self loop, and Euler closes
     nV, nE, nF = int(r.nV), int(r.nE), int(r.nF_hodge)
     b = [int(x) for x in r.betti]
-    assert b[1] == 2                             # parallel pair + self-loop
+    assert b[1] == 2                             # parallel pair + self loop
     assert (nV - nE + nF) == (b[0] - b[1] + b[2])

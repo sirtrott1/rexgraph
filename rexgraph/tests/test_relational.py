@@ -198,7 +198,7 @@ class TestBuildRL:
             _relational.build_RL([], [])
 
 
-# 4-hat fast path
+# 4 hat fast path
 
 class TestBuildRL4:
 
@@ -387,7 +387,7 @@ class TestLinearSolve:
 class TestLineGraph:
 
     def test_triangle_line_graph(self, tri_ops):
-        """Triangle: K1 is 3x3 all-positive off-diag. Line graph is K3."""
+        """Triangle: K1 is 3x3 all positive off diag. Line graph is K3."""
         B1, _, _, _, _, nE = tri_ops
         K = np.abs(B1).T @ np.abs(B1)
         lg = _relational.build_line_graph(K, nE)
@@ -498,11 +498,11 @@ class TestRexGraphIntegration:
 
 
 class TestCoParticipationBranching:
-    """C / L_C is the Laplacian of the WEIGHTED line graph (adjacency = shared-vertex
-    counts). It must stay a proper zero-row-sum PSD Laplacian at ANY arity - including
-    branching hyperedges, parallel edges and self-loops where two edges share >1 vertex.
-    Regression: the old binarized-degree diagonal made L_C indefinite there (dragging
-    RL4 and the moment character non-PSD). On simple graphs the fix is a no-op."""
+    """C / L_C is the Laplacian of the WEIGHTED line graph (adjacency = shared vertex
+    counts). It must stay a proper zero row sum PSD Laplacian at ANY arity - including
+    branching hyperedges, parallel edges and self loops where two edges share >1 vertex.
+    Regression: the old binarized degree diagonal made L_C indefinite there (dragging
+    RL4 and the moment character non PSD). On simple graphs the fix is a no op."""
 
     def _sparse_LC(self, g):
         from rexgraph.sparse_character import build_sparse_channels
@@ -514,7 +514,7 @@ class TestCoParticipationBranching:
         lg = _relational.build_line_graph(K1, g.nE)
         return _relational.build_L_coPC(lg) if lg['nE_L'] > 0 else None
 
-    # branching fixtures: two 3-ary hyperedges sharing 2 vertices; parallel edges; self-loop+edge
+    # branching fixtures: two 3 ary hyperedges sharing 2 vertices; parallel edges; self loop+edge
     BRANCHING = [
         ("two_3ary_share2", np.array([0, 3, 6]), np.array([0, 1, 2, 1, 2, 3])),
         ("three_branch",    np.array([0, 3, 6, 9]), np.array([0, 1, 2, 0, 1, 3, 2, 3, 4])),
@@ -553,11 +553,11 @@ class TestCoParticipationBranching:
         assert np.linalg.eigvalsh(RL).min() > -1e-9
 
     def test_simple_graph_unchanged(self):
-        # weighted == unweighted line graph on any complex with no edge-pair sharing >1 vertex
+        # weighted == unweighted line graph on any complex with no edge pair sharing >1 vertex
         g = RexGraph.from_simplicial(
             np.array([0, 0, 0, 1, 1, 2], np.int32), np.array([1, 2, 3, 2, 3, 3], np.int32),
             np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], np.int32))
         A = self._sparse_LC(g).toarray()
         assert np.allclose(A, np.asarray(self._dense_LC(g)))
-        assert np.allclose(np.diag(A), 4.0)          # K4 line-graph degree = 2(k-2) = 4
+        assert np.allclose(np.diag(A), 4.0)          # K4 line graph degree = 2(k-2) = 4
         assert abs(float(np.trace(A)) - 24.0) < 1e-9  # tr(C) = 2*nE*(k-2) = 2*6*2

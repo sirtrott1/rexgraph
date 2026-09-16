@@ -14,7 +14,7 @@ from rexgraph.graph import RexGraph
 
 
 def _orthogonal_case():
-    """A 4-cycle with two edges reversed: beta_1 is 1, the all-ones harmonic part is 0."""
+    """A 4 cycle with two edges reversed: beta_1 is 1, the all ones harmonic part is 0."""
     return RexGraph.from_graph(sources=[0, 1, 3, 0], targets=[1, 2, 2, 3])
 
 

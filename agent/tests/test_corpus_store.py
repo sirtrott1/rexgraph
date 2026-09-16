@@ -120,7 +120,7 @@ def test_from_store_can_select_a_prefix(corpus, store):
 
 def test_scoring_is_reusable_outside_the_builder():
     """_score_document touches no instance state; it was a method by placement only.
-    A store-backed retriever has to reuse it, not re-implement the ranking."""
+    A store backed retriever has to reuse it, not re implement the ranking."""
     from agent.corpus import score_document
 
     assert callable(score_document)

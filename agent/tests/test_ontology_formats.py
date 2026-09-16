@@ -1,11 +1,11 @@
 """Ontology files, read as the formats ontologies actually ship as.
 
-The Ontology screen used to accept one thing: whitespace-separated triples typed into
+The Ontology screen used to accept one thing: whitespace separated triples typed into
 a box. GO, HPO, MONDO, ChEBI and UBERON ship `.obo` and `.owl`; GO's current
 distribution is OBO Graphs JSON; and what connects any of them to biology is a
 `.gaf`. None of that could be loaded.
 
-The fixtures here are real-shaped fragments of those formats, small enough to assert
+The fixtures here are real shaped fragments of those formats, small enough to assert
 against exactly. Every parser is checked for what it extracts *and* for what it must
 not invent, since a reader that silently drops half an ontology diagnoses a clean
 hierarchy.
@@ -189,7 +189,7 @@ def test_obo_reports_what_the_file_declared():
 
 def test_obo_does_not_duplicate_an_intersection_conjunct():
     """`intersection_of: part_of GO:x` is one axiom. Writing both the relation and a
-    membership edge would put two parallel edges on it, which reads as a 2-cycle the
+    membership edge would put two parallel edges on it, which reads as a 2 cycle the
     term does not have."""
     text = OBO + """
 [Term]
@@ -404,7 +404,7 @@ def test_an_equivalence_is_a_bounded_definition_not_a_cycle():
 
 
 def test_a_repeated_subsumption_is_not_a_cycle():
-    """Two files each asserting `A is_a B` is one relation, not a 2-cycle."""
+    """Two files each asserting `A is_a B` is one relation, not a 2 cycle."""
     model = parse_rdf([("A", "is_a", "B"), ("A", "is_a", "B")])
     assert subsumption_cycles(model) == 0
 

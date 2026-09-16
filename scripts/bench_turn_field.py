@@ -74,7 +74,7 @@ for di, d in enumerate(docs):
         if not (5 < len(t1) < 80):
             continue
         i2 = rng.randrange(ns)
-        t2 = sec_terms(d, i2)[:4]                      # the thin follow-up
+        t2 = sec_terms(d, i2)[:4]                      # the thin follow up
         if len(t2) < 3:
             continue
         oj = rng.choice([k for k in range(len(docs)) if k != di])
@@ -86,7 +86,7 @@ for di, d in enumerate(docs):
         tf.observe(" ".join(t1), profile=ENGLISH_GUTENBERG)
         o2 = tf.observe(" ".join(t2), profile=ENGLISH_GUTENBERG)
         # the gate needs a baseline before it can fire at all (warmup=3), so give the
-        # conversation a real length: several more on-topic turns, THEN the change
+        # conversation a real length: several more on topic turns, THEN the change
         gt = TurnField()
         gt.observe(" ".join(t1), profile=ENGLISH_GUTENBERG)
         fired_follow = False
@@ -103,12 +103,12 @@ for di, d in enumerate(docs):
         ranks_1.append(rank_of(di, t1))                 # DIAGNOSTIC: does turn 1 work?
         ra = rank_of(di, t2)                            # turn 2, alone
         rc = rank_of(di, o2["seeds"])                   # carried, UNWEIGHTED
-        rw = rank_of(di, o2["seeds"], o2["weights"])    # carried, conversation-weighted
+        rw = rank_of(di, o2["seeds"], o2["weights"])    # carried, conversation weighted
         ranks_a.append(ra); ranks_c.append(rc); ranks_w.append(rw)
 
 n = len(ranks_a)
 ra, rc, rw = np.array(ranks_a), np.array(ranks_c), np.array(ranks_w)
-print(f"\n=== CARRY ===  n={n}")
+print(f"\nCarried field, n={n}")
 print(f"  follow-up alone     top-1 {(ra == 1).mean()*100:5.1f}%  "
       f"top-3 {(ra <= 3).mean()*100:5.1f}%  median rank {int(np.median(ra))}")
 print(f"  follow-up + path    top-1 {(rc == 1).mean()*100:5.1f}%  "
@@ -120,10 +120,10 @@ print(f"  unweighted vs alone: better {int((rc < ra).sum())} same {int((rc == ra
 print(f"  WEIGHTED   vs alone: better {int((rw < ra).sum())} same {int((rw == ra).sum())}"
       f" worse {int((rw > ra).sum())}")
 r1 = np.array(ranks_1)
-print(f"\n  DIAGNOSTIC: turn 1 alone (the opening question, a full section):")
+print("\n  Turn 1 alone, using the opening question:")
 print(f"    top-1 {(r1 == 1).mean()*100:5.1f}%  top-3 {(r1 <= 3).mean()*100:5.1f}%  "
       f"median rank {int(np.median(r1))}")
-print(f"    if turn 1 does not identify the document, carrying it CANNOT help turn 2")
-print(f"\n=== GATE ===  a follow-up should be quiet, a topic change an event")
+print("    Compare this baseline with the carried field results.")
+print("\nGate response to a followup and a topic change")
 print(f"  fired on the follow-up   {sum(gate_followup)}/{len(gate_followup)}")
 print(f"  fired on the topic change {sum(gate_change)}/{len(gate_change)}")

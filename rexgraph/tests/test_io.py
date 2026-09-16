@@ -2,7 +2,7 @@
 IO layer tests for rexgraph.
 
 Tests data ingest (CSV, JSON), persistent storage (bundle),
-format dispatch, and round-trip fidelity.
+format dispatch, and round trip fidelity.
 
 Tier 1 (always runs): csv_loader, json_loader, bundle
 Tier 2 (skip if missing): zarr, hdf5, arrow, parquet, sql
@@ -17,7 +17,7 @@ from rexgraph.graph import RexGraph
 # Helpers
 
 def _make_k4():
-    """K4 simplicial complex for round-trip tests."""
+    """K4 simplicial complex for round trip tests."""
     return RexGraph.from_simplicial(
         sources=np.array([0, 0, 0, 1, 1, 2], dtype=np.int32),
         targets=np.array([1, 2, 3, 2, 3, 3], dtype=np.int32),
@@ -141,7 +141,7 @@ class TestCSVLoader:
             [["A", "B", "up"], ["B", "C", "down"], ["A", "C", "up"]],
         )
         from rexgraph.io.csv_loader import ColumnRole, load_edge_csv
-        # Without override, "regulation" is name-matched to polarity
+        # Without override, "regulation" is name matched to polarity
         load_edge_csv(csv_path)
         # With override, force it to type
         gd2 = load_edge_csv(csv_path, roles={"regulation": ColumnRole.TYPE})
@@ -204,7 +204,7 @@ class TestCSVLoader:
 # JSON Loader
 
 class TestJSONEdgeList:
-    """Test edge-list JSON loading."""
+    """Test edge list JSON loading."""
 
     def test_basic(self, tmp_path):
         path = str(tmp_path / "edges.json")
@@ -244,7 +244,7 @@ class TestJSONEdgeList:
 
 
 class TestJSONRexGraph:
-    """Test RexGraph native JSON round-trip."""
+    """Test RexGraph native JSON round trip."""
 
     def test_roundtrip_triangle(self, tmp_path):
         path = str(tmp_path / "tri.json")
@@ -260,7 +260,7 @@ class TestJSONRexGraph:
         path = str(tmp_path / "k4.json")
         rex = _make_k4()
         d = rex.to_json()
-        # to_json doesn't store B2_vals, add it for round-trip
+        # to_json doesn't store B2_vals, add it for round trip
         d["B2_vals"] = rex._B2_vals.tolist()
         _write_json(path, d)
         from rexgraph.io.json_loader import load_json
@@ -333,7 +333,7 @@ class TestJSONCytoscape:
 
 
 class TestJSONNetworkX:
-    """Test NetworkX node-link JSON loading."""
+    """Test NetworkX node link JSON loading."""
 
     def test_basic(self, tmp_path):
         path = str(tmp_path / "nx.json")
@@ -405,7 +405,7 @@ class TestMatrixCSV:
         from rexgraph.io.json_loader import load_matrix_csv
         rex = load_matrix_csv(path)
         assert rex.nV == 3
-        assert rex.nE == 3  # all nonzero off-diagonal
+        assert rex.nE == 3  # all nonzero off diagonal
 
     def test_threshold(self, tmp_path):
         path = str(tmp_path / "corr.csv")
@@ -437,7 +437,7 @@ class TestMatrixCSV:
 # Bundle save/load
 
 class TestBundle:
-    """Test .rcbd bundle round-trip."""
+    """Test .rcbd bundle round trip."""
 
     def test_roundtrip_triangle(self, tmp_path):
         path = str(tmp_path / "test.rcbd")
@@ -488,7 +488,7 @@ class TestBundle:
 # Format dispatch
 
 class TestFormatDispatch:
-    """Test save/load auto-detection by extension."""
+    """Test save/load auto detection by extension."""
 
     def test_rcbd_extension(self, tmp_path):
         path = str(tmp_path / "graph.rcbd")
@@ -536,7 +536,7 @@ class TestFormatDispatch:
 # Full pipeline integration
 
 class TestIOPipeline:
-    """End-to-end: CSV/JSON ingest -> compute -> save -> load -> verify."""
+    """End to end: CSV/JSON ingest -> compute -> save -> load -> verify."""
 
     def test_csv_to_rex_to_bundle(self, tmp_path):
         """Research pipeline: load CSV, build rex, compute RCF, save, reload."""

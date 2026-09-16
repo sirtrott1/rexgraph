@@ -16,6 +16,9 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass, field
+from fractions import Fraction
+from math import prod
+from numbers import Integral
 
 import numpy as np
 
@@ -26,11 +29,13 @@ CODEC_TENSOR = "codec_spec"
 #: A reader that does not know the key would hand a differenced pointer array to the
 #: constructor and build a different complex in silence, so the version has to move; both
 #: are accepted on READ, and a v1 bundle simply carries no codec.
-FORMAT_VERSION = 2
-READABLE_VERSIONS = (1, 2)
+#: 3 adds exact object coefficient tensors (integers/Fractions) as deterministic
+#: byte tensors. Numeric only writers retain version 2 and their existing identity.
+FORMAT_VERSION = 3
+READABLE_VERSIONS = (1, 2, 3)
 
 
-#: digest framing version. 1 was unframed and collided; 2 length-prefixes every field.
+#: digest framing version. 1 was unframed and collided; 2 length prefixes every field.
 #: Written into the header so a bundle carries the rule it was sealed under.
 DIGEST_ALGO = 2
 
@@ -47,7 +52,7 @@ class RexState:
 # hold '/' in a name, a filesystem path additionally cannot hold '\@:*?"<>|', and
 # safetensors reserves nothing (its keys are arbitrary strings, so '/' is stored
 # verbatim). One reversible codec parameterized by the reserved set covers all of them;
-# encoding '%' first is what keeps it collision-free, since '%2F' must not decode to '/'
+# encoding '%' first is what keeps it collision free, since '%2F' must not decode to '/'
 # unless it was encoded as such.
 
 #: hierarchy backends: .rcbd bundles, hdf5 groups, zarr groups
@@ -57,7 +62,7 @@ RESERVED_PATH = "/\\@:*?\"<>|"
 
 
 def encode_name(name: str, reserved: str = RESERVED_HIERARCHY) -> str:
-    """Reversible, collision-free encoding of `name` for a container reserving `reserved`."""
+    """Reversible, collision free encoding of `name` for a container reserving `reserved`."""
     out = name.replace("%", "%25")
     for ch in reserved:
         out = out.replace(ch, f"%{ord(ch):02X}")
@@ -109,7 +114,7 @@ def _pack_w_boundary(wb: dict):
         is_scalar = np.isscalar(v) or (isinstance(v, np.ndarray) and v.ndim == 0)
         arr = np.atleast_1d(np.asarray(v, dtype=np.float64)).ravel()
         vals.append(arr); offs.append(offs[-1] + arr.shape[0])
-        scal.append(1 if is_scalar else 0)   # distinguish a stored scalar from a length-1 array
+        scal.append(1 if is_scalar else 0)   # distinguish a stored scalar from a length 1 array
     kt = np.asarray(keys, np.int64).reshape(-1, 2) if keys else np.zeros((0, 2), np.int64)
     vt = np.concatenate(vals) if vals else np.zeros(0, np.float64)
     return kt, np.asarray(offs, np.int64), vt, np.asarray(scal, np.uint8)
@@ -134,7 +139,7 @@ def _unpack_w_boundary(kt, offs, vt, st=None) -> dict:
 # Every array below is exact integers, and two of them are not the object of interest.
 #
 # A CSR pointer is the INTEGRAL of the arity vector: `boundary_ptr[i+1] - boundary_ptr[i]`
-# is how many vertices relation `i` reaches. A string-offset array is the integral of the
+# is how many vertices relation `i` reaches. A string offset array is the integral of the
 # label lengths. Storing an integral of small numbers stores large numbers, and the large
 # numbers are what a compressor then has to work on: measured on one document,
 # `boundary_ptr` took 19.2 KiB compressed and its first difference took 4.1.
@@ -182,16 +187,65 @@ def _narrow(a):
     return a
 
 
+def _encode_exact(a):
+    """Exact coefficients as typed hexadecimal integers; never object addresses.
+
+    Hexadecimal has no decimal conversion limit and preserves arbitrary precision.
+    The shape lives in the sealed codec spec. Tags preserve int versus Fraction,
+    including a Fraction with denominator one; no float conversion is involved.
+    """
+    pieces = []
+    for value in np.asarray(a, dtype=object).flat:
+        if isinstance(value, Fraction):
+            pieces.append(f"q:{value.numerator:x}/{value.denominator:x}\n")
+        elif isinstance(value, Integral) and not isinstance(value, (bool, np.bool_)):
+            pieces.append(f"i:{int(value):x}\n")
+        else:
+            raise TypeError("exact object tensors require integer or Fraction coefficients")
+    return np.frombuffer("".join(pieces).encode("ascii"), dtype=np.uint8).copy()
+
+
+def _decode_exact(a, shape):
+    a = np.asarray(a)
+    if (a.dtype != np.uint8 or a.ndim != 1 or not isinstance(shape, list)
+            or any(isinstance(n, bool) or not isinstance(n, int) or n < 0 for n in shape)):
+        raise ValueError("invalid exact coefficient tensor or shape")
+    raw = a.tobytes()
+    lines = raw.splitlines()
+    if prod(shape) != len(lines):
+        raise ValueError("exact coefficient count does not match shape")
+    values = []
+    try:
+        for line in lines:
+            tag, coefficient = line.split(b":", 1)
+            if tag == b"i":
+                values.append(int(coefficient, 16))
+            elif tag == b"q":
+                numerator, denominator = coefficient.split(b"/", 1)
+                values.append(Fraction(int(numerator, 16), int(denominator, 16)))
+            else:
+                raise ValueError("unknown exact coefficient tag")
+    except (ValueError, ZeroDivisionError) as exc:
+        raise ValueError("invalid exact coefficient encoding") from exc
+    result = np.asarray(values, dtype=object).reshape(shape)
+    if _encode_exact(result).tobytes() != raw:
+        raise ValueError("noncanonical exact coefficient encoding")
+    return result
+
+
 def encode_tensors(t: dict) -> dict:
     """Transform tensors in place; return the spec that inverts it.
 
-    Only integer arrays of rank 1 or 2 are touched, and only where the array itself says
-    the transform applies. Floats, strings-as-bytes and anything higher rank pass
-    through untouched.
+    Exact object coefficients are packed without rounding. Fixed width integer arrays
+    of rank 1 or 2 use the existing structural compression. Floats pass unchanged.
     """
     spec = {}
     for name in sorted(t):
         a = np.asarray(t[name])
+        if a.dtype.hasobject:
+            t[name] = _encode_exact(a)
+            spec[name] = {"c": "exact", "shape": list(a.shape)}
+            continue
         if not np.issubdtype(a.dtype, np.integer) or a.ndim not in (1, 2) or a.size < 2:
             continue
         if _is_arange(a):
@@ -216,12 +270,19 @@ def encode_tensors(t: dict) -> dict:
 def decode_tensors(t: dict, spec: dict) -> None:
     """Invert :func:`encode_tensors` in place."""
     for name, sp in (spec or {}).items():
+        if sp["c"] == "exact":
+            if name not in t:
+                raise ValueError(f"missing exact coefficient tensor {name!r}")
+            t[name] = _decode_exact(t[name], sp["shape"])
+            continue
         if sp["c"] == "arange":
             t[name] = np.arange(int(sp["start"]), int(sp["start"]) + int(sp["n"]),
                                 dtype=np.dtype(sp["dtype"]))
             continue
+        if sp["c"] != "delta":
+            raise ValueError(f"unknown tensor codec {sp['c']!r}")
         if name not in t:
-            continue
+            raise ValueError(f"missing delta tensor {name!r}")
         x = np.asarray(t[name]).astype(np.int64, copy=True)
         flat = x.ndim == 1
         x = x.reshape(-1, 1) if flat else x
@@ -242,7 +303,7 @@ def to_state(rex) -> RexState:
     if callable(ensure):
         ensure()
 
-    t, h = {}, {"format_version": FORMAT_VERSION, "object_type": "RexGraph"}
+    t, h = {}, {"format_version": 2, "object_type": "RexGraph"}
     h["nV"], h["nE"], h["nF"] = int(rex._nV), int(rex._nE), int(rex._nF)
     h["directed"] = bool(rex._directed)
     h["g_channel"] = getattr(rex, "_g_channel", "raw")
@@ -266,18 +327,19 @@ def to_state(rex) -> RexState:
     if getattr(rex, "_w_boundary", None):
         kt, offs, vt, st = _pack_w_boundary(rex._w_boundary)
         t["wb_keys"], t["wb_offsets"], t["wb_values"], t["wb_scalar"] = kt, offs, vt, st
-    # grades >= 3 (the graded duals list) are first-class Tier-2, stored as CSR triples so grade-
-    # general homology round-trips (a bare B1/B2 store silently changes betti on a 3-complex).
+    # grades >= 3 (the graded duals list) are first class Tier 2, stored as CSR triples so grade-
+    # general homology round trips (a bare B1/B2 store silently changes betti on a 3 complex).
     gd = getattr(rex, "_graded_duals", None)
     if gd:
+        from rexgraph.native_sparse import sparse_arrays
         h["n_graded_duals"] = len(gd)
         h["graded_shapes"] = []
         for g, mat in enumerate(gd):
-            csr = mat.tocsr()
-            t[f"gd{g}_indptr"] = np.asarray(csr.indptr)
-            t[f"gd{g}_indices"] = np.asarray(csr.indices)
-            t[f"gd{g}_data"] = np.asarray(csr.data)
-            h["graded_shapes"].append([int(csr.shape[0]), int(csr.shape[1])])
+            ptr, indices, data, shape = sparse_arrays(mat)
+            t[f"gd{g}_indptr"] = np.asarray(ptr)
+            t[f"gd{g}_indices"] = np.asarray(indices)
+            t[f"gd{g}_data"] = np.asarray(data)
+            h["graded_shapes"].append([int(shape[0]), int(shape[1])])
 
     # tier 1: identity, pointers
     am = getattr(rex, "_agent_meta", None)
@@ -300,7 +362,7 @@ def to_state(rex) -> RexState:
     if sect:
         h["sectionings"] = sect
         # the layer hierarchy hashed as its own Merkle tree: the interior nodes ARE the
-        # paragraph and chapter digests, so this replaces per-layer hashing rather than
+        # paragraph and chapter digests, so this replaces per layer hashing rather than
         # adding to it, and it carries inclusion proofs the flat digest cannot.
         from rexgraph.merkle import pack_merkle
         mk = pack_merkle(rex, t, h)
@@ -325,6 +387,8 @@ def to_state(rex) -> RexState:
     # hand the loader a different array with the digest still checking out. As a tensor
     # it is sealed with everything else.
     codec = encode_tensors(t)
+    if any(entry["c"] == "exact" for entry in codec.values()):
+        h["format_version"] = FORMAT_VERSION
     if codec:
         t[CODEC_TENSOR] = np.frombuffer(
             json.dumps(codec, sort_keys=True).encode("utf-8"), dtype=np.uint8).copy()
@@ -335,7 +399,7 @@ def to_state(rex) -> RexState:
 
 
 def state_digest(tensors: dict, names=None, *, algo: int = DIGEST_ALGO) -> str:
-    """A sha256 over the tensor payload, order-independent.
+    """A sha256 over the tensor payload, order independent.
 
     Here rather than in one container because every format delegates to `to_state`, so
     a digest computed at this seam covers `.rcbd`, hdf5, zarr, safetensors and the wire
@@ -348,9 +412,9 @@ def state_digest(tensors: dict, names=None, *, algo: int = DIGEST_ALGO) -> str:
     Names are folded in with their bytes, so moving a payload between tensors changes
     the digest, and sorted so the dict's insertion order does not.
 
-    Each field is LENGTH-PREFIXED, and it has to be. Concatenating name, dtype, shape and
+    Each field is LENGTH PREFIXED, and it has to be. Concatenating name, dtype, shape and
     payload unframed leaves the field boundaries ambiguous, and that is not theoretical:
-    `{"a": zeros(0), "b": zeros(0)}` and `{"auint8(0,)b": zeros(0)}` produce byte-identical
+    `{"a": zeros(0), "b": zeros(0)}` and `{"auint8(0,)b": zeros(0)}` produce byte identical
     streams and therefore the same sha256. Two different objects with one digest is the
     single thing a digest exists to prevent.
 
@@ -362,6 +426,8 @@ def state_digest(tensors: dict, names=None, *, algo: int = DIGEST_ALGO) -> str:
     legacy = int(algo) == 1
     for name in (sorted(tensors) if names is None else list(names)):
         arr = np.ascontiguousarray(tensors[name])
+        if arr.dtype.hasobject:
+            raise TypeError("object tensors must use the exact coefficient codec before hashing")
         for part in (name.encode("utf-8"), str(arr.dtype).encode("utf-8"),
                      str(arr.shape).encode("utf-8"), arr.tobytes()):
             if not legacy:
@@ -403,8 +469,11 @@ def verify_state(state: RexState) -> bool:
         return False
     if algo not in (1, DIGEST_ALGO):
         return False
-    return hmac.compare_digest(
-        declared, state_digest(state.tensors, names, algo=algo))
+    try:
+        computed = state_digest(state.tensors, names, algo=algo)
+    except (TypeError, ValueError):
+        return False
+    return hmac.compare_digest(declared, computed)
 
 
 def _pack_cell_metadata(cm, t, h):
@@ -476,7 +545,7 @@ def from_state(
 ):
     """Rebuild the complex a state describes, checking its format and digest first.
 
-    Format precedes integrity so a pre-canonical bundle gets the actionable diagnosis
+    Format precedes integrity so a pre canonical bundle gets the actionable diagnosis
     that it is old, not a suggestion to enable a migration flag that cannot decode it.
     Integrity is checked here rather than in each reader, so `.rcbd`, hdf5, zarr,
     safetensors and the wire all refuse a payload whose tensors no longer match what
@@ -491,7 +560,7 @@ def from_state(
     h, t = state.header, state.tensors
     ver = h.get("format_version")
     if ver not in READABLE_VERSIONS:
-        # A bundle written before the canonical rex-state carried its version under
+        # A bundle written before the canonical rex state carried its version under
         # "version" and named its arrays differently. Say that, rather than report
         # a version of None, so the reader knows the file is old and not corrupt.
         if ver is None and "version" in h:
@@ -537,22 +606,21 @@ def from_state(
                                               t.get("wb_scalar"))
     rex = RexGraph(**kw)
     # Honour the recorded vertex count. The boundary arrays only witness vertices
-    # that carry a relation, so a 0-cell incident to nothing is invisible to them
+    # that carry a relation, so a 0 cell incident to nothing is invisible to them
     # and the constructor sizes below it. The header already records nV; dropping it
     # here meant an isolated vertex survived in memory and vanished on reload, which
     # moved beta_0 across a save.
     n_declared = int(h.get("nV", 0) or 0)
     if n_declared > rex.nV:
         rex._nV = n_declared
-    # grades >= 3: restore the graded duals so grade-general homology round-trips
+    # grades >= 3: restore the graded duals so grade general homology round trips
     n_gd = int(h.get("n_graded_duals", 0))
     if n_gd:
-        from scipy.sparse import csr_matrix
+        from rexgraph.native_sparse import csr_carrier
         gd = []
         for g in range(n_gd):
             shape = tuple(h["graded_shapes"][g])
-            gd.append(csr_matrix((t[f"gd{g}_data"], t[f"gd{g}_indices"], t[f"gd{g}_indptr"]),
-                                 shape=shape))
+            gd.append(csr_carrier(t[f"gd{g}_indptr"], t[f"gd{g}_indices"], t[f"gd{g}_data"], shape))
         rex._graded_duals = gd
     # identity
     am = dict(h.get("agent_meta", {}))

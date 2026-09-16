@@ -11,7 +11,7 @@ version of a single RCDB record, so a lineage is one object with two coordinates
 A chat state is therefore a position in a temporal rex, and the version metadata is
 the temporal index rather than a numbering invented here.
 
-Recording is opt-in per workspace and off by default: it writes records the user did
+Recording is opt in per workspace and off by default: it writes records the user did
 not ask for, so the decision is made once, in settings, not per call. The check lives
 here so callers never carry the policy.
 """
@@ -36,7 +36,7 @@ KINDS = ("pipeline-run", "conversation")
 #: to labels so an adapter can rebuild a different one loses what it knew.
 COMPLEX_KINDS = ("edit", "agent-state", "hive-state", "pipeline-run", "conversation")
 
-#: The workspace setting that turns recording on, and the per-kind switches under it.
+#: The workspace setting that turns recording on, and the per kind switches under it.
 SETTING = "record_work"
 KIND_SETTING = "record_work_kinds"
 
@@ -160,7 +160,7 @@ def record_complex(kind: str, rex, *, lineage_id: str, workspace: str = "default
     O(delta) per edit, so a long history costs a diff per step and not a rebuild.
 
     Returns the version info, or None when recording is off. Unlike `record` this does
-    not de-duplicate: two edits that happen to produce the same complex are still two
+    not de duplicate: two edits that happen to produce the same complex are still two
     edits, and a history that silently drops one is not a history.
     """
     if kind not in COMPLEX_KINDS:
@@ -220,7 +220,7 @@ def history(lineage_id: str) -> list[dict]:
     out = []
     for step in range(int(temporal.T)):
         # reconstruct_at, not at: `at` reads the raw snapshot list, which a store
-        # round-trip does not materialise, and the checkpoint/delta index is what
+        # round trip does not materialise, and the checkpoint/delta index is what
         # survives. Same complex either way, one rebuild from the nearest checkpoint.
         snapshot = temporal.reconstruct_at(step)
         out.append({"step": step,

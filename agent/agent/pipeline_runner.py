@@ -1,5 +1,5 @@
 """
-agent.pipeline_runner: end-to-end document analysis pipeline.
+agent.pipeline_runner: end to end document analysis pipeline.
 
     files -> OCR -> corpus -> Hodge chunk -> query -> LLM -> hallucination check -> rechunk
 
@@ -30,7 +30,7 @@ GATE_REFUSE = "refuse"
 
 
 def _context_quality_gate(source_rex, source_labels, query) -> dict:
-    """Structural-coverage gate: does the source cover the query well enough to
+    """Structural coverage gate: does the source cover the query well enough to
     trust the retrieved context?
 
     Returns {"verdict", "reasons", "score", "n_shared"} where verdict is one of
@@ -46,11 +46,9 @@ def _context_quality_gate(source_rex, source_labels, query) -> dict:
     the median magnitude, so the comparison is against the statistic the kernel
     already normalises by rather than against a tuned constant.
 
-    The channel-scored path uses dense L0-eigenbasis Cython kernels that assume a
-    FULL nV x nV basis. On the universal sparse path the bundle carries only a
-    truncated L0 basis (k<<nV) for nV>2000, so feeding it to those kernels reads
-    out of bounds (C-level segfault). Guard on the full basis and skip the gate
-    when it is unavailable.
+    The channel scored path consumes the library's native three score bundle.
+    No spectral coverage, eigenbasis or legacy four component confidence reading
+    is needed to evaluate this gate.
     """
     def verdict(v, *reasons, score=None, n_shared=None):
         return {"verdict": v, "reasons": list(reasons),
@@ -62,7 +60,7 @@ def _context_quality_gate(source_rex, source_labels, query) -> dict:
         # A token that names a vertex counts however short it is: identifiers are
         # routinely two characters, and dropping them by length would report zero
         # coverage for a query that names its subject exactly. The length rule only
-        # decides which NON-matching tokens are substantive enough to judge on.
+        # decides which NON matching tokens are substantive enough to judge on.
         index_of = {str(lbl).lower(): i for i, lbl in enumerate(source_labels)}
         tokens = [w.lower().strip(".,;:!?()[]\"'") for w in query.split()]
         shared = [index_of[t] for t in tokens if t in index_of]
@@ -75,15 +73,15 @@ def _context_quality_gate(source_rex, source_labels, query) -> dict:
                 f"none of the {len(usable)} query terms name a vertex in the source",
                 n_shared=0)
 
-        # The library already builds this bundle and dispatches it: eigen-free and
-        # sparse at any size, via `sparse_interfacing`. Hand-assembling it from the
+        # The library already builds this bundle and dispatches it: eigen free and
+        # sparse at any size, via `sparse_interfacing`. Hand assembling it from the
         # dense kernel cost two things. It needed a full L0 eigenbasis, so the gate
         # silently reported "unavailable" on exactly the large complexes worth
         # gating; and it passed `g_channel_operator` for G where the library's own
         # interfacing path passes `L_overlap`, so this score was never the score the
         # rest of the platform computes.
         #
-        # target_signal=None is the self-interfacing reading, which is what scoring
+        # target_signal=None is the self interfacing reading, which is what scoring
         # psi against itself meant, at one L0^+ solve instead of two.
         from rexgraph.core._interfacing import quality_gate
         bundle = source_rex.interfacing_vector(
@@ -124,7 +122,7 @@ class PipelineRunner:
     """Runs the full OCR -> analysis -> LLM pipeline."""
 
     # "read" = load documents into the corpus: parse tables/JSON/text directly,
-    # or OCR image/PDF files. Named domain-agnostically (it is NOT always OCR).
+    # or OCR image/PDF files. Named domain agnostically (it is NOT always OCR).
     PHASES = ["read", "corpus", "analysis", "chunking", "query", "model", "hallucination"]
 
     OCR_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
@@ -158,8 +156,8 @@ class PipelineRunner:
     ) -> PipelineResult:
         """Run the full pipeline.
 
-        Pass ``files`` for auto-detected processing, or ``texts``/``doc_ids``
-        for pre-extracted text (when OCR is cached in the caller).
+        Pass ``files`` for auto detected processing, or ``texts``/``doc_ids``
+        for pre extracted text (when OCR is cached in the caller).
 
         Files are routed by type via auto_rex:
             PDF/images  -> OCR -> text -> CorpusBuilder
@@ -173,7 +171,7 @@ class PipelineRunner:
         t0 = time.time()
         result = PipelineResult()
 
-        # Per-analysis-stage callback -> surfaced as "analysis" phase events
+        # Per analysis stage callback -> surfaced as "analysis" phase events
         # so the frontend can show real progress during the long
         # eigendecomposition/Hodge stages.
         def stage_cb(doc_id, stage_name, stage_data):
@@ -311,10 +309,10 @@ class PipelineRunner:
     def _add_file_to_corpus(self, corpus, path):
         """Add one direct file to the corpus, routed by type.
 
-        OCR-extension files are OCR'd and routed through the OCRAdapter's
-        structure-aware layout path. Everything else is added
+        OCR extension files are OCR'd and routed through the OCRAdapter's
+        structure aware layout path. Everything else is added
         as a source path so auto_rex picks the right adapter (CSV/JSON/
-        feature/text): never flattened to word co-occurrence.
+        feature/text): never flattened to word co occurrence.
         """
         p = Path(path)
         suffix = p.suffix.lower()
@@ -360,7 +358,7 @@ class PipelineRunner:
         return self._build_corpus(None, None, files, depth)
 
     def _build_corpus_from_texts(self, texts, doc_ids, depth):
-        """Build corpus from pre-extracted texts (thin wrapper)."""
+        """Build corpus from pre extracted texts (thin wrapper)."""
         return self._build_corpus(texts, doc_ids, None, depth)
 
     def _ocr_single_file(self, path):
@@ -378,7 +376,7 @@ class PipelineRunner:
 
     @staticmethod
     def _sanitize_text(text):
-        """Clean OCR output to prevent degenerate co-occurrence graphs."""
+        """Clean OCR output to prevent degenerate co occurrence graphs."""
         if not text:
             return text
         text = re.sub(r'[^\x20-\x7E\n\t]', ' ', text)
@@ -392,7 +390,7 @@ class PipelineRunner:
         return text
 
     def _extract_doc_info(self, corpus):
-        """Extract per-document analysis info."""
+        """Extract per document analysis info."""
         docs = []
         for doc in corpus.documents:
             d = {"doc_id": doc.doc_id}
@@ -415,7 +413,7 @@ class PipelineRunner:
         return docs
 
     def _chunk_documents(self, corpus):
-        """Hodge-chunk each document."""
+        """Hodge chunk each document."""
         from agent.adapters.text import TextAdapter
         from agent.chunking import hodge_chunk
 
@@ -448,7 +446,7 @@ class PipelineRunner:
             "ranked": qr.ranked_sections,
         }
 
-        # Build context from top-ranked chunks (kappa-gated + quality-gated)
+        # Build context from top ranked chunks (kappa gated + quality gated)
         context_parts = []
         source_rex = None
         source_labels = []
@@ -461,7 +459,7 @@ class PipelineRunner:
                     # WAS `kappa > 0.5 or kappa > 0.2`, which is just `> 0.2`: two
                     # magic numbers where the second silently subsumed the first.
                     # Coherence is continuous, so the cutoff comes from the chunks'
-                    # OWN distribution: a data-adaptive Tukey lower fence, the same
+                    # OWN distribution: a data adaptive Tukey lower fence, the same
                     # convention engine.py and hive.py already use for outliers. With
                     # too few chunks to form quartiles, keep them all rather than
                     # inventing a number.

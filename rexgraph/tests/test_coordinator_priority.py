@@ -3,7 +3,7 @@ from rexgraph.coordinator import CostModel, assign, capacity, contention
 
 
 def _units(specs):
-    # specs: list of (type, weight); ids auto-assigned
+    # specs: list of (type, weight); ids auto assigned
     return [{"id": f"t{i}", "type": t, "weight": w} for i, (t, w) in enumerate(specs)]
 
 
@@ -15,8 +15,8 @@ def test_weight_absent_defaults_to_one_and_matches_old_behavior():
 
 
 def test_high_weight_task_keeps_the_fast_lane_when_a_lane_bottlenecks():
-    # Many gpu_kernel tasks bottleneck the igpu (parallelism 2). A high-weight one should stay on
-    # igpu (its best lane) while low-weight peers spill off.
+    # Many gpu_kernel tasks bottleneck the igpu (parallelism 2). A high weight one should stay on
+    # igpu (its best lane) while low weight peers spill off.
     cm = CostModel()
     specs = [("gpu_kernel", 1.0)] * 15 + [("gpu_kernel", 50.0)]
     u = _units(specs)

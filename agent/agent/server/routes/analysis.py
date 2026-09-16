@@ -82,9 +82,9 @@ async def stream_analysis(session_id: str, depth: str = "standard"):
 
 @router.get("/analysis/{session_id}/table")
 async def analysis_table(session_id: str, kind: str = "character"):
-    """A per-cell analysis table, through the canonical writer for its kind.
+    """A per cell analysis table, through the canonical writer for its kind.
 
-    `character` is the per-edge structural character; `persistence` is the diagram of
+    `character` is the per edge structural character; `persistence` is the diagram of
     the dimension filtration. Both come back as parquet, which is what the SQL bridge
     and the warehouse already read, rather than as a JSON list nothing else consumes.
     """

@@ -1,4 +1,4 @@
-"""rexgraph.mesh_health: draining-vs-circulating flow, loop localization, bottlenecks."""
+"""rexgraph.mesh_health: draining vs circulating flow, loop localization, bottlenecks."""
 import numpy as np
 import pytest
 
@@ -33,7 +33,7 @@ def test_healthy_flow_all_draining():
 
 
 def test_harmonic_health_splits_the_character():
-    # a triangle carries harmonic content; the readout is exact-structural
+    # a triangle carries harmonic content; the readout is exact structural
     rex = RexGraph.from_graph(np.array([0, 1, 2], np.int32), np.array([1, 2, 0], np.int32))
     hh = harmonic_health(rex, np.array([1.0, 1.0, 1.0]))
     assert hh["dim_H"] == 1
@@ -111,9 +111,9 @@ def test_reports_coherence_and_implied_groups():
         storm[calls.index((a, b))] += 220.0
     r = mh(calls, storm)
     assert r["coherence"] and all("kappa" in c and "node" in c for c in r["coherence"])
-    # least-coherent first (structural centrality ordering)
+    # least coherent first (structural centrality ordering)
     assert r["coherence"][0]["kappa"] <= r["coherence"][-1]["kappa"]
-    assert isinstance(r["implied_groups"], list)              # void-derived completion candidates
+    assert isinstance(r["implied_groups"], list)              # void derived completion candidates
 
 
 def test_early_warning_before_saturation():
@@ -128,13 +128,13 @@ def test_early_warning_before_saturation():
 
 
 def test_labels_dedup_and_selfloops():
-    edges = [("a", "b"), ("b", "c"), ("c", "a"),   # a 3-cycle
+    edges = [("a", "b"), ("b", "c"), ("c", "a"),   # a 3 cycle
              ("a", "b"),                            # duplicate -> aggregated
-             ("a", "a")]                            # self-loop -> dropped
+             ("a", "a")]                            # self loop -> dropped
     flow = [1.0, 1.0, 1.0, 1.0, 5.0]
     r = mh(edges, flow)
     assert r["n_nodes"] == 3
-    assert r["n_edges"] == 3                        # dup merged, self-loop gone
+    assert r["n_edges"] == 3                        # dup merged, self loop gone
     assert r["circulating"] > 0.0                   # a pure cycle circulates
     assert r["bottlenecks"]                          # centrality reported
 

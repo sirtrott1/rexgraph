@@ -1,7 +1,7 @@
 """The finetune module and phase: dep reporting, graceful degradation, phase wiring, A/B shape.
 
-The fine-tune itself needs the [finetune] extra (transformers/peft), which is not in the test
-env, so these verify the harness, the setup-driven wiring, and the clean-degradation contract."""
+The fine tune itself needs the [finetune] extra (transformers/peft), which is not in the test
+env, so these verify the harness, the setup driven wiring, and the clean degradation contract."""
 import pytest
 
 from agent import finetune, hive_config, lifecycle
@@ -30,7 +30,7 @@ def test_default_model_and_dataset():
 
 
 def test_load_data_point_at_anything(tmp_path):
-    # built-in
+    # built in
     assert len(finetune.load_data()) >= 8
     # jsonl instruction/response
     jl = tmp_path / "d.jsonl"
@@ -51,7 +51,7 @@ def test_load_data_point_at_anything(tmp_path):
 
 
 def test_finetune_graceful_without_deps(monkeypatch):
-    # force the deps-missing path deterministically
+    # force the deps missing path deterministically
     monkeypatch.setattr(finetune, "deps_available",
                         lambda: {"have": {}, "ready": False, "need": "pip install -e '.[finetune]'",
                                  "missing": ["transformers", "peft"]})
@@ -78,14 +78,14 @@ def test_finetune_phase_degrades_cleanly_and_reads_setup(monkeypatch):
 
 
 def test_finetune_ab_runs_both_optimizers(monkeypatch):
-    # stub the single-run trainer so we can verify the A/B orchestration without torch/transformers
+    # stub the single run trainer so we can verify the A/B orchestration without torch/transformers
     calls = []
 
     def fake_single(*, optimizer, on_step=None, label=None, steps=10, **kw):
         calls.append(optimizer)
         if on_step:
             on_step(label or optimizer, 0, 2.0, steps)
-        # hodge generalizes clearly better on the held-out eval here
+        # hodge generalizes clearly better on the held out eval here
         ev = 0.8 if optimizer == "hodge" else 1.2
         return {"optimizer": optimizer, "optimizer_class": optimizer.title(),
                 "loss_start": 2.0, "loss_final": 1.0, "eval_start": 2.0, "eval_final": ev,
@@ -97,14 +97,14 @@ def test_finetune_ab_runs_both_optimizers(monkeypatch):
     res = finetune.finetune_ab(optimizers=("hodge", "adam"), steps=3)
     assert calls == ["hodge", "adam"]
     assert len(res["ab"]) == 2
-    assert res["best"] == "hodge"                 # lower held-out EVAL loss wins the verdict
+    assert res["best"] == "hodge"                 # lower held out EVAL loss wins the verdict
     assert res["eval_losses"] == {"hodge": 0.8, "adam": 1.2}
     assert "hodge" in res["verdict"]              # a clear gap -> named winner, not "tie"
 
 
 def test_ab_reports_tie_within_noise(monkeypatch):
     def fake_single(*, optimizer, on_step=None, label=None, steps=10, **kw):
-        ev = 0.231 if optimizer == "hodge" else 0.230   # sub-1% gap = noise
+        ev = 0.231 if optimizer == "hodge" else 0.230   # sub 1% gap = noise
         return {"optimizer": optimizer, "optimizer_class": optimizer.title(),
                 "loss_final": 0.2, "eval_final": ev, "eval_start": 2.0,
                 "eval_trajectory": [2.0, ev], "trajectory": [2.0, 0.2], "adapter": None}
@@ -112,4 +112,4 @@ def test_ab_reports_tie_within_noise(monkeypatch):
                         lambda: {"have": {}, "ready": True, "need": "", "missing": []})
     monkeypatch.setattr(finetune, "finetune", fake_single)
     res = finetune.finetune_ab(optimizers=("hodge", "adam"), steps=2)
-    assert "tie" in res["verdict"]                 # a noise-level gap is called a tie
+    assert "tie" in res["verdict"]                 # a noise level gap is called a tie

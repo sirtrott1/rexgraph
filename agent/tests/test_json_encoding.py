@@ -3,7 +3,7 @@
 stream/explore/chat each carried their own copy that did `float(o)` for np.floating,
 and none of them ran for np.float64 at all (float subclass), so a NaN metric went out
 as a bare `NaN` token. Browsers reject that: JSON.parse throws, the SSE handler dies
-mid-analysis, and the route 500s. integrations already returned null for non-finite
+mid analysis, and the route 500s. integrations already returned null for non finite
 values: that is the policy the wire surfaces now share.
 """
 
@@ -47,7 +47,7 @@ def test_route_encoders_are_the_shared_one(module):
     out = fn(dict(PAYLOAD))
     assert out["kappa"] is None and out["ratio"] is None
     assert out["arr"] == [1.0, None]
-    # and it is genuinely the shared implementation, not another near-copy
+    # and it is genuinely the shared implementation, not another near copy
     assert json_sanitize(dict(PAYLOAD), nan="null") == out
 
 
@@ -57,7 +57,7 @@ def test_a_payload_survives_a_nonfinite_metric():
 
     Aimed at the encoder rather than at a caller of it. This used to go through
     `viz.dashboard._inject_data`, which is retired: the subject was always the shared
-    non-finite policy, and the dashboard was one way of reaching it.
+    non finite policy, and the dashboard was one way of reaching it.
     """
     from rexgraph.io._compat import dumps
 

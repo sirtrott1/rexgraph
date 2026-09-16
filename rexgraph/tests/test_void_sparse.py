@@ -2,7 +2,7 @@
 
 void_complex asked for the dense B1 (45.8 GB on a 40k-vertex complex) to recover two
 endpoint rows per relation, scanned every row of a dense B2 to find three relations
-per face, and built the whole harmonic basis to answer a question that is a face-space
+per face, and built the whole harmonic basis to answer a question that is a face space
 projection. These pin the replacements against the paths they replaced.
 """
 from __future__ import annotations
@@ -62,6 +62,19 @@ def test_a_filled_triangle_has_no_void():
     rex2 = _triangle()
     rex2.add_faces(np.array([[0, 1, 2]], dtype=np.int32))
     assert rex2.void_complex["n_voids"] == 0
+
+
+@pytest.mark.parametrize("filled", range(5))
+def test_native_void_state_matches_legacy_triangle_counts(filled):
+    from rexgraph.cells import CellSet
+    from rexgraph.void_state import void_state
+    rex = _k4()
+    faces = [[0, 3, 1], [0, 4, 2], [1, 5, 2], [3, 5, 4]]
+    if filled:
+        rex.add_faces(faces[:filled])
+    value = void_state(CellSet(rex, 1, range(rex.nE)))
+    assert value.n_voids == rex.void_complex["n_voids"]
+    assert value.strain == rex.void_complex["void_strain"]
 
 
 def test_void_columns_are_cycles():

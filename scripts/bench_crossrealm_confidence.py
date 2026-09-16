@@ -1,4 +1,4 @@
-"""Cross-realm agreement as a confidence signal."""
+"""Cross realm agreement as a confidence signal."""
 import os
 from itertools import combinations
 

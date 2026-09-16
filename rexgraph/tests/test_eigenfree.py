@@ -1,8 +1,8 @@
-"""Eigen-free / sparse kernel correctness - the layer the sparse-math refactor added.
+"""Eigen free / sparse kernel correctness - the layer the sparse math refactor added.
 
-Each test pins an in-repo eigen-free result against its dense oracle, so the
-matrix-free path cannot silently drift from the exact linear algebra it replaces.
-These are the in-repo home of the numeric checks the math verification scripts run.
+Each test pins an in repo eigen free result against its dense oracle, so the
+matrix free path cannot silently drift from the exact linear algebra it replaces.
+These are the in repo home of the numeric checks the math verification scripts run.
 """
 import numpy as np
 import pytest
@@ -18,14 +18,14 @@ def _rex(edges):
 
 # harmonic content present (independent cycles), no faces
 _COMPLEXES = [
-    [(0, 1), (1, 2), (2, 3), (0, 3), (1, 4), (4, 5), (2, 5)],   # two 4-cycles sharing an edge
+    [(0, 1), (1, 2), (2, 3), (0, 3), (1, 4), (4, 5), (2, 5)],   # two 4 cycles sharing an edge
     [(0, 1), (1, 2), (0, 2)],                                    # bare triangle
 ]
 
 
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_greens_diagonal_eigenfree_matches_dense_pinv(edges):
-    """diag(RL4^-1) via block-CG equals diag(pinv(RL4)) to machine precision."""
+    """diag(RL4^-1) via block CG equals diag(pinv(RL4)) to machine precision."""
     rex = _rex(edges)
     got = rex.greens_diagonal_eigenfree
     want = np.diag(np.linalg.pinv(np.asarray(rex.RL, dtype=float)))
@@ -35,7 +35,7 @@ def test_greens_diagonal_eigenfree_matches_dense_pinv(edges):
 
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_energy_character_is_rl4_row_energy(edges):
-    """Per-edge energy character equals diag(RL4^2) = row energies of RL4."""
+    """Per edge energy character equals diag(RL4^2) = row energies of RL4."""
     rex = _rex(edges)
     RL = np.asarray(rex.RL, dtype=float)
     np.testing.assert_allclose(rex.energy_character, (RL @ RL).diagonal(), atol=1e-9)
@@ -71,7 +71,7 @@ def test_attributed_curvature_matches_from_scratch_weighted_boundary(weights):
 
 
 def test_trace_moments_share_one_power_walk_matches_per_order():
-    """The moment engine [tr(X),..,tr(X^a)] from one incremental power walk equals per-order
+    """The moment engine [tr(X),..,tr(X^a)] from one incremental power walk equals per order
     trace_power, and the Renyi curve reads off it identically."""
     import scipy.sparse as sp
 
@@ -84,7 +84,7 @@ def test_trace_moments_share_one_power_walk_matches_per_order():
         assert abs(spg.renyi_from_moments(tm, a) - spg.renyi_entropy(A, a)) <= 1e-9 if a > 1 else True
 
 
-#### eigen-free heat propagation of signals (Chebyshev matvec) vs dense e^{-tL}
+#### eigen free heat propagation of signals (Chebyshev matvec) vs dense e^{-tL}
 def _dense_heat(L, f, t):
     w, V = np.linalg.eigh(np.asarray(L, dtype=float))
     return V @ (np.exp(-t * w) * (V.T @ f))
@@ -93,7 +93,7 @@ def _dense_heat(L, f, t):
 @pytest.mark.parametrize("edges", _COMPLEXES)
 @pytest.mark.parametrize("t", [0.1, 0.5, 2.0])
 def test_heat_apply_matches_dense_expm(edges, t):
-    """e^{-tL1} f via Chebyshev sparse mat-vecs (no eigendecomposition) equals the
+    """e^{-tL1} f via Chebyshev sparse mat vecs (no eigendecomposition) equals the
     dense eigendecomposition apply to Chebyshev tolerance, for any t."""
     from rexgraph import scale_propagator as spg
     rex = _rex(edges)
@@ -125,8 +125,8 @@ def test_heat_trajectory_shares_matvecs_and_matches_dense(edges):
 
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_heat_apply_block_matches_columnwise(edges):
-    """A block of signals (n, m) propagates as an spmm and equals column-by-column
-    single-signal propagation - the shape the multi-core/GPU path batches over."""
+    """A block of signals (n, m) propagates as an spmm and equals column by column
+    single signal propagation - the shape the multi-core/GPU path batches over."""
     from rexgraph import scale_propagator as spg
     rex = _rex(edges)
     L = rex.L1_sparse.tocsr()
@@ -146,11 +146,11 @@ def test_heat_t0_is_identity():
     np.testing.assert_allclose(spg.heat_apply(L, f, 0.0), f, atol=1e-12)
 
 
-#### eigen-free Betti (union-find + exact rational rank) == spectrum-derived Betti
+#### eigen free Betti (union find + exact rational rank) == spectrum derived Betti
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_betti_eigenfree_matches_spectral_bundle(edges):
-    """rex.betti (beta_0 union-find, rank(B_k) exact rational column reduction - no
-    SVD, no eigendecomposition) equals the spectral bundle's spectrum-derived betti."""
+    """rex.betti (beta_0 union find, rank(B_k) exact rational column reduction - no
+    SVD, no eigendecomposition) equals the spectral bundle's spectrum derived betti."""
     rex = _rex(edges)
     sb = rex.spectral_bundle
     spectral = (int(sb['beta0']), int(sb['beta1']), int(sb['beta2']))
@@ -158,19 +158,19 @@ def test_betti_eigenfree_matches_spectral_bundle(edges):
 
 
 def test_betti_eigenfree_on_faced_and_graded():
-    """Eigen-free betti on complexes WITH faces / higher grades matches the exact
-    topology: tetra shell (2-sphere) beta_2=1; filled disk beta_1=0."""
+    """Eigen free betti on complexes WITH faces / higher grades matches the exact
+    topology: tetra shell (2 sphere) beta_2=1; filled disk beta_1=0."""
     tetra = RexGraph.from_simplicial(
         np.array([0, 0, 0, 1, 1, 2]), np.array([1, 2, 3, 2, 3, 3]),
         np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]))
-    assert tetra.betti == (1, 0, 1)                 # hollow tetrahedron = 2-sphere
+    assert tetra.betti == (1, 0, 1)                 # hollow tetrahedron = 2 sphere
     # a single filled triangle (disk): beta_0=1, beta_1=0, beta_2=0
     disk = RexGraph.from_simplicial(np.array([0, 1, 0]), np.array([1, 2, 2]),
                                     np.array([[0, 1, 2]]))
     assert disk.betti == (1, 0, 0)
 
 
-#### live perturbation engines routed off dense eigh onto matrix-free Chebyshev
+#### live perturbation engines routed off dense eigh onto matrix free Chebyshev
 def _tetra_rex():
     return RexGraph.from_simplicial(
         np.array([0, 0, 0, 1, 1, 2]), np.array([1, 2, 3, 2, 3, 3]),
@@ -179,7 +179,7 @@ def _tetra_rex():
 
 def test_analyze_perturbation_is_eigenfree_and_matches_dense():
     """rex.analyze_perturbation now propagates via Chebyshev heat (no eigh(L1)); its
-    trajectory matches the dense spectral mode-sum, and the full pipeline result is
+    trajectory matches the dense spectral mode sum, and the full pipeline result is
     intact."""
     from rexgraph.core import _signal
     g = _tetra_rex()
@@ -196,7 +196,7 @@ def test_analyze_perturbation_is_eigenfree_and_matches_dense():
 
 def test_analyze_perturbation_field_diffusion_is_eigenfree():
     """rex.analyze_perturbation_field(mode='diffusion') evolves the graded field via
-    matrix-free Chebyshev on the SPARSE M (no dense (nE+nF)² eigendecomposition) and
+    matrix free Chebyshev on the SPARSE M (no dense (nE+nF)² eigendecomposition) and
     matches the dense field trajectory; wave mode still runs."""
     from rexgraph.core import _field
     g = _tetra_rex()
@@ -215,7 +215,7 @@ def test_analyze_perturbation_field_diffusion_is_eigenfree():
 
 
 def test_analyze_perturbation_field_wave_is_eigenfree():
-    """Wave-mode field perturbation now evolves positions AND velocities via matrix-free
+    """Wave mode field perturbation now evolves positions AND velocities via matrix free
     Chebyshev (cos(t√M) / -√M sin(t√M)) on the SPARSE M - no dense eigendecomposition -
     matching the dense wave_evolve_trajectory."""
     from rexgraph.core import _field
@@ -233,7 +233,7 @@ def test_analyze_perturbation_field_wave_is_eigenfree():
     assert "wave_total" in res
 
 
-#### dynamics-evolver reroutes: methods now matrix-free, no eigh
+#### dynamics evolver reroutes: methods now matrix free, no eigh
 @pytest.mark.parametrize("edges", _COMPLEXES)
 @pytest.mark.parametrize("t", [0.15, 0.9])
 def test_evolve_markov_matches_dense_expm(edges, t):
@@ -252,7 +252,7 @@ def test_evolve_markov_matches_dense_expm(edges, t):
 @pytest.mark.parametrize("t", [0.15, 0.9])
 def test_evolve_schrodinger_matches_dense_spectral(edges, t):
     """rex.evolve_schrodinger now applies e^{-iLt}=cos(tL)-i sin(tL) from one shared
-    Chebyshev vector set on the SPARSE L; equals the dense mode-sum (no eigh)."""
+    Chebyshev vector set on the SPARSE L; equals the dense mode sum (no eigh)."""
     from rexgraph.core import _transition
     g = _rex(edges)
     psi = np.arange(g.nE, dtype=float) - 2.0
@@ -281,7 +281,7 @@ def test_schrodinger_apply_matches_dense_modesum(t):
 
 
 def test_evolve_field_wave_edge_and_face_are_eigenfree():
-    """rex.evolve_field_wave / evolve_field_trajectory now evolve BOTH tiers matrix-free
+    """rex.evolve_field_wave / evolve_field_trajectory now evolve BOTH tiers matrix free
     (e^{-i RL1 t} psi_E, e^{-i L2 t} psi_F) against the exact eigh of the sparse
     operators - the face tier is genuinely propagated (no longer frozen when the dense
     L2 spectrum happens to be absent)."""
@@ -307,7 +307,7 @@ def test_evolve_field_wave_edge_and_face_are_eigenfree():
     np.testing.assert_allclose(eE, rE, atol=1e-10)
     np.testing.assert_allclose(eF, rF, atol=1e-10)
     np.testing.assert_allclose(eV, rV, atol=1e-10)
-    # trajectory form agrees timepoint-by-timepoint
+    # trajectory form agrees timepoint by timepoint
     times = np.array([0.0, 0.3, 0.9])
     tE, tF, tV = g.evolve_field_trajectory(psi_E.copy(), psi_F.copy(), times)
     for i, tt in enumerate(times):
@@ -317,8 +317,8 @@ def test_evolve_field_wave_edge_and_face_are_eigenfree():
 
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_spectral_channel_score_is_eigenfree(edges):
-    """rex.spectral_channel_score = sourceᵀ RL4⁺ target now via one block-CG solve
-    (RL4 full-rank SPD ⇒ RL4⁺=RL4⁻¹); equals the dense eigenmode sum, no eigh."""
+    """rex.spectral_channel_score = sourceᵀ RL4⁺ target now via one block CG solve
+    (RL4 full rank SPD ⇒ RL4⁺=RL4⁻¹); equals the dense eigenmode sum, no eigh."""
     from rexgraph.core import _channels
     rex = _rex(edges)
     rng = np.random.default_rng(2)
@@ -336,7 +336,7 @@ def test_spectral_channel_score_is_eigenfree(edges):
 ])
 def test_primal_signal_character_is_eigenfree(edges):
     """rex.primal_signal_character = [psiᵀ hat_X⁺ psi] now via LSQR pseudoinverse
-    quadratic forms on the sparse hats; equals the dense per-channel eigenmode
+    quadratic forms on the sparse hats; equals the dense per channel eigenmode
     pseudoinverse (no hat_eigen bundle)."""
     from rexgraph.core import _channels
     rex = _rex(edges)
@@ -376,18 +376,18 @@ def test_primal_signal_character_kernel_guards_arity():
 
 
 def test_sparse_betti_is_arity_aware_for_branching_hyperedges():
-    """Regression: the sparse bundle-slot Betti used a one-source/one-target column reader that
-    assumed arity-2 and overcounted beta0 on branching hyperedges. It must equal exact .betti."""
+    """Regression: the sparse bundle slot Betti used a one-source/one-target column reader that
+    assumed arity 2 and overcounted beta0 on branching hyperedges. It must equal exact .betti."""
     import scipy.sparse as sp
 
     from rexgraph.core._laplacians import _sparse_betti
-    # {0,1,2} is a branching (arity-3) 1-cell; {2,3},{3,4},{4,2} form a triangle
+    # {0,1,2} is a branching (arity 3) 1 cell; {2,3},{3,4},{4,2} form a triangle
     ptr = np.array([0, 3, 5, 7, 9]); idx = np.array([0, 1, 2, 2, 3, 3, 4, 4, 2])
     g = RexGraph.from_hypergraph(ptr, idx)
     exact = tuple(int(b) for b in g.betti[:3])
     B1 = sp.csr_matrix(np.asarray(g.B1, dtype=float))
     b0, b1, b2, rank_B1, rank_B2 = _sparse_betti(B1, None, g.nV, g.nE, g.nF)
-    assert (b0, b1, b2) == exact          # arity-aware: matches the exact path exactly
+    assert (b0, b1, b2) == exact          # arity aware: matches the exact path exactly
 
 
 def test_alpha_G_is_exact_c2_on_complete_graphs():
@@ -403,7 +403,7 @@ def test_alpha_G_is_exact_c2_on_complete_graphs():
                                      np.array([e[1] for e in E], np.int32), Tr)
         b = g.spectral_bundle
         assert abs(b['alpha_G'] - (k - 2) / 2) < 1e-9, (k, b['alpha_G'])
-        # edge-space operators are built on demand on the scale-free path (bundle keys
+        # edge space operators are built on demand on the scale free path (bundle keys
         # are None); the accessors give the same L1_down / L1_up / RL_1 = L1_down + c^2 L1_up.
         Ld, Lu = np.asarray(g.L1_down), np.asarray(g.L1_up)
         RL1 = np.asarray(g.relational_laplacian)
@@ -414,8 +414,8 @@ def test_alpha_G_is_exact_c2_on_complete_graphs():
 
 
 def test_sparse_alpha_G_matches_dense_cheap_exact():
-    """cheap+exact alpha_G = c^2 = G/T on the scale-free path equals the dense oracle (both are the
-    exact integer-trace exchange rate, no eigensolve). Was NaN in sparse mode before."""
+    """cheap+exact alpha_G = c^2 = G/T on the scale free path equals the dense oracle (both are the
+    exact integer trace exchange rate, no eigensolve). Was NaN in sparse mode before."""
     import rexgraph.core._common as common
     saved = common.get_algorithm_config()['eigen_dense_limit']
     try:
@@ -433,7 +433,7 @@ def test_sparse_alpha_G_matches_dense_cheap_exact():
 
 
 def test_sparse_edge_fiedler_eigenpair_matches_dense():
-    """cheap+exact edge Fiedler eigenpair (value + vector, DEDICATED keys) on the scale-free path
+    """cheap+exact edge Fiedler eigenpair (value + vector, DEDICATED keys) on the scale free path
     matches the dense oracle; the vector satisfies L1 v = lambda v."""
     import scipy.sparse as sp
 
@@ -443,7 +443,7 @@ def test_sparse_edge_fiedler_eigenpair_matches_dense():
     try:
         for edges in _COMPLEXES + [[(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)]]:
             # the L1 Fiedler eigenpair is a LAZY accessor (edge_fiedler), not eagerly in the bundle
-            # (that ARPACK solve was the dominant cost of a large-hive monitor step). Verify it is a
+            # (that ARPACK solve was the dominant cost of a large hive monitor step). Verify it is a
             # true eigenpair of L1 and equals the smallest nonzero eigenvalue of the dense L1.
             gs = _rex(edges)
             lam, v = gs.edge_fiedler
@@ -461,15 +461,15 @@ def test_sparse_edge_fiedler_eigenpair_matches_dense():
 
 
 def test_scale_free_never_fills_full_spectrum_keys_with_partial():
-    """Regression: the scale-free (sparse) fill must NOT put PARTIAL low modes under the
-    FULL-spectrum keys. A full-eigenbasis consumer (measure_in_eigenbasis) reads those keys and
+    """Regression: the scale free (sparse) fill must NOT put PARTIAL low modes under the
+    FULL spectrum keys. A full eigenbasis consumer (measure_in_eigenbasis) reads those keys and
     would silently truncate. In sparse mode they stay None, and the consumer rebuilds the SAME full
     RL_1 = L1_down + c^2 * L1_up on demand, so the operator it measures over is identical to the
     dense path's.
 
     (measure_in_eigenbasis itself ends in np.random.choice, so its returned probability is a random
     draw and cannot be compared across two decompositions, and RL_1 here is degenerate, so two
-    eigenbases need not agree mode-for-mode. The deterministic, degeneracy-robust invariant is that
+    eigenbases need not agree mode for mode. The deterministic, degeneracy robust invariant is that
     the OPERATOR and its full spectrum are the same either way.)"""
     import itertools
 
@@ -483,7 +483,7 @@ def test_scale_free_never_fills_full_spectrum_keys_with_partial():
         gd = RexGraph.from_simplicial(*args)
         common.configure_algorithms(eigen_dense_limit=1)
         gs = RexGraph.from_simplicial(*args); nE = gs.nE
-        # (a) sparse mode never stores PARTIAL vectors under a full-spectrum key
+        # (a) sparse mode never stores PARTIAL vectors under a full spectrum key
         for key in ('evecs_RL_1', 'evecs_L1', 'evecs_L2'):
             v = gs.spectral_bundle.get(key)
             assert v is None or np.asarray(v).shape[1] == nE   # full or absent, never partial
@@ -502,7 +502,7 @@ def test_scale_free_never_fills_full_spectrum_keys_with_partial():
 
 
 class TestSingularGreensDeflated:
-    """diag(L+) for a SINGULAR edge operator via harmonic-projector deflation
+    """diag(L+) for a SINGULAR edge operator via harmonic projector deflation
     L+ = (L + P_H)^-1 - P_H. The plain greens_diagonal (SPD RL4) blows up
     on a kernel; the deflated form must match the dense pseudoinverse to ~1e-9 using
     only the combinatorial harmonic/cycle basis (no eigendecomposition)."""
@@ -513,7 +513,7 @@ class TestSingularGreensDeflated:
         return sp.csr_matrix(B1.T @ B1)
 
     def test_matches_dense_pinv_two_squares(self):
-        # oracle-09 complex: two 4-cycles sharing an edge, no faces, beta1 = 2
+        # oracle 09 complex: two 4 cycles sharing an edge, no faces, beta1 = 2
         from rexgraph.harmonic_sparse import cycle_basis
         from rexgraph.scale_propagator import greens_diagonal_deflated
         E = [(0, 1), (1, 2), (2, 3), (3, 0), (1, 4), (4, 5), (5, 2)]
@@ -558,9 +558,9 @@ class TestSingularGreensDeflated:
 
 
 class TestMalaughActionMoment:
-    """The Malaugh action<->moment calculus: per-complex edge moments
+    """The Malaugh action<->moment calculus: per complex edge moments
     X(k) (all O(nnz) traces, no eigendecomposition), and the discrete calculus
-    moment DX(k)=X(k+1)-X(k) / action S(k)=sum_{j<=k}X(j) conjugate by the scale-FTC."""
+    moment DX(k)=X(k+1)-X(k) / action S(k)=sum_{j<=k}X(j) conjugate by the scale FTC."""
 
     def _Kk(self, k):
         import itertools
@@ -574,7 +574,7 @@ class TestMalaughActionMoment:
         for k in range(3, 9):
             q = malaugh_quantities(self._Kk(k))
             assert abs(q['c2_E'] - (k - 2) / 2) < 1e-9       # energy coupling = (k-2)/2
-            assert abs(q['H_T'] - np.log(k - 1)) < 1e-9      # harmonic-log = log(k-1)
+            assert abs(q['H_T'] - np.log(k - 1)) < 1e-9      # harmonic log = log(k-1)
 
     def test_action_moment_ftc_conjugacy(self):
         from rexgraph.scale_propagator import action_moment, malaugh_quantities
@@ -594,7 +594,7 @@ class TestMalaughActionMoment:
         assert np.all(np.diff(m) < 0)                        # strictly decreasing increments
 
     def test_action_moment_vector_tower(self):
-        # per-step vector towers difference/accumulate along axis 0
+        # per step vector towers difference/accumulate along axis 0
         from rexgraph.scale_propagator import action_moment
         X = np.array([[1.0, 2.0], [3.0, 5.0], [6.0, 9.0]])
         am = action_moment(X)
@@ -603,8 +603,8 @@ class TestMalaughActionMoment:
 
 
 class TestChannelSpectralGaps:
-    """The exact per-channel spectral-gap METRIC lambda_2. T/G use the transpose duality
-    (exact vertex-dual Fiedler); it must match the dense hat eigen-gap, and drive an
+    """The exact per channel spectral gap METRIC lambda_2. T/G use the transpose duality
+    (exact vertex dual Fiedler); it must match the dense hat eigen gap, and drive an
     exact per_channel_mixing_times."""
 
     def _Kk(self, k):
@@ -633,7 +633,7 @@ class TestChannelSpectralGaps:
             assert abs(mt[i] - np.log(g.nE) / gaps[nm]) < 1e-6
 
     def test_transpose_duality_exact_T_G(self):
-        # T/G gap == lambda_2 of the tiny vertex-dual Laplacian / trace (exact)
+        # T/G gap == lambda_2 of the tiny vertex dual Laplacian / trace (exact)
         g = self._Kk(6)
         B1 = np.asarray(g.B1, float)
         for nm, M in (('L1_down', B1 @ B1.T), ('L_O', np.abs(B1) @ np.abs(B1).T)):
@@ -643,7 +643,7 @@ class TestChannelSpectralGaps:
 
 
 class TestRelaxationMomentTower:
-    """The edge-centric relaxation entry point = the moment tower (not the Fiedler
+    """The edge centric relaxation entry point = the moment tower (not the Fiedler
     metric). Bundled quantities are consistent with their standalone accessors and
     finite on branching hyperedges."""
 

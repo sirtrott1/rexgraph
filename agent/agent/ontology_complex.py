@@ -76,7 +76,7 @@ def parse_rdf(triples: list[tuple[str, str, str]]) -> OntologyModel:
 
 def ontology_to_rex(model: OntologyModel):
     """Build the typed complex: subsumption/object edges + definition faces
-    (bigons for equivalent/symmetric, k-gons for multi-relation definitions).
+    (bigons for equivalent/symmetric, k-gons for multi relation definitions).
     Returns ``(rex_or_None, meta)``."""
     names = model.class_names()
     idx = {n: i for i, n in enumerate(names)}
@@ -174,10 +174,10 @@ def subsumption_cycles(model: OntologyModel) -> int:
     Restricting to `kind == "gradient"` asks the question the verdict actually
     depends on: is there a cycle in the hierarchy itself. Parallel edges between the
     same pair are collapsed first, since two files asserting one subsumption is one
-    relation and would otherwise read as a 2-cycle.
+    relation and would otherwise read as a 2 cycle.
 
     A cycle that a definition closes is still not an inconsistency, so the definition
-    faces are carried into the sub-complex and beta_1 is taken there. `C subClassOf
+    faces are carried into the sub complex and beta_1 is taken there. `C subClassOf
     A`, `C subClassOf B`, `A subClassOf B` with `C = A and B` is a triangle entirely
     inside the hierarchy and entirely bounded: the face fills it and beta_1 is 0.
     A definition needing a relation that is not subsumption cannot be built here, and

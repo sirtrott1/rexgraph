@@ -210,7 +210,7 @@ def run(p: Plan, *, limit: int | None = None, persist: bool = True,
     """Ingest, build, persist and index, on the plan's own terms.
 
     Returns the corpus and the store. The store is indexed before returning, so the
-    next process to open it memory-maps rather than replaying: with the pipeline
+    next process to open it memory maps rather than replaying: with the pipeline
     ending here, that is the one moment it is certainly worth paying for.
     """
     import time
@@ -236,7 +236,7 @@ def run(p: Plan, *, limit: int | None = None, persist: bool = True,
         ids = corpus.persist(store)
         if hasattr(store, "write_index"):
             # the pipeline ends here, so this is the moment the snapshot is
-            # certainly worth its cost: every later open memory-maps instead.
+            # certainly worth its cost: every later open memory maps instead.
             store.write_index()
     return {
         "corpus": corpus, "store": store, "ids": ids,

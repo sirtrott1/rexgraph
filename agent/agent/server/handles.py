@@ -1,5 +1,5 @@
 """
-agent.server.handles: workspace-scoped file handles.
+agent.server.handles: workspace scoped file handles.
 
 The tools take files. If a file is named by its path, then whoever can call a tool can
 read any file the server process can read, and `files: ["/etc/passwd"]` is a valid
@@ -15,7 +15,7 @@ inside one directory rather than a decision about a path:
 A handle from another workspace does not resolve, because it is not there. That is the
 whole isolation argument: no comparison to get wrong, no traversal to normalise, and
 knowing another tenant's digest buys nothing. Identical bytes uploaded twice cost one
-copy, and a handle is stable across re-upload.
+copy, and a handle is stable across re upload.
 
 Local use is unchanged. With auth off the server is a single operator on their own
 machine, where naming a file by path is the point, so paths pass through. With auth on
@@ -34,7 +34,7 @@ from pathlib import Path
 _HANDLE_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 
 #: workspace names become directory names, so they are held to the same rule.
-#: A dot is NOT permitted, which looks over-strict for a name and is not: the
+#: A dot is NOT permitted, which looks over strict for a name and is not: the
 #: previous class allowed one, so "." and ".." were valid workspaces and resolved
 #: to the parent of the workspace root. That is a namespace two tenants share and
 #: neither asked for. There is exactly one rule and it lives here, because the
@@ -64,7 +64,7 @@ def allowed_roots() -> list[str]:
 
 
 def path_allowed(path: str) -> bool:
-    """Whether a caller-supplied path may be read or written."""
+    """Whether a caller supplied path may be read or written."""
     return path_within(path, allowed_roots())
 
 
@@ -77,15 +77,15 @@ def path_within(path: str, roots) -> bool:
     which is the question actually being asked.
 
     The deployment's own config directory is refused even when it falls inside an
-    allowed root, because the common allow-list includes a home directory and that is
-    where auth.json, connections.json and the audit journal live. An allow-list whose
-    widest entry contains the credential store is not an allow-list.
+    allowed root, because the common allow list includes a home directory and that is
+    where auth.json, connections.json and the audit journal live. An allow list whose
+    widest entry contains the credential store is not an allow list.
     """
     try:
         # expanduser BEFORE resolving, because every sink downstream expands it:
         # models/store.py mkdirs os.path.expanduser(path) and models/data.py reads it.
         # Path.resolve() leaves "~" alone, so "~/x" resolved to "<cwd>/~/x", passed as
-        # inside the allow-list, and then wrote to the real home directory. Fired: a
+        # inside the allow list, and then wrote to the real home directory. Fired: a
         # save_to of "~/x" put 3.6 MB of weights in $HOME.
         #
         # Environment variables are deliberately NOT expanded, because the sinks do not
@@ -170,7 +170,7 @@ def mint(workspace: str, data: bytes, *, name: str = "",
          max_bytes: int = DEFAULT_MAX_FILE) -> dict:
     """Store bytes for a workspace and return the handle that names them.
 
-    Content-addressed, so storing the same bytes twice returns the same handle and
+    Content addressed, so storing the same bytes twice returns the same handle and
     keeps one copy. The original filename is kept beside the content as a label: it is
     reported back to the caller and never used to build a path.
     """
@@ -293,7 +293,7 @@ def resolve_inputs(workspace: str, files, *, auth_enabled: bool) -> list[str]:
 
     The single gate every tool that reads files goes through. A caller that sends a
     path where paths are not allowed gets told that it is a handle that is wanted,
-    rather than a file-not-found that would confirm whether the path exists.
+    rather than a file not found that would confirm whether the path exists.
     """
     if isinstance(files, (str, bytes)):
         files = [files]

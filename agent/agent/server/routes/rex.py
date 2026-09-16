@@ -1,5 +1,5 @@
 """
-agent.server.routes.rex: the rexgraph-native surface, over HTTP with binary bodies.
+agent.server.routes.rex: the rexgraph native surface, over HTTP with binary bodies.
 
 HTTP is the transport because it already has the parts worth not rebuilding: proxies,
 TLS, auth headers, status codes. What it carries is the layered binary a complex is
@@ -160,7 +160,7 @@ async def verify(request: Request, token: TokenEntry = Depends(require_auth)):
     """Check a frame and report what it carries, without keeping it.
 
     The cheapest useful call: a client that wants to know whether what it holds is a
-    well-formed complex, and which one, before deciding to store it.
+    well formed complex, and which one, before deciding to store it.
     """
     from rexgraph.protocol import fingerprint
 
@@ -170,7 +170,7 @@ async def verify(request: Request, token: TokenEntry = Depends(require_auth)):
     frame = await _frame(request)
     try:
         # the concurrency slot and the deadline are the budget middleware's, taken for
-        # every route. What is frame-specific is the SIZE, which is read off the header
+        # every route. What is frame specific is the SIZE, which is read off the header
         # before the complex is built, so it is checked here.
         check_size(frame.header)
         rex = _rebuild(frame)
@@ -205,7 +205,7 @@ async def store(request: Request, token: TokenEntry = Depends(require_auth)):
         meta = dict(frame.header.get("meta") or {})
         meta["workspace"] = ctx.workspace
         meta["stored_by"] = ctx.identity
-        # random rather than sequential or clock-derived: an id that can be guessed
+        # random rather than sequential or clock derived: an id that can be guessed
         # from the one before it makes the ownership check the only thing between a
         # caller and every record in the store
         record_id = f"rx_{secrets.token_hex(8)}"
@@ -252,7 +252,7 @@ async def fetch(record_id: str, request: Request,
 async def upload(request: Request, token: TokenEntry = Depends(require_auth)):
     """Take bytes and return the handle that names them.
 
-    The way a file enters a workspace. Content-addressed, so the same file uploaded
+    The way a file enters a workspace. Content addressed, so the same file uploaded
     twice is one copy under one handle.
     """
     from .. import audit

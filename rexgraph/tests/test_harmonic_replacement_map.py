@@ -2,7 +2,7 @@
 
 `rexgraph/core/_harmonic.pyx` builds a dense nE x nE L1 and eigendecomposes it
 against a hardcoded cutoff. Every part of it that had a live purpose has an
-eigen-free replacement, and this file is the mapping, executable so it cannot
+eigen free replacement, and this file is the mapping, executable so it cannot
 drift:
 
     _harmonic.harmonic_basis        harmonic_sparse.harmonic_basis
@@ -16,10 +16,10 @@ The dense module survives as the ORACLE these are checked against, which is what
 `test_harmonic_sparse.py` uses it for, and as the dependency of the unreferenced
 `rexgraph/harmonic.py`.
 
-Two of its functions have no replacement and want none. The prime-coupling
+Two of its functions have no replacement and want none. The prime coupling
 experiments have no equivalent anywhere. And `harmonic_channel_character`
 averages over the chosen basis vectors and then thresholds `np.std(chi_H) < 0.02`,
-so it is basis-dependent and decides from a statistic against a magic number,
+so it is basis dependent and decides from a statistic against a magic number,
 which is two standing directives at once.
 """
 
@@ -54,7 +54,7 @@ def _dense(r):
 
 def test_the_sparse_frame_spans_what_the_eigendecomposition_returns():
     """Different bases, one space. That is all that can be asked, and it is what
-    matters: the projector is basis-free."""
+    matters: the projector is basis free."""
     for n in (4, 5, 6):
         r = _k(n)
         _, _, projs = _dense(r)
@@ -94,7 +94,7 @@ def test_decode_is_the_gram_solve_and_the_dense_form_is_the_special_case():
     dense_vec = U @ densemod.harmonic_decode(f, U)
     frame_vec = from_harmonic_coords(r, harmonic_coords(r, f, frame=H), frame=H)
     assert np.allclose(dense_vec, frame_vec, atol=1e-9)
-    # and the naive U^T on the non-orthonormal frame is NOT the coordinate
+    # and the naive U^T on the non orthonormal frame is NOT the coordinate
     Hd = np.asarray(H.todense())
     assert not np.allclose(Hd.T @ f, harmonic_coords(r, f, frame=H), atol=1e-6)
 
@@ -113,7 +113,7 @@ def test_leakage_is_the_hodge_split_without_three_dense_projectors():
 
 def test_the_product_table_is_harmonic_closure():
     """Same object. The closure entries are read against whichever frame is used,
-    so the shapes match and the numbers are frame-relative; the projector test
+    so the shapes match and the numbers are frame relative; the projector test
     above is what pins the space they both live in."""
     r = _k(5)
     B1, B2, _ = _dense(r)
@@ -128,7 +128,7 @@ def test_only_the_dead_module_still_imports_the_dense_one():
     """If this fails, something new took a dependency on the eigen path."""
     import pathlib
 
-    # Anchored to this file, not the caller's cwd. Relative roots plus a skip-if-absent
+    # Anchored to this file, not the caller's cwd. Relative roots plus a skip if absent
     # meant that running the suite from anywhere but the repository root scanned nothing
     # and passed, so the guard stopped guarding without ever failing.
     repo = pathlib.Path(__file__).resolve().parents[2]

@@ -13,7 +13,7 @@ __all__ = ["COMMIT_VERSION", "CommitLink"]
 
 @dataclass(frozen=True)
 class CommitLink:
-    """Place one transition in an append-only lineage."""
+    """Place one transition in an append only lineage."""
 
     transition_digest: str
     parent_digest: str | None = None
@@ -34,7 +34,7 @@ class CommitLink:
         return manifest_digest({"object_type": "CommitLink", **self.manifest()})
 
     def signing_bytes(self) -> bytes:
-        """Return domain-separated bytes covered by a lineage signature."""
+        """Return domain separated bytes covered by a lineage signature."""
         return canonical_json({"digest": self.digest, "object_type": "CommitLink"})
 
     def signed(self, signer: Signer) -> CommitLink:

@@ -6,12 +6,12 @@ rexgraph.core._channel_tower: the four channel diagonals at ANY arity, in O(nnz)
 `sparse_character.channel_diagonals` already reads these in closed form, and says
 exactly where it stops: the derivation is exact "for a SIGNED PAIRWISE UNWEIGHTED
 complex and only there", because a branching column carries -1 and 1/(k-1), so an
-off-diagonal T-G entry is not |s_e s_j - 1| and F is not a disagreement count. So
-`closed_form_applies` refuses anything non-binary and the caller assembles instead,
+off diagonal T-G entry is not |s_e s_j - 1| and F is not a disagreement count. So
+`closed_form_applies` refuses anything non binary and the caller assembles instead,
 which is the case a relational complex is built for.
 
 What the disagreement count was standing in for is a MAGNITUDE, and accumulating the
-magnitude works at every arity. Both off-diagonal channels are sums over pairs that
+magnitude works at every arity. Both off diagonal channels are sums over pairs that
 share a vertex, and a pair contributes only there, so the sum reorders onto the vertex
 and the pairs never have to be formed:
 
@@ -39,7 +39,7 @@ call is the transpose. It is a counting sort with scattered writes and that is s
 what it costs; a vectorised argsort form was measured at 1938 ms, ten times SLOWER.
 The incidence does not change between readings of the same complex, so `transposed`
 is an argument: build it once with `transpose_incidence` and hand it back. Nothing here
-caches it, because the complex carries __slots__ and an identity-keyed cache would
+caches it, because the complex carries __slots__ and an identity keyed cache would
 invalidate on the wrong thing.
 
 PARALLELISM NEEDS THE INCIDENCE TRANSPOSED. Accumulating straight into the vertex
@@ -52,11 +52,17 @@ system that does far more, so it is latency on scattered access that is being pa
 which is what the transpose removes.
 
 WEIGHTING IS NOT UNIFORM ACROSS THE CHANNELS, and following the tower matters more
-than being consistent. T and G scale by w_e^2 and F by w_e w_f, because G is T's
-unsigned twin and has to carry the same per-relation metric or diag(T) != diag(G) at
-any w != 1 and the identity F is defined by breaks. C stays UNWEIGHTED: co-participation
+than being consistent. T and G diagonals scale by w_e^2 and F's diagonal by |w_e w_f|, because G is T's
+unsigned twin and has to carry the same per relation metric or diag(T) != diag(G) at
+any w != 1 and the identity F is defined by breaks. C stays UNWEIGHTED: co participation
 is a topological fact about which relations meet, not a geometric one. So the vertex
 mass is kept twice, weighted for F and unweighted for C.
+
+The weight magnitudes are read before accumulation. Orientation is still the sign of
+the B1 coefficient, not the scalar weight sign. For raw G and distinct participants,
+T[e,f]-G[e,f] = -2*w_e*w_f*sum_disagree |c_e[v] c_f[v]|, so its absolute value
+uses |w_e|*|w_f|. This does not replace signed weights in storage or in full T/G/F
+operators. The identity is rational on rational data; this kernel evaluates in float64.
 """
 
 from __future__ import annotations
@@ -94,7 +100,7 @@ cdef inline void _vertex_mass(const int32_t* bp, const int32_t* ow,
 
 cdef inline void _bucket_offsets(int64_t* h, Py_ssize_t v, Py_ssize_t nV,
                                 int nthr, int64_t start) noexcept nogil:
-    """Turn one bucket's per-thread counts into per-thread write cursors, in place.
+    """Turn one bucket's per thread counts into per thread write cursors, in place.
 
     In a helper for the same reason `_vertex_mass` is: prange sees an assignment here
     rather than `run += c`, which it would otherwise infer as a reduction over the
@@ -124,9 +130,9 @@ def transpose_incidence(np.ndarray boundary_ptr not None,
     magnitudes per vertex, so reordering a bucket changes the last bits. Each thread
     takes a contiguous range of RELATIONS, hence a contiguous range of entries, so
     thread t's entries all precede thread t+1's inside every bucket and the result is
-    byte-identical to the serial fill.
+    byte identical to the serial fill.
 
-    Threads are capped so the per-thread histogram never exceeds the array it is
+    Threads are capped so the per thread histogram never exceeds the array it is
     permuting: `nthr <= nnz // nV`. That is a comparison between two sizes the caller
     already has and not a memory budget someone picked, and it matters because the
     histogram is `nthr x nV` while the data is `nnz`.
@@ -217,7 +223,9 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
 
     `boundary_ptr`/`boundary_idx` are the CSC support of B1: relation e spans
     ``boundary_idx[boundary_ptr[e]:boundary_ptr[e+1]]``, its first entry the head.
-    `w_E` is the per-relation weight, or None for the unweighted tower.
+    `w_E` is the per relation weight (signed or zero allowed), or None when unweighted.
+    These diagonals read its magnitude without modifying the supplied array. The
+    incidence must name distinct participants within each relation.
 
     `threads` sets the parallel width; 1 keeps the serial path. `transposed` accepts a
     previously built `transpose_incidence` result, since the incidence does not change
@@ -229,7 +237,7 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
     cdef int32_t[::1] bi = np.ascontiguousarray(boundary_idx, dtype=np.int32)
     cdef Py_ssize_t nE = bp.shape[0] - 1
     cdef np.ndarray[double, ndim=1] w = (np.ones(nE, dtype=np.float64) if w_E is None
-                                         else np.ascontiguousarray(w_E, dtype=np.float64))
+                                      else np.abs(np.ascontiguousarray(w_E, dtype=np.float64)))
     cdef double[::1] wv = w
 
     cdef np.ndarray[double, ndim=1] T = np.zeros(nE, dtype=np.float64)

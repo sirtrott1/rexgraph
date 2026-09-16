@@ -20,7 +20,7 @@ from system.state import sources
 
 app = FastAPI(title="RexGraph System", version="0.1.0")
 
-_FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend"
+_FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 
 class QueryRequest(BaseModel):
@@ -31,8 +31,12 @@ class QueryRequest(BaseModel):
 def _result_payload(result):
     return {
         "values": [json_value(value) for value in result.values],
+        "aliases": list(result.aliases),
         "plan": list(result.plan),
         "exactness": [item.value for item in result.exactness],
+        "native_plan": json_value(result.native_plan),
+        "provenance": json_value(result.provenance),
+        "execution": json_value(result.execution),
         "rewrites": [
             {
                 "before": format_expr(item.before),

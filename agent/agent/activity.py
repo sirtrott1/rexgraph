@@ -1,4 +1,4 @@
-"""agent.activity: the activity log + model-usage registry, backed by a local journal.
+"""agent.activity: the activity log + model usage registry, backed by a local journal.
 
 Every action by every entity, across granularities (network / hive / team / worker / model), is
 recorded here as a timestamped event. And every time a model is used, a use is opened and closed, so
@@ -6,10 +6,10 @@ the registry knows when a model was instantiated, what it is being used for, how
 and, critically, how many things are using it CONCURRENTLY right now. This is the real data the logs,
 the runtime readouts, and the usage portal read from; nothing in the UI is faked on top of it.
 
-The log is process-local memory PLUS a write-through append-only journal on disk (JSONL). That file
+The log is process local memory PLUS a write through append only journal on disk (JSONL). That file
 is the event bus: any local process (a CLI, a worker, another agent) that records an event appends a
 line: no server, no HTTP, no token needed to WRITE. A process that wants to OBSERVE the whole machine
-(the web server) warm-loads the journal tail on startup and then tails it, folding every other
+(the web server) warm loads the journal tail on startup and then tails it, folding every other
 process's events into its own log and pushing them to the live (SSE) UI. So a `rexgraph-*` command in
 one terminal shows up live in the GUI running in another: they share the file, not a socket.
 
@@ -41,8 +41,8 @@ logger = logging.getLogger(__name__)
 
 _SCOPES = ("network", "hive", "team", "worker", "model")
 
-# A per-process id stamped on every journal line, so a tailer can tell its OWN writes (already in its
-# in-memory log) from a peer process's writes (which it must fold in). Random per process start.
+# A per process id stamped on every journal line, so a tailer can tell its OWN writes (already in its
+# in memory log) from a peer process's writes (which it must fold in). Random per process start.
 _SRC = uuid.uuid4().hex[:8]
 
 _OFF_VALUES = {"", "off", "none", "0", "false", "no"}
@@ -55,7 +55,7 @@ def _scope_of(entity: str) -> str:
 
 
 def _journal_default() -> Path | None:
-    """Where the journal lives, honoring the opt-out. Mirrors the config-dir convention used by auth."""
+    """Where the journal lives, honoring the opt out. Mirrors the config dir convention used by auth."""
     env = os.environ.get("REXGRAPH_ACTIVITY_JOURNAL")
     if env is not None:
         if env.strip().lower() in _OFF_VALUES:
@@ -97,7 +97,7 @@ class Event:
     def public(self) -> dict:
         out = {"ts": round(self.ts, 3), "entity": self.entity, "scope": self.scope,
                "action": self.action, "detail": self.detail}
-        # only when known, so a journal line for an unoriented event is byte-identical
+        # only when known, so a journal line for an unoriented event is byte identical
         # to the ones already on disk and an old reader is unaffected
         if self.on:
             out["on"] = self.on
@@ -107,9 +107,9 @@ class Event:
 
 
 class ActivityLog:
-    """Append-only event log + open/closed model uses, thread- AND process-safe.
+    """Append only event log + open/closed model uses, thread- AND process safe.
 
-    In-process concurrency (workers run on threads) is guarded by a lock; cross-process concurrency
+    In process concurrency (workers run on threads) is guarded by a lock; cross process concurrency
     (many `rexgraph-*` processes writing the one journal) rides on POSIX O_APPEND, which makes each
     single small write() atomic, so lines never interleave.
     """
@@ -127,8 +127,8 @@ class ActivityLog:
         self._tail_thread: threading.Thread | None = None
         self._tail_stop: threading.Event | None = None
         self._tail_from: int = 0
-        # append-only journaling is on by default so ANY process's events reach a watching server;
-        # warm-load + tailing (observing peers) stay opt-in (the server turns them on). Never fatal.
+        # append only journaling is on by default so ANY process's events reach a watching server;
+        # warm load + tailing (observing peers) stay opt in (the server turns them on). Never fatal.
         try:
             self.enable_journal(warm=False, tail=False)
         except Exception:
@@ -146,7 +146,7 @@ class ActivityLog:
 
     def _publish(self, pub: dict) -> None:
         """Fan one event out to live subscribers, OUTSIDE the data lock (a subscriber must not block
-        the recorder). Used by both local records and folded-in peer events."""
+        the recorder). Used by both local records and folded in peer events."""
         with self._lock:
             subs = list(self._subscribers)
         for fn in subs:
@@ -209,7 +209,7 @@ class ActivityLog:
             out.append(e.public())
         return out[-limit:][::-1]
 
-    #### model usage (concurrency-safe)
+    #### model usage (concurrency safe)
     def open_use(self, model: str, purpose: str, *, by: str = "") -> int:
         """Mark a model as in use for `purpose` (by an entity). Returns a handle to close later.
         Multiple open uses of the same model = concurrent use, tracked as such."""
@@ -232,7 +232,7 @@ class ActivityLog:
             self.record("model:" + u["model"], "use.close", detail={"handle": handle, "seconds": secs})
 
     def usage(self) -> dict[str, dict]:
-        """Per-model: when first seen (instantiated), how long it has run, its ACTIVE concurrent uses
+        """Per model: when first seen (instantiated), how long it has run, its ACTIVE concurrent uses
         (what it is doing right now), and how many uses total across the session. Folds in peer
         processes' uses (rebuilt from their journaled use.open/use.close events)."""
         now = time.time()
@@ -260,7 +260,7 @@ class ActivityLog:
                       "total_uses": agg[m]["total"]}
         return out
 
-    #### journal: enable / warm-load / tail
+    #### journal: enable / warm load / tail
     def enable_journal(self, path: str | None = None, *, warm: bool = True, tail: bool = False,
                        cap_lines: int = 40000) -> Path | None:
         """Point this log at the journal. `warm` folds the file's tail into memory (history across
@@ -273,7 +273,7 @@ class ActivityLog:
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             self._rotate_if_big(p, cap_lines)
-            if self._jfd is not None and self._journal != p:   # re-pointed at a new path: switch fds
+            if self._jfd is not None and self._journal != p:   # re pointed at a new path: switch fds
                 with contextlib.suppress(Exception):
                     os.close(self._jfd)
                 self._jfd = None
@@ -286,7 +286,7 @@ class ActivityLog:
         if warm:
             self._warm_load(p)
         try:
-            self._tail_from = p.stat().st_size          # tail only what peers write AFTER we warm-loaded
+            self._tail_from = p.stat().st_size          # tail only what peers write AFTER we warm loaded
         except OSError:
             self._tail_from = 0
         if tail:
@@ -294,7 +294,7 @@ class ActivityLog:
         return p
 
     def _rotate_if_big(self, p: Path, cap_lines: int) -> None:
-        """Keep the journal bounded: if it has grown well past the in-memory cap, rewrite it with only
+        """Keep the journal bounded: if it has grown well past the in memory cap, rewrite it with only
         the most recent `cap_lines` lines. Operational file hygiene, not a decision threshold."""
         try:
             if not p.exists() or p.stat().st_size < 2_000_000:
@@ -309,7 +309,7 @@ class ActivityLog:
             pass
 
     def _absorb_use(self, obj: dict) -> None:
-        """Rebuild model-use state from a journaled use.open/use.close event (a peer's, or history).
+        """Rebuild model use state from a journaled use.open/use.close event (a peer's, or history).
         Called under self._lock. Keyed by (src, handle) so peers' handles never collide with ours."""
         act = obj.get("action")
         if act not in ("use.open", "use.close"):
@@ -348,7 +348,8 @@ class ActivityLog:
                     continue
                 self._events.append(Event(obj.get("ts", 0.0), obj.get("entity", ""),
                                           obj.get("scope", ""), obj.get("action", ""),
-                                          obj.get("detail") or {}))
+                                          obj.get("detail") or {},
+                                          on=obj.get("on", ""), flow=obj.get("flow", "")))
                 self._absorb_use(obj)
             # a use held open by a process that has since exited is not really running now
             for u in self._uses.values():
@@ -357,7 +358,7 @@ class ActivityLog:
 
     def start_tailer(self, interval: float = 0.1) -> None:
         """Watch the journal for events written by OTHER processes and fold each into this log +
-        push it live. Runs on a daemon thread. No-op if already tailing or journaling is off."""
+        push it live. Runs on a daemon thread. No op if already tailing or journaling is off."""
         if self._journal is None or (self._tail_thread and self._tail_thread.is_alive()):
             return
         self._tail_stop = threading.Event()
@@ -379,14 +380,14 @@ class ActivityLog:
         except Exception:
             return
         try:
-            f.seek(self._tail_from)                # skip what warm-load already ingested
+            f.seek(self._tail_from)                # skip what warm load already ingested
             pending = ""
             while not stop.is_set():
                 chunk = f.read()
                 if chunk:
                     pending += chunk
                     parts = pending.split("\n")
-                    pending = parts.pop()          # trailing partial line (mid-write) waits for more
+                    pending = parts.pop()          # trailing partial line (mid write) waits for more
                     for ln in parts:
                         ln = ln.strip()
                         if not ln:
@@ -414,7 +415,8 @@ class ActivityLog:
     def _fold(self, obj: dict) -> None:
         """Ingest one peer event: into the queryable log, into usage state, and out to live subscribers."""
         ev = Event(obj.get("ts", 0.0), obj.get("entity", ""), obj.get("scope", ""),
-                   obj.get("action", ""), obj.get("detail") or {})
+                   obj.get("action", ""), obj.get("detail") or {},
+                   on=obj.get("on", ""), flow=obj.get("flow", ""))
         with self._lock:
             self._events.append(ev)
             self._absorb_use(obj)
@@ -430,7 +432,7 @@ class ActivityLog:
                 os.close(fd)
 
 
-# process-wide singleton (like agent_complex.get_live)
+# process wide singleton (like agent_complex.get_live)
 _LOG: ActivityLog | None = None
 
 

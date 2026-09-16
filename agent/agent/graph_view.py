@@ -8,7 +8,7 @@ It also needs a dense eigendecomposition to say it.
 
 The character is already a position. `phi(v)` lives in the simplex over the channel
 hats, so a vertex's coordinates ARE its shares of topology, geometry, frustration and
-co-participation, and two cells near each other are alike in what they participate in
+co participation, and two cells near each other are alike in what they participate in
 rather than merely close in a cut. It is exact, needs no eigensolve, and is available at
 every scale through the sparse character path.
 
@@ -57,7 +57,7 @@ def character_positions(rex, *, grade: str = "vertex", dim: int = 3) -> dict:
     cell is mostly frustration" without a legend.
 
     Exact when `dim >= nhats - 1`. Below that the extra channels are dropped and
-    `exact` comes back False, because a lower-dimensional picture of a 3-simplex has
+    `exact` comes back False, because a lower dimensional picture of a 3 simplex has
     lost something and saying otherwise would make a projection look like a reading.
     """
     if grade not in ("vertex", "edge"):
@@ -100,7 +100,7 @@ def propagator_positions(rex, *, anchors=None, dim: int = 3, t: float = 1.0) -> 
     One coordinate per anchor: the value of `e^{-tL0}` applied to a unit source there.
     Applied by Chebyshev matvec, so no spectrum is formed and the cost is O(nnz * order).
 
-    Anchors default to the highest-degree vertices, which is a choice and is reported as
+    Anchors default to the highest degree vertices, which is a choice and is reported as
     one. Distance here means the complex does not carry signal between two cells, which
     is a statement about transport rather than about where a cut fell.
     """
@@ -139,7 +139,7 @@ def propagator_positions(rex, *, anchors=None, dim: int = 3, t: float = 1.0) -> 
 def positions(rex, *, mode: str = "character", dim: int = 3, **kw) -> dict:
     """Structural coordinates for the cells of a complex.
 
-    Deliberately no spectral-embedding mode. A layout off the eigenvectors of L0 is a
+    Deliberately no spectral embedding mode. A layout off the eigenvectors of L0 is a
     linear grouping whose coordinates describe a cut rather than the cells, and it costs
     a dense eigendecomposition to produce.
 
@@ -158,7 +158,7 @@ def positions(rex, *, mode: str = "character", dim: int = 3, **kw) -> dict:
 def neighbors(rex, vertex: int) -> dict:
     """The star of a vertex: every cell incident to it, as a closed subcomplex.
 
-    The graph-database answer to this is an adjacency lookup, which returns cells and
+    The graph database answer to this is an adjacency lookup, which returns cells and
     leaves the caller to decide what their boundary means. A star is already a
     subcomplex, so what comes back can be analysed as a complex without repair.
     """
@@ -223,12 +223,12 @@ def structural_positions(rex, *, dim: int = 2) -> dict:
     That is not a defect in them. The character has `nhats` shares summing to one and
     `chi_T = chi_G` identically, since the diagonal squares each incidence entry and
     squaring kills the sign, so a complex where F is inactive has exactly one free
-    parameter and its honest character picture IS one-dimensional. Measured: a 9-vertex
+    parameter and its honest character picture IS one dimensional. Measured: a 9 vertex
     star puts all 9 cells on 1 point, because all 9 have star character `(1/3, 1/3, 1/3)`
     and are genuinely indistinguishable to it.
 
     A drawing wants the other question. `rex.layout` answers it and was already in core:
-    the low eigenvectors of `L0` as a seed, then force-directed refinement, Barnes-Hut
+    the low eigenvectors of `L0` as a seed, then force directed refinement, Barnes Hut
     above the threshold. Measured against the character projection on the same complexes,
     spread being how far the points are from collinear and distinct being how many
     separate positions they occupy:
@@ -418,8 +418,8 @@ def render_payload(rex, *, labels=None, dim: int = 3, limit: int = 0,
                     for e in range(int(rex.nE))]
 
     n = int(rex.nE) if not limit else min(int(rex.nE), int(limit))
-    # RCFE curvature is per RELATION and reads B2, so it is zero on a face-free complex
-    # and says how much the 2-cells bend around each relation once there are any. Arity is
+    # RCFE curvature is per RELATION and reads B2, so it is zero on a face free complex
+    # and says how much the 2 cells bend around each relation once there are any. Arity is
     # already carried by the quadrance, so this is a second and independent reading.
     curvature = np.asarray(rex.rcfe_curvature, dtype=float) if int(rex.nF_hodge) else None
     relations = []
@@ -451,7 +451,7 @@ def render_payload(rex, *, labels=None, dim: int = 3, limit: int = 0,
                         "at": [round(float(x), 6) for x in chi[e]]}
                        for e in range(n)] if chi.size else []}
 
-    # the 2-cells, which nothing was carrying: a solved face column is the drawable
+    # the 2 cells, which nothing was carrying: a solved face column is the drawable
     # polygon, and its support is the gon (a stored zero is not a side, which is the same
     # rule `face_support` and `surface_identity` use)
     faces = []

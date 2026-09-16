@@ -3,7 +3,7 @@ store: bridge the model framework to the rexgraph IO layer.
 
 All flows go through `rexgraph.io` (plus RCDB where a complex is involved):
 
-  load_bundle(src)    reads parquet / vector-corpus(safetensors) / .rcbd / SQL / csv/jsonl/npz/txt
+  load_bundle(src)    reads parquet / vector corpus(safetensors) / .rcbd / SQL / csv/jsonl/npz/txt
                       into a DataBundle.
   save_checkpoint()   writes weights to safetensors, config+meta to json, and the training
                       trajectory through save_vectors (the labeled-vector format used for embeddings
@@ -55,7 +55,7 @@ def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None) -
     if table is not None:                                   # a database URI + table
         eng = rio.get_engine(s)
         # The ENGINE is cached for the life of the process, which is what makes asking
-        # for one per load correct. A checked-out CONNECTION is not: it has to go back
+        # for one per load correct. A checked out CONNECTION is not: it has to go back
         # to the pool when this read is done, or every load holds one open.
         if hasattr(eng, "connect"):
             with eng.connect() as conn:
@@ -121,11 +121,11 @@ def load_checkpoint(path, *, device=None):
     """Rebuild a model from a checkpoint and load its weights onto the resolved device. Returns
     (model, config).
 
-    Device-agnostic: a checkpoint saved on any backend (weights are written CPU-contiguous by
+    Device agnostic: a checkpoint saved on any backend (weights are written CPU contiguous by
     ``save_checkpoint``) loads onto whatever ``device`` resolves to through ``rexgraph.nn.pick_device``
     - None/'auto' rides the compute stack's recommended backend, 'cpu' forces CPU. The weights are
-    map-located to that device (safetensors ``device=`` is torch's ``map_location`` equivalent, with a
-    CPU-load fallback), and the model is moved there, so save-here / load-there always works."""
+    map located to that device (safetensors ``device=`` is torch's ``map_location`` equivalent, with a
+    CPU load fallback), and the model is moved there, so save here / load there always works."""
     from safetensors.torch import load_file
 
     import rexgraph.nn as R

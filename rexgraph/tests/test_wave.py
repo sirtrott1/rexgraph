@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._wave: complex-amplitude wave mechanics.
+Tests for rexgraph.core._wave: complex amplitude wave mechanics.
 
 Verifies:
     - Normalization: in-place, returns original norm
@@ -347,7 +347,7 @@ class TestRexGraphIntegration:
 
 class TestAmplitudeGradedProjectionArity:
     """amplitude_graded_projection reads edge endpoints from B1's signed columns,
-    so it handles arbitrary arity (witness deg-1, branching deg>2) - the old code
+    so it handles arbitrary arity (witness deg 1, branching deg>2) - the old code
     kept only the first two nonzeros."""
 
     def test_two_arity_geometric_mean(self):
@@ -370,14 +370,14 @@ class TestAmplitudeGradedProjectionArity:
         np.testing.assert_allclose(edge_block * scale, raw, atol=1e-12)
 
     def test_branching_edge_uses_all_endpoints(self):
-        # edge 0 branches to vertices {0,1,2} (arity 3); edge 1 is standard 2-arity
+        # edge 0 branches to vertices {0,1,2} (arity 3); edge 1 is standard 2 arity
         B1 = np.zeros((4, 2))
         B1[0, 0] = -1; B1[1, 0] = 1; B1[2, 0] = 1
         B1[0, 1] = 1;  B1[3, 1] = -1
         amps = np.array([2.0, 3.0, 4.0, 5.0])
         psi = _wave.amplitude_graded_projection(B1, np.zeros((2, 0)), amps, 4, 2, 0)
         edge = psi[4:6]
-        # branching edge geo-mean over ALL three endpoints, negative sign (row 0 = -1)
+        # branching edge geo mean over ALL three endpoints, negative sign (row 0 = -1)
         geo3 = (2.0 * 3.0 * 4.0) ** (1.0 / 3.0)
         geo2 = np.sqrt(2.0 * 5.0)
         scale = -geo3 / edge[0]

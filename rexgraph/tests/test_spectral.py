@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._spectral - spectral layout and force-directed refinement.
+Tests for rexgraph.core._spectral - spectral layout and force directed refinement.
 
 Verifies:
     - Spectral embedding produces finite coordinates within canvas bounds
@@ -42,7 +42,7 @@ def _random_graph(nV, nE, seed=42):
     rng = np.random.RandomState(seed)
     src = rng.randint(0, nV, size=nE).astype(np.int32)
     tgt = rng.randint(0, nV, size=nE).astype(np.int32)
-    # Avoid self-loops
+    # Avoid self loops
     mask = src != tgt
     return src[mask], tgt[mask]
 
@@ -101,7 +101,7 @@ class TestSpectralLayout:
         assert np.all(py <= 80.0)
 
 
-# Force-Directed Refinement
+# Force Directed Refinement
 
 class TestForceDirected:
 
@@ -148,7 +148,7 @@ class TestForceDirected:
         assert py2[0] == 200.0
 
 
-# Barnes-Hut Refinement
+# Barnes Hut Refinement
 
 class TestBarnesHut:
 

@@ -2,9 +2,9 @@
 rcdb.protected_index: exact search over a vocabulary the index does not store.
 
 The canonical RCDB snapshot reconstructs records, so it is not a security boundary: its
-labels are written in the clear, both into `RexStore`'s in-memory map and into the SQL
+labels are written in the clear, both into `RexStore`'s in memory map and into the SQL
 labels table. This builds a SEPARATE, disposable relation for exact term lookup whose
-vocabulary is fixed-width tokens, so a persisted index contains neither a plaintext term
+vocabulary is fixed width tokens, so a persisted index contains neither a plaintext term
 nor a plaintext record id and still answers "which records carry this exact term".
 
 It is the search half of the container work. `rexgraph.io` seals what a container holds;
@@ -25,7 +25,7 @@ Three modes per accession kind, chosen per deployment:
 
 The key arrives as an `IndexKeyProvider`, never as key bytes. That protocol is the whole
 interoperation: an application supplies a provider that resolves a key identifier however
-its own tenancy requires, and this package never learns how. A multi-tenant server
+its own tenancy requires, and this package never learns how. A multi tenant server
 typically resolves per workspace, so the same identifier in two workspaces is two
 different keys and one tenant's tokens are meaningless to another.
 
@@ -60,7 +60,7 @@ class IndexKeyProvider(Protocol):
 
 @dataclass(frozen=True)
 class StaticIndexKeyProvider:
-    """In-process search key provider for tests and single-operator deployments.
+    """In process search key provider for tests and single operator deployments.
 
     A server supplies its own `IndexKeyProvider` instead, one that namespaces a key
     identifier by tenant. Constructing this one inside a request would hand every tenant
@@ -106,7 +106,7 @@ class IndexPolicy:
 
 
 def _frame(kind: str, term: str) -> bytes:
-    """Length-prefixed framing, so ("ab", "c") and ("a", "bc") cannot frame alike."""
+    """Length prefixed framing, so ("ab", "c") and ("a", "bc") cannot frame alike."""
     kb = str(kind).encode("utf-8")
     tb = str(term).encode("utf-8")
     return (b"rcdb-search-term\x00" + len(kb).to_bytes(4, "big") + kb
@@ -156,9 +156,9 @@ def version_record_token(record_id: str, version: int, *, key_id: str | None = N
 class SearchRelation:
     """One derived record to search token relation.
 
-    `rel_ptr` and `rel_idx` use the same record-first incidence convention as the
+    `rel_ptr` and `rel_idx` use the same record first incidence convention as the
     canonical RCDB index. Both records and searchable terms are fixed width tokens in
-    persisted form. `record_ids` is an optional in-memory resolver and is never required
+    persisted form. `record_ids` is an optional in memory resolver and is never required
     for serialization, which is what keeps identities out of the file.
     """
 
@@ -183,7 +183,7 @@ class SearchRelation:
 
     def ids_for(self, kind: str, term: str, *, policy: IndexPolicy,
                 keys: IndexKeyProvider | None = None) -> list[str]:
-        """Return record identities when an in-memory resolver is attached."""
+        """Return record identities when an in memory resolver is attached."""
         if self.record_ids is None:
             raise ValueError("this persisted search relation has no record id resolver")
         rows = self._rows_for(kind, term, policy=policy, keys=keys)

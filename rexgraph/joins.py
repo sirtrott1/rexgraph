@@ -8,7 +8,7 @@ relations both complexes carry, not which rows match.
 A relation's identity is its oriented support. `B_1`'s column is `-1` at the
 distinguished vertex and `1/(k-1)` on the rest, so two relations are the same relation
 exactly when they distinguish the same vertex and reach the same others. That is read
-off the boundary structure, which makes it arity-general: a branching relation is
+off the boundary structure, which makes it arity general: a branching relation is
 matched as one relation of arity k, not as a set of pairs.
 
 `core._joins` is the pairwise dense oracle, and it is not what this goes through. It
@@ -152,7 +152,7 @@ def join(rex_r, rex_s, *, how: str = "inner", labels_r=None, labels_s=None,
         kept = list(range(len(cols_r)))
         from_s = [e for k, e in keys_s_joint.items() if k not in keys_r]
 
-    # rebuild the boundary, arity-general
+    # rebuild the boundary, arity general
     ptr, idx = [0], []
     for e in kept:
         d, o = cols_r[e]

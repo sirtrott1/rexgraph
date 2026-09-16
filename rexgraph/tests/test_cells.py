@@ -1,4 +1,4 @@
-"""Direct graded-cell readings preserve the relational complex before algebra."""
+"""Direct graded cell readings preserve the relational complex before algebra."""
 from __future__ import annotations
 
 from fractions import Fraction
@@ -89,7 +89,7 @@ def test_higher_grade_boundary_and_enclosure_follow_the_grading():
     assert enclosure.at(1).indices == (0,)
     assert enclosure.at(2).indices == (0,)
 
-    # The top co-boundary has an empty codomain, not an invented fourth grade.
+    # The top co boundary has an empty codomain, not an invented fourth grade.
     assert corelations(face).grade == 3
     assert corelations(face).indices == ()
 

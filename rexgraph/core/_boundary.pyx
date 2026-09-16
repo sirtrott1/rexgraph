@@ -4,13 +4,13 @@
 rexgraph.core._boundary: legacy pairwise and numerical boundary helpers.
 
 ``build_B1*`` takes two endpoint arrays and is therefore correct only for an
-explicit pairwise-derived C1 section.  The primary arity-general C1 boundary
+explicit pairwise derived C1 section.  The primary arity general C1 boundary
 is assembled from boundary CSR in :meth:`RexGraph._b1_general_coo`, with its
 exact integer representative in :meth:`RexGraph._integer_B1`.
 
 ``build_B2_from_dense``, tolerance chain checks, SVD/eigen rank and spectral
-Betti helpers are numerical-oracle utilities.  Exact structural rank/Betti
-live in ``graded_boundary.py``; exact arbitrary-arity face columns live in
+Betti helpers are numerical oracle utilities.  Exact structural rank/Betti
+live in ``graded_boundary.py``; exact arbitrary arity face columns live in
 ``faces.py``.  Retain this module for pairwise compatibility and oracle tests,
 not as the authority for primary relational complex topology.
 
@@ -23,7 +23,7 @@ Provides:
     rank_from_eigenvalues - matrix rank from Laplacian spectrum
     betti_from_eigenvalues - all Betti numbers from Laplacian spectra
     betti_numbers - unified interface with SVD fallback
-    compute_rank - SVD-based rank (slow, use spectral path instead)
+    compute_rank - native exact integer rank; numerical SVD compatibility otherwise
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def build_B1_i32(Py_ssize_t nV, Py_ssize_t nE,
     For each edge j: B_1[sources[j], j] = -1, B_1[targets[j], j] = +1.
 
     Parameters
-    ----------
+
     nV : int
         Number of vertices (row dimension).
     nE : int
@@ -70,7 +70,7 @@ def build_B1_i32(Py_ssize_t nV, Py_ssize_t nE,
         Tail and head vertex indices for each edge.
 
     Returns
-    -------
+
     DualCSR
         B1 as a dual CSR/CSC matrix with float64 values.
     """
@@ -153,7 +153,7 @@ def build_B2_from_cycles_i32(Py_ssize_t nE,
     Face f occupies cycle_lengths[f] consecutive positions.
 
     Parameters
-    ----------
+
     nE : int
         Number of edges (row dimension of B2).
     cycle_edges : int32[total_boundary_edges]
@@ -164,7 +164,7 @@ def build_B2_from_cycles_i32(Py_ssize_t nE,
         Number of boundary edges per face.
 
     Returns
-    -------
+
     DualCSR
         B2 as a dual CSR/CSC matrix with float64 values.
     """
@@ -291,7 +291,7 @@ def verify_chain_complex(B1, B2, double tol=1e-10):
     materializing the nV x nF product matrix.
 
     Parameters
-    ----------
+
     B1 : DualCSR
         Shape (nV, nE).
     B2 : DualCSR
@@ -300,7 +300,7 @@ def verify_chain_complex(B1, B2, double tol=1e-10):
         Absolute tolerance for the zero check.
 
     Returns
-    -------
+
     ok : bool
         True if max|B1 B2| < tol.
     max_error : float
@@ -344,14 +344,14 @@ def count_zero_eigenvalues(np.ndarray[f64, ndim=1] evals,
     Count eigenvalues below tolerance. Expects sorted ascending input.
 
     Parameters
-    ----------
+
     evals : f64[k]
         Eigenvalues sorted ascending, already cleaned.
     tol : float
         Threshold below which an eigenvalue is considered zero.
 
     Returns
-    -------
+
     int
         Number of eigenvalues <= tol.
     """
@@ -378,7 +378,7 @@ def rank_from_eigenvalues(np.ndarray[f64, ndim=1] evals,
     rank(A) = full_dim - count_zero(evals) where L = A^T A or A A^T.
 
     Parameters
-    ----------
+
     evals : f64[k]
         Eigenvalues of the corresponding Laplacian, sorted ascending.
     full_dim : int
@@ -389,7 +389,7 @@ def rank_from_eigenvalues(np.ndarray[f64, ndim=1] evals,
         Zero threshold.
 
     Returns
-    -------
+
     int
         Numerical rank.
     """
@@ -402,16 +402,16 @@ def betti_from_eigenvalues(evals_L0, evals_L1, evals_L2,
                            Py_ssize_t nF,
                            double tol=1e-10):
     """
-    Compute all Betti numbers from pre-computed Laplacian eigenvalues.
+    Compute all Betti numbers from pre computed Laplacian eigenvalues.
 
     Runs in O(k) total. No matrix factorization, no SVD, no dense
     conversion.
 
     beta_k = dim ker(L_k), so each Betti number is just a count
-    of near-zero eigenvalues. Cross-checks via the Euler relation.
+    of near zero eigenvalues. Cross checks via the Euler relation.
 
     Parameters
-    ----------
+
     evals_L0 : f64[] or None
         Eigenvalues of L_0. If None, beta_0 not computed.
     evals_L1 : f64[] or None
@@ -424,7 +424,7 @@ def betti_from_eigenvalues(evals_L0, evals_L1, evals_L2,
         Zero threshold for eigenvalues.
 
     Returns
-    -------
+
     dict
         Keys: 'beta0', 'beta1', 'beta2', 'rank_B1', 'rank_B2',
               'euler_char', 'euler_check'.
@@ -459,7 +459,7 @@ def betti_from_eigenvalues(evals_L0, evals_L1, evals_L2,
             np.asarray(evals_L1, dtype=np.float64), tol)
         result['beta1'] = beta1
 
-    # Euler relation cross-check
+    # Euler relation cross check
     if beta0 >= 0 and beta1 >= 0 and beta2 >= 0:
         chi_topo = nV - nE + nF
         chi_betti = beta0 - beta1 + beta2
@@ -478,11 +478,12 @@ def betti_from_eigenvalues(evals_L0, evals_L1, evals_L2,
 
 def compute_rank(M, str method="auto", double tol=1e-10):
     """
-    Numerical rank via SVD. Slow for large matrices; prefer
-    betti_from_eigenvalues() when Laplacian eigenvalues are available.
+    Exact native integer rank, with numerical SVD compatibility for other input.
+    Integer maps use the shared structural shortcuts and sparse Z elimination,
+    independent of method and without any SciPy conversion.
 
     Parameters
-    ----------
+
     M : DualCSR or CSRMatrix
         Sparse matrix whose rank is to be computed.
     method : {"auto", "dense", "sparse"}
@@ -490,23 +491,27 @@ def compute_rank(M, str method="auto", double tol=1e-10):
         Singular values below tol are treated as zero.
 
     Returns
-    -------
+
     int
-        Numerical rank.
+        Exact integer rank, or numerical rank for non-integer input.
     """
     from rexgraph.core._sparse import to_dense_f64, to_scipy_csr
 
     cdef Py_ssize_t nrow = M.nrow, ncol = M.ncol
     cdef Py_ssize_t min_dim = min(nrow, ncol)
 
-    # INTEGER boundary maps (the unweighted topology): EXACT eigen-free rank via
+    # INTEGER boundary maps (the unweighted topology): EXACT eigen free rank via
     # rational column reduction: no SVD, no densification, no silent svds cap.
-    # Genuinely non-integer (weighted) matrices keep the SVD dispatch below.
-    if min_dim > 0:
-        _sp_M = to_scipy_csr(M)
-        from rexgraph.graded_boundary import _is_integer_matrix, _exact_rank_reduction
-        if _sp_M.nnz > 0 and _is_integer_matrix(_sp_M):
-            return _exact_rank_reduction(_sp_M)
+    # Genuinely non integer (weighted) matrices keep the SVD dispatch below.
+    if min_dim == 0 or M.nnz == 0:
+        return 0
+    from rexgraph.core._sparse import DualCSR
+    from rexgraph.native_sparse import NativeSparse
+    from rexgraph.graded_boundary import _integer_columns, _rank_integer_columns
+    _native = NativeSparse(M) if isinstance(M, DualCSR) else M
+    _columns = _integer_columns(_native)
+    if _columns is not None:
+        return _rank_integer_columns(_native.shape, _columns)[0]
 
     if method == "auto":
         # adaptive: dense only when the matrix actually fits the dense allocation
@@ -551,10 +556,10 @@ def betti_numbers(B1, B2=None, evals_L0=None, evals_L1=None, evals_L2=None):
     Compute Betti numbers of the relational complex.
 
     Uses the spectral path if eigenvalue arrays are provided,
-    otherwise falls back to SVD-based rank computation.
+    otherwise falls back to SVD based rank computation.
 
     Parameters
-    ----------
+
     B1 : DualCSR
         Shape (nV, nE).
     B2 : DualCSR or None
@@ -567,7 +572,7 @@ def betti_numbers(B1, B2=None, evals_L0=None, evals_L1=None, evals_L2=None):
         Eigenvalues of L_2 (from build_L2).
 
     Returns
-    -------
+
     tuple of int
         (beta_0, beta_1) or (beta_0, beta_1, beta_2).
     """

@@ -13,9 +13,9 @@ ZERO COLUMN SUM, the definition itself.
 LEVEL LINKING. sum(c) = 0 implies c c^T 1 = c (c^T 1) = 0, so zero column sums of B1
 give zero row sums of L0 and put the constant vector in ker L0. Under the star the row
 sums are nonzero and the constant vector is outside the kernel, which is the same
-failure the unsigned set-theoretic encoding has.
+failure the unsigned set theoretic encoding has.
 
-ARITY IS RECOVERABLE. For the rank-one contribution P_e = c_e c_e^T of one relation,
+ARITY IS RECOVERABLE. For the rank one contribution P_e = c_e c_e^T of one relation,
 P_e[d,d]/P_e[i,i] = (k-1)^2, so k = 1 + sqrt(ratio). Under the star every modulus is 1,
 the ratio is 1, and the reading returns 2 whatever the arity.
 
@@ -95,7 +95,7 @@ def test_arity_is_readable_from_the_rank_one_diagonal(k):
 
 
 def test_arity_reading_survives_inside_a_complex():
-    """The identity is about the per-relation rank-one term, so other relations being
+    """The identity is about the per relation rank one term, so other relations being
     present must not disturb it."""
     r = _branching([0, 4, 6, 8], [0, 1, 2, 3, 3, 4, 3, 5])   # k=4 plus two pairwise legs
     col = _dense(r.B1)[:, 0]

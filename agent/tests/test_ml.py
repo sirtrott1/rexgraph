@@ -1,4 +1,4 @@
-"""The in-agent model-builder subsystem: agent.models + the /ml routes + train/ingest phases."""
+"""The in agent model builder subsystem: agent.models + the /ml routes + train/ingest phases."""
 import pytest
 
 pytest.importorskip("torch")
@@ -64,14 +64,14 @@ def test_train_phase_via_lifecycle():
 
 
 def test_predict_infers_and_writes_through_io(tmp_path):
-    """A trained checkpoint runs on new data and its predictions round-trip through rexgraph.io."""
+    """A trained checkpoint runs on new data and its predictions round trip through rexgraph.io."""
     import rexgraph.io as rio
     ckpt = str(tmp_path / "m")
     models.run("mlp", steps=30, save_to=ckpt)
     p = models.predict(ckpt)                                  # infer on synthetic data
     assert p["archetype"] == "mlp" and p["n"] > 0
     assert p["predictions"].shape[0] == p["n"] and p["metric"] is not None
-    assert models.predict(ckpt, split="test")["n"] < p["n"]  # a held-out split is smaller
+    assert models.predict(ckpt, split="test")["n"] < p["n"]  # a held out split is smaller
     out = str(tmp_path / "preds.safetensors")                # predictions back through the IO layer
     r = models.predict(ckpt, save_to=out)
     V, labels, feat, meta = rio.load_vectors(out)
@@ -99,7 +99,7 @@ def test_pipeline_phase_needs_a_source():
 
 
 def test_train_hardening_schedule_accum_resume(tmp_path):
-    """Training loop: lr schedule + warmup, gradient accumulation, resume, and amp no-op on CPU."""
+    """Training loop: lr schedule + warmup, gradient accumulation, resume, and amp no op on CPU."""
     from agent.models.train import _lr_at
     r = models.run("mlp", steps=20, schedule="cosine", warmup=3, grad_accum=2)
     assert r["metric"] is not None
@@ -108,21 +108,21 @@ def test_train_hardening_schedule_accum_resume(tmp_path):
     ck = str(tmp_path / "m")
     models.run("mlp", steps=10, save_to=ck)
     assert models.run("mlp", steps=10, resume=ck)["metric"] is not None         # continue training
-    assert models.run("mlp", steps=5, amp=True, device="cpu")["metric"] is not None  # amp no-op on cpu
+    assert models.run("mlp", steps=5, amp=True, device="cpu")["metric"] is not None  # amp no op on cpu
 
 
 def test_compute_config_flows_through_setup_and_operation(tmp_path, monkeypatch):
-    """A setup's compute config round-trips, and every operation applies it (run-logged)."""
+    """A setup's compute config round trips, and every operation applies it (run logged)."""
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     from agent.hive_config import ComputeSpec, HiveProfile
 
     from agent import hive_config, lifecycle
     from rexgraph import compute
-    # schema round-trips (incl. back-compat: a profile with no compute section)
+    # schema round trips (incl. back compat: a profile with no compute section)
     p = HiveProfile.from_dict(HiveProfile(id="x", name="X", compute=ComputeSpec(threads=6)).to_dict())
     assert p.compute.threads == 6
     assert HiveProfile.from_dict({"id": "o", "name": "O"}).compute.backend == "auto"
-    # an operation applies the active setup's compute config, run-logged
+    # an operation applies the active setup's compute config, run logged
     store = hive_config.get_store()
     store.save(HiveProfile(id="capped", name="Capped", compute=ComputeSpec(threads=2)))
     store.set_active("capped")

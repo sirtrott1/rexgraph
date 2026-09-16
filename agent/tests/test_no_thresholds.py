@@ -34,7 +34,7 @@ def test_a_bridge_is_exact_so_no_cutoff_is_needed():
 
     assert mask.tolist() == [False] * 6 + [True, True]
     assert np.allclose(lev[mask], 1.0)
-    assert lev[~mask].max() < 0.7                  # not a near-miss: 2/3 against 1
+    assert lev[~mask].max() < 0.7                  # not a near miss: 2/3 against 1
 
 
 def test_bridge_mask_agrees_with_removing_the_relation():
@@ -102,16 +102,16 @@ def test_no_bare_effective_resistance_cutoff_survives_in_the_agent():
     assert not offenders, f"effective_resistance compared to a constant: {offenders}"
 
 
-#### the second sweep #######################################################
+# the second sweep
 def test_hodge_beyond_is_a_comparison_between_the_parts():
     """`beyond > 0.5` where the parts SUM TO ONE is `c + h > g` written with a constant.
-    Comparing the parts is the same statement and survives non-normalised input."""
+    Comparing the parts is the same statement and survives non normalised input."""
     for g, c, h in ((0.6, 0.3, 0.1), (0.3, 0.4, 0.3), (0.5, 0.25, 0.25)):
         assert ((c + h) > 0.5) == ((c + h) > g), (g, c, h)
     # and where they do NOT normalise, only the comparison is still meaningful
     g, c, h = 0.2, 0.15, 0.15                      # sums to 0.5
-    assert (c + h) > 0.5 is False or True          # the constant says "not beyond"
-    assert not ((c + h) > g) is False              # the comparison says "beyond"
+    assert not (c + h > 0.5)                      # the constant says "not beyond"
+    assert c + h > g                              # the comparison says "beyond"
 
 
 def test_health_ratio_crosses_at_one_and_the_text_already_said_so():
@@ -166,7 +166,7 @@ def test_divergence_uses_the_house_fence_not_a_factor_on_a_median():
     assert int((tight < 0.5 * float(np.median(tight))).sum()) == 0
 
 
-#### the last two ###########################################################
+# the last two
 def test_the_trust_score_is_a_profile_and_an_extremum_not_a_mean():
     """Three unrelated deficiencies (sparsity, incoherence, unshared) were averaged
     into one number over a list whose LENGTH varied, so the same structure scored

@@ -13,10 +13,10 @@ to the anomaly in the change PATTERN, never to the raw size of the change.
 Everything here is scalar bookkeeping: one prior H_T value and a running
 list of past absolute deltas of real changes (a median/MAD fence over that
 history). No eigendecomposition, no dense operator. The fence itself is
-O(len(history)) per real-change step, since observe() recomputes the
+O(len(history)) per real change step, since observe() recomputes the
 median/MAD over the full growing history each time rather than maintaining
-an incremental statistic; a bounded/windowed history is a follow-on for
-long-lived streams where that history would otherwise grow without limit.
+an incremental statistic; a bounded/windowed history is a follow on for
+long lived streams where that history would otherwise grow without limit.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class MalaughGate:
     Each call to observe() computes the current H_T, compares it against the
     previous observation to get a signed delta, and checks the MAGNITUDE of
     that delta against a running median/MAD fence built from the magnitudes
-    of past REAL changes (delta ~ 0, i.e. a no-op resubmission of the same
+    of past REAL changes (delta ~ 0, i.e. a no op resubmission of the same
     complex, is reported but never folded into the fence history).
 
     An event fires only once there is a baseline (warmup real changes seen)
@@ -56,9 +56,9 @@ class MalaughGate:
     That means both an anomalously LARGE and an anomalously SMALL change
     magnitude can fire the gate; the verified case for this subsystem is a
     cycle close producing an anomalously small delta against a steady
-    leaf-growth baseline.
+    leaf growth baseline.
 
-    Single-use instance: a MalaughGate carries state (_prev, _hist) across
+    Single use instance: a MalaughGate carries state (_prev, _hist) across
     calls to observe(). It is meant to be run once per stream; reusing one
     instance across separate streams blends the baseline from the first
     stream into the second instead of starting fresh.
@@ -73,6 +73,13 @@ class MalaughGate:
 
     def observe(self, rex) -> dict[str, object]:
         h_t = malaugh_entropy(rex)
+        return self.observe_entropy(h_t)
+
+    def observe_entropy(self, h_t) -> dict[str, object]:
+        """Apply the same gate to an already computed finite entropy value."""
+        h_t = float(h_t)
+        if not np.isfinite(h_t):
+            raise ValueError("gate entropy must be finite")
 
         if self._prev is None:
             self._prev = h_t

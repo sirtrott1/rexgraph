@@ -49,7 +49,7 @@ def test_inventory_shape():
 
 
 def test_parallel_map_order_edges_and_serial():
-    # order preserved, GIL-releasing or not
+    # order preserved, GIL releasing or not
     assert C.parallel_map(lambda x: x * x, [1, 2, 3, 4], threads=2) == [1, 4, 9, 16]
     assert C.parallel_map(lambda x: x + 1, [], threads=4) == []            # empty
     assert C.parallel_map(lambda x: x + 1, [5], threads=4) == [6]          # single -> serial path
@@ -75,7 +75,7 @@ def test_default_backend_steers_dispatch_and_apply_config():
 
 
 def test_parallel_map_order_and_bit_identity():
-    """parallel_map is order-preserving and bit-identical to a serial map, regardless of
+    """parallel_map is order preserving and bit identical to a serial map, regardless of
     worker/inner-thread config (thread count never changes results)."""
     import numpy as np
     fn = lambda i: float(np.sin(np.linspace(0, 1, 500) + i).sum())
@@ -83,11 +83,11 @@ def test_parallel_map_order_and_bit_identity():
     serial = [fn(i) for i in items]
     for th in (1, 3, 8, None):
         got = C.parallel_map(fn, items, threads=th)
-        assert got == serial                                  # exact, order-preserving
+        assert got == serial                                  # exact, order preserving
 
 
 def test_parallel_map_inner_thread_budget_arithmetic():
-    """The inner-threadpool cap is BUDGET ARITHMETIC (max(1, budget // workers)), not a
+    """The inner threadpool cap is BUDGET ARITHMETIC (max(1, budget // workers)), not a
     fixed threshold: with a budget of B and W workers, the limiter is asked for ~B//W. We
     assert the resolved (workers, inner) split tracks the budget rather than oversubscribing."""
     captured = {}
@@ -115,8 +115,8 @@ def test_parallel_map_inner_thread_budget_arithmetic():
 
 
 def test_inner_thread_limiter_graceful_without_threadpoolctl(monkeypatch):
-    """_inner_thread_limiter degrades to a no-op context when threadpoolctl is unavailable,
-    so the fan-out still runs (just uncapped) - the cap is an optimization, never a hard dep."""
+    """_inner_thread_limiter degrades to a no op context when threadpoolctl is unavailable,
+    so the fan out still runs (just uncapped) - the cap is an optimization, never a hard dep."""
     import builtins
     real_import = builtins.__import__
 

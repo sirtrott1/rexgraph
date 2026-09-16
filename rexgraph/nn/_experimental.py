@@ -1,10 +1,10 @@
-"""rexgraph.nn._experimental: preserved-but-demoted optimizers.
+"""rexgraph.nn._experimental: preserved but demoted optimizers.
 
 ``HodgeAdam`` and ``HodgeSGD`` are correct and verified: they decompose each parameter
-tensor's gradient on the weight-neuron parameter graph and precondition the coordinated and
+tensor's gradient on the weight neuron parameter graph and precondition the coordinated and
 rotational parts separately. What benchmarking showed is that this buys nothing. On standard
-feature-space models they TIE plain Adam, because the coordinated component engages only a few
-percent of the gradient in the weight-neuron geometry, which is not the model's data complex.
+feature space models they TIE plain Adam, because the coordinated component engages only a few
+percent of the gradient in the weight neuron geometry, which is not the model's data complex.
 
 The live path is ``factory.make_optimizer("auto", model, params)``. It routes to
 ``GreensCochain`` (in ``optim.py``) when the model exposes ``greens_groups()``, i.e. when its
@@ -13,10 +13,10 @@ complex's own geometry; otherwise it returns plain Adam. That is where the struc
 actually is: the model carrying relational structure, not a clever optimizer on an
 unstructured one.
 
-These two stay importable only so existing callers keep working. ``optim.py`` re-exports both
+These two stay importable only so existing callers keep working. ``optim.py`` re exports both
 names, so ``rexgraph.nn.optim.HodgeAdam``, ``build_optimizer("hodge")`` and
 ``make_optimizer("hodge-arch", ...)`` all still resolve. They are off the ``rexgraph.nn``
-top-level surface on purpose: the name sounds native, and models were reaching for it by name.
+top level surface on purpose: the name sounds native, and models were reaching for it by name.
 """
 from __future__ import annotations
 
@@ -30,21 +30,21 @@ except Exception:                                    # torch is an optional dep
 if _HAS_TORCH:
 
     class HodgeSGD(_torch.optim.Optimizer):
-        """SGD whose per-matrix gradient is Hodge-decomposed on the bipartite parameter graph
+        """SGD whose per matrix gradient is Hodge decomposed on the bipartite parameter graph
         and recombined with separate gains and momenta for the coordinated (potential) and
         rotational parts. Reduces exactly to SGD/SGD-momentum when ``gamma_grad == gamma_curl``
         and the two momenta are equal.
 
         ``gamma_grad``, ``gamma_curl`` are gains on the potential (coordinated) and rotational
-        parts; ``gamma_curl < 1`` damps oscillatory per-weight flow. ``momentum`` and
-        ``curl_momentum`` are per-component momenta; ``curl_momentum`` defaults to ``momentum``,
+        parts; ``gamma_curl < 1`` damps oscillatory per weight flow. ``momentum`` and
+        ``curl_momentum`` are per component momenta; ``curl_momentum`` defaults to ``momentum``,
         and a lower ``curl_momentum`` accelerates coordinated descent while limiting rotational
         velocity. ``min_side`` is the minimum number of elements to decompose; only scalars fall
-        back to standard momentum SGD, every other rank (2-tensor, conv 4-tensor, 1-tensor bias,
-        k-rex) is Hodge-decomposed via the general functional-ANOVA split. ``track`` accumulates
+        back to standard momentum SGD, every other rank (2 tensor, conv 4 tensor, 1 tensor bias,
+        k-rex) is Hodge decomposed via the general functional ANOVA split. ``track`` accumulates
         mean pct_grad/pct_rot per step for ``hodge_report()``.
 
-        Back-compat only: see the module docstring, and prefer ``make_optimizer("auto", ...)``.
+        Back compat only: see the module docstring, and prefer ``make_optimizer("auto", ...)``.
         """
 
         def __init__(self, params, lr: float = 1e-2, gamma_grad: float = 1.0,
@@ -63,9 +63,9 @@ if _HAS_TORCH:
 
         @staticmethod
         def _decompose(G):
-            # general functional-ANOVA / higher-order Hodge split for any k-tensor: potential =
-            # Σ per-mode marginal means (main effects, inclusion-exclusion), residual = interaction.
-            # Reduces to row+col-grand for a 2-tensor, mean vs fluctuation for a 1-tensor. Same
+            # general functional ANOVA / higher order Hodge split for any k-tensor: potential =
+            # Σ per mode marginal means (main effects, inclusion exclusion), residual = interaction.
+            # Reduces to row+col grand for a 2 tensor, mean vs fluctuation for a 1 tensor. Same
             # construction as HodgeAdam, verified against the core's hodge_matrix_decompose for 2D.
             if G.dim() <= 1:
                 gm = G.mean()
@@ -95,7 +95,7 @@ if _HAS_TORCH:
                     st = self.state[p]
                     do_hodge = (G.dim() >= 1 and G.numel() >= max(min_side, 2))
                     if do_hodge:
-                        # every rank decomposed (2-tensor, conv 4-tensor, 1-tensor bias, k-rex)
+                        # every rank decomposed (2 tensor, conv 4 tensor, 1 tensor bias, k-rex)
                         pot, rot = self._decompose(G)
                         if mom or cmom:
                             vp = st.get("v_pot");  vr = st.get("v_rot")
@@ -127,30 +127,30 @@ if _HAS_TORCH:
             return loss
 
         def hodge_report(self) -> dict[str, list[float]]:
-            """Per-step mean energy fractions (coordinated vs rotational) across all
+            """Per step mean energy fractions (coordinated vs rotational) across all
             decomposed matrices. Feed to ``optim.save_hodge_trajectory`` for timeline tracking."""
             return {k: list(v) for k, v in self._hist.items()}
 
 
     class HodgeAdam(_torch.optim.Optimizer):
         """Adam whose adaptive moments are maintained independently within each Hodge component
-        of a matrix gradient. Per-coordinate adaptive scaling operates inside the Hodge
+        of a matrix gradient. Per coordinate adaptive scaling operates inside the Hodge
         decomposition rather than across the flat matrix: the coordinated (potential) and
         rotational parts get their own first/second-moment estimates and their own effective
         step, then recombine with ``gamma_grad`` / ``gamma_curl`` gains. The grad/rotational
         split is a trackable, verified structure.
 
         Empirically this ties plain Adam on standard weight matrices (the coordinated component
-        engages only a few percent of the gradient in the weight-neuron geometry, not the model's
-        data complex); for relational-native models whose parameters are cochains, use
+        engages only a few percent of the gradient in the weight neuron geometry, not the model's
+        data complex); for relational native models whose parameters are cochains, use
         ``optim.GreensCochain``, which preconditions in the complex's own geometry. Kept for
-        back-compat; not a recommended default.
+        back compat; not a recommended default.
 
-        Every rank is decomposed relationally: 2-tensors via the weighted bipartite Hodge flow,
-        any other rank (1-tensor biases, 3/4-tensor conv kernels, k-rex) via the general
-        functional-ANOVA / higher-order Hodge split (`_decompose`); only scalars fall back to plain
+        Every rank is decomposed relationally: 2 tensors via the weighted bipartite Hodge flow,
+        any other rank (1 tensor biases, 3/4-tensor conv kernels, k-rex) via the general
+        functional ANOVA / higher order Hodge split (`_decompose`); only scalars fall back to plain
         Adam. At ``gamma_grad == gamma_curl == 1`` the recombination carries the full gradient; it
-        is not identical to Adam because the √v normalization is per-component, not global."""
+        is not identical to Adam because the √v normalization is per component, not global."""
 
         def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999), eps: float = 1e-8,
                      gamma_grad: float = 1.0, gamma_curl: float = 1.0, weight_decay: float = 0.0,
@@ -170,13 +170,13 @@ if _HAS_TORCH:
 
         @staticmethod
         def _decompose(G):
-            """Functional-ANOVA / higher-order Hodge split of any k-tensor gradient, the general
-            construction rather than a 2-tensor special case. The coordinated (potential) part is
-            the order-1 additive structure: the sum of each mode's marginal mean (its "main
-            effect"), combined by inclusion-exclusion; the residual is all higher-order interaction.
+            """Functional ANOVA / higher order Hodge split of any k-tensor gradient, the general
+            construction rather than a 2 tensor special case. The coordinated (potential) part is
+            the order 1 additive structure: the sum of each mode's marginal mean (its "main
+            effect"), combined by inclusion exclusion; the residual is all higher order interaction.
             This is the Hodge/ANOVA decomposition on the product complex, the same object
-            statistics calls analysis-of-variance. It reduces to row+col-grand means for a
-            2-tensor, to mean vs fluctuation for a 1-tensor, and generalizes to conv kernels and
+            statistics calls analysis of variance. It reduces to row+col grand means for a
+            2 tensor, to mean vs fluctuation for a 1 tensor, and generalizes to conv kernels and
             any k-rex."""
             if G.dim() <= 1:
                 gm = G.mean()
@@ -191,7 +191,7 @@ if _HAS_TORCH:
 
         @staticmethod
         def _cg(matvec, b, iters=12, tol=1e-7):
-            """Matrix-free conjugate gradient solve of L φ = b (no autograd needed - this runs
+            """Matrix free conjugate gradient solve of L φ = b (no autograd needed - this runs
             inside the no_grad optimizer step)."""
             x = _torch.zeros_like(b); r = b - matvec(x); pdir = r.clone()
             rs = (r * r).sum()
@@ -205,10 +205,10 @@ if _HAS_TORCH:
             return x
 
         def _vhodge_block(self, G, W, st, group, key):
-            """Vector Hodge gradient-flow decomposition of one (sub)matrix block: coordinated =
+            """Vector Hodge gradient flow decomposition of one (sub)matrix block: coordinated =
             B₁ᵀφ (Green's-projected potential flow), residual = rest. Sparse weighted bipartite
-            (edges = the block's own strong weights) with matrix-free CG; produces vectors, not a
-            scalar filter. ANOVA is the uniform-complete-graph limit."""
+            (edges = the block's own strong weights) with matrix free CG; produces vectors, not a
+            scalar filter. ANOVA is the uniform complete graph limit."""
             m, n = G.shape
             tc = st.get(key + "_t", 0)
             if st.get(key) is None or (tc % group["refresh"] == 0):
@@ -219,7 +219,7 @@ if _HAS_TORCH:
             ar, cols, w, nV = st[key]
             st[key + "_t"] = tc + 1
             src = ar; tgt = cols + m                                     # bipartite: inputs after m
-            g = G[ar, cols]                                             # edge-flow of the gradient
+            g = G[ar, cols]                                             # edge flow of the gradient
 
             def matvec(phi):                                            # L₀^w φ = B₁ diag(w) B₁ᵀ φ
                 flow = w * (phi[tgt] - phi[src])
@@ -238,10 +238,10 @@ if _HAS_TORCH:
             return coordinated
 
         def _vector_decompose(self, G, p, st, group):
-            """Architecture-aware vector Hodge decomposition. ``blocks`` splits the output
-            (row) dim into independent relational sub-complexes, e.g. one per attention head,
+            """Architecture aware vector Hodge decomposition. ``blocks`` splits the output
+            (row) dim into independent relational sub complexes, e.g. one per attention head,
             since heads are independent subspaces the flat bipartite would wrongly entangle.
-            blocks=1 (MLP/embedding/generic) is the plain weighted-bipartite vector split."""
+            blocks=1 (MLP/embedding/generic) is the plain weighted bipartite vector split."""
             m, n = G.shape
             if max(m, n) > group["max_side"] or m < 3:
                 return self._decompose(G)
@@ -254,17 +254,17 @@ if _HAS_TORCH:
                 return pot, G - pot
             bs = m // blocks
             pot = _torch.zeros_like(G)
-            for b in range(blocks):                                    # one sub-complex per head
+            for b in range(blocks):                                    # one sub complex per head
                 sl = slice(b * bs, (b + 1) * bs)
                 pot[sl] = self._vhodge_block(G[sl], Wd[sl], st, group, "_e%d" % b)
             return pot, G - pot
 
         def _topo_decompose(self, G, p, st, group):
-            """Topology split: heat-smooth the gradient over the graph induced by the layer's
-            own weights (|W| neuron similarity), via the eigen-free heat propagator. The
+            """Topology split: heat smooth the gradient over the graph induced by the layer's
+            own weights (|W| neuron similarity), via the eigen free heat propagator. The
             coordinated part is the low-frequency/global component on the network structure
             (correlated neurons updated coherently), the residual is the local/high-frequency
-            part. ANOVA is the degenerate complete-graph limit; falls back to it for oversized
+            part. ANOVA is the degenerate complete graph limit; falls back to it for oversized
             matrices."""
             m, n = G.shape
             if max(m, n) > group["max_side"] or m < 3:
@@ -273,9 +273,9 @@ if _HAS_TORCH:
             tc = st.get("_topo_t", 0)
             if st.get("_L") is None or (tc % group["refresh"] == 0):
                 Wd = p.detach().abs()
-                A = Wd @ Wd.t()                                   # [m,m] output-neuron similarity
+                A = Wd @ Wd.t()                                   # [m,m] output neuron similarity
                 A = A - _torch.diag_embed(_torch.diagonal(A))
-                L = _torch.diag_embed(A.sum(dim=1)) - A           # PSD neuron-graph Laplacian
+                L = _torch.diag_embed(A.sum(dim=1)) - A           # PSD neuron graph Laplacian
                 st["_L"] = L; st["_lam"] = _R.spectral_bound(L)
             st["_topo_t"] = tc + 1
             coordinated = _R.heat_apply(st["_L"], G, group["heat_time"],
@@ -310,7 +310,7 @@ if _HAS_TORCH:
                     st = self.state[p]
                     dec = None
                     if G.dim() == 2 and min(G.shape) >= min_side:
-                        # weighted vector/topo Hodge on the 2-tensor's own bipartite complex
+                        # weighted vector/topo Hodge on the 2 tensor's own bipartite complex
                         if group["structure"] == "vector":
                             dec = self._vector_decompose(G, p, st, group)
                         elif group["structure"] == "topo":
@@ -318,8 +318,8 @@ if _HAS_TORCH:
                         else:
                             dec = self._decompose(G)
                     elif G.dim() >= 1 and G.numel() >= max(min_side, 2):
-                        # any other rank (1-tensor bias, 3/4-tensor conv, k-rex): the general
-                        # functional-ANOVA / higher-order Hodge split, no Adam fallback.
+                        # any other rank (1 tensor bias, 3/4-tensor conv, k-rex): the general
+                        # functional ANOVA / higher order Hodge split, no Adam fallback.
                         dec = self._decompose(G)
                     if dec is not None:
                         pot, rot = dec
@@ -330,7 +330,7 @@ if _HAS_TORCH:
                             eg_sum += float((pot * pot).sum()); er_sum += float((rot * rot).sum())
                             n_dec += 1
                     else:
-                        upd = self._adam_step(G, st, "full", b1, b2, eps)      # scalars / 1-element
+                        upd = self._adam_step(G, st, "full", b1, b2, eps)      # scalars / 1 element
                     p.add_(upd, alpha=-lr)
                 if self._track and n_dec:
                     tot = eg_sum + er_sum

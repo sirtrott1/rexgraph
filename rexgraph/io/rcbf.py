@@ -13,7 +13,7 @@ It deliberately does not import derived numeric products or temporal
 state records.  They are not a shared canonical carrier, and silently
 reconstructing them with a different engine would be less rigorous than an
 explicit bridge.  A stream with temporal records therefore refuses by default;
-an explicit current-snapshot opt-in is available when that loss is intended.
+an explicit current snapshot opt in is available when that loss is intended.
 """
 from __future__ import annotations
 
@@ -425,9 +425,9 @@ def load_rcbf(path: str | Path, *, allow_current_snapshot: bool = False):
                 "RCBF temporal states require a temporal converter; pass "
                 "allow_current_snapshot=True to import only the current C0--C2 state"
             )
-        # State-full payloads only exist after temporal records. A current-snapshot
+        # State full payloads only exist after temporal records. A current snapshot
         # import deliberately stops before those records, while a timeless RCBF can
-        # carry its complete C1 and per-boundary metadata into the RexGraph sidecar.
+        # carry its complete C1 and per boundary metadata into the RexGraph sidecar.
         edge_attributes: list[list[dict[str, object]]] = [[] for _ in range(n_edges)]
         slot_attributes: list[list[dict[str, object]]] = [[] for _ in range(n_edges)]
         if temporal_states == 0:

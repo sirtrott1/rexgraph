@@ -1,22 +1,22 @@
 """
-Single-cell / 10X Genomics adapter.
+Single cell / 10X Genomics adapter.
 
 Handles the sparse Matrix Market format the core biology workflow used
 (``matrix.mtx(.gz)`` + ``barcodes.tsv(.gz)`` + ``features.tsv(.gz)`` /
-``genes.tsv(.gz)``), assigns cell types by marker-gene scoring, and
-builds a cell-cell interaction network via
+``genes.tsv(.gz)``), assigns cell types by marker gene scoring, and
+builds a cell cell interaction network via
 :class:`~agent.adapters.lr_interaction.LRInteractionAdapter`.
 
 Pipeline
---------
+
 1. ``load_10x(dir)``            -> sparse cells x genes, barcodes, genes
-2. marker scoring              -> per-cell type label (argmax of scores)
-3. mean expression per type    -> cell-type x gene table
+2. marker scoring              -> per cell type label (argmax of scores)
+3. mean expression per type    -> cell type x gene table
 4. L-R scoring between types   -> EdgeConstruction (via LRInteractionAdapter)
 
 If no markers are supplied, cells are grouped by a light k-means on the
 top principal components so the adapter still produces a usable
-cell-type table instead of failing.
+cell type table instead of failing.
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ def load_10x(path) -> tuple[scipy.sparse.csr_matrix, list[str], list[str]]:
     """Load a 10X directory into (cells x genes CSR, barcodes, gene names).
 
     Matrix Market from 10X is genes x cells; this returns the transpose
-    (cells x genes) as CSR for row-wise (per-cell) operations.
+    (cells x genes) as CSR for row wise (per cell) operations.
     """
     from scipy import sparse
     from scipy.io import mmread
@@ -150,7 +150,7 @@ def load_10x(path) -> tuple[scipy.sparse.csr_matrix, list[str], list[str]]:
 
 
 def _normalize_log(cxg):
-    """Library-size normalise to 10k counts then log1p (standard scRNA)."""
+    """Library size normalise to 10k counts then log1p (standard scRNA)."""
     from scipy import sparse
 
     cxg = cxg.astype(np.float64)
@@ -208,7 +208,7 @@ def score_marker_types(cxg, genes: list[str], markers: dict[str, list[str]]):
 
 
 def _kmeans_types(cxg, k: int = 6):
-    """Fallback clustering when no markers are given (top-PC k-means)."""
+    """Fallback clustering when no markers are given (top PC k-means)."""
     normed = _normalize_log(cxg)
     # Use the densest genes to keep the embedding cheap.
     gene_tot = np.asarray(normed.sum(axis=0)).ravel()
@@ -221,14 +221,14 @@ def _kmeans_types(cxg, k: int = 6):
     # densifying the n_cells×m matrix or running a full SVD. The right singular
     # vectors V and S² come from the tiny m×m Gram matrix of the CENTERED data:
     #   G = X_centeredᵀ X_centered = Xsᵀ Xs - n_cells·μμᵀ   (m×m ≤ 200², exact).
-    # Same result as the old dense SVD (identical up to per-component sign, to which
+    # Same result as the old dense SVD (identical up to per component sign, to which
     # Euclidean k-means is invariant); cost is O(nnz + m²), scaling in nnz not cells.
     try:
         G = np.asarray((Xs.T @ Xs).todense()) - n_cells * np.outer(mu, mu)
         G = 0.5 * (G + G.T)
         kk = int(min(k, m))
         evals, evecs = np.linalg.eigh(G)
-        V = evecs[:, ::-1][:, :kk]                 # top-kk singular directions
+        V = evecs[:, ::-1][:, :kk]                 # top kk singular directions
         emb = np.asarray(Xs @ V) - (mu @ V)        # X_centered · V, (n_cells × kk)
     except Exception:
         emb = np.asarray(Xs[:, :min(k, m)].todense()) - mu[:min(k, m)]
@@ -253,7 +253,7 @@ def _kmeans_types(cxg, k: int = 6):
 
 
 def mean_expression_by_type(cxg, genes, labels):
-    """Return (types, type x gene mean-expression matrix) on log-norm data."""
+    """Return (types, type x gene mean expression matrix) on log norm data."""
     normed = _normalize_log(cxg)
     types = sorted(set(labels.tolist()))
     mat = np.zeros((len(types), len(genes)), dtype=np.float64)
@@ -267,7 +267,7 @@ def mean_expression_by_type(cxg, genes, labels):
 
 
 class SingleCellAdapter(DomainAdapter):
-    """Turn a 10X directory into a cell-cell interaction complex."""
+    """Turn a 10X directory into a cell cell interaction complex."""
 
     name = "single_cell"
 
@@ -284,7 +284,7 @@ class SingleCellAdapter(DomainAdapter):
         """Build an L-R interaction complex from a 10X directory.
 
         Parameters
-        ----------
+
         data : str | Path
             Path to a directory containing the 10X triplet.
         markers : dict, optional

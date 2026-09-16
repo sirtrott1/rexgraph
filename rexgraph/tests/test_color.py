@@ -2,7 +2,7 @@
 
 K7's channel operators come from its boundary operator, mix a character into them, read
 the spectrum as wavelengths against the Balmer limit and integrate those through the CIE
-colour-matching functions. So a colour is a physical consequence of a character rather
+colour matching functions. So a colour is a physical consequence of a character rather
 than a palette decision.
 
 These pin the implementation against independent reference values and the properties that

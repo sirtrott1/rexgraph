@@ -46,7 +46,7 @@ class LexicalAnswerer:
         self._senses: dict | None = None
         self._verb_forms: set | None = None
 
-    #### the lexicon, loaded once ##############################################
+    # the lexicon, loaded once
     def _lex(self):
         if self._wn is None:
             from agent.adapters.lexical import load_wordnet
@@ -84,7 +84,7 @@ class LexicalAnswerer:
         self._lex()
         return str(term).lower() in self._by_lemma
 
-    #### the reading ###########################################################
+    # the reading
     def _asked(self, tokens):
         """(relation, subject) read off the query, or (None, None).
 
@@ -107,7 +107,7 @@ class LexicalAnswerer:
     def answer(self, query: str) -> dict:
         toks = Q.tokens(query)
         # The INTERFACE check needs no lexicon, and most queries are not lexical, so a
-        # non-lexical query must not pay 2.6 s to load one before being declined.
+        # non lexical query must not pay 2.6 s to load one before being declined.
         if not any(t in INTERFACE for t in toks):
             return {"answered": False, "reason": "no lexical relation is asked for",
                     "capability": self.capability}
@@ -154,10 +154,10 @@ class LexicalAnswerer:
                 "senses": senses, "source": "wordnet",
                 "capability": self.capability}
 
-    #### the worker interface the hive already has #############################
+    # the worker interface the hive already has
     def as_worker(self):
         """`(handler, capability, worker_type)` for `Hive.add_worker`, which is the
-        existing primitive for a non-HTTP member invoked like any other bee."""
+        existing primitive for a non HTTP member invoked like any other bee."""
         def handler(data):
             q = data.get("query") if isinstance(data, dict) else data
             return self.answer(str(q))

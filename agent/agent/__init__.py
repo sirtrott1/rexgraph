@@ -1,18 +1,19 @@
 """
-RexGraph Mathematical Agent: auto-construction and analysis pipeline.
+RexGraph Mathematical Agent: auto construction and analysis pipeline.
 
 Data in -> math computes -> results out.
 No black box. Every claim is a matrix operation. Every uncertainty is a void count.
 """
 
 #: The agent version, kept here rather than read back from installed metadata so a
-#: source checkout reports what it is. The carrier contract changed this release, so
-#: every inter-distribution floor requires a sibling at >=1.1.5: RCBD/RCBF and RCQL
-#: means anything against a core that actually refuses duplicate incidence, and a
-#: pre-1.1.5 core does not expose it. That rejects an older sibling rather than pinning
+#: source checkout reports what it is. The query surface grew this release, so every
+#: inter distribution floor requires a sibling at >=1.1.6: the RCQL names added here
+#: read core actions that a pre-1.1.6 core does not expose, and a query naming one
+#: against an older sibling fails at resolution. That rejects an older sibling rather
+#: than pinning
 #: the five to each other. pyproject.toml has to match, and one test pins every
 #: declaration across all five.
-__version__ = "1.1.5"
+__version__ = "1.1.6"
 
 from .auto import auto_analyze, auto_rex, detect_input_type
 from .engine import DecisionEngine

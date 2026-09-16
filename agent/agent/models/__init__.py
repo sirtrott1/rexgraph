@@ -1,8 +1,8 @@
 """
-models: model-builder framework over the rexgraph.nn substrate.
+models: model builder framework over the rexgraph.nn substrate.
 
 Select an archetype, override its parameters, point it at data, and train it in one of three
-modes: single run, multistep (staged), or multi-model fusion. The archetypes (LM / CNN / MLP /
+modes: single run, multistep (staged), or multi model fusion. The archetypes (LM / CNN / MLP /
 HGNN) are example models built from rexgraph.nn; they are not part of the library.
 
     from models import list_archetypes, run
@@ -22,7 +22,7 @@ HGNN) are example models built from rexgraph.nn; they are not part of the librar
 # that needs it. `import agent.models` now works with numpy and scipy alone.
 from . import (  # noqa: F401
     archetypes,
-    data,
+    data as data,
     store,  # noqa: F401
     trustgraph,  # noqa: F401
 )
@@ -43,7 +43,7 @@ from .trustgraph import (  # noqa: F401  TrustGraph ingestion (DB -> knowledge c
 
 
 def list_archetypes() -> list:
-    """Return every archetype with its use-case, the data kind it consumes, and its
+    """Return every archetype with its use case, the data kind it consumes, and its
     customizable parameters (with defaults)."""
     return [{"name": a["name"], "use_case": a["use_case"], "data_kind": a["data_kind"],
              "params": a["defaults"]} for a in sorted(ARCHETYPES.values(), key=lambda x: x["name"])]
@@ -51,7 +51,7 @@ def list_archetypes() -> list:
 
 def _load(archetype, source, params, seed):
     """Return a DataBundle from a rexgraph.io source (parquet / vectors / .rcbd / sql / csv/jsonl/txt),
-    an already-built DataBundle, or the archetype's synthetic generator (source=None)."""
+    an already built DataBundle, or the archetype's synthetic generator (source=None)."""
     if source is None:
         return get(archetype)["synth"](merged_cfg(archetype, params), seed)
     if hasattr(source, "kind"):
@@ -74,7 +74,7 @@ def run(archetype, *, params=None, data=None, mode="single", optimizer="auto", s
         resume=None) -> dict:
     """Build and train an archetype. `mode` is one of {single, multistep, fusion}. Returns the run
     result (metric trajectory / stages / fused metric). `data` may be a path or a DataBundle.
-    `device` defaults to 'cpu'; use 'cuda' for the non-conv archetypes (mlp/lm/hgnn). Conv fails on
+    `device` defaults to 'cpu'; use 'cuda' for the non conv archetypes (mlp/lm/hgnn). Conv fails on
     this box's ROCm build, so cnn stays on cpu."""
     from . import train
     if mode == "fusion":
@@ -94,7 +94,7 @@ def run(archetype, *, params=None, data=None, mode="single", optimizer="auto", s
 
 
 def predict(checkpoint, data=None, *, split=None, device="cpu", save_to=None) -> dict:
-    """Run a trained model on new data. `checkpoint` is a saved-checkpoint path (or a
+    """Run a trained model on new data. `checkpoint` is a saved checkpoint path (or a
     (model, config) pair from load_checkpoint). `data` is a DataBundle, any rexgraph.io
     source (parquet / .rcbd / sql / csv / jsonl / safetensors), or None for the archetype's
     synthetic data. Returns {archetype, n, predictions, metric, split}. When `save_to` is a

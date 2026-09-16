@@ -2,24 +2,24 @@
 """
 Safetensors bridge for RexGraph and TemporalRex.
 
-Exports the same cell-complex reconstruction data and optional cache
+Exports the same cell complex reconstruction data and optional cache
 groups that `bundle.py` writes to `.rcbd` directories, but packed into a
 single `.safetensors` file. The goals are:
 
-- Cross-ecosystem transport: safetensors is the idiomatic format for
+- Cross ecosystem transport: safetensors is the idiomatic format for
   sharing tensors with PyTorch, JAX, HuggingFace Hub, and downstream ML
-  tooling without requiring numpy-level deserialization.
-- Fast cold reads: the safetensors format is memory-mappable and has a
+  tooling without requiring numpy level deserialization.
+- Fast cold reads: the safetensors format is memory mappable and has a
   small fixed JSON header, so large caches load in constant time plus
   the cost of the tensor slice actually requested.
-- No pickle, no arbitrary code execution: the on-disk layout is a JSON
+- No pickle, no arbitrary code execution: the on disk layout is a JSON
   header followed by packed byte buffers. Loading a file cannot run
   user code.
 
 This bridge is parallel to `arrow_bridge.py` and `parquet_bridge.py`.
 It is not the primary storage for RexGraphs; use `bundle.py` (`.rcbd`)
 or `zarr_format.py` (`.zarr`) for that. Use this bridge when shipping
-a rex to an ML environment or when you want the ML-ecosystem loader
+a rex to an ML environment or when you want the ML ecosystem loader
 path.
 
 Layout
@@ -53,14 +53,14 @@ grouping mirrors `bundle.py` cache groups:
 
 Metadata
 ~~~~~~~~
-For a RexGraph, the reconstruction contract is the canonical rex-state
+For a RexGraph, the reconstruction contract is the canonical rex state
 serializer (`rex_state.to_state`/`from_state`, the same one `.rcbd`
 bundles delegate to). Its tensors (boundary, B2, w_E, signs,
 edge_types, w_boundary, labels, nested rexes, and so on) are stored
-here VERBATIM: safetensors keys are arbitrary strings, so a nested-rex
+here VERBATIM: safetensors keys are arbitrary strings, so a nested rex
 name like `nested/cm_1_sub/0/boundary_ptr` keeps its `/` and needs no
 encoding (unlike .rcbd, hdf5 and zarr, which reserve `/` as a hierarchy
-separator and go through `rex_state.encode_name`). The json-safe header
+separator and go through `rex_state.encode_name`). The json safe header
 is stored under the single metadata key `rex_state_header`.
 A `rex_meta` key is also written, holding the same header plus any
 requested cache extras (`cached_arrays`, `cache_scalars`); it exists
@@ -889,121 +889,12 @@ def temporal_rex_to_safetensors(
     *,
     encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> pathlib.Path:
-    """Write a TemporalRex to a `.safetensors` file as a DELTA INDEX
-    (checkpoints + deltas), not full per-step snapshots.
-
-    `trex._ensure_index()` is called first so the checkpoint/delta index
-    (Tasks 4/6) exists. Each checkpoint `c` is stored under
-    `checkpoint/<c>/boundary_ptr` + `boundary_idx`, plus `w_E`/`signs`
-    (only if the checkpoint carries attribution) and `B2_col_ptr` /
-    `B2_row_idx` / `B2_vals` (only if the checkpoint has faces). Each
-    non checkpoint step `t` is stored as a `TemporalDelta` under
-    `delta/<t>/born_cols|born_offsets|born_wE|born_signs|died_keys|
-    mod_keys|mod_wE|mod_signs|mod_heads`, and, when a face delta was recorded for
-    that step, a `FaceDelta` under `face_delta/<t>/born_edge_keys|
-    born_offsets|born_signs|died_face_keys`.
-
-    Metadata records `encoding="delta"` so `safetensors_to_temporal_rex`
-    returns a delta backed `TemporalRex` (`_snapshots_materialized =
-    False`) rather than reconstructing full per-step snapshots.
-    """
+    """Write the canonical temporal state, including its exact coefficient codec."""
+    from .temporal_state import to_temporal_state
     out = _coerce_path(path)
-
-    trex._ensure_index()
-
-    tensors: dict[str, NDArray] = {}
-
-    T = trex.T
-    directed = bool(trex._directed)
-    general = bool(trex._general)
-
-    checkpoint_times = [int(c) for c in trex._index_cp_times.tolist()]
-    checkpoint_optional: dict[str, dict[str, bool]] = {}
-    for c in checkpoint_times:
-        _, bp, bi, wE, signs, b2cp, b2ri, b2v, *identity = trex._index_checkpoints[c]
-        relation_ids = identity[0] if identity else None
-        tensors[f"checkpoint/{c}/boundary_ptr"] = _as_storable(bp)
-        tensors[f"checkpoint/{c}/boundary_idx"] = _as_storable(bi)
-        has_wE = wE is not None
-        has_signs = signs is not None
-        has_faces_cp = b2cp is not None and b2cp.shape[0] > 1
-        if has_wE:
-            tensors[f"checkpoint/{c}/w_E"] = _as_storable(wE)
-        if has_signs:
-            tensors[f"checkpoint/{c}/signs"] = _as_storable(signs)
-        if relation_ids is not None:
-            tensors[f"checkpoint/{c}/relation_ids"] = _as_storable(relation_ids)
-        if has_faces_cp:
-            tensors[f"checkpoint/{c}/B2_col_ptr"] = _as_storable(b2cp)
-            tensors[f"checkpoint/{c}/B2_row_idx"] = _as_storable(b2ri)
-            tensors[f"checkpoint/{c}/B2_vals"] = _as_storable(b2v)
-        checkpoint_optional[str(c)] = {
-            "w_E": has_wE, "signs": has_signs, "relation_ids": relation_ids is not None,
-            "faces": has_faces_cp,
-        }
-
-    has_faces_any = any(v["faces"] for v in checkpoint_optional.values())
-    for t in range(T):
-        d = trex._index_deltas[t]
-        if d is not None:
-            tensors[f"delta/{t}/born_cols"] = _as_storable(d.born_cols)
-            tensors[f"delta/{t}/born_offsets"] = _as_storable(d.born_offsets)
-            tensors[f"delta/{t}/born_wE"] = _as_storable(d.born_wE)
-            tensors[f"delta/{t}/born_signs"] = _as_storable(d.born_signs)
-            tensors[f"delta/{t}/died_keys"] = _as_storable(d.died_keys)
-            tensors[f"delta/{t}/mod_keys"] = _as_storable(d.mod_keys)
-            tensors[f"delta/{t}/mod_wE"] = _as_storable(d.mod_wE)
-            tensors[f"delta/{t}/mod_signs"] = _as_storable(d.mod_signs)
-            if d.mod_heads is not None:
-                tensors[f"delta/{t}/mod_heads"] = _as_storable(d.mod_heads)
-            for name in ("born_ids", "died_ids", "mod_ids", "mod_cols", "mod_offsets"):
-                value = getattr(d, name)
-                if value is not None:
-                    tensors[f"delta/{t}/{name}"] = _as_storable(value)
-        fd = trex._index_face_deltas[t]
-        if fd is not None:
-            has_faces_any = True
-            tensors[f"face_delta/{t}/born_edge_keys"] = _as_storable(fd.born_edge_keys)
-            tensors[f"face_delta/{t}/born_offsets"] = _as_storable(fd.born_offsets)
-            tensors[f"face_delta/{t}/born_signs"] = _as_storable(fd.born_signs)
-            tensors[f"face_delta/{t}/died_face_keys"] = _as_storable(fd.died_face_keys)
-
-    meta: dict[str, Any] = {
-        "object_type": "TemporalRex",
-        "encoding": "delta",
-        "T": int(T),
-        "directed": directed,
-        "general": general,
-        "has_faces": bool(has_faces_any),
-        "checkpoint_threshold": float(trex._checkpoint_threshold),
-        "checkpoint_times": checkpoint_times,
-        "checkpoint_optional": checkpoint_optional,
-        # the step clock: without it a reloaded history can only be addressed by
-        # index, and cannot be lined up against anything recorded in wall time.
-        "times": [float(x) for x in trex._times],
-        "g_channels": [
-            str(trex._g_channels[index])
-            if index < len(getattr(trex, "_g_channels", ()))
-            else "raw"
-            for index in range(T)
-        ],
-        "c_channels": [
-            str(trex._c_channels[index])
-            if index < len(getattr(trex, "_c_channels", ()))
-            else "share"
-            for index in range(T)
-        ],
-        "bridge_version": _BRIDGE_VERSION,
-    }
-
-    st_meta = {"rex_meta": json.dumps(meta)}
-    _write_tensor_file(
-        tensors,
-        out,
-        st_meta,
-        kind="TemporalRex",
-        encryption_properties=encryption_properties,
-    )
+    state = to_temporal_state(trex)
+    _write_tensor_file(state.tensors, out, {"rex_meta": json.dumps(state.header)},
+                       kind="TemporalRex", encryption_properties=encryption_properties)
     return out
 
 
@@ -1071,6 +962,9 @@ def _rex_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any],
 
 
 def _temporal_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any]):
+    if "temporal_state_version" in meta:
+        from .temporal_state import TemporalState, from_temporal_state
+        return from_temporal_state(TemporalState(tensors, meta))
     # Legacy files (written by an earlier encoder, or any file whose `encoding` is
     # missing) carry full per step snapshots under `snapshot/<t>/...`; that
     # path is unchanged below. Files written by the current

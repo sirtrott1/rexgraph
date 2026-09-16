@@ -1,8 +1,8 @@
 """rexgraph.nn.layers: composable relational NN building blocks (nn.Module).
 
-The pieces you compose into models, the way message-passing primitives compose in a graph library.
+The pieces you compose into models, the way message passing primitives compose in a graph library.
 Each layer takes a fixed Laplacian operator L at forward time and learns the transforms around it,
-built on the eigen-free rcf_torch propagators and the self-adjoint Green's solve:
+built on the eigen free rcf_torch propagators and the self adjoint Green's solve:
 
     PropagatorMix   f(L)*(X W) via Chebyshev matvec (heat / wave), learnable scale t - matrix-free
     GreenResolvent  (I + a L)^-1 (X W), learnable a - the implicit self-adjoint layer (one operator,
@@ -36,9 +36,9 @@ def _matvec(L):
 
 
 class GreenResolvent(_Module):
-    """Implicit self-adjoint layer: X' = (I + a*L)^-1 (X W), with a learnable.
+    """Implicit self adjoint layer: X' = (I + a*L)^-1 (X W), with a learnable.
 
-    The resolvent is the converged (infinite-step) propagator, solved by CG; the backward pass is
+    The resolvent is the converged (infinite step) propagator, solved by CG; the backward pass is
     the same solve applied to the incoming gradient (one operator, O(1) memory, no unrolling). The
     relational analog of a residual / equilibrium block. L may be a tensor or a matvec callable."""
 
@@ -54,7 +54,7 @@ class GreenResolvent(_Module):
 
 
 class PropagatorMix(_Module):
-    """Mix features by a learnable-scale propagator f(L)*(X W), matrix-free via Chebyshev matvec.
+    """Mix features by a learnable scale propagator f(L)*(X W), matrix free via Chebyshev matvec.
 
     channel 'heat' is diffusive (e^{-tL}); 'wave' is oscillatory (the real part of e^{-itL}). The
     n x n operator is never formed. This is the building block behind PropagatorAttention, usable

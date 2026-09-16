@@ -8,13 +8,13 @@ what comes out.
 
 **Why processes.** `build_document` and the exact rank reduction behind `betti` are pure
 Python, and `rexgraph.compute.parallel_map` says in as many words that a thread pool
-does nothing for a pure-Python body. So the fan-out is a process pool: each child reads,
+does nothing for a pure Python body. So the fan out is a process pool: each child reads,
 builds, serializes and signs one document, and the parent does nothing but write. The
-parent stays single-threaded because a `FileStore`'s index and append log are
-per-process state, and two processes appending to one log is a corrupted store.
+parent stays single threaded because a `FileStore`'s index and append log are
+per process state, and two processes appending to one log is a corrupted store.
 
-**Why it is resumable.** `put` APPENDS A VERSION rather than replacing, so re-running an
-interrupted ingest over the same paths would give every already-stored document a second
+**Why it is resumable.** `put` APPENDS A VERSION rather than replacing, so re running an
+interrupted ingest over the same paths would give every already stored document a second
 identical version: twice the blobs, and a lineage that records a revision that never
 happened. `pending()` filters the work list against the ids the store already holds, so
 a resumed run does the remainder and nothing else.
@@ -22,7 +22,7 @@ a resumed run does the remainder and nothing else.
 **What is NOT stored.** The text. A document's prose stays in the file it came from and
 the record carries a heap pointer to it, which is what makes the corpus 86 GiB of
 structure over 23 GiB of source rather than both. The pointer is published only when the
-text re-encodes to the file byte-for-byte, because a byte span into a file whose bytes
+text re encodes to the file byte for byte, because a byte span into a file whose bytes
 were not what we decoded addresses the wrong prose. `read_document` decides that, not
 this module.
 """
@@ -42,7 +42,7 @@ def doc_id_for(path: str) -> str:
     """A stable id for a source file: its basename without extension.
 
     Stable across runs is the whole requirement: it is what lets `pending` recognise
-    an already-ingested document, and what makes a re-ingest a new VERSION of the same
+    an already ingested document, and what makes a re ingest a new VERSION of the same
     document rather than a second document.
     """
     return os.path.splitext(os.path.basename(str(path)))[0]
@@ -93,8 +93,8 @@ def ingest_one(path: str, *, profile=None, analytics: bool = False,
 def pending(store, paths) -> list[str]:
     """The paths whose documents the store does not already hold.
 
-    This is what makes a re-run a resume instead of a duplicate: `put` appends a
-    version, so an unfiltered re-run silently doubles the corpus.
+    This is what makes a re run a resume instead of a duplicate: `put` appends a
+    version, so an unfiltered re run silently doubles the corpus.
     """
     have = set()
     try:
@@ -134,7 +134,7 @@ def ingest_corpus(paths, store, *, profile=None, workers: int | None = None,
     n = workers if workers is not None else max(1, (os.cpu_count() or 2) - 1)
     n = min(n, total)
     t0 = time.perf_counter()
-    # forkserver: a clean single-threaded child, which is the pattern the pipeline
+    # forkserver: a clean single threaded child, which is the pattern the pipeline
     # workers already use. `fork` inherits this process's threads and its BLAS pools.
     ctx = multiprocessing.get_context("forkserver")
     # The window is BOUNDED. Submitting every path at once lets the workers run ahead of

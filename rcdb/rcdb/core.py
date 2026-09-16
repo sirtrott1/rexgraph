@@ -1,7 +1,7 @@
 """
 rcdb.core: the Relational Complex Database (RCDB).
 
-A backend-agnostic store where **every record is a relational complex**.
+A backend agnostic store where **every record is a relational complex**.
 One interface (:class:`RCStore`), several pluggable backends, and
 **structural query** (the part nobody else has): select complexes by their
 topology (Betti numbers, coherence, voids), not just by id or column value.
@@ -31,11 +31,17 @@ import builtins
 import contextlib
 import json
 import os
+import sys
 import tempfile
 import time
 import zlib
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import wraps
+from math import isfinite
+from numbers import Integral, Real
+from threading import RLock
 from typing import Any
 from urllib.parse import urlparse
 
@@ -50,6 +56,15 @@ _ACTIVITY_HOOK = None
 _SCOPE_HOOK = None
 _PRIVACY_HOOK = None
 _SIMILARITY_HOOK = None
+_MUTATION_COMMIT = object()
+
+
+class PublicationUncertainError(RuntimeError):
+    """Publication failed and durable rollback could not be established.
+
+    Recovery is required before retrying. A staged attestation must be retained:
+    the corresponding record may already be visible after reopening the store.
+    """
 
 
 def configure_hooks(*, activity=None, scope=None, privacy=None, similarity=None) -> None:
@@ -78,7 +93,7 @@ class _Prepared:
 
     A corpus ingest builds each complex in a worker PROCESS, because the build and the
     exact rank reduction are pure Python and a thread pool cannot run them in parallel.
-    What comes back over the pipe is bytes, not an object, and re-deserialising it in the
+    What comes back over the pipe is bytes, not an object, and re deserialising it in the
     parent just to have `_put_impl` serialize it again would pay the whole cost twice.
 
     Every store's `_put_impl` touches its `rex` argument through `serialize_complex` and
@@ -93,7 +108,7 @@ class _Prepared:
 
 
 #: Frame for a compressed blob: magic, then one byte naming the codec.
-#: A raw safetensors file opens with a little-endian u64 header length, so its first
+#: A raw safetensors file opens with a little endian u64 header length, so its first
 #: four bytes would have to read 0x315A5852 (an 823 MB header) to collide with this
 #: magic. The format caps a header at 100 MB, so the two are distinguishable exactly and
 #: not by a heuristic: a blob either starts with this or it is a legacy raw one.
@@ -105,7 +120,7 @@ _CODEC_ZSTD = b"s"
 def _codec():
     """The compressor to write with: zstd where it is installed, else zlib.
 
-    zstd at level 3 measured 500 MiB/s against zlib-6's 28 MiB/s for the same ratio on a
+    zstd at level 3 measured 500 MiB/s against zlib 6's 28 MiB/s for the same ratio on a
     document blob, which over a corpus is the difference between minutes and an hour. It
     is an optional dependency, so a host without it still writes a readable store, but
     a store written WITH it needs it to read, which is why the codec is named in the
@@ -155,7 +170,7 @@ def decompress_blob(blob: bytes) -> bytes:
 
 def serialize_complex(obj) -> bytes:
     """Serialize a RexGraph or TemporalRex to compressed safetensors bytes
-    (cross-ecosystem, no pickle). A TemporalRex is written as its delta-compressed index
+    (cross ecosystem, no pickle). A TemporalRex is written as its delta compressed index
     via `temporal_rex_to_safetensors`; a plain RexGraph goes through the existing
     `rex_to_safetensors` path, unchanged. A `_Prepared` is already those bytes.
 
@@ -183,10 +198,10 @@ def serialize_complex(obj) -> bytes:
 def deserialize_complex(blob: bytes, *, verify: bool = True):
     """Reconstruct a RexGraph or TemporalRex from safetensors bytes.
 
-    `verify=False` skips the load-time integrity check, which is a REAL check and not a
+    `verify=False` skips the load time integrity check, which is a REAL check and not a
     formality: since the Merkle digests are derived rather than stored, `from_state`
     rebuilds the layer tree from the complex and compares it to the recorded root, so it
-    catches a re-signed boundary column. It also costs one `_leaf_digests` pass: 37.6 s
+    catches a re signed boundary column. It also costs one `_leaf_digests` pass: 37.6 s
     on the largest record in the Gutenberg corpus.
 
     So it is worth paying where the answer is COMMITTED and not on every speculative
@@ -195,7 +210,7 @@ def deserialize_complex(blob: bytes, *, verify: bool = True):
     same reason. Callers that skip it here must verify what survives.
 
     Routes on the file's own `object_type` metadata (written by `serialize_complex`)
-    via `load_safetensors`, the object-type dispatch shared with `save_safetensors`
+    via `load_safetensors`, the object type dispatch shared with `save_safetensors`
     (safetensors_bridge.py), so the reader never has to be told in advance which
     kind of complex the blob holds."""
     from rexgraph.io.safetensors_bridge import load_safetensors
@@ -273,8 +288,8 @@ def structural_signature(rex, meta: dict | None = None,
     # BETTI is structure, not analytics: `min_betti1`/`max_betti1` query on it and a
     # record without it cannot answer whether the evidence closes. It was briefly moved
     # behind the flag on cost (4.31s of a 4.49s signature) but that cost was the rank
-    # path, not Betti. A span-gated document's pairs do not span its wider columns, so
-    # the union-find identity correctly refuses and exact elimination runs; the
+    # path, not Betti. A span gated document's pairs do not span its wider columns, so
+    # the union find identity correctly refuses and exact elimination runs; the
     # elimination was carrying Fractions with denominator 1 and reducing its widest
     # columns first. Both are fixed at the source in `_exact_rank_reduction`.
     try:
@@ -319,13 +334,13 @@ def structural_signature(rex, meta: dict | None = None,
         try:
             # The void reading routes an nE x nE object through LAPACK, which overflows
             # its int32 indexing past ~46k relations: measured, it grinds 42s on a
-            # 52,246-relation complex and then raises. Ask the library's own guard first
+            # 52,246 relation complex and then raises. Ask the library's own guard first
             # and decline fast, which reaches the same `except` in a millisecond.
             #
             # That guard bounds MEMORY, and the cost here is TIME. `build_void_complex`
             # densifies nE x nE internally whatever the caller does, so a complex whose
-            # dense form merely FITS still pays O(nE^2): measured, one 12,890-relation
-            # book took 1,332 s (97% of it in csr_matmat) while a LARGER 27,192-relation
+            # dense form merely FITS still pays O(nE^2): measured, one 12,890 relation
+            # book took 1,332 s (97% of it in csr_matmat) while a LARGER 27,192 relation
             # book returned in 3.0 s because 5.9 GB tripped the ceiling and 1.3 GB did
             # not. Being under a memory ceiling is not the same as being affordable, so
             # the reading is off by default rather than gated by a number that answers
@@ -337,9 +352,9 @@ def structural_signature(rex, meta: dict | None = None,
             sig["n_voids"] = int(vc.get("n_voids", 0))
         except Exception:
             pass
-    # Per-document information metrics (structural perplexity = effective modes, the
+    # Per document information metrics (structural perplexity = effective modes, the
     # varentropy reliability gap), persisted so the corpus is queryable by them and
-    # per-corpus aggregation is a cheap read of the stored signatures.
+    # per corpus aggregation is a cheap read of the stored signatures.
     try:
         if not analytics:
             raise _SkipAnalytics
@@ -387,8 +402,52 @@ class ComplexRecord:
 
 # structural predicate
 
+
+@dataclass(frozen=True)
+class RecordSnapshot:
+    """One selected published version, detached payload, metadata and state identity.
+
+    The envelope is frozen; its Rex value and copied metadata belong to the caller.
+    Mutating them does not mutate the store. The digest names the state at read time.
+    """
+
+    record: ComplexRecord
+    value: object
+    state_digest: str
+
+
+def _read_selector(id, version, as_of, valid_at):
+    if not isinstance(id, str) or not id:
+        raise TypeError("record id must be a nonempty string")
+    if version is not None:
+        if isinstance(version, bool) or not isinstance(version, Integral) or version < 1:
+            raise ValueError("record version must be a positive integer")
+        if as_of is not None or valid_at is not None:
+            raise ValueError("an exact version cannot be combined with time selectors")
+    for name, value in (("as_of", as_of), ("valid_at", valid_at)):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, Real)
+                                  or not isfinite(float(value))):
+            raise ValueError(f"{name} must be a finite real time")
+
+
+def _write_interval(valid_from, valid_to):
+    for name, value in (("valid_from", valid_from), ("valid_to", valid_to)):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, Real)
+                                  or not isfinite(float(value))):
+            raise ValueError(f"{name} must be a finite real time")
+    # RCDB clock coordinates are binary64 times, not exact field coefficients.
+    valid_from = None if valid_from is None else float(valid_from)
+    valid_to = None if valid_to is None else float(valid_to)
+    if valid_from is not None and valid_to is not None and valid_to <= valid_from:
+        raise ValueError("valid_to must follow valid_from (half-open interval)")
+    return valid_from, valid_to
+
+
+class VersionConflictError(ValueError):
+    """An expected record version no longer matches the published current state."""
+
 def _sig_index_values(sig: dict[str, Any]) -> dict[str, Any]:
-    """Extract the promoted-to-column values from a signature (for SQLStore)."""
+    """Extract the promoted to column values from a signature (for SQLStore)."""
     betti = sig.get("betti") or []
     return {
         "nV": int(sig.get("nV", 0) or 0),
@@ -401,7 +460,7 @@ def _sig_index_values(sig: dict[str, Any]) -> dict[str, Any]:
 
 
 def _priv(meta):
-    """Apply engine label-privacy (tokenize names) before persisting, if enabled."""
+    """Apply engine label privacy (tokenize names) before persisting, if enabled."""
     try:
         if _PRIVACY_HOOK is None:
             return dict(meta or {})
@@ -491,7 +550,7 @@ def _recompress_one(path: str, verify: bool = True, force: bool = False) -> tupl
     """Rewrite one blob in place. Module level so a worker process can import it.
 
     Returns `(path, before, after, error, rewrote)`. `rewrote` is reported rather than
-    inferred from the sizes: a blob can re-encode to exactly the same length, and
+    inferred from the sizes: a blob can re encode to exactly the same length, and
     reading that as "skipped" undercounts the work. Only file CONTENTS change (no
     record, no index and no log entry is touched) which is why this is safe to run in
     parallel while the store object stays untouched in the parent.
@@ -526,10 +585,41 @@ def _recompress_one(path: str, verify: bool = True, force: bool = False) -> tupl
         return (path, len(raw), len(raw), f"{type(exc).__name__}: {exc}", False)
 
 
+def _serialized(method):
+    """Serialize public writes on one live store handle, including commit staging."""
+    @wraps(method)
+    def run(self, *args, **kwargs):
+        with self._transaction_lock:
+            if self._publication_uncertain:
+                raise PublicationUncertainError("RCDB publication is uncertain; reopen and verify before writing")
+            self._corpus_cache = None
+            try:
+                return method(self, *args, **kwargs)
+            except PublicationUncertainError:
+                self._publication_uncertain = True
+                raise
+            finally:
+                self._corpus_cache = None
+    return run
+
+
 class RCStore:
     """Abstract Relational Complex Store."""
 
     backend = "abstract"
+    _cache_corpus = False
+
+    def __new__(cls, *args, **kwargs):
+        instance = super().__new__(cls)
+        instance._transaction_lock = RLock()
+        instance._publication_uncertain = False
+        instance._corpus_cache = None
+        return instance
+
+    def corpus_snapshot(self, *, as_of=None, valid_at=None, signature_fields=None):
+        """Capture projected accession terms on one visible version per record."""
+        from .corpus import capture
+        return capture(self, as_of=as_of, valid_at=valid_at, signature_fields=signature_fields)
 
     def configure_security(self, *, key_id=None, keys=None, mutation_policy=None,
                            verifiers=None, transition_signer=None, lineage_signer=None,
@@ -725,9 +815,10 @@ class RCStore:
             previous_rex = rex
         return True
 
+    @_serialized
     def commit_mutation(self, id, rex, meta=None, tags=None, *, valid_from=None,
                         valid_to=None, actor="", tx_time=None, analytics=True,
-                        voids=False):
+                        voids=False, expected_version=None):
         """Append a version together with the signed artifact that attests to it.
 
         The artifact is staged BEFORE the record and rolled back if the record write
@@ -741,12 +832,28 @@ class RCStore:
             prepare_mutation,
             verify_mutation,
         )
+        _read_selector(id, None, tx_time, None)
+        valid_from, valid_to = _write_interval(valid_from, valid_to)
+        if not isinstance(actor, str):
+            raise TypeError("mutation actor must be a string")
+        if expected_version is not None and (
+            isinstance(expected_version, bool) or not isinstance(expected_version, Integral)
+            or expected_version < 0
+        ):
+            raise ValueError("expected_version must be a nonnegative integer or None")
         now = _now() if tx_time is None else float(tx_time)
-        current_rec = self.get_record(str(id))
+        # Mutation targets are literal identities, not legacy display aliases.
+        current_rec = self._select_version(self.history(id), None, None)
+        actual_version = 0 if current_rec is None else current_rec.version
+        if expected_version is not None and expected_version != actual_version:
+            raise VersionConflictError(
+                f"RCDB record {id!r} expected version {expected_version}, current version {actual_version}")
         if current_rec is not None and now < float(current_rec.tx_from):
             raise ValueError(
                 "mutation transaction time precedes the current RCDB version")
-        previous = self.get(str(id)) if current_rec is not None else None
+        previous = self.get_version(id, current_rec.version) if current_rec is not None else None
+        if current_rec is not None and previous is None:
+            raise ValueError(f"published RCDB record {id!r}@{current_rec.version} has no payload")
         history = self.commit_history(str(id)) if current_rec is not None else []
         parent = history[-1].link.digest if history else None
         policy = getattr(self, "_mutation_policy", None) or MutationPolicy()
@@ -772,10 +879,12 @@ class RCStore:
         try:
             rec = self.put(id, rex, meta, tags, valid_from=valid_from,
                            valid_to=valid_to, analytics=analytics, voids=voids,
-                           _tx_time=now, _mutation_commit=True)
+                           _tx_time=now, _mutation_commit=_MUTATION_COMMIT)
             if int(rec.version) != int(version):
                 raise RuntimeError("RCDB version changed while publishing mutation")
             return rec
+        except PublicationUncertainError:
+            raise
         except Exception:
             self._delete_commit_bytes(str(id), version)
             raise
@@ -795,16 +904,19 @@ class RCStore:
             "allowed_signer_count": len(getattr(policy, "allowed_signers", ()) or ()),
         }
 
+    @_serialized
     def put(self, id, rex, meta=None, tags=None, *, valid_from=None, valid_to=None,
             analytics=True, voids=False, _tx_time=None, _mutation_commit=False):
         """Append a new version of `id`. Template method: build the signature, delegate
-        storage to _put_impl, then emit a best-effort change-feed event."""
-        if getattr(self, "_require_commits", False) and not _mutation_commit:
+        storage to _put_impl, then emit a best effort change feed event."""
+        if getattr(self, "_require_commits", False) and _mutation_commit is not _MUTATION_COMMIT:
             # An ungoverned write into a store that requires commits would create a
             # version with nothing attesting to it, which is the hole the requirement
             # exists to prevent.
             raise PermissionError(
                 "this RCDB store requires TemporalRex mutation commits")
+        _read_selector(id, None, _tx_time, None)
+        valid_from, valid_to = _write_interval(valid_from, valid_to)
         raw_meta = _priv(meta) or {}
         # `analytics=False` writes the structural facts (nV/nE/betti/chain_valid/
         # sectionings/merkle_root/labels_sample) and leaves the analytics columns unset.
@@ -825,14 +937,19 @@ class RCStore:
         self._emit("rcdb.put", id, rec.version, sig)
         return rec
 
+    @_serialized
     def put_prepared(self, id, blob, sig, meta=None, tags=None, *,
                      valid_from=None, valid_to=None):
         """`put` for a complex already built, serialized and signed elsewhere.
 
-        Same record, same versioning, same change-feed event: it skips only the two
+        Same record, same versioning, same change feed event: it skips only the two
         steps the caller has already paid for. The caller owns the signature, so it also
         owns whether `analytics` were computed into it.
         """
+        if getattr(self, "_require_commits", False):
+            raise PermissionError("this RCDB store requires TemporalRex mutation commits")
+        _read_selector(id, None, None, None)
+        valid_from, valid_to = _write_interval(valid_from, valid_to)
         raw_meta = _priv(meta) or {}
         search_terms = tuple(sorted(_record_labels(sig, raw_meta)))
         meta = self._stored_meta(raw_meta)
@@ -849,7 +966,7 @@ class RCStore:
     def get(self, id, *, as_of=None, valid_at=None, verify: bool = True):
         """Return the reconstructed RexGraph, or None.
 
-        `verify=False` skips the load-time integrity rebuild; see
+        `verify=False` skips the load time integrity rebuild; see
         `deserialize_complex` for what that check is and when skipping it is right.
         """
         raise NotImplementedError
@@ -863,6 +980,79 @@ class RCStore:
         number, not by a timestamp that could collide across versions
         written on the same tick."""
         raise NotImplementedError
+
+    def read_record(self, id: str, *, version=None, as_of=None, valid_at=None):
+        """Select and decode one published version under this handle's write lock.
+
+        Exact ids win over legacy ``id@version`` display aliases. Explicit version
+        and time selectors are different operations, never competing filters.
+        None means no selected record; an existing record without its payload is
+        an integrity failure, not a missing record. No numerical analytics run.
+        """
+        _read_selector(id, version, as_of, valid_at)
+        with self._transaction_lock:
+            if self._publication_uncertain:
+                raise PublicationUncertainError("RCDB publication is uncertain; reopen and verify before reading")
+            if version is not None:
+                rec = next((r for r in self.history(id) if r.version == version), None)
+            else:
+                # Backend legacy aliases vary; check the literal id's own history
+                # first so a stored id containing @ is never silently shadowed.
+                records = self.history(id)
+                rec = self._select_version(records, as_of, valid_at)
+                if not records:
+                    split = self._split_versioned_id(id)
+                    if split is not None:
+                        if as_of is not None or valid_at is not None:
+                            raise ValueError("a version display alias cannot be combined with time selectors")
+                        base, selected = split
+                        rec = next((r for r in self.history(base) if r.version == selected), None)
+            if rec is None:
+                return None
+            return self._read_published_record(rec)
+
+    def _read_published_record(self, rec):
+        """Decode a selected record while the caller holds the handle's lock."""
+        metadata = deepcopy(rec)
+        value = self.get_version(metadata.id, metadata.version)
+        if value is None:
+            raise ValueError(f"published RCDB record {metadata.id!r}@{metadata.version} has no payload")
+        from rexgraph.io.catalog import object_digest
+        return RecordSnapshot(metadata, value, object_digest(value))
+
+    def state_manifest(self):
+        """Canonical logical history, excluding backend layout and derived analytics.
+
+        This reads every published payload under this handle's lock. It is not an
+        index hash, a cheap statistic, or a multi process snapshot. Commit identities
+        are included when present; hashing them is not signature/lineage verification.
+        """
+        with self._transaction_lock:
+            if self._publication_uncertain:
+                raise PublicationUncertainError("RCDB publication is uncertain; reopen and verify before reading")
+            rows = []
+            for rec in sorted(self.list(limit=sys.maxsize, include_history=True),
+                              key=lambda r: (r.id, r.version)):
+                snapshot = self._read_published_record(rec)
+                metadata = snapshot.record
+                artifact = self._load_commit_bytes(metadata.id, metadata.version)
+                rows.append({
+                    "id": metadata.id, "version": int(metadata.version),
+                    "state_digest": snapshot.state_digest,
+                    "created": float(metadata.created), "tx_from": float(metadata.tx_from),
+                    "tx_to": None if metadata.tx_to is None else float(metadata.tx_to),
+                    "valid_from": None if metadata.valid_from is None else float(metadata.valid_from),
+                    "valid_to": None if metadata.valid_to is None else float(metadata.valid_to),
+                    "meta": metadata.meta,
+                    "tags": sorted(set(metadata.signature.get("tags", []))),
+                    "commit": None if artifact is None else self._decode_commit(artifact).digest,
+                })
+            return {"object_type": "RCDBLogicalState", "version": 1, "records": rows}
+
+    def state_digest(self):
+        """Hash the versioned logical manifest using the framework manifest codec."""
+        from rexgraph.io.manifest import manifest_digest
+        return manifest_digest(self.state_manifest())
 
     def history(self, id):
         raise NotImplementedError
@@ -893,7 +1083,7 @@ class RCStore:
     @staticmethod
     def _split_versioned_id(id):
         """A display id like "base@3" -> ("base", 3); anything else -> None.
-        Only a trailing @<positive-int> splits; a bare id or non-string is None."""
+        Only a trailing @<positive int> splits; a bare id or non string is None."""
         if not isinstance(id, str):
             return None
         at = id.rfind("@")
@@ -949,10 +1139,11 @@ class RCStore:
         pass
 
 
-# in-memory backend
+# in memory backend
 
 class MemoryStore(RCStore):
     backend = "memory"
+    _cache_corpus = True
 
     def __init__(self):
         self._recs: dict[str, list[ComplexRecord]] = {}
@@ -975,6 +1166,7 @@ class MemoryStore(RCStore):
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to,
                   search_terms=None, tx_time=None):
         now = _now() if tx_time is None else float(tx_time)
+        blob = self._serialize_payload(rex)
         v = self.next_version(id)
         rs = self._recs.setdefault(id, [])
         for r in rs:
@@ -985,7 +1177,7 @@ class MemoryStore(RCStore):
                             valid_from=valid_from if valid_from is not None else now,
                             valid_to=valid_to)
         rs.append(rec)
-        self._blobs[(id, v)] = self._serialize_payload(rex)
+        self._blobs[(id, v)] = blob
         return rec
 
     def get_record(self, id, *, as_of=None, valid_at=None):
@@ -1004,7 +1196,7 @@ class MemoryStore(RCStore):
         if rec is None:
             return None
         # rec.id is the record's OWN stored id: for a direct hit that is `id`
-        # itself, but for a display-id fallback (get_record resolved "base@v"
+        # itself, but for a display id fallback (get_record resolved "base@v"
         # through history(base)) it is `base`, never the raw "base@v" string
         # the blob is never keyed by. Keying on rec.id is correct either way.
         blob = self._blobs.get((rec.id, rec.version))
@@ -1030,6 +1222,7 @@ class MemoryStore(RCStore):
         return [r for r in self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
                 if _matches(r.signature, predicate, r.meta)][:limit]
 
+    @_serialized
     def delete(self, id):
         reclaim = self._claim_delete(id)
         existed = id in self._recs
@@ -1260,6 +1453,7 @@ class _LazyIndex(dict):
 
 class FileStore(RCStore):
     backend = "file"
+    _cache_corpus = True
 
     def __init__(self, root: str):
         self.root = root
@@ -1271,7 +1465,7 @@ class FileStore(RCStore):
         self._log_path = os.path.join(root, "index.rexlog")
         self._legacy_index = os.path.join(root, "index.json")
         self._legacy_log = os.path.join(root, "index.log")
-        # Loaded once. Re-reading the index on every call, and rewriting it on every
+        # Loaded once. Re reading the index on every call, and rewriting it on every
         # put, is what made ingest quadratic; the log means the cache stays authoritative
         # and each change costs one line.
         self._idx = self._read_index()
@@ -1314,7 +1508,7 @@ class FileStore(RCStore):
                         eager[id] = [ComplexRecord.from_dict(x) for x in v]
             except Exception:
                 eager = {}
-        # then the append-only log. Rewriting the whole index on every put made the
+        # then the append only log. Rewriting the whole index on every put made the
         # cost of a put grow with the store: 4 ms at a hundred records, 35 ms at
         # sixteen hundred, which is quadratic ingest. One frame per change instead.
         entries = []
@@ -1445,10 +1639,10 @@ class FileStore(RCStore):
 
     @staticmethod
     def _safe_name(id: str) -> str:
-        """Filesystem-safe, REVERSIBLE, collision-free encoding of a record id.
+        """Filesystem safe, REVERSIBLE, collision free encoding of a record id.
 
         The shared codec, with the path reserved set (which includes '@', the version
-        separator used below). The previous scheme replaced every non-alphanumeric
+        separator used below). The previous scheme replaced every non alphanumeric
         character with '_', which is lossy: 'core/alpha' and 'core_alpha' both became
         'core_alpha', so the second put silently overwrote the first blob while the
         index kept both records. Ids like 'doc:agent/rcdb.py' are exactly what a
@@ -1459,7 +1653,7 @@ class FileStore(RCStore):
 
     @staticmethod
     def _sanitized_name(id: str) -> str:
-        """The pre-fix lossy encoding, kept so existing stores stay readable."""
+        """The pre fix lossy encoding, kept so existing stores stay readable."""
         return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
 
     def _blob_path(self, id: str, version: int) -> str:
@@ -1468,7 +1662,7 @@ class FileStore(RCStore):
 
     def _blob_read_paths(self, id: str, version: int):
         """Every path a blob for (id, version) may live at, newest scheme first: the
-        reversible encoding, then the lossy one, then the pre-versioned layout."""
+        reversible encoding, then the lossy one, then the pre versioned layout."""
         b = os.path.join(self.root, "blobs")
         return [
             os.path.join(b, "%s@%d.safetensors" % (self._safe_name(id), version)),
@@ -1511,20 +1705,32 @@ class FileStore(RCStore):
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to,
                   search_terms=None, tx_time=None):
         now = _now() if tx_time is None else float(tx_time)
+        blob = self._serialize_payload(rex)
         idx = self._idx
-        versions = idx.setdefault(id, [])
+        versions = idx.get(id, [])
         v = (versions[-1].version + 1) if versions else 1
-        for r in versions:
-            if r.tx_to is None:
-                r.tx_to = now                       # close the prior open row
         rec = ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
                             tx_from=now, tx_to=None,
                             valid_from=valid_from if valid_from is not None else now,
                             valid_to=valid_to)
-        versions.append(rec)
-        with open(self._blob_path(id, v), "wb") as f:
-            f.write(self._serialize_payload(rex))
+        path = self._blob_path(id, v)
+        fd, temporary = tempfile.mkstemp(prefix=".rcdb-payload-", dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(blob)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        # Payload first, durable publication next, cached metadata last. An
+        # unreferenced payload after a log failure is not a published version.
         self._append_log({"op": "put", "id": id, "record": rec.to_dict()})
+        for r in versions:
+            if r.tx_to is None:
+                r.tx_to = now
+        idx.setdefault(id, []).append(rec)
         return rec
 
     def get_record(self, id, *, as_of=None, valid_at=None):
@@ -1558,6 +1764,8 @@ class FileStore(RCStore):
         return self._deserialize_payload(blob, verify=verify) if blob is not None else None
 
     def get_version(self, id, version):
+        if not any(r.version == version for r in self.history(id)):
+            return None
         blob = self._read_blob(id, version)
         return self._deserialize_payload(blob) if blob is not None else None
 
@@ -1620,6 +1828,7 @@ class FileStore(RCStore):
         out = [r for r in recs if _matches(r.signature, predicate, r.meta)]
         return out[:limit]
 
+    @_serialized
     def delete(self, id):
         reclaim = self._claim_delete(id)
         idx = self._idx
@@ -1641,7 +1850,7 @@ class FileStore(RCStore):
 class SQLStore(RCStore):
     backend = "sql"
 
-    # signature fields promoted to indexed columns for in-database queries
+    # signature fields promoted to indexed columns for in database queries
     _INDEX_COLS = {
         "nV": "INTEGER", "nE": "INTEGER", "betti1": "INTEGER",
         "kappa_mean": "FLOAT", "chain_valid": "BOOLEAN", "source": "VARCHAR(256)",
@@ -1741,14 +1950,14 @@ class SQLStore(RCStore):
             pass
 
     def _migrate_index_columns(self, table):
-        """Add indexed columns to a pre-existing table and backfill from the
-        stored signature JSON. Also ALTER-ADDs the five bitemporal columns
-        onto a pre-Slice-C table and backfills legacy rows to version 1
-        (open, tx_from/valid_from = created), then repairs a legacy id-only
-        primary key to the composite (id, version) key the append-only
+        """Add indexed columns to a pre existing table and backfill from the
+        stored signature JSON. Also ALTER ADDs the five bitemporal columns
+        onto a pre Slice-C table and backfills legacy rows to version 1
+        (open, tx_from/valid_from = created), then repairs a legacy id only
+        primary key to the composite (id, version) key the append only
         design requires, and finally (re)creates the indexes on the
-        promoted columns. Idempotent: re-opening an already-migrated table
-        is a no-op."""
+        promoted columns. Idempotent: re opening an already migrated table
+        is a no op."""
         from sqlalchemy import inspect, text
         insp = inspect(self.engine)
         have = {c["name"] for c in insp.get_columns(table)}
@@ -1778,9 +1987,9 @@ class SQLStore(RCStore):
     def _create_promoted_indexes(self, table):
         """(Re)create the indexes on the promoted signature columns and the
         bitemporal lookup columns. Each CREATE INDEX is guarded by an
-        existing-index check, so this is safe to call repeatedly: a table
-        that already has the indexes is a no-op, and a table that just lost
-        them (a primary-key rebuild drops indexes along with the table)
+        existing index check, so this is safe to call repeatedly: a table
+        that already has the indexes is a no op, and a table that just lost
+        them (a primary key rebuild drops indexes along with the table)
         gets them rebuilt."""
         from sqlalchemy import inspect, text
         insp = inspect(self.engine)
@@ -1798,12 +2007,12 @@ class SQLStore(RCStore):
                         conn.execute(text(f"CREATE INDEX {iname} ON {table} {cols_sql}"))
 
     def _ensure_composite_pk(self, table):
-        """Repair a legacy id-only primary key to the composite (id, version)
-        key the append-only versioned schema requires. A table freshly
+        """Repair a legacy id only primary key to the composite (id, version)
+        key the append only versioned schema requires. A table freshly
         created by this class already has the composite key (it is declared
         directly on self.table), so this only ever fires against a
-        pre-Slice-C database. Idempotent: a table already keyed on
-        (id, version) is left untouched, and an unrecognized primary-key
+        pre Slice-C database. Idempotent: a table already keyed on
+        (id, version) is left untouched, and an unrecognized primary key
         shape is left alone rather than guessed at.
 
         SQLite cannot ALTER a primary key in place, so the table is rebuilt
@@ -1814,7 +2023,7 @@ class SQLStore(RCStore):
         insp = inspect(self.engine)
         pk = insp.get_pk_constraint(table).get("constrained_columns") or []
         if sorted(pk) == ["id", "version"]:
-            return                          # already composite: idempotent no-op
+            return                          # already composite: idempotent no op
         if pk != ["id"]:
             return                          # unexpected PK shape: leave it alone
         dialect = self.engine.dialect.name
@@ -2024,6 +2233,7 @@ class SQLStore(RCStore):
             out = [r for r in out if _matches(r.signature, residual, r.meta)]
         return out[:limit]
 
+    @_serialized
     def delete(self, id):
         reclaim = self._claim_delete(id)
         from sqlalchemy import delete, select
@@ -2041,13 +2251,13 @@ class SQLStore(RCStore):
     def close(self):
         """Release the engine's connection pool.
 
-        SQLStore had no close, so it inherited RCStore's no-op and every caller that
+        SQLStore had no close, so it inherited RCStore's no op and every caller that
         dutifully called close kept the pool open. The connections then surfaced at
         garbage collection, which reports whatever frame happened to be running rather
-        than where they were opened, so the leak read as scattered third-party warnings
+        than where they were opened, so the leak read as scattered third party warnings
         instead of one lifecycle bug here.
 
-        Idempotent: dispose on an already-disposed engine is a no-op in SQLAlchemy, and
+        Idempotent: dispose on an already disposed engine is a no op in SQLAlchemy, and
         close is called from several paths and from reset_default_store.
         """
         engine = getattr(self, "engine", None)
@@ -2079,7 +2289,7 @@ def available_backends() -> list[str]:
 
 
 def _labels_of(rec: ComplexRecord, rex) -> list:
-    """Best-effort vertex labels for a record (from meta, else indices)."""
+    """Best effort vertex labels for a record (from meta, else indices)."""
     labels = (rec.meta or {}).get("vertex_labels")
     if labels:
         return list(labels)
@@ -2097,8 +2307,8 @@ def _get_ver(store: RCStore, id, version):
     # defines a NotImplementedError stub, so a plain getattr always finds SOMETHING.
     if type(store).get_version is not RCStore.get_version:
         return store.get_version(id, version)
-    # last-resort fallback for a backend that hasn't implemented get_version:
-    # not safe under same-tick collisions, only reached for an unknown type.
+    # last resort fallback for a backend that hasn't implemented get_version:
+    # not safe under same tick collisions, only reached for an unknown type.
     rec = next((r for r in store.history(id) if r.version == version), None)
     return store.get(id, as_of=rec.tx_from) if rec is not None else None
 
@@ -2117,8 +2327,8 @@ def _num(x) -> float:
 
 def _pair_match(ra, rb) -> float:
     """The relational match between two reconstructed complexes: the same
-    cross_complex_bridge kappa-correlation score `compare` returns, rescaled
-    to [0, 1]. Labels are plain vertex-index labels (no per-version meta
+    cross_complex_bridge kappa correlation score `compare` returns, rescaled
+    to [0, 1]. Labels are plain vertex index labels (no per version meta
     needed for a trend read). Guarded to 0.0 on any failure (missing complex,
     degenerate bridge, etc.)."""
     try:
@@ -2134,7 +2344,7 @@ def _pair_match(ra, rb) -> float:
 
 def trajectory(store: RCStore, id):
     """The version history of `id` as a directional path in the relational
-    field: per-version structural signature, and per-step the signed change
+    field: per version structural signature, and per step the signed change
     in each structural quantity (existence/direction over time) plus the
     relational match (cross_complex_bridge similarity) between consecutive
     versions (how close, and moving toward/away)."""
@@ -2202,7 +2412,7 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
 
     Scores through `rcdb.analytics.interfacing_score` by default, or through the
     similarity hook when an application injected one. It reads the query's
-    footprint under each candidate's own coherence field by demand-driven
+    footprint under each candidate's own coherence field by demand driven
     diffusion. Returns ``{id, match, score, shared, context_size, tags, source}``
     sorted by match descending, where ``match`` is a 0-1 number a UI can show as
     a percentage.
@@ -2215,7 +2425,7 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
         if exclude_id is not None and rec.id == exclude_id:
             continue
         try:
-            # lossless pre-filter: a record with no shared labels contributes
+            # lossless pre filter: a record with no shared labels contributes
             # nothing (bridge n_shared=0), so skip the expensive deserialize.
             meta_labels = (rec.meta or {}).get("vertex_labels")
             if meta_labels is not None and qset and not (qset & set(meta_labels)):
@@ -2257,7 +2467,7 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
 def version_if_changed(store: RCStore, lineage_id: str, rex, meta=None, tags=None,
                        *, valid_from=None):
     """Store a new version only if the schema actually changed vs the latest
-    (different tables or different topology). Enables auto-lineage on repeated
+    (different tables or different topology). Enables auto lineage on repeated
     reflection without spamming identical versions. Returns version info with
     an ``unchanged`` flag.
 
@@ -2296,7 +2506,7 @@ def put_version(store: RCStore, lineage_id: str, rex, meta=None, tags=None, *, v
 
 
 def _legacy_lineage_records(store: RCStore, lineage_id: str):
-    """Old-scheme fallback: under the legacy scheme, each version was a SEPARATE record
+    """Old scheme fallback: under the legacy scheme, each version was a SEPARATE record
     id "{lineage_id}@{v}" carrying meta["lineage"]={"id","version",...}. Collect
     those, oldest version first. Empty list if none (i.e. not a legacy store)."""
     out = []
@@ -2332,11 +2542,11 @@ def drift(store: RCStore, lineage_id: str):
     consecutive pair): how the schema changed across versions. Walks
     ``store.history(lineage_id)`` directly (the native version chain for this
     one id), reconstructing each version by its own version number (via
-    ``_get_ver``, not a same-tick ``tx_from`` that could misresolve across
+    ``_get_ver``, not a same tick ``tx_from`` that could misresolve across
     versions written in the same instant). For a legacy store with no native
     chain under this id, each version is instead reconstructed through its
     own display/real id, so the ``trajectory`` diff still populates for
-    legacy data (``trajectory_steps`` stays history-based, so it is ``[]``
+    legacy data (``trajectory_steps`` stays history based, so it is ``[]``
     for a legacy lineage; the native path is unaffected).
 
     Also carries the relational trend layer: ``trajectory_steps`` is
@@ -2390,7 +2600,7 @@ def drift(store: RCStore, lineage_id: str):
 
 
 def cluster_complexes(store: RCStore, tags_any=None, threshold: float = 0.7):
-    """Group stored complexes into structural families by cross-complex
+    """Group stored complexes into structural families by cross complex
     coherence (the crossing tensor). Builds the pairwise coherence matrix,
     then takes connected components at ``threshold``. Returns
     ``{clusters:[{members, avg_coherence, centroid, tags}], singletons, n}``.
@@ -2488,7 +2698,8 @@ def compare(store: RCStore, id_a: str, id_b: str):
     }
 
 
-def copy_record(src: RCStore, dst: RCStore, record, *, meta=None, tags=None):
+def copy_record(src: RCStore, dst: RCStore, record, *, meta=None, tags=None,
+                governed=None, actor="", expected_version=None):
     """Copy one stored version of one record from `src` into `dst`.
 
     The single place a record crosses between stores. `migrate` walks a whole history
@@ -2502,15 +2713,32 @@ def copy_record(src: RCStore, dst: RCStore, record, *, meta=None, tags=None):
     override what it carried, which is how a caller stamps provenance without having to
     reassemble the rest. Returns the destination record, or None when the source cannot
     produce the complex.
+
+    Read the requested published version through `read_record`, never pair its
+    metadata with a newer payload. `governed=None` adopts the destination's
+    require_commits setting; True always makes a new destination mutation commit.
+    Source commit packages are not transplanted into a different lineage. False
+    uses put and cannot bypass a required commit destination. actor and
+    expected_version apply only to governed copies. Payload integrity failures raise.
     """
-    rex = src.get_version(record.id, record.version)
-    if rex is None:
+    if governed is not None and not isinstance(governed, bool):
+        raise TypeError("governed must be a bool or None")
+    snapshot = src.read_record(record.id, version=record.version)
+    if snapshot is None:
         return None
-    return dst.put(
-        record.id, rex,
-        meta=dict(record.meta or {}) if meta is None else meta,
-        tags=list((record.signature or {}).get("tags", [])) if tags is None else tags,
-        valid_from=record.valid_from, valid_to=record.valid_to)
+    record = snapshot.record
+    options = {
+        "meta": deepcopy(record.meta or {}) if meta is None else meta,
+        "tags": list((record.signature or {}).get("tags", [])) if tags is None else tags,
+        "valid_from": record.valid_from, "valid_to": record.valid_to,
+    }
+    governed = bool(getattr(dst, "_require_commits", False)) if governed is None else governed
+    if governed:
+        return dst.commit_mutation(record.id, snapshot.value, actor=actor,
+                                   expected_version=expected_version, **options)
+    if expected_version is not None or actor:
+        raise ValueError("actor and expected_version require a governed copy")
+    return dst.put(record.id, snapshot.value, **options)
 
 
 def migrate(src: RCStore, dst: RCStore, *, ids=None, limit: int = 10 ** 9) -> dict:
@@ -2576,7 +2804,7 @@ def open_store(uri: str = "memory://") -> RCStore:
     auto:///path                    -> whatever already lives there, else RexStore
     s3://…, gs://…, az://…          -> ObjectStore (needs s3fs / gcsfs / adlfs)
     memory://                       -> MemoryStore
-    rex:///path                     -> RexStore (embedded, append-only, no server)
+    rex:///path                     -> RexStore (embedded, append only, no server)
     file:///path  or  /path         -> FileStore (legacy: quadratic ingest)
     sqlite:///f.db, postgresql://…  -> SQLStore (any SQLAlchemy backend)
     <custom>://…                    -> a registered backend
@@ -2598,7 +2826,7 @@ def open_store(uri: str = "memory://") -> RCStore:
     return SQLStore(uri)
 
 
-# built-in registrations
+# built in registrations
 def _open_rexstore(uri: str):
     from .rexstore import RexStore
     path = uri[len("rex://"):] if uri.startswith("rex://") else uri
@@ -2619,10 +2847,10 @@ register_backend("file", lambda uri: FileStore(
     uri[len("file://"):] if uri.startswith("file://") else uri))
 
 
-# The process-wide default store
+# The process wide default store
 #
 # Before this existed, the only code resolving REXGRAPH_RCDB_URI lived inside
-# server/routes/rcdb.py, so every non-HTTP consumer fell back to its own
+# server/routes/rcdb.py, so every non HTTP consumer fell back to its own
 # `MemoryStore()` and silently discarded whatever it wrote. Callers that want a
 # specific store still pass one; callers that just want "the store" get this.
 
@@ -2651,7 +2879,7 @@ def default_store() -> RCStore:
     happens here because the store is one namespace shared by every workspace, and a
     rule applied at each of the routes that reach it is a rule the next route will not
     have. Outside a request, and whenever auth is off, the store is returned whole,
-    which is what the CLI and anything running in-process want.
+    which is what the CLI and anything running in process want.
     """
     global _DEFAULT_STORE
     if _DEFAULT_STORE is None:
@@ -2666,11 +2894,11 @@ def default_store() -> RCStore:
 
 
 def reset_default_store() -> None:
-    """Close the memoized default and drop it, so the next call re-reads the environment.
+    """Close the memoized default and drop it, so the next call re reads the environment.
 
     Dropping the reference alone left a SQL store's pool open until the collector got to
     it, which is what made the connections surface as warnings from unrelated frames.
-    The close is best-effort: a store that fails to close must not stop the reset, or a
+    The close is best effort: a store that fails to close must not stop the reset, or a
     single bad store would pin the default forever.
     """
     global _DEFAULT_STORE

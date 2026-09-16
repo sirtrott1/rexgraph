@@ -1,14 +1,14 @@
 """
 agent.deploy: turn a RexGraph agent/pipeline into a deployable container.
 
-Generates a self-contained deployment bundle (Dockerfile, compose file,
+Generates a self contained deployment bundle (Dockerfile, compose file,
 entrypoint, config, README) with no runtime dependencies beyond the
 standard library. Docker itself is external tooling the operator already
 has; nothing here imports it.
 
 Two modes:
-  * ``service``  - containerize the full app: web UI + REST API (rcf-server).
-  * ``pipeline`` - containerize a headless document-processing agent that
+  * ``service``  - containerize the full app: web UI + REST API (rcf server).
+  * ``pipeline`` - containerize a headless document processing agent that
     runs the user's configured analysis (depth / query / backend / model)
     over mounted inputs and writes JSON results.
 
@@ -45,18 +45,18 @@ class DeploymentSpec:
     # where to get the packages: "pypi" (pip install by name) or
     # "local" (copy a wheel from the build context)
     source: str = "pypi"
-    # LLM the container should talk to (OpenAI-compatible); optional
+    # LLM the container should talk to (OpenAI compatible); optional
     model_url: str = ""
     # Auth posture. The server is secure by default (it enables auth and prints
-    # a one-time admin token to the container logs on first start). Set insecure
+    # a one time admin token to the container logs on first start). Set insecure
     # only when auth is terminated upstream or the port is firewalled.
     insecure: bool = False
-    # pipeline-mode settings (ignored in service mode)
+    # pipeline mode settings (ignored in service mode)
     depth: str = "standard"
     query: str = ""
     backend: str = ""                        # ocr backend, e.g. "tesseract"
     ontology: bool = False
-    # the full agent-builder config, embedded for provenance/reference
+    # the full agent builder config, embedded for provenance/reference
     builder_config: dict | None = None
 
     def normalized(self) -> DeploymentSpec:
@@ -72,7 +72,7 @@ class DeploymentSpec:
             self.port = int(self.port)
         except Exception:
             self.port = 8080
-        # container name / image tag must be docker-safe
+        # container name / image tag must be docker safe
         import re as _re
         safe = "".join(c if (c.isalnum() or c in "-_.") else "-"
                        for c in (self.name or "rexgraph-agent")).lower()
@@ -139,13 +139,13 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 def _entrypoint(spec: DeploymentSpec) -> str:
     if spec.mode == "service":
         if spec.insecure:
-            # Explicit opt-out: run open. Required to both skip the secure
+            # Explicit opt out: run open. Required to both skip the secure
             # default and permit the public bind. Only safe behind upstream auth
             # or a firewalled port.
             auth = "export RCF_ALLOW_INSECURE=1\n"
         else:
             # Secure by default: the server enables auth on first start and
-            # prints a one-time admin token to the container logs.
+            # prints a one time admin token to the container logs.
             auth = ""
         return f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -346,6 +346,6 @@ def write_bundle(bundle: dict[str, str], out_dir: str) -> str:
 
 
 def spec_from_dict(d: dict) -> DeploymentSpec:
-    """Build a DeploymentSpec from a loosely-typed dict (API/CLI input)."""
+    """Build a DeploymentSpec from a loosely typed dict (API/CLI input)."""
     fields = {f for f in DeploymentSpec.__dataclass_fields__}
     return DeploymentSpec(**{k: v for k, v in (d or {}).items() if k in fields})

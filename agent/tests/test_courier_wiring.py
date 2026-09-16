@@ -72,7 +72,7 @@ def test_a_trip_is_admin_only(tenants):
                        json={"hive": "x", "store": a_uri}).status_code == 403
     # Reading what the courier is wired to was treated as an ordinary read. It is not:
     # status names the peer hives this deployment reaches and what has already been
-    # carried between them, and the courier is a process-wide singleton holding store
+    # carried between them, and the courier is a process wide singleton holding store
     # views bound by whoever bound them, so a survey lists records through someone
     # else's view rather than the caller's.
     assert client.get("/api/v1/courier/status", headers=bh).status_code == 403

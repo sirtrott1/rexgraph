@@ -51,7 +51,7 @@ def store(request, tmp_path):
     st.close()
 
 
-# identity and round-trip
+# identity and round trip
 
 def test_a_stored_complex_comes_back(store):
     _put(store, "a")
@@ -202,7 +202,7 @@ def _rexstore(tmp_path):
 
 
 def test_put_cost_does_not_grow_with_the_store(tmp_path):
-    """FileStore reserialized its whole index on every put, so per-put cost rose
+    """FileStore reserialized its whole index on every put, so per put cost rose
     with the record count: 4 ms at a hundred, 35 ms at sixteen hundred. Quadratic
     ingest is the difference between minutes and days at consortium scale."""
     store = _rexstore(tmp_path)
@@ -249,13 +249,13 @@ def test_everything_survives_a_reopen(tmp_path):
 
 
 def test_a_torn_tail_costs_only_the_entry_being_written(tmp_path):
-    """A crash mid-append can only damage the last entry. The length prefix makes
+    """A crash mid append can only damage the last entry. The length prefix makes
     that detectable, so recovery is truncation rather than repair."""
     store = _rexstore(tmp_path)
     _put(store, "a")
     _put(store, "b")
     log = store._records_path
-    with open(log, "ab") as fh:                 # a half-written third entry
+    with open(log, "ab") as fh:                 # a half written third entry
         fh.write(b"\x99\x00\x00\x00partial-json-that-never-finished")
     reopened = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
     assert sorted(r.id for r in reopened.list(limit=9)) == ["a", "b"]
@@ -444,7 +444,7 @@ def _legacy_log_line(rec):
 
 def test_a_1_0_x_store_reads_from_its_json_log(tmp_path):
     """1.0.x wrote index.log as json lines and index.json as the snapshot. Verified
-    against stores built by v1.0.9 itself, both shapes, including a two-version id."""
+    against stores built by v1.0.9 itself, both shapes, including a two version id."""
     store = rcdb.FileStore(str(tmp_path / "fs"))
     _put(store, "a", labels=["first"])
     _put(store, "a", labels=["second"])

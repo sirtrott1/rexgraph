@@ -94,7 +94,7 @@ def test_an_unknown_subcommand_is_rejected_cleanly(name):
         f"{name} accepted a nonsense subcommand (rc={rc})")
 
 
-#### rexgraph-auth: the surface that decides who can do what
+#### rexgraph auth: the surface that decides who can do what
 
 
 @pytest.fixture
@@ -137,7 +137,7 @@ def test_auth_rejects_an_unknown_role_before_reaching_the_network(auth_home):
     assert "Traceback" not in out, out[:300]
 
 
-#### rexgraph-config and rexgraph-connect: read-only verbs
+#### rexgraph config and rexgraph connect: read only verbs
 
 
 def test_config_show_runs(tmp_path, monkeypatch):

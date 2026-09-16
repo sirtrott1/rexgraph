@@ -1,6 +1,6 @@
 """
-Tests for hat eigendecomposition, per-channel mixing times,
-mixing time anisotropy, and face-void dipole.
+Tests for hat eigendecomposition, per channel mixing times,
+mixing time anisotropy, and face void dipole.
 """
 import numpy as np
 import pytest

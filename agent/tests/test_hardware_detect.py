@@ -2,8 +2,8 @@
 
 The probe itself lives in rexgraph.hardware and is tested beside it. What is here is
 the agent's own reasoning on top: which device will actually run the work, and how
-much of memory a model may claim. A unified carve-out is not a budget: on a host whose
-GPU memory IS system memory, treating the carve-out as the budget hands back a number
+much of memory a model may claim. A unified carve out is not a budget: on a host whose
+GPU memory IS system memory, treating the carve out as the budget hands back a number
 far smaller than the machine can actually hold.
 """
 import pytest
@@ -24,7 +24,7 @@ def test_the_compute_gpu_is_the_card_not_the_igpu():
 def _assert_unified_budget(hw):
     """What a unified host has to satisfy, in either shape. Shared deliberately: the
     Apple case is driven from a fixture below, and if these rules only lived in the
-    host-reading test then a rule that breaks on the no-carveout shape would again be
+    host reading test then a rule that breaks on the no carveout shape would again be
     invisible until CI reached a mac."""
     gpu = hw.get("gpu") or {}
     assert gpu.get("unified"), hw
@@ -35,7 +35,7 @@ def _assert_unified_budget(hw):
 
 def test_a_unified_carveout_does_not_become_the_model_budget():
     """The bug filling vram_gb would have introduced: `if vram: budget = vram` would have
-    called this 121 GiB machine a 4 GiB one, a 30x understatement, and every model-fit
+    called this 121 GiB machine a 4 GiB one, a 30x understatement, and every model fit
     decision downstream would have refused everything.
 
     Unified does NOT imply a carveout, which is the trap: an APU reports one, Apple
@@ -66,7 +66,7 @@ def test_a_unified_host_reporting_no_carveout_still_budgets_from_ram(monkeypatch
     monkeypatch.setattr(shutil, "which", lambda *a, **k: None)
 
     hw = detect_hardware()
-    _assert_unified_budget(hw)          # the same rules, on the no-carveout shape
+    _assert_unified_budget(hw)          # the same rules, on the no carveout shape
     gpu = hw["gpu"]
     assert gpu["unified"] is True
     assert gpu["vram_gb"] is None, "no separate pool means there is no figure"

@@ -53,12 +53,12 @@ def extract_attention_rex(
 ) -> dict:
     """Build a weighted directed relational complex from an attention matrix WITHOUT a
     magic threshold. Per query token, keep the smallest set of attended keys whose
-    softmax mass covers ``top_p`` (nucleus) - data-adaptive and principled for softmax
-    attention - plus a numerical-zero floor. Vectorized (no O(n²) Python loop). Edge
+    softmax mass covers ``top_p`` (nucleus) - data adaptive and principled for softmax
+    attention - plus a numerical zero floor. Vectorized (no O(n²) Python loop). Edge
     i->j = token i attends to token j, weighted by the attention value.
 
-    (Weight-direct analysis on the full matrix - no discretization - is also available:
-    pass the matrix straight to ``RexGraph.from_adjacency`` and read the moment-engine
+    (Weight direct analysis on the full matrix - no discretization - is also available:
+    pass the matrix straight to ``RexGraph.from_adjacency`` and read the moment engine
     metrics; nucleus is for when a sparse discrete complex is wanted.)"""
     A = np.array(attention_matrix, dtype=np.float64, copy=True)
     n = A.shape[0]
@@ -66,15 +66,15 @@ def extract_attention_rex(
         z = np.zeros(0)
         return {"sources": z.astype(np.int32), "targets": z.astype(np.int32),
                 "weights": z, "n_tokens": n}
-    np.fill_diagonal(A, 0.0)                      # drop self-attention for the token graph
+    np.fill_diagonal(A, 0.0)                      # drop self attention for the token graph
     order = np.argsort(-A, axis=1)               # keys by descending weight, per query
     sw = np.take_along_axis(A, order, axis=1)
     total = sw.sum(axis=1, keepdims=True)
     total[total < 1e-12] = 1.0
     prev = np.cumsum(sw, axis=1) - sw            # cumulative mass BEFORE each key
     keep = prev < top_p * total                  # nucleus: include the crossing key
-    keep[:, 0] = True                            # always keep top-1 per query
-    keep &= sw > floor                           # numerical-zero floor
+    keep[:, 0] = True                            # always keep top 1 per query
+    keep &= sw > floor                           # numerical zero floor
     qi, kk = np.where(keep)                       # (query row, sorted position)
     tgt = order[qi, kk]
     w = A[qi, tgt]
@@ -97,14 +97,14 @@ def measure_chain_condition(B1: np.ndarray, B2: np.ndarray) -> float:
 def measure_equiweight(D: np.ndarray, nV: int, nE: int, nF: int) -> dict:
     """Measure equiweight: ΓD + DΓ should be zero.
 
-    Returns per-mode even/odd fractions. Non-harmonic modes should be 0.5.
+    Returns per mode even/odd fractions. Non harmonic modes should be 0.5.
     """
     from rexgraph.dirac_propagator import equiweight_residual, graded_grading
 
     dim = nV + nE + nF
     gamma = graded_grading((nV, nE, nF))
 
-    # ΓD + DΓ is the chiral-grading anticommutator: identically 0 on a real complex, so
+    # ΓD + DΓ is the chiral grading anticommutator: identically 0 on a real complex, so
     # the number is only meaningful here, on an operator built from attention that has no
     # obligation to be a graded Dirac. The residual is its distance from being one.
     anticomm_norm = equiweight_residual(D, (nV, nE, nF), ord="fro")
@@ -115,7 +115,7 @@ def measure_equiweight(D: np.ndarray, nV: int, nE: int, nF: int) -> dict:
     # available for an operator that was never exact.
     #
     # This previously claimed "the EXACT integer dim - dim ker(D) ... no
-    # eigenvalue-magnitude threshold", which described a contract the call does not
+    # eigenvalue magnitude threshold", which described a contract the call does not
     # deliver: the tolerance is a singular value threshold under a different name. The
     # tolerance is now explicit and travels with the result, so a consumer can see that
     # this count is a numerical reading rather than a topological invariant. The exact
@@ -125,7 +125,7 @@ def measure_equiweight(D: np.ndarray, nV: int, nE: int, nF: int) -> dict:
     n_harmonic = dim - int(np.linalg.matrix_rank(D, tol=rank_tol))
     n_nonharmonic = dim - n_harmonic
 
-    # The per-mode even/odd (chirality) fraction genuinely needs the eigenVECTORS - it
+    # The per mode even/odd (chirality) fraction genuinely needs the eigenVECTORS - it
     # is not reducible to an integer invariant. It's bounded here (an attention complex
     # is small), so a dense symmetric eig is fine; we just skip the exact null space.
     deviations = []
@@ -168,7 +168,7 @@ def analyze_transformer(
     - Structural character evolution across layers
 
     Parameters
-    ----------
+
     model_name : HuggingFace model identifier
     text : input text to analyze
     device : 'cpu' or 'cuda'
@@ -176,8 +176,8 @@ def analyze_transformer(
     attention_threshold : minimum attention weight for edge creation
 
     Returns
-    -------
-    dict with per-layer analysis and aggregated metrics
+
+    dict with per layer analysis and aggregated metrics
     """
     _require_hf()
 
@@ -208,7 +208,7 @@ def analyze_transformer(
         attn = attentions[layer_idx][0].cpu().numpy()  # (heads, seq, seq)
         n_heads = attn.shape[0]
 
-        # Average across heads for the layer-level complex
+        # Average across heads for the layer level complex
         avg_attn = attn.mean(axis=0)  # (seq, seq)
 
         # Build rex from average attention
@@ -245,7 +245,7 @@ def analyze_transformer(
             try:
                 chi = rex.structural_character
                 # A layer with no relations has no mean, and NaN is not valid JSON. The
-                # per-head path below already guards this way; these did not.
+                # per head path below already guards this way; these did not.
                 if chi.shape[0] > 0:
                     means = chi.mean(axis=0)
                     channel_names = ["T", "G", "F", "C"]
@@ -262,7 +262,7 @@ def analyze_transformer(
             except Exception:
                 pass
 
-            # Per-head analysis: which heads specialize into which channels?
+            # Per head analysis: which heads specialize into which channels?
             head_channels = []
             for h in range(min(n_heads, 8)):  # cap at 8 heads for speed
                 head_attn = attn[h]

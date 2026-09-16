@@ -24,7 +24,7 @@ def client(tmp_path_factory):
     `disable_auth()` used to PERSIST unconditionally, writing `enabled: false` into the
     host's own `~/.config/rexgraph/auth.json`. Six fixtures did that, which is how this
     suite turned auth off on a live install and left it off. `persist=False` is the
-    in-process form and is what a test wants: the server object open, not the host
+    in process form and is what a test wants: the server object open, not the host
     reconfigured. The config directory is redirected as well, so nothing here can reach
     a real file even by another path.
     """

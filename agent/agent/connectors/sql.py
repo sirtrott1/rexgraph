@@ -4,18 +4,18 @@ agent.connectors.sql: the SQL connector (the "out of the box" flagship).
 One adapter for the whole SQL *shape*: it wraps the engine's existing
 SQLAlchemy reflection, so a single connector covers Postgres, MySQL/MariaDB,
 Oracle, SQL Server, and SQLite via SQLAlchemy's dialects: the driver is the
-only per-vendor delta, not the code.
+only per vendor delta, not the code.
 
     read(conn_str) -> (rex, meta)
 
 Vertices are tables, edges are foreign keys (child -> parent), faces are genuine
-co-participations (junction/associative entities). FK modality
-(nullable / identifying / on-delete) rides along as ``meta['modality']``.
-Cardinality weights (which enable data-forced strain) are opt-in via
+co participations (junction/associative entities). FK modality
+(nullable / identifying / on delete) rides along as ``meta['modality']``.
+Cardinality weights (which enable data forced strain) are opt in via
 ``SQLConnector(with_weights=True)`` because they require reading live row
-counts: approximate, catalog-based counts, never row data.
+counts: approximate, catalog based counts, never row data.
 
-Read-only throughout: schema metadata + aggregate counts only.
+Read only throughout: schema metadata + aggregate counts only.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 
 from . import BaseConnector, Capabilities, ConnectorError
 
-# SQLAlchemy URL schemes this one adapter covers (dialect = per-vendor delta).
+# SQLAlchemy URL schemes this one adapter covers (dialect = per vendor delta).
 _SQL_SCHEMES = (
     "sqlite", "postgresql", "postgres", "mysql", "mariadb",
     "oracle", "mssql",
@@ -50,7 +50,7 @@ class SQLConnector(BaseConnector):
 
     def __init__(self, with_weights: bool = False):
         # Weights need live row counts; off by default keeps the connector
-        # pure-structure. Advertised capabilities track this instance's config
+        # pure structure. Advertised capabilities track this instance's config
         # so what's advertised is exactly what's emitted.
         self.with_weights = with_weights
 
@@ -58,7 +58,7 @@ class SQLConnector(BaseConnector):
         return Capabilities(
             weights=self.with_weights,
             modality=True,     # always derivable from the FK catalog
-            faces=True,        # co-participation faces where junctions exist
+            faces=True,        # co participation faces where junctions exist
             schemes=_SQL_SCHEMES,
         )
 
@@ -89,7 +89,7 @@ class SQLConnector(BaseConnector):
             extra={"dialect": conn_str.split(":", 1)[0]},
         )
 
-    #### modality: align per-edge with the emitted edge order
+    #### modality: align per edge with the emitted edge order
     @staticmethod
     def _modality(model, edges: list[tuple[str, str]]) -> list[dict[str, Any]]:
         by_pair: dict[tuple[str, str], Any] = {}
@@ -114,6 +114,6 @@ class SQLConnector(BaseConnector):
                       for t in list_tables(conn_str, with_counts=True)}
         except Exception:
             return None
-        # weight each FK edge by the child (many-side) row count, the
+        # weight each FK edge by the child (many side) row count, the
         # cardinality pressure the data puts on that relationship.
         return [max(1.0, counts.get(a, 1.0)) for a, _ in edges]

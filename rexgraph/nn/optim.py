@@ -1,12 +1,12 @@
 """
-rexgraph.nn.optim: Hodge-structured optimization, gradient descent on the Helmholtz-Hodge
-structure of the gradient field, not the coordinate-wise view of SGD/Adam.
+rexgraph.nn.optim: Hodge structured optimization, gradient descent on the Helmholtz Hodge
+structure of the gradient field, not the coordinate wise view of SGD/Adam.
 
 A gradient on a weight matrix W (out × in) is a flow on the complete bipartite parameter
-graph K_{m,n}: out-neurons ∪ in-neurons are vertices, each weight is an edge, and ∂L/∂W[i,j]
+graph K_{m,n}: out neurons ∪ in neurons are vertices, each weight is an edge, and ∂L/∂W[i,j]
 is the flow on that edge. The Hodge decomposition splits that flow into orthogonal parts:
 
-  * potential (gradient, im B1ᵀ): the part explained by a per-neuron scalar potential; the
+  * potential (gradient, im B1ᵀ): the part explained by a per neuron scalar potential; the
     coordinated descent every neuron agrees on. Closed form on K_{m,n}:
         potential[i,j] = rowmean_i + colmean_j - grandmean          (two-way ANOVA main effects)
   * rotational (curl + harmonic, ker B1): the interaction/per-weight residual; the rotational
@@ -15,11 +15,11 @@ is the flow on that edge. The Hodge decomposition splits that flow into orthogon
 Mixing the components (γ_grad·potential + γ_curl·rotational) is a structural preconditioner:
 γ_curl < 1 damps the rotational flow while preserving the coordinated descent. γ_grad =
 γ_curl = 1 reproduces plain SGD exactly. It is O(mn) (the closed form is row/column means)
-and equals the Hodge grad-projection the compiled ``rex.hodge`` kernel computes on K_{m,n}
+and equals the Hodge grad projection the compiled ``rex.hodge`` kernel computes on K_{m,n}
 (see tests).
 
 Two layers:
-  * framework-agnostic numpy core (``hodge_matrix_*``, ``hodge_flow_*``): usable directly,
+  * framework agnostic numpy core (``hodge_matrix_*``, ``hodge_flow_*``): usable directly,
     and where the math is verified against rexgraph's kernels. The structured/general path
     (arbitrary parameter graph, real harmonic component) goes through
     ``hodge_flow_precondition`` and the compiled core.
@@ -39,15 +39,15 @@ from typing import Any
 
 import numpy as np
 
-# back-compat re-export: HodgeAdam / HodgeSGD were demoted to _experimental, but build_optimizer
+# back compat re export: HodgeAdam / HodgeSGD were demoted to _experimental, but build_optimizer
 # and factory.make_optimizer reach them by name here, as do external callers. _experimental
-# carries its own torch guard and its own no-torch stubs, so this covers both branches below.
+# carries its own torch guard and its own no torch stubs, so this covers both branches below.
 from rexgraph.nn._experimental import HodgeAdam, HodgeSGD  # noqa: F401
 
-# framework-agnostic core
+# framework agnostic core
 
 def hodge_matrix_decompose(G) -> tuple:
-    """Analytic Helmholtz-Hodge decomposition of a 2D gradient matrix on the complete
+    """Analytic Helmholtz Hodge decomposition of a 2D gradient matrix on the complete
     bipartite parameter graph K_{m,n}. Returns ``(potential, rotational, info)``:
 
         potential[i,j] = rowmean_i + colmean_j - grandmean   (= im B1ᵀ, coordinated descent)
@@ -57,8 +57,8 @@ def hodge_matrix_decompose(G) -> tuple:
     G = np.asarray(G, dtype=np.float64)
     if G.ndim != 2:
         raise ValueError(f"hodge_matrix_decompose expects a 2D matrix, got shape {G.shape!r}")
-    rm = G.mean(axis=1, keepdims=True)          # per out-neuron potential
-    cm = G.mean(axis=0, keepdims=True)          # per in-neuron potential
+    rm = G.mean(axis=1, keepdims=True)          # per out neuron potential
+    cm = G.mean(axis=0, keepdims=True)          # per in neuron potential
     gm = float(G.mean())
     potential = rm + cm - gm
     rotational = G - potential
@@ -72,7 +72,7 @@ def hodge_matrix_decompose(G) -> tuple:
 
 
 def hodge_matrix_precondition(G, gamma_grad: float = 1.0, gamma_rot: float = 1.0) -> tuple:
-    """Hodge-preconditioned gradient: ``gamma_grad·potential + gamma_rot·rotational``.
+    """Hodge preconditioned gradient: ``gamma_grad·potential + gamma_rot·rotational``.
     ``(1.0, 1.0)`` returns G unchanged (plain SGD). Returns ``(update, info)``."""
     potential, rotational, info = hodge_matrix_decompose(G)
     return gamma_grad * potential + gamma_rot * rotational, info
@@ -82,7 +82,7 @@ def hodge_flow_decompose(rex, flow) -> tuple:
     """Full grad/curl/harmonic decomposition of an edge ``flow`` on an arbitrary relational
     complex, via the compiled ``rex.hodge`` kernel. Returns ``(grad, curl, harm)``. Use this
     (not the matrix closed form) when the parameter graph is not complete bipartite (a
-    sparsified neuron-similarity graph, conv locality, an ontology) where the harmonic
+    sparsified neuron similarity graph, conv locality, an ontology) where the harmonic
     (topologically protected) component is nonzero and carries signal."""
     grad, curl, harm = rex.hodge(np.ascontiguousarray(flow, dtype=np.float64))
     return grad, curl, harm
@@ -90,7 +90,7 @@ def hodge_flow_decompose(rex, flow) -> tuple:
 
 def hodge_flow_precondition(rex, flow, gamma_grad: float = 1.0, gamma_curl: float = 1.0,
                             gamma_harm: float = 1.0) -> tuple:
-    """Recombine an edge flow's Hodge components with per-component gains on a general
+    """Recombine an edge flow's Hodge components with per component gains on a general
     complex. Returns ``(update, info)`` where info carries the energy fractions."""
     grad, curl, harm = hodge_flow_decompose(rex, flow)
     e = [float(np.sum(c * c)) for c in (grad, curl, harm)]
@@ -100,13 +100,13 @@ def hodge_flow_precondition(rex, flow, gamma_grad: float = 1.0, gamma_curl: floa
     return gamma_grad * grad + gamma_curl * curl + gamma_harm * harm, info
 
 
-# training-dynamics as a corpus
+# training dynamics as a corpus
 
 def save_hodge_trajectory(report: dict[str, list[float]], path: str, *,
                           optimizer: str = "HodgeSGD", **meta) -> str:
-    """Persist a per-step Hodge trajectory (pct_grad / pct_rot / ...) as a labeled vector
+    """Persist a per step Hodge trajectory (pct_grad / pct_rot / ...) as a labeled vector
     corpus through the same ``rexgraph.io`` path used for embeddings, so a run's
-    coordinated-vs-rotational gradient balance is a trackable timeline. Returns the path."""
+    coordinated vs rotational gradient balance is a trackable timeline. Returns the path."""
     from rexgraph.io import save_vectors  # direct import: the substrate never imports upward
     keys = [k for k, v in report.items() if isinstance(v, list) and v]
     if not keys:
@@ -137,22 +137,22 @@ if _HAS_TORCH:
 
         For a param group carrying a complex operator (`green_adj`, a sparse normalized adjacency
         of shape [n_cells, n_cells]), each parameter's gradient (first dim = n_cells) is whitened in
-        the complex geometry: solve (I + t L) x = g with L = I - A_hat by matrix-free CG, returning
-        the low-pass component x (Green's-smoothed, for a homophilous complex) or the high-pass
+        the complex geometry: solve (I + t L) x = g with L = I - A_hat by matrix free CG, returning
+        the low pass component x (Green's-smoothed, for a homophilous complex) or the high pass
         residual g - x, then Adam moments are applied to the result. Groups without `green_adj`, or
         params whose first dim does not match, get plain Adam.
 
         `green_channel` selects the k-hop operator (A_hat**k, cached; the 0s keep it sparse):
         "low"/"high" walk one hop; "twohop"/"threehop" walk the sparse 2/3-hop operator, which
-        carries the structure a heterophilous complex needs (2-hop neighbours agree where 1-hop
-        neighbours disagree). Use `generate_khop_channel` to auto-select the channel per task from a
-        cheap self-supervised score rather than fixing it.
+        carries the structure a heterophilous complex needs (2 hop neighbours agree where 1 hop
+        neighbours disagree). Use `generate_khop_channel` to auto select the channel per task from a
+        cheap self supervised score rather than fixing it.
 
-        This is the native optimizer for relational-native models where the complex IS the model and
+        This is the native optimizer for relational native models where the complex IS the model and
         the parameters are cochains: the Green's preconditioning does the relational propagation a
-        structure-blind optimizer cannot (empirically a bare-cochain node model goes from chance to
+        structure blind optimizer cannot (empirically a bare cochain node model goes from chance to
         strong generalization, because the optimizer itself carries the training signal across the
-        complex). On STANDARD feature-space models it offers nothing over Adam: the structure is
+        complex). On STANDARD feature space models it offers nothing over Adam: the structure is
         already in the forward pass, so use plain Adam there. Requires torch."""
 
         def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0,
@@ -163,9 +163,9 @@ if _HAS_TORCH:
                              green_lam=green_lam, green_iters=green_iters,
                              green_channel=green_channel, green_adj=None))
 
-        # channel -> (operator power on A_hat, low-pass?): low/high walk 1 hop; twohop/threehop
+        # channel -> (operator power on A_hat, low pass?): low/high walk 1 hop; twohop/threehop
         # walk the sparse k-hop A_hat**k (the 0s keep it sparse; k-hop carries structure a
-        # heterophilous complex needs (2-hop neighbours agree where 1-hop neighbours disagree).
+        # heterophilous complex needs (2 hop neighbours agree where 1 hop neighbours disagree).
         _CH_POWER = {"low": 1, "high": 1, "twohop": 2, "threehop": 3}
 
         @staticmethod
@@ -224,7 +224,7 @@ if _HAS_TORCH:
 
         Same preconditioning, different complex operator. `coparticipation_adjacency` is
         built from |B1| alone and never touches B2, so a model trained through it is blind
-        to every face: attaching hyperfaces leaves its operator bit-identical, and an
+        to every face: attaching hyperfaces leaves its operator bit identical, and an
         ablation over open against closed complexes reports the same number for a reason
         that has nothing to do with the data. The curl tier exists and the optimizer
         cannot see it.
@@ -235,7 +235,7 @@ if _HAS_TORCH:
         a number chosen for the run.
 
         This is ADDITIVE. GreensCochain is unchanged and stays the right choice for a
-        cochain over a face-free complex, where there is no curl tier to miss. Use this
+        cochain over a face free complex, where there is no curl tier to miss. Use this
         one where the complex is closed and the faces are supposed to matter.
         """
 
@@ -261,7 +261,7 @@ if _HAS_TORCH:
 
         @staticmethod
         def build_adjacency(rex, *, alpha=None):
-            """The two-grade operator, with c0_squared as the default exchange rate."""
+            """The two grade operator, with c0_squared as the default exchange rate."""
             from rexgraph.flow.hyperflow import flow_adjacency
 
             if alpha is None:
@@ -272,24 +272,24 @@ if _HAS_TORCH:
         def reads_faces(self) -> bool:
             """Whether the operator in use actually carries a curl tier.
 
-            False on a face-free complex, where this degrades to GreensCochain exactly
+            False on a face free complex, where this degrades to GreensCochain exactly
             rather than pretending to a tier that is not there.
             """
             return self._rex is not None and int(self._rex.nF_hodge) > 0
 
     def generate_khop_channel(score_fn, channels=("low", "twohop", "threehop")):
-        """Context-aware k-hop GENERATOR: pick the propagation channel that fits the task, cheaply.
+        """Context aware k-hop GENERATOR: pick the propagation channel that fits the task, cheaply.
 
         Standard optimizers cannot do this because they have no cheap structural signal to detect
-        which operator fits; a relational-native model does. `score_fn(channel)` is that signal: a
-        callback returning a higher-is-better score for a candidate channel (e.g. a self-supervised
-        inner-val reconstruction accuracy: fit the cochain on an inner-train split with that channel
-        and score the held-out inner-val). This returns ``(best_channel, {channel: score})``; the
+        which operator fits; a relational native model does. `score_fn(channel)` is that signal: a
+        callback returning a higher is better score for a candidate channel (e.g. a self supervised
+        inner val reconstruction accuracy: fit the cochain on an inner train split with that channel
+        and score the held out inner val). This returns ``(best_channel, {channel: score})``; the
         caller then builds/sets GreensCochain with the selected channel. Empirically the generator
-        auto-picks 2-hop for a heterophilous complex and low/3-hop for a homophilous one, with no
-        task-specific hardcoding: the detection nobody wires into an optimizer because the cheap
-        structural math is missing. A deeper (run-nothing) detector reads the channel straight off
-        the complex's spectral moments; this self-supervised version is the first working form."""
+        auto picks 2 hop for a heterophilous complex and low/3-hop for a homophilous one, with no
+        task specific hardcoding: the detection nobody wires into an optimizer because the cheap
+        structural math is missing. A deeper (run nothing) detector reads the channel straight off
+        the complex's spectral moments; this self supervised version is the first working form."""
         scores = {ch: float(score_fn(ch)) for ch in channels}
         best = max(scores, key=scores.get)
         return best, scores
@@ -313,7 +313,7 @@ else:
         raise ImportError("generate_khop_channel requires PyTorch (an optional dependency).")
 
 
-# training-backend exposure
+# training backend exposure
 # CUDA, ROCm, CPU, and Apple MPS are all supported for the training path, as the inference
 # path exposes Vulkan/ROCm/CUDA/Metal/CPU (local_runtime.detect_hardware). The software adapts
 # to whichever torch wheel is installed rather than assuming one vendor.
@@ -366,7 +366,7 @@ def training_backends() -> dict[str, Any]:
             "gpu_usable": usable, "recommended_device": rec, "note": note}
 
 
-# compute-backend name (rexgraph.compute) / device alias -> torch device string. 'cuda' covers
+# compute backend name (rexgraph.compute) / device alias -> torch device string. 'cuda' covers
 # ROCm (torch reuses the cuda namespace); Apple Metal -> 'mps'; everything else trains on cpu.
 _BACKEND_DEVICE: dict[str, str] = {
     "cuda": "cuda", "rocm": "cuda", "hip": "cuda", "gpu": "cuda",
@@ -409,8 +409,8 @@ def _mps_usable() -> bool:
 
 
 def _resolve_device(name) -> str:
-    """Map a compute-backend name / device string to a usable torch device, guarding GPU
-    availability so a GPU request on a CPU-only (or visible-but-unusable-GPU) host degrades to
+    """Map a compute backend name / device string to a usable torch device, guarding GPU
+    availability so a GPU request on a CPU only (or visible but unusable GPU) host degrades to
     'cpu'. Passes through indexed forms like 'cuda:1' when a cuda device is usable."""
     d = _BACKEND_DEVICE.get(str(name).lower(), str(name))
     base = d.split(":")[0].lower()
@@ -427,11 +427,11 @@ def pick_device(prefer: str | None = None) -> str:
 
     ``prefer`` None or ``"auto"`` -> ask ``rexgraph.compute.recommended_backend()`` what backend
     this host resolves to (dynamic per machine, honoring REXGRAPH_BACKEND), map it to a torch device,
-    and confirm the GPU actually runs (``gpu_count() > 0`` plus a live op), so a visible-but-unusable
+    and confirm the GPU actually runs (``gpu_count() > 0`` plus a live op), so a visible but unusable
     GPU never leaks through. When the compute stack has no recommendation, fall back to torch's own
     validated probe (``training_backends``).
 
-    An explicit ``prefer`` ('cpu' / 'cuda' / 'mps' / 'cuda:1' / a compute-backend name such as
+    An explicit ``prefer`` ('cpu' / 'cuda' / 'mps' / 'cuda:1' / a compute backend name such as
     'rocm'/'openmp') is honored, still guarded: 'cpu' always forces CPU, and a GPU request on a host
     without a usable GPU degrades to 'cpu'. This is the ``ComputeSpec.backend`` -> device bridge."""
     if prefer is not None and str(prefer).lower() != "auto":
@@ -449,16 +449,16 @@ def pick_device(prefer: str | None = None) -> str:
 
 def build_optimizer(params, method: str = "adam", lr: float | None = None, **kwargs):
     """Construct a training optimizer. The honest menu, routed by empirical result:
-      * ``"adam"``    -> plain Adam (DEFAULT; the right choice for standard feature-space models,
+      * ``"adam"``    -> plain Adam (DEFAULT; the right choice for standard feature space models,
                         where the relational structure lives in the forward pass, not the optimizer)
-      * ``"adamw"`` / ``"sgd"`` -> the traditional optimizers, interoperable, opt-in.
+      * ``"adamw"`` / ``"sgd"`` -> the traditional optimizers, interoperable, opt in.
       * ``"greens"`` / ``"greenscochain"`` -> GreensCochain, Green's-function preconditioning of the
                         gradient in a complex's own geometry; the native optimizer for
                         relational-native models whose parameters are COCHAINS on that complex
                         (lr default 1e-3). Plain Adam elsewhere ties it, so it is opt-in, not default.
-      * ``"hodge"`` / ``"hodgeadam"`` -> HodgeAdam (lr default 1e-3), back-compat only: it ties
+      * ``"hodge"`` / ``"hodgeadam"`` -> HodgeAdam (lr default 1e-3), back compat only: it ties
                         plain Adam on standard weight matrices.
-      * ``"hodgesgd"`` -> HodgeSGD, the structural preconditioner (lr default 1e-2), back-compat.
+      * ``"hodgesgd"`` -> HodgeSGD, the structural preconditioner (lr default 1e-2), back compat.
     Requires torch."""
     if not _HAS_TORCH:
         raise ImportError("build_optimizer needs torch; use the numpy hodge_* core otherwise.")
@@ -479,10 +479,10 @@ def build_optimizer(params, method: str = "adam", lr: float | None = None, **kwa
 
 
 def hodge_groups(model, n_heads: int = 1):
-    """Architecture-aware HodgeAdam param groups. Attention projection weights get
+    """Architecture aware HodgeAdam param groups. Attention projection weights get
     ``blocks = n_heads`` (or 3·n_heads for a fused qkv), since each head is an independent
     relational subspace the flat bipartite would wrongly entangle; everything else stays
-    ``blocks=1`` (flat weighted-bipartite: correct for MLP / embeddings / generic). Heuristic by
+    ``blocks=1`` (flat weighted bipartite: correct for MLP / embeddings / generic). Heuristic by
     parameter name; pass the result straight to ``HodgeAdam(hodge_groups(model, n_heads), lr=...)``."""
     if not _HAS_TORCH:
         raise ImportError("hodge_groups needs torch.")

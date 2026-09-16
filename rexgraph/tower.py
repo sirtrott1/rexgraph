@@ -14,13 +14,13 @@ The moments fall out of it:
     d tr(1 -> 2)  =  ||B_3||^2 - ||B_1||^2
     d tr(2 -> 3)  =  -||B_2||^2
 
-The k=0 case is why the grade-0-to-1 moment reads exactly zero on a face-free complex:
+The k=0 case is why the grade 0 to 1 moment reads exactly zero on a face free complex:
 `||B_2||^2 = 0` when there are no faces, whatever the arity.
 
 **Why the mass and not the normalised character.** `||B_k||_F^2` is a sum over stored
 entries, so it is EXTENSIVE: additive over disjoint components, exactly. The
-trace-normalised character is not, and that failure of additivity is precisely the global
-coupling that makes a character-derived position context-dependent. The mass tower carries
+trace normalised character is not, and that failure of additivity is precisely the global
+coupling that makes a character derived position context dependent. The mass tower carries
 the structural content with none of it.
 
 Each mass is also a geometric reading. `||B_1||_F^2 = sum_e Q(e)`, the total quadrance, so
@@ -32,7 +32,6 @@ from __future__ import annotations
 from fractions import Fraction
 
 import numpy as np
-import scipy.sparse as sp
 
 __all__ = ["boundary_mass", "mass_tower", "trace_tower", "moments",
            "tower_law", "incidence_degrees", "closure_at", "manifold_state",
@@ -42,7 +41,7 @@ __all__ = ["boundary_mass", "mass_tower", "trace_tower", "moments",
 
 def _boundaries(rex):
     from rexgraph.graded_boundary import graded_boundaries_from_rex
-    return [sp.csr_matrix(b) for b in graded_boundaries_from_rex(rex)]
+    return graded_boundaries_from_rex(rex)
 
 
 def boundary_mass(rex, grade: int, *, exact: bool = True):
@@ -55,7 +54,7 @@ def boundary_mass(rex, grade: int, *, exact: bool = True):
 
     Higher grades read the stored coefficients. A face solved by
     `faces.solve_face_column` has its denominators cleared, so those are integers and a
-    double holds them exactly; a hand-supplied non-integer coefficient is taken at face
+    double holds them exactly; a hand supplied non integer coefficient is taken at face
     value and `exact` should be read as False by the caller in that case.
     """
     grade = int(grade)
@@ -84,12 +83,12 @@ def mass_tower(rex, *, exact: bool = True) -> list:
 def trace_tower(rex) -> list:
     """`[tr(L_0), tr(L_1), ...]`, one per grade."""
     from rexgraph.graded_boundary import graded_laplacians
-    return [float(sp.csr_matrix(L).diagonal().sum())
+    return [float(L.diagonal().sum())
             for L in graded_laplacians(_boundaries(rex))]
 
 
 def moments(rex) -> list:
-    """The per-grade increments of the trace tower.
+    """The per grade increments of the trace tower.
 
     The moment half of the action/moment pair; `scale_propagator.action_moment` takes
     the tower itself when both are wanted.
@@ -102,7 +101,7 @@ def tower_law(rex) -> dict:
     """Check `tr(L_k) = ||B_k||^2 + ||B_{k+1}||^2` at every grade.
 
     An identity, so a mismatch is a defect rather than a tolerance. Reported rather than
-    asserted, because the caller may be looking at a hand-built boundary.
+    asserted, because the caller may be looking at a hand built boundary.
     """
     masses = [float(m) for m in mass_tower(rex, exact=False)]
     traces = trace_tower(rex)
@@ -122,7 +121,7 @@ def incidence_degrees(rex, grade: int) -> np.ndarray:
     """How many `grade`-cells each `(grade-1)`-cell bounds.
 
     At grade 2 this is the number of faces on each edge, which is what the closed
-    2-manifold condition is actually about.
+    2 manifold condition is actually about.
     """
     bounds = _boundaries(rex)
     grade = int(grade)
@@ -163,13 +162,13 @@ def surface_identity(rex) -> dict:
     one. Each discrete stage satisfies the identity exactly, carrying its own `chi/E`;
     the Riemannian case is the degenerate one where that term has vanished.
 
-    **Arity-general form.** The two 2s are the arity of a relation and the closure
+    **Arity general form.** The two 2s are the arity of a relation and the closure
     degree of an edge. Replacing them by their means gives
 
         a/d + c/k  =  1 + chi/E
 
     with `a` the mean arity (vertices per relation) and `c` the mean closure (faces per
-    relation). Exact on branching, open and face-free complexes, and it reduces to the
+    relation). Exact on branching, open and face free complexes, and it reduces to the
     surface form at `a = c = 2`. Be clear about what it is: `a/d = V/E` and `c/k = F/E`,
     so this is Euler divided by `E`, a rewriting rather than new content. The CONTENT is the
     specialisation, because fixing `a` and `c` turns it into a relation between two
@@ -185,7 +184,7 @@ def surface_identity(rex) -> dict:
         a=4 c=2   (5,10) (6,6) (8,4) (12,3)
 
     So the classical three tilings are the `a = c = 2` row of a family, and a branching
-    complex refines toward a different ideal set. The self-dual member is always
+    complex refines toward a different ideal set. The self dual member is always
     `d = k = a + c`, since `(a+c)/d = 1` at `d = k`.
 
     **Scope of the SURFACE reading.** `applicable` is True only for pairwise relations
@@ -194,7 +193,7 @@ def surface_identity(rex) -> dict:
     """
     from rexgraph.graded_boundary import graded_boundaries_from_rex
 
-    bounds = [sp.csr_matrix(b) for b in graded_boundaries_from_rex(rex)]
+    bounds = graded_boundaries_from_rex(rex)
     if len(bounds) < 2:
         return {"applicable": False, "reason": "no faces: not a surface"}
     B1, B2 = bounds[0], bounds[1]
@@ -207,8 +206,8 @@ def surface_identity(rex) -> dict:
     pairwise = bool((arity == 2).all())
     closed = bool((face_deg == 2).all())
 
-    i1 = int((abs(B1) > 0).sum())                # vertex-relation incidences
-    i2 = int((abs(B2) > 0).sum())                # relation-face incidences
+    i1 = int((abs(B1) > 0).sum())                # vertex relation incidences
+    i2 = int((abs(B2) > 0).sum())                # relation face incidences
     chi = nV - nE + nF
     a = Fraction(i1, nE)                         # mean arity
     d = Fraction(i1, nV)                         # mean vertex degree
@@ -249,7 +248,7 @@ def manifold_state(rex, grade: int = 2) -> dict:
     `closure_at` measures and what the mass tower is extensive over.
 
     Filling never changes how many cycles there are: `ker(B_1)` is fixed by the
-    1-skeleton. Filling moves them from harmonic to curl, which is what
+    1 skeleton. Filling moves them from harmonic to curl, which is what
     `harmonic_shadow` counts.
     """
     from rexgraph.graded_boundary import _sparse_rank
@@ -283,7 +282,7 @@ def closure_at(rex, grade: int = 2) -> dict:
     """Whether the complex closes at `grade`, by two readings that are not the same.
 
     `mass_equal` is `||B_{grade-1}||^2 == ||B_grade||^2`. It is cheap, exact and
-    grade-general, and it is a statement about the MEAN incidence degree being 2, so it
+    grade general, and it is a statement about the MEAN incidence degree being 2, so it
     is NECESSARY for closure and not sufficient. A boundary with degrees (1, 2, 2, 3)
     satisfies it while being nothing of the kind.
 
@@ -314,7 +313,7 @@ def closure_at(rex, grade: int = 2) -> dict:
     }
 
 
-#: why a per-cell sign is not a reading of the complex from grade 2 up
+#: why a per cell sign is not a reading of the complex from grade 2 up
 _PARITY_NOTE = (
     "a solved column is determined only up to an overall sign, so per-cell parity and "
     "n_negative describe the REPRESENTATIVE, not the complex: negate one column and both "
@@ -336,14 +335,14 @@ def apd(rex, grade: int = 1, *, view: str = "local"):
     another: a cell can be wide and lonely, narrow and busy, balanced or frustrated,
     independently.
 
-    **P is never a gauge-free reading.** At grade 1 it is constant; from grade 2 it varies
+    **P is never a gauge free reading.** At grade 1 it is constant; from grade 2 it varies
     but only with the chosen representative, since a solved column is fixed only up to an
     overall sign. The invariant one grade up is the holonomy around a loop of cells, which
     the global view carries as `balanced` / `n_frustrated` and
     `faces.orientation_holonomy` computes: +1 on every independent loop IS coherent
-    orientability, and it survives any per-cell flip.
+    orientability, and it survives any per cell flip.
 
-    **P is only representative-dependent from grade 2 up.** A `B_1` column is canonically
+    **P is only representative dependent from grade 2 up.** A `B_1` column is canonically
     `(-1, +share, ..., +share)`, exactly one negative whatever the arity and whatever
     vertex is distinguished, so its sign product is -1 for every relation and reversing
     an edge does not move it. Measured, not assumed. From grade 2 the coefficients are
@@ -417,81 +416,65 @@ def apd(rex, grade: int = 1, *, view: str = "local"):
     }
 
 
+def validate_closure(rex, seed, max_depth=8, grade=0):
+    """Validate a C0 seed and the complete raw source chain before expansion."""
+    from numbers import Integral
+    from rexgraph.io.partition_state import partition_tower
+    from rexgraph.graph import RexGraph
+    if not isinstance(rex, RexGraph):
+        raise TypeError("closure requires a native RexGraph")
+    for value in (seed, max_depth, grade):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+            raise TypeError("closure seed, depth and grade must be integers")
+    if grade != 0:
+        raise NotImplementedError("closure currently requires a C0 seed")
+    if not 0 <= seed < rex.nV:
+        raise ValueError("closure seed is not present at C0")
+    if max_depth < 1:
+        raise ValueError("closure requires a positive maximum depth")
+    return partition_tower(rex)
+
+
 def semantic_closure(rex, seed: int, *, max_depth: int = 8, grade: int = 0) -> dict:
-    """How far "tell me about X" has to reach before the answer stops changing.
+    """Expand primary incidence until the induced structural reading repeats.
 
-    The open question in graph engineering, phrased as the analogue of statistical
-    significance: given a query about one entity, what is enough? Ask for too little and
-    the answer is a fragment; ask for too much and you have returned the database.
+    Each step includes complete relation supports and the stored upper cells
+    whose nonempty boundaries are contained in the selected lower grade.
+    Upper zero columns are not assigned to every neighbourhood by implication.
+    The existing native partition builder and exact ranks own reconstruction
+    and homology. Isolated seed vertices, loops and parallel relations remain.
 
-    There is an exact stopping rule and it needs no threshold. Expand the seed's
-    neighbourhood one hop at a time and read the SHAPE of the subcomplex it induces at
-    each step. The first depth whose reading repeats the one before it is where more
-    context stops being more answer. Nothing is being fitted and no tolerance is being
-    chosen: the reading either changed or it did not.
-
-    The reading is `(nV, nE, betti)`, because betti is what says whether the evidence
-    closes. A neighbourhood that is still a tree is a chain of facts hanging off the
-    seed; one that has acquired a cycle has facts that corroborate each other through a
-    second path, and that is a different kind of answer.
-
-    Measured on real BindingDB binding data, the depth is a property of the ENTITY and not
-    a setting::
-
-        P00734   depth 1     its ligand panel is self-contained
-        P00918   depth 2     at depth 1 a star, at depth 2 six independent cycles,
-                             because its ligands are shared with other targets
-
-    So "how much is enough" is answerable per query rather than configured globally, and
-    a promiscuous entity honestly needs more context than a self-contained one.
-
-    Returns the depth, the reading at each step, and the relations the closure contains.
-    `converged: False` means it was still growing at `max_depth`, which is a real answer
-    about the seed rather than a failure: some entities are not locally closed.
+    Repetition of (nV, nE, full Betti tower) is a structural stopping rule,
+    not a semantic sufficiency certificate. max_depth bounds the search;
+    a result that reaches it without repetition is explicitly unconverged.
     """
-    supports = rex.relation_supports()
-    nE = int(rex.nE)
-
-    def neighbourhood(depth):
-        vertices = {int(seed)}
-        for _ in range(depth):
-            touching = [e for e in range(nE) if vertices & set(supports[e])]
-            vertices |= {v for e in touching for v in supports[e]}
-        return ([e for e in range(nE) if set(supports[e]) <= vertices],
-                sorted(vertices))
-
-    def shape(edges, vertices):
-        if not edges:
-            return (0, 0, ())
-        index = {v: i for i, v in enumerate(vertices)}
-        ptr, idx = [0], []
-        for e in edges:
-            idx.extend(index[v] for v in supports[e])
-            ptr.append(len(idx))
-        from rexgraph.graph import RexGraph
-        sub = RexGraph(boundary_ptr=np.asarray(ptr, dtype=np.int32),
-                       boundary_idx=np.asarray(idx, dtype=np.int32))
-        sub._ensure_clean()
-        return (int(sub.nV), int(sub.nE), tuple(int(b) for b in sub.betti))
-
+    from rexgraph.io.partition_state import build_rex_partition
+    _, columns = validate_closure(rex, seed, max_depth, grade)
+    supports = [set(map(int, s)) for s in rex.relation_supports()]
+    vertices = {int(seed)}
     steps, previous, depth, edges = [], None, None, []
     for d in range(1, int(max_depth) + 1):
-        e, v = neighbourhood(d)
-        reading = shape(e, v)
-        steps.append({"depth": d, "nV": reading[0], "nE": reading[1],
-                      "betti": list(reading[2])})
+        touching = [s for s in supports if vertices & s]
+        vertices.update(v for s in touching for v in s)
+        mask = np.asarray([bool(s) and s <= vertices for s in supports], dtype=bool)
+        e = np.flatnonzero(mask).tolist()
+        upper = {}
+        lower = mask
+        for k, boundary in enumerate(columns[1:], 2):
+            lower = np.asarray([bool(c) and all(lower[i] for i in c) for c in boundary], dtype=bool)
+            upper[k] = lower
+        v_mask = np.zeros(rex.nV, dtype=bool)
+        v_mask[list(vertices)] = True
+        sub = build_rex_partition(rex, mask, v_mask=v_mask, grade_masks=upper).rex
+        reading = (int(sub.nV), int(sub.nE), tuple(map(int, sub.betti_tower)))
+        steps.append({"depth": d, "nV": reading[0], "nE": reading[1], "betti": list(reading[2])})
         if reading == previous:
             depth = d - 1
             break
         previous, edges = reading, e
-    return {
-        "seed": int(seed), "grade": int(grade),
-        "depth": depth, "converged": depth is not None,
-        "steps": steps, "relations": edges,
-        "reading": ("the first depth whose shape repeats the one before it: more context "
-                    "stops being more answer there. Exact, with no threshold, because the "
-                    "reading either changed or it did not"),
-    }
+    return {"seed": int(seed), "grade": 0, "depth": depth, "converged": depth is not None,
+            "steps": steps, "relations": edges, "vertices": sorted(vertices),
+            "reading": "first repeated induced structural reading; not a semantic sufficiency certificate"}
 
 
 def graded_delta(rex) -> list:
@@ -499,14 +482,14 @@ def graded_delta(rex) -> list:
 
     Where the mass tower reads each grade on its own, this reads the COUPLING
     between adjacent grades. `L_gb = a a^T/|a|^2 - b b^T/|b|^2` on the two grades'
-    normalized coherence spectra, a difference of two rank-1 orthogonal projectors,
+    normalized coherence spectra, a difference of two rank 1 orthogonal projectors,
     so its whole spectrum follows from one dot product:
 
         nonzero eigenvalues   +-sqrt(spread(a, b))
         ||L_gb||_F            sqrt(2 * spread(a, b))
 
     No eigensolver and no L x L matrix for those three. `localization` still reads
-    the entrywise |L_gb|, which is not rank-2 and has no closed form.
+    the entrywise |L_gb|, which is not rank 2 and has no closed form.
 
     Returns one dict per pair with `pair`, `top_eig`, `bot_eig`, `spread`, `frob`
     and `localization`. The tower is a fingerprint: a sphere has a distinctive
@@ -520,7 +503,7 @@ def graded_delta(rex) -> list:
 def channel_delta(rex):
     """L_gb between the four channel hats at grade 1, as a 4x4 array.
 
-    The within-grade companion to `graded_delta`: entry [i, j] is the Frobenius
+    The within grade companion to `graded_delta`: entry [i, j] is the Frobenius
     norm of L_gb between channel i and channel j, in the order
     (topology, geometry, frustration, coparticipation). The diagonal is zero by
     construction, a channel matching itself.

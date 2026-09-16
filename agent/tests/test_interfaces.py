@@ -1,4 +1,4 @@
-"""Tests for the sovereign-engine seams: silent by default, host-injected
+"""Tests for the sovereign engine seams: silent by default, host injected
 identity, and label privacy that preserves structural comparison."""
 
 from agent.rcdb import MemoryStore, _labels_of, compare

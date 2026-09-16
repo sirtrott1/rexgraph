@@ -1,9 +1,9 @@
 """A shared resource costs less shared than it does N times over.
 
 Concurrent requests to ONE local server read the weights once per decode step and serve
-every one of them, and their wall-clock overlaps. Measured on the 35B-A3B MoE: aggregate
+every one of them, and their wall clock overlaps. Measured on the 35B-A3B MoE: aggregate
 decode 53.4 tok/s at one stream against 120.8 at eight, so 2.26x. An objective that sums
-per unit cannot say that, and will spread generations to level per-lane load when putting
+per unit cannot say that, and will spread generations to level per lane load when putting
 them on one server is the faster placement.
 
 Everything not in `_SHARED_TYPES` stays strictly additive, and one unit of a shared type
@@ -61,7 +61,7 @@ def test_wall_clock_is_sub_additive_but_still_increasing():
         u = _units(n, "local_llm")
         t, _b = _sums({f"u{i}": "thread" for i in range(n)}, u, cm)
         got.append(t["thread"])
-        assert t["thread"] < n * per + 1e-12, n          # sub-additive
+        assert t["thread"] < n * per + 1e-12, n          # sub additive
     assert all(b > a for a, b in zip(got, got[1:], strict=False)), got  # and monotone
 
 
@@ -78,7 +78,7 @@ def test_an_additive_type_is_untouched():
 
 def test_separate_share_groups_share_nothing():
     """Three bees are three servers. Requests to different bees do not share weight
-    reads, and saying otherwise would under-price a fleet badly."""
+    reads, and saying otherwise would under price a fleet badly."""
     cm = C.CostModel()
     same = _units(4, "local_llm", group="beeA")
     split = (_units(2, "local_llm", group="beeA", prefix="a") +
@@ -103,7 +103,7 @@ def test_the_batch_gain_is_flat_above_what_was_measured():
 
 def test_the_incremental_actuator_agrees_with_a_full_recompute():
     """assign() maintains its state incrementally and its docstring promises the same
-    answer as a recompute. Sub-additive costs are not separable per unit, so this is the
+    answer as a recompute. Sub additive costs are not separable per unit, so this is the
     invariant most at risk from the change."""
     cm = C.CostModel()
     rng = np.random.default_rng(0)
@@ -157,7 +157,7 @@ def test_state_apply_is_reversible():
 
 def test_batching_generations_beats_spreading_them():
     """The behaviour this exists for. Four generations on one server should not be split
-    across lanes to level load when co-scheduling them is the cheaper placement."""
+    across lanes to level load when co scheduling them is the cheaper placement."""
     cm = C.CostModel()
     units = _units(4, "local_llm", group="bee")
     together = C.contention({u["id"]: "thread" for u in units}, units, cm)
@@ -235,7 +235,7 @@ def test_the_learned_curve_reaches_the_objective():
 
 def test_two_models_do_not_share_a_curve():
     """The seed is one model on one box. Two coordinators on different hardware must not
-    overwrite each other, which is why the table is per-CostModel and not the module dict."""
+    overwrite each other, which is why the table is per CostModel and not the module dict."""
     a, b = C.CostModel(), C.CostModel()
     a.observe_throughput(1, 60.0)
     for _ in range(30):
@@ -246,7 +246,7 @@ def test_two_models_do_not_share_a_curve():
 
 
 def test_the_incremental_state_does_not_drift():
-    """assign() applies and reverts a move for every unit-lane pair it scores, so float
+    """assign() applies and reverts a move for every unit lane pair it scores, so float
     residue would accumulate over a long wave and the answer would depend on how many
     candidates were examined."""
     cm = C.CostModel()

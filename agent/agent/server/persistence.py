@@ -76,8 +76,8 @@ def _db_path(workspace: str) -> str:
 #
 # Sessions (~/.rexgraph-agent/sessions) and workspaces
 # (~/.config/rexgraph/workspaces) were separate stores with no
-# cross-reference. This index makes the mapping bidirectional so a
-# workspace document can find its analysis session and vice-versa.
+# cross reference. This index makes the mapping bidirectional so a
+# workspace document can find its analysis session and vice versa.
 
 def _links_path(workspace: str) -> Path:
     return _ws_dir(workspace) / "doc_sessions.json"
@@ -221,7 +221,7 @@ def load_document_rex(workspace: str, doc_id: str):
 def list_document_bundles(workspace: str) -> list[str]:
     """List all saved document IDs in a workspace."""
     d = _docs_dir(workspace)
-    # A stem can appear under both suffixes mid-migration; it is still one document.
+    # A stem can appear under both suffixes mid migration; it is still one document.
     return sorted({
         p.stem for p in d.iterdir()
         if is_bundle_suffix(p.suffix) or p.is_dir()

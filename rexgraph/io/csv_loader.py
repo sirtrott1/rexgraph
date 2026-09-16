@@ -10,7 +10,7 @@ tooltip text, confidence scaling, etc.).
 The classification uses a heuristic cascade:
 
 1. Column name pattern matching (e.g. "effect" -> polarity)
-2. Value-set statistics (cardinality, average token length,
+2. Value set statistics (cardinality, average token length,
    delimiter frequency, numeric fraction)
 3. Value content scanning (positive/negative stems, ordinal
    terms, identifier patterns)
@@ -52,7 +52,7 @@ class ColumnRole:
     GROUPING  = "grouping"   # Pathway, module, cluster membership (may overlap)
     ORDINAL   = "ordinal"    # Ordered categorical (e.g. high/medium/low -> opacity/width)
     NUMERIC   = "numeric"    # Continuous value (e.g. score, weight)
-    EVIDENCE  = "evidence"   # Semicolon-delimited source lists (e.g. SIGNOR;KEGG)
+    EVIDENCE  = "evidence"   # Semicolon delimited source lists (e.g. SIGNOR;KEGG)
     REFERENCE = "reference"  # Identifiers (PMIDs, accessions)
     DESCRIPTION = "description"  # Free text (mechanism detail, notes)
     UNKNOWN   = "unknown"    # Could not classify
@@ -82,7 +82,7 @@ _NAME_PATTERNS = [
 ]
 
 
-# Value-level heuristics
+# Value level heuristics
 
 
 _POSITIVE_STEMS = [
@@ -136,7 +136,7 @@ class ColumnProfile:
     # Populated for polarity columns
     positive_values: list[str] = field(default_factory=list)
     negative_values: list[str] = field(default_factory=list)
-    # Name-match confidence (1.0 = matched by name, 0.0 = heuristic only)
+    # Name match confidence (1.0 = matched by name, 0.0 = heuristic only)
     name_matched: bool = False
 
     @property
@@ -213,15 +213,15 @@ def _classify_column(profile: ColumnProfile) -> str:
     for pattern, role in _NAME_PATTERNS:
         if re.match(pattern, name):
             profile.name_matched = True
-            # Cross-validate: if name says "weight" but values are
+            # Cross validate: if name says "weight" but values are
             # categorical, still trust the name but flag it
             if role == ColumnRole.NUMERIC and not profile.is_numeric:
                 return ColumnRole.ORDINAL  # "weight" with categorical values
             return role
 
-    # 2. Value-based heuristics
+    # 2. Value based heuristics
 
-    # Empty or single-value columns are uninformative
+    # Empty or single value columns are uninformative
     if profile.n_values == 0 or profile.n_unique <= 1:
         return ColumnRole.UNKNOWN
 
@@ -309,7 +309,7 @@ def classify_columns(
 def find_by_role(
     profiles: dict[str, ColumnProfile], role: str,
 ) -> list[ColumnProfile]:
-    """Return all columns with the given role, name-matched first."""
+    """Return all columns with the given role, name matched first."""
     matches = [p for p in profiles.values() if p.role == role]
     matches.sort(key=lambda p: (not p.name_matched, p.name))
     return matches
@@ -361,7 +361,7 @@ def build_weights(
     Ordinal columns scale the magnitude (e.g. high=1.0, medium=0.6).
 
     Returns
-    -------
+
     w_E : ndarray of float64
         Signed edge weights.
     negative_types : list of str
@@ -416,7 +416,7 @@ def build_edge_attrs(
     """
     edge_attrs = {}
 
-    # All columns go in as-is
+    # All columns go in as is
     for name, p in profiles.items():
         edge_attrs[name] = p.values
 
@@ -428,7 +428,7 @@ def build_edge_attrs(
     return edge_attrs
 
 
-# High-level loader
+# High level loader
 
 
 @dataclass
@@ -452,7 +452,7 @@ class GraphData:
         self.nE = len(self.sources)
 
     def summary(self) -> str:
-        """Human-readable summary of column classification."""
+        """Human readable summary of column classification."""
         lines = [f"{self.nV} vertices, {self.nE} edges, "
                  f"{len(self.profiles)} metadata columns\n"]
         lines.append(f"  {'Column':<22} {'Role':<14} {'Unique':>6} "
@@ -484,7 +484,7 @@ class GraphData:
         - signs from polarity column (+1/-1 per edge)
 
         Returns
-        -------
+
         RexGraph
         """
         from ..graph import RexGraph
@@ -516,13 +516,13 @@ def load_edge_csv(
 ) -> GraphData:
     """Load a CSV edge list with full column role classification.
 
-    Handles arbitrary schema data (for example a wide multi-column TSV
+    Handles arbitrary schema data (for example a wide multi column TSV
     export with many unrelated columns) by letting the caller name
     the edge columns explicitly instead of relying purely on the
     name/position heuristic.
 
     Parameters
-    ----------
+
     path : str
         Path to the CSV file.  Expects at least two columns
         interpretable as source/target vertex names.
@@ -558,7 +558,7 @@ def load_edge_csv(
         first row as a header (the prior behavior).
 
     Returns
-    -------
+
     GraphData
         Fully classified data ready for RexGraph construction and
         visualization.  Access `.edge_attrs` for analyze(),

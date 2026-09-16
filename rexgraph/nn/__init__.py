@@ -43,7 +43,7 @@ from .optim import (  # noqa: F401
     training_backends,
 )
 
-# HodgeAdam / HodgeSGD are back-compat only (tie plain Adam on standard models); reach them at
+# HodgeAdam / HodgeSGD are back compat only (tie plain Adam on standard models); reach them at
 # rexgraph.nn.optim if a legacy caller needs them. Prefer factory.make_optimizer("auto", ...).
 from .relational_attention import CausalPropagatorAttention, PropagatorAttention  # noqa: F401
 

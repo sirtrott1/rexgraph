@@ -32,7 +32,7 @@ class TestDdlExport:
              "foreign_keys": [{"columns": ["a_id"], "references": "a"}]}]}
         ddl = sc.export_schema_ddl(sc.parse_schema_json(spec))
         assert "CREATE TABLE a" in ddl and "CREATE TABLE b" in ddl
-        # the cycle-closing FK is emitted as a trailing ALTER
+        # the cycle closing FK is emitted as a trailing ALTER
         assert "ALTER TABLE" in ddl
 
     def test_list_tables(self, tmp_path):

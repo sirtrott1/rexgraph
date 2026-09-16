@@ -1,16 +1,16 @@
 """
 agent.cell_view: one row per cell, carrying what that cell actually is.
 
-The old dashboard's per-cell table was the useful part of it: a vertex or an edge with
+The old dashboard's per cell table was the useful part of it: a vertex or an edge with
 its readings attached, so a question about one cell had one place to look. What it
 carried was partly wrong, and the shape assumed things a relational complex does not.
 
 Two changes of substance.
 
-An edge row named a `source` and a `target`. That is the arity-2 coordinate of a
+An edge row named a `source` and a `target`. That is the arity 2 coordinate of a
 relation, not the relation, so a branching column of arity k had k-2 of its boundary
 vertices nowhere in the row. A row here carries its whole BOUNDARY and its arity, so a
-4-ary relation reads as one relation over four cells rather than as a pair with
+4 ary relation reads as one relation over four cells rather than as a pair with
 something missing.
 
 Channels are named, not positional. `L1_down` and `L_O` share a diagonal on an
@@ -61,7 +61,7 @@ def vertex_rows(rex, *, labels=None, signal=None, limit: int = 0,
 
     `phi` is the vertex's share of each channel and `at` is that same reading as a
     coordinate, so the table and the picture are the same numbers. `coherence` is the
-    exact per-vertex kappa against the global Green's function; `local_coherence` is the
+    exact per vertex kappa against the global Green's function; `local_coherence` is the
     O(nnz) companion that reads only the incident characters, and the two disagreeing is
     a fact about the vertex rather than an error.
     """
@@ -174,7 +174,7 @@ def edge_rows(rex, *, labels=None, signal=None, limit: int = 0,
 
 def cells(rex, *, grade: str = "both", labels=None, signal=None,
           limit: int = 0, positions: bool = True) -> dict:
-    """The per-cell view, with the channel names its readings are keyed by."""
+    """The per cell view, with the channel names its readings are keyed by."""
     if grade not in ("vertex", "edge", "both"):
         raise ValueError(f"grade must be vertex, edge or both, got {grade!r}")
     out = {

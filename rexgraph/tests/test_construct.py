@@ -134,7 +134,7 @@ def test_the_construction_closes_under_auto_hyperface():
     assert len(rex.graded_boundaries()) >= 2
 
 
-#### text ######################################################################
+# text
 
 _SENTS = ["the cat sat on the mat",
           "the dog sat on the rug",
@@ -169,7 +169,7 @@ def test_sequences_keep_the_order_the_group_threw_away():
     _rex, info = from_text(None, sentences=["the cat sat on the mat"],
                            min_terms=3, min_pair_count=1)
     assert info["sequences"][0] == ["the", "cat", "sat", "on", "the", "mat"]
-    # the GROUP is the set, deduplicated and order-preserving
+    # the GROUP is the set, deduplicated and order preserving
     assert info["sequences"][0].count("the") == 2
 
 
@@ -202,7 +202,7 @@ def test_first_occurrences_reduces_and_preserves_order():
 def test_reducing_after_shuffling_inverts_the_control():
     """The confound, pinned. It cost an opposite conclusion twice.
 
-    An all-pairs precedence reading uses each token's position, so a repeated token holds
+    An all pairs precedence reading uses each token's position, so a repeated token holds
     the earliest of several positions. Permuting a sequence that still carries repeats
     leaves that multiplicity channel intact, so a control built that way is not a control.
     Reduce FIRST, then shuffle the reduced sequences.
@@ -239,7 +239,7 @@ def test_from_text_needs_text_or_sentences():
         from_text(None)
 
 
-#### spans #####################################################################
+# spans
 
 _D = {"the", "a", "and", "on", "of", "to", "in"}
 
@@ -285,7 +285,7 @@ def test_multiplicity_is_separate_cells_so_nothing_needs_deduplicating():
     """The other half of the reframe.
 
     A repeated token sits in different spans, which are different relations sharing a
-    boundary vertex. There is no first-occurrence rule here, so there is nothing for a
+    boundary vertex. There is no first occurrence rule here, so there is nothing for a
     shuffle control to get wrong.
     """
     from rexgraph.construct import from_spans, spans_of
@@ -313,7 +313,7 @@ def test_sentence_sections_are_the_grade_two_candidate():
 
 
 def test_a_one_token_span_builds_a_witness_rather_than_being_refused():
-    """It used to raise, on the belief that a one-token span "is not a relation". It is:
+    """It used to raise, on the belief that a one token span "is not a relation". It is:
     a witness, `(+1)`, which exists and bounds nothing."""
     from rexgraph.construct import from_spans
     rex, info = from_spans([["solo"], ["x"], ["y", "y"]], verify=False)
@@ -337,7 +337,7 @@ def test_spans_feed_the_readings_like_any_other_section():
     assert len(out) == len(info["spans"])
 
 
-#### the near-linear rank #######################################################
+# the near linear rank
 
 def test_mixed_rank_is_exact_when_it_answers():
     from rexgraph.construct import from_groups, mixed_rank
@@ -375,7 +375,7 @@ def test_mixed_rank_refuses_a_complex_it_does_not_describe():
 def test_the_identity_it_rests_on_is_arity_two_only():
     """dim ker(L0) == components holds at arity 2 and fails above it.
 
-    A lone arity-4 relation has rank 1, so dim ker(L0) is 3, while the support is one
+    A lone arity 4 relation has rank 1, so dim ker(L0) is 3, while the support is one
     connected component. That is why `mixed_rank` leans on the PAIR graph rather than on
     the whole complex, and why `_pairwise_rank` guards on column arity.
     """
@@ -395,7 +395,7 @@ def test_the_identity_it_rests_on_is_arity_two_only():
 def test_pair_mode_spanning_keeps_the_rank_and_drops_the_invented_cycles():
     """A group is ONE fact; the clique asserts C(k,2) pairwise facts it never stated.
 
-    A connected set's zero-sum space has dimension k-1, so a spanning subset already
+    A connected set's zero sum space has dimension k-1, so a spanning subset already
     spans the group's own column: the rank is unchanged and the group still closes. What
     goes away is cycles the data never asserted.
     """

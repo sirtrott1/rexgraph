@@ -1,4 +1,4 @@
-# RexGraph laptop environment - conda-forge only, full mamba in-env.
+# RexGraph laptop environment - conda-forge only, full mamba in env.
 
 # Create with mamba (bootstrapped via micromamba - see setup script):
 # mamba env create -f environment.yml
@@ -7,12 +7,12 @@
 # pip install --no-build-isolation ".[io]"
 # pip install -e "./agent[server,schema,training]"
 
-# Python is PINNED to 3.13 for a reproducible, in-support-range interpreter
+# Python is PINNED to 3.13 for a reproducible, in support range interpreter
 # (the stack supports 3.10-3.13; verified building + running on 3.11/3.12/3.13).
 # Pinning matters for enterprise/shared use: an unpinned solver can pick a newer
 # default (e.g. 3.14) that is outside the tested/advertised range. To move the
 # pin, edit the `python=3.13` line below. conda-forge only (no `defaults`) keeps
-# you clear of Anaconda's ToS and matches a no-telemetry posture.
+# you clear of Anaconda's ToS and matches a no telemetry posture.
 
 name: rexgraph
 
@@ -23,7 +23,7 @@ dependencies:
  # Python (pinned to 3.13 - top of the supported 3.10-3.13 range)
   - python=3.13
 
- # Full mamba/conda in-env so `mamba install ...` works for later additions
+ # Full mamba/conda in env so `mamba install ...` works for later additions
   - mamba
   - conda
 
@@ -48,7 +48,7 @@ dependencies:
 
  # Core scientific stack
   - numpy>=1.24
-  - scipy>=1.10
+  - scipy>=1.10  # Full development and Agent analysis, not a native core requirement.
 
  # I/O stack (core rexgraph[io]: HDF5 export, Zarr, Arrow, SQL, pandas)
   - zarr>=2.14
@@ -60,7 +60,7 @@ dependencies:
  # RCDB persistence + training export (the piece the old extras list missed)
   - safetensors>=0.3
 
- # Schema diagnosis (dialect-aware SQL parsing)
+ # Schema diagnosis (dialect aware SQL parsing)
   - sqlglot>=20
 
  # Testing

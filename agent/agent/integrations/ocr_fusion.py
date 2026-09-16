@@ -1,5 +1,5 @@
 """
-Multi-backend OCR fusion: structural comparison via rexgraph.
+Multi backend OCR fusion: structural comparison via rexgraph.
 
 Runs the same document through multiple OCR backends, builds a
 relational complex from each output, and uses Hodge decomposition,
@@ -7,7 +7,7 @@ void analysis, and structural character to measure where the
 backends agree and disagree.
 
 This is novel: nobody else has the mathematics to structurally
-compare OCR outputs.  Traditional comparison is character-level
+compare OCR outputs.  Traditional comparison is character level
 diff.  This compares the *relational topology* of the extracted
 content: gradient vs curl vs harmonic structure, void patterns,
 coherence distributions.
@@ -172,7 +172,7 @@ class FusionReport:
     def best_structure(self) -> str | None:
         """Which backend extracted the richest relational structure?
 
-        Measured by number of faces (higher-order relationships).
+        Measured by number of faces (higher order relationships).
         """
         if not self.backends:
             return None
@@ -186,7 +186,7 @@ class FusionReport:
         return min(self.backends, key=lambda b: b.void_fraction).backend_name
 
     def best_result(self, criterion: str = "coherence"):
-        """Return the highest-confidence BackendResult.
+        """Return the highest confidence BackendResult.
 
         criterion: 'coherence' (kappa), 'structure' (nF), or 'chars'.
         Only considers backends that actually produced text.
@@ -203,12 +203,12 @@ class FusionReport:
         return max(usable, key=key)
 
     def best_text(self, criterion: str = "coherence") -> str:
-        """Return the text from the highest-confidence backend."""
+        """Return the text from the highest confidence backend."""
         br = self.best_result(criterion)
         return br.text if br is not None else ""
 
     def summary(self) -> str:
-        """Human-readable comparison summary."""
+        """Human readable comparison summary."""
         lines = [f"OCR Fusion Report: {self.source}"]
         lines.append(f"Backends compared: {self.n_backends}")
         lines.append("")
@@ -239,10 +239,10 @@ class FusionReport:
 
 
 class OCRFusion:
-    """Multi-backend OCR comparison and fusion.
+    """Multi backend OCR comparison and fusion.
 
     Parameters
-    ----------
+
     backends : list of str or client objects
         Backend names (``'paddleocr'``, ``'unlimited-ocr'``,
         ``'deepseek-ocr-2'``, ``'mistral'``, ``'got-ocr'``)
@@ -309,14 +309,14 @@ class OCRFusion:
         """Run OCR on a source through all backends and compare.
 
         Parameters
-        ----------
+
         source : str
             Path to image, PDF, or directory.
         depth : str
             Analysis depth: ``'quick'``, ``'standard'``, ``'full'``.
 
         Returns
-        -------
+
         FusionReport
         """
 

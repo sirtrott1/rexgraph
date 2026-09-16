@@ -1,5 +1,5 @@
 """
-agent.query_engine: structural, relational-complex-aware question answering.
+agent.query_engine: structural, relational complex aware question answering.
 
 Every query becomes its own relational complex. That complex is aligned
 against the document (or corpus) complex to find which concepts and
@@ -7,7 +7,7 @@ sections structurally resonate with the question: retrieval by shared
 topology, not just string match. The retrieved sections ground an answer
 that is synthesized by a language model when one is configured
 (``agent.chat_model``), and by a structural summary otherwise. Results
-are content-addressed cached.
+are content addressed cached.
 
 This is the piece that integrates pipeline output (document/corpus
 complexes + chunks + analysis) with chat.
@@ -32,15 +32,15 @@ def build_query_rex(query: str, max_vocab: int = 200, *,
                     relation_mode: str = "branching"):
     """Build a relational complex from the query text, the way a DOCUMENT is built.
 
-    Returns ``(rex_or_None, edge_construction_or_None)``. A single-word
+    Returns ``(rex_or_None, edge_construction_or_None)``. A single word
     query has no edges -> ``rex`` is None but the ec (vocabulary) is
-    still returned for label-level alignment.
+    still returned for label level alignment.
 
     `relation_mode="branching"` is not a tuning knob, it is the condition under which
     the score means anything. `interfacing_score` compares this complex against a stored
     document, and `rexgraph.document.build_document` carries each sentence as ONE k-ary
     relation with no pairs enumerated. Built pairwise, a query is a windowed
-    co-occurrence graph and the document is a field of branching relations: the two are
+    co occurrence graph and the document is a field of branching relations: the two are
     different objects and the comparison is between constructions rather than texts. The
     tokenizer is shared through `from_text`, so the vocabulary they align on is also the
     same code.
@@ -87,7 +87,7 @@ def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> dict[str, Any]:
     """Align the query's concepts against the document complex.
 
     Uses the compiled ``align_by_labels`` to find shared concepts, then
-    ranks them by the document's per-vertex coherence (κ) - i.e. which
+    ranks them by the document's per vertex coherence (κ) - i.e. which
     of the query's concepts are *structurally central* in the document.
     """
     doc_labels = list(doc_meta.get("vertex_labels", []) or [])
@@ -99,16 +99,16 @@ def relate_query_to_doc(query_ec, doc_rex, doc_meta: dict) -> dict[str, Any]:
         from rexgraph.core._cross_complex import align_by_labels
         shared, idx_q, idx_doc = align_by_labels(q_labels, doc_labels)
     except Exception:
-        # pure-python fallback
+        # pure python fallback
         dset = {l: i for i, l in enumerate(doc_labels)}
         shared, idx_doc = [], []
         for l in q_labels:
             if l in dset:
                 shared.append(l); idx_doc.append(dset[l])
 
-    # Coherence κ at ONLY the shared query concepts, by demand-driven diffusion -
+    # Coherence κ at ONLY the shared query concepts, by demand driven diffusion -
     # propagate from the relevant vertices instead of enumerating the whole document
-    # complex's per-vertex coherence just to read a handful of entries.
+    # complex's per vertex coherence just to read a handful of entries.
     doc_idx = np.asarray([int(idx_doc[k]) for k in range(len(shared))], dtype=int)
     kvals = None
     try:
@@ -178,10 +178,10 @@ def retrieve_closure(rex, seeds, *, labels=None, max_depth: int = 8) -> dict:
     boundary here is where the reading stops moving, which is a property of the entities
     and the structure around them.
 
-    Each seed's closure is taken separately and the union returned, with the per-seed
+    Each seed's closure is taken separately and the union returned, with the per seed
     depths kept. A seed that closes at depth 1 and one that needs depth 3 are different
     facts about those entities and averaging them away would lose the more interesting
-    one: on real binding data a self-contained target closed at 1 while a target whose
+    one: on real binding data a self contained target closed at 1 while a target whose
     ligands are shared closed at 2, having acquired six independent cycles on the way.
 
     The audit trail is the point. `steps` carries the shape at every depth, so a caller
@@ -240,10 +240,10 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
     """Return (sections, relation).
 
     - With an RCStore: rank the persisted corpus (see `retrieve_from_store`).
-    - With a non-empty CorpusBuilder: delegate to its structural retrieval
+    - With a non empty CorpusBuilder: delegate to its structural retrieval
       (``corpus.query`` -> chi/spectral/hybrid ranking).
     - Single document (or empty corpus): rank sentences of the source text
-      by the coherence-weighted mass of query concepts they contain.
+      by the coherence weighted mass of query concepts they contain.
 
     The three are tried in that order and each falls through to the next, so a
     store that holds nothing for this query still answers from whatever is local.
@@ -289,7 +289,7 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
                 if sections:
                     return sections[:top_k], {"mode": "corpus", "n_ranked": len(sections)}
             except Exception:
-                pass  # fall through to single-doc
+                pass  # fall through to single doc
 
     return _single_doc_retrieve(query, top_k, doc_rex=doc_rex,
                                 doc_meta=doc_meta, query_ec=query_ec,
@@ -298,7 +298,7 @@ def retrieve_sections(query: str, top_k: int, *, corpus=None,
 
 
 
-# Store-backed retrieval
+# Store backed retrieval
 #
 # Two stages, because a signature is queryable without touching a blob: rank the
 # signatures to pick candidates, then deserialize only those and score them with the
@@ -311,7 +311,7 @@ logger = logging.getLogger(__name__)
 
 STORE_CANDIDATES = _env_int("REXGRAPH_STORE_CANDIDATES", 24)
 
-#: the store predicate is a token match, so it over-returns relative to the ranking.
+#: the store predicate is a token match, so it over returns relative to the ranking.
 #: Pull a multiple of the candidate budget and let the signature affinity order them,
 #: rather than trusting the first `n` rows the store happens to hand back.
 _PREFILTER_SLACK = _env_int("REXGRAPH_PREFILTER_SLACK", 4)
@@ -321,11 +321,11 @@ def _sections_by_field(doc, rec, qec, k, *, channels=False):
     """The top `k` sections of a document, found by DIFFUSION over its own partition.
 
     This is the lookup the layers exist for, and it is a different thing from what it
-    replaces. `_best_sentences` re-split a stored blob with a punctuation regex and
+    replaces. `_best_sentences` re split a stored blob with a punctuation regex and
     ranked the pieces by how many query words they contained; this seeds the document's
     field at the query's vertices, lets heat spread through the document's own relations,
     and reads the response back over the exact partition already stored with it. Nothing
-    scans the text and nothing is re-segmented: the spans were computed once at ingest
+    scans the text and nothing is re segmented: the spans were computed once at ingest
     and the prose is fetched by seek.
 
     Returns a list of `{section_id, layer, span, response, mass, proof_len, text}`, or
@@ -368,7 +368,7 @@ def _sections_by_field(doc, rec, qec, k, *, channels=False):
     # vocabulary: measured, topology 0.2379 against 0.2161 and coparticipation 0.2053
     # against 0.2570, so the sum annihilates the difference exactly. A section that
     # answers responds through the document's own topology; one that only shares words
-    # responds through co-participation. The scalar cannot say which.
+    # responds through co participation. The scalar cannot say which.
     #
     # Held out, the direction classifies answerable from foreign at 54.0% against 50.6%
     # chance: it recovers signal the scalar destroyed without being a reliable typing.
@@ -378,35 +378,35 @@ def _sections_by_field(doc, rec, qec, k, *, channels=False):
     # and a retrieval scores 24 candidates to keep 3. That is the same split
     # `score_document(reading=False)` documents: diagnostics on what survives, not on
     # what is about to be discarded. Measured, doing it for every candidate took a
-    # whole-corpus query from 5 s to 32 s.
+    # whole corpus query from 5 s to 32 s.
     prof, chan = None, []
     if channels:
         try:
             prof, _pn, chan = section_response(rex, sect, seeds, channels=True)
         except Exception:
             # The profile is diagnostic and additive. Losing it costs the caller the
-            # per-channel axes, never the ranking, which is `resp` above.
+            # per channel axes, never the ranking, which is `resp` above.
             prof, chan = None, []
 
     # TWO READINGS, because which one is right is a property of the QUERY and a caller
-    # cannot know in advance which it has. Measured at n=149, top-1 on the section a
+    # cannot know in advance which it has. Measured at n=149, top 1 on the section a
     # query was lifted from: magnitude 94.6% / 71.8% / 33.6% as the query goes from the
     # whole section to a half to a quarter, coverage 38.3% / 53.0% / 51.0%. They cross
     # over, and a real question is at the short end.
     #
     # This is ADDITIVE and deliberately so. Magnitude still orders the result, which
-    # keeps the full-query case exactly as it was: there, taking magnitude's own top-2
+    # keeps the full query case exactly as it was: there, taking magnitude's own top 2
     # beats consulting coverage (97.3% against 94.6%), so coverage must not displace
     # anything. It is appended as one extra candidate when it disagrees.
     #
     # Agreement between the two is a confidence signal with no threshold in it: when they
     # name the same section, magnitude is right 100% of the time on half- and
-    # quarter-length queries, against 57.0% and 16.1% when they disagree.
+    # quarter length queries, against 57.0% and 16.1% when they disagree.
     try:
         cov, _n2 = section_coverage(rex, sect, seeds)
     except Exception:
         # Coverage is the ADDITIVE second reading described above: magnitude still
-        # orders the result, so its absence returns the full-query behaviour exactly.
+        # orders the result, so its absence returns the full query behaviour exactly.
         cov = None
 
     heap = (rec.meta or {}).get("heap") or ""
@@ -468,21 +468,21 @@ def _field_candidates(store, q_tokens: set, limit: int, prefix: str = ""):
         # record's width, so it answers "what fraction of this record is the query",
         # a DENSITY. Measured on the documents that all hold `221b baker street`, its
         # order agrees with the ordering by accession width at rank correlation +1.000:
-        # a 3,206-term pamphlet holding a page number beat the Adventures of Sherlock
+        # a 3,206 term pamphlet holding a page number beat the Adventures of Sherlock
         # Holmes, which sat at 38. The existence tower reads the {0,1} incidence and so
         # answers the MASS question, which puts Holmes at 4.
         #
         # NEITHER IS THE DEFAULT, because measured on 12 queries with known answers they
-        # trade: share takes top-1 6/12 to existence's 5/12, and existence takes Alice
+        # trade: share takes top 1 6/12 to existence's 5/12, and existence takes Alice
         # from 5 to 941. Read together they recover what either alone drops: recall@20
-        # 10/12 against 9/12 each. This is the same both-readings pattern
+        # 10/12 against 9/12 each. This is the same both readings pattern
         # `_sections_by_field` already uses one grade down, where it is magnitude vs
         # coverage.
         mass, _ids2 = ix.record_response(snap, q_tokens, reading="existence")
     except Exception:
         # A silent None here means the caller falls back to the scan, 88 s against
-        # 1.2 s, an eighty-fold regression that looks like nothing. A CSC/CSR mixup
-        # making `deg` per-relation is the shape this hides, so it is logged.
+        # 1.2 s, an eighty fold regression that looks like nothing. A CSC/CSR mixup
+        # making `deg` per relation is the shape this hides, so it is logged.
         logger.warning("field prefilter unavailable, falling back to the scan",
                        exc_info=True)
         return None
@@ -493,15 +493,15 @@ def _field_candidates(store, q_tokens: set, limit: int, prefix: str = ""):
     # different is that the reduction happens HERE, visibly, and the profile travels with
     # the record instead of being discarded at the source. The axes matter downstream:
     # a record that answers responds through topology, one that merely shares vocabulary
-    # responds through co-participation, and the sum cancels that distinction.
+    # responds through co participation, and the sum cancels that distinction.
     scores = prof.sum(axis=1)
     order = _np.argsort(scores)[::-1]
     # candidates the mass reading ranks highly and the density reading buried, merged in
-    # after the share order rather than interleaved: share wins top-1, so it leads, and
+    # after the share order rather than interleaved: share wins top 1, so it leads, and
     # this is recall the other tower alone would have kept.
     # INTERLEAVED, not concatenated, and not blended by a ratio. Appending the mass
     # order after the share order does nothing: the share order fills the candidate quota
-    # by itself, which is what happened first and left pg1661 out of a 24-candidate pool
+    # by itself, which is what happened first and left pg1661 out of a 24 candidate pool
     # entirely. Alternating gives each tower equal voice with no constant to pick.
     mass_order = _np.argsort(mass)[::-1]
     merged, seen = [], set()
@@ -567,20 +567,20 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
     # The store's index IS a complex: records and one shared vocabulary are its vertices,
     # and a record's accession is a single branching relation with the record at position
     # 0 carrying the -1. `record_response` seeds the query's TERM vertices and applies
-    # `L0 x = B1 (B1^T x)` matrix-free, so "which records answer these terms" is a matvec
+    # `L0 x = B1 (B1^T x)` matrix free, so "which records answer these terms" is a matvec
     # over the operator the store already holds.
     #
     # What this replaces: `store.query(labels_any=...)`, which materialised every
-    # record's meta (around 8,000 label strings each) and set-intersected in Python.
-    # Measured on the 61,353-document Gutenberg store, 88 s for the prefilter alone, and
+    # record's meta (around 8,000 label strings each) and set intersected in Python.
+    # Measured on the 61,353 document Gutenberg store, 88 s for the prefilter alone, and
     # then `_signature_affinity` ordered the survivors off `labels_sample`, twelve
     # entries, scoring 0.0000 against every candidate, so the ordering was arbitrary and
     # the first two records opened were the corpus's two largest documents. A single
     # query did not finish in 23 minutes. The field reading is 1.2 s and ranks the right
     # book 1st, 1st, 2nd, 3rd and 7th on five title queries.
     #
-    # as_of/valid_at still go to the per-candidate read. A bitemporal PREFILTER over the
-    # index complex needs the index to be as-of too, which it is not, so a time-travelling
+    # as_of/valid_at still go to the per candidate read. A bitemporal PREFILTER over the
+    # index complex needs the index to be as of too, which it is not, so a time travelling
     # query falls back to the scan rather than silently reading today's vocabulary.
     n_cand = max(1, int(candidates if candidates is not None else STORE_CANDIDATES))
     n_sent_pre = (SECTION_SENTENCES if section_sentences is None
@@ -637,15 +637,15 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
         # ONE field reading per candidate, serving both jobs. `_sections_by_field` seeds
         # the query's vertices, diffuses on the document's own relations and integrates
         # the response over its stored partition; the document's score IS the response of
-        # its best-answering section, and those same sections are what comes back.
+        # its best answering section, and those same sections are what comes back.
         # Scoring separately would be a second reading of the same field.
         #
         # This replaces `score_document` -> `interfacing_score` -> `coherence_response`,
         # which was the retrieval path's actual bottleneck: it builds the sparse character
-        # channels and runs block-CG PER CANDIDATE, and a stack dump during a hung query
+        # channels and runs block CG PER CANDIDATE, and a stack dump during a hung query
         # landed in `build_sparse_channels` or `_block_cg` every time. It was also the
         # wrong reading. Measured, the section field ranks the section a query was lifted
-        # from first 86.5% of the time; a label-overlap score cannot see the construction
+        # from first 86.5% of the time; a label overlap score cannot see the construction
         # at all, because clique, spanning and branching share one vertex set.
         # EACH GRADE DOES ITS OWN JOB, and both halves are measured.
         #
@@ -655,10 +655,10 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
         # sections come from the DOCUMENT complex, where `_sections_by_field` ranks the
         # section a query was lifted from first 86.5% of the time.
         #
-        # Re-deriving a document score inside the document is the mistake: the section
+        # Re deriving a document score inside the document is the mistake: the section
         # field is excellent at "where in this book" and weak at "which book", measured
-        # at 24.5% top-1 cross-document against 86.5% within-document. A store with no
-        # index complex has no corpus-grade reading available, so it keeps
+        # at 24.5% top 1 cross document against 86.5% within document. A store with no
+        # index complex has no corpus grade reading available, so it keeps
         # `score_document`: that is a real fallback, not a legacy path.
         got = _sections_by_field(doc, rec, qec, n_sent_pre)
         rank_score = (field_score.get(rec.id) if field_score is not None
@@ -668,8 +668,8 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
     if not scored:
         return [], {"mode": "store", "n_ranked": 0}
 
-    # same deterministic tiebreak as the in-memory path: store enumeration order
-    # must not decide which of two equally-scoring documents comes back.
+    # same deterministic tiebreak as the in memory path: store enumeration order
+    # must not decide which of two equally scoring documents comes back.
     scored.sort(key=lambda t: (-t[0], str(t[1].doc_id)))
     sections = []
     for score, doc, rec, got in scored[:top_k]:
@@ -700,7 +700,7 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
     if provenance:
         # WHICH records, not how many. The index is the corpus complex, so the returned
         # sections are a section of it and the readings say what the answer rests on and
-        # whether it would survive losing any one of them. Opt-in because the first call
+        # whether it would survive losing any one of them. Opt in because the first call
         # solves for the leverage; it is then cached against the index digest.
         #
         # `provenance="full"` adds the coupling reading, which is the only one that costs
@@ -769,7 +769,7 @@ def _fallback_answer(query: str, doc_summary: str, sections: list[dict],
                      relation: dict) -> str:
     """The answer when no language model is involved.
 
-    This is not a degraded narration. A document complex records CO-OCCURRENCE, so what
+    This is not a degraded narration. A document complex records CO OCCURRENCE, so what
     it exactly supports is "these spans contain these of your terms, at these offsets",
     and that is a citation, which is more than a synthesis without one. The passage
     answerer states it; what follows here is the structural context around it.
@@ -863,7 +863,7 @@ def answer_query(doc_rex, query: str, results: dict | None = None, *,
                  doc_summary: str = "",
                  section_sentences: int | None = None,
                  store=None) -> dict[str, Any]:
-    """End-to-end structural answer for a chat query.
+    """End to end structural answer for a chat query.
 
     Builds the query complex, retrieves resonant sections from the
     document/corpus, synthesizes an answer (model or structural), and
@@ -897,10 +897,10 @@ def answer_query(doc_rex, query: str, results: dict | None = None, *,
     # structure, so the question goes to the structure that makes it exact rather than to
     # one mechanism stretched over everything. The lexicon's relations ARE predications:
     # `hypernym` is is-a, so "what does X mean" is answerable there and is not answerable
-    # from a corpus of co-occurrence, which returns whaling narratives instead.
+    # from a corpus of co occurrence, which returns whaling narratives instead.
     #
     # Each DECLINES anything it cannot support, and declining costs nothing: an answerer
-    # checks its own interface before touching its structure, so a non-lexical query never
+    # checks its own interface before touching its structure, so a non lexical query never
     # loads a lexicon. The passages below still run either way: the composition is a
     # union of exact answers, not a choice between them.
     exact = None

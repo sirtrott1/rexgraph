@@ -1,6 +1,6 @@
 """Slice D dogfood: RexGraph learning online from its own RCDB, closing the loop.
 
-Domain-agnostic and dataset-free: a synthetic complex grows and reshapes over a
+Domain agnostic and dataset free: a synthetic complex grows and reshapes over a
 handful of steps; every external put drives the online Green's-cochain field one
 step and (with write_back) persists a guarded derived version. Run:
 

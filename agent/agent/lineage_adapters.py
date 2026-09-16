@@ -2,10 +2,10 @@
 agent.lineage_adapters: represent the platform's own work as relational
 complexes so it becomes queryable structure in the RCDB.
 
-A pipeline run is a DAG of stages (stages = vertices, data-flow / ordering =
-edges, fan-in/out = co-participation). A conversation is a chain/branch of
+A pipeline run is a DAG of stages (stages = vertices, data flow / ordering =
+edges, fan-in/out = co participation). A conversation is a chain/branch of
 turns. Once each is a complex, the same three primitives apply as to schemas:
-signature (identity), cross-complex coherence (similarity), and drift (change).
+signature (identity), cross complex coherence (similarity), and drift (change).
 """
 
 from __future__ import annotations

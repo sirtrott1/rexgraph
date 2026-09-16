@@ -3,8 +3,8 @@
 There are (deliberately) no *decision* thresholds here. Every structural verdict is
 driven by EXACT integer invariants - the harmonic dimension β₁ (persistent unfilled
 cycles), rank(B₂) (co-participation-filled/curl cycles), and the combinatorial
-directed feedback-arc cut (orderability) - and the one continuous classification
-(conflict tables) uses a data-adaptive Tukey fence, not a fixed cutoff. Those are
+directed feedback arc cut (orderability) - and the one continuous classification
+(conflict tables) uses a data adaptive Tukey fence, not a fixed cutoff. Those are
 mathematical facts, so there is nothing to tune.
 
 What remains are genuine *output* preferences (how much to enumerate/show), which a
@@ -26,13 +26,13 @@ def _envi(name: str, default: int) -> int:
 
 @dataclass(frozen=True)
 class DiagnosisOutput:
-    """Output-size preferences for the diagnosis report (not decision thresholds)."""
+    """Output size preferences for the diagnosis report (not decision thresholds)."""
 
-    #: Maximum number of distinct circular-dependency chains to enumerate as
+    #: Maximum number of distinct circular dependency chains to enumerate as
     #: examples. A display bound on the actionable output - it does not affect any
     #: verdict (the existence of directed cycles is decided exactly by the cut).
     max_cycles: int = _envi("REXGRAPH_DIAG_MAX_CYCLES", 20)
 
 
-#: Process-wide output settings (read env once at import).
+#: Process wide output settings (read env once at import).
 THRESHOLDS = DiagnosisOutput()

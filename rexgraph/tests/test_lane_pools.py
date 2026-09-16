@@ -52,7 +52,7 @@ def test_unpicklable_proc_fn_spills_to_thread():
     units = [{"id": f"c{i}", "type": "cpu_coordination", "fn": make(i)} for i in range(3)]
     res = p.run(units, {u["id"]: "proc" for u in units}, cost=CostModel())
     assert res == {f"c{i}": i for i in range(3)}
-    assert sorted(seen) == [0, 1, 2]  # ran in-process on the thread lane
+    assert sorted(seen) == [0, 1, 2]  # ran in process on the thread lane
     p.shutdown()
 
 
@@ -62,7 +62,7 @@ def test_warm_pool_is_reused_across_waves():
     p.run(u, {"a": "thread"})
     ex1 = p._pools["thread"]
     p.run(u, {"a": "thread"})
-    assert p._pools["thread"] is ex1  # same executor object, not re-created
+    assert p._pools["thread"] is ex1  # same executor object, not re created
     p.shutdown()
 
 
@@ -102,7 +102,7 @@ def test_reaper_restarts_after_flag_cleared_even_if_thread_lingers():
 
 
 def test_background_reaper_actually_reaps_and_self_exits_real_clock():
-    # End-to-end with the REAL background thread (not _reap_once): a short TTL + tick must close the
+    # End to end with the REAL background thread (not _reap_once): a short TTL + tick must close the
     # warm pool and the reaper thread must terminate, leaving nothing running.
     import time
     p = LanePools("h", idle_ttl_proc=0.05, idle_ttl_thread=0.05, reaper_tick=0.02)
@@ -113,7 +113,7 @@ def test_background_reaper_actually_reaps_and_self_exits_real_clock():
         time.sleep(0.02)
     assert p.status()["thread"]["state"] == "cold"      # reaped by the background thread
     time.sleep(0.05)
-    assert p.reaper_alive is False                      # reaper self-exited, nothing lingers
+    assert p.reaper_alive is False                      # reaper self exited, nothing lingers
     p.shutdown()
 
 
@@ -136,7 +136,7 @@ def test_coordinator_without_pools_uses_per_wave_execute():
 
 
 def test_run_isolates_a_failing_task_no_rerun():
-    # A single task raising must NOT abort the wave or re-run its peers: the failed id is omitted,
+    # A single task raising must NOT abort the wave or re run its peers: the failed id is omitted,
     # every fn runs exactly once.
     calls = {"a": 0, "b": 0, "c": 0}
 
@@ -152,7 +152,7 @@ def test_run_isolates_a_failing_task_no_rerun():
     units = [{"id": k, "type": "io_llm", "fn": mk(k)} for k in ("a", "b", "c")]
     res = p.run(units, {u["id"]: "thread" for u in units})
     assert res == {"a": "A", "c": "C"}          # b omitted, no exception raised
-    assert calls == {"a": 1, "b": 1, "c": 1}    # each ran exactly once (no full-wave re-run)
+    assert calls == {"a": 1, "b": 1, "c": 1}    # each ran exactly once (no full wave re run)
     p.shutdown()
 
 
@@ -168,7 +168,7 @@ def test_wave_longer_than_ttl_is_not_reaped_midflight():
 
     res = p.run([{"id": "a", "type": "io_llm", "fn": slow}], {"a": "thread"})
     assert res == {"a": 1}
-    assert p.status()["thread"]["state"] == "warm"   # survived: busy-guard + completion refresh
+    assert p.status()["thread"]["state"] == "warm"   # survived: busy guard + completion refresh
     p.shutdown()
 
 
@@ -182,10 +182,10 @@ def test_inner_threads_budget_prevents_oversubscription():
 
 
 def test_inner_threads_budget_scales_with_a_hive_share():
-    # Cross-coordinator: several hives share the machine, so each pool's inner-thread budget must be
-    # its SHARE of cores, not all cores. 3 equal hives on 32 cores -> ~10-core budget each.
+    # Cross coordinator: several hives share the machine, so each pool's inner thread budget must be
+    # its SHARE of cores, not all cores. 3 equal hives on 32 cores -> ~10 core budget each.
     import rexgraph.coordinator as co
-    assert co._inner_threads(5, cores_budget=10) == 2      # 10-core share / 5 workers = 2 BLAS each
+    assert co._inner_threads(5, cores_budget=10) == 2      # 10 core share / 5 workers = 2 BLAS each
     assert co._inner_threads(8, cores_budget=32) == 4
     assert co._inner_threads(2, cores_budget=10) == 5
     # 3 equal hives never collectively exceed the machine: sum(workers*inner) <= cores

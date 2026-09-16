@@ -28,7 +28,7 @@ from rexgraph.graph import RexGraph
 
 
 def _branching():
-    """A 4-ary relation with the 4-cycle spanning it, hyperfaces attached."""
+    """A 4 ary relation with the 4 cycle spanning it, hyperfaces attached."""
     rex = RexGraph.from_hypergraph(
         np.array([0, 4, 6, 8, 10, 12], dtype=np.int32),
         np.array([0, 1, 2, 3, 0, 1, 1, 2, 2, 3, 3, 0], dtype=np.int32))
@@ -53,7 +53,7 @@ def _svg(rex):
 
 
 def test_a_wide_relation_draws_as_one_shape():
-    """Not C(k,2) lines and not a hub. The 4-ary relation is a single polygon."""
+    """Not C(k,2) lines and not a hub. The 4 ary relation is a single polygon."""
     svg = _svg(_branching())
     wide = [m for m in re.findall(r"<polygon[^>]*>.*?</polygon>", svg, re.S)
             if "arity 4" in m]
@@ -137,7 +137,7 @@ def test_curvature_is_reported_per_relation():
 
 
 def test_a_face_free_complex_has_no_curvature():
-    """It reads B2, so with no 2-cells there is nothing to bend."""
+    """It reads B2, so with no 2 cells there is nothing to bend."""
     rex = RexGraph(sources=np.array([0, 1], dtype=np.int32),
                    targets=np.array([1, 2], dtype=np.int32))
     assert all(r["curvature"] == 0.0 for r in render_payload(rex)["relations"])
@@ -284,7 +284,7 @@ def test_a_relation_draws_between_the_atoms_it_names(tmp_path):
 def test_the_camera_basis_is_exactly_orthonormal():
     """A rotation by an arbitrary angle is irrational: cos(0.6) has no exact value, so a
     float camera puts the whole picture at coordinates that do not exist exactly. Every
-    rational half-angle parameter gives a rational point on the circle instead."""
+    rational half angle parameter gives a rational point on the circle instead."""
     import itertools
     from fractions import Fraction
 

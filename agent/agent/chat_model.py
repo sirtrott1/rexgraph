@@ -2,7 +2,7 @@
 agent.chat_model: unified generation layer for chat/synthesis.
 
 A single place that resolves *which* model to talk to and provides a
-best-effort ``generate()``. Everything that wants an LLM (the chat route,
+best effort ``generate()``. Everything that wants an LLM (the chat route,
 the pipeline's query synthesis, the query engine) goes through here, so
 "model setup" is one concept instead of four copies of the resolution
 chain.
@@ -15,7 +15,7 @@ Resolution order (first hit wins):
     5. ``UNLIMITED_OCR_URL`` env var
 
 If none resolve, ``is_available()`` is False and ``generate()`` returns
-None, so callers fall back to the structural (LLM-free) answer path.
+None, so callers fall back to the structural (LLM free) answer path.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import os
 import threading
 from dataclasses import dataclass
 
-# Runtime override set through configure() / the model-config endpoint.
+# Runtime override set through configure() / the model config endpoint.
 _override_lock = threading.Lock()
 _override: dict[str, str] = {}
 
@@ -117,7 +117,7 @@ def is_available() -> bool:
 
 
 def status() -> dict:
-    """Model-setup status for the UI (no secrets leaked)."""
+    """Model setup status for the UI (no secrets leaked)."""
     t = _resolve()
     return {
         "available": t.available,
@@ -134,8 +134,8 @@ def generate(prompt: str, system: str | None = None,
              timeout: float = 120.0) -> str | None:
     """Generate a completion, or return None if no model is available.
 
-    Synchronous and dependency-light so it works from any context
-    (async routes, sync tests, the pipeline). Uses the OpenAI-compatible
+    Synchronous and dependency light so it works from any context
+    (async routes, sync tests, the pipeline). Uses the OpenAI compatible
     ``/v1/chat/completions`` contract the GPU server speaks.
     """
     t = _resolve()
@@ -188,7 +188,7 @@ def generate(prompt: str, system: str | None = None,
 def generate_with_metrics(prompt: str, system: str | None = None,
                           max_tokens: int = 512, temperature: float = 0.3,
                           timeout: float = 120.0) -> dict | None:
-    """Generate a completion AND its token-level LLM metrics (perplexity, mean
+    """Generate a completion AND its token level LLM metrics (perplexity, mean
     surprisal, varentropy) from the model's logprobs: the standard LLM metrics,
     computed with the same Rényi/varentropy calculus as the structural metrics
     (``agent.metrics``). Returns ``{'text': str, 'metrics': dict}`` or None; 'metrics'
@@ -211,7 +211,7 @@ def generate_with_metrics(prompt: str, system: str | None = None,
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stream": False,
-        "logprobs": True,          # OpenAI-compatible: per-token logprobs
+        "logprobs": True,          # OpenAI compatible: per token logprobs
     }
     if t.model:
         payload["model"] = t.model

@@ -50,7 +50,7 @@ def test_rcdb_record_carries_complex_and_types(tmp_path):
 
 def test_live_path_imports_no_pandas():
     # A fresh interpreter importing the warehouse live path must not drag in pandas. Running in a
-    # subprocess makes this a real assertion (an in-process check would be a no-op cache hit, since
+    # subprocess makes this a real assertion (an in process check would be a no op cache hit, since
     # the modules are already imported by the tests above).
     import subprocess
     import sys

@@ -58,7 +58,7 @@ def test_require_grows_the_missing_specialists():
     acts = rh.require("review", "test")
     assert {a["need"] for a in acts} == {"review", "test"}
     assert h.get("reviewer") is not None and h.get("tester") is not None
-    # a satisfied need is a no-op (exact set-membership), and it is idempotent
+    # a satisfied need is a no op (exact set membership), and it is idempotent
     assert rh.require("review") == []
     assert any("review" in e["cause"] for e in rh.schema.evolution())
 
@@ -110,7 +110,7 @@ def test_run_grows_team_does_work_and_verifies(monkeypatch):
     assert {"planner", "reviewer", "tester"} <= set(out["team"])
     caps = {a.get("need") for a in out["reactions"] if a.get("rule") == "capability"}
     assert {"plan", "review", "test"} <= caps
-    assert out["verification"] is not None                   # a cross-check ran
+    assert out["verification"] is not None                   # a cross check ran
 
 
 def test_run_deploys_verifier_on_reliability_gap(monkeypatch):
@@ -125,7 +125,7 @@ def test_run_deploys_verifier_on_reliability_gap(monkeypatch):
     }))
     rh = ReactiveHive(h, store=rcdb.MemoryStore())
     out = rh.run("answer the parser question", needs=[])     # skip capability inference
-    assert out["verification"]["flagged"]                    # the off-topic worker was caught
+    assert out["verification"]["flagged"]                    # the off topic worker was caught
     assert h.get("verifier") is not None                     # -> reactive layer deployed a verifier
     assert any(a.get("rule") == "reliability" for a in out["reactions"])
 
@@ -145,14 +145,14 @@ def test_divergent_worker_deploys_guard(monkeypatch):
 
 def _embedder_hive(monkeypatch):
     """A hive whose embedder is ATTACHED (a live server this process does not own) - the
-    normal case when llama-server is started outside the agent."""
+    normal case when llama server is started outside the agent."""
     import numpy as np
     from agent import model_introspect
     h = _hive()
     h.attach("embedder", "http://127.0.0.1:8081", role="embedder", model="bge")
 
     def fake_embed(texts, url=None, model=None, timeout=60.0):
-        # distinct-but-close vectors: every agent is on-topic, nobody is divergent
+        # distinct but close vectors: every agent is on topic, nobody is divergent
         return np.array([[1.0, 0.1 * i] for i, _ in enumerate(texts)], dtype=float)
 
     monkeypatch.setattr(model_introspect, "embed", fake_embed)
@@ -161,7 +161,7 @@ def _embedder_hive(monkeypatch):
 
 
 def test_monitor_uses_an_attached_embedder(monkeypatch):
-    """hive.monitor(embed=True) must use the embedder BEE, not only a locally-managed server."""
+    """hive.monitor(embed=True) must use the embedder BEE, not only a locally managed server."""
     h = _embedder_hive(monkeypatch)
     for a, b in [("planner", "coder"), ("coder", "reviewer"), ("reviewer", "planner")]:
         h.relay(a, b, "waiting on you")

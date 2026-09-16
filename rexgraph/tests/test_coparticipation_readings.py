@@ -1,6 +1,6 @@
-"""Co-participation has two readings, and they were never in conflict.
+"""Co participation has two readings, and they were never in conflict.
 
-Two relations co-participate where their boundaries meet, and "how much" has two honest
+Two relations co participate where their boundaries meet, and "how much" has two honest
 answers::
 
     count   |supp(i) INTERSECT supp(j)|      how MANY vertices they meet at
@@ -57,9 +57,9 @@ def test_the_count_is_how_many_vertices_they_meet_at():
 
 @pytest.mark.parametrize("a,b,count,share", [
     ((0, 1), (0, 2), 1, Fraction(1)),                    # two pairwise at one vertex
-    ((0, 1, 2), (1, 2), 2, Fraction(1)),                 # leg meets 3-ary at two vertices
+    ((0, 1, 2), (1, 2), 2, Fraction(1)),                 # leg meets 3 ary at two vertices
     ((0, 1, 2), (0, 1), 2, Fraction(3, 2)),              # leg at the distinguished vertex
-    ((0, 1, 2, 3), (0, 1), 2, Fraction(4, 3)),           # the same at a 4-ary
+    ((0, 1, 2, 3), (0, 1), 2, Fraction(4, 3)),           # the same at a 4 ary
 ])
 def test_the_witnesses_from_the_brief(a, b, count, share):
     offsets = np.array([0, len(a), len(a) + len(b)], dtype=np.int32)

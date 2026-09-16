@@ -2,7 +2,7 @@
 agent.training: export structural analysis as training data.
 
 Converts rexgraph structural analysis into training features
-for model fine-tuning. Uses rexgraph/io/safetensors_bridge
+for model fine tuning. Uses rexgraph/io/safetensors_bridge
 directly for HuggingFace/PyTorch/JAX compatibility.
 
 Usage:
@@ -122,7 +122,7 @@ class TrainingExporter:
                 source_text, min_chunk_chars=100,
             )
 
-            # Per-chunk features
+            # Per chunk features
             for chunk in chunks:
                 ex = TrainingExample(
                     text=chunk.text,
@@ -134,7 +134,7 @@ class TrainingExporter:
                     channel=chunk.dominant_channel,
                 )
 
-                # Document-level features
+                # Document level features
                 with contextlib.suppress(Exception):
                     ex.betti = list(rex.betti)
 

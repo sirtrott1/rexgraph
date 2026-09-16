@@ -116,7 +116,7 @@ class ConversationTracker:
         self.note_reply_perplexity(ppl)
 
     def exchange_metrics(self, structural: bool = False) -> list[dict]:
-        """Per-message metrics for every recorded turn (what the UI reads on navigating
+        """Per message metrics for every recorded turn (what the UI reads on navigating
         back to a message). Token metrics are stored/free. When `structural=True`, the
         expensive tier is computed lazily from each stored reply text and CACHED on the
         record, so it is paid once, only if the interface actually drills in."""
@@ -135,14 +135,14 @@ class ConversationTracker:
         return out
 
     def session_metrics(self) -> dict:
-        """Per-SESSION information metrics: the trend of structural coherence over
+        """Per SESSION information metrics: the trend of structural coherence over
         turns (exchange κ: is the conversation losing structure?) and, when reply
-        perplexities were noted, of model uncertainty, with per-metric summaries.
+        perplexities were noted, of model uncertainty, with per metric summaries.
         Same Rényi/varentropy calculus as the per-reply/document/corpus metrics
         (agent.metrics.session_metrics)."""
         from agent.metrics import session_metrics as _session_metrics
         # kappa_mean is the exchange complex's overall coherence per turn; exchange_kappa
-        # is κ restricted to cross-exchange edges (0 when Q/A share no structure), so it
+        # is κ restricted to cross exchange edges (0 when Q/A share no structure), so it
         # is not the right trend signal.
         cohs = [getattr(ex, "kappa_mean", None) for ex in self._state.exchanges]
         ppls = getattr(self, "_reply_ppls", None)
@@ -151,7 +151,7 @@ class ConversationTracker:
     def get_memory_edges(self) -> list[str]:
         """Get the entities that persist across all exchanges.
 
-        Uses entity_bioes_matrix for per-entity lifecycle tracking
+        Uses entity_bioes_matrix for per entity lifecycle tracking
         when available, falls back to set intersection.
         """
         if not self._state.texts:
@@ -169,7 +169,7 @@ class ConversationTracker:
         if not all_entity_sets:
             return []
 
-        # Try per-entity lifecycle via compiled kernel
+        # Try per entity lifecycle via compiled kernel
         try:
             from rexgraph.core._temporal_entity import entity_bioes_matrix
             n_entities = len(all_entity_sets[0])

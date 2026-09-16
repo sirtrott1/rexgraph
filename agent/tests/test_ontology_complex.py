@@ -72,7 +72,7 @@ class TestOntologyRoute:
             "store_id": "animals"}).json()
         assert r["state"] == "acyclic_hierarchy"
         assert r["stored_as"] == "animals"
-        # stored as an ontology-tagged complex, queryable like any other
+        # stored as an ontology tagged complex, queryable like any other
         q = client.post("/api/v1/db/query", json={"tags_any": ["ontology"]}).json()
         assert "animals" in [rec["id"] for rec in q["records"]]
 

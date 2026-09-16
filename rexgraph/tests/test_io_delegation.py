@@ -47,8 +47,8 @@ def test_zarr_full_roundtrip(tmp_path):
 
 
 def test_all_formats_agree_on_a_rich_complex(tmp_path):
-    # every full-object format reconstructs the SAME rich complex (edge primacy + attribution + signs
-    # + g_channel + labels + cell metadata), via the one canonical rex-state encoder.
+    # every full object format reconstructs the SAME rich complex (edge primacy + attribution + signs
+    # + g_channel + labels + cell metadata), via the one canonical rex state encoder.
     from rexgraph.io import load as zload
     from rexgraph.io import save as zsave
     from rexgraph.io.arrow_bridge import arrow_to_rex, rex_to_arrow
@@ -68,7 +68,7 @@ def test_all_formats_agree_on_a_rich_complex(tmp_path):
 
 def test_generic_save_supports_safetensors(tmp_path):
     """io.load routed .safetensors but io.save had no branch for it, so the flagship
-    format was load-only through the generic entry point and save() raised
+    format was load only through the generic entry point and save() raised
     'Unknown format'."""
     import numpy as np
 

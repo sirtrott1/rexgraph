@@ -1,4 +1,4 @@
-"""The agent-layer runner supplies what core deliberately does not import.
+"""The agent layer runner supplies what core deliberately does not import.
 
 ``rexgraph.biomedical_demo`` builds the complexes and refuses to reach upward for storage
 or rendering, so the demonstration is only complete when a layer that is allowed to depend

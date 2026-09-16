@@ -1,4 +1,4 @@
-"""agent.server.routes.corpus: workspace-scoped corpus analysis."""
+"""agent.server.routes.corpus: workspace scoped corpus analysis."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ async def add_text_json(
     """Add text as a relational complex and keep it as a .rcbd document.
 
     Body: {text, doc_id?, date?, persist?}. The text is built into a complex the
-    same way an uploaded .txt is (words as vertices, sentence co-occurrence as
+    same way an uploaded .txt is (words as vertices, sentence co occurrence as
     relations) and written as a .rcbd bundle. The bundle carries the source text in
     its own metadata, so the document is one file and the text is not a sidecar.
 
@@ -85,7 +85,7 @@ async def add_document(
         # Which directories a caller may read from, and the test that decides it.
         # The home directory is NOT here any more. It was, and it holds ~/.ssh, ~/.aws
         # and the deployment's own credential store, so the widest entry in the
-        # allow-list contained the secrets the allow-list exists to protect. An
+        # allow list contained the secrets the allow list exists to protect. An
         # operator who wants a directory says so in REXGRAPH_ALLOWED_DIRS.
         from ..handles import path_allowed
         resolved = os.path.realpath(path)
@@ -158,7 +158,7 @@ async def temporal_tags(
         raise HTTPException(400, "Build the corpus first")
     # temporal_tags returns numpy arrays and a tuple of arrays, which FastAPI's
     # encoder cannot serialize, so the request died after the handler succeeded.
-    # Only reachable with two or more documents; one document short-circuits.
+    # Only reachable with two or more documents; one document short circuits.
     return json_sanitize(corpus.temporal_tags(), nan="null")
 
 
@@ -211,10 +211,10 @@ async def corpus_summary(
 async def get_corpus_metrics(
     token: TokenEntry = Depends(require_auth), ws: WorkspaceState = Depends(require_workspace),
 ):
-    """Per-document and per-corpus information metrics: each built document's
+    """Per document and per corpus information metrics: each built document's
     structural perplexity (effective modes), coherence, and varentropy reliability
-    gap, plus the corpus-level distribution and diversity (the effective number of
-    coherence-distinct documents). Same Rényi calculus as the token/response metrics."""
+    gap, plus the corpus level distribution and diversity (the effective number of
+    coherence distinct documents). Same Rényi calculus as the token/response metrics."""
     corpus = ws.get_corpus()
     if not corpus._built:
         raise HTTPException(400, "Build the corpus first")
@@ -226,10 +226,10 @@ async def compare_datasets(
     metric: str = Form("bottleneck"),
     token: TokenEntry = Depends(require_auth), ws: WorkspaceState = Depends(require_workspace),
 ):
-    """Cross-dataset structural comparison across all corpus documents.
+    """Cross dataset structural comparison across all corpus documents.
 
-    Computes a pairwise persistence-distance matrix plus per-document
-    invariants and shared-entity bridges.
+    Computes a pairwise persistence distance matrix plus per document
+    invariants and shared entity bridges.
     """
     corpus = ws.get_corpus()
     if not corpus._built:

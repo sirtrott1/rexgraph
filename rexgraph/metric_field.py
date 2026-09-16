@@ -15,7 +15,7 @@ For a C1 metric cochain ``m`` the local mean and curvature at a C0 participant
 
 where ``a_ve`` is the declared boundary magnitude.  The C1 contribution is the
 sum of its incident terms, so summing relation contributions exactly reproduces
-the total C0 curvature.  This is a field-to-metric reading on the relational
+the total C0 curvature.  This is a field to metric reading on the relational
 complex; it is not a fabricated C2 curvature and it does not alter the chain
 condition.
 """
@@ -74,7 +74,7 @@ def _as_exact(value: Any) -> Fraction:
 
 
 def _incidences(rex) -> tuple[tuple[tuple[int, Fraction], ...], ...]:
-    """Return exact per-relation boundary magnitudes, retaining repetitions.
+    """Return exact per relation boundary magnitudes, retaining repetitions.
 
     This deliberately does not read the assembled floating B1: a repeated
     incidence can cancel in that signed matrix but is still an actual primary
@@ -99,10 +99,10 @@ def _incidences(rex) -> tuple[tuple[tuple[int, Fraction], ...], ...]:
 
 
 def relation_metric_curvature(rex, metric: Cochain) -> MetricCurvature:
-    """Read exact-boundary local curvature of a scalar C1 metric field.
+    """Read exact boundary local curvature of a scalar C1 metric field.
 
     The operation is linear in declared C1 boundary incidences before its local
-    absolute-value reading: time and memory are Theta(total relation arity plus
+    absolute value reading: time and memory are Theta(total relation arity plus
     number of C0 participants plus number of C1 relations).  It neither walks
     derived vertices nor expands a branching relation into pairwise cells.
     """

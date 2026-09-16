@@ -5,7 +5,7 @@ undirected thematic categories; Wiktionary records ten directed link kinds, kept
 because merging synonyms with antonyms asserts what neither says.
 
 Reads the source files rather than the stored complexes: `build_lexical_store` drops the
-per-group label, so a stored column carries no relation type.
+per group label, so a stored column carries no relation type.
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class LinkageAnswerer:
         self._max = int(max_terms)
         self._by_word: dict | None = None       # word -> [(kind, label, members)]
 
-    #### the two sources ########################################################
+    # the two sources
     @classmethod
     def roget(cls, path: str | None = None):
         def load():
@@ -63,7 +63,7 @@ class LinkageAnswerer:
                 for t in terms:
                     out.setdefault(t.lower(), []).append(entry)
             return out
-        # Roget records ONE relation: thematic co-membership. It is reported as
+        # Roget records ONE relation: thematic co membership. It is reported as
         # `related` and never as a hierarchy, because a category asserts no direction.
         return cls(name="roget", kinds=("related",), loader=load)
 
@@ -82,7 +82,7 @@ class LinkageAnswerer:
         from agent.adapters.wiktionary import LINK_KINDS
         return cls(name="wiktionary", kinds=LINK_KINDS, loader=load)
 
-    #### the structure, loaded once #############################################
+    # the structure, loaded once
     def _index(self):
         if self._by_word is None:
             self._by_word = self._loader()
@@ -96,7 +96,7 @@ class LinkageAnswerer:
         in many groups is a general one, which is what picks the question's subject."""
         return len(self._index().get(str(term).lower(), ()))
 
-    #### the reading ############################################################
+    # the reading
     def answer(self, query: str) -> dict:
         toks = Q.tokens(query)
         # the interface check needs no source, so a query naming no linkage never pays
@@ -176,7 +176,7 @@ def render(result: dict) -> str:
     for g in result["groups"]:
         more = f" (+{g['n_terms'] - len(g['terms'])} more)" if g["n_terms"] > len(g["terms"]) else ""
         if g["direction"] == "undirected":
-            # a Roget category asserts co-membership, with no direction to report.
+            # a Roget category asserts co membership, with no direction to report.
             lines.append(f"{subj} is grouped under {g['label']!r} with: "
                          f"{', '.join(g['terms'])}{more}")
         elif g["direction"] == "of":

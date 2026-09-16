@@ -1,20 +1,20 @@
 """
 agent.connectors: the "adapt to any system" layer.
 
-A **connector** turns a source (a live DB, a dump, a stream, an in-memory graph,
+A **connector** turns a source (a live DB, a dump, a stream, an in memory graph,
 an ontology) into a relational complex: the signed incidence ``B₁`` topology,
 optional ``B₂`` faces, and a ``meta`` dict of labels/edges/weights/modality. The
 contract is defined by :class:`agent.interfaces.Connector` and is deliberately
-tiny, stable, and **read-only** - it is the one thing a customer or the services
+tiny, stable, and **read only** - it is the one thing a customer or the services
 team implements to teach the engine a new system.
 
 This package ships:
 
-  * :class:`BaseConnector` - a fill-in-the-blanks base that supplies a default
+  * :class:`BaseConnector` - a fill in the blanks base that supplies a default
     :meth:`~agent.interfaces.Connector.capabilities` and a ``result`` helper that
     assembles and length-checks the standard ``meta`` dict, so every connector
     emits the same shape.
-  * the standards-family adapters (SQL / document / semantic / generic …), each
+  * the standards family adapters (SQL / document / semantic / generic …), each
     covering a *shape* of system rather than a single vendor.
 
 Customer/proprietary connectors live *outside* the core, depending only on the
@@ -35,7 +35,7 @@ __all__ = ["Capabilities", "Connector", "BaseConnector", "ConnectorError",
 
 # URI scheme -> (module, class). Mirrors rcdb.open_store: one entry point that
 # routes a source URI to the connector for its shape. Each scheme resolves to
-# exactly one connector; vendor drivers are the per-source delta, not new code.
+# exactly one connector; vendor drivers are the per source delta, not new code.
 _SCHEME_MAP = {
     "sqlite": ("sql", "SQLConnector"),
     "postgresql": ("sql", "SQLConnector"),
@@ -128,7 +128,7 @@ class BaseConnector:
         the source rather than deep in the engine.
 
         Invariants checked here:
-          * ``vertex_labels`` is present and non-empty (``nV``).
+          * ``vertex_labels`` is present and non empty (``nV``).
           * ``edges`` count is ``nE``; each edge is a ``(src, dst)`` pair.
           * ``weights`` / ``modality``, when given, have length ``nE``.
         """

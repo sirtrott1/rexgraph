@@ -1,12 +1,12 @@
 """
-agent.cache: content-addressed cache for pipeline analysis.
+agent.cache: content addressed cache for pipeline analysis.
 
-Each pipeline run otherwise rebuilds the complex, recomputes eigenvalues and re-runs
+Each pipeline run otherwise rebuilds the complex, recomputes eigenvalues and re runs
 Hodge from scratch, even for an identical file. This module caches the built RexGraph
 (via ``RexGraph.to_dict()``) together with its analysis dict, keyed by a SHA-256 of the
 input content plus the analysis depth, under ``~/.cache/rexgraph/``.
 
-The cache is best-effort: any failure to read or write falls back to
+The cache is best effort: any failure to read or write falls back to
 recomputation, so it can never break a run.
 """
 
@@ -157,7 +157,7 @@ def get(key: str) -> dict | None:
 
 
 def set(key: str, payload: dict) -> bool:
-    """Store a JSON-serializable `payload` under `key`."""
+    """Store a JSON serializable `payload` under `key`."""
     if not enabled():
         return False
     try:
@@ -227,7 +227,7 @@ def store_rex_and_analysis(key: str, rex, analysis: dict, meta: dict) -> bool:
         return False
     try:
         # blob first, sidecar last: the sidecar's presence is what makes an entry
-        # readable, so a crash between the two leaves a miss, not a half-entry.
+        # readable, so a crash between the two leaves a miss, not a half entry.
         _write_atomic(_blob_path(key), blob)
         _write_atomic(_side_path(key), side)
     except Exception as e:

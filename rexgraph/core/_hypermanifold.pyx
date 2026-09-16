@@ -43,13 +43,13 @@ def build_manifold_sequence(np.ndarray[f64, ndim=1] evals_L0,
     - n_bianchi: number of Bianchi identities (d - 1)
 
     Parameters
-    ----------
+
     evals_L0, evals_L1, evals_L2 : eigenvalues of Hodge Laplacians
     nV, nE, nF : cell counts
     tol : threshold for zero eigenvalue
 
     Returns
-    -------
+
     dict with manifold sequence data
     """
     # Betti numbers at each truncation level
@@ -68,7 +68,7 @@ def build_manifold_sequence(np.ndarray[f64, ndim=1] evals_L0,
         if fabs(evals_L2[j]) < tol:
             beta2 += 1
 
-    # M1: vertices + edges only (1-rex)
+    # M1: vertices + edges only (1 rex)
     # beta_0(1) = beta0 (from L0, unchanged)
     # beta_1(1) = nE - rank(B1) - rank(B2) but at d=1, no B2 contribution
     # Actually beta_1(1) = dim ker(L1_down) since L1 = L1_down at d=1
@@ -77,13 +77,13 @@ def build_manifold_sequence(np.ndarray[f64, ndim=1] evals_L0,
     cdef int rank_B1 = nV - beta0
     cdef int beta1_at_d1 = nE - rank_B1
 
-    # M2: vertices + edges + faces (2-rex)
+    # M2: vertices + edges + faces (2 rex)
     # beta_1(2) = beta1 (from full L1 which includes B2 contribution)
     # beta_2(2) = beta2
 
     manifolds = []
 
-    # d=1: 1-rex
+    # d=1: 1 rex
     manifolds.append({
         'dimension': 1,
         'cells': [nV, nE],
@@ -92,7 +92,7 @@ def build_manifold_sequence(np.ndarray[f64, ndim=1] evals_L0,
         'n_bianchi': 0,
     })
 
-    # d=2: 2-rex
+    # d=2: 2 rex
     if nF > 0:
         manifolds.append({
             'dimension': 2,
@@ -111,10 +111,10 @@ def build_manifold_sequence(np.ndarray[f64, ndim=1] evals_L0,
 
 def build_manifold_sequence_from_betti(int beta0, int beta1, int beta2,
                                        int nV, int nE, int nF):
-    """EIGEN-FREE manifold sequence from precomputed Betti numbers (ranks / union-find),
-    identical to :func:`build_manifold_sequence` but with NO eigenvalue-nullity counting
+    """EIGEN FREE manifold sequence from precomputed Betti numbers (ranks / union find),
+    identical to :func:`build_manifold_sequence` but with NO eigenvalue nullity counting
     - the Betti inputs come from the exact rank/union-find path. beta_1 at d=1 is the
-    cycle-space dimension nE - rank(B1) = nE - (nV - beta0)."""
+    cycle space dimension nE - rank(B1) = nE - (nV - beta0)."""
     cdef int rank_B1 = nV - beta0
     cdef int beta1_at_d1 = nE - rank_B1
 
@@ -146,18 +146,18 @@ def harmonic_shadow(np.ndarray[f64, ndim=1] evals_Ld_at_d,
     """Compute the harmonic shadow at dimension d.
 
     The harmonic shadow is ker(L_d(d)) \\ ker(L_d(d+1)):
-    the harmonic forms at dimension d that become exact (non-harmonic)
+    the harmonic forms at dimension d that become exact (non harmonic)
     when (d+1)-cells are added.
 
     Its dimension equals rank(B_{d+1}).
 
     Parameters
-    ----------
+
     evals_Ld_at_d : eigenvalues of L_d with only d-cells present
     evals_Ld_at_d1 : eigenvalues of L_d with (d+1)-cells present
 
     Returns
-    -------
+
     shadow_dim : int - dimension of the harmonic shadow
     beta_d : int - beta_d at truncation d
     beta_d1 : int - beta_d at truncation d+1
@@ -184,12 +184,12 @@ def dimensional_subsumption(list betti_sequence):
     """Verify Theorem 8.1: beta_k(d+1) <= beta_k(d).
 
     Parameters
-    ----------
+
     betti_sequence : list of lists, betti_sequence[d] = [beta_0, ..., beta_d]
         Betti numbers at each truncation level.
 
     Returns
-    -------
+
     is_valid : bool - True if subsumption holds
     violations : list of (d, k, beta_k_d, beta_k_d1) tuples
     """

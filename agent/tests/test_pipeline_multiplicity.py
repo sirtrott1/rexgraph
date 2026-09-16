@@ -50,8 +50,8 @@ def test_a_simple_complex_reports_no_multiplicity():
 
 
 def test_the_split_survives_branching_relations():
-    """Arity-general, which matters because the corpus complexes are branching:
-    the same 3-ary relation twice is multiplicity, a re-headed one is not."""
+    """Arity general, which matters because the corpus complexes are branching:
+    the same 3 ary relation twice is multiplicity, a re headed one is not."""
     ptr = np.array([0, 3, 6, 9], np.int64)
     idx = np.array([0, 1, 2, 0, 1, 2, 1, 0, 2], np.int64)
     r = RexGraph.from_hypergraph(ptr, idx)
@@ -70,16 +70,16 @@ def test_the_reading_survives_a_failure_in_the_split():
     good = AnalysisPipeline(r)._stage_hodge()
 
     import rexgraph.harmonic_sparse as hs
-    original = hs.multiplicity_dimension
+    original = hs.simple_cycle_dimension
 
     def boom(*a, **k):
         raise RuntimeError("forced")
 
-    hs.multiplicity_dimension = boom
+    hs.simple_cycle_dimension = boom
     try:
         bad = AnalysisPipeline(r)._stage_hodge()
     finally:
-        hs.multiplicity_dimension = original
+        hs.simple_cycle_dimension = original
 
     assert "RuntimeError: forced" in bad["dim_H_multiplicity_error"]
     assert bad["dim_H"] == good["dim_H"]
@@ -89,7 +89,7 @@ def test_the_reading_survives_a_failure_in_the_split():
 
 def test_the_split_sums_even_when_a_face_fills_a_multiplicity_cycle():
     """The case that made `dim_H_genuine` the wrong name AND the wrong number: a
-    bigon with a face on it has beta_1 = 0, while the chain-level multiplicity
+    bigon with a face on it has beta_1 = 0, while the chain level multiplicity
     subspace still has dimension 1. dim_H_simple is a quotient, so the two parts
     still sum to dim_H instead of being clamped at zero."""
     r = _rex([0, 0], [1, 1])

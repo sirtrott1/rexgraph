@@ -1,4 +1,4 @@
-"""Solving grade-2 signs from the chain condition, and reading the sign context.
+"""Solving grade 2 signs from the chain condition, and reading the sign context.
 
 A face column is solved, not declared: `B1 c = 0` over the rationals. Two things follow
 that were not being said.
@@ -8,7 +8,7 @@ situations. Relations that are independent bound nothing and attaching a face wo
 a cell; relations carrying several cycles are not one face but a space of them. Those need
 different responses and used to get the same one.
 
-A wrong orientation is invisible. `_B2_hodge_dual` filters chain-invalid faces silently,
+A wrong orientation is invisible. `_B2_hodge_dual` filters chain invalid faces silently,
 so nF_hodge stays 0, the cycle stays open, and nothing says why. `face_reading` with a
 column reports validity and the exact residual instead.
 """
@@ -50,7 +50,7 @@ def _k4():
 
 
 def _wide():
-    """A 4-ary relation over {0,1,2,3} with the 4-cycle of legs that spans it."""
+    """A 4 ary relation over {0,1,2,3} with the 4 cycle of legs that spans it."""
     return RexGraph.from_hypergraph(
         np.array([0, 4, 6, 8, 10, 12], dtype=np.int32),
         np.array([0, 1, 2, 3, 0, 1, 1, 2, 2, 3, 3, 0], dtype=np.int32))
@@ -150,7 +150,7 @@ def test_the_basis_has_one_column_per_independent_cycle():
 
 def test_attaching_the_whole_basis_closes_the_group():
     """One arbitrary vector left b1 = 1 and a face that claimed five relations while using
-    four. The basis leaves nothing half-filled."""
+    four. The basis leaves nothing half filled."""
     rex = _wide()
     auto_hyperface(rex)
     rex._ensure_clean()
@@ -162,7 +162,7 @@ def test_attaching_the_whole_basis_closes_the_group():
 
 
 def test_a_single_cycle_still_attaches_exactly_one_face():
-    """The nullity-1 case is the common one and must not have moved."""
+    """The nullity 1 case is the common one and must not have moved."""
     rex = _triangle()
     from rexgraph.faces import autoface
     autoface(rex)

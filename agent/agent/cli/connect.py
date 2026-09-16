@@ -24,7 +24,7 @@ from agent.connectors import service as svc
 
 
 def _resolve(source: str) -> str:
-    """A saved-connection name -> its URI (via the SecretStore); otherwise the
+    """A saved connection name -> its URI (via the SecretStore); otherwise the
     source is already a URI/scheme and is returned unchanged."""
     if "://" in source:
         return source

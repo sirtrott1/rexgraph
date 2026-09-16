@@ -236,7 +236,7 @@ def walk(tmp_path, monkeypatch):
     cap = _ErrCapture()
     log = logging.getLogger("agent.server.errors")
     log.addHandler(cap)
-    # loopback peer, so the host-local admin routes are genuinely exercised
+    # loopback peer, so the host local admin routes are genuinely exercised
     client = TestClient(app, client=("127.0.0.1", 40000))
     server, port = _live_server(app)
     try:

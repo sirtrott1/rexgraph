@@ -3,10 +3,10 @@
 R_eff(e) = b_e^T L0^+ b_e was computed by running CG on the raw singular L0. A
 boundary column lies in the range so that converges in exact arithmetic, but the
 solver clamped a zero curvature up to 1e-300 instead of treating it as "no progress
-possible", and rz/1e-300 is an overflow. On a 66-component ontology slice 348 of 385
+possible", and rz/1e-300 is an overflow. On a 66 component ontology slice 348 of 385
 relations came back NaN, and `agentic_reading` ranks load_bearing on this.
 
-The fix is the harmonic-regularized inverse L0^+ = (L0 + P_H)^-1 - P_H, with P_H the
+The fix is the harmonic regularized inverse L0^+ = (L0 + P_H)^-1 - P_H, with P_H the
 projector onto the known kernel (the component indicators). b_e is orthogonal to that
 kernel, so P_H b_e = 0 and R_eff = b_e^T (L0 + P_H)^-1 b_e, on an SPD operator.
 """
@@ -68,7 +68,7 @@ def test_a_kernel_of_any_dimension_is_finite(k):
 
 @pytest.mark.parametrize("k", [1, 3, 8])
 def test_foster_identity(k):
-    """sum_e R_eff(e) = nV - beta0, exactly. An integer, and a free self-test: it is
+    """sum_e R_eff(e) = nV - beta0, exactly. An integer, and a free self test: it is
     the invariant the NaNs violated."""
     rex = _disjoint(k, per=5)
     total = float(_reff(rex).sum())
@@ -103,7 +103,7 @@ def test_the_mean_carries_nothing_the_counts_do_not():
 
 
 def test_block_cg_freezes_degenerate_directions():
-    """Directly: a right-hand side already solved must not blow the column up."""
+    """Directly: a right hand side already solved must not blow the column up."""
     from rexgraph.sparse_character import _block_cg
     A = sp.diags([2.0, 2.0, 0.0]).tocsr()          # deliberately singular
     B = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
@@ -123,7 +123,7 @@ def test_resistance_decomposes_the_rank_and_its_complement_is_the_cycle_space():
     So R_eff(e) is the relation's exact share of the boundary operator's rank (how
     much of the structure only it carries) and 1 - R_eff(e) is its exact share of the
     cycle space (how much independent alternative path corroborates it). Both totals
-    are integers fixed by the complex, so the per-relation values are normalised by
+    are integers fixed by the complex, so the per relation values are normalised by
     the structure itself rather than by a chosen threshold. Verified to 0.00e+00 on
     real Gene Ontology slices from 385 to 2315 relations.
     """
@@ -175,7 +175,7 @@ def test_the_complement_is_the_cycle_space_and_not_betti_once_faces_exist():
 
 
 def test_the_invariant_is_asserted_not_merely_true():
-    """The self-test fires rather than returning a number that does not close."""
+    """The self test fires rather than returning a number that does not close."""
     from rexgraph.graph import _check_resistance_closes
     rex = _triangle()
     rex._ensure_clean()
@@ -190,9 +190,9 @@ def test_the_invariant_is_asserted_not_merely_true():
 def test_arity_needs_the_leverage_reading_not_a_deflated_solve():
     """At arity the kernel of L0 is beta_0, not the component count, so the indicator
     basis is incomplete and an iterative solve walks into what it missed. On 400 human
-    protein complexes the basis held 1519 of 2047 directions. The row-space projector
+    protein complexes the basis held 1519 of 2047 directions. The row space projector
     needs no kernel at all."""
-    # one 3-ary relation: three vertices, rank one, so ker(L0) is 2-dimensional
+    # one 3 ary relation: three vertices, rank one, so ker(L0) is 2 dimensional
     # while the graph has a single component. The indicator basis holds one of two.
     ptr, idx = [0, 3, 7], [0, 1, 2, 2, 3, 4, 5]
     ptr = [0, 3, 7]
@@ -209,7 +209,7 @@ def test_arity_needs_the_leverage_reading_not_a_deflated_solve():
 
 
 def test_branching_memory_bounded_resistance_uses_the_full_boundary_green_action():
-    """The constrained-memory route cannot substitute component indicators for ker(B1.T)."""
+    """The constrained memory route cannot substitute component indicators for ker(B1.T)."""
     from rexgraph.core._common import configure_memory
 
     ptr = np.array([0, 3, 5, 7], dtype=np.int32)
@@ -231,7 +231,7 @@ def test_sparse_is_default_and_dense_is_an_explicit_full_boundary_oracle():
 
     The old allocation gate sliced B1 before its SVD.  A singleton query on a
     triangle therefore changed its resistance from 2/3 to 1.  Sparse is now the
-    default, while the dense projector is an opt-in oracle over the full B1.
+    default, while the dense projector is an opt in oracle over the full B1.
     """
     from rexgraph.core._common import CoreMemoryLimitError, configure_memory
     s = np.array([0, 1, 2, 0, 4, 5, 6, 4, 8, 9], dtype=np.int32)

@@ -2,10 +2,10 @@
 agent.connectors.validate: the validation harness.
 
 Runs a connector against a source and reports, check by check, whether its
-output is a well-formed relational complex that stores and round-trips and
-preserves the sovereign-engine invariants. The point is to turn an integration
+output is a well formed relational complex that stores and round trips and
+preserves the sovereign engine invariants. The point is to turn an integration
 from a research project into a **known, testable quantity**: a pass/fail report
-an integrator can attach to a fixed-price quote.
+an integrator can attach to a fixed price quote.
 
 Programmatic (test util):
 
@@ -88,9 +88,9 @@ def validate_connector(connector: Any, source: Any = None,
     try:
         g = to_rexgraph(rex, meta)
         chi = np.asarray(g.structural_character, dtype=float)
-        # per-edge structural character: one row per edge. The channel count is
-        # 4 (T,G,F,C) once the complex is non-trivial; it degenerates for a
-        # single-edge complex, so we require rows==nE rather than a fixed width.
+        # per edge structural character: one row per edge. The channel count is
+        # 4 (T,G,F,C) once the complex is non trivial; it degenerates for a
+        # single edge complex, so we require rows==nE rather than a fixed width.
         ok = chi.ndim == 2 and chi.shape[0] == g.nE
         channels = chi.shape[1] if chi.ndim == 2 else 0
         rep.add("builds in engine", ok,
@@ -121,7 +121,7 @@ def validate_connector(connector: Any, source: Any = None,
         rep.add("betti / signature", False, f"raised: {e!r}")
         betti = None
 
-    # 5. RCDB round-trip (put -> get -> structure preserved)
+    # 5. RCDB round trip (put -> get -> structure preserved)
     try:
         from contextlib import closing
 
@@ -139,11 +139,11 @@ def validate_connector(connector: Any, source: Any = None,
     except Exception as e:                       # noqa: BLE001
         rep.add("RCDB round-trip", False, f"raised: {e!r}")
 
-    # 6. read-only probe
-    # Concrete, in-sandbox checks: the connector is deterministic (reading
+    # 6. read only probe
+    # Concrete, in sandbox checks: the connector is deterministic (reading
     # twice yields the same structure - a writing connector that mutated the
-    # source would drift) and exposes no write surface. Proving read-only
-    # against a *live* source is a per-integration review item in the host env.
+    # source would drift) and exposes no write surface. Proving read only
+    # against a *live* source is a per integration review item in the host env.
     try:
         rex2, meta2 = connector.read(source)
         g2 = to_rexgraph(rex2, meta2)
@@ -169,8 +169,8 @@ def validate_connector(connector: Any, source: Any = None,
             problems.append("advertises weights but emitted none")
         if caps.modality and meta.get("modality") is None:
             problems.append("advertises modality but emitted none")
-        # faces are structure-dependent (a source may legitimately have none to
-        # close), so an advertised-but-absent face selection is not a failure.
+        # faces are structure dependent (a source may legitimately have none to
+        # close), so an advertised but absent face selection is not a failure.
         rep.add("capability consistency", not problems,
                 "advertised capabilities match output"
                 if not problems else "; ".join(problems))

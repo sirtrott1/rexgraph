@@ -1,6 +1,6 @@
-"""Module-level, picklable NN-training task for the coordinator proc/igpu lanes. Rebuilds the
+"""Module level, picklable NN training task for the coordinator proc/igpu lanes. Rebuilds the
 hypergraph DataBundle from picklable arrays inside the worker and calls models.run. No hive, no
-closures, so it is forkserver-safe (proc lane) and thread-safe (igpu lane)."""
+closures, so it is forkserver safe (proc lane) and thread safe (igpu lane)."""
 from __future__ import annotations
 
 import numpy as np

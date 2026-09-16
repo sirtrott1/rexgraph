@@ -14,7 +14,7 @@ refines, follows up, narrows. This module gives that trajectory a lifecycle:
 
 The schema integration is the point: because a schema IS a relational complex
 (agent.schema_complex.schema_to_rex), a query complex can be laid over it: the
-tables it references are a sub-complex, and the FK graph says whether those
+tables it references are a sub complex, and the FK graph says whether those
 tables are joinable or structurally disconnected (an invalid reference).
 """
 from __future__ import annotations
@@ -122,7 +122,7 @@ def _relate_to_schema(concepts: list[str], model: sc.SchemaModel | None) -> dict
         "linked": True,
         "touched_tables": touched,
         "matched_columns": matched_cols,
-        "unmatched_concepts": unmatched,     # entity-like words the schema has no home for
+        "unmatched_concepts": unmatched,     # entity like words the schema has no home for
         "joinable": joinable,
         "join_path": path,                   # a concrete FK path between touched tables
         "disconnected_tables": disconnected,  # touched tables with no relational path
@@ -185,10 +185,10 @@ class QuerySession:
         """The dynamics of the trajectory, read from structure: no magnitude thresholds.
 
         - the persistent CORE is the exact intersection of every state's concepts: what the query
-          has been about throughout. A non-empty core means a stable subject.
-        - the trend is the SIGN of the change in per-step overlap (monotone up = converging,
+          has been about throughout. A non empty core means a stable subject.
+        - the trend is the SIGN of the change in per step overlap (monotone up = converging,
           monotone down = drifting) plus the exact 'concept set stopped changing' case for stable.
-        Both signals are exact-structural, not tuned cutoffs.
+        Both signals are exact structural, not tuned cutoffs.
         """
         concept_sets = [set(s.concepts) for s in self.states]
         core = sorted(set.intersection(*concept_sets)) if concept_sets else []
@@ -213,7 +213,7 @@ class QuerySession:
                 "trend": trend, "progressing": progressing}
 
     def progressing(self) -> bool:
-        """True when the query kept a stable subject (a non-empty persistent core) and is not
+        """True when the query kept a stable subject (a non empty persistent core) and is not
         wandering off it, both read from structure, not a magnitude cutoff."""
         return self.convergence()["progressing"]
 

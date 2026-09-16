@@ -134,11 +134,11 @@ def test_rcstore_roundtrips_full_state(tmp_path):
     store.put("g1", g)
     r = store.get("g1")
     assert np.array_equal(np.asarray(r._signs), np.asarray(g._signs))   # signs survive the RCDB
-    assert r._agent_meta["vertex_labels"] == ["a", "b", "c", "d"]        # self-describing
+    assert r._agent_meta["vertex_labels"] == ["a", "b", "c", "d"]        # self describing
 
 
 def test_trustgraph_and_agentic_roundtrip_still_work():
-    # standalone-plus-interop: an agent-built complex, persisted and reloaded, keeps agent meta and
+    # standalone plus interop: an agent built complex, persisted and reloaded, keeps agent meta and
     # its deterministic invariants recompute identically.
     g = _simple()
     g._agent_meta = {"vertex_labels": ["a", "b", "c", "d"], "source": "csv"}
@@ -147,7 +147,7 @@ def test_trustgraph_and_agentic_roundtrip_still_work():
     assert list(r.betti) == list(g.betti)
 
 
-#### final-review fixes (C1 name collision, I2 grade>=3, M3 scalar/array, M4 edge_types)
+#### final review fixes (C1 name collision, I2 grade>=3, M3 scalar/array, M4 edge_types)
 def test_cell_metadata_key_with_double_underscore_roundtrips(tmp_path):
     from rexgraph.io.bundle import load_rcbd, save_rcbd
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
@@ -174,10 +174,10 @@ def test_grade3_boundary_roundtrips():
     from rexgraph.graded_boundary import solid_octahedron_3rex
 
     g = RexGraph.from_cells(solid_octahedron_3rex())
-    assert getattr(g, "_graded_duals", None)             # has grade-3
+    assert getattr(g, "_graded_duals", None)             # has grade 3
     r = from_state(to_state(g))
     assert r._graded_duals is not None
-    assert list(r.betti) == list(g.betti)                # grade-3 homology survives (was corrupted)
+    assert list(r.betti) == list(g.betti)                # grade 3 homology survives (was corrupted)
 
 
 def test_wboundary_scalar_vs_len1_array_fidelity():
@@ -197,7 +197,7 @@ def test_edge_types_not_stored_but_recomputes():
     assert np.array_equal(np.asarray(r.edge_types), np.asarray(g.edge_types))   # recomputed on load
 
 
-#### the tensor codec ###########################################################
+# the tensor codec
 
 def test_an_arange_is_stored_as_its_endpoints():
     from rexgraph.io.rex_state import decode_tensors, encode_tensors

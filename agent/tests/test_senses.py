@@ -3,7 +3,7 @@ import pytest
 
 from agent.senses import SenseModel, extents
 
-# a two-sense word
+# a two sense word
 SYNSETS = {
     "fin": ["bank", "money", "vault"],
     "riv": ["bank", "shore", "levee"],

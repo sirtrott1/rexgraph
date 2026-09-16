@@ -19,7 +19,7 @@ def test_no_shared_values_all_outliers():
     r = analyze_rows(rows, link_on="k", id_col="id")
     assert r["n_clusters"] == 2 and set(r["outliers"]) == {"a", "b"}
     # Records with no shared value are still declared participants, so the complex exists
-    # with two grade-zero cells and no relation. This previously asserted None, on the rule
+    # with two grade zero cells and no relation. This previously asserted None, on the rule
     # that no edges meant no complex; that rule dropped every unlinked record and made the
     # complex an incomplete picture of the record set. An unlinked record is a participant
     # in nothing, which is a fact the complex can hold, and not a reason for it to be absent.

@@ -12,7 +12,7 @@ Provides:
     Error handling and validation helpers.
     Memory estimation.
 
-Configuration is system-aware by default and runtime-reconfigurable:
+Configuration is system aware by default and runtime reconfigurable:
 
     from rexgraph.core._common import configure_memory, configure_algorithms
     configure_memory(max_dense_allocation=8_000_000_000)
@@ -46,7 +46,7 @@ np.import_array()
 # Memory limits
 #
 
-cdef int64_t _max_parallel_buffer_bytes = -1      # per-operation parallel scratch
+cdef int64_t _max_parallel_buffer_bytes = -1      # per operation parallel scratch
 cdef int64_t _max_total_allocation_bytes = -1     # global allocation ceiling
 cdef int64_t _max_dense_allocation_bytes = -1     # single dense matrix ceiling
 cdef double _parallel_buffer_fraction = 0.25
@@ -76,8 +76,16 @@ cdef Py_ssize_t _eigen_dense_limit = 2000
 cdef Py_ssize_t _default_k = 20
 cdef double _fill_ratio_dense_threshold = 0.3
 
+# The exact rational path is PRIMARY: where a field can be read over Q, the answer is
+# the one it gives and the float path is that answer's oracle. It is not unconditional.
+# Rational elimination is cubic in the grade dimension and its coefficients grow, so
+# above this many cells the exact solve is not attempted and the float tower produces
+# instead -- an approximation, and reported as one. Raise it to buy exactness at a
+# cost the caller has chosen; there is no size at which the exact answer becomes wrong.
+cdef Py_ssize_t _exact_field_limit = 512
+
 #
-# Auto-detection state
+# Auto detection state
 #
 
 cdef bint _auto_detected = False
@@ -115,10 +123,10 @@ cdef int64_t _get_available_memory_bytes():
 
 
 cdef void _auto_detect_limits():
-    """Auto-detect memory limits based on system resources.
+    """Auto detect memory limits based on system resources.
 
     Called once at module import and again after any configure_*()
-    call that resets limits to auto-detect (value = -1).
+    call that resets limits to auto detect (value = -1).
     """
     global _max_parallel_buffer_bytes, _max_total_allocation_bytes
     global _max_dense_allocation_bytes, _auto_detected
@@ -206,7 +214,11 @@ cdef double get_fill_ratio_dense_threshold() noexcept nogil:
     return _fill_ratio_dense_threshold
 
 
-# Python-accessible configuration functions
+cdef Py_ssize_t get_exact_field_limit() noexcept nogil:
+    return _exact_field_limit
+
+
+# Python accessible configuration functions
 
 def configure_memory(
     *,
@@ -220,7 +232,7 @@ def configure_memory(
     """Configure memory limits for the core Cython layer.
 
     Parameters
-    ----------
+
     max_parallel_buffer : int, optional
         Maximum bytes for per-operation parallel scratch buffers.
     max_total_allocation : int, optional
@@ -262,21 +274,21 @@ def configure_memory(
             raise ValueError("max_parallel_buffer must be non-negative")
         _max_parallel_buffer_bytes = min(max_parallel_buffer, abs_max)
     else:
-        _max_parallel_buffer_bytes = -1   # re-detect
+        _max_parallel_buffer_bytes = -1   # re detect
 
     if max_total_allocation is not None:
         if max_total_allocation < 0:
             raise ValueError("max_total_allocation must be non-negative")
         _max_total_allocation_bytes = max_total_allocation
     else:
-        _max_total_allocation_bytes = -1  # re-detect
+        _max_total_allocation_bytes = -1  # re detect
 
     if max_dense_allocation is not None:
         if max_dense_allocation < 0:
             raise ValueError("max_dense_allocation must be non-negative")
         _max_dense_allocation_bytes = max_dense_allocation
     else:
-        _max_dense_allocation_bytes = -1  # re-detect
+        _max_dense_allocation_bytes = -1  # re detect
 
     _auto_detected = False
     _auto_detect_limits()
@@ -291,7 +303,7 @@ def configure_parallelization(
     """Configure parallelization thresholds.
 
     Parameters
-    ----------
+
     min_simple : int, optional
         Minimum work items for simple row-parallel loops (default 50000).
     min_transpose : int, optional
@@ -317,7 +329,7 @@ def configure_threads(*, max_threads: int = None, reserved_threads: int = None):
     """Configure thread management.
 
     Parameters
-    ----------
+
     max_threads : int, optional
         Maximum threads to use. -1 = no limit (default).
     reserved_threads : int, optional
@@ -342,11 +354,12 @@ def configure_algorithms(
     eigen_dense_limit: int = None,
     default_k: int = None,
     fill_ratio_dense_threshold: float = None,
+    exact_field_limit: int = None,
 ):
     """Configure algorithm selection for Laplacians and eigensolvers.
 
     Parameters
-    ----------
+
     eigen_dense_limit : int, optional
         Maximum matrix dimension for dense eigh (LAPACK dsyevd).
         Above this, sparse eigsh (ARPACK) is used.
@@ -355,8 +368,13 @@ def configure_algorithms(
         Number of eigenvalues to compute in sparse mode (default 20).
     fill_ratio_dense_threshold : float, optional
         L0 fill ratio above which dense matmul is preferred (default 0.3).
+    exact_field_limit : int, optional
+        Largest grade dimension at which the exact rational field path is taken
+        (default 512). Above it the float tower produces and says so. Set 0 to
+        refuse the exact path outright.
     """
     global _eigen_dense_limit, _default_k, _fill_ratio_dense_threshold
+    global _exact_field_limit
 
     if eigen_dense_limit is not None:
         if eigen_dense_limit < 1:
@@ -372,6 +390,11 @@ def configure_algorithms(
         if not 0.0 < fill_ratio_dense_threshold <= 1.0:
             raise ValueError("fill_ratio_dense_threshold must be in (0, 1]")
         _fill_ratio_dense_threshold = fill_ratio_dense_threshold
+
+    if exact_field_limit is not None:
+        if exact_field_limit < 0:
+            raise ValueError("exact_field_limit must be >= 0")
+        _exact_field_limit = exact_field_limit
 
 
 def configure_from_environment():
@@ -390,6 +413,7 @@ def configure_from_environment():
         REXGRAPH_EIGEN_DENSE_LIMIT        (int)
         REXGRAPH_DEFAULT_K                (int)
         REXGRAPH_FILL_RATIO_THRESHOLD     (float, 0-1)
+        REXGRAPH_EXACT_FIELD_LIMIT        (int)
 
     Returns True if any environment variables were applied.
     """
@@ -405,6 +429,7 @@ def configure_from_environment():
         'REXGRAPH_EIGEN_DENSE_LIMIT': ('algo', 'eigen_dense_limit', int),
         'REXGRAPH_DEFAULT_K': ('algo', 'default_k', int),
         'REXGRAPH_FILL_RATIO_THRESHOLD': ('algo', 'fill_ratio_dense_threshold', float),
+        'REXGRAPH_EXACT_FIELD_LIMIT': ('algo', 'exact_field_limit', int),
     }
 
     groups = {'mem': {}, 'par': {}, 'thread': {}, 'algo': {}}
@@ -432,7 +457,7 @@ def configure_from_environment():
 def get_configuration():
     """Get current configuration as a dictionary.
 
-    Returns all runtime settings including system-detected defaults.
+    Returns all runtime settings including system detected defaults.
     """
     _auto_detect_limits()
 
@@ -480,6 +505,7 @@ def get_algorithm_config():
         'eigen_dense_limit': int(_eigen_dense_limit),
         'default_k': int(_default_k),
         'fill_ratio_dense_threshold': float(_fill_ratio_dense_threshold),
+        'exact_field_limit': int(_exact_field_limit),
         'max_dense_allocation_bytes': int(_max_dense_allocation_bytes),
         'max_dense_allocation_gb': _max_dense_allocation_bytes / (1024**3),
     }
@@ -599,7 +625,7 @@ def raise_on_error(int code, str context=""):
 
 
 def check_error(int code, str context=""):
-    """Check error code and raise if non-zero."""
+    """Check error code and raise if non zero."""
     raise_on_error(code, context)
 
 
@@ -720,14 +746,14 @@ def estimate_dense_matrix_bytes(Py_ssize_t n, Py_ssize_t m=-1):
     """Estimate bytes for a dense float64 matrix.
 
     Parameters
-    ----------
+
     n : int
         Number of rows. If m is not given, assumes square (n x n).
     m : int, optional
         Number of columns.
 
     Returns
-    -------
+
     dict with bytes, gb, fits_in_limit.
     """
     if m < 0:

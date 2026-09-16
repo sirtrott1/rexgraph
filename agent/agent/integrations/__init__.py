@@ -1,6 +1,6 @@
 """
 RexGraph integrations: thin bridges to LangChain, HuggingFace, vLLM, TrustGraph,
-and Unlimited-OCR.
+and Unlimited OCR.
 
 Each integration is optional. Import only what you need:
 

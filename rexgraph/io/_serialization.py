@@ -1,6 +1,6 @@
 # rexgraph/io/_serialization.py
 """
-Type-aware serialization for rexgraph NamedTuples.
+Type aware serialization for rexgraph NamedTuples.
 
 The rexgraph types.py module defines 30+ NamedTuple types with fields
 that mix ndarrays, scalars (int, float, bool, str), dicts, tuples,
@@ -9,7 +9,7 @@ optional values, and in one case a nested RexGraph. The generic
 for simple types but breaks on:
 
 - dict fields (PerturbationResult.hodge_initial, FaceData.metrics)
-- list-of-dict fields (FaceData.faces)
+- list of dict fields (FaceData.faces)
 - tuple fields (PersistenceDiagram.betti, QuotientResult.betti_rel)
 - Optional[NDArray] fields that may be None
 - str fields (FieldPerturbationResult.mode)
@@ -66,7 +66,7 @@ class StorageAdapter(abc.ABC):
     - subgroup() returns a working adapter over an isolated namespace, and calling it
       twice with the same name reopens the same group rather than clobbering it.
     - put_json accepts anything json_sanitize accepts, and a value read back equals
-      what a fresh reader would get from disk (so the non-finite policy applies on
+      what a fresh reader would get from disk (so the non finite policy applies on
       put, not only on flush).
 
     rexgraph/tests/test_storage_adapter_contract.py runs that list against every
@@ -316,7 +316,7 @@ def _classify_field(value: Any) -> str:
         except (ValueError, TypeError):
             pass
         return "tuple"
-    return "dict"  # fallback: JSON-serialize
+    return "dict"  # fallback: JSON serialize
 
 
 # Generic NamedTuple write/read
@@ -330,7 +330,7 @@ def write_namedtuple(
 
     Creates a subgroup named `name` and stores each field according
     to its runtime type: arrays as datasets, scalars and strings as
-    attrs, dicts and tuples as JSON, list-of-dicts as JSON arrays.
+    attrs, dicts and tuples as JSON, list of dicts as JSON arrays.
 
     Handles None fields by recording them in a _none_fields list.
     """
@@ -417,7 +417,7 @@ def read_namedtuple(
             values[field_name] = scalar
             continue
 
-        # Try JSON (for dicts, tuples, list-of-dicts)
+        # Try JSON (for dicts, tuples, list of dicts)
         json_val = sub.get_json(field_name)
         if json_val is not None:
             values[field_name] = json_val
@@ -509,7 +509,7 @@ def _read_dict_field(adapter: StorageAdapter, name: str) -> dict:
     return result
 
 
-# Result dict write/read (for non-NamedTuple dicts like analyze() output)
+# Result dict write/read (for non NamedTuple dicts like analyze() output)
 
 def write_result_dict(
     adapter: StorageAdapter,
@@ -519,7 +519,7 @@ def write_result_dict(
     """Write a result dict (like analyze() output) to storage.
 
     Handles mixed array/scalar/dict values. Each array becomes a
-    dataset; scalars and non-array values are JSON-encoded.
+    dataset; scalars and non array values are JSON encoded.
     """
     sub = adapter.subgroup(name)
     sub.put_scalar("_is_result_dict", True)

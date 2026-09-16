@@ -2,12 +2,12 @@
 """
 Relational Complex Binary Directory (.rcbd) - portable RexGraph package.
 
-A bundle is a self-contained directory that stores a RexGraph or
+A bundle is a self contained directory that stores a RexGraph or
 TemporalRex with all data needed for exact reconstruction, plus
 optional precomputed results.  It uses only NumPy `.npy` files
 and JSON: no Zarr, HDF5, or heavy dependencies required.
 
-On-disk layout:
+On disk layout:
 
     my_graph.rcbd/
     ├── MANIFEST.json           # version, object_type, metadata
@@ -39,12 +39,12 @@ For a TemporalRex:
 
 Design principles:
 
-1. Round-trip fidelity: `RexGraph.from_dict(to_dict())` is the
+1. Round trip fidelity: `RexGraph.from_dict(to_dict())` is the
    contract. Every field that `from_dict` needs is stored as an
    individual `.npy` file, and every field is loaded back.
 2. Indexed access: Plain `.npy` members can be `mmap`'d. Authenticated
-   encrypted members use chunk-selective reads instead of pretending
-   ciphertext is memory-mappable typed data.
+   encrypted members use chunk selective reads instead of pretending
+   ciphertext is memory mappable typed data.
 3. Zero heavy deps: Only `numpy` and `json`. No zarr, h5py,
    scipy, pandas, or pyarrow.
 4. Cache groups: Same `algebra/spectral/topology/hodge/faces`
@@ -89,14 +89,14 @@ from numpy.typing import NDArray
 
 try:
     import fcntl
-except ImportError:  # pragma: no cover, non-POSIX publication is thread-safe only
+except ImportError:  # pragma: no cover, non POSIX publication is thread safe only
     fcntl = None
 
 if TYPE_CHECKING:
     from ..graph import RexGraph, TemporalRex
 
 # The shared strict JSON encoder keeps manifests valid even when user metadata
-# contains non-finite numeric values.
+# contains non finite numeric values.
 from ._compat import dumps as _dumps
 from ._container_crypto import (
     ContainerDecryptionProperties,
@@ -168,7 +168,7 @@ def _ensure_rcbd(path: str | os.PathLike, *, writing: bool = False) -> pathlib.P
     """Resolve a bundle path, adding the canonical suffix only when omitted.
 
     New callers get `.rcbd` by supplying no suffix.  An explicit suffix is a
-    caller-owned path and is never silently changed: in particular, existing
+    caller owned path and is never silently changed: in particular, existing
     ``save_rex("archive.rex", graph)`` / ``load_rex("archive.rex")`` pairs
     remain valid while their manifest is upgraded to the current RCBD magic.
     """
@@ -202,7 +202,7 @@ def _resolve_cache(cache) -> set[str]:
 
 
 def _channel_diagonals(rex):
-    """The four channel diagonals per edge, trace-normalized, shape (nE, 4).
+    """The four channel diagonals per edge, trace normalized, shape (nE, 4).
 
     Exact from the boundary structure when the complex carries a rational
     character. The normalized G channel takes a square root and does not, so
@@ -273,7 +273,7 @@ def _bundle_publish_lock(parent: pathlib.Path):
 
 
 def _bundle_staging_directory(root: pathlib.Path) -> pathlib.Path:
-    """Create a same-parent staging directory with normal mkdir/umask semantics."""
+    """Create a same parent staging directory with normal mkdir/umask semantics."""
     for _ in range(100):
         candidate = root.with_name(
             f".{root.name}.tmp-{os.getpid()}-{secrets.token_hex(8)}"
@@ -295,7 +295,7 @@ def _encrypted_member_path(
 
 
 class _BundleStorageView:
-    """Safetensors-like uint8 view over one directory member."""
+    """Safetensors like uint8 view over one directory member."""
 
     def __init__(self, array: np.ndarray):
         self._array = array
@@ -507,7 +507,7 @@ class RCBDBundle:
     precomputed results.
 
     Parameters
-    ----------
+
     root : Path
         Bundle directory.
     manifest : dict
@@ -549,7 +549,7 @@ class RCBDBundle:
         *,
         cache: None | str | list[str] = None,
     ) -> RCBDBundle:
-        """Create an in-memory bundle spec from a RexGraph.
+        """Create an in memory bundle spec from a RexGraph.
 
         Does not write to disk - call `.save()` to persist.  The
         returned bundle stores references to the graph's arrays (not
@@ -591,8 +591,8 @@ class RCBDBundle:
         """Load a bundle from an `.rcbd` directory.
 
         Parameters
-        ----------
-        path : str or path-like
+
+        path : str or path like
             Bundle directory.
         mmap : bool
             If `True`, memory-map arrays for lazy loading.
@@ -721,7 +721,7 @@ class RCBDBundle:
         stored tensors cannot be checked for modification or truncation.
 
         Raises
-        ------
+
         TypeError
             If the bundle contains a TemporalRex.
         """
@@ -790,7 +790,7 @@ class RCBDBundle:
         key: str,
         index: int | slice | None = None,
     ) -> np.ndarray:
-        """Read an array or first-axis slice without opening unrelated members."""
+        """Read an array or first axis slice without opening unrelated members."""
         if self._encrypted_manifest is None:
             array = self[key]
             return np.asarray(array if index is None else array[index])
@@ -809,7 +809,7 @@ class RCBDBundle:
         operator: str,
         value: Any = None,
     ) -> NDArray[np.int64]:
-        """Return first-axis positions satisfying a scalar member predicate."""
+        """Return first axis positions satisfying a scalar member predicate."""
         if self._encrypted_manifest is not None:
             member = self._encrypted_member(key)
             return _query_protected_indices(
@@ -883,7 +883,7 @@ class RCBDBundle:
     def __getitem__(self, key: str) -> np.ndarray:
         """Load a single array by name."""
         if self._root is None:
-            # In-memory bundle from from_graph()
+            # In memory bundle from from_graph()
             source = getattr(self, "_source", None)
             if source is not None and hasattr(source, key):
                 val = getattr(source, key)
@@ -978,7 +978,7 @@ class RCBDBundle:
         return f"RCBDBundle({obj}, {n} arrays: [{preview}], path={path})"
 
 
-# Source-compatibility name. New code should use RCBDBundle.
+# Source compatibility name. New code should use RCBDBundle.
 RexBundle = RCBDBundle
 
 
@@ -1080,11 +1080,11 @@ def _write_rex_bundle(
         )
         return manifest, encrypted_manifest
 
-    # Filenames use a REVERSIBLE, collision-free percent-encoding of the tensor name (see
+    # Filenames use a REVERSIBLE, collision free percent encoding of the tensor name (see
     # _fname_encode). A tensor name may contain '/' (nested rexes) or '__' (user metadata keys); the
-    # old '/'->'__' substitution was neither filesystem-safe nor invertible and collided. Core arrays
+    # old '/'->'__' substitution was neither filesystem safe nor invertible and collided. Core arrays
     # (boundary_ptr, signs, ...) have no unsafe chars so their filenames stay their logical names,
-    # keeping the RCBDBundle array-access API working.
+    # keeping the RCBDBundle array access API working.
     for name in names:
         _save_npy(root, _fname_encode(name), np.asarray(st.tensors[name]))
     (root / "MANIFEST.json").write_text(_dumps(manifest))
@@ -1128,73 +1128,18 @@ def _write_temporal_bundle(
     encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Write a TemporalRex to an RCBD directory."""
+    from .temporal_state import to_temporal_state
+    state = to_temporal_state(trex)
     manifest = _build_temporal_manifest(trex)
-    relation_id_snapshots = [
-        value is not None for value in getattr(trex, "_snapshot_relation_ids", ())
-    ]
-    if relation_id_snapshots:
-        manifest["relation_id_snapshots"] = relation_id_snapshots
-
+    manifest["temporal_state"] = state.header
+    manifest["tensor_names"] = list(state.tensors)
     if encryption_properties is not None:
-        manifest["face_snapshot_count"] = len(trex._face_snapshots)
-        tensors: dict[str, NDArray] = {}
-        for t in range(trex.T):
-            snap = trex._snapshots[t]
-            if trex._general:
-                tensors[f"snapshots/{t}/boundary_ptr"] = snap[0]
-                tensors[f"snapshots/{t}/boundary_idx"] = snap[1]
-            else:
-                tensors[f"snapshots/{t}/sources"] = snap[0]
-                tensors[f"snapshots/{t}/targets"] = snap[1]
-            relation_ids = trex._snapshot_relation_ids[t]
-            if relation_ids is not None:
-                tensors[f"snapshots/{t}/relation_ids"] = relation_ids
-        for t, face_snapshot in enumerate(trex._face_snapshots):
-            tensors[f"face_snapshots/{t}/B2_col_ptr"] = face_snapshot[0]
-            tensors[f"face_snapshots/{t}/B2_row_idx"] = face_snapshot[1]
-            if len(face_snapshot) > 2:
-                tensors[f"face_snapshots/{t}/B2_vals"] = face_snapshot[2]
-        manifest["face_snapshot_values"] = [
-            len(face_snapshot) > 2 for face_snapshot in trex._face_snapshots
-        ]
         encrypted_manifest = _write_encrypted_bundle(
-            root,
-            tensors,
-            manifest,
-            encryption_properties,
-            kind="TemporalRex",
-        )
+            root, state.tensors, manifest, encryption_properties, kind="TemporalRex")
         return manifest, encrypted_manifest
-
-    snap_dir = root / "snapshots"
-    snap_dir.mkdir()
-
-    for t in range(trex.T):
-        tdir = snap_dir / str(t)
-        tdir.mkdir()
-        snap = trex._snapshots[t]
-        if trex._general:
-            _save_npy(tdir, "boundary_ptr", snap[0])
-            _save_npy(tdir, "boundary_idx", snap[1])
-        else:
-            _save_npy(tdir, "sources", snap[0])
-            _save_npy(tdir, "targets", snap[1])
-        relation_ids = trex._snapshot_relation_ids[t]
-        if relation_ids is not None:
-            _save_npy(tdir, "relation_ids", relation_ids)
-
-    if trex._face_snapshots:
-        fdir = root / "face_snapshots"
-        fdir.mkdir()
-        for t, fsnap in enumerate(trex._face_snapshots):
-            ftdir = fdir / str(t)
-            ftdir.mkdir()
-            _save_npy(ftdir, "B2_col_ptr", fsnap[0])
-            _save_npy(ftdir, "B2_row_idx", fsnap[1])
-
-    (root / "MANIFEST.json").write_text(
-        _dumps(manifest, indent=2)
-    )
+    for name, value in state.tensors.items():
+        _save_npy(root, _fname_encode(name), value)
+    (root / "MANIFEST.json").write_text(_dumps(manifest, indent=2))
     return None
 
 
@@ -1209,6 +1154,11 @@ def _read_temporal_rex(
 
     if manifest is None:
         manifest = json.loads((root / "MANIFEST.json").read_text())
+    if "temporal_state" in manifest:
+        from .temporal_state import TemporalState, from_temporal_state
+        tensors = {name: (tensor_reader(name) if tensor_reader else
+                          _load_npy(root, _fname_encode(name))) for name in manifest["tensor_names"]}
+        return from_temporal_state(TemporalState(tensors, manifest["temporal_state"]))
     T = manifest["T"]
     directed = manifest.get("directed", False)
     general = manifest.get("general", False)
@@ -1446,7 +1396,7 @@ def _write_cache(
     return written, scalars
 
 
-# Module-level convenience functions
+# Module level convenience functions
 
 
 def save_rcbd(
@@ -1459,8 +1409,8 @@ def save_rcbd(
     """Save a RexGraph or TemporalRex to an `.rcbd` bundle.
 
     Parameters
-    ----------
-    path : str or path-like
+
+    path : str or path like
         Output directory (`.rcbd` suffix added if missing). An explicit suffix
         is preserved for compatibility; new callers should pass `.rcbd`.
     obj : RexGraph or TemporalRex
@@ -1472,7 +1422,7 @@ def save_rcbd(
         directory layout.
 
     Examples
-    --------
+
     >>> save_rcbd("graph.rcbd", rex)
     >>> save_rcbd("graph.rcbd", rex, cache="all")
     >>> save_rcbd("graph.rcbd", rex, cache=["topology", "spectral"])
@@ -1490,8 +1440,8 @@ def load_rcbd(
     """Load a RexGraph or TemporalRex from an RCBD bundle.
 
     Parameters
-    ----------
-    path : str or path-like
+
+    path : str or path like
         Path to an `.rcbd` directory, or a legacy `.rex` directory.
     allow_unsealed : bool
         Permit a trusted legacy RexGraph bundle with no content digest. This is false
@@ -1500,11 +1450,11 @@ def load_rcbd(
         Authenticated opening context required by an encrypted bundle.
 
     Returns
-    -------
+
     RexGraph or TemporalRex
 
     Examples
-    --------
+
     >>> rex = load_rcbd("graph.rcbd")
     >>> trex = load_rcbd("temporal.rcbd")
     """

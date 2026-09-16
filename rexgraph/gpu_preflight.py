@@ -5,7 +5,7 @@ The GPU paths are torch, so they are portable between CUDA and ROCm in principle
 torch presents HIP as "cuda" and the same code runs. In principle is not a claim
 worth making about rented hardware, and the failure modes that matter (no float64
 sparse support, a driver that reports a device it cannot allocate on, a
-multi-GPU path never exercised) all surface as a wrong answer or a hang rather
+multi GPU path never exercised) all surface as a wrong answer or a hang rather
 than an import error.
 
 This runs every GPU path against a CPU oracle and reports what actually works:
@@ -66,7 +66,7 @@ def _check(name: str, fn) -> dict[str, Any]:
 
 
 def _sparse_spd(n: int, seed: int = 0):
-    """A sparse SPD matrix and a right-hand side, the shape the solvers actually see."""
+    """A sparse SPD matrix and a right hand side, the shape the solvers actually see."""
     import scipy.sparse as sp
     rng = np.random.default_rng(seed)
     A = sp.random(n, n, density=min(0.01, 8.0 / n), format="csr",
@@ -142,7 +142,7 @@ def _check_end_to_end(n):
 
 
 def _check_multi_gpu(n):
-    """The multi-GPU column split, which no single-GPU box has ever exercised."""
+    """The multi GPU column split, which no single GPU box has ever exercised."""
     import torch
     if torch.cuda.device_count() < 2:
         return {"skipped": "fewer than two devices"}

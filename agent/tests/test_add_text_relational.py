@@ -64,7 +64,7 @@ def test_empty_text_is_rejected(client):
 
 
 def test_prose_is_read_as_prose_not_as_an_edge_list(tmp_path):
-    """A .txt fell through the delimited-file classifier to `edge_csv`, so prose was
+    """A .txt fell through the delimited file classifier to `edge_csv`, so prose was
     recorded as an edge list. Positive evidence is now required to call it a table."""
     from agent.auto import auto_rex, detect_input_type
     cases = {

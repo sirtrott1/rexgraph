@@ -121,7 +121,7 @@ class TestManifoldSequence:
         assert beta1_at_d1 == k4.nE - k4.nV + beta0
 
     def test_m1_bianchi_zero(self, k4):
-        """M1 (1-rex) has 0 Bianchi identities."""
+        """M1 (1 rex) has 0 Bianchi identities."""
         sb = k4.spectral_bundle
         result = _hypermanifold.build_manifold_sequence(
             sb['evals_L0'], sb['evals_L1'],
@@ -130,7 +130,7 @@ class TestManifoldSequence:
         assert result['manifolds'][0]['n_bianchi'] == 0
 
     def test_m2_bianchi_one(self, k4):
-        """M2 (2-rex) has 1 Bianchi identity."""
+        """M2 (2 rex) has 1 Bianchi identity."""
         sb = k4.spectral_bundle
         result = _hypermanifold.build_manifold_sequence(
             sb['evals_L0'], sb['evals_L1'],
@@ -145,7 +145,7 @@ class TestHarmonicShadow:
 
     def test_shadow_nonneg(self, k4):
         """Shadow dimension is nonnegative."""
-        # edge-space Laplacians are built on demand on the scale-free path (bundle
+        # edge space Laplacians are built on demand on the scale free path (bundle
         # keys L1_down / evals_L1 are None/empty); the accessors give the same spectra.
         from rexgraph.core._linalg import eigh as _eigh
         evals_down = _eigh(np.asarray(k4.L1_down, dtype=np.float64))[0]
@@ -155,7 +155,7 @@ class TestHarmonicShadow:
 
     def test_shadow_equals_rank_b2(self, k4):
         """Shadow dim = beta_1(1) - beta_1(2) = rank(B2)."""
-        # edge-space Laplacians are built on demand on the scale-free path (bundle
+        # edge space Laplacians are built on demand on the scale free path (bundle
         # keys L1_down / evals_L1 are None/empty); the accessors give the same spectra.
         from rexgraph.core._linalg import eigh as _eigh
         evals_down = _eigh(np.asarray(k4.L1_down, dtype=np.float64))[0]

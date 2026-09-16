@@ -1,8 +1,8 @@
 """
-Regression tests for the second audit-fix pass.
+Regression tests for the second audit fix pass.
 
-Pure-Python-safe: these exercise routing / wiring that does not require
-the compiled Cython core. Kernel-dependent behaviour is verified
+Pure Python safe: these exercise routing / wiring that does not require
+the compiled Cython core. Kernel dependent behaviour is verified
 separately on a compiled build.
 """
 
@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 
 
-# P1: pipeline ingestion is OCR-lazy
+# P1: pipeline ingestion is OCR lazy
 def test_ingest_direct_only_needs_no_ocr_client(tmp_path):
-    """A CSV-only batch must ingest with ocr_client=None (no OCR init)."""
+    """A CSV only batch must ingest with ocr_client=None (no OCR init)."""
     from agent.server.routes.pipeline import _ingest_files
 
     csv = tmp_path / "data.csv"
@@ -59,19 +59,19 @@ def test_mixed_batch_keeps_both(tmp_path):
     assert "edges" in ids  # the CSV is no longer dropped
 
 
-# P3/max_vocab leak: non-text adapters tolerate extra kwargs
+# P3/max_vocab leak: non text adapters tolerate extra kwargs
 def test_edge_and_feature_adapters_ignore_extra_kwargs(tmp_path):
     from agent.adapters.edge_list import EdgeListAdapter
     from agent.adapters.feature_matrix import FeatureMatrixAdapter
 
     csv = tmp_path / "e.csv"
     csv.write_text("source,target\na,b\nb,c\nc,a\n")
-    # max_vocab is a text-only concept; must be ignored, not raise.
+    # max_vocab is a text only concept; must be ignored, not raise.
     ec = EdgeListAdapter().build(str(csv), max_vocab=200, window=3)
     assert ec.nE >= 1
 
     # The regression is specifically that a stray max_vocab kwarg no longer
-    # raises TypeError. `typing="none"` avoids the spectral-clustering
+    # raises TypeError. `typing="none"` avoids the spectral clustering
     # kernel so this passes without the compiled core too.
     X = np.random.default_rng(0).standard_normal((20, 5))
     try:
@@ -116,11 +116,11 @@ def test_router_channel_map_int_keys():
     assert all(isinstance(k, int) for k in r.channel_map)
 
 
-# C1: rexgraph-ocr entry point is a real CLI now
+# C1: rexgraph ocr entry point is a real CLI now
 def test_ocr_cli_entrypoint_exists():
     from agent.cli.ocr import ocr_main
     assert callable(ocr_main)
-    # no-args prints help and returns 0
+    # no args prints help and returns 0
     assert ocr_main([]) == 0
 
 
@@ -151,7 +151,7 @@ def test_prose_txt_falls_back_to_text(tmp_path):
     )
     assert ec.nE > 0
 
-    # And a genuine edge CSV must still classify as edge_csv (no over-fallback).
+    # And a genuine edge CSV must still classify as edge_csv (no over fallback).
     csv = tmp_path / "e.csv"
     csv.write_text("source,target\na,b\nb,c\nc,a\n")
     assert detect_input_type(str(csv)) == "edge_csv"

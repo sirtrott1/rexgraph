@@ -1,6 +1,6 @@
 """Saved database connections belong to a workspace.
 
-`routes/dbmanager.py` declares no authorization and `_secrets()` is a process-wide
+`routes/dbmanager.py` declares no authorization and `_secrets()` is a process wide
 singleton, so every tenant shared one connection store: a name collision overwrote
 someone else's credentials, a DELETE removed them, and `POST /test` resolved another
 tenant's saved name and dialled their host with their full credentialed URI.

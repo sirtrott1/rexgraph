@@ -39,7 +39,7 @@ def test_the_band_reproduces_the_dense_path_exactly(T, w, hops):
 
 def test_the_window_view_addresses_the_right_tokens():
     """out[..., i, m, :] must be z[..., i-w+1+m, :], with the left pad masked off.
-    An off-by-one here would still produce plausible numbers."""
+    An off by one here would still produce plausible numbers."""
     B, H, T, d, w = 1, 1, 6, 2, 3
     z = torch.arange(T * d, dtype=torch.float32).view(1, 1, T, d)
     win = _causal_windows(z, w)

@@ -19,7 +19,7 @@ for p in paths:
                  "owner": np.asarray(sect.owner_cochain(int(rex.nE)), dtype=np.int64),
                  "vocab": {str(v).lower(): i for i, v in enumerate(info["vocab"])},
                  "name": os.path.basename(p)})
-    _ = rex.structural_character           # warm the per-document cache
+    _ = rex.structural_character           # warm the per document cache
 print(f"{len(docs)} documents", flush=True)
 
 
@@ -76,10 +76,10 @@ print(f"\n  answerable direction {np.round(ca, 4)}")
 print(f"  foreign    direction {np.round(cf, 4)}")
 print(f"  spread between them  {float(spread(ca, cf)):.6f}   (0 = same direction)")
 
-# can the DIRECTION classify, held out? Leave-one-out, no threshold anywhere:
+# can the DIRECTION classify, held out? Leave one out, no threshold anywhere:
 # each sample is assigned to whichever class centroid it has the smaller SPREAD to,
 # and the centroids are computed WITHOUT it.
-print("\n=== leave-one-out classification on the profile direction ===")
+print("\nClassification with each profile held out in turn")
 X = np.vstack([A, F])
 y = np.array([0] * len(A) + [1] * len(F))
 correct = 0
@@ -92,8 +92,8 @@ for i in range(len(X)):
 print(f"  accuracy {correct/len(X)*100:5.1f}%   (chance {max(len(A),len(F))/len(X)*100:.1f}%)")
 
 # and the control the scalar gives: the SUM over channels, which is what shipped
-print("\n=== the same test on the SCALAR the profile sums to ===")
+print("\nThe same test using the sum of the profile")
 sa, sf = A.sum(axis=1), F.sum(axis=1)     # == 1 by construction for a direction
 print(f"  the direction sums to 1 by construction: answerable {np.unique(np.round(sa,6))}")
-print(f"  so a scalar built from it carries NOTHING. There is no scalar control here,")
-print(f"  which is the point: the information is in the axes, not the magnitude.")
+print("  Summing a normalized profile cannot distinguish these cases.")
+print("  Compare its individual channel coordinates instead.")

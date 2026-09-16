@@ -173,8 +173,8 @@ def _step_corpus(files, state, params):
         ec = item.get("ec")
         if ec is None or ec.nE == 0:
             continue
-        # Pass the already-built construction straight through instead of
-        # re-deriving from ec.source_text, which is empty for CSV/feature
+        # Pass the already built construction straight through instead of
+        # re deriving from ec.source_text, which is empty for CSV/feature
         # adapters and would add blank documents.
         doc_id = item.get("file", "doc")
         corpus.add_document(
@@ -186,8 +186,8 @@ def _step_corpus(files, state, params):
 
     if not ecs:
         # Direct from files: route each through auto_rex by detected type
-        # (CSV -> edge/feature, JSON -> loader, text -> co-occurrence) rather
-        # than force-reading every file as prose.
+        # (CSV -> edge/feature, JSON -> loader, text -> co occurrence) rather
+        # than force reading every file as prose.
         for filepath in files:
             corpus.add_document(source=filepath, doc_id=filepath)
 
@@ -210,7 +210,7 @@ def _step_corpus(files, state, params):
 
 @register_step("chunk")
 def _step_chunk(files, state, params):
-    """Hodge-based chunking."""
+    """Hodge based chunking."""
     from agent.adapters.text import TextAdapter
     from agent.chunking import hodge_chunk
     from rexgraph.graph import RexGraph
@@ -379,7 +379,7 @@ def _step_export(files, state, params):
 
 @register_step("training_export")
 def _step_training_export(files, state, params):
-    """Export training pairs for model fine-tuning."""
+    """Export training pairs for model fine tuning."""
     corpus = state.get("corpus")
     if not corpus:
         return {"skipped": "no corpus"}
@@ -399,11 +399,11 @@ def _step_training_export(files, state, params):
 
 @register_step("knowledge")
 def _step_knowledge(files, state, params):
-    """Join the uploaded files into one complex on their declared cross-references.
+    """Join the uploaded files into one complex on their declared cross references.
 
     Takes any mix of ontology, annotation, structure and schema files. What it puts in
     state is the joined complex, so every later step reads one object instead of
-    re-parsing.
+    re parsing.
     """
     from agent.knowledge import join
 
@@ -497,9 +497,9 @@ def _step_langgraph_init(files, state, params):
     as state transitions.
 
     The structural diagnostics tell you:
-    - Is the agent making progress? (gradient-dominated)
-    - Is it going in circles? (curl-dominated)
-    - Is it stuck in loops it can't break? (harmonic-dominated)
+    - Is the agent making progress? (gradient dominated)
+    - Is it going in circles? (curl dominated)
+    - Is it stuck in loops it can't break? (harmonic dominated)
     - Which transitions are structurally supported? (void analysis)
     """
     from agent.integrations.langgraph_rex import RexStateGraph
@@ -655,7 +655,7 @@ def _step_langgraph_record(files, state, params):
     """Record a state visit in the execution log.
 
     Use this between other steps to build the execution trace.
-    The trace is Hodge-decomposed by langgraph_analyze.
+    The trace is Hodge decomposed by langgraph_analyze.
     """
     rsg = state.get("state_graph")
     if rsg is None:
@@ -702,7 +702,7 @@ class AgentBuilder:
 
     @classmethod
     def load(cls, path: str) -> AgentBuilder:
-        """Load from YAML or JSON (auto-detect)."""
+        """Load from YAML or JSON (auto detect)."""
         if path.endswith((".yml", ".yaml")):
             return cls.from_yaml(path)
         return cls.from_json(path)

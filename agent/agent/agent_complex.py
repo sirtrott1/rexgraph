@@ -2,14 +2,14 @@
 agent.agent_complex: the agentic relational complex and the monitor agent.
 
 Agents/models are cells; their messages/interactions are the signals. Build a live rexgraph
-complex from a multi-agent message log and run the RCF machinery on it: per-agent
+complex from a multi agent message log and run the RCF machinery on it: per agent
 coherence/character, the Hodge decomposition of the interaction flow (coherent vs circulating vs
-persistent), effective resistance (which agent is load-bearing), cross-agent output alignment, and
-query-reweighting routing (which agent a query surfaces).
+persistent), effective resistance (which agent is load bearing), cross agent output alignment, and
+query reweighting routing (which agent a query surfaces).
 
-The complex is higher-order: the monitor sees the whole topology, where cycles are deadlocks, curl
+The complex is higher order: the monitor sees the whole topology, where cycles are deadlocks, curl
 is circulation/disagreement, and the harmonic component is consensus. The analytic primitives come
-from rexgraph; this module is the agent-to-complex adapter plus the monitor/router loop.
+from rexgraph; this module is the agent to complex adapter plus the monitor/router loop.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def act_complex(events, *, close_trips: bool = True):
     things about them do not survive being flattened to a graph.
 
     DIRECTION IS POSITIONAL, not a sign. A column and its negation are the same cell: the
-    library canonicalises, which is right, because re-signing is a gauge and leaves the
+    library canonicalises, which is right, because re signing is a gauge and leaves the
     spectrum alone. So orientation is WHICH participant carries the single -1. A write
     distinguishes the actor, ``[actor, *objects]``; a read distinguishes the object,
     ``[object, actor]``. Two writers meeting at an object then agree, a writer against a
@@ -44,10 +44,10 @@ def act_complex(events, *, close_trips: bool = True):
     one distinguished end, and a gather from many has no single one to nominate.
 
     ARITY. A leg is k-ary when the act was. One carrier writing to three destinations is
-    ONE 4-ary relation, not three edges: expanding it invents C(3,2) pairs that no act
+    ONE 4 ary relation, not three edges: expanding it invents C(3,2) pairs that no act
     performed and reports cycles nothing traversed.
 
-    RETURN. A carrier goes somewhere and comes back, and out-and-back is a cycle. Giving
+    RETURN. A carrier goes somewhere and comes back, and out and back is a cycle. Giving
     that cycle a FACE is what says it closes. The face column is SOLVED from ``B_1 c = 0``
     rather than declared, because a declared one fails the chain condition and then bounds
     nothing, which is indistinguishable from having no face at all until the arithmetic is
@@ -119,7 +119,7 @@ def slice_participants(rex, labels, keep):
 
 
 def _close_round_trips(rex, legs, trips) -> None:
-    """Give every out-and-back its face, solved rather than declared.
+    """Give every out and back its face, solved rather than declared.
 
     A single delivery is a path and does not bound; it is the RECIPROCAL delivery that
     closes it, so trips are paired by carrier and by the two ends taken in either order.
@@ -129,7 +129,7 @@ def _close_round_trips(rex, legs, trips) -> None:
         read = [i for i in leg_ids if legs[i][2] == "read"]
         write = [i for i in leg_ids if legs[i][2] == "write"]
         if not (read and write):
-            continue                                    # not a there-and-back-again shape
+            continue                                    # not a there and back again shape
         src = tuple(sorted(legs[read[0]][1]))
         dst = tuple(sorted(legs[write[0]][1]))
         ends.setdefault((actor, frozenset((src, dst))), []).append((src, dst, leg_ids))
@@ -168,7 +168,7 @@ class AgentComplex:
     @classmethod
     def from_conversation(cls, tracker, user: str = "user", agent: str = "assistant"):
         """Adapt a live ConversationTracker into the complex: each exchange is user->agent (the
-        prompt) and agent->user (the reply). The chat becomes a monitorable complex; a multi-agent
+        prompt) and agent->user (the reply). The chat becomes a monitorable complex; a multi agent
         swarm's messages carry from/to and flow through the same path."""
         ac = cls()
         exch = tracker.exchanges() if callable(getattr(tracker, "exchanges", None)) else \
@@ -217,12 +217,12 @@ class AgentComplex:
         return [(" ".join(by[a]) or a) for a in self.agents()]
 
     def alignment(self, embed_fn=None):
-        """Cross-agent output alignment (cosine similarity of agents' aggregated messages).
+        """Cross agent output alignment (cosine similarity of agents' aggregated messages).
 
         With ``embed_fn`` (semantic embeddings, e.g. ``agent_complex.model_embed_fn()`` backed by
-        a running model) it distinguishes a hallucinating or off-topic agent, semantically far from
+        a running model) it distinguishes a hallucinating or off topic agent, semantically far from
         the task context, from a topically distinct specialist, semantically related. The lexical
-        fallback (concept-cosine) cannot tell them apart. Returns (agents, similarity)."""
+        fallback (concept cosine) cannot tell them apart. Returns (agents, similarity)."""
         ags = self.agents()
         if embed_fn is not None:
             E = np.asarray(embed_fn(self._agent_texts()), dtype=np.float64)
@@ -265,9 +265,9 @@ class AgentComplex:
         load = defaultdict(float)
         for e, (s, t) in enumerate(edges):
             load[s] += float(eff[e]); load[t] += float(eff[e])
-        # RCFE field on the coordination (faced) complex. A pairwise hive is a flat 1-complex with
+        # RCFE field on the coordination (faced) complex. A pairwise hive is a flat 1 complex with
         # no curvature; the field emerges at the higher grade, where a face is a triangle of agents
-        # who mutually interact (relevance-gated, not every triple). Curvature is the per-interaction
+        # who mutually interact (relevance gated, not every triple). Curvature is the per interaction
         # deviation from the coherent ideal and localizes a drifting/hallucinating agent; strain is
         # its total, the network's field energy, trackable over time.
         curv_e = np.zeros(len(edges)); strain = None
@@ -299,9 +299,9 @@ class AgentComplex:
         avg_align = {a: (float(np.mean([AL[i, j] for j in range(len(ags2)) if j != i])) if len(ags2) > 1 else 1.0)
                      for i, a in enumerate(ags2)}
         # drift is relative to the swarm: an agent whose alignment is far below the median is
-        # off-topic or possibly hallucinating, regardless of the absolute scale.
+        # off topic or possibly hallucinating, regardless of the absolute scale.
         # "far below the swarm" is an OUTLIER question, and this codebase already has
-        # one convention for it: the data-adaptive Tukey lower fence (q1 - 1.5*IQR) used
+        # one convention for it: the data adaptive Tukey lower fence (q1 - 1.5*IQR) used
         # in engine.py and hive.py and described there as "not a fixed magic". The old
         # `avga < 0.5 * med` invented a factor on top of a median; the fence is derived
         # from the alignment distribution itself. With fewer than four agents there are
@@ -318,17 +318,17 @@ class AgentComplex:
             report.append({
                 "agent": a,
                 "coherence": round(float(kappa[i]), 3) if i < len(kappa) else None,
-                "load_bearing": round(load.get(i, 0.0), 3),           # effective-resistance centrality
+                "load_bearing": round(load.get(i, 0.0), 3),           # effective resistance centrality
                 "curvature": round(curv.get(i, 0.0), 3),              # RCFE deviation localized here
                 "alignment": round(avga, 3),                          # agreement with the swarm
                 "messages": sum(1 for m in self._msgs if m["from"] == a),
                 # low alignment means output diverges from the swarm: off-topic/hallucinating or a
-                # topically distinct specialist. The concept-cosine cannot tell them apart;
-                # embedding plus task-relevance (model_introspect) is the refinement that does.
+                # topically distinct specialist. The concept cosine cannot tell them apart;
+                # embedding plus task relevance (model_introspect) is the refinement that does.
                 "flag": "divergent" if avga < align_fence else "ok",
             })
         report.sort(key=lambda x: -x["load_bearing"])
-        # directed message-flow edges for the graph view (who talks to whom, how much)
+        # directed message flow edges for the graph view (who talks to whom, how much)
         dw = defaultdict(float)
         for m in self._msgs:
             if m["from"] != m["to"]:
@@ -345,7 +345,7 @@ class AgentComplex:
         return out
 
     def route(self, query: str, top_k: int = 3):
-        """Query-reweighting: rank agents by relevance to a query (concept overlap, normalized).
+        """Query reweighting: rank agents by relevance to a query (concept overlap, normalized).
         The router's decision signal, which agent(s) a query surfaces."""
         cc = self._agent_concepts(); qt = set(_tokens(query))
         scores = []
@@ -390,7 +390,7 @@ class DriftTracker:
         return num / den
 
     def trends(self) -> dict:
-        """Per-agent {curvature_slope, alignment_slope, n} over the tracked window."""
+        """Per agent {curvature_slope, alignment_slope, n} over the tracked window."""
         agents = sorted({a for h in self._hist for a in h})
         out = {}
         for a in agents:
@@ -419,8 +419,8 @@ _DRIFT: DriftTracker | None = None
 
 
 def get_drift() -> DriftTracker:
-    """The process-wide drift tracker: snapshot it with monitor() results over time to detect a
-    worker that is beginning to hallucinate or drift from its task (a rising-curvature trend)."""
+    """The process wide drift tracker: snapshot it with monitor() results over time to detect a
+    worker that is beginning to hallucinate or drift from its task (a rising curvature trend)."""
     global _DRIFT
     if _DRIFT is None:
         _DRIFT = DriftTracker()
@@ -436,10 +436,10 @@ def get_live(workspace: str | None = None) -> AgentComplex:
     """The live agentic complex for one workspace: the structure the runtime appends to as
     agents/models exchange messages (model, memory, and database as one complex).
 
-    Keyed by workspace rather than process-wide. One shared complex meant any tenant could
+    Keyed by workspace rather than process wide. One shared complex meant any tenant could
     append to the structure every other tenant reads through the monitor, the router and
     the hive's own routing, so a forged message moved another workspace's alignment and
-    load-bearing readings. Resolved from the bound request when not named, so a caller
+    load bearing readings. Resolved from the bound request when not named, so a caller
     outside a request keeps the single "default" complex it always had.
     """
     from agent.server.scope import bound_workspace
@@ -467,10 +467,10 @@ def model_embed_fn(url: str | None = None):
     """A semantic embedder for `monitor(embed_fn=...)`, backed by an /v1/embeddings endpoint
     (via model_introspect). Returns None if nothing is serving embeddings, so the monitor falls
     back to the lexical signal. The embedding signal is what turns divergence detection into a
-    hallucination-vs-specialist distinction.
+    hallucination vs specialist distinction.
 
     `url` names the endpoint explicitly - an ATTACHED embedder bee, whose process this
-    interpreter does not own. Without it only a locally-MANAGED server (local_runtime.start /
+    interpreter does not own. Without it only a locally MANAGED server (local_runtime.start /
     start_embedder) is discoverable, so an attached embedder would be invisible and the monitor
     would silently stay lexical."""
     def _embed(texts):

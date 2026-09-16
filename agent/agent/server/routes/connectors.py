@@ -2,14 +2,14 @@
 agent.server.routes.connectors: the Connector seam over HTTP.
 
 One route group over :mod:`agent.connectors.service`: list what can be connected
-(with per-scheme driver status for the "not configured" UX), validate an
-integration, read a source read-only, and ingest its structure into the RCDB.
+(with per scheme driver status for the "not configured" UX), validate an
+integration, read a source read only, and ingest its structure into the RCDB.
 SQL, warehouses, Mongo, ontologies, graphs, and streams all flow through the
 same path, the one the ``rexgraph-connect`` CLI uses.
 
-A request identifies its source by a saved-connection ``name`` (resolved via the
+A request identifies its source by a saved connection ``name`` (resolved via the
 SecretStore, credentials never returned), an inline ``uri``, or a bare
-``scheme`` (for in-memory shapes, whose structure rides in ``source``).
+``scheme`` (for in memory shapes, whose structure rides in ``source``).
 """
 
 from __future__ import annotations
@@ -34,19 +34,19 @@ def _resolve(body: dict) -> str:
     uri = body.get("uri") or body.get("scheme")
     if not uri:
         raise HTTPException(400, "Provide a saved connection 'name', a 'uri', or a 'scheme'")
-    check_db_uri(uri)   # no-op for bare in-memory scheme names (no '://')
+    check_db_uri(uri)   # no op for bare in memory scheme names (no '://')
     return uri
 
 
 @router.get("")
 async def list_connectors():
-    """List connectors, their capabilities, and per-scheme driver availability."""
+    """List connectors, their capabilities, and per scheme driver availability."""
     return {"connectors": svc.list_connectors()}
 
 
 @router.post("/read")
 async def read_source(body: dict = Body(...)):
-    """Build the complex read-only and return a structural summary (no storage)."""
+    """Build the complex read only and return a structural summary (no storage)."""
     uri = _resolve(body)
     try:
         return svc.read(uri, source=body.get("source"),

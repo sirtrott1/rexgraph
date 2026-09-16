@@ -9,11 +9,11 @@ Components come from rexgraph.nn (PropagatorAttention, build_attention, the rcf_
 These archetypes assemble models from that substrate; they are not part of the library.
 
 No archetype builds an optimizer: `build(cfg, bundle)` returns the module and `train.train_one`
-routes it through `make_optimizer("auto")`. All four are feature-space models (they consume a
+routes it through `make_optimizer("auto")`. All four are feature space models (they consume a
 feature matrix; none exposes `greens_groups()`), so the router gives them plain Adam. `hgnn` uses
 the complex as a fixed operator (B1/L0/L1 buffers) rather than as its parameter space, so it is
-feature-space too: Green's/Hodge preconditioning has nothing to precondition there. For the
-relational-native path, where the parameters ARE a cochain on the complex, see
+feature space too: Green's/Hodge preconditioning has nothing to precondition there. For the
+relational native path, where the parameters ARE a cochain on the complex, see
 `rexgraph.flow.cochain`.
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ def merged_cfg(name, overrides=None):
 def _model_build(fn_name):
     """A build callable that imports the torch half only when it is actually called.
 
-    The archetypes are DATA: a name, a use-case, the kind of data it consumes and its
+    The archetypes are DATA: a name, a use case, the kind of data it consumes and its
     default params. None of that needs torch, and listing them is what the CLI, the
     /ml/archetypes route and list_archetypes() do. The models are torch modules, so
     importing them pulls the whole ml extra in, and doing that at module scope meant
@@ -93,7 +93,7 @@ register_archetype(
         vocab=cfg["vocab"], seq_len=cfg["seq_len"], seed=seed))
 
 
-# HGNN - relational-complex hypergraph net (advection + diffusion)
+# HGNN - relational complex hypergraph net (advection + diffusion)
 
 register_archetype(
     "hgnn", use_case="Node classification on hypergraphs / higher-order relational data. "

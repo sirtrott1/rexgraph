@@ -1,13 +1,13 @@
 """agent.connectors.document: the document/NoSQL connector (MongoDB shape).
 
 Wraps the engine's Mongo schema inference: collections are vertices, inferred
-``*_id`` references are edges, junction collections become co-participation
-faces. Read-only sampling: it infers structure from a sample of documents,
+``*_id`` references are edges, junction collections become co participation
+faces. Read only sampling: it infers structure from a sample of documents,
 never returning document values.
 
     read(source) -> (rex, meta)
 
-``source`` may be an in-memory ``{collection: [docs]}`` mapping (inferred with
+``source`` may be an in memory ``{collection: [docs]}`` mapping (inferred with
 no live service) or a ``mongodb://host/dbname`` URI (sampled live via pymongo).
 """
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""agent.hive_network registry: named hives, isolation, status, and network-scope logging."""
+"""agent.hive_network registry: named hives, isolation, status, and network scope logging."""
 from agent import activity, agent_complex
 from agent import hive as hivemod
 
@@ -7,7 +7,7 @@ def test_named_hives_registered_and_isolated():
     hivemod.reset_network(); activity.reset()
     net = hivemod.get_network()
     a = net.create("alpha")
-    b = net.hive("beta")                                      # get-or-create
+    b = net.hive("beta")                                      # get or create
     a.attach("q1", "http://x", role="queen", model="m")
     b.attach("q2", "http://x", role="queen", model="m")
 

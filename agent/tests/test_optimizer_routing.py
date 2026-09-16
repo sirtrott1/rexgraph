@@ -1,6 +1,6 @@
 """Optimizer routing: every training path goes through make_optimizer("auto"), nothing names
 HodgeAdam. The router returns GreensCochain for a cochain on a relational complex and plain Adam
-for a feature-space model; those two arms are pinned here so a regression is a test failure, not a
+for a feature space model; those two arms are pinned here so a regression is a test failure, not a
 silently demoted optimizer."""
 import inspect
 from pathlib import Path
@@ -18,7 +18,7 @@ from rexgraph.nn.optim import GreensCochain
 
 def test_relational_bench_builds_through_make_optimizer(monkeypatch):
     """bench_relational_model.train builds its optimizer with make_optimizer("auto"), and
-    ComplexNet (feature-space: no greens_groups) routes to plain Adam."""
+    ComplexNet (feature space: no greens_groups) routes to plain Adam."""
     from agent.benchmarks import bench_relational_model as B
     seen = {}
     real = B.make_optimizer
@@ -61,7 +61,7 @@ def test_auto_routes_cochain_to_greens():
 
 
 def test_flow_package_never_names_hodge():
-    """rexgraph.flow is the relational-native surface: HodgeAdam has no business in it."""
+    """rexgraph.flow is the relational native surface: HodgeAdam has no business in it."""
     import rexgraph.flow
     root = Path(rexgraph.flow.__path__[0])
     hits = [p.name for p in sorted(root.rglob("*"))

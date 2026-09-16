@@ -1,7 +1,7 @@
 """Load the lexical stack into an RCDB, in the order the layers depend on each other.
 
 The order is not arbitrary. WordNet and Roget establish the WORD vertices; the NRC
-lexicons are 0-cochains ON those vertices and mean nothing before they exist; Wiktionary
+lexicons are 0 cochains ON those vertices and mean nothing before they exist; Wiktionary
 is the widest layer and reuses the same vocabulary. Building them in that order lets each
 later layer be read against the earlier ones rather than beside them.
 
@@ -16,7 +16,7 @@ documents, and each carries:
 
 The connotation lexicons are NOT complexes and are not stored as one. They are values on
 words, so they go in as a cochain aligned to a named complex's vertex order, which is the
-only form in which "the valence of this vertex" is a well-posed statement.
+only form in which "the valence of this vertex" is a well posed statement.
 """
 from __future__ import annotations
 
@@ -71,10 +71,10 @@ def _put(store, rid, rex, info, *, source, kind, extra=None, group_labels=None,
     """One record: the complex, its vertex labels, its EDGE TYPES, its digest, and what
     built it.
 
-    The edge types were the gap: this stored `vertex_labels` and dropped the per-group
+    The edge types were the gap: this stored `vertex_labels` and dropped the per group
     label, so every stored column was anonymous and `bank`/`money` sharing one said
     nothing about whether that column was `synonyms` or `antonyms`. An untyped edge is
-    not a predication, which forced the answerers to re-read the source files.
+    not a predication, which forced the answerers to re read the source files.
     """
     labels = list(info.get("members") or info.get("vocab") or [])
     etypes, tnames, gnames = _edge_types(group_labels)
@@ -164,7 +164,7 @@ def build_lexical_store(root=DEFAULT_ROOT, *, pair_mode="none",
 def attach_connotation(store, rid="lex:wordnet", root=DEFAULT_ROOT, log=print):
     """Align NRC VAD and EmoLex onto a stored complex's vertex order.
 
-    A lexicon says nothing about pairs, so it is a 0-cochain and is only meaningful
+    A lexicon says nothing about pairs, so it is a 0 cochain and is only meaningful
     against a fixed vertex ORDER. That order is the stored record's, so this reads the
     record back and aligns to it rather than inventing an order of its own.
 
