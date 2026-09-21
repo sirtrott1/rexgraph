@@ -2,17 +2,17 @@
 from .types import Domain, Exactness, PredicateResult, RCType, ValueKind, Variance
 
 ARGUMENTS = {"DIFF": (("other", "ref_labels", "other_labels", "matching"), (None, None, "auto")),
-             "ACCESSION_DELTA": (("old", "new", "correspondence"), ()),
-             "FIELD_DELTA": (("field", "correspondence"), ()),
-             "FIELD_DELTA_MOMENT": (("field", "correspondence"), ()),
-             "ORIENTED_FIELD_DELTA_MOMENT": (("field", "correspondence"), ())}
+             "ACCESSION_DELTA": (("old", "new", "correspondence", "output_correspondence"), (None,)),
+             "FIELD_DELTA": (("field", "correspondence", "metrics"), (None,)),
+             "FIELD_DELTA_MOMENT": (("field", "correspondence", "metrics"), (None,)),
+             "ORIENTED_FIELD_DELTA_MOMENT": (("field", "correspondence", "metrics"), (None,))}
 
 
 def refine(typed, children, context):
     if not context.native:
         raise TypeError(f"{typed.operator} requires a native RexGraph source")
     if typed.operator == "ACCESSION_DELTA":
-        old, new, mapping = typed.args
+        old, new, mapping = typed.args[:3]
         if old.source != typed.binding.ref or mapping.source != typed.binding.ref:
             raise ValueError("old accession and correspondence require the bound source")
         if old.grade != new.grade or old.temporal != mapping.temporal:
@@ -30,7 +30,7 @@ def refine(typed, children, context):
             raise TypeError("accession delta requires explicit measurement and correspondence declarations")
         validate_accession_delta(*values)
         return [PredicateResult("accession_correspondence", "deferred",
-            "exact sparse accession defect; explicit ambient map or identical named output coordinates")]
+            "exact sparse accession defect with explicit coordinate transport")]
     if typed.operator == "DIFF":
         from rexgraph.graph import RexGraph
         from rexgraph.boundary_difference import vertex_alignment
@@ -50,7 +50,7 @@ def refine(typed, children, context):
                 raise ValueError("one endpoint lacks relation IDs; choose support explicitly")
         return [PredicateResult("difference_coordinates", "verified" if isinstance(other, RexGraph) else "deferred",
             "complete vertex union, stable identities or explicit support multiset matching; exact original Q columns")]
-    field, mapping = typed.args
+    field, mapping = typed.args[:2]
     if field.source != typed.binding.ref or mapping.source != typed.binding.ref:
         raise ValueError("field and correspondence require the bound source")
     if field.temporal != mapping.temporal:
@@ -66,9 +66,17 @@ def refine(typed, children, context):
     known = context.known_value(children[1])
     if isinstance(known, (GradedMap, ChainMap)):
         validate_correspondence(known)
+    if len(children) > 2:
+        from rexgraph.field_delta import validate_temporal_metrics
+        metrics = context.known_value(children[2])
+        if metrics is None and typed.args[2] is not None:
+            raise TypeError("endpoint metrics require an explicit declaration")
+        validate_temporal_metrics(known, metrics)
+    else:
+        metrics = None
     return [PredicateResult("correspondence_defects", "deferred",
         "exact B'J-JB and transpose boundary defect actions; neither square is presumed to commute"),
-        PredicateResult("endpoint_metrics", "verified", "identity coordinate metrics; no weighted adjoint is inferred")]
+        PredicateResult("endpoint_metrics", "verified", "identity coordinate metrics" if metrics is None else "declared positive rational endpoint metrics")]
 
 
 def install(register):
@@ -76,12 +84,14 @@ def install(register):
     register(OperatorSignature(name="ACCESSION_DELTA", source_kind=ValueKind.REX,
         inputs=(TypePattern("old", kind=ValueKind.TYPE_ACCESSION, source_bound=True, basis_bound=True),
                 TypePattern("new", kind=ValueKind.TYPE_ACCESSION),
-                TypePattern("correspondence", kind=(ValueKind.GRADED_MAP, ValueKind.CHAIN_MAP), source_bound=True)),
+                TypePattern("correspondence", kind=(ValueKind.GRADED_MAP, ValueKind.CHAIN_MAP), source_bound=True),
+                TypePattern("output_correspondence", kind=ValueKind.COORDINATE_MAP,
+                            literal=type(None), optional=True)),
         result=RCType("AccessionDelta", kind=ValueKind.RECORD, domain=Domain.METADATA,
                       exactness=Exactness.STRUCTURAL), memoizable=True,
         implementation_key="rexgraph.accession_delta.accession_delta",
         preconditions=("A_new J - J A_old for ambient endomorphisms at one grade",
-                       "rectangular measurements require identical output coordinates and return A_new J - A_old",
+                       "an explicit output correspondence K gives A_new J - K A_old",
                        "exact current source and target measurements; no inferred lineage or time division")))
     register(OperatorSignature(name="DIFF", source_kind=ValueKind.REX,
         inputs=(TypePattern("other"), TypePattern("ref_labels", literal=(list, tuple, type(None)), optional=True),
@@ -97,10 +107,12 @@ def install(register):
         register(OperatorSignature(name=name, source_kind=ValueKind.REX,
             inputs=(TypePattern("field", kind=ValueKind.CHAIN, variance=Variance.CHAIN,
                                 source_bound=True, basis_bound=True),
-                    TypePattern("correspondence", kind=(ValueKind.GRADED_MAP, ValueKind.CHAIN_MAP), source_bound=True)),
+                    TypePattern("correspondence", kind=(ValueKind.GRADED_MAP, ValueKind.CHAIN_MAP), source_bound=True),
+                    TypePattern("metrics", kind=ValueKind.TEMPORAL_METRICS,
+                                literal=type(None), optional=True)),
             result=RCType("FieldDelta" if record else "Rational", kind=ValueKind.RECORD if record else ValueKind.EXACT_RATIONAL,
                           domain=Domain.METADATA if record else Domain.RATIONAL,
                           exactness=Exactness.STRUCTURAL if record else Exactness.RATIONAL),
             implementation_key="rexgraph.field_delta." + ("field_delta" if record else "field_delta_moment"),
-            memoizable=True, preconditions=("explicit exact correspondence, source Chain and identity endpoint metrics",
+            memoizable=True, preconditions=("explicit correspondence, source Chain and identity or declared endpoint metrics",
                 "both endpoint chain laws hold; zero missing down or upper coordinate space; no time or lineage inference")))

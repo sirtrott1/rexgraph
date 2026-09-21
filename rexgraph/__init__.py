@@ -104,7 +104,7 @@ from .tower import channel_delta, graded_delta
 # from the documented package surface.
 from .graph import RexGraph, TemporalRex
 
-__version__ = "1.1.6"
+__version__ = "1.2.0"
 
 __all__ = [
     "core",
@@ -186,6 +186,9 @@ __all__ = [
     "multiplicity_groups",
     "multiplicity_homology_dimension",
     "simple_cycle_dimension",
+    "ModelState", "ModelOutput", "ModelInput", "ModelBatch", "ModelTimeline",
+    "model_input", "native_model", "infer_model", "train_model", "transport_model",
+    "certify_native_response",
 ]
 
 
@@ -196,6 +199,19 @@ def __getattr__(name):
     its builder or artifact writer. The functions remain part of the documented
     package surface without adding an RCDB or Agent dependency to normal core imports.
     """
+    fields = {'NativeFieldCalculus': 'native_field', 'FieldAction': 'native_field', 'NativeAction': 'native_field', 'bridge_action': 'native_field', 'FieldSource': 'tensor_field', 'TensorField': 'tensor_field', 'TensorChannels': 'tensor_field', 'apply_tensor': 'tensor_field', 'CoordinatePairing': 'tensor_moment', 'RealizedPairing': 'tensor_moment', 'MomentSpan': 'tensor_moment', 'TensorMomentKernel': 'tensor_moment', 'TensorMoments': 'tensor_moment', 'TensorEvolution': 'temporal_field', 'ResolvedEvolution': 'temporal_field', 'NativeFieldEvolution': 'temporal_field', 'SectorTransport': 'temporal_field', 'MomentChange': 'temporal_field', 'moment_change': 'temporal_field', 'AttachmentField': 'attachment_field', 'AttachmentObservation': 'attachment_field', 'common_attachment_observations': 'attachment_field', 'ReconstructionFamily': 'reconstruction'}
+    fields.update({"ModelInput": "model_state", "model_input": "model_state", "ModelState": "model_state", "ModelOutput": "model_state", "ModelBatch": "model_state",
+                   "ModelTimeline": "model_state", "native_model": "model_runtime", "infer_model": "model_runtime",
+                   "certify_native_response": "model_runtime", "train_model": "model_runtime", "transport_model": "model_runtime"})
+    fields.update({"MolecularView": "molecular_field", "molecular_changes": "molecular_field",
+                   "conformation_field": "molecular_field", "conformation_direction": "molecular_field",
+                   "sampled_field": "process_field", "trajectory_comparison": "process_field",
+                   "sample_rates": "process_field", "diagonal_axes": "process_field",
+                   "factor_contrast": "process_field", "factorial_contrast": "process_field",
+                   "response_direction": "process_field"})
+    if name in fields:
+        from importlib import import_module
+        return getattr(import_module("." + fields[name], __name__), name)
     if name in {"build_mtor_demo", "write_demo_artifacts"}:
         from . import biomedical_demo
         return getattr(biomedical_demo, name)
@@ -206,3 +222,20 @@ def __getattr__(name):
         from . import jump_cell_painting
         return getattr(jump_cell_painting, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+__all__ += ['NativeFieldCalculus', 'FieldAction', 'NativeAction', 'bridge_action', 'FieldSource', 'TensorField', 'TensorChannels', 'apply_tensor', 'CoordinatePairing', 'RealizedPairing', 'MomentSpan', 'TensorMomentKernel', 'TensorMoments', 'TensorEvolution', 'ResolvedEvolution', 'NativeFieldEvolution', 'SectorTransport', 'MomentChange', 'moment_change', 'AttachmentField', 'AttachmentObservation', 'common_attachment_observations', 'ReconstructionFamily']
+
+from .section_calculus import (
+    SectionSystem, SectionRecipe, SectionFamily, SectionImage,
+    InconsistentSectionError, UnderdeterminedSectionError,
+)
+
+__all__ += ["SectionSystem", "SectionRecipe", "SectionFamily", "SectionImage",
+            "InconsistentSectionError", "UnderdeterminedSectionError"]
+
+__all__ += ["ModelState", "ModelOutput", "ModelBatch", "ModelTimeline", "native_model",
+            "infer_model", "train_model", "transport_model"]
+
+__all__ += ["MolecularView", "molecular_changes", "conformation_field", "conformation_direction",
+            "sampled_field", "trajectory_comparison", "sample_rates", "diagonal_axes",
+            "factor_contrast", "factorial_contrast", "response_direction"]

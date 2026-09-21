@@ -449,13 +449,14 @@ class VersionConflictError(ValueError):
 def _sig_index_values(sig: dict[str, Any]) -> dict[str, Any]:
     """Extract the promoted to column values from a signature (for SQLStore)."""
     betti = sig.get("betti") or []
+    source = sig.get("source") or ""
     return {
         "nV": int(sig.get("nV", 0) or 0),
         "nE": int(sig.get("nE", 0) or 0),
         "betti1": int(betti[1]) if len(betti) > 1 else 0,
         "kappa_mean": float(sig.get("kappa_mean") or 0.0),
         "chain_valid": bool(sig.get("chain_valid")),
-        "source": sig.get("source") or "",
+        "source": source if isinstance(source, str) else None,
     }
 
 
@@ -2196,9 +2197,14 @@ class SQLStore(RCStore):
         }
         conds, pushed = [], set()
         for key, build in builders.items():
-            if predicate.get(key) is not None:
-                conds.append(build(predicate[key]))
-                pushed.add(key)
+            value = predicate.get(key)
+            if value is not None:
+                if key == "source" and not isinstance(value, str):
+                    continue
+                conds.append(build(value))
+                # Text indexes narrow candidates. The signature retains the type.
+                if key != "source":
+                    pushed.add(key)
         # the vocabulary predicate resolves in the indexed label table, so a
         # "which records share a token" prefilter never leaves the database.
         lt = self.labels_table

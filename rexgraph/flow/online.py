@@ -51,12 +51,28 @@ class GreensCochainField:
     function over L_C. One propagate + one correction per event, matrix free."""
 
     def __init__(self, *, green_lam: float = 4.0, green_iters: int = 20,
-                 observe: Callable | None = None):
+                 observe: Callable | None = None, identity: str = "support"):
+        if identity not in {"support", "lineage"}:
+            raise ValueError("unknown online identity policy")
+        self.identity = identity
         self.green_lam = float(green_lam)
         self.green_iters = int(green_iters)
-        self.observe = observe if observe is not None else edge_persistence
+        self.observe = observe if observe is not None else (
+            edge_persistence if identity == "support" else self._lineage_persistence)
         self.phi: dict[int, float] = {}
         self._pending = None                          # (region_indices, rex_at_predict)
+
+    def _keys(self, rex):
+        if self.identity == "support":
+            return _keys_of(rex)
+        ids = np.asarray(rex.relation_ids)
+        if ids.ndim != 1 or len(ids) != rex.nE or len(set(ids.tolist())) != len(ids):
+            raise ValueError("online lineage requires distinct primary relation IDs")
+        return ids
+
+    def _lineage_persistence(self, region, rex, rex_next):
+        current, following = self._keys(rex), set(self._keys(rex_next).tolist())
+        return np.asarray([float(int(current[int(i)]) in following) for i in region], dtype=np.float64)
 
     def _sparse_L_C(self, rex):
         """Instance level bounded cache over the module level `_sparse_L_C(rex)`
@@ -96,7 +112,7 @@ class GreensCochainField:
         """Green's-propagate the settled field onto the region and record it BEFORE
         observation. Writes the propagated field back into phi by key; returns the
         predicted values at `region`."""
-        keys = _keys_of(rex)
+        keys = self._keys(rex)
         phi_vec = self._phi_vec(keys)
         region = np.asarray(region, dtype=np.int64)
         L = self._sparse_L_C(rex)
@@ -110,7 +126,7 @@ class GreensCochainField:
     def correct(self, rex, region, target) -> dict[str, object]:
         """One Green's-preconditioned relational correction of phi toward `target`
         over `region`. Reports pred/target/error(updated)."""
-        keys = _keys_of(rex)
+        keys = self._keys(rex)
         phi_vec = self._phi_vec(keys)
         region = np.asarray(region, dtype=np.int64)
         target = np.asarray(target, dtype=np.float64)

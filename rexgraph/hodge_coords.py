@@ -200,58 +200,69 @@ def coordinate_dims(rex, *, frame=None):
 
 
 def _exact_ints(values, what):
-    """`Fraction` of each value, refusing to round one that is not already integral.
-
-    Every exact reading here rests on the frame being integer, and the frame is
-    integer only while its coefficients can be represented exactly. Native
-    `_face_reduced_frame` now refuses an inexact float carrier. A supplied
-    floating frame must still be checked: rounding it silently returns a plausible
-    integer for a quantity that is not one --
-    a half integer frame on K5 gave det 1 for a true determinant of 0.0305, so it
-    is refused loudly instead. Convert deliberately, or read the float path.
-    """
+    """Preserve supplied integers and reject nonintegral frame coefficients."""
     from fractions import Fraction
+    from numbers import Integral, Real
+    from math import isfinite
 
-    arr = np.asarray(values, dtype=_f64)
-    if not np.array_equal(arr, np.round(arr)):
-        worst = float(np.abs(arr - np.round(arr)).max())
-        raise ValueError(
-            f"{what} is not integral (off by {worst:.3g}), so an exact reading of it "
-            "would be a rounded guess. Supply an integral frame for exact readings.")
-    flat = [Fraction(int(round(x))) for x in arr.ravel()]
-    if arr.ndim == 0:
-        return flat[0]
-    out, k = [], 0
-    for _ in range(arr.shape[0]):
-        row = flat[k:k + (arr.shape[1] if arr.ndim > 1 else 1)]
-        k += len(row)
-        out.append(row if arr.ndim > 1 else row[0])
-    return out
+    arr = np.asarray(values, dtype=object)
+    converted = []
+    for value in arr.flat:
+        if isinstance(value, (bool, np.bool_)):
+            raise TypeError(f"{what} requires integer coefficients")
+        if isinstance(value, Integral):
+            result = Fraction(int(value))
+        elif isinstance(value, Fraction) and value.denominator == 1:
+            result = value
+        elif isinstance(value, Real) and isfinite(value) and abs(value) <= 2**53 and value == int(value):
+            result = Fraction(int(value))
+        else:
+            raise ValueError(f"{what} is not integral or has no certified integer representation")
+        converted.append(result)
+    result = np.asarray(converted, dtype=object).reshape(arr.shape)
+    return result.item() if arr.ndim == 0 else result.tolist()
+
+
+def _exact_frame(frame):
+    """Read integer frame entries before any product can round or overflow."""
+    from rexgraph.exact_green import ExactSparse
+    if hasattr(frame, "tocoo"):
+        coo = frame.tocoo()
+        coefficients = _exact_ints(coo.data, "the harmonic frame")
+        entries = {}
+        for i, j, value in zip(coo.row, coo.col, coefficients, strict=True):
+            key = int(i), int(j)
+            entries[key] = entries.get(key, 0) + value
+        return ExactSparse(*frame.shape, entries)
+    original = np.asarray(frame, dtype=object)
+    values = np.asarray(_exact_ints(frame, "the harmonic frame"), dtype=object).reshape(original.shape)
+    if values.ndim != 2:
+        raise ValueError("the harmonic frame must have two axes")
+    return ExactSparse(*values.shape, {index: v for index, v in np.ndenumerate(values) if v})
+
+
+def _frame_gram(frame):
+    from rexgraph.exact_green import ExactSparse
+    rows = {}
+    for (i, j), value in frame.entries.items():
+        rows.setdefault(i, []).append((j, value))
+    entries = {}
+    for row in rows.values():
+        for i, left in row:
+            for j, right in row:
+                key = i, j
+                entries[key] = entries.get(key, 0) + left * right
+    return ExactSparse(frame.ncols, frame.ncols, entries)
 
 
 def _solve_gram(G, rhs, exact):
-    """`G^-1 rhs`, exactly over Fraction when asked."""
-    import scipy.sparse.linalg as sla
+    """Apply a Gram solve under the selected arithmetic contract."""
     if not exact:
+        import scipy.sparse.linalg as sla
         return sla.spsolve(G.tocsc(), rhs)
-
-    n = G.shape[0]
-    M = np.asarray(G.todense() if hasattr(G, "todense") else G)
-    _rows = _exact_ints(np.column_stack([np.asarray(M, dtype=_f64),
-                                         np.asarray(rhs, dtype=_f64).reshape(-1, 1)]),
-                        "the harmonic Gram and right-hand side")
-    A = [list(_rows[i])
-         for i in range(n)]
-    for i in range(n):
-        pv = next(k for k in range(i, n) if A[k][i] != 0)
-        A[i], A[pv] = A[pv], A[i]
-        d = A[i][i]
-        A[i] = [x / d for x in A[i]]
-        for k in range(n):
-            if k != i and A[k][i] != 0:
-                f = A[k][i]
-                A[k] = [a - f * b for a, b in zip(A[k], A[i], strict=False)]
-    return [A[i][n] for i in range(n)]
+    matrix = _exact_frame(G)
+    values = np.asarray(_exact_ints(rhs, "the harmonic Gram right hand side"), dtype=object).reshape(-1)
+    return list(matrix.solve(values.tolist()))
 
 
 def harmonic_structure_constants(rex, i, j, *, frame=None, exact=False):
@@ -266,6 +277,15 @@ def harmonic_structure_constants(rex, i, j, *, frame=None, exact=False):
     One pair at a time. The full table is dim_H cubed, so it is the caller's
     choice to build.
     """
+    if exact:
+        from fractions import Fraction
+        H = _exact_frame(harmonic_frame(rex) if frame is None else frame)
+        if not 0 <= i < H.ncols or not 0 <= j < H.ncols:
+            raise IndexError("harmonic frame column is outside the declared space")
+        product = tuple(H.entries.get((row, i), Fraction(0)) * H.entries.get((row, j), Fraction(0))
+                        for row in range(H.nrows))
+        return list(_frame_gram(H).solve(H.T.apply(product)))
+
     import scipy.sparse as sp
 
     H = harmonic_frame(rex) if frame is None else frame
@@ -297,6 +317,26 @@ def harmonic_closure(rex, *, frame=None, exact=False):
     `exact` runs a rational Gram solve per column and costs orders of magnitude
     more as dim_H grows (measured 158x float at dim_H 58, 20000x at 398).
     """
+    if exact:
+        from fractions import Fraction
+        H = _exact_frame(harmonic_frame(rex) if frame is None else frame)
+        G = _frame_gram(H)
+        result = []
+        for i in range(H.ncols):
+            row_values = []
+            for j in range(H.ncols):
+                product = tuple(H.entries.get((row, i), Fraction(0)) * H.entries.get((row, j), Fraction(0))
+                                for row in range(H.nrows))
+                norm = sum((v*v for v in product), Fraction(0))
+                if not norm:
+                    row_values.append(Fraction(0))
+                    continue
+                q = H.T.apply(product)
+                x = G.solve(q)
+                row_values.append(sum((a*b for a, b in zip(q, x, strict=True)), Fraction(0)) / norm)
+            result.append(row_values)
+        return result if H.ncols else np.zeros((0, 0), dtype=object)
+
     import scipy.sparse as sp
 
     H = harmonic_frame(rex) if frame is None else frame
@@ -360,8 +400,9 @@ def harmonic_gram_det(rex, *, frame=None):
     H = harmonic_frame(rex) if frame is None else frame
     if H.shape[1] == 0:
         return 1
-    G = np.asarray(harmonic_metric(rex, frame=H).todense())
-    d = bareiss_determinant(_exact_ints(G, "the harmonic frame Gram"))
+    G = _frame_gram(_exact_frame(H))
+    rows = [[G.entries.get((i, j), 0) for j in range(G.ncols)] for i in range(G.nrows)]
+    d = bareiss_determinant(rows)
     return int(d) if d.denominator == 1 else d
 
 

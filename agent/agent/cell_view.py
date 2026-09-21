@@ -84,7 +84,8 @@ def vertex_rows(rex, *, labels=None, signal=None, limit: int = 0,
     if signal is not None:
         sig = np.asarray(signal, dtype=float).ravel()
         if sig.shape[0] == int(rex.nE):
-            divergence = np.asarray(rex.B1 @ sig).ravel()
+            from rexgraph.core._sparse import to_scipy_csr
+            divergence = np.asarray(to_scipy_csr(rex.B1_sparse) @ sig).ravel()
 
     n = nV if not limit else min(nV, int(limit))
     rows = []

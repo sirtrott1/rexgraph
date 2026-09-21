@@ -162,7 +162,7 @@ def _gradient_energy_per_sentence(rex, edge_spans, n_sents):
     # dense eigendecomposition of RL through spectral_bundle) - a per chunk hot loop.
     try:
         from rexgraph import scale_propagator as _spg
-        RL = rex.relational_laplacian
+        RL = rex.relational_laplacian_sparse
         if RL is None:
             RL = rex.L1_sparse
         times = np.array([0.1, 1.0, 5.0], dtype=np.float64)

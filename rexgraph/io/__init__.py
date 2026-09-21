@@ -504,3 +504,6 @@ register_format(
 
 __all__ += ["register_format", "unregister_format", "available_formats",
             "format_extensions"]
+
+from .model_record import model_record, read_model_record, model_history, read_model_history, save_model, load_model
+__all__ += ["model_record", "read_model_record", "model_history", "read_model_history", "save_model", "load_model"]

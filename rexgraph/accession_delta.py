@@ -8,7 +8,7 @@ from rexgraph.cells import cell_count
 from rexgraph.type_accession import TypeAccession
 
 
-def validate_accession_delta(old, new, correspondence):
+def validate_accession_delta(old, new, correspondence, output_correspondence=None):
     """Check axes and source states without computing either matrix product."""
     mapping = validate_correspondence(correspondence)
     if not isinstance(old, TypeAccession) or not isinstance(new, TypeAccession):
@@ -22,26 +22,36 @@ def validate_accession_delta(old, new, correspondence):
             raise TypeError("accession delta requires integer or rational measurements")
         if value.cell_keys is not None or value.n_cells != cell_count(value.source, value.grade):
             raise ValueError("accession delta requires current canonical ambient axes")
-    if old.coordinates != new.coordinates:
-        raise ValueError("rectangular accession delta requires the same declared output coordinates")
+    if output_correspondence is None:
+        if old.coordinates != new.coordinates:
+            raise ValueError("rectangular accession delta requires the same declared output coordinates")
+    else:
+        from rexgraph.coordinate_map import CoordinateMap
+        left = old.coordinates or mapping.domain.spaces[old.grade]
+        right = new.coordinates or mapping.codomain.spaces[new.grade]
+        if (not isinstance(output_correspondence, CoordinateMap)
+                or output_correspondence.domain != left or output_correspondence.codomain != right):
+            raise ValueError("output correspondence must match both accession output spaces")
     return mapping
 
 
-def accession_delta(old, new, correspondence):
-    """Return A_new J minus J A_old, or A_new J minus A_old on a shared output.
+def accession_delta(old, new, correspondence, output_correspondence=None):
+    """Return the sparse accession defect on declared endpoint coordinates.
 
-    Ambient endomorphisms use the supplied J on both axes. Rectangular
-    measurements instead require identical named output coordinates, declaring
-    identity correspondence on that output. No output map, time interval,
-    projection property or chain preservation of an accession is inferred.
-    Products reuse the Core exact sparse column composition. Storage follows
-    actual product support; fill is possible and no dense matrix is allocated.
+    An explicit output map K gives A_new J minus K A_old. Without K,
+    ambient maps retain the existing J convention and named outputs use identity.
     """
-    mapping = validate_accession_delta(old, new, correspondence)
+    mapping = validate_accession_delta(old, new, correspondence, output_correspondence)
     grade = old.grade
     j = _columns(mapping.components[grade], old.n_cells)
     left = _exact_compose_columns(_columns(new.entries, new.n_cells), j)
-    if old.coordinates is None:
+    if output_correspondence is not None:
+        right = _exact_compose_columns(
+            _columns(output_correspondence.entries, output_correspondence.shape[1]),
+            _columns(old.entries, old.n_cells))
+        target = output_correspondence.codomain
+        formula = "A_new J - K A_old"
+    elif old.coordinates is None:
         right = _exact_compose_columns(j, _columns(old.entries, old.n_cells))
         target = mapping.codomain.spaces[grade]
         formula = "A_new J - J A_old"
@@ -58,10 +68,13 @@ def accession_delta(old, new, correspondence):
                 del difference[row]
         columns.append(difference)
     domain = mapping.domain.spaces[grade]
-    return {"grade": grade, "shape": (len(target.keys), old.n_cells),
+    result = {"grade": grade, "shape": (len(target.keys), old.n_cells),
             "entries": _triples(columns), "implicit_zero": Fraction(0),
             "domain_name": domain.name, "domain_keys": domain.keys,
             "codomain_name": target.name, "codomain_keys": target.keys,
             "formula": formula, "coefficient_domain": "Q",
             "old_accession_digest": old.coefficient_digest, "new_accession_digest": new.coefficient_digest,
             "correspondence_digest": mapping.coefficient_digest}
+    if output_correspondence is not None:
+        result["output_correspondence_digest"] = output_correspondence.coefficient_digest
+    return result

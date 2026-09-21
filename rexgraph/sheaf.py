@@ -752,6 +752,12 @@ class ExactSheaf:
                     left_cell, cell, mediator, left, right, residual))
         return ExactSectionCheck(len(transported), comparisons, tuple(obstructions))
 
+    def section_system(self, *, name="section", stalk_spaces=None, mediator_spaces=None, source=None):
+        """Compile retained compatibility equations for exact section completion."""
+        from rexgraph.section_calculus import SectionSystem
+        return SectionSystem.from_sheaf(self, name=name, stalk_spaces=stalk_spaces,
+                                       mediator_spaces=mediator_spaces, source=source)
+
     def undeclared_restrictions(self) -> tuple[tuple[int, int], ...]:
         """Incidences that would inherit identity if this section were not strict."""
         return tuple(

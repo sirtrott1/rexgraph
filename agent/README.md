@@ -506,6 +506,30 @@ on a GPU deploys unchanged to CPU.
 | `rexgraph-test` | platform smoke tests |
 
 
+## External readers
+
+Dataset adapters, source clients and ontology mappings belong in external
+packages. A reader can return `agent.adapters.EdgeConstruction`, retaining
+primary relation supports, source identity and structured cell attributes.
+Use `agent.auto.build_rex_from_edges` to construct the native object.
+
+For file dispatch, register the external reader explicitly:
+
+```python
+from agent.adapters.formats import register_reader, read, unregister_reader
+from my_readers import load_records
+
+register_reader("my_records", load_records, extensions=(".records",))
+try:
+    construction = read("input.records", source_release=selected_release)
+finally:
+    unregister_reader("my_records")
+```
+
+Importing RexGraph does not register dataset readers. External readers own
+source interpretation and mappings; native construction, RCQL execution and
+RCDB persistence use the existing platform owners.
+
 ## License
 
 Apache License 2.0

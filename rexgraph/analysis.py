@@ -1178,8 +1178,12 @@ def analyze(
         # RCFE curvature
         curv = rex.rcfe_curvature
         strain = rex.rcfe_strain
+        from rexgraph.core._sparse import to_scipy_csr
+        B2h = rex.B2_hodge_sparse
         bianchi_ok, bianchi_res = _rcfe.verify_bianchi(
-            rex.B1, rex.B2_hodge, curv, nE, rex.nF_hodge)
+            to_scipy_csr(rex.B1_sparse),
+            to_scipy_csr(B2h) if B2h is not None else None,
+            curv, nE, rex.nF_hodge)
 
         export["rcfe"] = {
             "curvature": [_round(float(c), 6) for c in curv],

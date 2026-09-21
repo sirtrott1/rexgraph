@@ -72,9 +72,16 @@ def bridge_mask(rex) -> np.ndarray:
     if nE == 0:
         return np.zeros(0, dtype=bool)
     if not rex._is_standard_only:
-        from rexgraph.faces import cycle_basis
+        from rexgraph.faces import _cycle_kernel_sparse, _edge_supports, cycle_basis
 
         supported = np.zeros(nE, dtype=bool)
+        if any(len(s) != 2 for s in _edge_supports(rex)):
+            # The exact kernel is already sparse; `cycle_basis` would expand each of
+            # its vectors to a length nE coordinate list only to be scanned here.
+            for vector in _cycle_kernel_sparse(rex):
+                for e in vector:
+                    supported[e] = True
+            return ~supported
         for column in cycle_basis(rex):
             for e, coefficient in enumerate(column):
                 if coefficient:

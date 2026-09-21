@@ -75,7 +75,7 @@ jobs:
         run: pip install -e "rcdb/[sql,objectstore,crypto]"
 
       - name: install rexgraph-agent
-        run: pip install -e "agent/[server]"
+        run: pip install -e "agent/[server,molecules]"
 
       - name: install query language and System
         run: pip install -e ./rcql -e "./system[dev]"
@@ -95,7 +95,7 @@ jobs:
           if [ "$RUNNER_OS" != "macOS" ]; then
             pip install --index-url https://download.pytorch.org/whl/cpu torch
           fi
-          pip install safetensors fsspec pytest trove-classifiers
+          pip install safetensors fsspec pytest trove-classifiers sympy
 
       # from the repo root on purpose. The editable install serves the package through
       # meson-python's import finder, and the root conftest.py points rexgraph.__path__

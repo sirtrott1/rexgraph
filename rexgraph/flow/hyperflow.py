@@ -295,8 +295,13 @@ class FlowComplex:
         across a grade and never leaves it where it was. That is equiweight
         (Gamma D + D Gamma = 0) as an operation rather than an identity on paper.
         """
+        from rexgraph.dirac_propagator import dirac_from_rex
+
+        sd = dirac_from_rex(self.rex)
         psi = np.asarray(psi, dtype=float).ravel()
-        return np.asarray(self.rex.dirac_operator, dtype=float) @ psi
+        if psi.shape[0] != sd.N:
+            raise ValueError(f"state must have one entry per cell ({sd.N})")
+        return sd.matvec(psi)
 
     def propagate(self, psi, t: float, order: int = 60):
         """The unitary (wave) propagator e^{-itD}, returning (real, imaginary).

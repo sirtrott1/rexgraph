@@ -897,3 +897,11 @@ register_reader("loom", load_loom, extensions=[".loom"])
 from .ontology_formats import register as _register_ontology_readers  # noqa: E402
 
 _register_ontology_readers(register_reader)
+
+from .annotations import register as _register_annotation_readers
+
+_register_annotation_readers(register_reader)
+
+from .smiles import register as _register_smiles_readers
+
+_register_smiles_readers(register_reader)

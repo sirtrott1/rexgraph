@@ -62,5 +62,24 @@ class RCQLRuntime:
             bound = dict(self._sources)
         return Executor(sources=bound, params=params).execute(query)
 
+    def execute_program(self, program, *, params=None, explain=False, scheduler=None, evidence=None):
+        """Run a finite typed program under the current source policies."""
+        from rcql import Program
+        if not isinstance(program, Program):
+            raise TypeError("agent program execution requires a typed Program")
+        with self._lock:
+            bound = dict(self._sources)
+        return Executor(sources=bound, params=params, scheduler=scheduler,
+                        evidence=evidence).execute_program(program, explain=explain)
+
+    def execute_recursive(self, program, entry, arguments, *, source, limits=None,
+                          history=True, memoize=True, explain=False, evidence=None):
+        """Execute a typed recursive group under the existing bound policies."""
+        with self._lock:
+            bound = dict(self._sources)
+        return Executor(sources=bound, evidence=evidence).execute_recursive(
+            program, entry, arguments, source=source, limits=limits,
+            history=history, memoize=memoize, explain=explain)
+
 
 rcql_runtime = RCQLRuntime()

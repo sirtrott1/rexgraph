@@ -1,4 +1,4 @@
-"""Exact down and up correspondence defects in identity coordinate metrics."""
+"""Exact boundary defects with explicit optional endpoint metric towers."""
 from fractions import Fraction
 
 import numpy as np
@@ -19,14 +19,10 @@ def validate_correspondence(value):
     return value
 
 
-def _defect_fields(field, correspondence):
-    """Apply B'J-JB and (B') transpose J-J B transpose, over Q.
-
-    Endpoint metrics are explicitly identity. A supplied map need not preserve
-    either square, and no equality of endpoint cell counts is assumed. The
-    returned arrays live on named target coordinates, not the source basis.
-    """
+def _defect_fields(field, correspondence, *, metrics=None):
+    """Apply the lower and metric adjoint defects without assembling operators."""
     mapping = validate_correspondence(correspondence)
+    validate_temporal_metrics(mapping, metrics)
     if not isinstance(field, Chain) or field.source is not mapping.domain.source or field.source is None:
         raise TypeError("field delta requires a Chain bound to the correspondence domain Rex")
     if field.cell_keys is not None:
@@ -53,19 +49,36 @@ def _defect_fields(field, correspondence):
         down = (action(right.boundaries[k-1], right.sizes[k-1], right.sizes[k], mapped)
                 - action(mapping.components[k-1], right.sizes[k-1], left.sizes[k-1], before))
     if k + 1 < len(left.sizes):
-        before = action(left.boundaries[k], left.sizes[k], left.sizes[k+1], values, True)
-        up = (action(right.boundaries[k], right.sizes[k], right.sizes[k+1], mapped, True)
-              - action(mapping.components[k+1], right.sizes[k+1], left.sizes[k+1], before))
+        if metrics is None:
+            before = action(left.boundaries[k], left.sizes[k], left.sizes[k+1], values, True)
+            after = action(right.boundaries[k], right.sizes[k], right.sizes[k+1], mapped, True)
+        else:
+            before = metrics.old[k+1].solve(action(
+                left.boundaries[k], left.sizes[k], left.sizes[k+1], metrics.old[k].apply(values), True))
+            after = metrics.new[k+1].solve(action(
+                right.boundaries[k], right.sizes[k], right.sizes[k+1], metrics.new[k].apply(mapped), True))
+        up = after - action(mapping.components[k+1], right.sizes[k+1], left.sizes[k+1], before)
     return mapping, k, down, up
 
 
-def _quadrances(down, up):
-    return tuple(_diagonal_contraction(v, v, (Fraction(1),)*len(v), exact=True) for v in (down, up))
+def validate_temporal_metrics(mapping, metrics):
+    if metrics is not None:
+        from rexgraph.temporal_calculus import TemporalMetrics
+        if not isinstance(metrics, TemporalMetrics):
+            raise TypeError("endpoint metrics require a TemporalMetrics declaration")
+        metrics.check(mapping)
 
 
-def field_delta(field, correspondence):
+def _quadrances(down, up, metrics=None, grade=None):
+    if metrics is None:
+        return tuple(_diagonal_contraction(v, v, (Fraction(1),)*len(v), exact=True) for v in (down, up))
+    return tuple(metrics.new[k].moment(v, v) if 0 <= k < len(metrics.new) else Fraction(0)
+                 for k, v in ((grade-1, down), (grade+1, up)))
+
+
+def field_delta(field, correspondence, *, metrics=None):
     """Return exact defects with their target coordinate names and quadrances."""
-    mapping, k, down, up = _defect_fields(field, correspondence)
+    mapping, k, down, up = _defect_fields(field, correspondence, metrics=metrics)
     left, right = mapping.domain, mapping.codomain
 
     def describe(vector, grade):
@@ -74,20 +87,23 @@ def field_delta(field, correspondence):
                 "keys": () if space is None else space.keys, "shape": vector.shape,
                 "values": tuple(vector.tolist()), "implicit_zero": 0}
 
-    qdown, qup = _quadrances(down, up)
-    return {"down": describe(down, k-1), "up": describe(up, k+1),
+    qdown, qup = _quadrances(down, up, metrics, k)
+    result = {"down": describe(down, k-1), "up": describe(up, k+1),
             "down_quadrance": qdown, "up_quadrance": qup,
             "moment": qdown + qup, "oriented_moment": qdown - qup,
-            "grade": k, "metrics": "identity", "coefficient_domain": "Q",
+            "grade": k, "metrics": "identity" if metrics is None else "declared", "coefficient_domain": "Q",
             "correspondence_digest": mapping.coefficient_digest,
             "source_boundary_digest": left.coefficient_digest,
             "target_boundary_digest": right.coefficient_digest}
+    if metrics is not None:
+        result["metric_digest"] = metrics.coefficient_digest
+    return result
 
 
-def field_delta_moment(field, correspondence, *, oriented=False):
+def field_delta_moment(field, correspondence, *, oriented=False, metrics=None):
     """Contract the defect arrays without constructing diagnostic coordinate records."""
     if not isinstance(oriented, bool):
         raise TypeError("oriented must be a boolean")
-    _, _, down, up = _defect_fields(field, correspondence)
-    qdown, qup = _quadrances(down, up)
+    _, k, down, up = _defect_fields(field, correspondence, metrics=metrics)
+    qdown, qup = _quadrances(down, up, metrics, k)
     return qdown - qup if oriented else qdown + qup

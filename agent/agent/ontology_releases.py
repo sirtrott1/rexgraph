@@ -194,14 +194,22 @@ def navigate(releases, *, gate=None) -> dict:
     used once. Reusing one across two series would blend the first series' baseline
     into the second.
     """
-    from rexgraph.flow.navigator import FieldNavigator
+    from rexgraph.flow.navigator import FieldNavigator, changed_edges, removed_region_for
 
     temporal, vocab = temporal_complex(releases)
     nav = FieldNavigator(gate=gate)
     steps = []
+    prev = None
     for t in range(int(temporal.T)):
         rex = temporal.reconstruct_at(t)
-        out = nav.step(rex)
+        # The change against the previous release is what localizes a surprise, as in
+        # FieldNavigator.run; without it every event's region is the whole complex.
+        if prev is None:
+            out = nav.step(rex)
+        else:
+            change = changed_edges(prev, rex)
+            out = nav.step(rex, change, removed_region_for(prev, rex, change.removed))
+        prev = rex
         steps.append({
             "t": t,
             "release": releases[t].label if t < len(releases) else str(t),

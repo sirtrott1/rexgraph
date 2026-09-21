@@ -59,6 +59,17 @@ class CoordinateDescriptor:
 
 
 @dataclass(frozen=True)
+class CoordinateActionDescriptor:
+    """Named endpoints and the identity of a retained exact action."""
+
+    domain: CoordinateDescriptor
+    codomain: CoordinateDescriptor
+    shape: tuple[int, int]
+    coefficient_digest: str
+    construction: str
+
+
+@dataclass(frozen=True)
 class AccessionDescriptor:
     """A type axis and declared measurement map, separate from the ambient basis."""
 
@@ -265,6 +276,17 @@ class ValueKind(str, Enum):
     TEXT = "Text"
     BYTES = "Bytes"
 
+    NAME_RELATION = "NameRelation"
+    PROGRAM_TRANSFORMATION = "ProgramTransformation"
+    RECURSIVE_PROGRAM = "RecursiveProgram"
+    RECURSION_RESULT = "RecursionResult"
+    AFFINE_FEEDBACK = "AffineFeedback"
+    PROGRAM = "Program"
+    PROGRAM_RESULT = "ProgramResult"
+    PROGRAM_ASSEMBLY = "ProgramAssembly"
+    PROGRAM_FAMILY = "ProgramFamily"
+    PROGRAM_EVOLUTION = "ProgramEvolution"
+
     # cells
     CELL = "Cell"
     CELL_SET = "CellSet"
@@ -292,6 +314,26 @@ class ValueKind(str, Enum):
     TYPE_ACCESSION = "TypeAccession"
     CROSS_METRIC = "CrossMetric"
     FAMILY_METRIC = "FamilyMetric"
+    COORDINATE_MAP = "CoordinateMap"
+    COORDINATE_METRIC = "CoordinateMetric"
+    COORDINATE_FIELD = "CoordinateField"
+    TEMPORAL_METRICS = "TemporalMetrics"
+    TEMPORAL_OPERATION = "TemporalOperation"
+    TEMPORAL_WORD = "TemporalWord"
+    MOMENT_KERNEL = "MomentKernel"
+    TENSOR_FIELD = "TensorField"
+    NATIVE_FIELD_CALCULUS = "NativeFieldCalculus"
+    TENSOR_KERNEL = "TensorKernel"
+    TENSOR_MOMENTS = "TensorMoments"
+    MOMENT_SPAN = "MomentSpan"
+    TENSOR_CHANNELS = "TensorChannels"
+    TENSOR_EVOLUTION = "TensorEvolution"
+    SECTOR_TRANSPORT = "SectorTransport"
+    MOMENT_CHANGE = "MomentChange"
+    ATTACHMENT_FIELD = "AttachmentField"
+    ATTACHMENT_OBSERVATION = "AttachmentObservation"
+    TENSOR_PAIRING = "TensorPairing"
+    RECONSTRUCTION_FAMILY = "ReconstructionFamily"
     GRADED_MAP = "GradedMap"
     CHAIN_MAP = "ChainMap"
     CHAIN_HOMOTOPY = "ChainHomotopy"
@@ -299,6 +341,15 @@ class ValueKind(str, Enum):
     TYPE_VIEW = "TypeView"
     TYPED_FAMILY = "TypedFamily"
     MOMENT_TENSOR = "TypedMomentTensor"
+    MODEL_INPUT = "ModelInput"
+    MODEL_OUTPUT = "ModelOutput"
+    MODEL_VALUES = "ModelValues"
+    MODEL_BATCH = "ModelBatch"
+    MODEL_TIMELINE = "ModelTimeline"
+    SECTION_SYSTEM = "SectionSystem"
+    SECTION_RECIPE = "SectionRecipe"
+    SECTION_FAMILY = "SectionFamily"
+    SECTION_IMAGE = "SectionImage"
     EXACT_SHEAF = "ExactSheaf"
     EXACT_GLUE = "ExactGlueResult"
     EXACT_SECTION_CHECK = "ExactSectionCheck"
@@ -427,6 +478,15 @@ class RCType:
     graded_map: GradedMapDescriptor | None = None
     graded_operator: GradedOperatorDescriptor | None = None
     graded_bases: tuple[BasisRef, ...] = ()
+    coordinate_action: CoordinateActionDescriptor | None = None
+    coordinates: CoordinateDescriptor | None = None
+    declaration_digest: str | None = None
+    tensor_axes: tuple[CoordinateDescriptor, ...] | None = None
+    program_outputs: tuple[RCType, ...] | None = None
+    program_declaration: bytes | None = None
+    name_declaration: bytes | None = None
+    recursive_declaration: bytes | None = None
+    transformation_declaration: bytes | None = None
 
     def with_(self, **changes) -> RCType:
         """A copy with fields replaced, since a type is immutable once inferred."""

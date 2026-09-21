@@ -1612,3 +1612,27 @@ from .turn_contracts import install as _install_turn_signatures
 _install_turn_signatures(register)
 
 _install_artifact_signatures(register)
+
+from .coordinate_contracts import install as _install_coordinate_signatures
+_install_coordinate_signatures(register)
+
+from .tensor_contracts import install as _install_tensor_signatures
+_install_tensor_signatures(register)
+
+from .section_contracts import install as _install_section_signatures
+_install_section_signatures(register)
+
+from .model_contracts import install as _install_model_signatures
+_install_model_signatures(register)
+
+from .molecular_contracts import install as _install_molecular_signatures
+_install_molecular_signatures(register)
+
+from .program_contracts import install as _install_program_signatures
+_install_program_signatures(register, OperatorSignature, TypePattern)
+
+from .recursion_contracts import install as _install_recursion_signatures
+_install_recursion_signatures(register, OperatorSignature, TypePattern)
+
+from .transformation_contracts import install as _install_transformation_signatures
+_install_transformation_signatures(register, OperatorSignature, TypePattern)

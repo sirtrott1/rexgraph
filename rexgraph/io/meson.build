@@ -22,6 +22,8 @@ py.install_sources(
         'replication.py',
         'rcbf.py',
         'rex_state.py',
+        'span_state.py',
+    'field_state.py', 'section_state.py', 'model_state.py', 'model_record.py',
         'safetensors_bridge.py',
         'security.py',
         'sql_bridge.py',

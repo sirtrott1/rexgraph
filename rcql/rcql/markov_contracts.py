@@ -4,6 +4,7 @@ from fractions import Fraction
 from .types import BasisRef, Domain, Exactness, OperatorDescriptor, PredicateResult, RCType, ShapeRef, ValueKind, Variance
 
 ARGUMENTS = {"MARKOV_VIEW": (("grade",), (0,)),
+             "PAGERANK_EXACT": (("view", "damping", "seed"), (Fraction(17,20), None)),
              "PAGERANK": (("view", "damping", "seed", "tol", "maxiter"), (0.85, None, 1e-10, 1000))}
 
 
@@ -31,6 +32,21 @@ def rank_result(args):
         shape=ShapeRef((view.operator.shape[0],)), exactness=Exactness.APPROXIMATE)
 
 
+def exact_rank_result(args):
+    view = args[0]
+    if view.operator is None or view.operator.construction != "markov-view":
+        raise TypeError("exact PageRank requires an explicit MARKOV_VIEW")
+    damping, seed = (*args[1:], *ARGUMENTS["PAGERANK_EXACT"][1][len(args)-1:])
+    from rexgraph.ranking_response import _damping
+    _damping(damping)
+    if seed is not None and (seed.grade != 0 or seed.basis != view.operator.domain
+            or seed.variance is not Variance.COCHAIN or seed.shape.dims != (view.operator.shape[0],)):
+        raise TypeError("exact PageRank seed requires one canonical C0 Cochain vector")
+    return RCType("Cochain", kind=ValueKind.COCHAIN, grade=0, variance=Variance.COCHAIN,
+        source=view.source, basis=view.operator.domain, domain=Domain.RATIONAL,
+        shape=ShapeRef((view.operator.shape[0],)), exactness=Exactness.RATIONAL)
+
+
 def refine(typed, children, context):
     if not context.native:
         raise TypeError("Markov action requires a native Rex source")
@@ -41,6 +57,9 @@ def refine(typed, children, context):
         validate_markov_source(context.binding.value, *args)
         desc = descriptor(context.binding.ref, int(context.binding.value.nV))
         result = result.with_(operator=desc, shape=ShapeRef(desc.shape))
+    if typed.operator == "PAGERANK_EXACT":
+        return result, [PredicateResult("ranking_equation", "deferred",
+            "sparse rational solve with exact residual, mass and positivity checks")]
     return result, [PredicateResult("native_participation", "verified",
         "C0 action through the primary tensor; uniform dangling mass, relation metrics, complete source retained"),
         PredicateResult("pagerank_solve", "deferred",
@@ -68,3 +87,14 @@ def install(register):
         result=rank_result, memoizable=True, implementation_key="rexgraph.markov.pagerank",
         preconditions=("numerical C0 fixed point; restart is uniform or an explicit nonnegative Cochain",
                        "0<=damping<1; measured residual/(1-damping)<=tol or refusal")))
+
+    register(OperatorSignature(name="PAGERANK_EXACT", source_kind=ValueKind.REX,
+        inputs=(TypePattern("view", kind=ValueKind.OPERATOR, source_bound=True, basis_bound=True),
+                TypePattern("damping", literal=(int, Fraction), optional=True),
+                TypePattern("seed", kind=(ValueKind.COCHAIN, ValueKind.FIELD), literal=type(None),
+                            source_bound=True, basis_bound=True,
+                            domain=(Domain.INTEGER, Domain.RATIONAL), optional=True)),
+        result=exact_rank_result, memoizable=True,
+        implementation_key="rexgraph.ranking_response.exact_pagerank",
+        preconditions=("rational C0 fixed point on the explicitly selected native participation view",
+                       "nonnegative rational seed and damping in [0, 1); no approximate fallback")))

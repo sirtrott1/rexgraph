@@ -103,8 +103,14 @@ def execute_match(executor, source, plan):
     slot_ids = [next(n.id for n in dag.nodes if isinstance(n.expression.expr, Parameter)
                      and n.expression.expr.name == slot) for slot in plan.slots]
     observations = []
+    shared = {}
+    dependencies = {}
+    for node in dag.nodes:
+        dependencies[node.id] = node.id in slot_ids or any(dependencies[c] for c in node.inputs)
+    invariant = {n.id for n in dag.nodes if n.reusable and not dependencies[n.id]}
 
     def evaluate(outputs, cache):
+        cache.update(shared)
         needed = set()
         def visit(key):
             if key in cache or key in needed:
@@ -117,18 +123,12 @@ def execute_match(executor, source, plan):
         fragment = replace(dag, nodes=tuple(n for n in dag.nodes if n.id in needed))
         _, readings = executor._execute_dag(fragment, source, computed=cache)
         observations.extend(readings)
+        shared.update((key, cache[key]) for key in needed if key in invariant)
         return tuple(cache[key] for key in outputs)
 
     seed = {}
     # LET is eager, even if the selected collection is empty or LIMIT is zero.
     evaluate([bindings[item.name] for item in query.bindings], seed)
-    # Pure row independent readings have one query local evaluation. Observable
-    # reads stay at their declared nesting level, not silently hoisted out.
-    dependencies = {}
-    for node in dag.nodes:
-        dependencies[node.id] = node.id in slot_ids or any(dependencies[c] for c in node.inputs)
-    invariant = [n.id for n in dag.nodes if n.reusable and not dependencies[n.id]]
-    evaluate(invariant, seed)
     n_order = len(query.order)
     def rows(depth, cache):
         if depth == len(slot_ids):

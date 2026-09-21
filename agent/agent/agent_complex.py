@@ -111,10 +111,12 @@ def slice_participants(rex, labels, keep):
     import numpy as _np
     want = keep if callable(keep) else (lambda n, _k=set(keep): n in _k)
     v_mask = _np.array([bool(want(n)) for n in labels], dtype=_np.uint8)
-    B1 = rex.B1
-    B1 = _np.asarray(B1.todense() if hasattr(B1, "todense") else B1)
-    inside = _np.array([bool(v_mask[_np.nonzero(B1[:, j])[0]].all())
-                        for j in range(rex.nE)], dtype=_np.uint8)
+    # A relation is inside when every participant in its declared support is kept,
+    # read from the boundary CSR rather than a dense B1.
+    bp = _np.asarray(rex.boundary_ptr)
+    held = v_mask[_np.asarray(rex.boundary_idx)].astype(bool)
+    inside = _np.array([bool(held[bp[j]:bp[j + 1]].all()) for j in range(rex.nE)],
+                       dtype=_np.uint8)
     return rex.subcomplex(v_mask=v_mask, e_mask=inside)
 
 

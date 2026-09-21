@@ -175,9 +175,9 @@ def test_deleting_what_is_not_there_is_false(store):
 
 # durability
 
+@pytest.mark.parametrize("store", ["file", "sql", "rex"], indirect=True)
 def test_a_persistent_store_survives_being_reopened(store, tmp_path):
-    if isinstance(store, rcdb.MemoryStore):
-        pytest.skip("memory is not persistent by construction")
+    """Durability belongs to the persistent backends; the memory store is not a case of it."""
     _put(store, "a", labels=["kept"] * 6)
     reopened = type(store)(store.root) if hasattr(store, "root") else \
         rcdb.open_store(store.uri) if hasattr(store, "uri") else None

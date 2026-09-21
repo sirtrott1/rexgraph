@@ -30,17 +30,32 @@ _TOKEN = re.compile(
 _INTEGER = re.compile(r'[+-]?[0-9]+\Z')
 
 
+def _syntax_error(text: str, message: str, position: int) -> SyntaxError:
+    start = text.rfind("\n", 0, position) + 1
+    end = text.find("\n", position)
+    line = text.count("\n", 0, position) + 1
+    excerpt = text[start:] if end < 0 else text[start:end + 1]
+    return SyntaxError(message, ("<rcql>", line, position - start + 1, excerpt))
+
+
 class _Parser:
     def __init__(self, text: str):
-        text = text.strip()
+        if not isinstance(text, str):
+            raise TypeError("RCQL input must be text")
+        self.text = text
         self.tokens = []
+        self.positions = []
         pos = 0
-        while pos < len(text):
+        stop = len(text.rstrip())
+        while pos < stop:
             match = _TOKEN.match(text, pos)
             if match is None:
-                raise SyntaxError(f"unexpected input at {text[pos:pos + 24]!r}")
+                while pos < stop and text[pos].isspace():
+                    pos += 1
+                raise _syntax_error(text, f"unexpected input at {text[pos:pos + 24]!r}", pos)
             kind = match.lastgroup
             self.tokens.append((kind, match.group(kind)))
+            self.positions.append(match.start(kind))
             pos = match.end()
         self.i = 0
         self.locals = set()
@@ -51,12 +66,17 @@ class _Parser:
         index = self.i + offset
         return self.tokens[index] if index < len(self.tokens) else (None, None)
 
+    def error(self, message, *, previous=False):
+        index = max(0, self.i - 1) if previous else self.i
+        position = self.positions[index] if index < len(self.positions) else len(self.text)
+        return _syntax_error(self.text, message, position)
+
     def take(self, value=None):
         token = self.peek()
         if token[0] is None:
-            raise SyntaxError("unexpected end of query")
+            raise self.error("unexpected end of query")
         if value is not None and token[1].upper() != value:
-            raise SyntaxError(f"expected {value}, got {token[1]}")
+            raise self.error(f"expected {value}, got {token[1]}")
         self.i += 1
         return token
 
@@ -177,6 +197,15 @@ class _Parser:
 def parse(text: str) -> Query | MutationQuery:
     """Parse FROM, ordered LET bindings and RETURN, with optional EXPLAIN."""
     parser = _Parser(text)
+    try:
+        return _parse(parser)
+    except SyntaxError as exc:
+        if exc.lineno is not None:
+            raise
+        raise parser.error(str(exc), previous=True) from exc
+
+
+def _parse(parser: _Parser) -> Query | MutationQuery:
     explain = False
     if parser.peek()[1] and parser.peek()[1].upper() == "EXPLAIN":
         parser.take("EXPLAIN")
@@ -237,7 +266,7 @@ def parse(text: str) -> Query | MutationQuery:
             fields["state"] = StructuralEdit(fields["state"], operation, parser.expr())
         parser.take("COMMIT")
         if parser.peek()[0] is not None:
-            raise SyntaxError(f"unexpected token {parser.peek()[1]}")
+            raise parser.error(f"unexpected token {parser.peek()[1]}")
         if "state" not in fields:
             raise SyntaxError("mutation requires SET state = expression")
         return MutationQuery(source, record_id, fields["state"],
@@ -311,6 +340,6 @@ def parse(text: str) -> Query | MutationQuery:
     if (where is not None or order or limit is not None or offset) and not matches:
         raise SyntaxError("WHERE/ORDER/LIMIT/OFFSET require MATCH bindings")
     if parser.peek()[0] is not None:
-        raise SyntaxError(f"unexpected token {parser.peek()[1]}")
+        raise parser.error(f"unexpected token {parser.peek()[1]}")
     return Query(source, tuple(returns), explain=explain, bindings=tuple(bindings), source_alias=parser.source_alias,
                  matches=tuple(matches), where=where, order=tuple(order), limit=limit, offset=offset)

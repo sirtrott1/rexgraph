@@ -336,12 +336,14 @@ def test_signature_requirements_preserve_the_previous_effective_permissions():
         "FILE_HASH": {"files", "file_read"}, "HASH_FILES": {"files", "file_read"},
         "TENSORS": {"files", "file_read"}, "TENSOR_MANIFEST": {"files", "file_read"}, "SEARCH": {"files", "search"},
         "SEARCH_TENSORS": {"files", "search"},
+        "MODEL_TRAIN": {"read", "train"},
     }
     for name in catalogued():
         assert lookup(name).requires == special.get(name, {"read"}), name
     reused = NATIVE_CASES.keys() | TEMPORAL_CASES.keys() | {"EXPORT_PARQUET"}
     assert {name for name in catalogued() if lookup(name).memoizable} == (
-        reused - {"STATE_HASH", "SHOW_OPERATORS", "APPLY_DELTA", "REPLICATE"}
+        reused - {"STATE_HASH", "SHOW_OPERATORS", "APPLY_DELTA", "REPLICATE",
+                  "PROGRAM_RUN", "PROGRAM_READ"}
     )
 
 

@@ -97,11 +97,20 @@ def verify_bianchi(B1, B2, curvature, Py_ssize_t nE, Py_ssize_t nF,
                     f64 tol=1e-10):
     """Verify B1 @ diag(C) @ B2 ~ 0.
 
-    The RCFE Bianchi identity: curvature is a cocycle.
+    The RCFE Bianchi identity: curvature is a cocycle. Sparse boundaries are
+    multiplied sparsely, so neither they nor diag(C) is materialized densely.
     """
 
     if nF == 0:
         return True, 0.0
+
+    import scipy.sparse as sp
+    cdef f64 max_err
+    if sp.issparse(B1) or sp.issparse(B2):
+        C = sp.diags(np.asarray(curvature, dtype=np.float64))
+        product = sp.csr_matrix(B1, dtype=np.float64) @ C @ sp.csr_matrix(B2, dtype=np.float64)
+        max_err = float(np.max(np.abs(product.data))) if product.nnz else 0.0
+        return max_err < tol, max_err
 
     B1_d = np.asarray(B1, dtype=np.float64)
 

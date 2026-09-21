@@ -142,6 +142,15 @@ if _HAS_TORCH:
         def predict(self) -> NDArray:
             return self.Z.argmax(1).cpu().numpy()
 
+        def checkpoint(self, *, optimizer=None, optimizer_spec=None, axes=None, reference=None, step=0):
+            """Capture native source, parameters and optional training continuation."""
+            from rexgraph.nn.lifecycle import capture_checkpoint
+            config = {"n_classes": int(self.Z.shape[1]), "green_lam": self.green_lam,
+                      "green_iters": self.green_iters, "green_channel": self.green_channel,
+                      "restrict_vertices": self._restrict, "dtype": str(self.Z.dtype).split(".")[-1]}
+            return capture_checkpoint(self, self._rex, configuration=config, optimizer=optimizer,
+                optimizer_spec=optimizer_spec, axes=axes, reference=reference, step=step)
+
         def save_safetensors(self, path):
             """Persist the model to ONE `.safetensors` file: the complex through the canonical
             rex state serializer, the trained cochain and any connector restriction as namespaced

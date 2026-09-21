@@ -31,8 +31,10 @@ CODEC_TENSOR = "codec_spec"
 #: are accepted on READ, and a v1 bundle simply carries no codec.
 #: 3 adds exact object coefficient tensors (integers/Fractions) as deterministic
 #: byte tensors. Numeric only writers retain version 2 and their existing identity.
-FORMAT_VERSION = 3
-READABLE_VERSIONS = (1, 2, 3)
+#: 4 adds typed span attachments. Other states keep their previous version.
+#: 8 retains structured cell attributes and exact scalar metadata.
+FORMAT_VERSION = 8
+READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)
 
 
 #: digest framing version. 1 was unframed and collided; 2 length prefixes every field.
@@ -388,7 +390,22 @@ def to_state(rex) -> RexState:
     # it is sealed with everything else.
     codec = encode_tensors(t)
     if any(entry["c"] == "exact" for entry in codec.values()):
-        h["format_version"] = FORMAT_VERSION
+        h["format_version"] = 3
+    if (any(col["kind"] == "span" for col in h["cell_meta"])
+            or any(entry["header"].get("format_version", 0) >= 4 for entry in nested)):
+        h["format_version"] = 4
+    if (any(col["kind"] == "field" for col in h["cell_meta"])
+            or any(entry["header"].get("format_version", 0) >= 5 for entry in nested)):
+        h["format_version"] = 5
+    if (any(col["kind"] == "section" for col in h["cell_meta"])
+            or any(entry["header"].get("format_version", 0) >= 6 for entry in nested)):
+        h["format_version"] = 6
+    if (any(col["kind"] == "model" for col in h["cell_meta"])
+            or any(entry["header"].get("format_version", 0) >= 7 for entry in nested)):
+        h["format_version"] = 7
+    if (any(col["kind"] == "structured" for col in h["cell_meta"])
+            or any(entry["header"].get("format_version", 0) >= 8 for entry in nested)):
+        h["format_version"] = 8
     if codec:
         t[CODEC_TENSOR] = np.frombuffer(
             json.dumps(codec, sort_keys=True).encode("utf-8"), dtype=np.uint8).copy()
@@ -476,6 +493,69 @@ def verify_state(state: RexState) -> bool:
     return hmac.compare_digest(declared, computed)
 
 
+def _attribute_tree(value, depth=0):
+    """Retain finite metadata types in the existing sealed cell column."""
+    if depth > 96:
+        raise ValueError("cell attribute nesting is too deep")
+    if value is None:
+        return ["none"]
+    if isinstance(value, (bool, np.bool_)):
+        return ["bool", bool(value)]
+    if isinstance(value, str):
+        return ["str", str(value)]
+    if isinstance(value, (int, np.integer)):
+        return ["int", hex(int(value))]
+    if isinstance(value, Fraction):
+        return ["rational", hex(value.numerator), hex(value.denominator)]
+    if isinstance(value, (float, np.floating)):
+        if not np.isfinite(value):
+            raise ValueError("structured cell metadata requires finite values")
+        return ["float", float(value).hex()]
+    if isinstance(value, bytes):
+        return ["bytes", value.hex()]
+    if isinstance(value, dict):
+        return ["dict", [[_attribute_tree(k, depth+1), _attribute_tree(v, depth+1)] for k, v in value.items()]]
+    if isinstance(value, (list, tuple)):
+        return [type(value).__name__, [_attribute_tree(v, depth+1) for v in value]]
+    raise TypeError("unsupported structured cell attribute value")
+
+
+def _attribute_value(tree, depth=0):
+    if depth > 96 or not isinstance(tree, list) or not tree:
+        raise ValueError("invalid structured cell attribute")
+    tag = tree[0]
+    if tag == "none" and len(tree) == 1:
+        return None
+    if tag == "rational" and len(tree) == 3:
+        return Fraction(int(tree[1], 16), int(tree[2], 16))
+    if len(tree) != 2:
+        raise ValueError("invalid structured cell attribute arity")
+    value = tree[1]
+    if tag == "bool" and type(value) is bool:
+        return value
+    if tag == "str" and type(value) is str:
+        return value
+    if tag in {"int", "float", "bytes"} and type(value) is str:
+        result = {"int": lambda v: int(v, 16), "float": float.fromhex, "bytes": bytes.fromhex}[tag](value)
+        if tag == "float" and not np.isfinite(result):
+            raise ValueError("nonfinite structured cell attribute")
+        return result
+    if tag in {"tuple", "list"} and type(value) is list:
+        values = [_attribute_value(v, depth+1) for v in value]
+        return tuple(values) if tag == "tuple" else values
+    if tag == "dict" and type(value) is list:
+        result = {}
+        for pair in value:
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise ValueError("invalid structured attribute pair")
+            key = _attribute_value(pair[0], depth+1)
+            if key in result:
+                raise ValueError("duplicate structured attribute key")
+            result[key] = _attribute_value(pair[1], depth+1)
+        return result
+    raise ValueError("invalid structured cell attribute tag")
+
+
 def _pack_cell_metadata(cm, t, h):
     """Per (dim,key) attribute maps to a typed columnar tensor set; schema goes in the header. A
     value that is a RexGraph is stored as a NESTED state under tensor group 'nested/<name>/*'.
@@ -495,7 +575,57 @@ def _pack_cell_metadata(cm, t, h):
             idxs = np.asarray([p[0] for p in pairs], np.int64)
             vals = [p[1] for p in pairs]
             from rexgraph.graph import RexGraph
-            if all(isinstance(v, RexGraph) for v in vals):
+            from rexgraph.span import SpanAttachment
+            from rexgraph.io.field_state import FIELD_VALUES, pack_field
+            from rexgraph.tensor_moment import TensorMomentKernel, TensorMoments
+            from rexgraph.native_field import NativeFieldCalculus
+            from rexgraph.temporal_field import TensorEvolution, ResolvedEvolution, NativeFieldEvolution, SectorTransport
+            if any(isinstance(v, (TensorMomentKernel, TensorMoments, NativeFieldCalculus,
+                                  TensorEvolution, ResolvedEvolution, NativeFieldEvolution, SectorTransport)) for v in vals):
+                raise TypeError("live field declarations require an explicit retained result before storage")
+            from rexgraph.io.section_state import SECTION_VALUES, pack_section
+            from rexgraph.section_calculus import SectionSystem, SectionImage
+            if any(isinstance(v, (SectionSystem, SectionImage)) for v in vals):
+                raise TypeError("store a section recipe or its evaluated completion, not a live action")
+            from rexgraph.io.model_state import MODEL_VALUES, pack_model
+            if any(isinstance(v, MODEL_VALUES) for v in vals):
+                if not all(isinstance(v, MODEL_VALUES) for v in vals):
+                    raise TypeError("model attributes cannot mix native states and generic values")
+                t[gname + "_idx"] = idxs
+                for j, value in enumerate(vals):
+                    prefix = f"model/{gname}/{j}/"
+                    for name, tensor in pack_model(value).items():
+                        t[prefix + name] = tensor
+                schema.append({"dim": int(dim), "key": key, "kind": "model"})
+            elif any(isinstance(v, SECTION_VALUES) for v in vals):
+                if not all(isinstance(v, SECTION_VALUES) for v in vals):
+                    raise TypeError("a section attribute cannot mix declarations and generic metadata")
+                t[gname + "_idx"] = idxs
+                for j, value in enumerate(vals):
+                    prefix = f"section/{gname}/{j}/"
+                    for name, tensor in pack_section(value).items():
+                        t[prefix + name] = tensor
+                schema.append({"dim": int(dim), "key": key, "kind": "section"})
+            elif any(isinstance(v, FIELD_VALUES) for v in vals):
+                if not all(isinstance(v, FIELD_VALUES) for v in vals):
+                    raise TypeError("a retained field attribute cannot mix exact fields and generic metadata")
+                t[gname + "_idx"] = idxs
+                for j, value in enumerate(vals):
+                    prefix = f"field/{gname}/{j}/"
+                    for name, tensor in pack_field(value).items():
+                        t[prefix + name] = tensor
+                schema.append({"dim": int(dim), "key": key, "kind": "field"})
+            elif any(isinstance(v, SpanAttachment) for v in vals):
+                if not all(isinstance(v, SpanAttachment) for v in vals):
+                    raise TypeError("a span attribute column cannot mix attachment and generic values")
+                from rexgraph.io.span_state import pack_attachment
+                t[gname + "_idx"] = idxs
+                for j, value in enumerate(vals):
+                    prefix = f"annotation/{gname}/{j}/"
+                    for name, tensor in pack_attachment(value).items():
+                        t[prefix + name] = tensor
+                schema.append({"dim": int(dim), "key": key, "kind": "span"})
+            elif all(isinstance(v, RexGraph) for v in vals):
                 for j, sub in enumerate(vals):
                     sub_state = to_state(sub)
                     pref = f"nested/{gname}/{j}/"
@@ -504,6 +634,15 @@ def _pack_cell_metadata(cm, t, h):
                     nested.append({"group": gname, "j": j, "header": sub_state.header})
                 schema.append({"dim": int(dim), "key": key, "kind": "rex",
                                "idx": idxs.tolist()})
+            elif (any(v is None or isinstance(v, (dict, list, tuple, Fraction, np.bool_, bytes)) for v in vals)
+                  or (all(isinstance(v, (Integral, float, np.floating)) for v in vals)
+                      and any(isinstance(v, Integral) for v in vals))):
+                t[gname + "_idx"] = idxs
+                encoded = [json.dumps(_attribute_tree(v), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+                           for v in vals]
+                buf, offs = _pack_strings(encoded)
+                t[gname + "_valbytes"], t[gname + "_valoffs"] = buf, offs
+                schema.append({"dim": int(dim), "key": key, "kind": "structured"})
             elif all(isinstance(v, (int, float, np.integer, np.floating)) for v in vals):
                 t[gname + "_idx"] = idxs
                 t[gname + "_val"] = np.asarray([float(v) for v in vals], np.float64)
@@ -520,14 +659,52 @@ def _pack_cell_metadata(cm, t, h):
 def _unpack_cell_metadata(rex, t, h):
     for col in h.get("cell_meta", []):
         dim, key, kind = col["dim"], col["key"], col["kind"]
-        if kind == "num":
+        if kind == "model":
+            from rexgraph.io.model_state import unpack_model
+            indices = np.asarray(t[f"cm_{dim}_{key}_idx"])
+            if indices.ndim != 1 or indices.dtype.kind not in "iu":
+                raise ValueError("invalid model cell indices")
+            for j, index in enumerate(indices):
+                prefix = f"model/cm_{dim}_{key}/{j}/"
+                tensors = {name[len(prefix):]: value for name, value in t.items() if name.startswith(prefix)}
+                rex.attach_metadata(int(dim), int(index), key, unpack_model(tensors))
+        elif kind == "section":
+            from rexgraph.io.section_state import unpack_section
+            indices = np.asarray(t[f"cm_{dim}_{key}_idx"])
+            if indices.ndim != 1 or indices.dtype.kind not in "iu":
+                raise ValueError("invalid section cell indices")
+            for j, index in enumerate(indices):
+                prefix = f"section/cm_{dim}_{key}/{j}/"
+                tensors = {name[len(prefix):]: value for name, value in t.items() if name.startswith(prefix)}
+                rex.attach_metadata(int(dim), int(index), key, unpack_section(tensors))
+        elif kind == "field":
+            from rexgraph.io.field_state import unpack_field
+            indices = np.asarray(t[f"cm_{dim}_{key}_idx"])
+            if indices.ndim != 1 or indices.dtype.kind not in "iu":
+                raise ValueError("invalid retained field cell indices")
+            for j, index in enumerate(indices):
+                prefix = f"field/cm_{dim}_{key}/{j}/"
+                tensors = {name[len(prefix):]: value for name, value in t.items() if name.startswith(prefix)}
+                rex.attach_metadata(int(dim), int(index), key, unpack_field(tensors))
+        elif kind == "span":
+            from rexgraph.io.span_state import unpack_attachment
+            indices = np.asarray(t[f"cm_{dim}_{key}_idx"])
+            if indices.ndim != 1 or indices.dtype.kind not in "iu":
+                raise ValueError("invalid span attachment cell indices")
+            for j, index in enumerate(indices):
+                prefix = f"annotation/cm_{dim}_{key}/{j}/"
+                tensors = {name[len(prefix):]: value for name, value in t.items() if name.startswith(prefix)}
+                rex.attach_metadata(dim, int(index), key, unpack_attachment(tensors))
+        elif kind == "num":
             idxs = np.asarray(t[f"cm_{dim}_{key}_idx"]); vals = np.asarray(t[f"cm_{dim}_{key}_val"])
             for i, v in zip(idxs, vals, strict=False):
                 rex.attach_metadata(dim, int(i), key, float(v))
-        elif kind == "str":
+        elif kind in {"str", "structured"}:
             idxs = np.asarray(t[f"cm_{dim}_{key}_idx"])
             vals = _unpack_strings(t[f"cm_{dim}_{key}_valbytes"], t[f"cm_{dim}_{key}_valoffs"])
-            for i, v in zip(idxs, vals, strict=False):
+            for i, v in zip(idxs, vals, strict=True):
+                if kind == "structured":
+                    v = _attribute_value(json.loads(v))
                 rex.attach_metadata(dim, int(i), key, v)
         elif kind == "rex":
             for entry in [n for n in h.get("nested", []) if n["group"] == f"cm_{dim}_{key}"]:

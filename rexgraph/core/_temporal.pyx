@@ -2573,10 +2573,10 @@ def track_faces_general(np.ndarray[i32, ndim=1] B2_cp_prev,
             for ci_idx, ci in enumerate(unmatched_curr):
                 if ci in used_curr:
                     continue
+                # Shared boundary cells counted exactly, as `track_faces_i32` does:
+                # min_shared is a count of cells, not a similarity cutoff.
                 inter = len(prev_esets[pi_idx] & curr_esets[ci_idx])
-                union = len(prev_esets[pi_idx] | curr_esets[ci_idx])
-                jacc = <f64>inter / <f64>union if union > 0 else 0.0
-                if jacc >= min_shared:
+                if inter >= min_shared:
                     children.append(ci)
                     used_curr.add(ci)
             if len(children) > 1:
@@ -2600,9 +2600,7 @@ def track_faces_general(np.ndarray[i32, ndim=1] B2_cp_prev,
                 if pi in matched_prev:
                     continue
                 inter = len(prev_esets[pi_idx] & curr_esets[ci_idx])
-                union = len(prev_esets[pi_idx] | curr_esets[ci_idx])
-                jacc = <f64>inter / <f64>union if union > 0 else 0.0
-                if jacc >= min_shared:
+                if inter >= min_shared:
                     parents.append(pi)
             if len(parents) > 1:
                 for pi in parents:

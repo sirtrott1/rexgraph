@@ -519,7 +519,7 @@ def write_vertex_table(
     }
 
     with contextlib.suppress(Exception):
-        data["degree"] = np.diag(rex.L0).astype(np.int32)
+        data["degree"] = np.asarray(rex.degree, dtype=np.int32)
 
     try:
         layout = rex.layout
@@ -928,7 +928,7 @@ def write_character_table(
     arrays = [pa.array(np.arange(nE, dtype=np.int32))]
     names = ["edge_idx"]
 
-    hat_names = getattr(rex, '_rcf_bundle', {}).get('hat_names', [])
+    hat_names = list(rex.hat_names)
     for k in range(nhats):
         col_name = f"chi_{hat_names[k]}" if k < len(hat_names) else f"chi_{k}"
         arrays.append(pa.array(chi[:, k].astype(np.float64)))
@@ -976,7 +976,7 @@ def write_vertex_character_table(
     arrays = [pa.array(np.arange(nV, dtype=np.int32))]
     names = ["vertex_idx"]
 
-    hat_names = getattr(rex, '_rcf_bundle', {}).get('hat_names', [])
+    hat_names = list(rex.hat_names)
     for k in range(nhats):
         col_name = f"phi_{hat_names[k]}" if k < len(hat_names) else f"phi_{k}"
         arrays.append(pa.array(phi[:, k].astype(np.float64)))
@@ -1044,7 +1044,7 @@ def write_void_table(
     ]
     names = ["void_idx", "eta", "fills_beta"]
 
-    hat_names = getattr(rex, '_rcf_bundle', {}).get('hat_names', [])
+    hat_names = list(rex.hat_names)
     for k in range(nhats):
         col_name = f"chi_void_{hat_names[k]}" if k < len(hat_names) else f"chi_void_{k}"
         arrays.append(pa.array(chi_void[:, k].astype(np.float64)))

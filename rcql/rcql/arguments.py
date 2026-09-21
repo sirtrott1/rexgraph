@@ -116,6 +116,11 @@ from .partition_contracts import ARGUMENTS as _PARTITION_ARGUMENTS
 from .artifact_contracts import ARGUMENTS as _ARTIFACT_ARGUMENTS
 from .filling_contracts import ARGUMENTS as _FILLING_ARGUMENTS
 from .difference_contracts import ARGUMENTS as _DIFFERENCE_ARGUMENTS
+from .coordinate_contracts import ARGUMENTS as _COORDINATE_ARGUMENTS
+
+for _name, _arguments in _COORDINATE_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
 from .document_contracts import ARGUMENTS as _DOCUMENT_ARGUMENTS
 from .rational_contracts import ARGUMENTS as _RATIONAL_ARGUMENTS
 from .markov_contracts import ARGUMENTS as _MARKOV_ARGUMENTS
@@ -221,3 +226,31 @@ def bind_arguments(name, args, keywords, *, source=False):
         else:
             raise TypeError(f"{name} missing required argument {names[index]!r}")
     return tuple(result)
+
+from .tensor_contracts import ARGUMENTS as _TENSOR_ARGUMENTS
+for _name, _arguments in _TENSOR_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
+from .section_contracts import ARGUMENTS as _SECTION_ARGUMENTS
+for _name, _arguments in _SECTION_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
+from .model_contracts import ARGUMENTS as _MODEL_ARGUMENTS
+for _name, _arguments in _MODEL_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
+from .molecular_contracts import ARGUMENTS as _MOLECULAR_ARGUMENTS
+for _name, _arguments in _MOLECULAR_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
+from .program_contracts import ARGUMENTS as _PROGRAM_ARGUMENTS
+for _name, _arguments in _PROGRAM_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
+from .recursion_contracts import ARGUMENTS as _RECURSION_ARGUMENTS
+for _name, _arguments in _RECURSION_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
+from .transformation_contracts import ARGUMENTS as _TRANSFORMATION_ARGUMENTS
+for _name, _arguments in _TRANSFORMATION_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)

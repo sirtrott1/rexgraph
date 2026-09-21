@@ -13,6 +13,7 @@ from rexgraph.flow.gate import MalaughGate, malaugh_entropy
 from rexgraph.flow.navigator import FieldNavigator, changed_edges, flow_step
 
 _LAZY_EXPORTS = {
+    "online_model": "model",
     "TurnField": "turn_field",
     "FlowComplex": "hyperflow",
     "build_flow_complex": "hyperflow",

@@ -27,10 +27,21 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from rexgraph.graph import RexGraph
+from rexgraph.graph import RexGraph, TemporalRex
 from rexgraph.io._cache_layout import _CACHE_GROUPS
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _temporal_fixture() -> TemporalRex:
+    """Three snapshots of the tetrahedron as it grows, for the group that describes a
+    TemporalRex rather than a single complex."""
+    src = np.array([0, 1, 2, 0, 1, 2], np.int32)
+    tgt = np.array([1, 2, 0, 3, 3, 3], np.int32)
+    trex = TemporalRex([])
+    for n in (3, 5, 6):
+        trex.append_snapshot(RexGraph(sources=src[:n], targets=tgt[:n]))
+    return trex
 
 
 def _fixture() -> RexGraph:
@@ -80,11 +91,9 @@ def test_each_group_writes_something(group):
     h5py = pytest.importorskip("h5py")
     from rexgraph.io.hdf5_format import RexHDF5Format
 
-    # temporal entries describe a TemporalRex, so a RexGraph has nothing to write there
-    if group == "temporal":
-        pytest.skip("temporal caches a TemporalRex, not a RexGraph")
-
-    rex, fmt = _fixture(), RexHDF5Format()
+    # temporal entries describe a TemporalRex, so that group is written from one
+    rex = _temporal_fixture() if group == "temporal" else _fixture()
+    fmt = RexHDF5Format()
     with tempfile.TemporaryDirectory() as d:
         def contents(path):
             out = set()

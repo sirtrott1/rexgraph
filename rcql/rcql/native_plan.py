@@ -46,13 +46,30 @@ def method_plan(expression):
     result = expression.result
     args = expression.call.args
     exact = isinstance(result, RCType) and result.exactness is not None and result.exactness.value in {"integer", "rational"}
+    from .model_contracts import ARGUMENTS as MODEL_ARGUMENTS
+    if name in MODEL_ARGUMENTS:
+        return {"status": "selected", "method": "native-model-lifecycle", "adapter": expression.call.signature.implementation_key}
+    from .section_contracts import ARGUMENTS as SECTION_ARGUMENTS
+    if name in SECTION_ARGUMENTS:
+        return {"status": "selected", "method": "exact-section-calculus",
+                "adapter": "rexgraph.section_calculus." + name.lower()}
+    from .tensor_contracts import ARGUMENTS as TENSOR_ARGUMENTS
+    if name in TENSOR_ARGUMENTS:
+        return {"status": "selected", "method": "rational-retained-tensor-action",
+                "adapter": "rexgraph.retained_tensor." + name.lower()}
     method = None
-    if name in {"COUNT", "SUM", "MEAN"}:
+    if name in {"COORDINATE_APPLY", "OPERATION_DELTA", "INJECTION_DELTA", "WORD_DELTA", "KERNEL_MOMENTS"}:
+        method = {"COORDINATE_APPLY": "core-exact-coordinate-action", "OPERATION_DELTA": "core-exact-temporal-operation",
+                  "INJECTION_DELTA": "core-exact-temporal-operation", "WORD_DELTA": "core-exact-temporal-word",
+                  "KERNEL_MOMENTS": "core-exact-moment-kernel"}[name]
+    elif name in {"COUNT", "SUM", "MEAN"}:
         method = "sequence-count" if name == "COUNT" else f"scalar-sequence-{name.lower()}"
     elif name == "DIFF":
         method = "core-exact-boundary-difference"
     elif name in {"CAYLEY", "COMPLEX_STRUCTURE", "RATIONAL_ROTATION"}:
         method = "core-factored-rational-transform"
+    elif name == "PAGERANK_EXACT":
+        method = "rational-sparse-ranking-solve"
     elif name in {"MARKOV_VIEW", "PAGERANK"}:
         method = "core-tensor-markov" if name == "MARKOV_VIEW" else "core-compiled-pagerank"
     elif name == "TEXT_OVERLAP_VIEW":
@@ -207,6 +224,10 @@ class NativePlan:
 
 
 def _literal_key(value):
+    from rexgraph.model_state import ModelState, ModelOutput, ModelInput, ModelBatch, ModelTimeline
+    if isinstance(value, (ModelState, ModelOutput, ModelInput, ModelBatch, ModelTimeline)):
+        value.check_state()
+        return type(value), value.coefficient_digest
     if value is None or type(value) in (bool, int, float, str, bytes, Fraction):
         return type(value), value
     if isinstance(value, tuple):

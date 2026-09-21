@@ -54,6 +54,48 @@ def json_value(value: Any, *, max_values: int = 256) -> Any:
                 "imaginary": json_value(value.imag, max_values=max_values)}
     if isinstance(value, np.ndarray):
         return _array(value, max_values)
+    from rexgraph.model_state import ModelState, ModelOutput, ModelBatch, ModelTimeline, ModelInput
+    if isinstance(value, (ModelState, ModelOutput, ModelBatch, ModelTimeline, ModelInput)):
+        value.check_state()
+        out = {"kind": type(value).__name__, "digest": value.coefficient_digest}
+        if isinstance(value, ModelTimeline):
+            out.update(count=len(value.times), times=json_value(value.times[:max_values], max_values=max_values),
+                       model_digests=list(value.model_digests[:max_values]),
+                       source_digests=list(value.source_digests[:max_values]),
+                       truncated=len(value.times) > max_values, temporal_index="ordinal",
+                       time_axis=value.time_axis, time_unit=value.time_unit)
+            return out
+        out.update(source=value.source.as_record(),
+                   coordinates={"name": value.space.name, "count": len(value.space.keys),
+                                "keys": list(value.space.keys[:max_values]),
+                                "truncated": len(value.space.keys) > max_values},
+                   dependencies=[v.as_record() for v in value.dependencies[:max_values]],
+                   dependencies_truncated=len(value.dependencies) > max_values)
+        if isinstance(value, ModelState):
+            parameters = value.payload.get("weights", {})
+            out.update(adapter=value.adapter, adapter_version=value.adapter_version,
+                       arithmetic=value.arithmetic, step=value.step, parent=value.parent,
+                       resumable="optimizer" in value.payload,
+                       axes=[{"name": a.name, "size": len(a.keys)} for a in value.output_axes],
+                       parameter_count=len(parameters),
+                       parameters=[{"name": name, "shape": list(v.shape), "dtype": str(v.dtype)}
+                                   for name, v in list(parameters.items())[:max_values]
+                                   if isinstance(v, np.ndarray)],
+                       parameters_truncated=len(parameters) > max_values)
+        elif isinstance(value, ModelInput):
+            out.update(arithmetic=value.arithmetic, origin_digest=value.origin_digest,
+                       original_arithmetic=value.origin_arithmetic,
+                       axes=[{"name": a.name, "size": len(a.keys)} for a in value.axes],
+                       values=_array(value.values, max_values), original="retained in the model input")
+        elif isinstance(value, ModelOutput):
+            out.update(arithmetic=value.arithmetic, model_digest=value.model_digest, method=value.method,
+                       grade=value.grade, variance=value.variance,
+                       axes=[{"name": a.name, "size": len(a.keys)} for a in value.axes],
+                       values=_array(value.values, max_values))
+        else:
+            out.update(targets=_array(value.targets, max_values), observed=_array(value.observed, max_values),
+                       observed_count=int(value.observed.sum()), inputs="query explicitly")
+        return out
     from rexgraph.chain_map import SymmetryGroup
     if isinstance(value, SymmetryGroup):
         value.check_state()

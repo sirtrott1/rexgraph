@@ -253,21 +253,53 @@ def _structural_projection_matches(left: Any, right: Any) -> bool:
             or int(left.nF) != int(right.nF)
         ):
             return False
-        for field in ("_boundary_ptr", "_boundary_idx", "_B2_col_ptr", "_B2_row_idx"):
-            if not np.array_equal(np.asarray(getattr(left, field)), np.asarray(getattr(right, field))):
+        order = np.arange(left.nE)
+        left_ids, right_ids = left.relation_ids, right.relation_ids
+        if (left_ids is None) != (right_ids is None):
+            return False
+        if left_ids is not None:
+            positions = {int(value): index for index, value in enumerate(left_ids)}
+            if set(positions) != {int(value) for value in right_ids}:
                 return False
-        if not np.array_equal(
-            np.asarray(left._B2_vals, dtype=np.float64),
-            np.asarray(right._B2_vals, dtype=np.float64),
-        ):
+            order = np.asarray([positions[int(value)] for value in right_ids], dtype=np.int64)
+        reordered = not np.array_equal(order, np.arange(left.nE))
+        # Temporal replay retains stable coordinates. Explicit relation IDs
+        # supply the correspondence to the carried result's coordinate order.
+        if reordered:
+            for target, origin in enumerate(order):
+                a, b = left._boundary_ptr[origin:origin + 2]
+                c, d = right._boundary_ptr[target:target + 2]
+                if not np.array_equal(left._boundary_idx[a:b], right._boundary_idx[c:d]):
+                    return False
+        else:
+            for field in ("_boundary_ptr", "_boundary_idx"):
+                if not np.array_equal(np.asarray(getattr(left, field)), np.asarray(getattr(right, field))):
+                    return False
+        if not np.array_equal(left._B2_col_ptr, right._B2_col_ptr):
+            return False
+        left_rows = np.asarray(left._B2_row_idx)
+        left_values = np.asarray(left._B2_vals)
+        right_rows = np.asarray(right._B2_row_idx)
+        right_values = np.asarray(right._B2_vals)
+        if reordered:
+            inverse = np.empty(left.nE, dtype=np.int64)
+            inverse[order] = np.arange(left.nE)
+            left_rows = inverse[left_rows]
+            for face in range(left.nF):
+                start, end = left._B2_col_ptr[face:face + 2]
+                a, b = np.argsort(left_rows[start:end]), np.argsort(right_rows[start:end])
+                if (not np.array_equal(left_rows[start:end][a], right_rows[start:end][b])
+                        or not np.array_equal(left_values[start:end][a], right_values[start:end][b])):
+                    return False
+        elif not (np.array_equal(left_rows, right_rows) and np.array_equal(left_values, right_values)):
             return False
         if not np.array_equal(
-            _array_or_default(left, "_w_E", int(left.nE), 0.0),
+            _array_or_default(left, "_w_E", int(left.nE), 0.0)[order],
             _array_or_default(right, "_w_E", int(right.nE), 0.0),
         ):
             return False
         if not np.array_equal(
-            _array_or_default(left, "_signs", int(left.nE), 1.0),
+            _array_or_default(left, "_signs", int(left.nE), 1.0)[order],
             _array_or_default(right, "_signs", int(right.nE), 1.0),
         ):
             return False

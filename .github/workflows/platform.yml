@@ -37,7 +37,7 @@ jobs:
           "$RUNNER_TEMP/platform/bin/python" -m pip install dist/*.whl
           "$RUNNER_TEMP/platform/bin/python" -m pip install --find-links dist \
             'rexgraph[io,security,oracles]' 'rexgraph-rcdb[sql,objectstore,crypto]' \
-            'rexgraph-agent[dev]' 'rexgraph-system[dev]' pytest trove-classifiers
+            'rexgraph-agent[dev,molecules]' 'rexgraph-system[dev]' pytest trove-classifiers sympy
       - name: install native query and storage without SciPy
         run: |
           python -m venv "$RUNNER_TEMP/native"

@@ -1,7 +1,7 @@
 """Relational Complex Query Language."""
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.1.6"
+__version__ = "1.2.0"
 
 from .ast import (
     Alias,
@@ -136,4 +136,37 @@ def __getattr__(name):
             "PhraseStalk": PhraseStalk,
             "UndeclaredRestrictionError": UndeclaredRestrictionError,
         }[name]
+    if name in _PROGRAM_EXPORTS:
+        from importlib import import_module
+        module, symbol = _PROGRAM_EXPORTS[name]
+        return getattr(import_module("."+module, __name__), symbol)
     raise AttributeError(name)
+
+_PROGRAM_EXPORTS = {
+    "Program": ("program", "Program"), "ProgramStep": ("program", "ProgramStep"),
+    "ProgramInput": ("program", "ProgramInput"), "OutputRef": ("program", "OutputRef"),
+    "ProgramResult": ("program", "ProgramResult"), "PlanTopology": ("plan_topology", "PlanTopology"),
+    "PlanScheduler": ("scheduling", "PlanScheduler"), "QueryCancelledError": ("scheduling", "QueryCancelledError"),
+    "SnapshotContext": ("source_context", "SnapshotContext"), "SourceSelection": ("source_context", "SourceSelection"),
+    "QueryCache": ("query_cache", "QueryCache"), "ReadoutEquivalence": ("readout_equivalence", "ReadoutEquivalence"),
+}
+__all__ += list(_PROGRAM_EXPORTS)
+
+_RELATION_EXPORTS = {
+    "ProgramTransformation": ("program_transformation", "ProgramTransformation"),
+    "ProgramAssembly": ("program_family", "ProgramAssembly"),
+    "ProgramFamily": ("program_family", "ProgramFamily"),
+    "ProgramEvolution": ("program_evolution", "ProgramEvolution"),
+    "NameRelation": ("name_relation", "NameRelation"),
+    "RecursiveDefinition": ("recursive_program", "RecursiveDefinition"),
+    "RecursiveProgram": ("recursive_program", "RecursiveProgram"),
+    "RecursionResult": ("recursive_program", "RecursionResult"),
+    "recur": ("recursive_program", "recur"),
+    "RecursionLimits": ("relation_runtime", "RecursionLimits"),
+    "RecursionLimitError": ("relation_runtime", "RecursionLimitError"),
+    "RecursiveCycleError": ("relation_runtime", "RecursiveCycleError"),
+    "RelationTopology": ("relation_topology", "RelationTopology"),
+    "OperationRelationCell": ("relation_topology", "OperationRelationCell"),
+}
+_PROGRAM_EXPORTS.update(_RELATION_EXPORTS)
+__all__ += list(_RELATION_EXPORTS)

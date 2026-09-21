@@ -55,13 +55,67 @@ _CARRIER_SOURCE_OPERATORS = frozenset({
 class Executor:
     """Evaluate RCQL against explicit source and parameter bindings."""
 
-    def __init__(self, *, sources=None, params=None, artifacts=None):
+    def __init__(self, *, sources=None, params=None, artifacts=None, scheduler=None, evidence=None):
         from .artifact_services import ArtifactServices
         if artifacts is not None and not isinstance(artifacts, ArtifactServices):
             raise TypeError("artifacts must be ArtifactServices")
         self.sources = dict(sources or {})
         self.params = dict(params or {})
         self.artifacts = artifacts
+        if scheduler is not None:
+            from .scheduling import PlanScheduler
+            if not isinstance(scheduler, PlanScheduler):
+                raise TypeError("scheduler must be PlanScheduler")
+        if evidence is not None:
+            from .source_context import SnapshotContext
+            if not isinstance(evidence, SnapshotContext):
+                raise TypeError("evidence must be SnapshotContext")
+        self.scheduler = scheduler
+        self.evidence = evidence
+
+    def execute_cached(self, query, cache):
+        from .query_cache import QueryCache
+        if not isinstance(cache, QueryCache):
+            raise TypeError("execute_cached requires an explicit QueryCache")
+        return cache.execute(self, query)
+
+    def execute_program(self, program, *, explain=False):
+        from .program import Program
+        if not isinstance(program, Program):
+            raise TypeError("execute_program requires a finite Program")
+        return program.execute(self, explain=explain)
+
+    def execute_recursive(self, program, entry, arguments, *, source, limits=None,
+                          history=True, memoize=True, explain=False):
+        """Run an explicit recursive group through the ordinary query machinery."""
+        from .recursive_program import RecursiveProgram
+        from .ast import Query, Parameter, Call, Literal
+        if not isinstance(program, RecursiveProgram):
+            raise TypeError("recursive execution requires a declared RecursiveProgram")
+        source_expr = Parameter(source) if isinstance(source, str) else source
+        operator = "RECURSIVE_EXPLAIN" if explain else "RECURSIVE_RUN"
+        arguments_expr = (Parameter("recursive_definition"), Literal(entry), Parameter("recursive_arguments"))
+        if not explain:
+            arguments_expr += (Literal(limits), Literal(history), Literal(memoize))
+        child = Executor(sources=self.sources,
+                         params={"recursive_definition": program, "recursive_arguments": arguments},
+                         artifacts=self.artifacts, scheduler=self.scheduler, evidence=self.evidence)
+        return child.execute(Query(source_expr, (Call(operator, arguments_expr),)))
+
+    def topology(self, query):
+        """Inspect operation ports without evaluating expression actions."""
+        from .planning import plan_query
+        from .plan_topology import PlanTopology
+        if not isinstance(query, Query) or query.matches:
+            raise TypeError("plan topology requires a finite query without dependent MATCH")
+        source = self._eval_source(query.source)
+        binding = self._planning_binding(query.source, source)
+        if self.evidence is not None:
+            self.evidence.validate_binding(binding)
+            self.evidence.validate_values(self.params)
+        plan = plan_query(binding, query, parameters=self.params)
+        from .source_context import field_references
+        return PlanTopology.from_plan(plan.dag(), field_references(self.params))
 
     @staticmethod
     def _unwrap(source, permission):
@@ -332,7 +386,31 @@ class Executor:
             return self.params[expr.name]
         raise TypeError("FROM arguments must be literals or bound parameters; operator calls require a typed query")
 
+    def _validate_runtime_call(self, expression, args):
+        """Validate actual derived values under the original source binding."""
+        from .ast import Literal
+        from .inference import infer
+        from .planning import PlannedExpression, _carrier_literal
+        from .validation import ValidationContext
+        binding = expression.call.binding
+        carried = self._carrier_source(binding.value, args, expression.call.operator)
+        if carried is not binding.value:
+            from .binding import bind
+            binding = bind(binding.ref.name, carried, binding.source.policy, temporal=binding.temporal)
+        children = tuple(PlannedExpression(Literal(value),
+                         _carrier_literal(binding, value) or value) for value in args)
+        infer(binding, expression.call.operator, tuple(c.result for c in children),
+              context=ValidationContext(binding), children=children)
+
     def _execute_dag(self, dag, source, *, computed=None):
+        if self.evidence is not None:
+            self.evidence.validate_binding(dag.binding)
+            self.evidence.validate_values(self.params)
+        if self.scheduler is not None:
+            return self.scheduler.evaluate(self, dag, source, computed)
+        return self._execute_dag_serial(dag, source, computed=computed)
+
+    def _execute_dag_serial(self, dag, source, *, computed=None):
         from .execution_trace import capture_methods
         from .native_plan import plain
         computed = {} if computed is None else computed
@@ -363,11 +441,14 @@ class Executor:
                 continue
             args = tuple(computed[i] for i in node.inputs)
             raw, policy = self._unwrap(source, expression.call.signature.requires)
+            self._validate_runtime_call(expression, args)
             with capture_methods(policy_digest=expression.call.binding.ref.policy_digest,
-                                 policy=policy, artifact_services=self.artifacts) as methods:
+                                 policy=policy, artifact_services=self.artifacts, binding=expression.call.binding) as methods:
                 value = get_operator(node.operator).fn(self._carrier_source(raw, args, node.operator), *args)
             if policy is not None and node.operator in {"RCDB_LIST", "RCDB_SEARCH", "RCDB_HISTORY"}:
                 value = policy.project_record(value)
+            if self.evidence is not None:
+                self.evidence.validate_values((args, value))
             computed[node.id] = value
             observations.append(plain({
                 "node": node.id, "operator": node.operator,
@@ -420,13 +501,32 @@ class Executor:
                       native_plan=serialized, provenance=(provenance,), execution=tuple(observations))
 
     def execute(self, query: Query | MutationQuery) -> Result:
+        from .execution_trace import evidence_scope
+        with evidence_scope(self.evidence):
+            result = self._execute(query)
+            if self.evidence is not None:
+                from dataclasses import replace
+                self.evidence.validate_values(result.values)
+                evidence = self.evidence.as_record()
+                result = replace(result, native_plan=dict(result.native_plan or {}, evidence=evidence),
+                                 provenance=tuple(dict(item, evidence=evidence) for item in result.provenance))
+            return result
+
+    def _execute(self, query: Query | MutationQuery) -> Result:
         if not isinstance(query, (Query, MutationQuery)):
             raise TypeError("Executor.execute requires a typed Query or MutationQuery")
+        if isinstance(query, MutationQuery) and (self.scheduler is not None or self.evidence is not None):
+            raise ValueError("snapshot and parallel execution are read only; commit separately")
         source = self._eval_source(query.source)
         if isinstance(query, MutationQuery):
             return self._execute_mutation(query, source)
         from .planning import plan_query
         binding = self._planning_binding(query.source, source)
+        if self.evidence is not None:
+            self.evidence.validate_binding(binding)
+            self.evidence.validate_values(self.params)
+        if query.matches and self.scheduler is not None:
+            raise ValueError("parallel plans do not infer a schedule for dependent MATCH iteration")
         if query.matches:
             from .matching import execute_match, plan_match
             return execute_match(self, source, plan_match(binding, query, parameters=self.params))
@@ -519,6 +619,14 @@ def value_exactness(value: Any) -> Exactness:
     exact tensor carriers come from the core library, and the only numpy in this stack
     belongs to the binary bundles beneath it.
     """
+    from .program_transformation import ProgramTransformation
+    if isinstance(value, ProgramTransformation):
+        return Exactness.STRUCTURAL
+    from rexgraph.model_state import ModelState, ModelOutput, ModelBatch, ModelTimeline, ModelInput
+    if isinstance(value, (ModelState, ModelBatch, ModelTimeline, ModelInput)):
+        return Exactness.STRUCTURAL
+    if isinstance(value, ModelOutput):
+        return Exactness.RATIONAL if value.arithmetic == "rational" else Exactness.APPROXIMATE
     from rexgraph.cells import CellBoundary, CellCoboundary, CompositeBinary
     from rexgraph.chain_map import ChainHomotopy, ChainMap, GradedMap, SymmetryGroup
     if isinstance(value, SymmetryGroup):
@@ -550,6 +658,25 @@ def value_exactness(value: Any) -> Exactness:
         return Exactness.STRUCTURAL
     if isinstance(value, GradedChain):
         return Exactness.RATIONAL if value.exact else Exactness.APPROXIMATE
+
+    from rexgraph.tensor_field import TensorField, TensorChannels
+    from rexgraph.tensor_moment import MomentSpan, TensorMoments, TensorMomentKernel, CoordinatePairing, RealizedPairing
+    from rexgraph.temporal_field import MomentChange, TensorEvolution, ResolvedEvolution, NativeFieldEvolution, SectorTransport
+    from rexgraph.attachment_field import AttachmentField, AttachmentObservation
+    from rexgraph.native_field import NativeFieldCalculus
+    if isinstance(value, (TensorField, TensorChannels, MomentSpan, TensorMoments, MomentChange)):
+        return Exactness.RATIONAL
+    if isinstance(value, (TensorMomentKernel, CoordinatePairing, RealizedPairing, TensorEvolution, ResolvedEvolution,
+                          NativeFieldEvolution, SectorTransport, AttachmentField, AttachmentObservation, NativeFieldCalculus)):
+        return Exactness.STRUCTURAL
+    from rexgraph.coordinate_map import CoordinateMap, CoordinateWord, CoordinateDifference, CoordinateMetric
+    from rexgraph.temporal_calculus import TemporalOperation, TemporalWord, TemporalMetrics, MomentKernel
+    from rexgraph.type_accession import CoordinateField
+    if isinstance(value, (CoordinateMap, CoordinateWord, CoordinateDifference, CoordinateMetric,
+                          TemporalOperation, TemporalWord, TemporalMetrics, MomentKernel)):
+        return Exactness.STRUCTURAL
+    if isinstance(value, CoordinateField):
+        return value_exactness(value.values)
 
     if isinstance(value, (TypeAccession, AccessionFamily, CrossMetric, FamilyMetric, GradedMap, ChainMap, ChainHomotopy)):
         return Exactness.STRUCTURAL

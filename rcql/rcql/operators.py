@@ -1515,3 +1515,27 @@ from .turn_contracts import turn_field, path_change
 
 register("TURN_FIELD")(turn_field)
 register("PATH_CHANGE")(path_change)
+
+from .coordinate_operators import install as _install_coordinate_operators
+_install_coordinate_operators(register)
+
+from .tensor_operators import install as _install_tensor_operators
+_install_tensor_operators(register)
+
+from .section_operators import install as _install_section_operators
+_install_section_operators(register)
+
+from .model_operators import install as _install_model_operators
+_install_model_operators(register)
+
+from .molecular_operators import install as _install_molecular_operators
+_install_molecular_operators(register)
+
+from .program_operators import install as _install_program_operators
+_install_program_operators(register)
+
+from .recursion_operators import install as _install_recursion_operators
+_install_recursion_operators(register)
+
+from .transformation_operators import install as _install_transformation_operators
+_install_transformation_operators(register)

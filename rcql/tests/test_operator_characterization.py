@@ -199,10 +199,9 @@ def test_rcdb_state_hash_uses_the_framework_logical_manifest(store):
 def test_every_storage_operator_is_characterized_here():
     """Nothing this file owns can enter the registry without a characterization.
 
-    The check is deliberately one sided. Rex mathematics operators are Codex's and their
-    own direct suite covers them, so asserting an exhaustive registry equality here would
-    fail on every addition they make and teach whoever hits it to widen a set without
-    reading. What must not drift is the other direction: an operator in the storage,
+    The check is deliberately one sided. The Rex mathematics operators have their own
+    direct suite, so asserting an exhaustive registry equality here would fail on every
+    addition there and teach whoever hits it to widen a set without reading. What must not drift is the other direction: an operator in the storage,
     catalog or metadata group that no test in this file exercises.
     """
     storage = {

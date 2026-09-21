@@ -84,6 +84,10 @@ class TypedCall:
                 "graded_operator": None if self.result.graded_operator is None else asdict(self.result.graded_operator),
                 "graded_bases": [asdict(b) for b in self.result.graded_bases],
                 "member_shapes": [list(s) for s in self.result.member_shapes],
+                "coordinates": None if self.result.coordinates is None else asdict(self.result.coordinates),
+                "tensor_axes": None if self.result.tensor_axes is None else [asdict(a) for a in self.result.tensor_axes],
+                "coordinate_action": None if self.result.coordinate_action is None else asdict(self.result.coordinate_action),
+                "declaration_digest": self.result.declaration_digest,
                 # The state the result was read at, and the basis it is expressed in. Both
                 # are part of what the value means: an identical looking reading from
                 # another version or another ordered basis is a different value, so an

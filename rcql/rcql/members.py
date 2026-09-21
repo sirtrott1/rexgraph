@@ -66,6 +66,13 @@ def project(value, name):
         from rexgraph.io.catalog import CatalogEntry
         if isinstance(value, CatalogEntry) and name in value.__dataclass_fields__:
             return getattr(value, name)
+        from rexgraph.section_calculus import SectionFamily, SectionImage
+        if isinstance(value, SectionFamily) and name == "dimension":
+            value.check_state()
+            return value.dimension
+        if isinstance(value, SectionImage) and name == "determined":
+            value.family.check_state()
+            return value.determined
         from rexgraph.sheaf import ExactGlueResult, ExactSectionCheck
         allowed = ({"compatible", "incidence_count", "comparison_count", "obstructions"}
                    if isinstance(value, ExactSectionCheck) else
@@ -85,6 +92,16 @@ def member_type(parent, name, context):
         return project(parent, name)
     if not isinstance(parent, RCType):
         raise TypeError("member access requires a declared record")
+    if parent.name == "ReadoutEquivalence":
+        kinds = {"equivalent": ValueKind.BOOLEAN, "family_dimension": ValueKind.EXACT_INTEGER,
+                 "family_digest": ValueKind.TEXT, "left_digest": ValueKind.TEXT,
+                 "right_digest": ValueKind.TEXT, "certificate_digest": ValueKind.TEXT,
+                 "scope": ValueKind.TEXT, "offset": ValueKind.TENSOR_FIELD,
+                 "variation": ValueKind.COORDINATE_MAP}
+        if name not in kinds:
+            raise TypeError("unknown readout certificate member")
+        return RCType(kinds[name].value, kind=kinds[name], source=parent.source,
+                      exactness=Exactness.RATIONAL if name == "offset" else Exactness.STRUCTURAL)
     if parent.name == "PathChange" and parent.kind is ValueKind.RECORD:
         kinds = {"terms": ValueKind.SEQUENCE, "seeds": ValueKind.SEQUENCE,
                  "weights": ValueKind.SEQUENCE, "event": ValueKind.BOOLEAN,
@@ -203,6 +220,22 @@ def member_type(parent, name, context):
                       ValueKind.TEXT if name == "matching" else ValueKind.SEQUENCE,
                       domain=Domain.METADATA, exactness=Exactness.STRUCTURAL,
                       source=parent.source, temporal=parent.temporal)
+    if parent.name in {"ChannelMoments", "CoordinateDelta"} and parent.kind is ValueKind.RECORD:
+        allowed = ({"names", "values", "shape", "total", "kernel_digest", "coefficient_domain"}
+                   if parent.name == "ChannelMoments" else
+                   {"names", "space_name", "space_keys", "fields", "values", "shape", "moments",
+                    "operation_digest", "coefficient_domain"})
+        if name not in allowed:
+            raise TypeError(f"{parent.name} has no declared member {name!r}")
+        if name == "moments":
+            return RCType("ChannelMoments", kind=ValueKind.RECORD, domain=Domain.METADATA,
+                          exactness=Exactness.STRUCTURAL, source=parent.source, temporal=parent.temporal)
+        if name == "total":
+            return RCType("Rational", kind=ValueKind.EXACT_RATIONAL, domain=Domain.RATIONAL,
+                          exactness=Exactness.RATIONAL, source=parent.source, temporal=parent.temporal)
+        kind = ValueKind.SEQUENCE if name in {"names", "values", "shape", "fields", "space_keys"} else ValueKind.TEXT
+        return RCType(kind.value, kind=kind, domain=Domain.METADATA, exactness=Exactness.STRUCTURAL,
+                      source=parent.source, temporal=parent.temporal)
     if parent.name == "AccessionDelta" and parent.kind is ValueKind.RECORD:
         if name in {"grade", "implicit_zero"}:
             rational = name == "implicit_zero"
@@ -215,7 +248,7 @@ def member_type(parent, name, context):
             return RCType("Coordinates", kind=ValueKind.SEQUENCE, domain=Domain.METADATA,
                           exactness=Exactness.STRUCTURAL, source=parent.source, temporal=parent.temporal)
         if name in {"domain_name", "codomain_name", "formula", "coefficient_domain",
-                    "old_accession_digest", "new_accession_digest", "correspondence_digest"}:
+                    "old_accession_digest", "new_accession_digest", "correspondence_digest", "output_correspondence_digest"}:
             return RCType("Text", kind=ValueKind.TEXT, domain=Domain.METADATA, exactness=Exactness.STRUCTURAL,
                           source=parent.source, temporal=parent.temporal)
         raise TypeError(f"AccessionDelta has no declared member {name!r}")
@@ -226,7 +259,7 @@ def member_type(parent, name, context):
         if name in {"down", "up"}:
             return RCType("DefectCoordinates", kind=ValueKind.RECORD, domain=Domain.METADATA, exactness=Exactness.STRUCTURAL,
                           source=parent.source, temporal=parent.temporal)
-        if name not in {"grade", "metrics", "coefficient_domain", "correspondence_digest", "source_boundary_digest", "target_boundary_digest"}:
+        if name not in {"grade", "metrics", "coefficient_domain", "correspondence_digest", "source_boundary_digest", "target_boundary_digest", "metric_digest"}:
             raise TypeError(f"FieldDelta has no declared member {name!r}")
         if name == "grade":
             return RCType("Integer", kind=ValueKind.EXACT_INTEGER, domain=Domain.INTEGER, exactness=Exactness.INTEGER,
@@ -296,6 +329,14 @@ def member_type(parent, name, context):
         if shape is None and context.native:
             shape = ShapeRef((context.grade(parent.grade),))
         return parent.with_(name="Cochain", kind=ValueKind.COCHAIN, shape=shape)
+    if parent.kind in {ValueKind.SECTION_FAMILY, ValueKind.SECTION_IMAGE}:
+        if name == "dimension" and parent.kind is ValueKind.SECTION_FAMILY:
+            return RCType("Integer", kind=ValueKind.EXACT_INTEGER, domain=Domain.INTEGER,
+                          exactness=Exactness.INTEGER, source=parent.source)
+        if name == "determined" and parent.kind is ValueKind.SECTION_IMAGE:
+            return RCType("Boolean", kind=ValueKind.BOOLEAN, domain=Domain.METADATA,
+                          exactness=Exactness.STRUCTURAL, source=parent.source)
+        raise TypeError(f"{parent.kind.value} has no declared member {name!r}")
     if parent.kind in {ValueKind.EXACT_GLUE, ValueKind.EXACT_SECTION_CHECK}:
         integer = ({"gluable", "glued", "h0", "obstruction_count"}
                    if parent.kind is ValueKind.EXACT_GLUE else {"incidence_count", "comparison_count"})

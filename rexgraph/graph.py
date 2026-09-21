@@ -249,6 +249,17 @@ def _as_relation_ids(values, expected: int, *, context: str = "relation_ids") ->
     return ids
 
 
+def _csc_arrays(dual) -> tuple[NDArray, NDArray, NDArray]:
+    """(indptr, indices, data) of a DualCSR in canonical CSC form, read from the sparse
+    carrier without a dense materialization: duplicates summed, stored zeros dropped and
+    row indices sorted within each column."""
+    M = _sparse.to_scipy_csr(dual).tocsc()
+    M.sum_duplicates()
+    M.eliminate_zeros()
+    return (np.asarray(M.indptr, dtype=_i32), np.asarray(M.indices, dtype=_i32),
+            np.asarray(M.data, dtype=_f64))
+
+
 def _serialize_hodge_dict(d: dict) -> dict:
     """Convert a Hodge result dict to JSON safe types.
 
@@ -323,7 +334,7 @@ _TIER_B1_ONLY = frozenset({
     "_B1_dual", "B1_sparse", "B1", "_v2e", "_vertex_info", "degree", "in_degree", "out_degree",
     "edge_types", "has_branching", "_is_standard_only", "_adjacency_bundle",
     "_overlap_bundle", "L_overlap", "overlap_gramian", "L0", "L0_sparse",
-    "L1", "L1_sparse", "_sources", "_targets",
+    "L1", "L1_sparse", "L1_down_sparse", "_sources", "_targets",
     # These caches also depend on C1: appending an edge adds a zero B2 row.
     "_B2_dual", "B2_sparse", "_B2_hodge_dual", "B2_hodge_sparse", "B2", "B2_hodge",
 })
@@ -331,6 +342,8 @@ _TIER_B2_ONLY = frozenset({
     "_B2_dual", "B2_sparse", "_B2_hodge_dual", "B2_hodge_sparse", "B2", "B2_hodge", "nF_hodge",
     "self_loop_face_indices", "chain_valid", "_chain_col_maxabs",
     "L2", "L2_sparse",
+    # The edge Hodge Laplacian carries the up part B_2 B_2^T, so a face append changes it.
+    "L1", "L1_sparse",
 })
 _TIER_GLOBAL = frozenset({
     # edge->face CSR: size depends on nE and nF, invalidate on any structural change
@@ -2399,10 +2412,26 @@ class RexGraph:
     def L1_sparse(self):
         """L_1 (edge Hodge Laplacian) as a sparse scipy CSR: the down part
         B_1^T B_1, plus the up part B_2 B_2^T when Hodge faces exist."""
-        L1 = _laplacians.build_L1_down_sparse(self._B1_dual)
+        L1 = self.L1_down_sparse
         if self.nF_hodge > 0 and self._B2_hodge_dual is not None:
-            L1 = (L1 + _laplacians.build_L1_up_sparse(self._B2_hodge_dual)).tocsr()
+            L1 = (L1 + self.L1_up_sparse).tocsr()
         return L1
+
+    @cached_property
+    def L1_down_sparse(self):
+        """The down (gradient) edge Laplacian B_1^T B_1 as a sparse scipy CSR, the
+        sparse form of `L1_down`."""
+        return _laplacians.build_L1_down_sparse(self._B1_dual)
+
+    @cached_property
+    def L1_up_sparse(self):
+        """The up (curl) edge Laplacian B_2 B_2^T over the Hodge faces as a sparse scipy
+        CSR, the sparse form of `L1_up`. It is the nE by nE zero operator when no face
+        closes over the primary boundary."""
+        from scipy import sparse as _sp
+        if self.nF_hodge == 0 or self._B2_hodge_dual is None:
+            return _sp.csr_matrix((self._nE, self._nE), dtype=_f64)
+        return _laplacians.build_L1_up_sparse(self._B2_hodge_dual)
 
     @cached_property
     def L2_sparse(self):
@@ -2615,9 +2644,9 @@ class RexGraph:
         B2 = to_scipy_csr(self._B2_hodge_dual).tocsr()          # nE × nF
         b2_frob = float(np.sqrt(B2.multiply(B2).sum()))
         g = 1.0 / (b2_frob if b2_frob > 1.0 else 1.0)
-        RL1 = self.relational_laplacian
-        RL1 = (_sp.csr_matrix(np.asarray(RL1)) if RL1 is not None
-               else self.L1_sparse.tocsr())       # RL_1 if built, else L1 (fallback)
+        RL1 = self.relational_laplacian_sparse
+        if RL1 is None:
+            RL1 = self.L1_sparse                  # RL_1 when alpha_G is defined, else L1
         L2 = self.L2_sparse.tocsr()
         M = _sp.bmat([[RL1, (-g) * B2], [(-g) * B2.T, L2]], format='csr')
         n = M.shape[0]
@@ -3723,10 +3752,32 @@ class RexGraph:
         B2w = _sp.csc_matrix((b2w, ri, cp), shape=(self._nE, nF))
         return {'kappa_f': kappa_f, 'R': R, 'B1w': B1w, 'B2w': B2w}
 
+    def _attributed_kappa(self, w_e: NDArray = None, a_v: NDArray = None) -> NDArray:
+        """The per face curvature kappa_f = ||R[:,f]|| of `attributed_curvature`, read
+        through the sparse boundaries, so neither B1^w nor R is formed densely."""
+        from scipy import sparse as _sp
+        d = self._B2_hodge_dual
+        if self.nF_hodge == 0 or d is None:
+            return np.zeros(0, dtype=_f64)
+        w_e = (np.ones(self._nE, dtype=_f64) if w_e is None
+               else np.ascontiguousarray(w_e, dtype=_f64))
+        a_v = (np.ones(self._nV, dtype=_f64) if a_v is None
+               else np.ascontiguousarray(a_v, dtype=_f64))
+        sqw = np.sqrt(np.maximum(w_e, 0.0))
+        B1w = _sp.diags(a_v) @ _sparse.to_scipy_csr(self._B1_dual) @ _sp.diags(sqw)
+        R = (B1w @ (_sp.diags(sqw) @ _sparse.to_scipy_csr(d))).tocsc()
+        return np.ascontiguousarray(np.sqrt(np.asarray(R.multiply(R).sum(axis=0)).ravel()),
+                                    dtype=_f64)
+
     def strain_equilibrium(self, born_face: NDArray = None,
                             t: float = 0.0,
                             vertex_idx: int = 0) -> dict:
-        """Full dynamic strain equilibrium analysis."""
+        """Full dynamic strain equilibrium analysis.
+
+        The optimal coupling alpha = <B2 kappa, B2 pF> / ||B2 pF||^2, the face deficit
+        delta = kappa - alpha pF, the relational strain sigma = B2 delta and the Bianchi
+        residual B1 sigma, which are the readings of `_rcfe.strain_equilibrium`, applied
+        through the sparse boundaries rather than their dense materializations."""
         if not _HAS_RCF:
             raise RuntimeError("RCF modules not available.")
         nF = self.nF_hodge
@@ -3737,8 +3788,7 @@ class RexGraph:
                 'bianchi_ok': True, 'bianchi_residual': 0.0,
                 'strain_norm': 0.0, 'kappa_f': np.zeros(0, dtype=_f64),
             }
-        ac = self.attributed_curvature()
-        kappa_f = ac['kappa_f']
+        kappa_f = self._attributed_kappa()
         if born_face is None:
             if _dirac is not None:
                 psi_re, psi_im = self.graded_state(t=t, vertex_idx=vertex_idx)
@@ -3747,11 +3797,22 @@ class RexGraph:
             else:
                 born_face = np.ones(nF, dtype=_f64) / nF
         born_face = np.ascontiguousarray(born_face, dtype=_f64)
-        result = _rcfe.strain_equilibrium(
-            self.B1, self.B2_hodge, kappa_f, born_face,
-            self._nV, self._nE, nF)
-        result['kappa_f'] = kappa_f
-        return result
+        B1 = _sparse.to_scipy_csr(self._B1_dual)
+        B2 = _sparse.to_scipy_csr(self._B2_hodge_dual)
+        B2_kappa = np.asarray(B2 @ kappa_f, dtype=_f64)
+        B2_pF = np.asarray(B2 @ born_face, dtype=_f64)
+        denom = float(B2_pF @ B2_pF)
+        alpha = 0.0 if denom < 1e-15 else float((B2_kappa @ B2_pF) / denom)
+        delta = _rcfe.face_deficit(kappa_f, alpha, born_face, nF)
+        sigma = np.ascontiguousarray(B2 @ delta, dtype=_f64)
+        residual = np.asarray(B1 @ sigma, dtype=_f64)
+        max_res = float(np.max(np.abs(residual))) if residual.size else 0.0
+        return {
+            'alpha': alpha, 'delta': delta, 'sigma': sigma,
+            'bianchi_ok': max_res < 1e-10, 'bianchi_residual': max_res,
+            'strain_norm': float(np.sqrt(np.dot(sigma, sigma))),
+            'kappa_f': kappa_f,
+        }
 
     # RCF methods
 
@@ -4465,15 +4526,13 @@ class RexGraph:
             B2_dual = build_B2_from_cycles(
                 self._nE, result['cycle_edges'],
                 result['cycle_signs'], result['cycle_lengths'])
-            B2_dense = _sparse.to_dense_f64(B2_dual)
-            from scipy import sparse as sp
-            B2_sp = sp.csc_matrix(B2_dense)
+            col_ptr, row_idx, vals = _csc_arrays(B2_dual)
             rex = RexGraph(
                 boundary_ptr=self._boundary_ptr.copy(),
                 boundary_idx=self._boundary_idx.copy(),
-                B2_col_ptr=np.asarray(B2_sp.indptr, dtype=_i32),
-                B2_row_idx=np.asarray(B2_sp.indices, dtype=_i32),
-                B2_vals=np.asarray(B2_sp.data, dtype=_f64),
+                B2_col_ptr=col_ptr,
+                B2_row_idx=row_idx,
+                B2_vals=vals,
                 w_E=self._w_E, directed=self._directed, signs=self._signs,
             )
         rex._context_face_result = result
@@ -4517,15 +4576,13 @@ class RexGraph:
             B2_dual = build_B2_from_cycles(
                 self._nE, result['realized_edges'],
                 result['realized_signs'], cycle_lengths)
-            B2_dense = _sparse.to_dense_f64(B2_dual)
-            from scipy import sparse as sp
-            B2_sp = sp.csc_matrix(B2_dense)
+            col_ptr, row_idx, vals = _csc_arrays(B2_dual)
             rex = RexGraph(
                 boundary_ptr=self._boundary_ptr.copy(),
                 boundary_idx=self._boundary_idx.copy(),
-                B2_col_ptr=np.asarray(B2_sp.indptr, dtype=_i32),
-                B2_row_idx=np.asarray(B2_sp.indices, dtype=_i32),
-                B2_vals=np.asarray(B2_sp.data, dtype=_f64),
+                B2_col_ptr=col_ptr,
+                B2_row_idx=row_idx,
+                B2_vals=vals,
                 w_E=self._w_E, directed=self._directed, signs=self._signs,
             )
         rex._typed_face_result = result
@@ -4631,6 +4688,11 @@ class RexGraph:
     @cached_property
     def layout_3d(self) -> NDArray:
         layout_2d = self.layout
+        if self._nV == 0 or not self._is_standard_only:
+            # On a C1 that is not pairwise, `layout` returns the structural placement,
+            # which has two coordinates, so depth is zero, as it is below four L0 modes.
+            # Reading evecs_L0 here would enter the pairwise Fiedler route, which raises.
+            return np.column_stack([layout_2d, np.zeros(self._nV, dtype=_f64)])
         sb = self.spectral_bundle
         evecs = sb['evecs_L0']
         if evecs.shape[1] >= 4:
@@ -4918,9 +4980,9 @@ class RexGraph:
 
     def signal_energy(self, g: NDArray, dim: int) -> float:
         """Rayleigh quotient <g|L|g> for signal g on dimension dim."""
-        L = [self.L0, self.L1, self.L2][dim]
+        L = [self.L0_sparse, self.L1_sparse, self.L2_sparse][dim]
         g = np.ascontiguousarray(g, dtype=_f64)
-        return float(g @ L @ g)
+        return float(g @ L.dot(g))
 
     def normalize(self, g: NDArray, norm: str = "l2") -> NDArray:
         if norm == "l1":
@@ -4943,7 +5005,7 @@ class RexGraph:
         RL_1 = L1_down + alpha_G*L1_up. (Was L_1 and L_O, which did not match RL_1.)
         """
         f = np.ascontiguousarray(f_E, dtype=_f64)
-        return _state.energy_kin_pot(f, self.L1_down, self.L1_up)
+        return _state.energy_kin_pot(f, self.L1_down_sparse, self.L1_up_sparse)
 
     def dirac_state(self, dim: int, idx: int) -> tuple[NDArray, NDArray, NDArray]:
         """Dirac delta state: all zeros except 1.0 at (dim, idx)."""
@@ -4970,7 +5032,7 @@ class RexGraph:
     def vertex_perturbation(self, vertex_idx: int) -> tuple[NDArray, NDArray]:
         """Perturbation at a vertex, spread to incident edges via B_1^T."""
         return _signal.build_vertex_perturbation(
-            vertex_idx, self.B1, self._nE, self._nF)
+            vertex_idx, _sparse.to_scipy_csr(self._B1_dual).T.tocsr(), self._nE, self._nF)
 
     def multi_edge_perturbation(self, edge_indices: ArrayLike) -> tuple[NDArray, NDArray]:
         """Uniform perturbation across multiple edges."""
@@ -4994,7 +5056,7 @@ class RexGraph:
         `energy_kin_pot` and RL_1 = L1_down + alpha_G*L1_up; each sums to the corresponding total.
         """
         f = np.ascontiguousarray(f_E, dtype=_f64)
-        return _quotient.per_edge_energy(f, self.L1_down, self.L1_up)
+        return _quotient.per_edge_energy(f, self.L1_down_sparse, self.L1_up_sparse)
 
     def subcomplex_by_energy(
         self,
@@ -5214,22 +5276,22 @@ class RexGraph:
 
         Returns (psi_E_t, psi_F_t, psi_V_t).
         """
-        import scipy.sparse as _sp
-
         from rexgraph import scale_propagator as _spg
         psi_E = np.asarray(psi_E, dtype=_c128)
         psi_F = np.asarray(psi_F, dtype=_c128)
         # Eigen free: e^{-i RL1 t} psi_E and e^{-i L2 t} psi_F via one shared set of
         # Chebyshev matvecs on the SPARSE operators (== the dense mode sum
         # field_schrodinger_evolve to ~1e-10, no eigh on RL1/L1/L2).
-        RL1 = self.relational_laplacian
-        RL1 = _sp.csr_matrix(np.asarray(RL1)) if RL1 is not None else self.L1_sparse
+        RL1 = self.relational_laplacian_sparse
+        if RL1 is None:
+            RL1 = self.L1_sparse
         psi_E_t = _spg.schrodinger_apply(RL1, psi_E, t)
         if self.nF_hodge > 0 and psi_F.shape[0] > 0:
             psi_F_t = _spg.schrodinger_apply(self.L2_sparse, psi_F, t)
         else:
             psi_F_t = psi_F.copy()
-        psi_V_t = self.B1.dot(psi_E_t.real) + 1j * self.B1.dot(psi_E_t.imag)
+        B1 = _sparse.to_scipy_csr(self._B1_dual)
+        psi_V_t = B1.dot(psi_E_t.real) + 1j * B1.dot(psi_E_t.imag)
         return psi_E_t, psi_F_t, psi_V_t
 
     def evolve_field_trajectory(
@@ -5242,22 +5304,21 @@ class RexGraph:
 
         Returns (traj_E, traj_F, traj_V) each shaped [nT, ...].
         """
-        import scipy.sparse as _sp
-
         from rexgraph import scale_propagator as _spg
         psi_E = np.asarray(psi_E, dtype=_c128)
         psi_F = np.asarray(psi_F, dtype=_c128)
         times = np.ascontiguousarray(times, dtype=_f64)
         # Eigen free trajectory: shared Chebyshev vectors across all timepoints
         # (== the dense mode sum field_schrodinger_trajectory to ~1e-10, no eigh).
-        RL1 = self.relational_laplacian
-        RL1 = _sp.csr_matrix(np.asarray(RL1)) if RL1 is not None else self.L1_sparse
+        RL1 = self.relational_laplacian_sparse
+        if RL1 is None:
+            RL1 = self.L1_sparse
         traj_E = _spg.schrodinger_trajectory(RL1, psi_E, times)      # (nT, nE) complex
         if self.nF_hodge > 0 and psi_F.shape[0] > 0:
             traj_F = _spg.schrodinger_trajectory(self.L2_sparse, psi_F, times)
         else:
             traj_F = np.repeat(psi_F[None, :], times.shape[0], axis=0)
-        traj_V = traj_E @ self.B1.T                                  # (nT, nV) complex
+        traj_V = np.asarray(_sparse.to_scipy_csr(self._B1_dual) @ traj_E.T).T   # (nT, nV)
         return traj_E, traj_F, traj_V
 
     def measure_in_eigenbasis(self, psi: NDArray, dim: int = 1) -> tuple:
@@ -5374,7 +5435,7 @@ class RexGraph:
         f_V = B_1 @ F[:nE].
         """
         F = np.ascontiguousarray(F, dtype=_f64)
-        return _field.derive_vertex_state(F, self.B1, self._nE)
+        return _field.derive_vertex_state(F, _sparse.to_scipy_csr(self._B1_dual), self._nE)
 
     # Dirac operator and graded state
 
@@ -5736,9 +5797,12 @@ class RexGraph:
         # (no eigendecomposition), sharing one set of Chebyshev vectors across all t.
         # `op` is the SAME operator the dense path propagated under: RL_1 when its
         # relational Laplacian is available (the intended operator), else L_1.
+        from scipy import sparse as _sp
+
         from rexgraph import scale_propagator as _spg
-        RL1_op = self.relational_laplacian
-        op = RL1_op if self.evals_RL1 is not None and RL1_op is not None else self.L1_sparse
+        op = self.relational_laplacian_sparse if self.evals_RL1 is not None else None
+        if op is None:
+            op = self.L1_sparse
         trajectory = _spg.heat_trajectory(op, f_E, times)     # (T, nE), matrix free
 
         sb = self.spectral_bundle
@@ -5753,15 +5817,17 @@ class RexGraph:
                 edge_src=np.ascontiguousarray(src, dtype=_i32),
                 edge_tgt=np.ascontiguousarray(tgt, dtype=_i32),
             )
+        B2h = (_sparse.to_scipy_csr(self._B2_hodge_dual) if self._B2_hodge_dual is not None
+               else _sp.csr_matrix((self._nE, 0), dtype=_f64))
         return _signal.analyze_perturbation(
             f_E, f_F,
-            self.L1_down, self.L1_up,                 # kinetic=gradient, potential=curl (matches RL_1)
+            self.L1_down_sparse, self.L1_up_sparse,   # kinetic=gradient, potential=curl (matches RL_1)
             None, None,                               # spectrum unused: trajectory is eigen free
-            self.B1, self.B2_hodge,
+            _sparse.to_scipy_csr(self._B1_dual), B2h,
             times,
             L0=sb.get('L0'),
             L2_op=sb.get('L2'),
-            RL1=self.relational_laplacian,
+            RL1=self.relational_laplacian_sparse,
             alpha_G=ag,
             precomputed_trajectory=trajectory,
             **kwargs,

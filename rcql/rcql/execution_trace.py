@@ -2,6 +2,13 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+_BINDING = ContextVar("rcql_binding", default=None)
+
+
+def current_binding():
+    return _BINDING.get()
+
+
 _OBSERVATIONS = ContextVar("rcql_method_observations", default=None)
 _POLICY_DIGEST = ContextVar("rcql_policy_digest", default="")
 _POLICY = ContextVar("rcql_policy", default=None)
@@ -32,7 +39,8 @@ def record_method(method, **details):
 
 
 @contextmanager
-def capture_methods(*, policy_digest="", policy=None, artifact_services=None):
+def capture_methods(*, policy_digest="", policy=None, artifact_services=None, binding=None):
+    binding_token = _BINDING.set(binding)
     observations = []
     token = _OBSERVATIONS.set(observations)
     policy_token = _POLICY_DIGEST.set(policy_digest)
@@ -41,7 +49,24 @@ def capture_methods(*, policy_digest="", policy=None, artifact_services=None):
     try:
         yield observations
     finally:
+        _BINDING.reset(binding_token)
         _OBSERVATIONS.reset(token)
         _POLICY_DIGEST.reset(policy_token)
         _POLICY.reset(source_token)
         _ARTIFACT_SERVICES.reset(services_token)
+
+
+_EVIDENCE = ContextVar("rcql_evidence", default=None)
+
+
+def current_evidence():
+    return _EVIDENCE.get()
+
+
+@contextmanager
+def evidence_scope(evidence):
+    token = _EVIDENCE.set(evidence)
+    try:
+        yield
+    finally:
+        _EVIDENCE.reset(token)

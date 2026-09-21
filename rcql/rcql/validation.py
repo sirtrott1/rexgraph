@@ -63,13 +63,19 @@ class ValidationContext:
         return self._chain
 
     def known_value(self, expression):
-        from .ast import Literal, Parameter, Reference
+        from .ast import Literal, Parameter, Reference, ListExpr
         while isinstance(expression.expr, Reference):
             expression = expression.children[0]
         if isinstance(expression.expr, Literal):
-            return expression.expr.value
+            value = expression.expr.value
+            return None if isinstance(value, RCType) else value
         if isinstance(expression.expr, Parameter):
-            return self.parameters.get(expression.expr.name)
+            value = self.parameters.get(expression.expr.name)
+            return None if isinstance(value, RCType) else value
+        if isinstance(expression.expr, ListExpr):
+            values = tuple(self.known_value(child) for child in expression.children)
+            if all(value is not None for value in values):
+                return values
         return None
 
     def homology(self):
@@ -225,6 +231,37 @@ def refine(typed, children, context):
         facts.extend(document_facts)
     if name in DIFFERENCE:
         facts.extend(refine_difference(typed, children, context))
+    from .coordinate_contracts import ARGUMENTS as COORDINATE, refine as refine_coordinate
+    if name in COORDINATE:
+        facts.extend(refine_coordinate(typed, children, context))
+    from .molecular_contracts import ARGUMENTS as MOLECULAR, refine as refine_molecular
+    if name in MOLECULAR:
+        result, molecular_facts = refine_molecular(typed, children, context)
+        facts.extend(molecular_facts)
+    from .model_contracts import ARGUMENTS as MODEL, refine as refine_model
+    if name in MODEL:
+        result, model_facts = refine_model(typed, children, context)
+        facts.extend(model_facts)
+    from .section_contracts import ARGUMENTS as SECTION, refine as refine_section
+    if name in SECTION:
+        result, section_facts = refine_section(typed, children, context)
+        facts.extend(section_facts)
+    from .tensor_contracts import ARGUMENTS as TENSOR, refine as refine_tensor
+    if name in TENSOR:
+        result, tensor_facts = refine_tensor(typed, children, context)
+        facts.extend(tensor_facts)
+    from .program_contracts import ARGUMENTS as PROGRAM, refine as refine_program
+    if name in PROGRAM:
+        result, program_facts = refine_program(typed, children, context)
+        facts.extend(program_facts)
+    from .recursion_contracts import ARGUMENTS as RECURSION, refine as refine_recursion
+    if name in RECURSION:
+        result, recursion_facts = refine_recursion(typed, children, context)
+        facts.extend(recursion_facts)
+    from .transformation_contracts import ARGUMENTS as TRANSFORMATION, refine as refine_transformation
+    if name in TRANSFORMATION:
+        result, transformation_facts = refine_transformation(typed, children, context)
+        facts.extend(transformation_facts)
     if name in FILLING:
         facts.extend(refine_filling(typed, context))
     if name in ARTIFACT:

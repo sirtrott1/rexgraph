@@ -614,6 +614,10 @@ def build_rex_from_edges(
             input_type,
         )
 
+    identity_args = {}
+    if getattr(edges, "relation_ids", None) is not None:
+        identity_args["relation_ids"] = edges.relation_ids
+
     w_mag = edges.weights
     w_E_arg = w_mag if len(w_mag) > 0 and not np.allclose(w_mag, 1.0) else None
     signs_arg = (
@@ -642,13 +646,14 @@ def build_rex_from_edges(
             signs_arg = np.concatenate([np.asarray(signs_arg),
                                         np.ones(len(branching), dtype=signs_arg.dtype)])
         rex = RexGraph(boundary_ptr=ptr, boundary_idx=idx,
-                       w_E=w_E_arg, signs=signs_arg)
+                       w_E=w_E_arg, signs=signs_arg, **identity_args)
     else:
         rex = RexGraph(
             sources=edges.sources,
             targets=edges.targets,
             w_E=w_E_arg,
             signs=signs_arg,
+            **identity_args,
         )
 
     # Faces, on request.
@@ -703,6 +708,10 @@ def build_rex_from_edges(
         "typing": typing,
         "face_selection": face_selection,
     }
+    if getattr(edges, "source_manifest", None):
+        import copy
+        rex._agent_meta["source_manifest"] = copy.deepcopy(edges.source_manifest)
+
     # Preserve text position mapping when present (OCR/text adapters)
     if getattr(edges, "source_text", ""):
         rex._agent_meta["source_text"] = edges.source_text

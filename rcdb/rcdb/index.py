@@ -350,9 +350,10 @@ def _residual_columns(recs):
     cells: dict = {}
     for i, r in enumerate(recs):
         for scope, d, known in ((0, r.signature or {}, known_sig),
-                                (1, r.meta or {}, set(KINDS))):
+                                (1, r.meta or {}, FROM_META)):
             for k, v in (d or {}).items():
-                if k in known:
+                typed_source = scope == 0 and k == "source" and not isinstance(v, str)
+                if k in known and not typed_source:
                     continue
                 leaves = []
                 _flatten(v, ((str(k), False),), leaves)
@@ -435,8 +436,17 @@ def _path_tensors(klist, t, prefix, code):
     t[f"{prefix}/scope"] = scopes
 
 
+def _column_fits(kind, values):
+    """Whether the existing integer column preserves every value."""
+    if kind == K_INT:
+        return all(-(1 << 63) <= int(v) < (1 << 63) for v in values)
+    if kind == K_LIST_INT:
+        return all(-(1 << 63) <= int(v) < (1 << 63) for row in values for v in row)
+    return True
+
+
 def _residual_tensors(cells, t):
-    """Shared paths get a column each; bridge paths pool into one sparse relation."""
+    """Use shared columns where exact and residual rows otherwise."""
     segs, seg_index = [], {}
 
     def _code(sname):
@@ -446,8 +456,11 @@ def _residual_tensors(cells, t):
         return j
 
     keys = sorted(cells, key=lambda k: (k[0], [s for s, _ in k[1]], k[2]))
-    shared = [k for k in keys if len(cells[k]) > 1]
-    bridge = [k for k in keys if len(cells[k]) == 1]
+    shared = [k for k in keys if len(cells[k]) > 1
+              and _column_fits(k[2], cells[k].values())]
+    shared_keys = set(shared)
+    bridge = [(k, row, value) for k in keys if k not in shared_keys
+              for row, value in sorted(cells[k].items())]
 
     for j, key in enumerate(shared):
         rowmap = cells[key]
@@ -480,8 +493,7 @@ def _residual_tensors(cells, t):
                 t[g + "flat"] = np.asarray([int(v) for v in flat], np.int64)
 
     brows, bvals, bspans = [], [], []
-    for key in bridge:
-        (row, val), = cells[key].items()
+    for key, row, val in bridge:
         parts = _leaf_strings(key[2], val)
         brows.append(row)
         bspans.append(len(bvals))
@@ -493,7 +505,7 @@ def _residual_tensors(cells, t):
     t["bridge/sbytes"] = np.frombuffer(blob, np.uint8).copy()
     t["bridge/soffs"] = offs
     _path_tensors(shared, t, "residual", _code)
-    _path_tensors(bridge, t, "bridge", _code)
+    _path_tensors([key for key, _, _ in bridge], t, "bridge", _code)
     blob, offs = _pack_strings(segs)
     t["residual/seg/table"] = np.frombuffer(blob, np.uint8).copy()
     t["residual/seg/offsets"] = offs
@@ -1324,6 +1336,8 @@ def rows_for(index: dict, *, ids=None, as_of=None, **predicate) -> np.ndarray:
         v = predicate.get(key)
         if v is None:
             continue
+        if key == "source" and not isinstance(v, str):
+            continue
         terms = [v] if isinstance(v, str) else list(v)
         m = np.zeros(n, bool)
         hit = records_with_terms(index, terms, mode=mode, kinds=kinds)
@@ -1431,7 +1445,14 @@ _COL = {name: i for i, name in enumerate(_FRAME_COLS)}
 def _leaves_of(record):
     """The residual leaves of one record as (scope, path, kind, value)."""
     cells = _residual_columns([record])
-    return [(sc, path, kind, rowmap[0]) for (sc, path, kind), rowmap in cells.items()]
+    leaves = [(sc, path, kind, rowmap[0]) for (sc, path, kind), rowmap in cells.items()]
+    source = (record.signature or {}).get("source")
+    # Replace the promoted text before restoring a container on older readers.
+    if isinstance(source, dict) and source:
+        leaves.insert(0, (0, (("source", False),), K_EMPTY_DICT, None))
+    elif isinstance(source, (list, tuple)) and source:
+        leaves.insert(0, (0, (("source", False),), K_EMPTY_LIST, None))
+    return leaves
 
 
 def log_append(path, op: str, rid: str, record=None, extra=None) -> None:

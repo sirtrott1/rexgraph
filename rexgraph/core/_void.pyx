@@ -468,9 +468,19 @@ def harmonic_content_all_sparse(B1, B2, Bvoid, Py_ssize_t n_voids, Py_ssize_t nE
         BtB = (B2c.T @ B2c).tocsc()                        # nF x nF, PSD
         try:
             Y2 = sla.splu(BtB).solve(G2)
+            im_norm_sq = np.einsum('ij,ij->j', G2, np.asarray(Y2).reshape(B2c.shape[1], n_voids))
         except Exception:
-            Y2 = np.linalg.lstsq(np.asarray(BtB.todense()), G2, rcond=None)[0]
-        im_norm_sq = np.einsum('ij,ij->j', G2, np.asarray(Y2).reshape(B2c.shape[1], n_voids))
+            # B2^T B2 is singular when the faces are dependent (beta_2 > 0). The im(B2)
+            # part of bv is then its least squares image B2 y, read by LSQR through the
+            # sparse boundary, one void at a time, with no dense solve on B2^T B2.
+            from rexgraph.core._hodge import least_squares
+            im_norm_sq = np.zeros(n_voids, dtype=np.float64)
+            for j in range(n_voids):
+                bv = np.asarray(Bv[:, j].todense(), dtype=np.float64).ravel()
+                if not bv.any():
+                    continue
+                image = np.asarray(B2c @ least_squares(B2c, bv), dtype=np.float64).ravel()
+                im_norm_sq[j] = float(image @ image)
         eta[nz] = np.clip(1.0 - im_norm_sq[nz] / bv_norm_sq[nz], 0.0, 1.0)
         return eta
 

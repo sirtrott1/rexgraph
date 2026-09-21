@@ -59,3 +59,10 @@ __all__ = [
     "register", "list_components", "inventory", "default_name", "available",
     "build_attention", "make_optimizer", "build_model",
 ]
+
+from .lifecycle import (
+    ModelAdapter, register_model_adapter, create_checkpoint, capture_checkpoint,
+    restore_checkpoint, infer_checkpoint, train_checkpoint, transport_checkpoint,
+)
+__all__ += ["ModelAdapter", "register_model_adapter", "create_checkpoint", "capture_checkpoint",
+            "restore_checkpoint", "infer_checkpoint", "train_checkpoint", "transport_checkpoint"]

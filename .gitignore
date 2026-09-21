@@ -18,6 +18,8 @@ wheels/
 *.whl
 .mesonpy-*/
 _skbuild/
+# set aside build directories, such as one built with a mismatched toolchain
+build*.bak/
 
 # Test / lint / type caches
 .pytest_cache/
@@ -44,8 +46,13 @@ certs/
 *.swp
 .DS_Store
 
-# LLM / editor local config (not product)
+# LLM / editor local config (not product). Each tool state directory is named here
+# rather than trusted to the .gitignore the tool writes inside it.
 .claude/
+.codex/
+.remember/
+.superpowers/
+CLAUDE.md
 
 # Generated stress/perf fixtures (not committed; regenerate as needed)
 test_data/

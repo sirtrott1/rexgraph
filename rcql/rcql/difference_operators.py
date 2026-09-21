@@ -2,11 +2,12 @@
 from .execution_trace import record_method
 
 
-def accession_delta(source, old, new, correspondence):
+def accession_delta(source, old, new, correspondence, output_correspondence=None):
     from rexgraph.accession_delta import accession_delta as core_delta
     if old.source is not source:
         raise ValueError("old accession must belong to the bound source")
-    result = core_delta(old, new, correspondence)
+    result = (core_delta(old, new, correspondence) if output_correspondence is None else
+              core_delta(old, new, correspondence, output_correspondence))
     record_method("core-exact-accession-difference", grade=result["grade"], formula=result["formula"],
                   entries=len(result["entries"]))
     return result
@@ -19,29 +20,29 @@ def diff(source, other, ref_labels=None, other_labels=None, matching="auto"):
     return result
 
 
-def field_delta(source, field, correspondence):
+def field_delta(source, field, correspondence, metrics=None):
     from rexgraph.field_delta import field_delta as core_delta
     from .operators import _typed_value
     field = _typed_value(source, field, operator="FIELD_DELTA", variance="chain")
-    result = core_delta(field, correspondence)
-    record_method("core-exact-correspondence-defects", grade=field.grade, metrics="identity")
+    result = core_delta(field, correspondence, metrics=metrics)
+    record_method("core-exact-correspondence-defects", grade=field.grade, metrics="identity" if metrics is None else "declared")
     return result
 
 
-def field_delta_moment(source, field, correspondence):
-    return _moment(source, field, correspondence, oriented=False)
+def field_delta_moment(source, field, correspondence, metrics=None):
+    return _moment(source, field, correspondence, oriented=False, metrics=metrics)
 
 
-def oriented_field_delta_moment(source, field, correspondence):
-    return _moment(source, field, correspondence, oriented=True)
+def oriented_field_delta_moment(source, field, correspondence, metrics=None):
+    return _moment(source, field, correspondence, oriented=True, metrics=metrics)
 
 
-def _moment(source, field, correspondence, *, oriented):
+def _moment(source, field, correspondence, *, oriented, metrics=None):
     from rexgraph.field_delta import field_delta_moment as core_moment
     from .operators import _typed_value
     field = _typed_value(source, field, operator="FIELD_DELTA_MOMENT", variance="chain")
-    result = core_moment(field, correspondence, oriented=oriented)
-    record_method("core-exact-correspondence-defects", grade=field.grade, metrics="identity", oriented=oriented)
+    result = core_moment(field, correspondence, oriented=oriented, metrics=metrics)
+    record_method("core-exact-correspondence-defects", grade=field.grade, metrics="identity" if metrics is None else "declared", oriented=oriented)
     return result
 
 

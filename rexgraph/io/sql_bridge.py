@@ -554,7 +554,7 @@ def write_vertex_sql(
     dtype: dict[str, Any] = {"vertex_idx": sat.Integer()}
 
     try:
-        data["degree"] = np.diag(rex.L0).astype(np.int32)
+        data["degree"] = np.asarray(rex.degree, dtype=np.int32)
         dtype["degree"] = sat.Integer()
     except Exception:
         pass
@@ -1101,7 +1101,7 @@ def write_character_sql(
     chi = rex.structural_character
     nE = rex.nE
     nhats = chi.shape[1] if chi.ndim == 2 else 0
-    hat_names = getattr(rex, '_rcf_bundle', {}).get('hat_names', [])
+    hat_names = list(rex.hat_names)
 
     data = {"edge_idx": np.arange(nE, dtype=np.int32)}
     dtype = {"edge_idx": sat.Integer()}
@@ -1133,7 +1133,7 @@ def write_vertex_character_sql(
     kappa = rex.coherence
     nV = rex.nV
     nhats = phi.shape[1] if phi.ndim == 2 else 0
-    hat_names = getattr(rex, '_rcf_bundle', {}).get('hat_names', [])
+    hat_names = list(rex.hat_names)
 
     data = {"vertex_idx": np.arange(nV, dtype=np.int32)}
     dtype = {"vertex_idx": sat.Integer()}
@@ -1178,7 +1178,7 @@ def write_void_sql(
     else:
         chi_void = vc.get('chi_void', np.zeros((n_voids, 1)))
         nhats = chi_void.shape[1]
-        hat_names = getattr(rex, '_rcf_bundle', {}).get('hat_names', [])
+        hat_names = list(rex.hat_names)
 
         data = {
             "void_idx": np.arange(n_voids, dtype=np.int32),

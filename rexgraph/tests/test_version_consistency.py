@@ -7,10 +7,10 @@ giving something up, so instead of one source of truth there is one test.
 
 It matters more than it did. rcdb, rcql and system are their own distributions now, and
 the query surface grew this release, so every inter distribution floor was raised
-to >=1.1.6. That floor rejects a pre-1.1.6 sibling; it does not pin the five to each
+to >=1.2.0. That floor rejects a sibling before 1.2.0; it does not pin the five to each
 other, and a later release can still resolve an older one unless its own floor moves.
 What this test guarantees is the half that is checkable here: this source release states
-1.1.6 in every one of the eleven places that state a version.
+1.2.0 in every one of the eleven places that state a version.
 
 It is here because the drift already happened: meson.build sat at 1.0.1 against a 1.0.6
 package through two releases. Nothing was mis built, since pyproject is what

@@ -53,7 +53,7 @@ __all__ = ["PlannedExpression", "QueryPlan", "plan_query"]
 
 def _plain_type(value: RCType) -> dict[str, object]:
     """Render one declared carrier without exposing a live source value."""
-    return {
+    result = {
         "kind": value.kind.value,
         "grade": value.grade,
         "variance": None if value.variance is None else value.variance.value,
@@ -81,6 +81,18 @@ def _plain_type(value: RCType) -> dict[str, object]:
             "ordering": value.basis.ordering,
         },
     }
+
+    if value.tensor_axes is not None:
+        result["tensor_axes"] = [asdict(axis) for axis in value.tensor_axes]
+    if value.program_outputs is not None:
+        result["program_outputs"] = [_plain_type(output) for output in value.program_outputs]
+    if value.coordinate_action is not None:
+        result["coordinate_action"] = asdict(value.coordinate_action)
+    if value.coordinates is not None:
+        result["coordinates"] = asdict(value.coordinates)
+    if value.declaration_digest is not None:
+        result["declaration_digest"] = value.declaration_digest
+    return result
 
 
 def _plain_source(ref: SourceRef) -> dict[str, object]:
@@ -160,6 +172,31 @@ def _carrier_literal(binding: Binding, value: object) -> RCType | tuple | None:
     treating them as opaque Python objects, or ordinary execution would bypass
     the same source/basis checks that protect nested phrase results.
     """
+    from .transformation_contracts import literal_type as transformation_literal
+    transformation = transformation_literal(value)
+    if transformation is not None:
+        return transformation
+    from .recursion_contracts import literal_type as relation_literal
+    declared_relation = relation_literal(binding, value)
+    if declared_relation is not None:
+        return declared_relation
+    from .program import Program, ProgramResult
+    from .program_family import ProgramAssembly, ProgramFamily
+    from .program_evolution import ProgramEvolution
+    if isinstance(value, ProgramEvolution):
+        return RCType("ProgramEvolution", kind=ValueKind.PROGRAM_EVOLUTION, exactness=Exactness.STRUCTURAL,
+                      declaration_digest=value.coefficient_digest)
+    if isinstance(value, (ProgramAssembly, ProgramFamily)):
+        kind = ValueKind.PROGRAM_ASSEMBLY if isinstance(value, ProgramAssembly) else ValueKind.PROGRAM_FAMILY
+        return RCType(kind.value, kind=kind, exactness=Exactness.STRUCTURAL,
+                      declaration_digest=value.coefficient_digest)
+    if isinstance(value, Program):
+        return RCType("Program", kind=ValueKind.PROGRAM, exactness=Exactness.STRUCTURAL,
+                      declaration_digest=value.coefficient_digest, program_declaration=value.to_bytes())
+    if isinstance(value, ProgramResult):
+        from .program_contracts import result_types
+        return RCType("ProgramResult", kind=ValueKind.PROGRAM_RESULT, exactness=Exactness.STRUCTURAL,
+                      program_outputs=result_types(binding, value.values))
     if isinstance(value, (tuple, list)):
         return tuple(_carrier_literal(binding, item) or item for item in value)
     if value is None or isinstance(value, (RCType, bool, int, float, complex, str, bytes)):
@@ -259,6 +296,23 @@ def _carrier_literal(binding: Binding, value: object) -> RCType | tuple | None:
         TypedFamily,
         TypeView,
     )
+
+    from .model_contracts import model_literal
+    model_type = model_literal(binding, value)
+    if model_type is not None:
+        return model_type
+    from .section_contracts import section_literal
+    section_type = section_literal(binding, value)
+    if section_type is not None:
+        return section_type
+    from .tensor_contracts import tensor_literal
+    tensor_type = tensor_literal(binding, value)
+    if tensor_type is not None:
+        return tensor_type
+    from .coordinate_contracts import coordinate_literal
+    coordinate = coordinate_literal(binding, value)
+    if coordinate is not None:
+        return coordinate
 
     if isinstance(value, ChainHomotopy):
         value.check_state()
@@ -426,8 +480,14 @@ def _carrier_literal(binding: Binding, value: object) -> RCType | tuple | None:
             source=source, basis=BasisRef(source.name, value.grade),
         )
 
+    from rexgraph.cells import CellBoundary, CellCoboundary, CompositeBinary
+    if isinstance(value, CompositeBinary):
+        ref = binding.ref if value.cell.source is binding.value else SourceRef("foreign")
+        return RCType("CompositeBinary", grade=value.cell.grade, kind=ValueKind.COMPOSITE_BINARY,
+                      variance=Variance.CELL, domain=Domain.RATIONAL, exactness=Exactness.RATIONAL,
+                      source=ref, basis=BasisRef(ref.name, value.cell.grade))
     field = isinstance(value, Field)
-    carrier = value.cochain if field else value
+    carrier = value.chain if isinstance(value, CellBoundary) else value.cochain if field or isinstance(value, CellCoboundary) else value
     if not isinstance(carrier, (Chain, Cochain)):
         return None
 
@@ -435,7 +495,11 @@ def _carrier_literal(binding: Binding, value: object) -> RCType | tuple | None:
     # signature, not silently adopted because its shape happens to match.
     source = binding.ref if carrier.source is binding.value else SourceRef("foreign")
     domain, exactness = _coefficient_contract(carrier.values)
-    if field:
+    if isinstance(value, CellBoundary):
+        kind, variance, name = ValueKind.CELL_BOUNDARY, Variance.CHAIN, "CellBoundary"
+    elif isinstance(value, CellCoboundary):
+        kind, variance, name = ValueKind.CELL_COBOUNDARY, Variance.COCHAIN, "CellCoboundary"
+    elif field:
         kind, variance, name = ValueKind.FIELD, Variance.COCHAIN, "Field"
     elif isinstance(carrier, Chain):
         kind, variance, name = ValueKind.CHAIN, Variance.CHAIN, "Chain"

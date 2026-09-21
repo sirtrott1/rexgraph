@@ -51,6 +51,19 @@ def _ensure_1d(x):
     return np.asarray(x, dtype=np.float64).ravel()
 
 
+def _as_dual(B):
+    """The DualCSR carrier the Hodge kernel reads, from a DualCSR, a scipy sparse matrix
+    or a dense array. None, and a boundary with no columns, both mean no faces."""
+    from rexgraph.core._sparse import DualCSR, from_scipy_csr
+    if B is None or isinstance(B, DualCSR):
+        return B
+    import scipy.sparse as sp
+    M = B if sp.issparse(B) else sp.csr_matrix(np.asarray(B, dtype=np.float64))
+    if M.shape[1] == 0:
+        return None
+    return from_scipy_csr(M.astype(np.float64))
+
+
 # Section 1: Perturbation construction
 
 
@@ -347,7 +360,7 @@ def hodge_energy_decomposition(np.ndarray[f64, ndim=1] f_E,
     """
     from rexgraph.core._hodge import hodge_decomposition, compute_energy_percentages
 
-    grad, curl, harm = hodge_decomposition(B1, B2, f_E, L0, L2)
+    grad, curl, harm = hodge_decomposition(_as_dual(B1), _as_dual(B2), f_E, L0, L2)
 
     # Energy per component
     cdef np.ndarray[f64, ndim=1] L1g = _safe_dot(L1, grad)

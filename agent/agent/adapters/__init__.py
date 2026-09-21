@@ -108,6 +108,12 @@ class EdgeConstruction:
     #: where this construction came from, for provenance after a join
     origin: str = ""
 
+    #: Optional primary identities in the same order as the constructed relations.
+    relation_ids: NDArray | None = None
+
+    #: Declared source files and interpretation used by a registered reader.
+    source_manifest: dict = field(default_factory=dict)
+
     @property
     def nV(self) -> int:
         return len(self.vertex_labels)

@@ -2,6 +2,226 @@
 
 RCQL is the typed query and mutation layer for relational complexes.
 
+## Certified name transformations
+
+`ProgramTransformation` retains an original name declaration, a candidate,
+explicit port and capture mappings, and an exact operation boundary certificate.
+The interface rules are `port` and `alias`. They reuse `NameRelation.rename`
+and `NameRelation.named`. They do not transform arbitrary finite or recursive
+program bodies.
+
+```python
+from rcql import Executor, NameRelation, parse
+from rexgraph.graph import RexGraph
+
+rex = RexGraph.from_cells([2, [[0, 1]]])
+operation = NameRelation.operator("SUM")
+runtime = Executor(sources={"r": rex}, params={"operation": operation})
+result = runtime.execute(parse('''
+FROM $r
+LET t = TRANSFORM_NAME($operation, "port", ["values", "items"])
+LET candidate = TRANSFORM_COMPILE(t, $operation, [[1/3, 2/7]])
+RETURN TRANSFORM_VERIFY(t, $operation), NAME_APPLY(candidate, [[1/3, 2/7]])
+'''))
+```
+
+Construction and compilation do not run the target operation. `TRANSFORM_COMPILE`
+checks the original declaration identity and validates both interfaces under
+the current source, arguments and permissions. It returns a name declaration.
+`NAME_APPLY` is the separate execution request and checks its own current inputs.
+Compilation does not grant authority or bind the name permanently to those inputs.
+
+`TRANSFORM_VERIFY` checks the substitution and exact chain map without target
+evaluation. The certificate proves declaration correspondence under the explicit
+interface rename. It retains the three operation grades, repeated argument
+occurrences and shared value realization. It does not prove arbitrary program
+equivalence, equality of trace labels or an undeclared metric interpretation.
+
+`TRANSFORM_RECORD` and `TRANSFORM_READ` use ordinary native records and support
+RCDB, `.rcbd` and `.safetensors`. Reload validates the declaration, certificate
+and carrier. `TRANSFORM_TOPOLOGY` returns the candidate `RelationTopology`
+record, including its exact persisted co relations. The transformation record
+retains both endpoint towers and their correspondence.
+
+Finite programs and pure recursive programs can carry transformations as values.
+Result reuse includes their declaration identity. A stored transformation carries
+no live source or permissions; native arguments and historical evidence remain
+explicit execution bindings. The original declaration remains unchanged.
+
+### Certified section readouts
+
+`TRANSFORM_SECTION(family, left, right)` constructs a guarded replacement of
+one linear readout by another. It reuses `ReadoutEquivalence` and checks both
+`(left-right)x0 = 0` and `(left-right)N = 0` on the complete family `x = x0 + Nu`.
+Matching only a particular solution is insufficient. Equality of readouts does
+not imply that either readout is determined.
+
+```text
+FROM $r
+LET t = TRANSFORM_SECTION($family, $left, $right)
+LET original = TRANSFORM_SOURCE(t)
+LET candidate = TRANSFORM_COMPILE(t, original, [$family, $left, $right])
+RETURN NAME_APPLY(candidate, [$family, $left, $right])
+```
+
+The result is a `SectionImage`, retaining free directions and every field axis.
+Use `SECTION_VALUE` only when that image is determined. The two operation
+declarations call `SECTION_CERTIFIED_OBSERVE` with explicit left and right
+selections. Both check the current family, map identities, source versions,
+contributors and permissions. Compilation and application remain separate.
+
+The persisted transformation retains a readout claim, its exact input digests
+and both operation towers. It does not embed or authorize the native family.
+`TRANSFORM_VERIFY` checks declaration structure and reports that the readout
+claim requires its live inputs. Compilation and application recompute the exact
+certificate from those inputs. Reload alone does not certify the claim.
+
+The equivalence concerns readout values over that one family. It does not equate
+the two maps on the whole coordinate space, erase their provenance, equate
+`SectionImage` identities, or justify replacing an arbitrary program body.
+
+### Specialization and composition
+
+`TRANSFORM_SPECIALIZE(operation, bindings)` captures an explicit mapping of
+open input names to finite values. It reuses `NameRelation.bind`. The candidate
+agrees with the original when those inputs have exactly the declared values.
+Defaults on the remaining inputs are preserved. Native sources and fields
+remain explicit execution inputs, not serialized captures.
+
+`TRANSFORM_COMPOSE(operation, following, ports)` reuses `NameRelation.then`.
+It connects the first result to the listed input ports of the following name.
+The first result is computed once, even when several ports use it. Captures
+and intermediate names remain distinct. Unconnected input name collisions
+are refused rather than silently renamed.
+
+```text
+FROM $r
+LET t = TRANSFORM_COMPOSE($first, $following, ["input"])
+LET candidate = TRANSFORM_COMPILE(t, $first, $arguments)
+RETURN NAME_APPLY(candidate, $arguments)
+```
+
+Compilation validates the composed result type and effects without executing
+either operation. Composition constructs the declared `G(F(x))`; it does not
+assert that this result equals `F(x)`. The certificate retains both input
+declarations, the connected ports, capture and stage mappings, and the source
+and candidate operation towers. Each tower satisfies the chain law. A boundary
+map between towers with different occurrences is not inferred from their shapes.
+
+Construction uses the existing name methods. Verification checks the retained
+bindings and stage substitutions independently, without expanding shared
+expressions into a duplicated expression tree. The ordinary transformation
+record, read, topology and source operations apply to both constructions.
+
+## Certified finite program transformations
+
+`TRANSFORM_PROGRAM(program, rule, arguments)` constructs a new finite `Program`
+declaration. The original remains unchanged. Three rules are supported:
+
+* `input` takes `[old, new]` and renames an open input and its parameter uses.
+* `step` takes `[old, new]` and renames a step, its output references and exports.
+* `specialize` takes a mapping of open inputs to finite captured values.
+
+Captures retain their input type, grade and variance contracts. Exact integers
+and fractions remain exact. Captured values cannot be overridden at execution.
+Native sources and fields remain explicit bindings. These rules cannot rename
+or capture a parameter used for source selection, including a historical cutoff.
+
+```text
+FROM $r
+LET t = TRANSFORM_PROGRAM($program, "input", ["x", "value"])
+LET candidate = TRANSFORM_PROGRAM_COMPILE(t, $program, $sources, $parameters)
+RETURN candidate
+```
+
+Here `$sources` maps source names to native `Binding` objects. `$parameters`
+contains exactly the candidate's remaining open inputs. Compilation checks
+both declarations with the existing planner, including output types, effects,
+source identities, historical evidence and contributor permissions. It does
+not execute either program. `PROGRAM_RUN` is a separate request and validates
+its own current bindings.
+
+`TRANSFORM_VERIFY` checks the declaration certificate independently of the
+construction methods. It retains source selector digests, typed port mappings,
+step links, exports, capture digests and operator requirements. Specialization
+claims correspondence only at the declared captured values. It does not prove
+arbitrary program equivalence or equal trace labels.
+
+`TRANSFORM_PROGRAM_TOPOLOGY` takes the same four arguments as compilation and
+returns the candidate's bound `PlanTopology` record. This is static plan
+topology, not the realized occurrences of dynamic `MATCH`. A program containing
+`MATCH` can be transformed and run, but static topology inspection still
+refuses it. No unbound operation tower is asserted for a finite program.
+
+`TRANSFORM_RECORD`, `TRANSFORM_READ` and `TRANSFORM_SOURCE` also support these
+transformations. Schema two retains the finite endpoint declarations and their
+certificate. Programs without captures keep schema one; programs with captures
+use schema two. Both restore through the existing program owner. Finite meta
+programs can return a transformed `Program`, with its declaration retained in
+type checks, result reuse and recursive histories. Inspection or construction
+never changes the program currently running.
+
+## Exact program assembly
+
+`ProgramAssembly` declares finite local programs, their coefficient stalks,
+external inputs, links and exports. Each local input has exactly one explicit
+binding. Links refer to preceding fragment exports. Shared external inputs
+must have the same type contract. Source selectors are not renamed.
+
+`PROGRAM_ASSEMBLY(name, fragments, coefficients, inputs, links, outputs)` uses
+these tuple forms:
+
+* Fragment: `(cell, Program)`.
+* Coefficient: `(cell, input, local_coordinate)`.
+* External input: `(cell, input, public_name)`.
+* Link: `(cell, input, preceding_cell, export)`.
+* Export: `(public_name, cell, export)`.
+
+`PROGRAM_GLUE(assembly, system, observation, observed)` completes the existing
+exact section system. Its result is a `ProgramFamily`, not a chosen program.
+Restriction maps belong to the actual section incidences. Local programs are
+fixed declarations; section coordinates are exact scalar coefficient ports,
+not numeric encodings of arbitrary syntax or operation choices.
+
+`PROGRAM_FAMILY_OBSERVE(family)` retains the executable coefficient observation.
+`PROGRAM_FAMILY_COMPILE(family, sources, parameters)` requires zero variation
+on every needed coefficient. Other local coordinates may remain free.
+Incompatibility returns the existing exact section contradiction exception and
+witness. Compilation does not execute a fragment or choose a free parameter.
+
+The resulting `Program` retains linked input contracts and the source versions
+used to determine its coefficients. Those sources must be bound again at
+execution, under their contributor permission intersection and historical
+evidence context. Schema three stores these contracts and dependencies.
+Schemas one and two remain readable.
+
+`PROGRAM_ASSEMBLY_RECORD` and `PROGRAM_ASSEMBLY_READ` persist the declaration.
+`PROGRAM_FAMILY_RECORD` and `PROGRAM_FAMILY_READ` persist the section family
+with its recipe. Family restoration requires the selected source and explicit
+contributor bindings. RCDB, `.rcbd` and `.safetensors` use their existing state
+codecs. `PROGRAM_RUN` remains the separate execution request.
+
+## Program version comparison
+
+`PROGRAM_COMPARE(old, new, matches)` compares two topology records of the same
+kind: bound `PlanTopology` records or exact `RelationTopology` records.
+`matches` contains one sequence of `(old_key, new_key)` pairs per retained
+grade. Each sequence is an explicit partial bijection. Equal labels or array
+shapes do not create implicit matches. Unmatched coordinates remain additions
+or removals.
+
+`PROGRAM_EVOLUTION_INFO` reports operation fields and endpoint declaration
+changes, including retained captures, ports, effects, sources and outputs.
+Grade two changes remain distinct where the endpoint topology retains them.
+`PROGRAM_BOUNDARY_CHANGE(evolution, grade)` returns the Core factored action
+`B_new J_grade - J_lower B_old`. It introduces no metric or eigensolve.
+
+Declaration change and boundary change are separate readings. Different
+captured constants can produce identical operation boundaries. A zero defect
+does not prove program equivalence, equal results or causality.
+`PROGRAM_EVOLUTION_RECORD` and `PROGRAM_EVOLUTION_READ` retain both endpoint
+towers and all supplied occurrence matches, and validate them on reload.
+
 ## Install and run
 
 Install from the repository root after configuring the compiler and BLAS as

@@ -204,26 +204,17 @@ def _resolve_cache(cache) -> set[str]:
 def _channel_diagonals(rex):
     """The four channel diagonals per edge, trace normalized, shape (nE, 4).
 
-    Exact from the boundary structure when the complex carries a rational
-    character. The normalized G channel takes a square root and does not, so
-    that case reads the assembled hats instead, which is the only reason the
-    fallback exists.
+    Exact from the boundary structure through `exact_channel_diagonals`, which
+    covers the normalized G channel rationally as well, so no hat is assembled
+    and nothing is eigendecomposed.
     """
     from rexgraph.rational_trig import exact_channel_diagonals
 
     nE = int(rex.nE)
     chi = np.zeros((nE, 4), dtype=np.float64)
     diagonals, names = exact_channel_diagonals(rex)
-    if diagonals is not None:
-        for ci, name in enumerate(names[:4]):
-            col = np.array([float(x) for x in diagonals[name]], dtype=np.float64)
-            total = col.sum()
-            chi[:, ci] = col / total if total else col
-        return chi
-    bundle = rex._hat_eigen_bundle
-    for ci in range(min(4, len(bundle))):
-        ev, evec = bundle[ci]
-        col = np.einsum("ij,j,ij->i", evec, ev, evec)
+    for ci, name in enumerate(names[:4]):
+        col = np.array([float(x) for x in diagonals[name]], dtype=np.float64)
         total = col.sum()
         chi[:, ci] = col / total if total else col
     return chi
