@@ -374,7 +374,7 @@ def least_squares(B, values, *, transpose=False, tol=1e-12, maxiter=2000,
     Both residual tests are recomputed from the returned iterate. Failure to
     meet either test raises; no unconverged coefficients are returned.
 
-    Algorithm: Paige and Saunders, ACM TOMS 8(1), 1982, section 4.
+    Algorithm: LSQR, as published by Paige and Saunders in 1982.
     https://web.stanford.edu/group/SOL/software/lsqr/
     """
     from numbers import Integral

@@ -1,7 +1,7 @@
 """The exact rational path is primary; the float tower is its oracle.
 
-Fixtures are the worked examples of *Exact Relational Field Calculus*, so a failure
-here is a disagreement with the paper, not with a previous run of this code.
+The fixtures are worked by hand and written out here, so a failure is a disagreement
+with the arithmetic itself, not with a previous run of this code.
 """
 from fractions import Fraction as Q
 
@@ -138,7 +138,7 @@ class TestTheMetricIsNotOptional:
 
 class TestGreenOracle:
     """Above the exact ceiling the float tower produces. It is a real solve of the same
-    operator, not the normal equations system the paper warns about."""
+    operator, not the normal equations system."""
 
     def _oracle(self, rex, source):
         before = get_algorithm_config()["exact_field_limit"]
@@ -228,7 +228,7 @@ class TestExactPathPolicy:
 
 
 class TestNonSpectralSolveContracts:
-    """Section 12: no eigensolve is part of these algorithms."""
+    """No eigensolve is part of these algorithms."""
 
     def setup_method(self):
         B1 = np.array([[-1.0, 0, 1], [1, -1, 0], [0, 1, -1]])

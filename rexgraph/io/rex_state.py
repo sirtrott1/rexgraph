@@ -33,8 +33,10 @@ CODEC_TENSOR = "codec_spec"
 #: byte tensors. Numeric only writers retain version 2 and their existing identity.
 #: 4 adds typed span attachments. Other states keep their previous version.
 #: 8 retains structured cell attributes and exact scalar metadata.
-FORMAT_VERSION = 8
-READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)
+#: 9 adds the declared head and share of a grade 1 column: a complex that declares
+#: neither keeps version 8 and its existing identity, because it writes no such tensor.
+FORMAT_VERSION = 9
+READABLE_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
 
 
 #: digest framing version. 1 was unframed and collided; 2 length prefixes every field.
@@ -324,6 +326,17 @@ def to_state(rex) -> RexState:
         t["signs"] = np.asarray(rex._signs, dtype=np.float64)
     if getattr(rex, "_relation_ids", None) is not None:
         t["relation_ids"] = np.asarray(rex._relation_ids, dtype=np.int64)
+    # The declared head and share: the other two components of the composite binary
+    # column. They ride as ordinary integer tensors, so the container digest covers them
+    # like every other array, and a reader that predates them simply finds none. Without
+    # this a declared column round tripped as the canonical one and the digest still
+    # verified, because what was dropped was never in a tensor.
+    from rexgraph.column import declaration_of
+    declaration = declaration_of(rex)
+    if declaration is not None:
+        t["column_head"] = np.asarray(declaration.head_slot, dtype=np.int32)
+        t["column_share_num"] = np.asarray(declaration.share_num, dtype=np.int64)
+        t["column_share_den"] = np.asarray(declaration.share_den, dtype=np.int64)
     # edge_types is a deterministic cached_property recomputed from the boundary on load, so it is
     # NOT stored: storing it is dead weight and forces a kernel classification on every save.
     if getattr(rex, "_w_boundary", None):
@@ -406,6 +419,9 @@ def to_state(rex) -> RexState:
     if (any(col["kind"] == "structured" for col in h["cell_meta"])
             or any(entry["header"].get("format_version", 0) >= 8 for entry in nested)):
         h["format_version"] = 8
+    if ("column_head" in t
+            or any(entry["header"].get("format_version", 0) >= 9 for entry in nested)):
+        h["format_version"] = 9
     if codec:
         t[CODEC_TENSOR] = np.frombuffer(
             json.dumps(codec, sort_keys=True).encode("utf-8"), dtype=np.uint8).copy()
@@ -778,6 +794,12 @@ def from_state(
         kw["signs"] = t["signs"]
     if "relation_ids" in t:
         kw["relation_ids"] = t["relation_ids"]
+    if "column_head" in t:
+        num = np.asarray(t["column_share_num"], dtype=np.int64)
+        den = np.asarray(t["column_share_den"], dtype=np.int64)
+        kw["head_slot"] = np.asarray(t["column_head"], dtype=np.int32)
+        kw["shares"] = [None if int(d) <= 0 else Fraction(int(n), int(d))
+                        for n, d in zip(num, den, strict=True)]
     if "wb_keys" in t:
         kw["w_boundary"] = _unpack_w_boundary(t["wb_keys"], t["wb_offsets"], t["wb_values"],
                                               t.get("wb_scalar"))

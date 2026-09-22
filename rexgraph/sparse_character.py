@@ -425,6 +425,9 @@ def channel_diagonals_integer(rex):
     Returns ({name: int64 numerators}, scale) or (None, None) when the scale would
     leave int64, which is when the approximation tower is the honest answer and
     `channel_diagonals` gives it.
+
+    A DECLARED share carries its own denominator, which is not lcm(k-1), so it takes the
+    route a weighted complex already takes: the exact reader, scaled into this carrier.
     """
     from collections import defaultdict
 
@@ -433,9 +436,10 @@ def channel_diagonals_integer(rex):
     rex._ensure_clean()
     if getattr(rex, "g_channel", "raw") != "raw":
         return None, None
-    if rex.edge_metric_exact is not None:
-        # Relation weights can add denominators beyond the arity only scale.
-        # Reuse the exact reader and fit its result into the fixed width carrier.
+    if rex.edge_metric_exact is not None or getattr(rex, "declares_columns", False):
+        # Relation weights, and a declared share, both add denominators beyond the arity
+        # only scale. Reuse the exact reader and fit its result into the fixed width
+        # carrier.
         from math import lcm
 
         from rexgraph.rational_trig import exact_channel_diagonals
@@ -559,11 +563,25 @@ def int_sqrt_limit(n: int) -> int:
     return lo
 
 
+def _hip_reads_declared() -> bool:
+    """Whether the built HIP object carries the declared column entry point."""
+    try:
+        from rexgraph import hip_ternary
+        lib = hip_ternary._load()
+    except Exception:                                    # noqa: BLE001 - absent is False
+        return False
+    return lib is not None and hasattr(lib, "tower_launch_coef")
+
+
 def _any_arity_diagonals(rex):
     """The tower past the pairwise derivation, by accumulating at the vertex.
 
     Raw T/F/C and the raw G diagonal come from the compiled incidence tower.
     Normalized G needs one further incidence pass, not an assembled Gram matrix.
+
+    A DECLARED head or share travels to the kernel as one coefficient per incidence, so
+    this route reads the column the complex declares. It is the route every branching
+    complex takes, because the closed form above applies only to a pairwise one.
     """
     import numpy as _np
     for attr in ("w_V", "vertex_weights"):
@@ -594,10 +612,22 @@ def _any_arity_diagonals(rex):
     # 22.3 against 10.2 at 1.7M. It pays the same CPU transpose and then gathers over
     # variable degree vertices, which suits the device poorly. Against the serial path it
     # won; the CPU overtook it.
+    # A declared head or share travels as one coefficient per incidence. Every lane reads
+    # it, including the device one, EXCEPT where the built HIP object predates the column
+    # argument: there the lane would answer about the canonical column, so the preference
+    # moves to the compiled CPU lanes rather than asking it.
+    coefficients = None
+    if getattr(rex, "declares_columns", False):
+        from rexgraph.column import slot_coefficients
+        coefficients = slot_coefficients(bp, bi, rex._declaration)
+    prefer = compute.get_default_backend() or "openmp"
+    if coefficients is not None and prefer == "hip" and not _hip_reads_declared():
+        prefer = "openmp"
+    declared = {} if coefficients is None else {"coefficients": coefficients}
     T, G, F, C = compute.dispatch("channel_tower",
                                   _np.asarray(bp), _np.asarray(bi), int(rex.nV),
                                   None if w is None else _np.asarray(w, float),
-                                  prefer=compute.get_default_backend() or "openmp")
+                                  prefer=prefer, **declared)
     if getattr(rex, "c_channel", "share") == "count":
         C = _np.asarray(_count_c_diagonal(rex), dtype=_f64)
     if getattr(rex, 'g_channel', 'raw') == 'normalized':
@@ -624,9 +654,9 @@ def _any_arity_diagonals(rex):
 
 #### the lanes. Same registry as every other device specialised kernel here, so a new
 #### architecture is a register_op call and nothing in this module moves.
-def _tower_cpu(bp, bi, nV, w, threads=1, transposed=None):
+def _tower_cpu(bp, bi, nV, w, threads=1, transposed=None, coefficients=None):
     from rexgraph.core._channel_tower import channel_diagonals_any_arity
-    return channel_diagonals_any_arity(bp, bi, nV, w, threads, transposed)
+    return channel_diagonals_any_arity(bp, bi, nV, w, threads, transposed, coefficients)
 
 
 def _tower_width() -> int:
@@ -655,7 +685,7 @@ def _tower_width() -> int:
     return int(physical_cores())
 
 
-def _tower_openmp(bp, bi, nV, w, transposed=None):
+def _tower_openmp(bp, bi, nV, w, transposed=None, coefficients=None):
     """The accumulation is over VERTICES after transposing the incidence, so each
     thread owns what it writes and no atomic is needed. Measured 9.2x at 12 threads on
     12M nonzeros, bit identical to the serial path at every width.
@@ -663,7 +693,7 @@ def _tower_openmp(bp, bi, nV, w, transposed=None):
     The transpose it depends on is split the same way, so a cold call is parallel
     throughout. Passing `transposed` still skips it entirely, which is worth it when the
     same complex is read more than once."""
-    return _tower_cpu(bp, bi, nV, w, _tower_width(), transposed)
+    return _tower_cpu(bp, bi, nV, w, _tower_width(), transposed, coefficients)
 
 
 def _register_tower_lanes():
@@ -692,6 +722,10 @@ _register_tower_lanes()
 
 def channel_diagonals(rex):
     """The four channel diagonals in closed form, O(nnz), forming no edge x edge matrix.
+
+    A declared head or share reaches the compiled tower as one coefficient per incidence,
+    so this reads the column the complex declares; `rexgraph.rational_trig` is the same
+    reading over the rationals.
 
     Every quantity the cheap character needs is a diagonal, and each one is a direct
     reading of B1 rather than something to extract from an assembled operator:

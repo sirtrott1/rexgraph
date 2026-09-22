@@ -60,7 +60,7 @@ def test_the_license_file_is_inside_its_own_project(manifest):
     """A path that escapes the project root is DROPPED, not rejected.
 
     The agent pointed at `../LICENSE` and built a wheel that declared Apache-2.0 while
-    shipping no license at all, which section 4(a) requires it to ship. Nothing failed;
+    shipping no license at all, which the license itself requires it to ship. Nothing failed;
     the file was simply absent. So the check is that each declared path stays inside the
     manifest's own directory and actually exists there.
     """

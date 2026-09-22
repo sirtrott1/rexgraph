@@ -53,7 +53,7 @@ from rexgraph.core._common cimport (
 np.import_array()
 
 
-# Section 1: Subcomplex selection
+# Subcomplex selection
 
 
 def validate_subcomplex(np.ndarray[np.uint8_t, ndim=1] v_mask,
@@ -453,7 +453,7 @@ def subcomplex_by_energy_regime(np.ndarray[f64, ndim=1] E_kin_per_edge,
     return np.zeros(max(nV, 0), dtype=np.uint8), e_mask, np.zeros(0, dtype=np.uint8)
 
 
-# Section 2: Quotient construction
+# Quotient construction
 
 
 def quotient_maps(np.ndarray[np.uint8_t, ndim=1] v_mask,
@@ -681,7 +681,7 @@ def quotient_verify_chain(np.ndarray[f64, ndim=2] B1_quot,
     return max_abs < tol, max_abs
 
 
-# Section 3: Relative homology
+# Relative homology
 
 
 def relative_betti(np.ndarray[f64, ndim=2] B1_quot,
@@ -868,7 +868,7 @@ def connecting_homomorphism(np.ndarray[f64, ndim=2] B1_full,
     return result
 
 
-# Section 4: Congruence
+# Congruence
 
 
 def congruent_edges(Py_ssize_t a, Py_ssize_t b,
@@ -1038,7 +1038,7 @@ def congruence_classes_faces(np.ndarray[f64, ndim=2] B2,
     return _congruence_partition(B2, f_mask, tol)
 
 
-# Section 5: Signal operations
+# Signal operations
 
 
 def restrict_signal(np.ndarray[f64, ndim=1] signal,
@@ -1380,7 +1380,7 @@ def per_edge_energy(np.ndarray[f64, ndim=1] f_E, object L1, object LO):
     return ek, ep
 
 
-# Section 6: Hyperslice, edge type, and temporal integration
+# Hyperslice, edge type, and temporal integration
 
 
 def hyperslice_quotient(Py_ssize_t dim, Py_ssize_t cell_idx,
@@ -1543,7 +1543,7 @@ def temporal_quotient(Py_ssize_t n_snapshots,
     return closure_of_edges(e_mask_union, nV, src_union, tgt_union)
 
 
-# Section 7: Convenience - full quotient pipeline
+# Convenience - full quotient pipeline
 
 
 def build_quotient(np.ndarray[f64, ndim=2] B1,

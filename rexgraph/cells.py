@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
+from math import lcm
 from typing import Any
 
 import numpy as np
@@ -228,17 +229,19 @@ def cells(source, grade: int, indices=None) -> CellSet:
 
 
 def _exact_c1_boundary(source, index: int) -> tuple[list[int], np.ndarray]:
-    """Reconstruct one C1 boundary from declared relation incidence, not floats."""
+    """Reconstruct one C1 boundary from declared relation incidence, not floats.
+
+    The coefficients come from `rexgraph.column`, so a declared head or share is read as
+    declared and the equal share is the case where nothing is.
+    """
+    from rexgraph.column import declaration_of, exact_slot_coefficients
     support = source.relation_supports()[int(index)]
     values = [Fraction(0) for _ in range(cell_count(source, 0))]
-    arity = len(support)
-    if arity == 1:
-        values[support[0]] += Fraction(1)
-    elif arity >= 2:
-        values[support[0]] -= Fraction(1)
-        share = Fraction(1, arity - 1)
-        for vertex in support[1:]:
-            values[vertex] += share
+    ptr, idx = source._boundary_ptr, source._boundary_idx
+    coefficients = exact_slot_coefficients(ptr, idx, declaration_of(source))
+    lo = int(ptr[int(index)])
+    for position, vertex in enumerate(support):
+        values[vertex] += coefficients[lo + position]
     return support, np.asarray(values, dtype=object)
 
 
@@ -268,14 +271,23 @@ def composite_binary(value: Cell) -> CompositeBinary:
     existence[support] = 1
     witness = len(support) == 1
     if not witness and not self_loop and support:
-        head[support[0]] = 1
-        share_support[support[1:]] = 1
-        share_value = Fraction(1, len(support) - 1)
-        for vertex in support[1:]:
-            share[vertex] = share_value
+        # The three components are read off the column rather than off the slot order:
+        # the head is the participant carrying the -1, and each tail carries its own
+        # share. On the equal share that is slot zero and 1/(k-1), which is what this
+        # wrote by hand; on a DECLARED column it is what was declared.
+        head_vertex = next(v for v in support if boundary[v] < 0)
+        head[head_vertex] = 1
+        for vertex in support:
+            if vertex != head_vertex:
+                share_support[vertex] = 1
+                share[vertex] = boundary[vertex]
     integer_values = boundary
     if not witness:
-        integer_values = [Fraction(len(support) - 1) * coefficient for coefficient in boundary]
+        # the column's OWN denominator, which is k-1 only when the shares are equal
+        scale = 1
+        for coefficient in boundary:
+            scale = lcm(scale, coefficient.denominator)
+        integer_values = [Fraction(scale) * coefficient for coefficient in boundary]
     # This is an exact integral representative, not a float rounded rendering.
     integer_boundary = np.asarray(
         [int(coefficient) for coefficient in integer_values], dtype=np.int64

@@ -108,6 +108,8 @@ def join(rex_r, rex_s, *, how: str = "inner", labels_r=None, labels_s=None,
 
     if how not in HOW:
         raise ValueError(f"how must be one of {HOW}, got {how!r}")
+    from rexgraph.column import require_canonical
+    require_canonical("a relational join", rex_r, rex_s)
 
     if correspondence is None:
         if labels_r is None or labels_s is None:

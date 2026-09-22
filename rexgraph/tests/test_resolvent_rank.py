@@ -60,7 +60,7 @@ def test_the_walk_metric_is_personalized_pagerank_on_pair_relations(name, dampin
 
 
 def test_faces_leave_the_walk_rank_unchanged_and_change_the_relation_rank():
-    """The tetrahedron of the paper: three faces and all four have beta_1 = 0 and different responses."""
+    """The tetrahedron: three faces and all four have beta_1 = 0 and different responses."""
     faces = [[0, 1, 3], [0, 2, 4], [1, 2, 5], [3, 4, 5]]
     three, four = _tetrahedron(faces[:3]), _tetrahedron(faces)
     open_ = _graph(list(itertools.combinations(range(4), 2)))

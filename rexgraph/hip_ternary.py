@@ -78,6 +78,15 @@ def _load():
               "ternary_free", "ternary_pm1_launch", "ternary_f64_launch",
               "tower_launch"):
         getattr(lib, n).restype = ctypes.c_int
+    # The declared column entry point is bound only where the built object has it. A
+    # library built before declared columns keeps every canonical lane working, and a
+    # declared reading then refuses by name instead of calling the old signature with two
+    # extra pointers, which would corrupt the stack rather than report anything.
+    try:
+        lib.tower_launch_coef.argtypes = [ctypes.c_void_p] * 16 + [ctypes.c_int] * 3
+        lib.tower_launch_coef.restype = ctypes.c_int
+    except AttributeError:
+        pass
     _LIB = lib
     return _LIB
 
@@ -248,7 +257,7 @@ if available():
 
 
 #### the channel tower on the device
-def channel_tower(bp, bi, nV, w=None, block: int = 256):
+def channel_tower(bp, bi, nV, w=None, block: int = 256, coefficients=None):
     """The four channel diagonals at any arity, on the device.
 
     Same shape as the CPU kernel and for the same reason: with the incidence transposed
@@ -257,6 +266,11 @@ def channel_tower(bp, bi, nV, w=None, block: int = 256):
     witness joins the positive mass rather than taking the head rule.
     As in the CPU diagonal kernel, signed weights enter through their magnitudes;
     orientation is read from B1, and the caller's weights are not modified.
+
+    `coefficients` is the column entry of every incidence, in CSR order, for a complex
+    that DECLARES a head or a share; the device then splits the vertex mass by the sign
+    of the entry rather than by the head bit. Without it the column is derived from the
+    arity, which is the canonical reading and costs the device nothing extra.
     """
     lib = _load()
     if lib is None:
@@ -267,7 +281,19 @@ def channel_tower(bp, bi, nV, w=None, block: int = 256):
     nE = int(bp.shape[0] - 1)
     wv = (np.ones(nE, np.float64) if w is None
           else np.abs(np.ascontiguousarray(w, dtype=np.float64)))
-    vptr, owner, is_head = transpose_incidence(bp, bi, int(nV))
+    declared = coefficients is not None
+    if declared and not hasattr(lib, "tower_launch_coef"):
+        raise RuntimeError(
+            "the HIP kernels on this machine predate declared columns: rebuild "
+            "lib_ternary_hip.so, or read this complex on the compiled CPU lanes")
+    if declared:
+        vptr, owner, is_head, source = transpose_incidence(bp, bi, int(nV), 1, True)
+        coef = np.ascontiguousarray(coefficients, dtype=np.float64)
+        if coef.shape[0] != bi.shape[0]:
+            raise ValueError("one coefficient per incidence is required")
+    else:
+        vptr, owner, is_head = transpose_incidence(bp, bi, int(nV))
+        coef = source = None
 
     ptrs = {}
 
@@ -290,15 +316,25 @@ def channel_tower(bp, bi, nV, w=None, block: int = 256):
         for k, a in (("bp", bp), ("bi", bi), ("ow", owner), ("ih", is_head),
                      ("w", wv), ("vp", np.ascontiguousarray(vptr, np.int64))):
             ptrs[k] = up(a)
+        if declared:
+            ptrs["cf"] = up(coef)
+            ptrs["sr"] = up(np.ascontiguousarray(source, np.int64))
         for k in ("nw", "pw", "nu", "pu"):
             ptrs[k] = blank(int(nV) * 8)
         for k in ("T", "G", "F", "C"):
             ptrs[k] = blank(nE * 8)
-        rc = lib.tower_launch(ptrs["bp"], ptrs["bi"], ptrs["ow"], ptrs["ih"],
-                              ptrs["w"], ptrs["vp"],
-                              ptrs["nw"], ptrs["pw"], ptrs["nu"], ptrs["pu"],
-                              ptrs["T"], ptrs["G"], ptrs["F"], ptrs["C"],
-                              int(nV), nE, int(block))
+        if declared:
+            rc = lib.tower_launch_coef(
+                ptrs["bp"], ptrs["bi"], ptrs["ow"], ptrs["ih"], ptrs["w"], ptrs["vp"],
+                ptrs["cf"], ptrs["sr"],
+                ptrs["nw"], ptrs["pw"], ptrs["nu"], ptrs["pu"],
+                ptrs["T"], ptrs["G"], ptrs["F"], ptrs["C"], int(nV), nE, int(block))
+        else:
+            rc = lib.tower_launch(ptrs["bp"], ptrs["bi"], ptrs["ow"], ptrs["ih"],
+                                  ptrs["w"], ptrs["vp"],
+                                  ptrs["nw"], ptrs["pw"], ptrs["nu"], ptrs["pu"],
+                                  ptrs["T"], ptrs["G"], ptrs["F"], ptrs["C"],
+                                  int(nV), nE, int(block))
         if rc != 0:
             raise RuntimeError(f"tower launch failed, hipError {rc}")
         out = []
@@ -314,8 +350,8 @@ def channel_tower(bp, bi, nV, w=None, block: int = 256):
             lib.ternary_free(p)
 
 
-def _tower_hip(bp, bi, nV, w):
-    return channel_tower(bp, bi, nV, w)
+def _tower_hip(bp, bi, nV, w, coefficients=None):
+    return channel_tower(bp, bi, nV, w, coefficients=coefficients)
 
 
 if available():

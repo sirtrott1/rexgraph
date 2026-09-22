@@ -74,7 +74,7 @@ def triangle():
 
 @pytest.fixture
 def branching():
-    # An arity 3 hyperedge {0,1,2} embedded as a branching edge (Definition 3.2),
+    # An arity 3 hyperedge {0,1,2} embedded as a branching edge,
     # plus two standard edges (0,3) and (1,4).
     ptr = np.array([0, 3, 5, 7], dtype=np.int32)
     idx = np.array([0, 1, 2, 0, 3, 1, 4], dtype=np.int32)

@@ -20,27 +20,57 @@ from rexgraph.graded_boundary import (
 from rexgraph.native_sparse import boundary_carriers
 
 
+def column_scales(rex, *, coefficients=None):
+    """Each relation's own denominator: what the integer representative clears.
+
+    It is k-1 on the equal share, 1 at a witness, and the declared share vector's common
+    multiple when one is declared. Named here because the integer column and anything
+    reading a share out of it have to use the SAME denominator, and reading it off the
+    arity was correct only for the equal share.
+    """
+    from rexgraph.column import declaration_of, exact_slot_coefficients
+    ptr = rex._boundary_ptr
+    if coefficients is None:
+        coefficients = exact_slot_coefficients(ptr, rex._boundary_idx,
+                                               declaration_of(rex))
+    scales = []
+    for j in range(int(rex.nE)):
+        lo, hi = int(ptr[j]), int(ptr[j + 1])
+        scale = 1
+        for slot in range(lo, hi):
+            scale = lcm(scale, coefficients[slot].denominator)
+        scales.append(scale)
+    return scales
+
+
 def primary_columns(rex, *, integer=False):
     """Read primary slots with their original arity, including repeated slots.
 
-    Integer form scales a non witness column by k-1 BEFORE coalescing. Rational
-    form uses that same integer column divided by k-1, never float recovery.
-    Relation metrics and declared signs do not change this boundary map.
+    The slot coefficients come from `rexgraph.column`, so a declared head or a declared
+    share is read as declared and the canonical column is the case where nothing is.
+    Integer form clears the column's own denominator BEFORE coalescing, which is k-1 on
+    the equal share and the declared vector's common multiple otherwise. Rational form is
+    that same integer column over the same denominator, never float recovery. Relation
+    metrics and declared signs do not change this boundary map.
     """
+    from rexgraph.column import declaration_of, exact_slot_coefficients
     rex._ensure_clean()
     columns = []
     ptr, indices = rex._boundary_ptr, rex._boundary_idx
     if ptr is None:
-        supports = zip(*rex._ensure_src_tgt(), strict=True)
-    else:
-        supports = (indices[int(ptr[j]):int(ptr[j + 1])] for j in range(int(rex.nE)))
-    for support in supports:
-        k = len(support)
-        scale = max(1, k - 1)
+        supports = list(zip(*rex._ensure_src_tgt(), strict=True))
+        ptr = np.arange(0, 2 * len(supports) + 1, 2)
+        indices = np.asarray([v for pair in supports for v in pair], dtype=np.int64)
+    coefficients = exact_slot_coefficients(ptr, indices, declaration_of(rex))
+    scales = column_scales(rex, coefficients=coefficients)
+    for j in range(int(rex.nE)):
+        lo, hi = int(ptr[j]), int(ptr[j + 1])
+        support = indices[lo:hi]
+        scale = scales[j]
         col = {}
         for slot, vertex in enumerate(support):
             vertex = int(vertex)
-            col[vertex] = col.get(vertex, 0) + (-scale if k > 1 and slot == 0 else 1)
+            col[vertex] = col.get(vertex, 0) + int(coefficients[lo + slot] * scale)
         columns.append({v: c if integer else Fraction(c, scale) for v, c in col.items() if c})
     return columns
 

@@ -12,7 +12,6 @@ the cycles that become boundaries when (d+1)-cells are added. Its
 dimension equals rank(B_{d+1}), predicting the number of (d+1)-cells
 needed to kill all d-cycles.
 
-Reference: RCFE Foundations, Sections 7, 8, 9.
 """
 
 from __future__ import annotations
@@ -181,7 +180,7 @@ def harmonic_shadow(np.ndarray[f64, ndim=1] evals_Ld_at_d,
 
 
 def dimensional_subsumption(list betti_sequence):
-    """Verify Theorem 8.1: beta_k(d+1) <= beta_k(d).
+    """Verify that betti numbers do not rise with the dimension: beta_k(d+1) <= beta_k(d).
 
     Parameters
 

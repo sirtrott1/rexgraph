@@ -1,6 +1,6 @@
 """Face coefficients are SOLVED from the chain condition, not declared.
 
-A grade 1 column is declared: Definition 2.1 gives it the shape (-1, 1/(k-1), ...). A
+A grade 1 column is declared, with the shape (-1, 1/(k-1), ...). A
 grade 2 column is not. Nothing imposes a shape on it; it is whatever satisfies
 B1 c_f = 0 on the edges it spans, and what the solution owes is cancellation. So the
 right primitive is a solver over the rationals, and the wrong one is a caller supplied

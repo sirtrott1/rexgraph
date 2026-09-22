@@ -81,20 +81,14 @@ def _incidences(rex) -> tuple[tuple[tuple[int, Fraction], ...], ...]:
     relation incidence for a metric field.  The share coefficients are read as
     Fractions from the declared relation support.
     """
+    from rexgraph.column import declaration_of, exact_slot_coefficients
+    rex._ensure_clean()
+    ptr, idx = rex._boundary_ptr, rex._boundary_idx
+    coefficients = exact_slot_coefficients(ptr, idx, declaration_of(rex))
     rows: list[tuple[tuple[int, Fraction], ...]] = []
-    for support in rex.relation_supports():
-        arity = len(support)
-        if arity == 0:
-            rows.append(())
-            continue
-        if arity == 1:
-            rows.append(((int(support[0]), Fraction(1)),))
-            continue
-        share = Fraction(1, arity - 1)
-        rows.append(tuple(
-            (int(vertex), Fraction(1) if position == 0 else share)
-            for position, vertex in enumerate(support)
-        ))
+    for e in range(int(rex.nE)):
+        lo, hi = int(ptr[e]), int(ptr[e + 1])
+        rows.append(tuple((int(idx[j]), abs(coefficients[j])) for j in range(lo, hi)))
     return tuple(rows)
 
 

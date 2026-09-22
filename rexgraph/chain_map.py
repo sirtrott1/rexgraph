@@ -12,7 +12,6 @@ from fractions import Fraction
 from hashlib import sha256
 
 from rexgraph.graded_boundary import (
-    _canonical_c1_entries,
     _exact_compose_columns,
     _exact_composition_residual,
     _integer_columns,
@@ -97,11 +96,19 @@ class CoordinateComplex:
         if sizes[:2] != (int(source.nV), int(source.nE)):
             raise ValueError("source boundary axes do not match the canonical cell populations")
         primary = tuple(tuple(int(v) for v in support) for support in source.relation_supports())
-        columns = [_canonical_c1_entries(s, j)[2] for j, s in enumerate(primary)]
+        from rexgraph.native_rank import primary_columns as _primary_columns
+        columns = _primary_columns(source)
         if len(columns) != sizes[1]:
             raise ValueError("primary relation count does not match the boundary")
         # Primary incidence is authoritative. Check its sparse display agrees;
-        # never infer exact branching shares by rationalizing floating entries.
+        # never infer exact branching shares by rationalizing floating entries. The
+        # columns come from the stored CSR, with any declared head or share, so the
+        # support reading is checked against that same CSR rather than assumed equal
+        # to it: two readings of the primary incidence that disagree certify nothing.
+        ptr, idx = source._boundary_ptr, source._boundary_idx
+        for j, support in enumerate(primary):
+            if support != tuple(int(v) for v in idx[int(ptr[j]):int(ptr[j + 1])]):
+                raise ValueError("primary incidence and stored B1 disagree")
         for column, stored in zip(columns, sparse_columns(maps[0]), strict=True):
             if stored != {i: float(v) for i, v in column.items()}:
                 raise ValueError("primary incidence and stored B1 disagree")

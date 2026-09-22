@@ -7,19 +7,18 @@ as columnar Parquet tables.  Each table type maps to a specific part of
 the algebraic/topological framework:
 
 Boundary table: the general boundary operator d_1
-(Definition 3.1).  One row per (edge, boundary_vertex) pair, which handles
-standard, self loop, branching, and witness edges (Definition 3.2).
+One row per (edge, boundary_vertex) pair, which handles
+standard, self loop, branching, and witness edges.
 
 Edge table - per edge data: source/target (for standard edges),
-edge type (Definition 3.2), weight, and optional Hodge components
-(Theorem 3.8/4.5).
+edge type, weight, and optional Hodge components.
 
 Vertex table: per vertex data, layout from overlap correct
-spectral embedding (Definition 6.7), degree from L_0,
+spectral embedding, degree from L_0,
 Fiedler vector entries, etc.
 
 Face table: the B_2 boundary operator in CSC format
-(Definition 4.1).  One row per nonzero in B_2, giving
+One row per nonzero in B_2, giving
 (face_idx, edge_idx, orientation).
 
 Persistence table: persistence pairs from column reduction over
@@ -99,7 +98,7 @@ import contextlib
 
 from ._compat import dumps as _dumps
 
-# Edge type names matching types.py EdgeType enum (Definition 3.2)
+# Edge type names matching the EdgeType enum in types.py
 _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
 
 
@@ -286,7 +285,7 @@ def _read_metadata(
     return {}
 
 
-# Boundary table (Definition 3.1, the general boundary operator)
+# Boundary table (the general boundary operator)
 
 
 def write_boundary_table(
@@ -298,7 +297,7 @@ def write_boundary_table(
     """Write the general boundary operator d_1 to Parquet.
 
     One row per (edge, boundary_vertex) pair.  This is the fundamental
-    representation: it handles all edge types from Definition 3.2:
+    representation: it handles every edge type:
 
     - Standard edges: 2 rows per edge (source, target)
     - Self loops: 2 rows, same vertex
@@ -380,7 +379,7 @@ def read_boundary_table(
     }
 
 
-# Edge table (Definition 3.2, per edge properties)
+# Edge table (per edge properties)
 
 
 def write_edge_table(
@@ -406,7 +405,7 @@ def write_edge_table(
     path : str or path like
     include : list of str, optional
         Extra per-edge arrays: `"hodge_gradient"`,
-        `"hodge_curl"`, `"hodge_harmonic"` (Theorem 3.8/4.5).
+        `"hodge_curl"`, `"hodge_harmonic"`.
     """
     bp = rex._boundary_ptr
     bi = rex._boundary_idx
@@ -504,7 +503,7 @@ def write_vertex_table(
 
     - `vertex_idx`
     - `degree` - from diag(L_0)
-    - `x`, `y` - spectral layout (Definition 6.7)
+    - `x`, `y` - spectral layout
 
     Parameters
 
@@ -564,7 +563,7 @@ def read_vertex_table(
     return read_parquet(path, decryption_properties=decryption_properties)
 
 
-# Face table (Definition 4.1, the B2 boundary operator)
+# Face table (the B2 boundary operator)
 
 
 def write_face_table(

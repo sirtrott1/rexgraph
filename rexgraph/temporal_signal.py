@@ -413,7 +413,12 @@ class _SnapshotCell:
 
 
 def _snapshot_cells(rex: Any) -> dict[RelationKey, _SnapshotCell]:
-    """Index a snapshot by exact persisted ID or exact support when anonymous."""
+    """Index a snapshot by exact persisted ID or exact support when anonymous.
+
+    The columns below are read from the support with the head at slot zero, and a delta
+    record carries no share, so a declared column is refused rather than flattened.
+    """
+    rex._require_canonical_columns("a temporal signal snapshot")
     rex._ensure_clean()
     ptr = np.asarray(rex._boundary_ptr)
     idx = np.asarray(rex._boundary_idx)

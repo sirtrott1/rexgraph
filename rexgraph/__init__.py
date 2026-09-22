@@ -106,7 +106,7 @@ from .tower import channel_delta, graded_delta
 # from the documented package surface.
 from .graph import RexGraph, TemporalRex
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 
 __all__ = [
     "core",

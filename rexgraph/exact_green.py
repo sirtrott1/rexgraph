@@ -14,8 +14,6 @@ never forms that product and so never acquires the mismatch. Measured on a unit
 triangle with one weight at 1 + 1e-6, the assembled float path fails outright while
 this returns 8000003/16000008.
 
-Specification: Exact Relational Field Calculus, "Exact action contracts without
-eigensolves"; reference implementation `verification/exact_actions.py`.
 """
 from __future__ import annotations
 

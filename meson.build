@@ -11,9 +11,9 @@ project(
     # takes the distribution's version from there and this one is only what meson itself
     # reports (meson-dist filenames, `meson introspect`). It had drifted to 1.0.1 against
     # a 1.0.6 package, which is harmless until someone reads it and believes it.
-    version: '1.2.1',
+    version: '1.2.2',
     license: 'Apache-2.0',
-    meson_version: '>=1.3.0',
+    meson_version: '>=1.2.2',
     default_options: [
         'c_std=c11',
         'buildtype=release',

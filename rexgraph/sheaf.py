@@ -663,10 +663,10 @@ class ExactSheaf:
         if any(self.stalk_dimensions[c] != self.mediator_dimensions[m]
                for c, mediators in enumerate(self._inc) for m in mediators):
             raise ValueError("boundary identity restrictions require equal incidence dimensions")
-        supports = self.rex.relation_supports()
-        from rexgraph.graded_boundary import _canonical_c1_entries
-        coefficients = [_canonical_c1_entries(support, edge)[2]
-                        for edge, support in enumerate(supports)]
+        # the stored complex's own columns, so a declared head or share restricts as
+        # declared; rebuilding them from the support alone answered the canonical column
+        from rexgraph.native_rank import primary_columns
+        coefficients = primary_columns(self.rex)
         for stalk, mediators in enumerate(self._inc):
             for mediator in mediators:
                 edge, vertex = (stalk, mediator) if self.grade == 1 else (mediator, stalk)

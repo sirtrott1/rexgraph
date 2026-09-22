@@ -26,7 +26,7 @@ trace beta_k,
 so a completed count needs only the sector traces and the exact Betti number, and no
 harmonic frame is built. Three weights are carried:
 
-    unit    w = 1                   the complete field coordinates of the paper
+    unit    w = 1                   the complete field coordinates
     mean    w = tr L_k / rank L_k   the mean nonzero eigenvalue
     energy  w = tr L_k^2 / tr L_k   the energy weighted mean eigenvalue
 

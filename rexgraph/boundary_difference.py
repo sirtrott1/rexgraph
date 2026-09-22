@@ -174,4 +174,6 @@ class BoundaryDifference:
 
 
 def boundary_difference(reference, other, *, ref_labels=None, other_labels=None, matching="auto"):
+    from rexgraph.column import require_canonical
+    require_canonical("a boundary difference", reference, other)
     return BoundaryDifference(reference, other, ref_labels, other_labels, matching)

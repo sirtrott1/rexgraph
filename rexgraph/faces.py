@@ -1,7 +1,7 @@
 """Face columns, solved from the chain condition.
 
-A grade 1 column is DECLARED: Definition 2.1 fixes its shape, -1 at the distinguished
-vertex and 1/(k-1) on the rest, so arity is legible from two entries. A grade 2 column is
+A grade 1 column is DECLARED: its shape is fixed, -1 at the distinguished vertex and
+1/(k-1) on the rest, so arity is legible from two entries. A grade 2 column is
 not declared. Nothing imposes a shape on it. It is whatever satisfies
 
     B1 c_f = 0
@@ -90,9 +90,12 @@ def _exact_b1_block(rex, edge_ids):
     """The B1 columns for `edge_ids` as exact rationals, keyed by vertex.
 
     Rebuilt from the boundary structure rather than read back from the assembled float
-    B1: the coefficients are -1 and 1/(k-1), and recovering those from a float would put
-    the solve on the approximation tower for no reason.
+    B1: recovering the coefficients from a float would put the solve on the approximation
+    tower for no reason. `rexgraph.column` is what the structure means, so a declared head
+    or share reaches the face solve as declared and the canonical column is the case where
+    nothing is declared.
     """
+    from rexgraph.column import declaration_of, exact_slot_coefficients
     rex._ensure_clean()
     bp, bi = rex._boundary_ptr, rex._boundary_idx
     cols = []
@@ -102,17 +105,13 @@ def _exact_b1_block(rex, edge_ids):
             s, t = int(src[e]), int(tgt[e])
             cols.append({} if s == t else {s: Fraction(-1), t: Fraction(1)})
         return cols
+    coefficients = exact_slot_coefficients(bp, bi, declaration_of(rex))
     for e in edge_ids:
         start, end = int(bp[e]), int(bp[e + 1])
-        k = end - start
         col: dict[int, Fraction] = {}
-        if k == 1:
-            col[int(bi[start])] = Fraction(1)
-        elif k >= 2:
-            share = Fraction(1, k - 1)
-            for j in range(start, end):
-                v = int(bi[j])
-                col[v] = col.get(v, Fraction(0)) + (Fraction(-1) if j == start else share)
+        for j in range(start, end):
+            v = int(bi[j])
+            col[v] = col.get(v, Fraction(0)) + coefficients[j]
         cols.append({v: c for v, c in col.items() if c != 0})
     return cols
 

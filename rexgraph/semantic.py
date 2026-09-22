@@ -7,7 +7,7 @@ learn in.
 
     v_e = L0^+ b_e            in vertex space, one vector per relation
     <u, v>_L = u^T L0 v       the inner product it lives under
-    Q(v_e)   = R_eff(e)       so the quadrance IS the significance (Theorem 16)
+    Q(v_e)   = R_eff(e)       so the quadrance IS the significance
     s(v_i, v_j)               the spread, the semantic distance between two relations
 
 `v_e` is the potential induced by pushing one unit of flow along `e`, so its support is
@@ -80,7 +80,7 @@ def semantic_spread(rex, edges=None):
     """The pairwise semantic distance: the spread of the field, `1 - G^2/(Q_i Q_j)`.
 
     Zero when two relations move the complex in the same direction, one when they are
-    L-orthogonal. This is section 1's spread with the field as its vectors, so it is
+    L-orthogonal. This is the spread with the field as its vectors, so it is
     the Gram block over its own diagonal and inherits everything that says: no square
     root, rational whenever the entries are, and defined at any arity.
     """

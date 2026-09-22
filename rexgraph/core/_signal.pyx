@@ -64,7 +64,7 @@ def _as_dual(B):
     return from_scipy_csr(M.astype(np.float64))
 
 
-# Section 1: Perturbation construction
+# Perturbation construction
 
 
 def build_edge_perturbation(Py_ssize_t nE, Py_ssize_t nF,
@@ -181,7 +181,7 @@ def build_spectral_perturbation(Py_ssize_t nE, Py_ssize_t nF,
     return f_E, f_F
 
 
-# Section 2: Propagation engines
+# Propagation engines
 
 
 def propagate_diffusion(np.ndarray[f64, ndim=1] f_E,
@@ -264,7 +264,7 @@ def propagate_diffusion_comparative(np.ndarray[f64, ndim=1] f_E,
     return traj_L1, traj_LO, traj_RL1
 
 
-# Section 3: Energy decomposition
+# Energy decomposition
 
 
 def energy_trajectory(np.ndarray[f64, ndim=2] trajectory,
@@ -421,7 +421,7 @@ def per_edge_energy_trajectory(np.ndarray[f64, ndim=2] trajectory,
     return Ek, Ep
 
 
-# Section 4: Cascade analysis
+# Cascade analysis
 
 
 def cascade_from_edge(np.ndarray[f64, ndim=2] trajectory,
@@ -600,7 +600,7 @@ def cascade_depth(np.ndarray[i32, ndim=1] activation_order,
     return depth
 
 
-# Section 5: Temporal tagging
+# Temporal tagging
 
 
 def tag_energy_phases(np.ndarray[f64, ndim=1] E_kin,
@@ -681,7 +681,7 @@ def tag_cascade_phases(np.ndarray[i32, ndim=1] activation_time,
     return tags, new_counts
 
 
-# Section 6: Full pipeline
+# Full pipeline
 
 
 def analyze_perturbation(np.ndarray[f64, ndim=1] f_E,

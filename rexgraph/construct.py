@@ -463,7 +463,7 @@ def mixed_rank(rex, info):
     The pair relations inside a group span the whole zero sum space on that group's
     vertices, of dimension `k-1`, so the group's own column, which is zero sum on exactly
     those vertices, is already in their span and contributes NO rank. The pairs are then a
-    pairwise boundary map, where `dim ker(L_0)` really is the component count (Theorem 14
+    pairwise boundary map, where `dim ker(L_0)` really is the component count
     holds at arity two and only there), so::
 
         rank(B_1) = nV - components(pairs)

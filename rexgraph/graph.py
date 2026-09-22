@@ -515,6 +515,7 @@ class RexGraph:
         "_B2_row_idx",
         "_B2_vals",
         "_relation_ids",
+        "_declaration",
         "_w_E",
         "_w_boundary",
         "_directed",
@@ -551,6 +552,8 @@ class RexGraph:
         signs: NDArray | None = None,
         g_channel: str = "raw",
         c_channel: str = "share",
+        head_slot: NDArray | None = None,
+        shares=None,
     ):
         # G (overlap) channel form used by the RL4 character:
         #   "raw"        - K = |B1|^T |B1| (DEFAULT). The exact co incidence Gramian, on
@@ -593,6 +596,18 @@ class RexGraph:
             self._boundary_ptr, self._boundary_idx = _validate_primary_boundary(bp, bi)
         else:
             raise ValueError("Provide boundary_ptr/boundary_idx or sources/targets.")
+
+        # The other two components of the column: the distinguished head,
+        # which was carried only as slot zero, and a declared share vector, which had
+        # nowhere to live at all. Both are optional and both are validated here, so a
+        # complex either carries an admissible declaration or none. `rexgraph.column` is
+        # the one reader of all three components.
+        from rexgraph.column import validate_declaration
+        self._declaration, support = validate_declaration(
+            self._boundary_ptr, self._boundary_idx, head_slot, shares
+        )
+        if support is not None:
+            self._boundary_idx = np.ascontiguousarray(support, dtype=_i32)
 
         # Derive vertex set
         if self._boundary_idx.shape[0] > 0:
@@ -1324,32 +1339,38 @@ class RexGraph:
                     f"B{grade - 1} B{grade} = 0 chain condition"
                 )
 
-        # B1 slot: the CSR stores SUPPORT plus the distinguished participant at
-        # position zero.  It is then materialized canonically as
-        # (-1, 1/(k-1), ..., 1/(k-1)); explicit +/- input chooses the distinguished
-        # participant, it does not license a second noncanonical C1 coefficient
-        # convention that would disagree with every other constructor.
+        # B1 slot: the CSR stores the SUPPORT, and the other two components of the column
+        # beside it. Unit orientation signs choose the distinguished participant and the
+        # column is then materialized at the equal share (-1, 1/(k-1), ..., 1/(k-1)),
+        # with the head stored at position zero because the slots are interchangeable
+        # there. A declared share vector is carried as declared, in the order it was
+        # declared, with the head as an index into it.
+        from rexgraph.graded_boundary import _cell_exact_entries
         edge_cells = cells_by_grade[1]
         counts = np.empty(len(edge_cells), dtype=_i32)
-        idx_parts = []
+        idx_parts, head_slots, share_parts = [], [], []
+        declared_any = False
         for e, cell in enumerate(edge_cells):
-            idx, sgn = _cell_entries(cell)
+            idx, _ = _cell_entries(cell)
             if idx.size == 0:
                 raise ValueError(f"grade-1 cell {e} has empty boundary support")
+            head = 0
+            shares = [None] * int(idx.size)
             if idx.size > 1:
-                head = np.flatnonzero(sgn < 0)
-                shares = np.flatnonzero(sgn > 0)
-                if (head.size != 1 or shares.size != idx.size - 1
-                        or not np.all(np.abs(sgn) == 1.0)):
-                    raise ValueError(
-                        f"grade-1 cell {e} must have one negative distinguished "
-                        "participant and positive shares; C1 is canonicalized from "
-                        "that orientation, not imported as arbitrary coefficients"
-                    )
-                h = int(head[0])
-                idx = np.concatenate((idx[h:h + 1], np.delete(idx, h)))
+                declaration = _declaration_from_entries(idx, _cell_exact_entries(cell))
+                if declaration is None or declaration[1] is None:
+                    # the equal share: the slots are interchangeable, so the head moves
+                    # to position zero exactly as every stored support already has it
+                    h = 0 if declaration is None else int(declaration[0])
+                    idx = np.concatenate((idx[h:h + 1], np.delete(idx, h)))
+                else:
+                    head, declared = declaration
+                    shares = list(declared)
+                    declared_any = True
             counts[e] = idx.shape[0]
             idx_parts.append(idx.astype(_i32, copy=False))
+            head_slots.append(head)
+            share_parts.extend(shares)
         boundary_ptr = np.zeros(len(edge_cells) + 1, dtype=_i32)
         np.cumsum(counts, out=boundary_ptr[1:])
         boundary_idx = (np.concatenate(idx_parts).astype(_i32)
@@ -1376,6 +1397,8 @@ class RexGraph:
             signs=signs,
             directed=directed,
             g_channel=g_channel,
+            head_slot=(np.asarray(head_slots, dtype=_i32) if declared_any else None),
+            shares=(share_parts if declared_any else None),
             **b2_kwargs,
         )
 
@@ -1689,6 +1712,28 @@ class RexGraph:
             raise RuntimeError("pairwise C1 invariant did not provide endpoints")
         return src.astype(_i32, copy=False), tgt.astype(_i32, copy=False)
 
+    @property
+    def declares_columns(self) -> bool:
+        """Whether any relation declares its head slot or its share vector."""
+        from rexgraph.column import declaration_of
+        return declaration_of(self) is not None
+
+    def _require_canonical_columns(self, operation: str) -> None:
+        """Decline an operation whose carrier cannot hold a declared column.
+
+        The ternary planes, the integer +-1 engines and the temporal delta record all
+        derive the share from the arity and the head from slot zero, so a declared column
+        would be read as the canonical one nobody declared. Refusing is the difference
+        between an answer this complex did not give and an answer that looks like one.
+        """
+        if self.declares_columns:
+            raise ValueError(
+                f"{operation} reads the boundary as the canonical column "
+                "(-1, 1/(k-1), ...) with the head at slot zero, and this complex "
+                "declares a head or a share. Use the exact path, or drop the "
+                "declaration explicitly before asking for this reading."
+            )
+
     def _require_pairwise_c1(self, operation: str) -> None:
         """Decline an endpoint only operation on a primary branching C1.
 
@@ -1724,10 +1769,12 @@ class RexGraph:
     def _b1_general_coo(self):
         """(rows, cols, vals) for the general boundary: one entry per incidence.
 
-        Vectorised over the CSR the construction already stores, so no Python loop runs
-        per relation. The arity 1 and self loop cases are handled as masks rather than
-        branches, which is what lets the whole thing be three array expressions.
+        The entries come from `rexgraph.column`, the one reader of existence, orientation
+        and share, so a declared head or a declared share reaches B1 rather than being
+        replaced here by the canonical column. Vectorised over the CSR the construction
+        already stores, so no Python loop runs per relation on the canonical path.
         """
+        from rexgraph.column import declaration_of, slot_coefficients
         bp = np.asarray(self._boundary_ptr, dtype=np.int64)
         bi = np.asarray(self._boundary_idx, dtype=np.int64)
         nE = int(self._nE)
@@ -1735,9 +1782,6 @@ class RexGraph:
             return (np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros(0, _f64))
         k = np.diff(bp)                                     # arity per relation
         owner = np.repeat(np.arange(nE, dtype=np.int64), k)  # which relation each entry is
-        starts = bp[:-1]
-        is_head = np.zeros(bi.size, dtype=bool)
-        is_head[starts[k > 0]] = True
 
         # a self loop is k == 2 over one repeated vertex: the pair cancels, so it is
         # dropped entirely rather than written and then subtracted
@@ -1746,40 +1790,21 @@ class RexGraph:
         if two.size:
             selfloop[two] = bi[bp[two]] == bi[bp[two] + 1]
 
-        share = np.zeros(nE, dtype=_f64)
-        wide = k >= 2
-        share[wide] = 1.0 / (k[wide] - 1)                   # 1 at k == 2: the plain edge
-
-        vals = np.where(is_head, -1.0, share[owner])
-        # arity 1 is a witness relation: a single +1, no head sign
-        one = k == 1
-        if one.any():
-            vals[np.repeat(one, k)] = 1.0
+        vals = slot_coefficients(bp, bi, declaration_of(self))
         keep = ~np.repeat(selfloop, k)
         return bi[keep], owner[keep], vals[keep]
 
     def _build_B1_general(self) -> NDArray:
-        """Build dense B1 from general boundary data."""
+        """Dense B1 from general boundary data, scattered from the same entries.
+
+        It used to write the canonical column out a second time, in a Python loop, which
+        is one more copy of the rule to keep in step with `_b1_general_coo`. Repeated
+        participants accumulate, which the scatter below preserves.
+        """
+        rows, cols, vals = self._b1_general_coo()
         B1 = np.zeros((self._nV, self._nE), dtype=_f64)
-        bp, bi = self._boundary_ptr, self._boundary_idx
-        for e in range(self._nE):
-            start, end = bp[e], bp[e + 1]
-            k = end - start
-            if k == 0:
-                continue
-            elif k == 1:
-                B1[bi[start], e] = 1.0
-            elif k == 2 and bi[start] == bi[start + 1]:
-                pass  # self loop
-            else:
-                # signed AND zero sum at every arity: -1 + (k-1)/(k-1) = 0. The share
-                # is 1 at k=2, so the ordinary edge is exactly (-1, +1) and the standard
-                # path is untouched. Writing +1 here instead gives the star, whose column
-                # sums to k-2; that is the existence tensor, not a boundary.
-                B1[bi[start], e] = -1.0
-                share = 1.0 / (k - 1)
-                for j in range(start + 1, end):
-                    B1[bi[j], e] += share
+        if rows.size:
+            np.add.at(B1, (rows, cols), vals)
         return B1
 
     @cached_property
@@ -1897,8 +1922,12 @@ class RexGraph:
         ingestion form for the relational complex.  It deliberately creates
         pairwise relations and therefore does not preserve primary C1 arity or
         identity.
+
+        The expansion weights every invented pair at the equal share, so it declines a
+        declared column rather than projecting one nobody declared.
         """
         self._ensure_clean()
+        self._require_canonical_columns("clique expansion")
         new_src, new_tgt, new_weights, _ = _rex.clique_expand_branching(
             self._nE, self._boundary_ptr, self._boundary_idx, self.edge_types
         )
@@ -2531,22 +2560,17 @@ class RexGraph:
         writes the same profile with signs and with duplicates accumulated; this writes
         it unsigned and per entry, which is what an unsigned Gramian needs.
 
-        The profile is |-1| = 1 at the distinguished entry and |1/(k-1)| on the other
-        k-1, so a wide relation contributes less overlap mass per leg than a narrow one.
-        Arities 0, 1 and 2 keep unit magnitudes: a witness is a single +1, an ordinary
-        edge has share 1, and a self loop's two entries are each of modulus 1 (the dense
-        column has summed them to zero, which is exactly what cannot be read back).
+        The profile is |-1| = 1 at the distinguished entry and the tail's own share on
+        the others, so a wide relation contributes less overlap mass per leg than a narrow
+        one. Arities 0, 1 and 2 keep unit magnitudes: a witness is a single +1, an
+        ordinary edge has share 1, and a self loop's two entries are each of modulus 1
+        (the dense column has summed them to zero, which is exactly what cannot be read
+        back). A declared share is that tail's declared magnitude, from the one reader.
         """
+        from rexgraph.column import declaration_of, slot_coefficients
         bp = np.asarray(self._boundary_ptr)
-        counts = np.diff(bp).astype(np.int64)              # arity per relation
-        mag = np.ones(int(self._boundary_idx.shape[0]), dtype=_f64)
-        wide = counts > 2
-        if wide.any():
-            share = np.ones(counts.shape[0], dtype=_f64)
-            share[wide] = 1.0 / (counts[wide] - 1)
-            mag[:] = np.repeat(share, counts)              # every entry gets its share
-            mag[bp[:-1][counts > 0]] = 1.0                 # distinguished entry back to 1
-        return mag
+        return np.abs(slot_coefficients(bp, self._boundary_idx,
+                                        declaration_of(self)))
 
     @cached_property
     def overlap_count_sparse(self):
@@ -5745,7 +5769,7 @@ class RexGraph:
 
     @cached_property
     def dimensional_subsumption(self) -> tuple[bool, list]:
-        """Verify beta_k(d+1) <= beta_k(d) (Theorem 8.1)."""
+        """Verify that betti numbers do not rise with the dimension: beta_k(d+1) <= beta_k(d)."""
         if _hypermanifold is None:
             return True, []
         hm = self.hypermanifold
@@ -7796,6 +7820,12 @@ def _cell_state(rex):
     return rex._boundary_ptr, rex._boundary_idx, rex._w_E, rex._signs
 
 
+def _declaration_from_entries(indices, coefficients):
+    """One declared grade 1 column as (head slot, share vector), or None when canonical."""
+    from rexgraph.column import declaration_from_entries
+    return declaration_from_entries(indices, coefficients)
+
+
 def _head_to_front(col, head):
     """Put `head` at position 0 of a boundary column, in place.
 
@@ -8596,6 +8626,7 @@ class TemporalRex:
         if self._T and timestamp < self._times[self._T - 1]:
             raise ValueError("timestamp precedes the last step; supply a nondecreasing clock")
         self._ensure_index()
+        rex._require_canonical_columns("a temporal snapshot")
         t = self._append_index_entry(rex, face=face, record_snapshot=True)
         self._times[t] = timestamp
         return t

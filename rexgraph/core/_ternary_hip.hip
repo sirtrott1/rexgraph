@@ -189,6 +189,8 @@ extern "C" __global__ void tower_vertex_mass(
     const unsigned char* __restrict__ is_head,
     const double*  __restrict__ w,       // per-relation weight
     const long*    __restrict__ vptr,    // vertex offsets into the transpose
+    const double*  __restrict__ coef,    // column entry per incidence, or null
+    const long*    __restrict__ src,     // which incidence each entry came from
     double* __restrict__ negw, double* __restrict__ posw,
     double* __restrict__ negu, double* __restrict__ posu,
     int nV)
@@ -198,6 +200,15 @@ extern "C" __global__ void tower_vertex_mass(
     double nw = 0.0, pw = 0.0, nu = 0.0, pu = 0.0;
     for (long q = vptr[v]; q < vptr[v + 1]; ++q) {
         int f = owner[q];
+        // A DECLARED head or share arrives through coef, and then the SIGN of the entry
+        // splits the mass rather than the head bit. Null is the canonical column, which
+        // is derived from the arity exactly as it always was.
+        if (coef) {
+            double c = coef[src[q]], mg = c < 0.0 ? -c : c;
+            if (c < 0.0) { nw += w[f] * mg; nu += mg; }
+            else         { pw += w[f] * mg; pu += mg; }
+            continue;
+        }
         int kf = bp[f + 1] - bp[f];
         if (kf == 1) { pw += w[f]; pu += 1.0; }            // witness is (+1)
         else if (is_head[q]) { nw += w[f]; nu += 1.0; }    // head, magnitude 1
@@ -212,6 +223,7 @@ extern "C" __global__ void tower_read(
     const double* __restrict__ w,
     const double* __restrict__ negw, const double* __restrict__ posw,
     const double* __restrict__ negu, const double* __restrict__ posu,
+    const double* __restrict__ coef,
     double* __restrict__ T, double* __restrict__ G,
     double* __restrict__ F, double* __restrict__ C,
     int nE)
@@ -221,6 +233,21 @@ extern "C" __global__ void tower_read(
     int s = bp[e], t = bp[e + 1], k = t - s;
     if (k == 0) { T[e] = G[e] = F[e] = C[e] = 0.0; return; }
     double we = w[e], c = 0.0, f = 0.0;
+    // The declared column, one coefficient per incidence: T is the weighted quadrance,
+    // C the weighted line graph degree, F twice the oppositely signed mass at each
+    // vertex. A witness needs no case of its own here, carrying (+1) and no head.
+    if (coef) {
+        double tt = 0.0;
+        for (int p = s; p < t; ++p) {
+            int vv = bi[p];
+            double m = coef[p], a = m < 0.0 ? -m : m;
+            tt += we * we * m * m;
+            c += a * (negu[vv] + posu[vv] - a);
+            f += we * a * (m < 0.0 ? posw[vv] : negw[vv]);
+        }
+        T[e] = G[e] = tt; C[e] = c; F[e] = 2.0 * f;
+        return;
+    }
     if (k == 1) {
         T[e] = G[e] = we * we;
         int v = bi[s];
@@ -241,8 +268,20 @@ extern "C" __global__ void tower_read(
     C[e] = c; F[e] = 2.0 * f;
 }
 
+/* The canonical entry point, unchanged in name and signature so a library built before
+ * declared columns keeps working with a caller that only needs the canonical reading.
+ * `tower_launch_coef` is the one that takes the column, and its ABSENCE is how a wrapper
+ * tells an older build apart from this one: a missing symbol is a clear refusal, where a
+ * new caller against the old signature would be a corrupted stack. */
 extern "C" int tower_launch(const void* bp, const void* bi, const void* owner,
                             const void* is_head, const void* w, const void* vptr,
+                            void* negw, void* posw, void* negu, void* posu,
+                            void* T, void* G, void* F, void* C,
+                            int nV, int nE, int threads);
+
+extern "C" int tower_launch_coef(const void* bp, const void* bi, const void* owner,
+                            const void* is_head, const void* w, const void* vptr,
+                            const void* coef, const void* src,
                             void* negw, void* posw, void* negu, void* posu,
                             void* T, void* G, void* F, void* C,
                             int nV, int nE, int threads)
@@ -252,16 +291,27 @@ extern "C" int tower_launch(const void* bp, const void* bi, const void* owner,
                        dim3(threads), 0, 0,
                        (const int*)bp, (const int*)owner,
                        (const unsigned char*)is_head, (const double*)w,
-                       (const long*)vptr, (double*)negw, (double*)posw,
+                       (const long*)vptr, (const double*)coef, (const long*)src,
+                       (double*)negw, (double*)posw,
                        (double*)negu, (double*)posu, nV);
     hipError_t e1 = hipGetLastError();
     if (e1 != hipSuccess) return (int)e1;
     hipLaunchKernelGGL(tower_read, dim3((nE + threads - 1) / threads), dim3(threads),
                        0, 0, (const int*)bp, (const int*)bi, (const double*)w,
                        (const double*)negw, (const double*)posw,
-                       (const double*)negu, (const double*)posu,
+                       (const double*)negu, (const double*)posu, (const double*)coef,
                        (double*)T, (double*)G, (double*)F, (double*)C, nE);
     hipError_t e2 = hipGetLastError();
     if (e2 != hipSuccess) return (int)e2;
     return (int)hipDeviceSynchronize();
+}
+
+extern "C" int tower_launch(const void* bp, const void* bi, const void* owner,
+                            const void* is_head, const void* w, const void* vptr,
+                            void* negw, void* posw, void* negu, void* posu,
+                            void* T, void* G, void* F, void* C,
+                            int nV, int nE, int threads)
+{
+    return tower_launch_coef(bp, bi, owner, is_head, w, vptr, nullptr, nullptr,
+                             negw, posw, negu, posu, T, G, F, C, nV, nE, threads);
 }

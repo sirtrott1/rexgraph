@@ -68,7 +68,7 @@ from rexgraph.core._common cimport (
 np.import_array()
 
 
-# Section 1: Field operator construction
+# Field operator construction
 
 
 def _safe_dot(A, x):
@@ -205,7 +205,7 @@ def field_operator_matvec(np.ndarray[f64, ndim=1] F,
     return np.concatenate([MF_E, MF_F])
 
 
-# Section 2: Eigendecomposition and frequencies
+# Eigendecomposition and frequencies
 
 
 def field_eigendecomposition(np.ndarray[f64, ndim=2] M):
@@ -272,7 +272,7 @@ def field_spectral_coefficients(np.ndarray[f64, ndim=1] F,
     return coeffs
 
 
-# Section 3: Wave evolution
+# Wave evolution
 
 
 def wave_evolve(np.ndarray[f64, ndim=1] F0,
@@ -417,7 +417,7 @@ def wave_evolve_trajectory(np.ndarray[f64, ndim=1] F0,
     return traj, vel
 
 
-# Section 4: Energy and conservation
+# Energy and conservation
 
 
 def wave_energy(np.ndarray[f64, ndim=1] F,
@@ -564,7 +564,7 @@ def wave_dimensional_energy(np.ndarray[f64, ndim=1] F,
     }
 
 
-# Section 5: Mode classification and resonance
+# Mode classification and resonance
 
 
 def classify_modes(np.ndarray[f64, ndim=1] evals,
@@ -677,7 +677,7 @@ def resonance_frequencies(np.ndarray[f64, ndim=1] freqs,
     return rf, ri
 
 
-# Section 6: Diffusion (heat equation)
+# Diffusion (heat equation)
 
 
 def field_diffusion_spectral(np.ndarray[f64, ndim=1] F0,
@@ -792,7 +792,7 @@ def field_diffusion_trajectory(np.ndarray[f64, ndim=1] F0,
     return traj
 
 
-# Section 7: Vertex observables (derived, not independent)
+# Vertex observables (derived, not independent)
 
 
 def derive_vertex_trajectory(np.ndarray[f64, ndim=2] traj_EF,
@@ -835,7 +835,7 @@ def derive_vertex_state(np.ndarray[f64, ndim=1] F,
     return np.asarray(B1.dot(F[:nE]), dtype=np.float64)
 
 
-# Section 8: RK4 integration for field dynamics
+# RK4 integration for field dynamics
 
 
 def field_rk4_step(np.ndarray[f64, ndim=1] F,

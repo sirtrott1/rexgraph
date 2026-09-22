@@ -298,7 +298,7 @@ def edge_weight_conjugation(np.ndarray[f64, ndim=2] L,
     return Lw
 
 
-# Phase 3: Dynamic RCFE strain (Sections 3, 5)
+# Phase 3: Dynamic RCFE strain
 
 def attributed_curvature(np.ndarray[f64, ndim=2] B1,
                           np.ndarray[f64, ndim=2] B2,
@@ -454,7 +454,7 @@ def verify_bianchi_strain(np.ndarray[f64, ndim=2] B1,
                            np.ndarray[f64, ndim=1] sigma,
                            Py_ssize_t nV, Py_ssize_t nE,
                            f64 tol=1e-10):
-    """Verify Bianchi conservation: B1 @ sigma = 0 (Theorem 6.1).
+    """Verify Bianchi conservation: B1 @ sigma = 0.
 
     Since sigma = B2 @ delta and B1 @ B2 = 0, this must hold exactly.
 

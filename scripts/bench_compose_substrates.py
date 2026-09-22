@@ -85,7 +85,7 @@ def main(doc="pg76245", layer="sentence", take=60):
     r = np.corrcoef(mass[ok], energy[ok])[0, 1]
     print(f"\n  mass vs energy correlation: {r:+.3f}")
     print("  (near zero is the point: two substrates carrying different information.")
-    print("   Theorem 27 says they must be MULTIPLIED, never mixed, so a low")
+    print("   They must be MULTIPLIED, never mixed, so a low")
     print("   correlation is the precondition for the product meaning anything.)")
 
 

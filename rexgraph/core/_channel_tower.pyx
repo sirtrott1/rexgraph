@@ -79,14 +79,30 @@ np.import_array()
 cdef inline void _vertex_mass(const int32_t* bp, const int32_t* ow,
                              const np.uint8_t* ih, const double* wv,
                              int64_t lo, int64_t hi,
+                             const double* coef, const int64_t* src,
                              double* out) noexcept nogil:
     """The four masses at one vertex. Kept in a helper so prange sees an assignment
-    and not an accumulator it would infer as a reduction."""
-    cdef double nw = 0.0, pw = 0.0, nu = 0.0, pu = 0.0, mg
+    and not an accumulator it would infer as a reduction.
+
+    `coef` is the column entry of every incidence, in CSR order, with `src` saying
+    which one each transposed entry came from. When it is NULL the entry is derived
+    from the arity and the head bit, which is the canonical column and the only case
+    the fast path allocates for. A DECLARED head or share arrives through `coef`, and
+    then the sign of the entry is what splits the mass rather than the head bit.
+    """
+    cdef double nw = 0.0, pw = 0.0, nu = 0.0, pu = 0.0, mg, c
     cdef int64_t q
     cdef Py_ssize_t f, kf
     for q in range(lo, hi):
         f = ow[q]
+        if coef != NULL:
+            c = coef[src[q]]
+            mg = c if c >= 0 else -c
+            if c < 0:
+                nw += wv[f] * mg; nu += mg
+            else:
+                pw += wv[f] * mg; pu += mg
+            continue
         kf = bp[f + 1] - bp[f]
         if kf == 1:
             pw += wv[f]; pu += 1.0                # the witness is (+1)
@@ -116,10 +132,16 @@ cdef inline void _bucket_offsets(int64_t* h, Py_ssize_t v, Py_ssize_t nV,
 def transpose_incidence(np.ndarray boundary_ptr not None,
                         np.ndarray boundary_idx not None,
                         Py_ssize_t nV,
-                        int threads=1):
+                        int threads=1,
+                        bint positions=False):
     """Vertex -> the entries that touch it, as CSR over nnz. One counting pass, one
     fill. `owner` is the relation each entry belongs to and `is_head` whether it is
     that relation's distinguished entry.
+
+    `positions=True` adds a fourth array: the CSR slot each entry came from, which is
+    what lets a per incidence coefficient be read in this order. It is off by default
+    because the canonical column needs only the arity and the head bit, and an extra
+    nnz array on the hot transpose is exactly the traffic this kernel exists to avoid.
 
     This is a counting sort, and it dominates a cold call: 135.7 ms of a 162.4 ms
     read at 10.5M nonzeros, where the accumulation it feeds is only ~36. It is not
@@ -144,9 +166,11 @@ def transpose_incidence(np.ndarray boundary_ptr not None,
     cdef np.ndarray[int64_t, ndim=1] vptr = np.zeros(nV + 1, dtype=np.int64)
     cdef np.ndarray[int32_t, ndim=1] owner = np.zeros(nnz, dtype=np.int32)
     cdef np.ndarray[np.uint8_t, ndim=1] is_head = np.zeros(nnz, dtype=np.uint8)
+    cdef np.ndarray[int64_t, ndim=1] source = np.zeros(nnz if positions else 0, dtype=np.int64)
     cdef int64_t[::1] vp = vptr
     cdef int32_t[::1] ow = owner
     cdef np.uint8_t[::1] ih = is_head
+    cdef int64_t[::1] srcv = source
     cdef Py_ssize_t e, p, s, t, v
     cdef int64_t at, cnt
     cdef np.ndarray[int64_t, ndim=1] cursor
@@ -178,7 +202,11 @@ def transpose_incidence(np.ndarray boundary_ptr not None,
                     at = cur[bi[p]]
                     ow[at] = <int32_t>e
                     ih[at] = 1 if p == s else 0
+                    if positions:
+                        srcv[at] = p
                     cur[bi[p]] = at + 1
+        if positions:
+            return vptr, owner, is_head, source
         return vptr, owner, is_head
 
     # contiguous RELATION ranges, so the entry ranges are contiguous and ordered
@@ -209,7 +237,11 @@ def transpose_incidence(np.ndarray boundary_ptr not None,
                     at = hv[ti, bi[p]]
                     ow[at] = <int32_t>e
                     ih[at] = 1 if p == s else 0
+                    if positions:
+                        srcv[at] = p
                     hv[ti, bi[p]] = at + 1
+    if positions:
+        return vptr, owner, is_head, source
     return vptr, owner, is_head
 
 
@@ -218,7 +250,8 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
                                 Py_ssize_t nV,
                                 np.ndarray w_E=None,
                                 int threads=1,
-                                tuple transposed=None):
+                                tuple transposed=None,
+                                np.ndarray coefficients=None):
     """The four diagonals (T, G, F, C) for a complex of any arity, in O(nnz).
 
     `boundary_ptr`/`boundary_idx` are the CSC support of B1: relation e spans
@@ -230,6 +263,12 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
     `threads` sets the parallel width; 1 keeps the serial path. `transposed` accepts a
     previously built `transpose_incidence` result, since the incidence does not change
     between readings of the same complex.
+
+    `coefficients` is the column entry of every incidence in CSR order, for a complex
+    that DECLARES a head or a share. Without it the column is derived from the arity and
+    the head bit, and that derivation is kept spelled exactly as it was: the canonical
+    reading is bit for bit what it has always been, because `we*we*(1.0 + share)` and a
+    summed `sum_p c_p^2` agree in mathematics and need not agree in the last bit.
 
     Returns (T, G, F, C) as float64 arrays of length nE.
     """
@@ -257,11 +296,25 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
     cdef Py_ssize_t e, p, s, t, k, v
     cdef double share, mag, we, a, m
 
-    if transposed is None:
-        transposed = transpose_incidence(boundary_ptr, boundary_idx, nV, threads)
+    cdef bint declared = coefficients is not None
+    if transposed is None or (declared and len(transposed) < 4):
+        transposed = transpose_incidence(boundary_ptr, boundary_idx, nV, threads,
+                                         positions=declared)
     cdef int64_t[::1] vp = np.ascontiguousarray(transposed[0], dtype=np.int64)
     cdef int32_t[::1] ow = np.ascontiguousarray(transposed[1], dtype=np.int32)
     cdef np.uint8_t[::1] ih = np.ascontiguousarray(transposed[2], dtype=np.uint8)
+    cdef np.ndarray[double, ndim=1] cf = (
+        np.ascontiguousarray(coefficients, dtype=np.float64) if declared
+        else np.zeros(0, dtype=np.float64))
+    cdef np.ndarray[int64_t, ndim=1] sr = (
+        np.ascontiguousarray(transposed[3], dtype=np.int64) if declared
+        else np.zeros(0, dtype=np.int64))
+    cdef double[::1] cfv = cf
+    cdef int64_t[::1] srv = sr
+    cdef const double* coef = &cfv[0] if declared else NULL
+    cdef const int64_t* src = &srv[0] if declared else NULL
+    if declared and cf.shape[0] != bi.shape[0]:
+        raise ValueError("one coefficient per incidence is required")
     cdef int nthr = threads if threads > 0 else 1
 
     # pass 1: over VERTICES, so each thread owns what it writes
@@ -269,7 +322,8 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
     cdef double[:, ::1] mv = mass
     with nogil:
         for v in prange(nV, num_threads=nthr, schedule='static'):
-            _vertex_mass(&bp[0], &ow[0], &ih[0], &wv[0], vp[v], vp[v + 1], &mv[v, 0])
+            _vertex_mass(&bp[0], &ow[0], &ih[0], &wv[0], vp[v], vp[v + 1],
+                         coef, src, &mv[v, 0])
     negw[:] = mass[:, 0]; posw[:] = mass[:, 1]
     negu[:] = mass[:, 2]; posu[:] = mass[:, 3]
     with nogil:
@@ -280,6 +334,25 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
             if k == 0:
                 continue
             we = wv[e]
+            if coef != NULL:
+                # The same four readings over the column as declared. Every case below
+                # is this loop specialised: T is the weighted quadrance, C the weighted
+                # line graph degree, and F twice the mass this entry disagrees with in
+                # sign at its own vertex. A witness carries (+1) and no head, which is
+                # why the split is by the SIGN of the entry and not by slot zero.
+                for p in range(s, t):
+                    v = bi[p]
+                    m = coef[p]
+                    a = m if m >= 0 else -m
+                    Tv[e] += we * we * m * m
+                    Cv[e] += a * (neguv[v] + posuv[v] - a)
+                    if m < 0:
+                        Fv[e] += we * a * poswv[v]
+                    else:
+                        Fv[e] += we * a * negwv[v]
+                Gv[e] = Tv[e]
+                Fv[e] *= 2.0
+                continue
             if k == 1:
                 Tv[e] = we * we
                 Gv[e] = Tv[e]

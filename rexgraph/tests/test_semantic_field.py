@@ -84,7 +84,7 @@ def test_disjoint_relations_are_orthogonal():
 
 
 def test_the_spread_is_the_gram_block_over_its_diagonal():
-    """Section 1, with the field as its vectors."""
+    """The spread, with the field as its vectors."""
     rex = _g([0, 1, 2, 0, 3], [1, 2, 0, 3, 4])
     G = semantic_gram(rex)
     S = semantic_spread(rex)

@@ -134,6 +134,21 @@ def _cell_entries(cell) -> tuple[np.ndarray, np.ndarray]:
     return idx, sgn
 
 
+def _cell_exact_entries(cell) -> list:
+    """One cell's coefficients as exact rationals, in declared slot order.
+
+    `_cell_entries` carries them in float64, which is the display form and cannot hold
+    1/3. A declared share has to be read where it was written or it stops being exact at
+    the first unequal share.
+    """
+    if _is_signed_cell(cell):
+        return [Fraction(entry[1]) for entry in cell]
+    values = [Fraction(1)] * len(cell)
+    if values:
+        values[0] = Fraction(-1)
+    return values
+
+
 def _canonical_c1_entries(cell, cell_index: int):
     """Return one declared C1 boundary in display and exact forms.
 
@@ -158,22 +173,34 @@ def _canonical_c1_entries(cell, cell_index: int):
         v = int(idx[0])
         return idx, np.ones(1, dtype=_f64), {v: Fraction(1)}
 
-    head = np.flatnonzero(sgn < 0)
-    shares = np.flatnonzero(sgn > 0)
-    if (head.size != 1 or shares.size != idx.size - 1
-            or not np.all(np.abs(sgn) == 1.0)):
-        raise ValueError(
-            f"grade-1 cell {cell_index} must have one negative distinguished "
-            "participant and positive unit orientation signs"
-        )
-    h = int(head[0])
-    ordered = np.concatenate((idx[h:h + 1], np.delete(idx, h)))
-    display = np.full(ordered.shape[0], 1.0 / (ordered.shape[0] - 1), dtype=_f64)
-    display[0] = -1.0
-    share = Fraction(1, int(ordered.shape[0] - 1))
-    exact = {int(ordered[0]): Fraction(-1)}
-    exact.update({int(v): share for v in ordered[1:]})
-    return ordered, display, exact
+    # b = s - h at any admissible share, which is the general one head constructor:
+    # exactly one participant carries -1 and the tails carry positive rational shares
+    # summing to one. The EQUAL share is the specialisation a plain
+    # support declares, and it is the only one that gets its head moved to slot zero,
+    # because there the slots are interchangeable and every existing stored support
+    # keeps the order it has. A declared share travels WITH its slot, so that support
+    # is stored as declared and the head rides as an index.
+    from rexgraph.column import declaration_from_entries
+    exact_values = _cell_exact_entries(cell)
+    try:
+        declaration = declaration_from_entries(idx, exact_values)
+    except ValueError as exc:
+        raise ValueError(f"grade-1 cell {cell_index}: {exc}") from None
+    h = 0 if declaration is None else int(declaration[0])
+    if declaration is None or declaration[1] is None:
+        ordered = np.concatenate((idx[h:h + 1], np.delete(idx, h)))
+        display = np.full(ordered.shape[0], 1.0 / (ordered.shape[0] - 1), dtype=_f64)
+        display[0] = -1.0
+        share = Fraction(1, int(ordered.shape[0] - 1))
+        exact = {int(ordered[0]): Fraction(-1)}
+        exact.update({int(v): share for v in ordered[1:]})
+        return ordered, display, exact
+    ordered = idx
+    display = np.asarray([float(c) for c in exact_values], dtype=_f64)
+    exact: dict = {}
+    for vertex, coefficient in zip(ordered, exact_values, strict=True):
+        exact[int(vertex)] = exact.get(int(vertex), Fraction(0)) + coefficient
+    return ordered, display, {v: c for v, c in exact.items() if c}
 
 
 def _exact_higher_coefficient(value) -> Fraction:

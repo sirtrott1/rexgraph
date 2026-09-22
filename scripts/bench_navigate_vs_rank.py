@@ -152,7 +152,7 @@ for p in paths:
             mask = mask & (owners[name] == int(np.argmax(sc)))
         c = int(np.argmax(accumulate(owners[base], cells_C, mask))) if mask.any() else -1
 
-        # D: Theorem 26's own setting: the potential solved ON THE TREE
+        # D: the potential solved ON THE TREE
         leaves = accumulate(owners[base], cells_A)
         u, nodes, root = tree_potential(chain, owners, leaves, base)
         cur, d = root, -1

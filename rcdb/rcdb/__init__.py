@@ -70,7 +70,7 @@ from .corpus import CorpusSnapshot
 
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 
 __all__ = [
     "CorpusSnapshot",

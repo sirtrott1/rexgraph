@@ -114,7 +114,11 @@ primary position. Nonzero column sums have an explicit witness leg.
         count = 0
         for j, column in enumerate(_columns(entries, b.shape[1])):
             support = primary[j] if self.grade == 1 else ()
-            h = support[0] if support else min(column, default=None)
+            # the reference is the head: the participant carrying the negative
+            # coefficient, which is slot zero only when nothing else is declared
+            head = next((i for i, c in sorted(column.items()) if c < 0), None)
+            h = head if (self.grade == 1 and head is not None) else (
+                support[0] if support else min(column, default=None))
             references.append(h)
             start = count
             for i, value in sorted(column.items()):

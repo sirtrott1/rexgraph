@@ -63,7 +63,7 @@ def test_provenance_readings_obey_their_theorems():
     rex, lev = pv.index_leverage(index)
     p = pv.store_provenance(index, [f"r{i}" for i in range(4)])
     assert p["n_records"] == 4 and not p["missing"]
-    # Theorem 23/24, the same bounds partition.section_readings asserts
+    # the same bounds partition.section_readings asserts
     assert p["mass"] <= p["own_rank"] + 1e-9
     assert p["own_cycles"] <= p["share"] + 1e-9
     assert 0.0 <= p["share_of_corpus"] <= 1.0

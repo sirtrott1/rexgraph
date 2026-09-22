@@ -214,7 +214,7 @@ def kernel_from_boundary(B1, *, native=False):
 def deflated_operator(B1, *, kernel=None, native=False):
     """The regularised Laplacian `L_0 + P_H` as an OPERATOR, plus its Jacobi diagonal.
 
-    `L_0` is singular, so §6e's Theorem 15 solves through `(L_0 + P_H)^{-1} - P_H`. Every
+    `L_0` is singular, so the solve goes through `(L_0 + P_H)^{-1} - P_H`. Every
     caller that wants it was building `L_0 = B_1 B_1^T` first and handing the product to
     `_block_cg`, which takes a callable and never needed the matrix. That product is the
     expensive object: on a real lexical complex `B_1` is 4,725,208 nnz and 60 MB while the

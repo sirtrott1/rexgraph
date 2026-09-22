@@ -95,7 +95,7 @@ def test_labels_are_the_privacy_surface():
         reset()
 
 
-# template + validation harness (§3.2, §3.3)
+# template and validation harness
 
 from agent.connectors import faces_to_csc, to_rexgraph
 from agent.connectors.template import ExampleEdgesConnector
@@ -165,7 +165,7 @@ def test_harness_fails_capability_overclaim():
     assert not chk.passed
 
 
-# SQL connector (§3.4)
+# SQL connector
 
 import os
 import sqlite3
@@ -234,7 +234,7 @@ class TestSQLConnector:
             os.unlink(dbf)
 
 
-# document / semantic / generic / skeletons / registry (§3.4-3.5)
+# document / semantic / generic / skeletons / registry
 
 from agent.connectors import open_connector
 

@@ -478,7 +478,7 @@ def candidate_readings(rex, candidates, *, shares=True):
 # and inherit its statistics. The byte energy does not: it reads the ENCODING, before any
 # relation exists, and it is the only corpus free quantity here.
 #
-# Theorem 27 is the rule for putting them together, and it is a prohibition. Carrying the
+# The rule for putting them together is a prohibition. Carrying the
 # energy as a source and solving `L0 u = B1 E` re imports the frequency coupling the
 # energy was free of, and the propagated readings then INVERT: dissipated power ranks
 # function words above content words, exactly reversing the ungated energy. So the
@@ -561,7 +561,7 @@ def energy_tensor(rex, sections, labels, *, moments=("total", "mean", "spread"))
 def compose_substrates(T, E, *, verify=True):
     """`P[section, grade, reading, moment] = T[...] * E[section, moment]`.
 
-    Theorem 27's composition, written out. The energy enters as a FACTOR and never as a
+    That composition, written out. The energy enters as a FACTOR and never as a
     source, so the two substrates are multiplied and not mixed, and the result is rank one
     in the (reading, moment) plane for every section: exactly the statement that nothing
     fused. `verify=True` checks that rank, which is the theorem being asserted rather
@@ -697,7 +697,8 @@ def _edge_terms(rex, seeds, seed_weight="invdeg"):
                 items.append(e)
                 selected.append(which[vertex])
                 carried.append(value)
-    den = np.maximum(np.diff(np.asarray(rex._boundary_ptr, dtype=np.int64)) - 1, 1)
+    from rexgraph.native_rank import column_scales
+    den = np.asarray(column_scales(rex), dtype=np.int64)   # each column's own denominator
     return tuple(np.asarray(v, dtype=np.int64) for v in (items, carried, selected, degrees, den))
 
 

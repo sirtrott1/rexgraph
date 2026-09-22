@@ -24,7 +24,7 @@ than returning a number that would be about the arithmetic.
 
 The merge preview is the other half, and it is JOINT rather than a sum of parts. Every
 novel relation on its own either lies outside `range(B_1)` of the reference, so absorbing
-it raises the rank, or lies inside it, so exactly one cycle appears (Theorem 53). Those
+it raises the rank, or lies inside it, so exactly one cycle appears. Those
 marginals are each exact and they DO NOT ADD UP, because absorbing one relation changes
 the span the next is judged against: measured on 120 Complex Portal relations the
 marginals totalled 120 while the actual merge moved the rank by 108 and opened 12 cycles.
@@ -76,6 +76,8 @@ def tensor_diff(ref, inp, *, ref_labels=None, inp_labels=None, grade=1,
     Returns a dict of exact integers plus, when `merge_preview` is on, the rank and cycle
     movement absorbing the input would cause.
     """
+    from rexgraph.column import require_canonical
+    require_canonical("a relational tensor diff", ref, inp)
     if int(grade) != 1:
         raise ValueError(
             f"entry-wise diff is defined at grade 1 only, not grade {grade}. Above it the "

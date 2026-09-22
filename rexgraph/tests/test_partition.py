@@ -53,7 +53,7 @@ def test_every_section_stays_under_its_own_rank():
 
 
 def test_a_section_that_carries_its_own_cycles_has_no_gap():
-    """Theorem 24's equality case: nothing outside is closing anything for it."""
+    """The equality case: nothing outside is closing anything for it."""
     rex = RexGraph(sources=np.asarray([0, 1, 2], np.int32),
                    targets=np.asarray([1, 2, 0], np.int32))
     rex._ensure_clean()
@@ -270,7 +270,7 @@ def test_energy_moments_are_what_they_say():
 
 
 def test_the_composition_is_multiplicative_and_stays_rank_one():
-    """Theorem 27 as an assertion rather than a comment.
+    """The composition rule as an assertion rather than a comment.
 
     The energy enters as a factor and never as a source, so every (reading, moment)
     plane is rank one. A higher rank means the substrates were mixed.

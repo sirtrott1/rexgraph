@@ -489,10 +489,6 @@ def exact_channel_diagonals(rex):
             raise ValueError('exact channel diagonals do not support vertex weighting')
     nE = int(rex.nE)
 
-    bp = np.asarray(rex._boundary_ptr)
-    bi = np.asarray(rex._boundary_idx)
-    supports = [[int(v) for v in bi[bp[e]:bp[e + 1]]] for e in range(nE)]
-
     # the RATIONAL reader, not `edge_metric`: that one is float64 by construction, so
     # taking it here would put the exact tower on the exact value of a double
     metric = getattr(rex, "edge_metric_exact", None)
@@ -511,20 +507,11 @@ def exact_channel_diagonals(rex):
     # complex F read [0,2,4,2] against the definition's [2,2,4,4], and on one
     # carrying arities 1..4 it read [0,0,0,0] against [6,2,2,2]. T, G and C were
     # untouched, the diagonal squaring the sign away and C taking absolute values.
-    cols = []
-    for support in supports:
-        k = len(support)
-        if k == 0:
-            cols.append({})
-            continue
-        if k == 1:
-            cols.append({support[0]: Fraction(1)})
-            continue
-        share = Fraction(1, k - 1)
-        col = {support[0]: Fraction(-1)}
-        for v in support[1:]:
-            col[v] = col.get(v, Fraction(0)) + share
-        cols.append(col)
+    # ... and a DECLARED head or share is part of that column, so the columns come from
+    # `rexgraph.column` rather than being rebuilt from the support here. This exact
+    # reading is what carries a declared complex, because the compiled tower refuses it.
+    from rexgraph.native_rank import primary_columns
+    cols = primary_columns(rex)
 
     # Two incidence passes. F uses unsigned metric masses but B1 orientations;
     # taking signs from weighted B1 would measure a different channel.

@@ -393,7 +393,7 @@ def test_sparse_betti_is_arity_aware_for_branching_hyperedges():
 def test_alpha_G_is_exact_c2_on_complete_graphs():
     """alpha_G = c^2 = G/T = tr((B2 B2^T)^2)/tr((B1^T B1)^2) is the CANONICAL geometry<->topology
     exchange rate, exact rational = (k-2)/2 on the autofaced complete graph K_k (CANONICAL_RESOLUTION
-    section 2). Replaces the outdated fiedler(L1)/fiedler(L_O) float ratio. Also checks RL_1 = L1_down
+    ). Replaces the outdated fiedler(L1)/fiedler(L_O) float ratio. Also checks RL_1 = L1_down
     + alpha_G*L1_up and that E_kin + alpha_G*E_pot = <f|RL_1|f>."""
     import itertools
     for k in (4, 5, 6, 7, 8):

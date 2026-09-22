@@ -410,7 +410,7 @@ def test_a_redundant_face_does_not_raise_the_shadow():
 
 
 def test_betti_never_increases_along_the_filtration():
-    """Theorem 8.1: adding cells fills holes and never opens one."""
+    """Adding cells fills holes and never opens one."""
     _base, rex = _filled()
     ok, violations = rex.dimensional_subsumption
     assert ok is True and list(violations) == []

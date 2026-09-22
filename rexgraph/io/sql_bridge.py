@@ -7,15 +7,15 @@ Stores the same table types as :mod:`parquet_bridge` into SQL databases
 maps to a specific part of the algebraic/topological framework:
 
 Boundary table: the general boundary operator d_1
-(Definition 3.1).  One row per (edge, boundary_vertex) pair.
+One row per (edge, boundary_vertex) pair.
 
 Edge table - per edge data: source/target, boundary size, edge type
-(Definition 3.2), weight, optional Hodge components (Theorem 3.8/4.5).
+weight, and optional Hodge components.
 
 Vertex table: per vertex data, degree from L_0, spectral
-layout (Definition 6.7), Fiedler vector entries.
+layout, Fiedler vector entries.
 
-Face table: the B_2 operator (Definition 4.1).  One row
+Face table: the B_2 operator.  One row
 per nonzero: (face_idx, edge_idx, orientation).
 
 Persistence table: persistence pairs from column reduction over
@@ -82,7 +82,7 @@ __all__ = [
     "reconstruct_rex_sql",
 ]
 
-# Edge type names matching types.py EdgeType enum (Definition 3.2)
+# Edge type names matching the EdgeType enum in types.py
 _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
 
 
@@ -327,7 +327,7 @@ def _read_meta(engine, table: str) -> dict:
 #: existing call sites keep working; `dumps` is what applies the non finite policy.
 from ._compat import dumps as _dumps
 
-# Boundary table (Definition 3.1)
+# Boundary table
 
 
 def write_boundary_sql(
@@ -340,7 +340,7 @@ def write_boundary_sql(
     """Write the general boundary operator d_1 to SQL.
 
     One row per (edge, boundary_vertex) pair.  Handles all edge types
-    from Definition 3.2: standard, self loop, branching, witness.
+    of the four kinds: standard, self loop, branching, witness.
 
     Columns: `edge_idx`, `vertex_idx`, `position`.
     """
@@ -403,7 +403,7 @@ def read_boundary_sql(
     }
 
 
-# Edge table (Definition 3.2)
+# Edge table
 
 
 def write_edge_sql(
@@ -420,7 +420,7 @@ def write_edge_sql(
     `edge_type`, `edge_type_name`, `endpoints`, `weight` (if weighted).
 
     Uses the general boundary d_1 to derive source/target,
-    with `-1` for witness edges (Definition 3.2).  `endpoints` holds
+    with `-1` for witness edges.  `endpoints` holds
     the full ordered signed boundary vertex list (JSON) per edge so
     branching edges (arity>2) round trip without truncation.
     """
@@ -436,7 +436,7 @@ def write_edge_sql(
     src = np.full(nE, -1, dtype=np.int32)
     tgt = np.full(nE, -1, dtype=np.int32)
     # `source`/`target` only capture the first two endpoints; a branching edge
-    # (Definition 3.2) has k>2 boundary vertices.  Store the full, ordered
+    # has k>2 boundary vertices.  Store the full, ordered
     # signed endpoint list per edge, the same general boundary CSR held in
     # the boundary table, so arity>2 topology round trips instead of being
     # silently truncated.
@@ -466,7 +466,7 @@ def write_edge_sql(
     if rex._w_E is not None:
         data["weight"] = rex._w_E
 
-    # Optional Hodge components (Theorem 3.8/4.5)
+    # Optional Hodge components
     if include:
         w = rex.w_E if rex.w_E is not None else np.ones(nE)
         hodge_done = False
@@ -542,7 +542,7 @@ def write_vertex_sql(
     r"""Write per vertex data to SQL.
 
     Default columns: `vertex_idx`, `degree` (from L_0),
-    `x`, `y` (spectral layout, Definition 6.7).
+    `x`, `y` (spectral layout).
     """
     _, _, _, _, sat = _sa()
     engine = _ensure_engine(conn)
@@ -604,7 +604,7 @@ def read_vertex_sql(
     return _read_table(engine, table, order_by="vertex_idx")
 
 
-# Face table (Definition 4.1, B2)
+# Face table (B2)
 
 
 def write_face_sql(
@@ -1221,8 +1221,8 @@ def reconstruct_rex_sql(
         rex2 = reconstruct_rex_sql(engine, boundary="b1", face="b2", edge="b1_edges")
 
     `boundary` is required and supplies `boundary_ptr`/`boundary_idx` (the
-    general boundary d_1, Definition 3.1). `face` (if given, and present)
-    supplies B2's CSC arrays (Definition 4.1). `edge` (if given, and present)
+    general boundary d_1). `face` (if given, and present)
+    supplies B2's CSC arrays. `edge` (if given, and present)
     supplies `w_E` from its `weight` column when the edge table was written
     with weights.
     """

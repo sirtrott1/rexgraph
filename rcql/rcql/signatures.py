@@ -600,7 +600,8 @@ register(OperatorSignature(
     result=_t("CompositeBinary", ValueKind.COMPOSITE_BINARY, grade=1, variance=Variance.CELL,
               domain=Domain.RATIONAL, exactness=Exactness.RATIONAL),
     implementation_key="rex.composite_binary",
-    preconditions=("repeated C1 incidence refuses because vertex-basis binary masks would collapse occurrences",),
+    preconditions=("repeated C1 incidence refuses because vertex-basis binary masks would collapse occurrences",
+                   "existence, head and share are read from the column, so a declared head or share is returned as declared",),
 ))
 register(OperatorSignature(
     name="EXISTENCE", memoizable=True, source_kind=ValueKind.REX, inputs=(_C1_COMPOSITE,),

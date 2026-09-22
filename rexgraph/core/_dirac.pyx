@@ -11,7 +11,6 @@ D^2 = blkdiag(L0, L1, L2) by the chain condition B1*B2 = 0.
 Schrodinger evolution exp(-iDt) preserves ||Psi||^2 exactly.
 The face component vanishes under canonical vertex collapse.
 
-Reference: RCFE Foundations, Sections 4, 8, 9.
 """
 
 from __future__ import annotations

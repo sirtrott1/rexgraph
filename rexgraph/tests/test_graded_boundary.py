@@ -282,7 +282,7 @@ def test_graph_is_1rex():
 
 def _mixed_b1():
     """Witness, pairwise and branching together, with the wide columns overlapping in
-    more than one vertex so they genuinely carry cycles (section 6i, Theorem 19)."""
+    more than one vertex so they genuinely carry cycles."""
     cells = [[0], [3], (0, 1), (1, 2), (2, 0), (5, 6),
              (0, 1, 2, 3), (1, 2, 3, 4), (2, 3, 4, 5), (0, 2, 4, 6)]
     cols, rows, data = [0], [], []

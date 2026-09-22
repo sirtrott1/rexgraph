@@ -18,7 +18,7 @@ Three variants:
 3. l_gb_tower(B_list) - sweep across all adjacent grade pairs.
    Used for sphere fingerprinting: S^n has a distinctive tower signature.
 
-Reference: the L_gb source paper sections 6-9.
+Reference: the published L_gb construction.
 
 This is a pure NumPy implementation. When merged into the main rexgraph
 repository, it should be reimplemented as a Cython module
@@ -202,7 +202,7 @@ def l_gb_channel_tensor(
 
     The order is always [T, G, F, C].
 
-    Self tensor properties (from the L_gb source paper section 7):
+    Self tensor properties:
         - Diagonal entries are 0 (each channel against itself).
         - TF = FC = 1 universally on every graph.
         - Cycles: TC = 0 uniquely.
@@ -259,7 +259,7 @@ def l_gb_tower(B_list: list[np.ndarray]) -> list[dict]:
     For a complex with boundary operators [B1, B2, B3, ...], computes the
     L_gb scalar at each adjacent pair: (1,2), (2,3), (3,4), ...
 
-    Used for sphere fingerprinting (the L_gb source paper section 9):
+    Used for sphere fingerprinting:
         - S^2: single pair, top_eig = 0
         - S^3: two pairs, both top_eig ≈ 0.577
         - S^4: three pairs. Middle pair (2,3) has top_eig = 0 and POSITIVE

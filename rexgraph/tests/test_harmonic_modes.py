@@ -206,7 +206,7 @@ def _calculus(rex, metrics=None):
 
 
 def _calculus_traces(calculus, grade, w):
-    """tr and tr^2 of L_k + w Pi^h from the calculus's own Hodge and harmonic actions."""
+    """tr and tr^2 of L_k + w Pi^h from the field calculus Hodge and harmonic actions."""
     n = calculus.complex.sizes[grade]
     if n == 0:
         return Q(0), Q(0)

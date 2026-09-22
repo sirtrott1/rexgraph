@@ -70,7 +70,7 @@ def _reff_of(Bk):
     return np.einsum("ve,ve->e", Bc, X)
 
 
-# Theorem 18: L_gb is a spread
+# L_gb is a spread
 
 def test_l_gb_is_the_spread_of_the_two_spectra():
     rng = np.random.default_rng(0)
@@ -142,7 +142,7 @@ def test_the_rank_identity_holds_at_grade_two():
         assert float((1.0 - r).sum()) == pytest.approx(B.shape[1] - rank, abs=1e-9)
 
 
-# Theorem 19 and the mixed construction
+# the mixed construction
 
 @pytest.mark.parametrize("groups", [
     [[0, 1, 2]],
@@ -207,7 +207,7 @@ def test_two_wide_relations_sharing_an_edge_enclose_a_void():
     assert int(rex.betti[2]) == 1
 
 
-# section 6j: what a circle is
+# what a circle is
 
 def _lone(*groups):
     rex = _hyper([list(g) for g in groups])
@@ -290,10 +290,10 @@ def test_arity_and_degree_are_opposite_axes():
     assert len(arity) == int(rex.nE) and len(degree) == int(rex.nV)
 
 
-# sections 6k and 6l
+# leverage and its partition
 
 def _leverage(M):
-    """diag of the projector onto row(M): Theorem 21."""
+    """diag of the projector onto row(M)."""
     M = np.asarray(M, dtype=float)
     if M.size == 0 or M.shape[1] == 0:
         return np.zeros(0)
@@ -328,7 +328,7 @@ def test_the_leverage_form_gives_the_rank_at_grade_two():
 
 
 def test_phi_comes_off_one_decomposition():
-    """Theorem 22: no per vertex solve."""
+    """No per vertex solve."""
     rex = _g([0, 1, 2, 0, 3], [1, 2, 0, 3, 4])
     rex._ensure_clean()
     ch = rex._sparse_character
@@ -355,7 +355,7 @@ def test_phi_comes_off_one_decomposition():
 
 
 def test_the_leverage_partitions_the_rank():
-    """Theorem 23 on a mixed partition: sections sum to the whole, each under its own
+    """A mixed partition: sections sum to the whole, each under its own
     rank, and the section ranks over count by exactly the overlap."""
     groups = [[0, 1, 2, 3], [2, 3, 4, 5], [4, 5, 6]]
     rex = _mixed(groups)
@@ -377,7 +377,7 @@ def test_the_leverage_partitions_the_rank():
 
 
 def test_a_subsets_own_cycles_bound_its_global_share():
-    """Theorem 24, tight over the whole set."""
+    """Tight over the whole set."""
     rex = _g([0, 1, 2, 0], [1, 2, 0, 2])
     rex._ensure_clean()
     B1 = sp.csc_matrix(np.asarray(rex.B1))
