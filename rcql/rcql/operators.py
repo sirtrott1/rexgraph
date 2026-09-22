@@ -626,9 +626,9 @@ def apply(source, action, values, exact=False):
         return Chain(action.codomain_grade, out, source=source)
     from rexgraph.adjugate_operator import AdjugateOperator
     from rexgraph.rational_operator import RationalOperator
-    from rexgraph.markov import MarkovView
+    from rexgraph.markov import ParticipationWalk
     from rexgraph.text_overlap import TextOverlapView
-    if isinstance(action, (RationalOperator, MarkovView, TextOverlapView)):
+    if isinstance(action, (RationalOperator, ParticipationWalk, TextOverlapView)):
         if action.source is not source:
             raise ValueError("typed action requires its bound source")
         carrier = _typed_value(source, values, operator=action.name, variance=action.variance,
@@ -636,7 +636,7 @@ def apply(source, action, values, exact=False):
         if carrier.cell_keys is not None:
             raise ValueError("typed action requires the canonical ordered basis")
         out = action.apply(np.asarray(carrier.values), exact=exact)
-        family = ("markov" if isinstance(action, MarkovView) else
+        family = ("participation-walk" if isinstance(action, ParticipationWalk) else
                   "text-overlap" if isinstance(action, TextOverlapView) else "factored-rational")
         record_method(("exact-" if exact else "native-") + family + "-action", kind=action.name)
         return type(carrier)(carrier.grade, out, source=source)
@@ -1471,6 +1471,14 @@ from .structure_operators import install as _install_structure_operators
 from .homology_operators import install as _install_homology_operators
 
 _install_homology_operators(register)
+
+from .harmonic_modes_operators import install as _install_harmonic_modes_operators
+
+_install_harmonic_modes_operators(register)
+
+from .resolvent_rank_operators import install as _install_resolvent_rank_operators
+
+_install_resolvent_rank_operators(register)
 
 _install_structure_operators(register)
 

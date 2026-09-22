@@ -78,6 +78,18 @@ class ValidationContext:
                 return values
         return None
 
+    def field_calculus(self, expression, operator):
+        """A field calculus argument, which must belong to the bound source; None when absent."""
+        calculus = self.known_value(expression)
+        if calculus is None:
+            return None
+        from rexgraph.native_field import NativeFieldCalculus
+        if not isinstance(calculus, NativeFieldCalculus):
+            raise TypeError(f"{operator} requires a declared field calculus")
+        if calculus.source is not None and calculus.source is not self.binding.value:
+            raise ValueError("field calculus belongs to another selected source")
+        return calculus
+
     def homology(self):
         if self._homology is None:
             from rexgraph.native_rank import exact_tower, tower_chain_residual
@@ -208,6 +220,8 @@ def refine(typed, children, context):
         result = refine_temporal(typed, context)
     from .structure_contracts import ARGUMENTS as STRUCTURE, refine as refine_structure
     from .homology_contracts import ARGUMENTS as HOMOLOGY, refine as refine_homology
+    from .harmonic_modes_contracts import ARGUMENTS as HARMONIC_MODES, refine as refine_harmonic_modes
+    from .resolvent_rank_contracts import ARGUMENTS as RESOLVENT_RANK, refine as refine_resolvent_rank
     from .partition_contracts import ARGUMENTS as PARTITION, refine as refine_partition
     from .artifact_contracts import ARGUMENTS as ARTIFACT, refine as refine_artifact
     from .filling_contracts import ARGUMENTS as FILLING, refine as refine_filling
@@ -270,6 +284,11 @@ def refine(typed, children, context):
         facts.extend(refine_partition(typed, context))
     if name in HOMOLOGY:
         facts.extend(refine_homology(typed, context))
+    if name in HARMONIC_MODES:
+        facts.extend(refine_harmonic_modes(typed, children, context))
+    if name in RESOLVENT_RANK:
+        result, rank_facts = refine_resolvent_rank(typed, children, context)
+        facts.extend(rank_facts)
     if name in STRUCTURE:
         result, structural_facts = refine_structure(typed, children, context)
         facts.extend(structural_facts)

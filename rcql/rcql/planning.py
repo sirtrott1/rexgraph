@@ -430,8 +430,8 @@ def _carrier_literal(binding: Binding, value: object) -> RCType | tuple | None:
             from .validation import channel_descriptor
             descriptor = channel_descriptor(source, op.shape, value.channel, value.g_channel, value.c_channel)
         from rexgraph.rational_operator import RationalOperator
-        from rexgraph.markov import MarkovView
-        if isinstance(value, MarkovView):
+        from rexgraph.markov import ParticipationWalk
+        if isinstance(value, ParticipationWalk):
             from .markov_contracts import descriptor as markov_descriptor
             value.check_state()
             descriptor = markov_descriptor(source, value.shape[0])

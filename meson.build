@@ -11,7 +11,7 @@ project(
     # takes the distribution's version from there and this one is only what meson itself
     # reports (meson-dist filenames, `meson introspect`). It had drifted to 1.0.1 against
     # a 1.0.6 package, which is harmless until someone reads it and believes it.
-    version: '1.2.0',
+    version: '1.2.1',
     license: 'Apache-2.0',
     meson_version: '>=1.3.0',
     default_options: [
@@ -68,7 +68,7 @@ numpy_inc = run_command(py, '-c', 'import numpy; print(numpy.get_include())',
                         check: true).stdout().strip()
 numpy_dep = declare_dependency(
     compile_args: [(cc.get_id() == 'msvc' ? '/I' : '-I') + numpy_inc])
-omp_dep = dependency('openmp', required: false)
+omp_dep = dependency('openmp', required: get_option('openmp'))
 m_dep = cc.find_library('m', required: false)
 mvec_dep = cc.find_library('mvec', required: false)
 

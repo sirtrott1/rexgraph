@@ -7,6 +7,13 @@ import re
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z", re.ASCII)
 _SYNTAX_NAMES = frozenset({"NOT", "TRUE", "FALSE", "NONE"})
 
+# Names retired in v1.2.1 for names that state the implementation or the relational method.
+RETIRED = {
+    "MARKOV_VIEW": "PARTICIPATION_WALK",
+    "PAGERANK": "RESOLVENT_RANK for the relational ranking, or PAGERANK_ITERATION on a PARTICIPATION_WALK",
+    "PAGERANK_EXACT": "RESOLVENT_RANK for the relational ranking, or PAGERANK_SOLVE on a PARTICIPATION_WALK",
+}
+
 
 def canonical_name(name: str) -> str:
     if not isinstance(name, str) or _NAME.fullmatch(name) is None:

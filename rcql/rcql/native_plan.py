@@ -68,10 +68,10 @@ def method_plan(expression):
         method = "core-exact-boundary-difference"
     elif name in {"CAYLEY", "COMPLEX_STRUCTURE", "RATIONAL_ROTATION"}:
         method = "core-factored-rational-transform"
-    elif name == "PAGERANK_EXACT":
+    elif name == "PAGERANK_SOLVE":
         method = "rational-sparse-ranking-solve"
-    elif name in {"MARKOV_VIEW", "PAGERANK"}:
-        method = "core-tensor-markov" if name == "MARKOV_VIEW" else "core-compiled-pagerank"
+    elif name in {"PARTICIPATION_WALK", "PAGERANK_ITERATION"}:
+        method = "core-participation-walk" if name == "PARTICIPATION_WALK" else "core-compiled-pagerank"
     elif name == "TEXT_OVERLAP_VIEW":
         method = "core-primary-text-overlap"
     elif name in {"DOCUMENT_FIELD", "SECTION_RESPONSE"}:

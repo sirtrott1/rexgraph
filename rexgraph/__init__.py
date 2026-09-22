@@ -71,6 +71,8 @@ from .harmonic_sparse import (
     multiplicity_homology_dimension,
     simple_cycle_dimension,
 )
+from .harmonic_modes import effective_modes, grade_traces, harmonic_log
+from .resolvent_ranking import resolvent_rank
 from .hodge_coords import (
     complex_structure,
     coordinate_dims,
@@ -104,7 +106,7 @@ from .tower import channel_delta, graded_delta
 # from the documented package surface.
 from .graph import RexGraph, TemporalRex
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 __all__ = [
     "core",
@@ -175,6 +177,12 @@ __all__ = [
     "harmonic_frame",
     "harmonic_metric",
     "hodge_coords",
+    # the harmonic log: exact effective mode counts of the Hodge sectors
+    "effective_modes",
+    "grade_traces",
+    "harmonic_log",
+    # the resolvent rank: PageRank's fixed point as a Green response at any grade
+    "resolvent_rank",
     # the harmonic sector: basis, projection, and the exact integer reading
     "harmonic_basis",
     "harmonic_coordinates",

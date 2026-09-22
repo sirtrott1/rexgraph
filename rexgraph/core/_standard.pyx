@@ -221,9 +221,11 @@ def _pagerank_action(action, nV, damping, max_iter, tol, seed=None):
                           seed, damping, max_iter, tol, True, action)
 
 
-def pagerank(adj_ptr, adj_idx, adj_wt, nV, nE,
-             damping=0.85, max_iter=100, tol=1e-8, *, seed=None, report=False):
-    """Weighted outgoing walk with uniform dangling mass and explicit restart.
+def pagerank_iteration(adj_ptr, adj_idx, adj_wt, nV, nE,
+                       damping=0.85, max_iter=100, tol=1e-8, *, seed=None, report=False):
+    """The PageRank fixed point by power iteration on the weighted outgoing adjacency walk.
+
+    Uniform dangling mass and an explicit restart.
 
     report=True returns a residual and contraction error bound with the scores.
     The legacy array return remains available even after iteration exhaustion.
@@ -241,18 +243,22 @@ def pagerank(adj_ptr, adj_idx, adj_wt, nV, nE,
     return (result, info) if report else result
 
 
+# The former name, kept as an alias.
+pagerank = pagerank_iteration
+
+
 def pagerank_i32(np.ndarray[i32, ndim=1] adj_ptr,
                  np.ndarray[i32, ndim=1] adj_idx,
                  np.ndarray[f64, ndim=1] adj_wt, nV, nE,
                  damping=0.85, max_iter=100, tol=1e-8, *, seed=None, report=False):
-    return pagerank(adj_ptr, adj_idx, adj_wt, nV, nE, damping, max_iter, tol, seed=seed, report=report)
+    return pagerank_iteration(adj_ptr, adj_idx, adj_wt, nV, nE, damping, max_iter, tol, seed=seed, report=report)
 
 
 def pagerank_i64(np.ndarray[i64, ndim=1] adj_ptr,
                  np.ndarray[i64, ndim=1] adj_idx,
                  np.ndarray[f64, ndim=1] adj_wt, nV, nE,
                  damping=0.85, max_iter=100, tol=1e-8, *, seed=None, report=False):
-    return pagerank(adj_ptr, adj_idx, adj_wt, nV, nE, damping, max_iter, tol, seed=seed, report=report)
+    return pagerank_iteration(adj_ptr, adj_idx, adj_wt, nV, nE, damping, max_iter, tol, seed=seed, report=report)
 
 
 # Betweenness centrality
@@ -1037,8 +1043,8 @@ def build_standard_metrics(adj_ptr, adj_idx, adj_edge, adj_wt,
     result = {}
 
     # PageRank
-    result['pagerank'] = pagerank(adj_ptr, adj_idx, adj_wt, nV, nE,
-                                  damping, pagerank_iter)
+    result['pagerank'] = pagerank_iteration(adj_ptr, adj_idx, adj_wt, nV, nE,
+                                            damping, pagerank_iter)
 
     # Betweenness
     bc_v, bc_e = betweenness(adj_ptr, adj_idx, adj_edge, nV, nE,

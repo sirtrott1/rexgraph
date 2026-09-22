@@ -10,13 +10,13 @@ from rexgraph.graded_metric import _fraction
 from rexgraph.temporal_calculus import TemporalDelta
 from rexgraph.type_accession import CoordinateSpace
 
-__all__ = ["exact_pagerank", "pagerank_delta"]
+__all__ = ["pagerank_solve", "pagerank_solve_delta", "exact_pagerank", "pagerank_delta"]
 
 
 def _damping(value):
     value = _fraction(value)
     if not 0 <= value < 1:
-        raise ValueError("exact PageRank damping must lie in [0, 1)")
+        raise ValueError("damping must lie in [0, 1)")
     return value
 
 
@@ -32,7 +32,7 @@ def _seed(values, n):
 
 class _RankingSystem:
     def __init__(self, view, damping):
-        from rexgraph.markov import MarkovView, _participation_entries, validate_markov_source
+        from rexgraph.markov import ParticipationWalk, _participation_entries, validate_markov_source
         from rexgraph.markov_oracle import PairwiseMarkovOracle
         self.view, self.damping = view, _damping(damping)
         if isinstance(view, CoordinateMap):
@@ -47,12 +47,13 @@ class _RankingSystem:
             if any(s != 1 for s in sums):
                 raise ValueError("transition columns must sum exactly to one")
             self.space = view.domain
-        elif isinstance(view, (MarkovView, PairwiseMarkovOracle)):
+        elif isinstance(view, (ParticipationWalk, PairwiseMarkovOracle)):
             view.check_state()
             n = view.shape[0]
             self.space = CoordinateSpace("C0", tuple(str(i) for i in range(n)))
         else:
-            raise TypeError("exact PageRank requires an explicit Markov view or stochastic coordinate map")
+            raise TypeError("the PageRank solve requires a participation walk, a pairwise oracle "
+                            "or a stochastic coordinate map")
         if n == 0:
             raise ValueError("PageRank requires a nonempty state space")
         self.n = n
@@ -66,7 +67,7 @@ class _RankingSystem:
             for i, j, v in view.entries:
                 add(i, j, -alpha * v)
             dimension = n
-        elif isinstance(view, MarkovView):
+        elif isinstance(view, ParticipationWalk):
             m = int(view.source.nE)
             entries = _participation_entries(view.source, validate_markov_source(view.source))
             dv, de = [Q(0)] * n, [Q(0)] * m
@@ -137,8 +138,8 @@ class _RankingSystem:
         return result
 
 
-def exact_pagerank(view, damping=Q(17, 20), seed=None, *, report=False):
-    """Solve the selected stochastic equation over Q without constructing an inverse."""
+def pagerank_solve(view, damping=Q(17, 20), seed=None, *, report=False):
+    """The PageRank fixed point of the selected stochastic view, solved over Q without an inverse."""
     if not isinstance(report, bool):
         raise TypeError("report must be a boolean")
     system = _RankingSystem(view, damping)
@@ -152,8 +153,8 @@ def exact_pagerank(view, damping=Q(17, 20), seed=None, *, report=False):
     return (result, info) if report else result
 
 
-def pagerank_delta(old_view, new_view, correspondence, *, damping=Q(17, 20), new_damping=None,
-                   seed=None, new_seed=None, old_rank=None, metric=None):
+def pagerank_solve_delta(old_view, new_view, correspondence, *, damping=Q(17, 20), new_damping=None,
+                         seed=None, new_seed=None, old_rank=None, metric=None):
     """Separate transition, personalization and damping changes with all interactions."""
     from rexgraph.chain_map import ChainMap, GradedMap
     from rexgraph.field_delta import validate_correspondence
@@ -192,3 +193,8 @@ def pagerank_delta(old_view, new_view, correspondence, *, damping=Q(17, 20), new
                   correspondence_digest=correspondence_digest,
                   old_operator_digest=old.digest, new_operator_digest=new.digest)
     return record
+
+
+# Former names, kept as aliases.
+exact_pagerank = pagerank_solve
+pagerank_delta = pagerank_solve_delta

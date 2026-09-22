@@ -691,3 +691,124 @@ def test_the_exact_kernel_declines_rather_than_overflowing():
     # and a structured one does not
     small = _integer_nullspace(sp.csr_matrix(np.array([[1., -1., 0.], [0., 1., -1.]])))
     assert sp.issparse(small) and np.array_equal(small.data, np.round(small.data))
+
+
+#### the coordinates are exact, and only the Gram solve divides
+
+def _complete(n):
+    import itertools
+    e = list(itertools.combinations(range(n), 2))
+    return RexGraph(sources=np.array([a for a, _ in e], np.int32),
+                    targets=np.array([b for _, b in e], np.int32))
+
+
+def _k4_one_face():
+    """K4 with the triangle on 0, 1, 2 filled: two holes and a live face."""
+    r = _complete(4)
+    r.add_faces([[0, 1, 3]])
+    r._ensure_clean()
+    return r
+
+
+def _integer_flow(rex):
+    return [(i % 3) - 1 for i in range(rex.nE)]
+
+
+def _frame_transpose(rex, flow):
+    """H^T flow over Fractions, from the frame's own entries."""
+    from fractions import Fraction
+    H = harmonic_frame(rex).tocoo()
+    out = [Fraction(0)] * H.shape[1]
+    for e, j, x in zip(H.row, H.col, H.data, strict=True):
+        out[j] += Fraction(x) * flow[e]
+    return out
+
+
+def _is_exactly_harmonic(rex, h):
+    """B1 h = 0 and B2^T h = 0, over Fractions."""
+    from fractions import Fraction
+    from rexgraph.core._sparse import to_scipy_csr
+    B1 = to_scipy_csr(rex.B1_sparse).tocoo()
+    div = [Fraction(0)] * rex.nV
+    for v, e, x in zip(B1.row, B1.col, B1.data, strict=True):
+        div[v] += Fraction(x) * h[e]
+    if any(div):
+        return False
+    if rex.nF_hodge:
+        B2 = to_scipy_csr(rex.B2_hodge_sparse).tocoo()
+        curl = [Fraction(0)] * rex.nF_hodge
+        for e, f, x in zip(B2.row, B2.col, B2.data, strict=True):
+            curl[f] += Fraction(x) * h[e]
+        if any(curl):
+            return False
+    return True
+
+
+@pytest.mark.parametrize("build", [lambda: _complete(5), _two_rings, _k4_one_face])
+def test_exact_coordinates_name_the_orthogonal_harmonic_part(build):
+    """c solves G c = H^T f over Q, H c lies in ker B1 and ker B2^T, and the
+    remainder f - H c is orthogonal to the frame, with no tolerance anywhere."""
+    from fractions import Fraction
+    r = build()
+    f = _integer_flow(r)
+    c = harmonic_coords(r, f, exact=True)
+    assert len(c) == harmonic_frame(r).shape[1] and all(isinstance(x, Fraction) for x in c)
+    h = from_harmonic_coords(r, c, exact=True)
+    assert _is_exactly_harmonic(r, h)
+    assert not any(_frame_transpose(r, [a - b for a, b in zip(f, h, strict=True)]))
+
+
+@pytest.mark.parametrize("build", [lambda: _complete(5), _k4_one_face])
+def test_exact_denominators_divide_the_gram_determinant(build):
+    r = build()
+    d = harmonic_gram_det(r)
+    assert all(d % x.denominator == 0 for x in harmonic_coords(r, _integer_flow(r), exact=True))
+
+
+def test_the_default_returns_the_exact_values_and_the_float_solve_agrees():
+    r = _complete(5)
+    f = _flow(r)
+    exact = harmonic_coords(r, f, exact=True)
+    assert np.array_equal(harmonic_coords(r, f), np.array([float(x) for x in exact]))
+    assert np.allclose(harmonic_coords(r, f, exact=False), harmonic_coords(r, f), atol=1e-10)
+
+
+def test_above_the_exact_ceiling_the_float_solve_answers():
+    from rexgraph.core._common import configure_algorithms, get_algorithm_config
+    r = _complete(5)
+    f = _flow(r)
+    before = get_algorithm_config()["exact_field_limit"]
+    try:
+        configure_algorithms(exact_field_limit=0)
+        assert np.array_equal(harmonic_coords(r, f), harmonic_coords(r, f, exact=False))
+    finally:
+        configure_algorithms(exact_field_limit=before)
+
+
+def test_a_rational_flow_is_read_exactly():
+    from fractions import Fraction
+    r = _two_rings()
+    f = [Fraction(i + 1, 7) for i in range(r.nE)]
+    h = from_harmonic_coords(r, harmonic_coords(r, f, exact=True), exact=True)
+    assert _is_exactly_harmonic(r, h)
+    assert not any(_frame_transpose(r, [a - b for a, b in zip(f, h, strict=True)]))
+
+
+def test_a_frame_that_is_not_integral_is_refused_exactly_and_read_in_float_otherwise():
+    r = _complete(5)
+    half = harmonic_frame(r) * 0.5
+    f = _flow(r)
+    with pytest.raises(ValueError):
+        harmonic_coords(r, f, frame=half, exact=True)
+    assert np.array_equal(harmonic_coords(r, f, frame=half),
+                          harmonic_coords(r, f, frame=half, exact=False))
+
+
+def test_the_exact_spread_is_rational_and_matches_the_float_reading():
+    from fractions import Fraction
+    r = _complete(5)
+    u, v = _integer_flow(r), [((i * 2) % 5) - 2 for i in range(r.nE)]
+    s = harmonic_spread(r, u, v, exact=True)
+    assert isinstance(s, Fraction) and 0 <= s <= 1
+    assert np.isclose(float(s), harmonic_spread(r, u, v, exact=False), atol=1e-12)
+    assert harmonic_spread(r, u, u, exact=True) == 0

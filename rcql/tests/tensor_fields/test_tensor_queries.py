@@ -132,7 +132,7 @@ def test_native_query_does_not_use_ranking_or_legacy_moment(monkeypatch):
     from rexgraph.coordinate_map import CoordinateMetric
     rex,calc,x=setup()
     def forbidden(*a,**k):raise AssertionError('native field used a collapsed observation')
-    monkeypatch.setattr(ranking,'exact_pagerank',forbidden)
+    monkeypatch.setattr(ranking,'pagerank_solve',forbidden)
     monkeypatch.setattr(CoordinateMetric,'moment',forbidden)
     monkeypatch.setattr(np.linalg,'eigh',forbidden)
     result=Executor(sources={'g':rex},params={'x':x}).execute(parse('FROM $g RETURN NATIVE_RESPONSE($x)'))

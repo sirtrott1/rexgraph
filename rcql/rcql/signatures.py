@@ -181,6 +181,9 @@ def lookup(name: str) -> OperatorSignature:
     try:
         return _CATALOGUE[name]
     except KeyError as exc:
+        from .names import RETIRED
+        if name in RETIRED:
+            raise KeyError(f"RCQL operator {name!r} was renamed; use {RETIRED[name]}") from exc
         raise KeyError(f"no RCQL signature for operator {name!r}") from exc
 
 
@@ -819,7 +822,7 @@ def _apply_result(args: tuple[object, ...]) -> RCType:
             raise TypeError("metric Green solve currently requires real coefficients")
         return _t("Chain", ValueKind.CHAIN, grade=value.grade, variance=Variance.CHAIN,
                   basis=descriptor.codomain, domain=Domain.REAL, exactness=Exactness.APPROXIMATE)
-    if descriptor is not None and descriptor.construction in {"metric-adjoint", "weighted-hodge", "operator-bracket", "cell-chain", "exact-adjugate", "primary-lift", "rational-operator", "markov-view", "text-overlap"}:
+    if descriptor is not None and descriptor.construction in {"metric-adjoint", "weighted-hodge", "operator-bracket", "cell-chain", "exact-adjugate", "primary-lift", "rational-operator", "participation-walk", "text-overlap"}:
         value = _coefficient_carrier(value)
         if (value.grade != descriptor.domain.grade or value.basis != descriptor.domain
                 or value.variance.value != descriptor.action_variance):
@@ -1570,6 +1573,14 @@ from .structure_contracts import install as _install_structure_signatures
 from .homology_contracts import install as _install_homology_signatures
 
 _install_homology_signatures(register)
+
+from .harmonic_modes_contracts import install as _install_harmonic_modes_signatures
+
+_install_harmonic_modes_signatures(register)
+
+from .resolvent_rank_contracts import install as _install_resolvent_rank_signatures
+
+_install_resolvent_rank_signatures(register)
 
 _install_structure_signatures(register)
 

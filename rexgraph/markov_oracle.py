@@ -98,7 +98,7 @@ def pairwise_pagerank_oracle(view, damping=0.85, seed=None, *, tol=1e-10, maxite
         raise TypeError("report must be boolean")
     view.check_state()
     seed = None if seed is None else _numeric_array(seed, operation="PageRank oracle seed")
-    result, info = _standard.pagerank(*view.adjacency(), view.shape[0], int(view.source.nE),
+    result, info = _standard.pagerank_iteration(*view.adjacency(), view.shape[0], int(view.source.nE),
                                      damping, maxiter, tol, seed=seed, report=True)
     view.check_state()
     if not info["converged"]:

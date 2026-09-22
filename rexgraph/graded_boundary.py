@@ -509,31 +509,62 @@ def _primitive_kernel_vector(vector):
 
 
 def _exact_gram_trace_squared(columns):
-    """tr((B.T B)^2) over Q, accumulating only nonzero Gram entries.
+    """tr((B.T B)^2) over Q, accumulating only nonzero Gram entries."""
+    return _exact_gram_traces(columns)[1]
 
-    Cyclicity permits either Gram. Choose the contraction with fewer incidence
+
+def _exact_gram_traces(columns, row_metric=None, column_metric=None):
+    """tr(G) and tr(G^2) over Q for G = N^-1 B.T M B, accumulating only nonzero Gram entries.
+
+    M and N are positive diagonal metrics on the rows and the columns of B, given as
+    sequences of their diagonal entries; None is the identity, and with both absent G is
+    the Euclidean Gram B.T B. This is the form of every Hodge sector under the metric
+    adjoint: B_k^dagger B_k is G for B_k with M = M_(k-1) and N = M_k, and B B^dagger has
+    the same nonzero spectrum as B^dagger B, so the upper sector is G for B_(k+1) with
+    M = M_k and N = M_(k+1).
+
+    Cyclicity permits either contraction. Over column pairs tr(G^2) is the sum of
+    (b_c.T M b_d)^2 / (n_c n_d), and over row pairs it is the sum of
+    (sum_c b_ic b_jc / n_c)^2 m_i m_j. Choose the contraction with fewer incidence
     products, not a dense/sparse threshold; elimination fill is not assumed small.
     """
+    if row_metric is None:
+        def m(i):
+            return 1
+    else:
+        m = row_metric.__getitem__
+    if column_metric is None:
+        def inverse_n(j):
+            return 1
+    else:
+        def inverse_n(j):
+            return 1 / Fraction(column_metric[j])
+    trace = Fraction(0)
     rows = {}
     for j, column in enumerate(columns):
         for i, value in column.items():
             if value:
                 rows.setdefault(i, {})[j] = value
-    groups = (columns if sum(len(c)**2 for c in columns) <=
-              sum(len(r)**2 for r in rows.values()) else rows.values())
+                trace += value*value * m(i) * inverse_n(j)
+    if sum(len(c)**2 for c in columns) <= sum(len(r)**2 for r in rows.values()):
+        groups = ((inverse_n(j), column) for j, column in enumerate(columns))
+        weight = m
+    else:
+        groups = ((m(i), row) for i, row in rows.items())
+        weight = inverse_n
     gram = {}
-    for group in groups:
+    for scale, group in groups:
         entries = list(group.items())
         for p, (i, a) in enumerate(entries):
             for j, b in entries[p:]:
                 key = (min(i, j), max(i, j))
-                value = gram.get(key, Fraction(0)) + a*b
+                value = gram.get(key, Fraction(0)) + a*b*scale
                 if value:
                     gram[key] = value
                 else:
                     gram.pop(key, None)
-    return sum((value*value * (1 if i == j else 2)
-                for (i, j), value in gram.items()), Fraction(0))
+    return trace, sum((value*value * weight(i) * weight(j) * (1 if i == j else 2)
+                       for (i, j), value in gram.items()), Fraction(0))
 
 
 def _exact_compose_columns(lower_columns, upper_columns):

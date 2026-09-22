@@ -9,7 +9,7 @@ def coordinate_case(rex,name):
     from rexgraph.temporal_calculus import TemporalWord,TemporalOperation
     from rexgraph.type_accession import CoordinateSpace,CoordinateField
     from rcql import call
-    if name=='PAGERANK_EXACT':return (call('MARKOV_VIEW'),)
+    if name=='PAGERANK_SOLVE':return (call('PARTICIPATION_WALK'),)
     s=CoordinateSpace('inventory',('x',));i=CoordinateMap.identity(s)
     x=CoordinateField(rex,1,s,np.array([Q(1)],object),'chain')
     w=TemporalWord((i,),(i,),(i,i));op=TemporalOperation(i,i,i,i)
@@ -17,7 +17,7 @@ def coordinate_case(rex,name):
             'INJECTION_DELTA':(op,x,x),'WORD_DELTA':(w,x),'KERNEL_MOMENTS':(w.moment_kernel(),x)}[name]
 
 
-ADDITIONS=('COORDINATE_APPLY','OPERATION_DELTA','INJECTION_DELTA','WORD_DELTA','KERNEL_MOMENTS','PAGERANK_EXACT')
+ADDITIONS=('COORDINATE_APPLY','OPERATION_DELTA','INJECTION_DELTA','WORD_DELTA','KERNEL_MOMENTS','PAGERANK_SOLVE')
 
 
 def pytest_collection_modifyitems(session,config,items):

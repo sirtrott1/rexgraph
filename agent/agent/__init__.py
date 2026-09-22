@@ -6,14 +6,13 @@ No black box. Every claim is a matrix operation. Every uncertainty is a void cou
 """
 
 #: The agent version, kept here rather than read back from installed metadata so a
-#: source checkout reports what it is. The query surface grew this release, so every
-#: inter distribution floor requires a sibling at >=1.2.0: the RCQL names added here
-#: read core actions that a core before 1.2.0 does not expose, and a query naming one
-#: against an older sibling fails at resolution. That rejects an older sibling rather
-#: than pinning
-#: the five to each other. pyproject.toml has to match, and one test pins every
-#: declaration across all five.
-__version__ = "1.2.0"
+#: source checkout reports what it is. Every inter distribution floor requires a sibling
+#: at >=1.2.1: RCQL 1.2.1 reads the effective mode counts, the resolvent rank and the
+#: renamed participation walk, which a core before 1.2.1 does not expose, and a query
+#: naming one against an older sibling fails at resolution. That rejects an older
+#: sibling rather than pinning the five to each other. pyproject.toml has to match, and
+#: one test pins every declaration across all five.
+__version__ = "1.2.1"
 
 from .auto import auto_analyze, auto_rex, detect_input_type
 from .engine import DecisionEngine

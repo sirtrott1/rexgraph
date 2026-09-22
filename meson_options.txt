@@ -32,6 +32,29 @@ option(
     description: 'Require a BLAS/LAPACK at build time. disabled = build anyway, symbols must come from elsewhere at runtime.',
 )
 
+# 'blas_provider' names the BLAS/LAPACK to link. 'auto' searches for OpenBLAS and then
+# for a separate BLAS and LAPACK. 'accelerate' links Apple's Accelerate framework, which
+# exports the unprefixed cblas_* and LAPACK symbols the kernels call and puts nothing
+# into a wheel. 'scipy-openblas' links the library of the scipy-openblas32 wheel from
+# 'blas_dir'; that build prefixes every symbol with scipy_, so each symbol the kernels
+# call is renamed at compile time.
+option(
+    'blas_provider',
+    type: 'combo',
+    choices: ['auto', 'accelerate', 'scipy-openblas'],
+    value: 'auto',
+    description: 'BLAS/LAPACK to link: auto, accelerate (macOS), or scipy-openblas from blas_dir.',
+)
+
+option('blas_dir', type: 'string', value: '',
+       description: 'directory of the BLAS library for blas_provider=scipy-openblas')
+
+# 'openmp' controls the OpenMP lanes. 'auto' uses OpenMP where the compiler provides it.
+# A macOS wheel disables it: Homebrew's libomp is built for the runner's own macOS
+# release, and bundling it would raise the wheel's minimum macOS to that release.
+option('openmp', type: 'feature', value: 'auto',
+       description: 'Build the OpenMP lanes where the compiler provides OpenMP.')
+
 # GPU architecture for the optional HIP ternary lane, e.g. gfx1151. Empty asks rocminfo.
 option('hip_arch', type: 'string', value: '',
        description: 'offload arch for the HIP ternary kernel (empty: detect)')

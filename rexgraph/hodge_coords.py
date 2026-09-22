@@ -65,13 +65,57 @@ def harmonic_frame(rex, *, native=False):
     return harmonic_basis(rex, native=native)
 
 
-def harmonic_coords(rex, flow, *, frame=None):
-    """Where `flow` sits on the harmonic frame: f64[dim_H].
+def _exact_flow(flow, nE):
+    """The flow as exact rationals, a float coordinate read at its exact binary value."""
+    from rexgraph.exact_green import exact_field
+    from rexgraph.harmonic_sparse import as_edge_signal
+    if isinstance(flow, (list, tuple)) or (isinstance(flow, np.ndarray) and flow.dtype == object):
+        values = np.asarray(flow, dtype=object).ravel()
+        if values.shape[0] != nE:
+            raise ValueError(f"flow has {values.shape[0]} entries; the complex has {nE} relations")
+        return exact_field(values.tolist())
+    return exact_field(as_edge_signal(flow, nE, what="flow").tolist())
 
-    Solves the normal equations on the frame's Gram, which is a sparse SPD
-    dim_H x dim_H because cycles share few edges. `H @ harmonic_coords(...)` is
-    the harmonic projection, so this is the projector's small side.
+
+def _exact_frame_or_none(rex, frame, exact):
+    """The integer frame as an exact matrix when the exact path answers, else None.
+
+    exact=None takes the exact path within `exact_field_limit` and when the frame is
+    integral; exact=True requires both of it by refusing a frame that is not integral.
     """
+    from rexgraph.exact_green import exact_path_available
+    if exact is False or (exact is None and not exact_path_available(rex, 1)):
+        return None
+    H = harmonic_frame(rex, native=True) if frame is None else frame
+    try:
+        return _exact_frame(H)
+    except ValueError:
+        if exact:
+            raise
+        return None
+
+
+def harmonic_coords(rex, flow, *, frame=None, exact=None):
+    """Where `flow` sits on the harmonic frame: its dim_H coordinates c.
+
+    c solves G c = H^T flow on the frame Gram G = H^T H. The frame is integer, so
+    H^T flow is exact for an exact flow and the only division is the Gram solve,
+    whose denominators divide det(G). `H @ c` is the harmonic projection, so this is
+    the projector's small side. G is the Euclidean form; see `harmonic_metric`.
+
+    exact=None (default) solves over Q when the complex is within
+    `configure_algorithms(exact_field_limit=...)` and the frame is integral, and
+    returns f64[dim_H] values of that exact answer; otherwise the float least
+    squares solve on H answers. exact=True returns the Fractions and refuses a frame
+    that is not integral. exact=False asks for the float solve. A float coordinate
+    of the flow is read at its exact binary value, as `RexGraph.hodge` reads one.
+    """
+    H = _exact_frame_or_none(rex, frame, exact)
+    if H is not None:
+        if H.ncols == 0:
+            return [] if exact else np.zeros(0, dtype=_f64)
+        c = _frame_gram(H).solve(H.T.apply(tuple(_exact_flow(flow, H.nrows))))
+        return list(c) if exact else np.asarray([float(v) for v in c], dtype=_f64)
     H = harmonic_frame(rex, native=True) if frame is None else frame
     from rexgraph.harmonic_sparse import as_edge_signal
     return harmonic_coordinates(H, as_edge_signal(flow, rex.nE, what="flow"))
@@ -93,22 +137,41 @@ def harmonic_metric(rex, *, frame=None):
     return (Hs.T @ Hs).tocsc()
 
 
-def harmonic_spread(rex, u, v, *, frame=None):
+def harmonic_spread(rex, u, v, *, frame=None, exact=None):
     """Spread between two flows' harmonic parts, computed in the plane.
 
     Spread is sin^2 of the angle, so it stays rational and needs no square root.
-    Taken through `harmonic_metric`, this is the spread of the ambient harmonic
-    projections to 3.3e-16, at dim_H terms rather than nE.
+    With a = G^-1 H^T u and b = G^-1 H^T v it is 1 - (a.H^T v)^2 / ((a.H^T u)(b.H^T v)),
+    since G a = H^T u; no product with G is formed. This is the spread of the ambient
+    harmonic projections, at dim_H terms rather than nE.
 
-    Returns 0.0 when either flow has no harmonic part, and when the complex has
-    no holes at all, since there is then no angle to speak of.
+    exact follows `harmonic_coords`: exact=None returns the float value of the exact
+    spread when the exact path answers, exact=True returns the Fraction, and
+    exact=False reads it through the float coordinates and `harmonic_metric`.
+
+    Returns 0 when either flow has no harmonic part, and when the complex has no
+    holes at all, since there is then no angle to speak of.
     """
+    from fractions import Fraction
+    Hx = _exact_frame_or_none(rex, frame, exact)
+    if Hx is not None:
+        if Hx.ncols == 0:
+            return Fraction(0) if exact else 0.0
+        G = _frame_gram(Hx)
+        hu = Hx.T.apply(tuple(_exact_flow(u, Hx.nrows)))
+        hv = Hx.T.apply(tuple(_exact_flow(v, Hx.nrows)))
+        a, b = G.solve(hu), G.solve(hv)
+        qa = sum((x * y for x, y in zip(a, hu, strict=True)), Fraction(0))
+        qb = sum((x * y for x, y in zip(b, hv, strict=True)), Fraction(0))
+        ab = sum((x * y for x, y in zip(a, hv, strict=True)), Fraction(0))
+        result = Fraction(0) if qa == 0 or qb == 0 else 1 - ab * ab / (qa * qb)
+        return result if exact else float(result)
     H = harmonic_frame(rex) if frame is None else frame
     if H.shape[1] == 0:
         return 0.0
     G = harmonic_metric(rex, frame=H)
-    a = harmonic_coords(rex, u, frame=H)
-    b = harmonic_coords(rex, v, frame=H)
+    a = harmonic_coords(rex, u, frame=H, exact=False)
+    b = harmonic_coords(rex, v, frame=H, exact=False)
     qa = float(a @ (G @ a))
     qb = float(b @ (G @ b))
     if qa <= 0.0 or qb <= 0.0:
@@ -117,8 +180,19 @@ def harmonic_spread(rex, u, v, *, frame=None):
     return 1.0 - (ab * ab) / (qa * qb)
 
 
-def from_harmonic_coords(rex, c, *, frame=None):
-    """The edge signal a set of harmonic coordinates names: f64[nE]."""
+def from_harmonic_coords(rex, c, *, frame=None, exact=False):
+    """The edge signal a set of harmonic coordinates names: `H c`, f64[nE].
+
+    exact=True returns `H c` as Fractions, computed from the integer frame and the
+    coordinates as given, which is how exact coordinates come back to the edge space.
+    """
+    if exact:
+        from fractions import Fraction
+        H = _exact_frame_or_none(rex, frame, True)
+        values = [v if isinstance(v, Fraction) else Fraction(v) for v in np.asarray(c, dtype=object).ravel()]
+        if len(values) != H.ncols:
+            raise ValueError(f"{len(values)} coordinates for a frame with {H.ncols} axes")
+        return list(H.apply(tuple(values))) if H.ncols else [Fraction(0)] * H.nrows
     from rexgraph.native_sparse import as_native
 
     H = harmonic_frame(rex, native=True) if frame is None else frame
@@ -131,9 +205,10 @@ def from_harmonic_coords(rex, c, *, frame=None):
 def hodge_coords(rex, flow, *, frame=None):
     """`flow` in all three Hodge spaces at once: HodgeCoords(phi, psi, harmonic).
 
-    phi and psi come from the same solve `hodge` runs, so this costs one
-    decomposition and not two. The harmonic coordinates are a separate solve on
-    the frame's Gram, which is small.
+    phi and psi come from the float least squares decomposition, which takes no
+    metric, so they answer the unweighted question. The harmonic coordinates are a
+    separate solve on the frame's Gram, which is small, and follow the default
+    policy of `harmonic_coords`: exact within `exact_field_limit`.
     """
     from rexgraph.core import _hodge
     from rexgraph.harmonic_sparse import as_edge_signal
@@ -224,8 +299,22 @@ def _exact_ints(values, what):
 
 
 def _exact_frame(frame):
-    """Read integer frame entries before any product can round or overflow."""
+    """Read integer frame entries before any product can round or overflow.
+
+    A native frame is read from its stored columns, so the exact path does not need SciPy.
+    """
     from rexgraph.exact_green import ExactSparse
+    from rexgraph.native_sparse import NativeSparse
+    if isinstance(frame, NativeSparse):
+        dual = frame.dual
+        ptr, rows = np.asarray(dual.col_ptr), np.asarray(dual.row_idx)
+        coefficients = _exact_ints(np.asarray(dual.vals_csc), "the harmonic frame")
+        entries = {}
+        for j in range(frame.shape[1]):
+            for k in range(int(ptr[j]), int(ptr[j + 1])):
+                key = int(rows[k]), j
+                entries[key] = entries.get(key, 0) + coefficients[k]
+        return ExactSparse(*frame.shape, entries)
     if hasattr(frame, "tocoo"):
         coo = frame.tocoo()
         coefficients = _exact_ints(coo.data, "the harmonic frame")

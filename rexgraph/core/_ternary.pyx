@@ -60,10 +60,36 @@ cdef extern from *:
     #include <stdint.h>
     #include <stddef.h>
 
+    /* The bit counts go through two macros. GCC and Clang take the builtins, which the
+     * POPCNT and AVX 512 variants below need as builtins to emit the instructions.
+     * MSVC has neither builtin, and it compiles only the portable variants, since the
+     * dispatch below is x86 GCC code; there the count is the constant time bit sum,
+     * not __popcnt64, which faults on a CPU without POPCNT.
+     */
+    #if defined(_MSC_VER) && !defined(__clang__)
+    #include <intrin.h>
+    static __inline int _rx_popcount64(uint64_t v) {
+        v = v - ((v >> 1) & 0x5555555555555555ULL);
+        v = (v & 0x3333333333333333ULL) + ((v >> 2) & 0x3333333333333333ULL);
+        v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0FULL;
+        return (int)((v * 0x0101010101010101ULL) >> 56);
+    }
+    static __inline int _rx_ctz64(uint64_t v) {
+        unsigned long index;
+        _BitScanForward64(&index, v);
+        return (int)index;
+    }
+    #define RX_POPCOUNT64(v) _rx_popcount64(v)
+    #define RX_CTZ64(v) _rx_ctz64(v)
+    #else
+    #define RX_POPCOUNT64(v) __builtin_popcountll(v)
+    #define RX_CTZ64(v) __builtin_ctzll(v)
+    #endif
+
     static int64_t _dis_generic(const uint64_t* p, const uint64_t* s,
                                 const uint64_t* x, size_t nw) {
         int64_t a = 0;
-        for (size_t w = 0; w < nw; ++w) a += __builtin_popcountll(p[w] & (s[w] ^ x[w]));
+        for (size_t w = 0; w < nw; ++w) a += RX_POPCOUNT64(p[w] & (s[w] ^ x[w]));
         return a;
     }
 
@@ -74,7 +100,7 @@ cdef extern from *:
     static int64_t _dis_popcnt(const uint64_t* p, const uint64_t* s,
                                const uint64_t* x, size_t nw) {
         int64_t a = 0;
-        for (size_t w = 0; w < nw; ++w) a += __builtin_popcountll(p[w] & (s[w] ^ x[w]));
+        for (size_t w = 0; w < nw; ++w) a += RX_POPCOUNT64(p[w] & (s[w] ^ x[w]));
         return a;
     }
 
@@ -91,7 +117,7 @@ cdef extern from *:
             acc = _mm512_add_epi64(acc, _mm512_popcnt_epi64(d));
         }
         int64_t a = _mm512_reduce_add_epi64(acc);
-        for (; w < nw; ++w) a += __builtin_popcountll(p[w] & (s[w] ^ x[w]));
+        for (; w < nw; ++w) a += RX_POPCOUNT64(p[w] & (s[w] ^ x[w]));
         return a;
     }
     #endif
@@ -117,8 +143,8 @@ cdef extern from *:
         return _DIS(p, s, x, nw);
     }
 
-    static inline int _ctz(uint64_t b) { return __builtin_ctzll(b); }
-    static inline int _pc1(uint64_t b) { return __builtin_popcountll(b); }
+    static inline int _ctz(uint64_t b) { return RX_CTZ64(b); }
+    static inline int _pc1(uint64_t b) { return RX_POPCOUNT64(b); }
 
     /* The float path, against a general vector.
 
@@ -150,7 +176,7 @@ cdef extern from *:
             const double* base = v + (w << 6);
             while (pres) {
                 uint64_t bit = pres & (~pres + 1);
-                int b = __builtin_ctzll(bit);
+                int b = RX_CTZ64(bit);
                 acc += ((sgn >> b) & 1) ? -base[b] : base[b];
                 pres ^= bit;
             }

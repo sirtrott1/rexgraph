@@ -320,11 +320,13 @@ transforms, certified partial complex structures and rational rotations.
 They use Core factored actions with explicit rational normalization limits.
 
 Native participation and text overlap operate
-directly on the primary tensor. `MARKOV_VIEW()` needs no execution mode flag.
-Its action supports exact Q; `PAGERANK` reports a numerical fixed point error
-estimate. `TEXT_OVERLAP_VIEW()` applies overlap on the original C1 relation
-axis without constructing a sentence graph. Endpoint comparisons live in
-the explicit Core oracle module, outside native RCQL execution.
+directly on the primary tensor. `PARTICIPATION_WALK()` needs no execution mode flag.
+Its action supports exact Q; `PAGERANK_ITERATION` reports a numerical fixed point
+error estimate and `PAGERANK_SOLVE` solves the same fixed point over Q.
+`TEXT_OVERLAP_VIEW()` applies overlap on the original C1 relation axis without
+constructing a sentence graph. Endpoint comparisons live in the explicit Core
+oracle module, outside native RCQL execution. These are imported algorithms; see
+[Imported algorithms and their relational replacements](#imported-algorithms-and-their-relational-replacements).
 
 Boundary differences and field correspondence defects
 describe DIFF and the three FIELD_DELTA readings. These use Core exact sparse
@@ -464,6 +466,90 @@ Hodge, Green, winding and moment operators execute without SciPy imports.
 The [dependency profiles](../DEPENDENCIES.md) make SciPy optional for Core and
 RCDB. The homology readings add exact simple
 and multiplicity dimensions at any carried grade, without harmonic bases.
+
+## Imported algorithms and their relational replacements
+
+An imported algorithm is named for what it implements. A relational method that
+replaces one is named for what it computes, and its entry states the replacement.
+
+| Operator or function | Implements | Relational replacement |
+| :--- | :--- | :--- |
+| `PARTICIPATION_WALK()` | The relation mediated walk `U De^-1 U^T Dv^-1` of Zhou, Huang and Schoelkopf through `U = abs(B1) W`, reading relation weights as intensities | `RESOLVENT_RANK` reads the same complex through its boundary and metrics |
+| `PAGERANK_ITERATION(view)` | The PageRank fixed point of Page and Brin by power iteration on a participation walk | `RESOLVENT_RANK` |
+| `PAGERANK_SOLVE(view)` | The same fixed point solved over Q | `RESOLVENT_RANK` |
+| `TEXT_OVERLAP_VIEW()` | The raw overlap action `X^T X - diag(q)` on C1 relations | Not a TextRank; see below |
+| `rexgraph.core._standard` | PageRank power iteration on the adjacency walk, betweenness by BFS dependency accumulation, local clustering coefficient, Louvain communities, Dijkstra shortest paths | None yet, except PageRank |
+
+`MARKOV_VIEW`, `PAGERANK` and `PAGERANK_EXACT` were the former names; a query
+that uses one is refused with the name that replaced it. In Python the former
+names remain aliases: `rexgraph.markov.MarkovView` and `pagerank`,
+`rexgraph.ranking_response.exact_pagerank` and `pagerank_delta`, and
+`rexgraph.core._standard.pagerank`.
+
+### PageRank is replaced by RESOLVENT_RANK
+
+```text
+FROM $graph RETURN RESOLVENT_RANK(0, INDICATOR(CELL(0, 0)), 17/20, "walk")
+FROM $graph RETURN RESOLVENT_RANK(1, damping=1/2)
+FROM $graph RETURN RESOLVENT_RANK(1, calculus=$declared_calculus)
+```
+
+`RESOLVENT_RANK(grade, seed=None, damping=17/20, metric="declared", calculus=None,
+metrics=None)` returns the exact Chain `(I + lam L_k)^-1 seed` with
+`lam = damping / (1 - damping)`. Personalized PageRank solves
+`(I - damping T) pi = (1 - damping) v`, which is this resolvent with `L = I - T`.
+For loop free pair relations the walk metrics `M_0 = D^-1` and `M_1 = W^-1`, with
+`D = diag(B_1 W B_1^T)`, make the grade zero Hodge operator equal to `I - A D^-1`,
+so `RESOLVENT_RANK(0, seed, damping, "walk")` is exactly personalized PageRank on
+the adjacency walk. The seed is nonnegative, normalized to unit mass and uniform
+when omitted; damping is an exact rational in `[0, 1)`.
+
+What changes beyond that case:
+
+* At grade one and above it ranks relations and higher cells, and it reads faces
+  through `B_(k+1)`. PageRank on the vertices cannot: a face only change leaves the
+  walk unchanged.
+* A hole is never damped, since the harmonic part of the seed passes the resolvent
+  unchanged. A branching relation keeps the differences between its tails as
+  conserved directions. Where such directions exist the response conserves mass
+  and is signed rather than a probability.
+* Weights have units. The walk metric reads the declared grade one metric as
+  resistance, conductance `W = M_1^-1`; the participation walk reads the same
+  weights as intensities. Scaling every relation weight leaves `PAGERANK_SOLVE`
+  unchanged and changes `RESOLVENT_RANK`.
+
+Metric policies: `"declared"` uses the source's declared metrics (a RexGraph declares
+its edge metric and the identity elsewhere); `"walk"` derives the grade zero metric as
+above; `"degree"` derives every grade below the top the same way, from the top down;
+`"completed"` replaces the ranked grade's metric with the completed field metric
+`M_k (L_k + Pi^h)` of the complete field coordinates. A cell with no coface keeps its
+declared metric under `"walk"` and `"degree"`. `metrics=[METRIC(k, $field), ...]`
+replaces the policy's metric at those grades, so a metric can be read from a field,
+and `calculus=$c` takes every grade's metric from a bound `NativeFieldCalculus` of
+the same source.
+
+### TextRank
+
+No operator implements TextRank of Mihalcea and Tarau. `TEXT_OVERLAP_VIEW()` is the
+raw overlap action; the published TextRank weight adds a logarithmic length factor and
+is a different operator, which is not provided. In the document complex sentences are
+C1 relations, so their relational readings are `DOCUMENT_FIELD` for seed mass and
+coverage and `RESOLVENT_RANK` at grade one.
+
+### Effective modes and the harmonic log
+
+```text
+FROM $graph RETURN EFFECTIVE_MODES(1), EFFECTIVE_MODES(1, "completed", "energy"), HARMONIC_LOG(1)
+FROM $graph RETURN EFFECTIVE_MODES(1, calculus=$declared_calculus)
+```
+
+`EFFECTIVE_MODES(grade, sector="completed", weight="unit", calculus=None)` is the exact
+count `tr(X)^2 / tr(X^2)` of one Hodge sector; `HARMONIC_LOG` is its float logarithm.
+The sectors are `"completed"` (`L_k + w Pi^h`), `"hodge"` (`L_k`), `"down"` and `"up"`.
+The completion weight is `"unit"` (`w = 1`, the complete field coordinates), `"mean"`
+(the mean nonzero eigenvalue) or `"energy"` (the energy weighted mean eigenvalue, which
+gives exactly `EFFECTIVE_MODES(k, "hodge") + BETTI(k)`). Only traces and the exact
+Betti number are read.
 
 ## Native plans and execution provenance
 

@@ -9,8 +9,8 @@ from rexgraph.type_accession import CoordinateSpace,CoordinateField,TypeAccessio
 from rexgraph.chain_map import CoordinateComplex,GradedMap
 from rexgraph.cochain import Chain,Cochain
 from rexgraph.graph import RexGraph
-from rexgraph.ranking_response import exact_pagerank
-from rexgraph.markov import MarkovView
+from rexgraph.ranking_response import pagerank_solve
+from rexgraph.markov import ParticipationWalk
 
 
 def setup():
@@ -79,23 +79,23 @@ def test_query_declared_temporal_metrics():
 def test_exact_pagerank_query_dispatch_and_old_numeric_policy():
     r=RexGraph.from_cells([3,[[0,1],[1,2]]]);f=Cochain(0,np.array([1,0,0],object),source=r)
     e=Executor(sources={'r':r},params={'s':f,'a':Q(1,2)})
-    out=e.execute(parse('FROM $r LET t=MARKOV_VIEW() RETURN PAGERANK_EXACT(t,$a,$s), PAGERANK(t,0.5,$s)'))
+    out=e.execute(parse('FROM $r LET t=PARTICIPATION_WALK() RETURN PAGERANK_SOLVE(t,$a,$s), PAGERANK_ITERATION(t,0.5,$s)'))
     exact,numeric=out.values
-    assert exact.values.tolist()==exact_pagerank(MarkovView(r),Q(1,2),[1,0,0]).tolist()
+    assert exact.values.tolist()==pagerank_solve(ParticipationWalk(r),Q(1,2),[1,0,0]).tolist()
     assert np.allclose(np.array(exact.values,float),numeric.values)
     assert out.exactness[0].value=='rational' and out.exactness[1].value=='approximate'
 
 
 def test_exact_pagerank_explain_does_not_solve(monkeypatch):
     import rexgraph.ranking_response as rr
-    r,_=setup();monkeypatch.setattr(rr,'exact_pagerank',lambda *a,**k:pytest.fail('solve during explain'))
-    assert Executor(sources={'r':r}).execute(parse('EXPLAIN FROM $r RETURN PAGERANK_EXACT(MARKOV_VIEW())')).execution==()
+    r,_=setup();monkeypatch.setattr(rr,'pagerank_solve',lambda *a,**k:pytest.fail('solve during explain'))
+    assert Executor(sources={'r':r}).execute(parse('EXPLAIN FROM $r RETURN PAGERANK_SOLVE(PARTICIPATION_WALK())')).execution==()
 
 
 def test_float_damping_refused_by_exact_query():
     r,_=setup()
     with pytest.raises((ValueError,TypeError)):
-        Executor(sources={'r':r}).execute(parse('FROM $r RETURN PAGERANK_EXACT(MARKOV_VIEW(),0.5)'))
+        Executor(sources={'r':r}).execute(parse('FROM $r RETURN PAGERANK_SOLVE(PARTICIPATION_WALK(),0.5)'))
 
 
 def test_parser_builder_and_repeated_kernel_memoization(monkeypatch):

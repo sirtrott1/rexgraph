@@ -15,7 +15,7 @@ py.install_sources(
      'lineage_alignment.py',
      'void_state.py',
      'field_propagator.py', 'field_delta.py', 'boundary_difference.py', 'graded_boundary.py', '_env.py', '_experimental.py',
-     'bridges.py', 'fiedler.py', 'construct.py', 'partition.py', 'sectioning.py', 'segment.py', 'merkle.py', 'document.py', 'corpus_profile.py', 'tensor_diff.py', 'semantic.py', 'harmonic.py', 'harmonic_sparse.py', 'hodge_coords.py', 'rings.py', 'compute.py', 'mesh_health.py',
+     'bridges.py', 'fiedler.py', 'construct.py', 'partition.py', 'sectioning.py', 'segment.py', 'merkle.py', 'document.py', 'corpus_profile.py', 'tensor_diff.py', 'semantic.py', 'harmonic.py', 'harmonic_sparse.py', 'hodge_coords.py', 'harmonic_modes.py', 'resolvent_ranking.py', 'rings.py', 'compute.py', 'mesh_health.py',
      'registry.py', 'gpu_preflight.py', 'hardware.py',
      'coordinator.py', 'rational_trig.py', 'protocol.py', 'joins.py', 'geometry.py', 'projection.py', 'tower.py', 'color.py', 'sheaf.py', 'section_calculus.py', 'affine_feedback.py', 'model_state.py', 'model_runtime.py',
      'biomedical_demo.py', 'cells.py', 'jump_cell_painting.py', 'metric_field.py'],

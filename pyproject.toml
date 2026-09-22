@@ -25,7 +25,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.2.0"
+version = "1.2.1"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
@@ -212,8 +212,9 @@ build = ["cp310-*", "cp311-*", "cp312-*", "cp313-*"]
 # These kernels target the CPython C API. PyPy is not in this wheel matrix.
 # musllinux is left off the first pass because it doubles Linux build time for the
 # Alpine case; the line to add it is this one, once the glibc wheels are known good.
-# win32 is outside the supported NumPy and native kernel build matrix.
-skip = ["pp*", "*-musllinux_*", "*-win32"]
+# win32 is outside the supported NumPy and native kernel build matrix. 32 bit Linux is
+# skipped too: its manylinux2014 i686 image offers no OpenBLAS package to link.
+skip = ["pp*", "*-musllinux_*", "*-win32", "*-manylinux_i686"]
 
 # rexgraph.tests is deliberately not shipped in the wheel, so there is no suite inside
 # it to run and this stands in for one. cibuildwheel runs it from a temporary directory,
@@ -246,9 +247,21 @@ before-all = "yum install -y openblas-devel || { apt-get update && apt-get insta
 [tool.cibuildwheel.macos]
 # 10.13 is what the C11 + LTO combination needs, and it is below anything still
 # receiving updates, so it costs no reach.
-environment = { MACOSX_DEPLOYMENT_TARGET = "10.13", PKG_CONFIG_PATH = "/usr/local/opt/openblas/lib/pkgconfig:/opt/homebrew/opt/openblas/lib/pkgconfig" }
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.13" }
 
-# same reason as linux. Homebrew keeps openblas keg only, so its pkgconfig directory
-# has to be named explicitly above; both prefixes are listed because Intel and Apple
-# silicon runners differ.
-before-all = "brew install openblas"
+# The BLAS is Accelerate, part of macOS itself. It exports the unprefixed cblas_* and
+# LAPACK symbols the kernels declare, so delocate has nothing to bundle. Homebrew's
+# OpenBLAS, libgfortran, libquadmath and libomp are built for the runner's own release,
+# 15.0, and delocate refused to bundle them into wheels that target 11.0 and 10.13;
+# OpenMP is disabled for the same reason.
+config-settings = "setup-args=-Dblas_provider=accelerate setup-args=-Dopenmp=disabled"
+
+[tool.cibuildwheel.windows]
+# MSVC, the compiler CPython on Windows is built with. --vsenv activates it; otherwise
+# meson picks the MinGW gcc on the runner's PATH. The BLAS is the library of the
+# scipy-openblas32 wheel, installed to a fixed directory so that meson and delvewheel
+# name the same one, and delvewheel puts its DLL into the wheel.
+before-all = "python -m pip install --target C:/scipy-openblas scipy-openblas32==0.3.34.237.0"
+before-build = "pip install delvewheel"
+repair-wheel-command = "delvewheel repair --add-path C:/scipy-openblas/scipy_openblas32/lib -w {dest_dir} {wheel}"
+config-settings = "setup-args=--vsenv setup-args=-Dblas_provider=scipy-openblas setup-args=-Dblas_dir=C:/scipy-openblas/scipy_openblas32/lib"

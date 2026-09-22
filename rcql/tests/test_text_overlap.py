@@ -40,7 +40,7 @@ def test_explain_does_not_build_a_tensor_or_solve(monkeypatch):
 @pytest.mark.parametrize("expression", [
     'TEXT_OVERLAP_VIEW(policy="tensor")', 'TEXT_OVERLAP_VIEW("sentence")',
     'APPLY(TEXT_OVERLAP_VIEW(),INDICATOR(CELL(0,0)),true)',
-    'PAGERANK(TEXT_OVERLAP_VIEW())'])
+    'PAGERANK_ITERATION(TEXT_OVERLAP_VIEW())'])
 @pytest.mark.parametrize("explain", [False, True])
 def test_invalid_contracts_fail_before_adapters(expression, explain, monkeypatch):
     import rcql.executor
@@ -67,7 +67,7 @@ def test_reopened_document_uses_original_relation_axis(tmp_path):
     with closing(rcdb.open_store(uri)) as store:
         out = Executor(sources={"db": store}).execute(parse(
             'FROM RCDB_GET($db,"document") RETURN APPLY(TEXT_OVERLAP_VIEW(),'
-            'INDICATOR(CELL(1,0)),true),PAGERANK(MARKOV_VIEW())'))
+            'INDICATOR(CELL(1,0)),true),PAGERANK_ITERATION(PARTICIPATION_WALK())'))
     np.testing.assert_array_equal(out.values[0].values,
                                   TextOverlapView(r).apply(np.array([1, 0, 0], object), exact=True))
     assert len(out.values[0].values) == 3

@@ -112,6 +112,8 @@ from .critical_contracts import ARGUMENTS as _CRITICAL_ARGUMENTS
 from .certificate_contracts import ARGUMENTS as _CERTIFICATE_ARGUMENTS
 from .structure_contracts import ARGUMENTS as _STRUCTURE_ARGUMENTS
 from .homology_contracts import ARGUMENTS as _HOMOLOGY_ARGUMENTS
+from .harmonic_modes_contracts import ARGUMENTS as _HARMONIC_MODES_ARGUMENTS
+from .resolvent_rank_contracts import ARGUMENTS as _RESOLVENT_RANK_ARGUMENTS
 from .partition_contracts import ARGUMENTS as _PARTITION_ARGUMENTS
 from .artifact_contracts import ARGUMENTS as _ARTIFACT_ARGUMENTS
 from .filling_contracts import ARGUMENTS as _FILLING_ARGUMENTS
@@ -163,6 +165,12 @@ for _name, _arguments in _PARTITION_ARGUMENTS.items():
     insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
 
 for _name, _arguments in _HOMOLOGY_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
+for _name, _arguments in _HARMONIC_MODES_ARGUMENTS.items():
+    insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
+
+for _name, _arguments in _RESOLVENT_RANK_ARGUMENTS.items():
     insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
 
 for _name, _arguments in _STRUCTURE_ARGUMENTS.items():

@@ -111,13 +111,20 @@ print("  exact/native channels, dual pairing, metric adjoint, weighted Hodge/Dir
 print("  exact rectangular sheaf maps and compact incidence compatibility work")
 
 # Both initial conditions must reach the numerical field runtime. A cycle's
-# harmonic edge velocity drifts linearly even from zero initial position.
-position, velocity = r.field_wave_evolve(np.zeros(4), np.ones(4), np.array([0., 2.]))
-assert np.allclose(position[1], 2.) and np.allclose(velocity, 1.)
+# harmonic edge velocity drifts linearly even from zero initial position. That runtime,
+# field_propagator, is a numerical route on SciPy, which is an optional extra rather than
+# a dependency of the wheel, so it is checked only where SciPy is installed.
+import importlib.util
+if importlib.util.find_spec("scipy") is not None:
+    position, velocity = r.field_wave_evolve(np.zeros(4), np.ones(4), np.array([0., 2.]))
+    assert np.allclose(position[1], 2.) and np.allclose(velocity, 1.)
+    print("  field initial-velocity drift works")
+else:
+    print("  field wave evolution not checked: it needs the optional SciPy extra")
 # Explicit dense oracle must not mistake a negative mode for a zero frequency.
 _field = sys.modules["rexgraph.core._field"]
 values, vectors, frequencies = _field.field_eigendecomposition(np.array([[-1.]]))
 position, velocity = _field.wave_evolve(np.ones(1), values, vectors, frequencies, 1.)
 assert np.allclose(position, np.cosh(1.)) and np.allclose(velocity, np.sinh(1.))
-print("  field initial-velocity drift and signed spectral reference work")
+print("  signed spectral reference works")
 print("  ok")

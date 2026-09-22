@@ -103,7 +103,6 @@ def refine(typed, children, context):
     values = tuple(context.known_value(child) for child in children)
     from rexgraph.tensor_field import TensorField
     from rexgraph.coordinate_map import _is_action
-    from rexgraph.native_field import NativeFieldCalculus
     from rexgraph.graded_metric import _fraction
     if name in {"TENSOR_APPLY", "NATIVE_RESPONSE"}:
         i = 1 if name == "TENSOR_APPLY" else 0
@@ -128,12 +127,8 @@ def refine(typed, children, context):
             elif name == "NATIVE_RESPONSE":
                 if value.grade is None or value.variance != "chain":
                     raise ValueError("native response requires a declared chain field grade")
-                calculus = values[2] if len(values) > 2 else None
+                calculus = context.field_calculus(children[2], name) if len(children) > 2 else None
                 if calculus is not None:
-                    if not isinstance(calculus, NativeFieldCalculus):
-                        raise TypeError("native response requires a declared field calculus")
-                    if calculus.source is not None and calculus.source is not context.binding.value:
-                        raise ValueError("field calculus belongs to another selected source")
                     calculus._grade(value.grade)
                     if value.space != calculus.complex.spaces[value.grade]:
                         raise ValueError("native response requires its named grade coordinates")

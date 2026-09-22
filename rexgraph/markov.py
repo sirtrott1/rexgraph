@@ -29,8 +29,13 @@ def _participation_entries(source, weights):
                  if weights is None or weights[e])
 
 
-class MarkovView(RexOperator):
-    """Native C0 mass action through the primary participation tensor."""
+class ParticipationWalk(RexOperator):
+    """The relation mediated participation walk U De^-1 U^T Dv^-1 through U = abs(B1) W.
+
+    This is the hypergraph random walk of Zhou, Huang and Schoelkopf read on the primary
+    tensor: an imported walk, named for what it computes. The relational ranking that
+    replaces PageRank on it is `rexgraph.resolvent_rank`.
+    """
 
     def __init__(self, source, grade=0):
         weights = validate_markov_source(source, grade)
@@ -96,22 +101,22 @@ class MarkovView(RexOperator):
             check()
             return result if exact else _numeric_array(result, operation="tensor Markov result")
 
-        super().__init__("MARKOV_VIEW", (n, n), 0, 0, action, source=source,
-            construction="markov-view", variance="cochain", transpose_matvec=lambda x: action(x, transpose=True),
+        super().__init__("PARTICIPATION_WALK", (n, n), 0, 0, action, source=source,
+            construction="participation-walk", variance="cochain", transpose_matvec=lambda x: action(x, transpose=True),
             exact_matvec=lambda x: action(x, True), exact_transpose_matvec=lambda x: action(x, True, True),
             parameters=(("participation", "abs(B1) W"), ("dangling", "uniform"), ("direction", "column-mass")))
         object.__setattr__(self, "check_state", check)
         object.__setattr__(self, "tensor_action", raw_action)
 
 
-def pagerank(view, damping=0.85, seed=None, *, tol=1e-10, maxiter=1000, report=False):
-    """Numerical fixed point with measured L1 contraction bound at most tol.
+def pagerank_iteration(view, damping=0.85, seed=None, *, tol=1e-10, maxiter=1000, report=False):
+    """The PageRank fixed point by power iteration, with measured L1 contraction bound at most tol.
 
 The view supplies uniform dangling columns independently of the restart seed.
 No exact fixed point or spectral interpretation is claimed by this interface.
 """
     if not isinstance(view, MarkovView):
-        raise TypeError("PageRank requires an explicit native MARKOV_VIEW")
+        raise TypeError("PageRank iteration requires an explicit native PARTICIPATION_WALK")
     if not isinstance(report, (bool, np.bool_)):
         raise TypeError("report must be boolean")
     view.check_state()
@@ -122,3 +127,8 @@ No exact fixed point or spectral interpretation is claimed by this interface.
     if not info["converged"]:
         raise RuntimeError("PageRank did not meet its measured fixed point error bound")
     return (result, info) if report else result
+
+
+# Former names, kept as aliases.
+MarkovView = ParticipationWalk
+pagerank = pagerank_iteration

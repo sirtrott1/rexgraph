@@ -18,26 +18,48 @@ if mvec_dep.found()
 endif
 
 # BLAS/LAPACK (needed by _linalg.pxd inline functions: cblas_dgemm, dsyev_, etc.)
-# OpenBLAS bundles both CBLAS and LAPACK. Try pkg-config (conda-forge / distro
-# *-dev packages) first, then a bare library search, then separate blas/lapack.
-# If none is found the extensions still compile but import with
-# "undefined symbol: cblas_dgemm", so warn loudly at configure time.
+# 'blas_provider' can name the library outright, which is what the wheels do: Accelerate
+# on macOS, and the scipy-openblas32 library on Windows with its scipy_ prefix renamed.
+# Otherwise OpenBLAS is tried through pkg-config (conda-forge / distro *-dev packages),
+# then as a bare library, then separate blas/lapack. Without any of them the extensions
+# still compile but import with "undefined symbol: cblas_dgemm", so this is an error.
 blas_found = false
-openblas_dep = dependency('openblas', required: false)
-if openblas_dep.found()
-    core_deps += [openblas_dep]
+blas_provider = get_option('blas_provider')
+if blas_provider == 'accelerate'
+    core_deps += [dependency('appleframeworks', modules: ['Accelerate'], required: true)]
     blas_found = true
-else
-    openblas_lib = cc.find_library('openblas', required: false)
-    if openblas_lib.found()
-        core_deps += [openblas_lib]
+elif blas_provider == 'scipy-openblas'
+    blas_dir = get_option('blas_dir')
+    scipy_openblas = cc.find_library(
+        host_machine.system() == 'windows' ? 'libscipy_openblas' : 'scipy_openblas',
+        dirs: blas_dir == '' ? [] : [blas_dir], required: true)
+    renames = []
+    foreach symbol : ['cblas_daxpy', 'cblas_dcopy', 'cblas_ddot', 'cblas_dgemm', 'cblas_dgemv',
+                      'cblas_dnrm2', 'cblas_dscal', 'cblas_dsymv', 'dgelsd_', 'dgesvd_',
+                      'dpotrf_', 'dpotrs_', 'dsyev_']
+        renames += ['-D' + symbol + '=scipy_' + symbol]
+    endforeach
+    core_deps += [declare_dependency(compile_args: renames, dependencies: [scipy_openblas])]
+    blas_found = true
+endif
+
+if not blas_found
+    openblas_dep = dependency('openblas', required: false)
+    if openblas_dep.found()
+        core_deps += [openblas_dep]
         blas_found = true
     else
-        blas_dep = dependency('blas', required: false)
-        lapack_dep = dependency('lapack', required: false)
-        if blas_dep.found() and lapack_dep.found()
-            core_deps += [blas_dep, lapack_dep]
+        openblas_lib = cc.find_library('openblas', required: false)
+        if openblas_lib.found()
+            core_deps += [openblas_lib]
             blas_found = true
+        else
+            blas_dep = dependency('blas', required: false)
+            lapack_dep = dependency('lapack', required: false)
+            if blas_dep.found() and lapack_dep.found()
+                core_deps += [blas_dep, lapack_dep]
+                blas_found = true
+            endif
         endif
     endif
 endif
@@ -73,8 +95,11 @@ endif
 # (PyDataType_*, _PyUFuncObject_GET_ITEM_DATA, the datetime metadata macro, ...)
 # are declared. Without this the build compiles against NumPy's baseline API and
 # those symbols are implicitly-declared -> build failure on NumPy >= 2.x.
-_common_c_args = c_args + ['-Wno-unused-function',
-                           '-DNPY_TARGET_VERSION=NPY_2_0_API_VERSION']
+#
+# The warning flag is GCC and Clang only; MSVC rejects it outright, so it is kept only
+# where the compiler accepts it.
+_common_c_args = c_args + cc.get_supported_arguments('-Wno-unused-function') + [
+    '-DNPY_TARGET_VERSION=NPY_2_0_API_VERSION']
 
 # _common is built first so other modules can cimport from _common.pxd.
 _common_lib = py.extension_module(
@@ -149,7 +174,7 @@ endforeach
 # undefined behavior at the C level. Adding -fno-finite-math-only
 # restores IEEE inf/nan semantics while keeping all other fast-math
 # optimizations (reassociation, FMA contraction, no errno).
-_finite_safe_args = _common_c_args + ['-fno-finite-math-only']
+_finite_safe_args = _common_c_args + cc.get_supported_arguments('-fno-finite-math-only')
 _finite_safe_modules = ['_character']
 
 foreach mod : _finite_safe_modules
