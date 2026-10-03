@@ -1,4 +1,4 @@
-"""Tests for agent.deploy - containerizing agents/pipelines for deployment."""
+"""Tests for agent.deploy: containerizing agents/pipelines for deployment."""
 
 import io
 import zipfile
@@ -64,7 +64,7 @@ class TestBundle:
 
     def test_model_url_wired(self):
         b = generate_bundle(DeploymentSpec(model_url="http://llm:8000"))
-        assert "http://llm:8000" in b["Dockerfile"] or "http://llm:8000" in b["docker-compose.yml"]
+        assert "http://llm:8000" in b["entrypoint.sh"]
 
     def test_builder_config_embedded(self):
         import json

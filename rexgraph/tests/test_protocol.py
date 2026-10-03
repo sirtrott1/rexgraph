@@ -53,9 +53,13 @@ def test_a_complex_saved_straight_after_add_faces_keeps_them():
     # a CSR pointer is stored as its first difference, so read it back through the codec
     # rather than around it: the array the format REPRESENTS is what this is about
     t = dict(state.tensors)
+    if state.header["format_version"] == 10:
+        from rexgraph.sealed_state import open_state
+        t = dict(open_state(state).tensors)
     if CODEC_TENSOR in t:
-        decode_tensors(t, json.loads(
-            bytes(np.asarray(t.pop(CODEC_TENSOR)).tobytes()).decode("utf-8")))
+        from rexgraph.value_codec import unpack_value
+        raw = np.asarray(t.pop(CODEC_TENSOR)).tobytes()
+        decode_tensors(t, unpack_value(raw) if raw.startswith(b"RGVL\x01") else json.loads(raw))
     assert np.asarray(t["B2_col_ptr"]).tolist() == [0, 3, 6], \
         "B2 was serialised empty while the header declared two faces"
 

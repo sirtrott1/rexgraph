@@ -4,7 +4,7 @@
 
 A k-rex is a graded cell complex in which edges are primary and vertices are
 derived from their boundaries. `RexGraph` is the single object that composes the
-39 Cython kernels in `rexgraph.core` through cached accessors and typed operators.
+42 Cython extensions in `rexgraph.core` through cached accessors and typed operators.
 Core modules share sparse storage, actions and exact coefficient readers.
 
 Two layers sit under that object. The **kernels** in `rexgraph.core` build the
@@ -23,7 +23,7 @@ GPU, or multiple GPUs.
 
 `rexgraph.biomedical_demo` turns the local BindingDB and Complex Portal exports
 into an auditable mTOR case study. The source join is the shared UniProt accession
-`P42345`: measured compound--protein Kd records remain BindingDB assertions;
+`P42345`: measured compound/protein Kd records remain BindingDB assertions;
 protein complex membership, disease annotations, and Reactome references remain
 Complex Portal assertions. The report names that boundary explicitly: a composed
 compound → protein → complex → disease path is contextual provenance, not a claim
@@ -47,6 +47,117 @@ Use a fresh output directory for every source snapshot. The generated artifacts
 carry the source checksums and derivation rule together.
 
 
+
+## Declared data and exact I/O
+
+Readers return typed records; `construct` maps declared fields to sparse
+`Relations`. `RexGraph.from_relations` consumes that same carrier in core and
+Agent. A branching relation remains one C1 cell. Head slots, tail shares,
+metric weights, signs, IDs, types, vertex labels, aliases and source provenance
+are independent declarations. An explicit `VertexTable` preserves isolated
+vertices as well as participants.
+
+```python
+from fractions import Fraction as Q
+from rexgraph import Relations, RexGraph, VertexTable
+
+relations = Relations.from_supports(
+    [[0, 1, 2, 3]],
+    vertices=VertexTable(("head", "a", "b", "c", "isolate")),
+    shares=[0, Q(1, 4), Q(1, 2), Q(1, 4)],
+    weights=[Q(2, 3)], relation_ids=["assertion-1"],
+)
+rex = RexGraph.from_relations(relations)
+assert rex.nV == 5 and rex.nE == 1
+```
+
+`Absent` has an explicit presence mask in `ExactArray`; it is distinct from
+zero, one, `None` and `Approx`. A missing weight has a declared unit mathematical
+view while its absence remains in `rex.relations.weight`. Source number rules
+choose exact decimal, exact binary source values, rational JSON or typed
+columnar values. Numeric text is never inferred from a string field.
+
+```python
+from rexgraph.construction import construct
+from rexgraph.io.readers import read_batches
+from rexgraph.io.records import RecordField, RecordSchema
+from rexgraph import RelationSpec, NumberRule, ValueRules
+
+schema = RecordSchema((
+    RecordField("from", "string"), RecordField("to", "string"),
+    RecordField("weight", "number", rules=ValueRules(NumberRule.DECIMAL_EXACT)),
+))
+records = read_batches("edges.csv", reader="csv", schema=schema)
+relations = construct(records, RelationSpec("pair", ("from", "to"), weight="weight"))
+rex = RexGraph.from_relations(relations)
+```
+
+The declared registry provides CSV, JSON, JSONL, Arrow IPC, Parquet, read only
+SQLite and XLSX readers. Arrow/Parquet, HDF5, Zarr and XLSX use optional format
+dependencies. `DatasetDeclaration` in `rexgraph.io.declaration` packages a reader,
+schema, relation mapping, source options and optional vertex domain for reuse.
+Row batches and record byte limits are configurable.
+
+`rexgraph.state.to_state` now writes format 10. The semantic record seals
+dimensions, channel choices, component ownership, exact values and tensor
+codecs together. Native readers reject tampering, unknown tensors and missing
+components. Older state formats remain readable through the compatibility
+decoder; `rexgraph.sealed_state.migrate_state` explicitly produces format 10.
+RCBD, safetensors, HDF5, Zarr, Arrow IPC, wire transport and local RCDB backends
+share this state contract. Cache data belongs to the container envelope.
+
+Generic Parquet writers and exports accept `ExactArray` and integer/rational
+object arrays. Typed coefficient structs preserve numeric kind, presence and
+big integers through full reads, column projection and streaming batches.
+An exact column containing an undeclared float is refused; callers choose a
+source conversion rule before exporting it.
+
+`copy()`, `subgraph`, functional insertion and deferred structural edits use the
+same registered component transport. A restriction drops an upper cell when its
+boundary loses a participant; it carries the remaining exact declarations,
+identities, attributes, retained attachments, signals, section hierarchy,
+provenance and embedding on their remapped bases. `subgraph` keeps vertices used
+by surviving relations; `copy()` and insertion retain declared isolated vertices.
+Copies own their mutable arrays and metadata. Retained model trees remain
+immutable values.
+
+Appends keep call order across pair and general arity batches. Omitted weights
+remain absent with a unit mathematical view, while explicit zero and unit weights
+retain presence. `set_cell_attrs(..., w_E=[Absent])` clears a declared weight;
+setting it to `1` explicitly marks it present. New signal rows and embedding
+positions have explicit absence until supplied; new cells are not automatically
+assigned to existing sections. Native weight presence has its own sealed tensor.
+Previous v10 relation records remain readable and migrate on the next write.
+
+`Selection(rex, {0: [isolated_vertex], 3: [process]})` requests original cell
+addresses across grades. `Selection.from_masks` checks binary masks before
+conversion; `restrict(rex, selection, carried_state="all")` returns an owned
+`RexPartition` through that same transport. Structural state is the default.
+Its `lineage.cell_maps[k][i]` maps result cells to original cells;
+`lineage.old_to_new[k][j]` maps original cells to the result or -1.
+`lineage.verify(source, result)` reproduces the restriction and checks exact
+state identity. Consecutive lineage records compose when intermediate states
+and basis sizes agree. Digests identify content; they do not grant authorization.
+
+`glue(parts, source=original)` reconstructs the union of verified restrictions
+in the original basis, using the explicit original source for overlap. Edited
+or foreign parts are refused. Mixed transport modes require an explicit policy;
+omitted application state cannot be restored by choosing `all`. Portable
+partitions contain lineage and their result, without a hidden original graph.
+Older portable partitions remain readable but have no certified original basis.
+
+An explicitly empty C2 space survives restriction and native I/O. Format 10
+records it with the optional sealed `empty_face_grade` declaration when no higher
+grade already implies that space. Earlier native readers refuse that new header
+field. Earlier records remain readable; the legacy writer refuses this
+unrepresentable empty grade declaration instead of losing it.
+
+Simplicial, graded cell and adjacency imports use the common relation carrier.
+Adjacency imports preserve the declared matrix size and every selected weight,
+including near unit values. Triangles with ambiguous parallel relations require
+explicit face edges. `to_dict` includes sealed native state alongside its legacy
+primary projections; `from_dict` checks their agreement and still reads older
+primary only dictionaries.
 
 ## `graph.py`: RexGraph and TemporalRex
 
@@ -155,7 +266,7 @@ exact rather than float accumulated.
 |---|---|
 | `g_channel` | Selected G (overlap) form: 'raw' (default, exact) or 'normalized' (opt in, takes a square root) |
 | `g_channel_operator` | The raw integer G operator the RL4 character consumes |
-| `frustration_exact` | Doc exact integer frustration channel F = T - G (Def 3.3), sparse |
+| `frustration_exact` | Frustration channel F = T - G, sparse |
 | `L_frustration` | Frustration channel F = T - G, dense integer tower |
 | `L_frustration_weighted` | Inverse log degree weighted signed Gramian frustration (weighted variant) |
 | `L_coPC` | Copath complex Laplacian L_C (line graph Hodge) |

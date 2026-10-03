@@ -3,7 +3,7 @@
 Encryption wraps the complete Parquet byte artifact in one RexGraph AES GCM envelope.
 It is not Parquet modular column encryption and provides no per column key isolation.
 An encrypted export must be opened whole before projection or predicate pushdown; that
-tradeoff is deliberate for a handoff artifact and is not suitable for a working store.
+format supports column reads and does not provide a mutable store.
 """
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ from typing import Any
 import numpy as np
 
 from .manifest import canonical_json, manifest_digest
+from .columnar import exact_column, physical_columns
+from rexgraph.exact_array import ExactArray
 
 EXPORT_VERSION = 1
 
@@ -64,10 +66,10 @@ def _arrays(data: Mapping[str, Any]) -> dict[str, np.ndarray]:
             raise ValueError("Parquet export column names must be nonempty strings")
         if raw_name in arrays:
             raise ValueError(f"duplicate Parquet export column {raw_name!r}")
-        array = np.asarray(value)
-        if array.ndim not in (1, 2):
+        array = exact_column(value)
+        if len(array.shape) not in (1, 2):
             raise ValueError(f"column {raw_name!r} must be one or two dimensional")
-        if array.ndim == 2 and array.shape[1] == 0:
+        if len(array.shape) == 2 and array.shape[1] == 0:
             raise ValueError(f"two-dimensional column {raw_name!r} may not be empty")
         arrays[raw_name] = array
     lengths = {int(array.shape[0]) for array in arrays.values()}
@@ -78,34 +80,13 @@ def _arrays(data: Mapping[str, Any]) -> dict[str, np.ndarray]:
 
 def _schema(arrays: Mapping[str, np.ndarray]) -> dict[str, dict[str, Any]]:
     return {
-        name: {"dtype": str(arrays[name].dtype), "shape": list(arrays[name].shape)}
+        name: {"dtype": "exact-array-v1" if isinstance(arrays[name], ExactArray) else str(arrays[name].dtype), "shape": list(arrays[name].shape)}
         for name in sorted(arrays)
     }
 
 
 def _physical_columns(arrays: Mapping[str, np.ndarray]):
-    import pyarrow as pa
-
-    columns = {}
-    split = {}
-    logical_names = set(arrays)
-    for name in sorted(arrays):
-        array = arrays[name]
-        if array.ndim == 1:
-            physical = name
-            if physical in columns:
-                raise ValueError(f"duplicate physical Parquet column {physical!r}")
-            columns[physical] = pa.array(array)
-            continue
-        split[name] = {"shape": list(array.shape), "split": True}
-        for index in range(array.shape[1]):
-            physical = f"{name}_{index}"
-            if physical in columns or (physical in logical_names and physical != name):
-                raise ValueError(
-                    f"two-dimensional column {name!r} collides with {physical!r}"
-                )
-            columns[physical] = pa.array(array[:, index])
-    return columns, split
+    return physical_columns({name: arrays[name] for name in sorted(arrays)})
 
 
 def parquet_bytes(
@@ -199,7 +180,7 @@ def _parquet_metadata(payload: bytes) -> dict[str, Any] | None:
         metadata = pq.read_metadata(pa.BufferReader(payload)).metadata or {}
         encoded = metadata.get(b"rex_metadata")
         value = json.loads(encoded.decode("utf-8"))
-    except Exception:  # noqa: BLE001 - malformed Parquet fails verification
+    except Exception:  # noqa: BLE001  # malformed Parquet fails verification
         return None
     return value if isinstance(value, dict) else None
 
@@ -237,7 +218,7 @@ def verify_export(payload: bytes, manifest: ExportManifest, *, keys=None) -> boo
 
             info = envelope_info(raw)
             parquet = decrypt_bytes(raw, keys=keys)
-        except Exception:  # noqa: BLE001 - malformed envelopes fail verification
+        except Exception:  # noqa: BLE001  # malformed envelopes fail verification
             return False
         if info.object_type != "Parquet" or info.key_id != manifest.key_id:
             return False

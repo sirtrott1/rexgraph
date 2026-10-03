@@ -17,6 +17,31 @@ def fixture():
         [face, face], [difference, difference], [difference]], relation_ids=[91, 17, 53])
 
 
+@pytest.mark.parametrize("name", ["PARTITION", "RESTRICT"])
+@pytest.mark.parametrize("mode", ["structural", "all"])
+def test_text_query_carries_application_state_only_when_requested(name, mode):
+    rex = fixture()
+    rex.attach_metadata(3, 0, "certificate", {"numerator": 2**100+1})
+    result = Executor(sources={"r": rex}).execute(parse(
+        f'FROM $r RETURN {name}(selection=CELL(3,0),carried_state="{mode}")'))
+    value = result.values[0]
+    child = value.rex if name == "PARTITION" else value
+    assert child.get_metadata(3, 0, "certificate") == ({"numerator": 2**100+1} if mode == "all" else None)
+    assert rex.get_metadata(3, 0, "certificate") == {"numerator": 2**100+1}
+    rebound = Executor(sources={"c": child}).execute(parse('FROM $c RETURN STATE_HASH()'))
+    assert rebound.values == (object_digest(child),)
+
+
+@pytest.mark.parametrize("explain", [False, True])
+@pytest.mark.parametrize("name", ["PARTITION", "RESTRICT"])
+def test_bad_carried_state_is_refused_before_adapter(name, explain, monkeypatch):
+    import rcql.executor
+    monkeypatch.setattr(rcql.executor, "get_operator", lambda *a: pytest.fail("adapter reached"))
+    with pytest.raises(ValueError, match="carried_state"):
+        Executor(sources={"r": fixture()}).execute(replace(parse(
+            f'FROM $r RETURN {name}(CELL(3,0),carried_state="unknown")'), explain=explain))
+
+
 def test_text_names_members_bound_policy_and_rebinding():
     rex = fixture()
     policy = SourcePolicy.allow("read", "identity")
@@ -105,7 +130,7 @@ def test_isolated_vertex_and_empty_selection_are_owned_results():
 def test_rcdb_partition_roundtrip_and_rcql_commit_leave_source_unchanged(tmp_path):
     import rcdb
     path = f"rex://{tmp_path / 'db'}"
-    store = rcdb.open_store(path).configure_security(require_commits=True)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {})).configure_security(require_commits=True)
     try:
         rex = fixture()
         engine = Executor(sources={"db": store}, params={"r": rex})
@@ -121,7 +146,7 @@ def test_rcdb_partition_roundtrip_and_rcql_commit_leave_source_unchanged(tmp_pat
         digest = p.state.result_state
     finally:
         store.close()
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     try:
         engine = Executor(sources={"db": store})
         out = engine.execute(parse('FROM RCDB_GET($db,"child") RETURN STATE_HASH(), BETTI(4), '

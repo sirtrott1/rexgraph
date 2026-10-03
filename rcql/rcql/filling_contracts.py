@@ -23,7 +23,7 @@ def refine(typed, context):
                 PredicateResult("candidate_chain", "deferred",
             "exact sparse composition and individual storage checks run only at execution")]
     if typed.operator == "FILL":
-        from rexgraph.io.partition_state import partition_tower
+        from rexgraph.partition_state import partition_tower
         value = typed.args[0]
         if value.source != typed.binding.ref or value.basis.ordering != "canonical":
             raise ValueError("FILL requires the bound canonical C1 Chain basis")

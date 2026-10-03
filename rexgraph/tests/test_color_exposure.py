@@ -27,13 +27,7 @@ def test_the_fixed_exposure_is_untouched():
 
 
 def test_a_real_character_can_fall_off_the_end_of_the_band():
-    """The motivation, stated as a test.
-
-    Six of this fixture's eight relations are black at the fixed dLT = 1, and every one of
-    the eight on the real BindingDB panel that prompted this was. The failure mode is the
-    same either way: the picture goes dark and the darkness is not saying anything about
-    the characters, only that their spectra left the band.
-    """
+    """Fixed exposure can map valid channel characters outside the visible band."""
     chi = np.asarray(_panel().structural_character, dtype=float)
     dark = [row for row in chi if spectral_color(row) == (0.0, 0.0, 0.0)]
     assert len(dark) == 6
@@ -50,7 +44,7 @@ def test_the_solved_exposure_lights_the_complex_the_fixed_one_could_not():
 
 
 def test_the_chosen_dLT_really_is_inside_every_interval_it_claims():
-    """The solve is only right if the eigenvalues it counts are genuinely visible.
+    """The solve is only right if the eigenvalues it counts are visible.
 
     An eigenvalue is visible exactly when 360 <= B / (lam * dLT) <= 830, so this
     re derives the condition rather than trusting the sweep that produced it.

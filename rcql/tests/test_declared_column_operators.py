@@ -1,10 +1,4 @@
-"""RCQL reads a DECLARED grade 1 column as declared.
-
-COMPOSITE and the three masks it carries are the query layer's reading of the composite
-binary: existence, the distinguished head, and the share. Each used to be derived from
-the slot order and the arity, so a relation declaring its own head or share was reported
-as the canonical one. They are read off the column now, and these are the contracts.
-"""
+"""Check declared grade 1 existence, distinguished head and share masks."""
 from __future__ import annotations
 
 from fractions import Fraction

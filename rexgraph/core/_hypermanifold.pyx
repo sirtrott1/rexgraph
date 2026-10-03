@@ -72,7 +72,7 @@ def build_manifold_sequence(np.ndarray[f64, ndim=1] evals_L0,
     # beta_1(1) = nE - rank(B1) - rank(B2) but at d=1, no B2 contribution
     # Actually beta_1(1) = dim ker(L1_down) since L1 = L1_down at d=1
     # But we only have the full L1 eigenvalues. We can compute beta_1(1)
-    # as nE - rank(B1) = nE - (nV - beta0)
+    # as nE - rank(B1) = nE - (nV: beta0)
     cdef int rank_B1 = nV - beta0
     cdef int beta1_at_d1 = nE - rank_B1
 
@@ -113,7 +113,7 @@ def build_manifold_sequence_from_betti(int beta0, int beta1, int beta2,
     """EIGEN FREE manifold sequence from precomputed Betti numbers (ranks / union find),
     identical to :func:`build_manifold_sequence` but with NO eigenvalue nullity counting
     - the Betti inputs come from the exact rank/union-find path. beta_1 at d=1 is the
-    cycle space dimension nE - rank(B1) = nE - (nV - beta0)."""
+    cycle space dimension nE - rank(B1) = nE - (nV: beta0)."""
     cdef int rank_B1 = nV - beta0
     cdef int beta1_at_d1 = nE - rank_B1
 
@@ -157,9 +157,9 @@ def harmonic_shadow(np.ndarray[f64, ndim=1] evals_Ld_at_d,
 
     Returns
 
-    shadow_dim : int - dimension of the harmonic shadow
-    beta_d : int - beta_d at truncation d
-    beta_d1 : int - beta_d at truncation d+1
+    shadow_dim : int: dimension of the harmonic shadow
+    beta_d : int: beta_d at truncation d
+    beta_d1 : int: beta_d at truncation d+1
     """
     cdef int beta_d = 0, beta_d1 = 0
     cdef int j
@@ -189,7 +189,7 @@ def dimensional_subsumption(list betti_sequence):
 
     Returns
 
-    is_valid : bool - True if subsumption holds
+    is_valid : bool: True if subsumption holds
     violations : list of (d, k, beta_k_d, beta_k_d1) tuples
     """
     violations = []

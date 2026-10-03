@@ -1,5 +1,36 @@
 # rexgraph/io/
 
+## Current native contracts
+
+Native graph state is version 10 and is owned by Core's component codecs.
+Container layout, SQL projection and query result transport reuse that state;
+they do not select another mathematical representation. Exact columns preserve
+integer and rational kinds, absence, identity, declared heads and shares.
+
+HDF5 and Zarr writers stage complete output beside the destination before
+publication. Appending a result or graph group verifies the old container,
+copies it under the publication lock, writes and seals the copy, then publishes.
+An encoding failure preserves the previous output. Directory replacement uses
+locked renames with rollback; it is not a crash atomic filesystem exchange.
+
+New HDF5/Zarr containers use format version 3.0.0. Their content seal covers
+groups, arrays and attributes, including derived caches and appended results.
+Native graph identity remains its semantic state digest. A content digest
+detects corruption; it does not authenticate an author. Legacy native graphs
+remain readable. Consuming an unsealed legacy cache requires the explicit
+`read_cache(path, allow_unsealed=True)` compatibility option.
+
+`write_boundary_sql` publishes the declared native state and its boundary
+projection in one SQL transaction. `reconstruct_from_sql` checks their agreement
+before returning the complete graph, including isolated vertices and carried
+state. Legacy tables without native state retain their older reconstruction
+contract. Exact metric columns and batch reads use the same column schema as
+the Arrow/Parquet adapters. SQLite supports rollback and caller owned
+transactions; transaction behavior on other dialects depends on the driver.
+
+RCQL's portable result codec is the shared query cache and System download
+contract. See [RCQL](../../rcql/README.md#portable-exact-results).
+
 
 
 
@@ -1239,7 +1270,7 @@ payload fails.
 **An encrypted export is one AES GCM envelope over the complete artifact.** It is
 not Parquet modular column encryption, promises no per column isolation, and
 supports no projection or predicate pushdown: the whole thing is decrypted before
-a single column can be read. That is the right shape for a handoff artifact,
+a single column can be read. That permits column reads,
 whose recipient reads all of it, and the wrong shape for a working store. The
 indexed containers in `safetensors_bridge` and `bundle` are where selective
 reading lives.
@@ -1260,13 +1291,13 @@ binding has to be asserted out of band until the field exists.
 
 ## `partition_state`: A Sub Complex That Is Still a Complex
 
-**File:** `partition_state.py` (273 lines)
+The semantic implementation is `rexgraph.partition_state`; this I/O module is
+a compatibility alias. `rexgraph.selection` provides its source bound facade.
 
-- `build_rex_partition(rex, e_mask, *, f_mask=None, grade_masks=None, policy_digest="", closure="subcomplex")` -> `RexPartition`
+- `build_rex_partition(rex, e_mask, *, v_mask=None, f_mask=None, grade_masks=None, policy_digest="", closure="subcomplex", carried_state="structural")` -> `RexPartition`
 
-  `e_mask` is positional and required: a partition of nothing is not a useful
-  default. `closure` accepts only `"subcomplex"`, which is the parameter
-  reserving room for a rule that is not downward closure, not a choice today.
+  `e_mask` is positional and required by this legacy mask interface. Empty
+  selections are valid. `closure` accepts only `"subcomplex"`.
 
 Selecting cells is not enough: a selection that keeps a face without its edges is
 not a complex and `B_k B_{k+1} = 0` will not hold on it. Closure propagates
@@ -1282,8 +1313,17 @@ and above; the archived version rejected grades above two. Orientation, weights,
 signs, heads, channels and boundary attribution are preserved by copy, not by
 reference, so the partition and its source cannot mutate each other. An empty
 grade is preserved as an empty grade rather than dropped, since dropping it
-relabels every higher operator. Application metadata is deliberately omitted.
-`policy_digest` records the projection that authorised the selection.
+relabels every higher operator. `carried_state="structural"` omits application
+metadata, signals and sections; `"all"` carries registered component state.
+`policy_digest` records the projection; it is not an authorization grant.
+
+Public `Selection`, `Lineage`, `restrict` and `glue` share this builder and its
+registered component transport. Lineage records requested cells separately
+from closure added cells and checks both original and resulting bases. RCQL
+result artifacts and query caches preserve these records. Legacy result
+artifacts without original basis sizes retain their old members but cannot
+claim certified lineage. Explicit empty C2 spaces use a sealed native header
+declaration; older native readers refuse the unknown field.
 
 
 
@@ -1317,3 +1357,30 @@ consistency check, not an authenticity boundary: resisting an adversary who
 fabricates a whole self consistent sequence requires the producer to have required
 signatures and the verifier to hold real keys. A chain that WAS signed cannot be
 downgraded, because the policy digest is bound into the transition.
+
+## Declared reader capabilities
+
+`rexgraph.io.readers` exposes `ReaderSpec`, `ReaderRegistry`, `ReaderParameter`,
+`ParameterSchema`, `read_batches` and explicit `profile`. Extension, media type
+and caller supplied bounded sniff prefix claims share one priority/refusal rule.
+Equal priority matches name every competing reader. Naming a reader resolves the
+choice explicitly. Resolution does not consume a stream or inspect an input path.
+
+Reader options are closed typed declarations, checked before opening input.
+Every emitted batch must match the requested RecordSchema and batch size. The
+reader generator closes on completion, refusal or explicit consumer close.
+CSV and TSV profiling observe bounded field inventories through the same parser;
+profiles never apply inferred number rules or construct graphs. Other readers
+need an explicitly installed profiler to offer that capability.
+
+Trusted plugins export ReaderSpec values through the `rexgraph.readers` Python
+entry point group. `registry.load_plugins()` is explicit and executes installed
+code; declarations and wire payloads never invoke it. Registration publishes the
+validated set together. Provider authors must increment ReaderSpec.version when
+changing their declared contract; its digest does not authenticate code.
+
+DatasetDeclaration seals its declared options and vertex domain and refuses
+changed nested values. Native LocalStore directories are cataloged as one RCDB
+entry, including partial/damaged native layouts. Catalog physical hashes include
+ownership headers and journals; they are not transactional logical store hashes.
+Core requires an injected loader to open an RCDB entry.

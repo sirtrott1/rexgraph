@@ -1,4 +1,4 @@
-"""Tests for the Relational Complex Database (agent.rcdb) - core backends,
+"""Tests for the Relational Complex Database (agent.rcdb): core backends,
 structural query, and the HTTP routes."""
 
 from contextlib import closing
@@ -43,7 +43,7 @@ def backend_store(request, tmp_path):
         uri = f"file://{tmp_path / 'store'}"
     else:
         uri = f"sqlite:///{tmp_path / 'store.db'}"
-    store = open_store(uri)
+    store = open_store(uri, **({"read_only": False} if kind == "file" else {}))
     yield store
     store.close()
 
@@ -83,7 +83,7 @@ class TestBackends:
 
     def test_open_store_scheme_dispatch(self, tmp_path):
         assert open_store("memory://").backend == "memory"
-        assert open_store(f"file://{tmp_path / 'x_rcdb'}").backend == "file"
+        assert open_store(f"file://{tmp_path / 'x_rcdb'}", read_only=False).backend == "file"
         with closing(open_store("sqlite:///" + str(tmp_path / "scheme.db"))) as sql:
             assert sql.backend == "sql"
 
@@ -337,15 +337,15 @@ def test_default_store_honors_the_env_uri(tmp_path, monkeypatch, isolated_defaul
     MemoryStore() and silently discarded what it wrote."""
     from agent import rcdb as R
 
-    monkeypatch.setenv("REXGRAPH_RCDB_URI", "file://" + str(tmp_path / "store"))
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", "local://" + str(tmp_path / "store"))
     R.reset_default_store()
     s = R.default_store()
-    assert isinstance(s, R.FileStore)
+    assert s.backend == "local"
     # the same process shares one instance
     assert R.default_store() is s
 
 
-def test_default_store_falls_back_to_a_file_store(tmp_path, monkeypatch, isolated_default_store):
+def test_default_store_falls_back_to_a_local_store(tmp_path, monkeypatch, isolated_default_store):
     """With no env override the default must still persist, not evaporate."""
     from agent import rcdb as R
 
@@ -364,7 +364,7 @@ def test_hive_schema_and_query_manager_use_the_default_store(tmp_path, monkeypat
 
     from agent import rcdb as R
 
-    monkeypatch.setenv("REXGRAPH_RCDB_URI", "file://" + str(tmp_path / "store"))
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", "local://" + str(tmp_path / "store"))
     R.reset_default_store()
     shared = R.default_store()
 
@@ -389,7 +389,7 @@ def test_file_store_ids_that_sanitize_alike_do_not_share_a_blob(tmp_path):
 
     from rexgraph.graph import RexGraph
 
-    st = open_store("file://" + str(tmp_path / "store"))
+    st = open_store("file://" + str(tmp_path / "store"), read_only=False)
     tri = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32))
     path = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 3], np.int32))
     st.put("core/alpha", tri)
@@ -407,7 +407,7 @@ def test_file_store_round_trips_ids_with_path_and_scheme_characters(tmp_path):
 
     from rexgraph.graph import RexGraph
 
-    st = open_store("file://" + str(tmp_path / "store"))
+    st = open_store("file://" + str(tmp_path / "store"), read_only=False)
     rex = RexGraph(sources=np.array([0, 1, 2], np.int32), targets=np.array([1, 2, 0], np.int32))
     for rid in ("doc:agent/agent/rcdb.py", "core/beta", "a%b", "sub/dir/thing.md"):
         st.put(rid, rex)

@@ -163,10 +163,10 @@ def test_rcql_rational_commit_and_replacement(tmp_path, backend):
     if backend == "object":
         pytest.importorskip("fsspec")
     constructors = {"memory": lambda: rcdb.MemoryStore(),
-                    "file": lambda: rcdb.FileStore(str(tmp_path / "file")),
-                    "rex": lambda: rcdb.RexStore(str(tmp_path / "rex")),
+                    "file": lambda: rcdb.FileStore(str(tmp_path / "file"), read_only=False),
+                    "rex": lambda: rcdb.RexStore(str(tmp_path / "rex"), read_only=False),
                     "sql": lambda: rcdb.SQLStore(f"sqlite:///{tmp_path / 'sql.db'}"),
-                    "object": lambda: rcdb.ObjectStore(f"file://{tmp_path / 'objects'}")}
+                    "object": lambda: rcdb.ObjectStore(f"file://{tmp_path / 'objects'}", read_only=False)}
     store = constructors[backend]().configure_security(require_commits=True)
     try:
         for version in range(2):

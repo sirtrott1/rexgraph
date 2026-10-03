@@ -1,15 +1,4 @@
-"""Regression: the always sparse spectral bundle truncates the L0 eigenbasis
-for nV>2000 (k<<nV eigenpairs). Feeding that truncated basis to the dense
-nV x nV L0 Cython kernels (build_edge_signal / build_response_operators) reads
-out of bounds -> uncatchable C-level SIGSEGV. Two live agent paths did this:
-corpus._spectral_score and the pipeline quality gate. These tests pin the fix:
-guard on the full basis, and use the matrix free B1^+ equivalent when truncated.
-
-The corpus half now goes through agent.scoring.interfacing_score, so the guard sits
-inside RexGraph.interfacing_vector (it routes to the sparse bundle on the same
-condition) instead of being hand rolled in the caller. The property under test is
-unchanged: a truncated basis graph must return a finite score, not a SIGSEGV.
-"""
+"""Check sparse corpus scoring and quality gates when a full eigenbasis is unavailable."""
 import numpy as np
 from agent.corpus import CorpusBuilder
 from agent.pipeline_runner import _context_quality_gate
@@ -79,14 +68,7 @@ def test_corpus_score_document_large_graph_does_not_segfault():
 
 
 def test_quality_gate_large_graph_is_measured_not_skipped():
-    """A large complex gets a real score.
-
-    This used to assert the opposite: the gate skipped when the L0 eigenbasis was
-    truncated, because it hand fed the dense response operator kernel and that kernel
-    needs the full basis. It now goes through `interfacing_vector`, which dispatches
-    to the eigen free sparse bundle, so the size that used to force a skip is just a
-    size. Skipping measured nothing, which meant the gate was blindest on exactly the
-    complexes worth gating."""
+    """The sparse interfacing path returns a quality score for a large complex."""
     rex = _connected_graph(2500, extra_edges=1500)
     labels = _labels(rex.nV)
     g = _context_quality_gate(rex, labels, "w0 w1 w2 w3 topic")

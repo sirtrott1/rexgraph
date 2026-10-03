@@ -14,7 +14,7 @@ def test_builtin_backends_present():
 def test_best_backend_prefers_available_then_falls_back_to_cpu():
     assert C.best_backend(prefer="cpu") == "cpu"
     assert C.best_backend(prefer="does-not-exist") in C.available_backends()  # unknown -> best real
-    # with no GPU present best_backend is cpu; with a GPU it is that GPU - either way it is available
+    # with no GPU present best_backend is cpu; with a GPU it is that GPU: either way it is available
     assert C.best_backend() in C.available_backends()
 
 
@@ -116,7 +116,7 @@ def test_parallel_map_inner_thread_budget_arithmetic():
 
 def test_inner_thread_limiter_graceful_without_threadpoolctl(monkeypatch):
     """_inner_thread_limiter degrades to a no op context when threadpoolctl is unavailable,
-    so the fan out still runs (just uncapped) - the cap is an optimization, never a hard dep."""
+    so the fan out still runs (just uncapped): the cap is an optimization, never a hard dep."""
     import builtins
     real_import = builtins.__import__
 

@@ -186,7 +186,7 @@ def test_it_is_a_self_contained_document():
 def test_the_two_axes_carry_comparable_spread():
     """Both axes read their parameter through the cosine. Taking the sine on one of them
     put that axis at its flat maximum exactly where ordinary characters cluster: four
-    genuinely different vertices spread 0.136 in x and 0.005 in y, an aspect of 1:26 that
+    different vertices spread 0.136 in x and 0.005 in y, an aspect of 1:26 that
     was the map talking rather than the complex."""
     cells = render_payload(_branching())["positions"]["exact"]["cells"]
     xs = [float(Fraction(c["x"])) for c in cells]

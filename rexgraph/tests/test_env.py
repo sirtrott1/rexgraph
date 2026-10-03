@@ -6,6 +6,39 @@ import os
 import rexgraph._env as E
 
 
+def test_pci_gpu_without_hip_access_is_not_a_rocm_compute_backend(monkeypatch):
+    from rexgraph import gpu_access as A
+    monkeypatch.setattr(E, "_detect_amd_igpus", lambda: [{"name": "AMD APU", "integrated": True}])
+    monkeypatch.setattr(A, "probe_hip", lambda: {"available": False, "runtime_loaded": True, "devices": []})
+    assert "rocm" not in [b["name"] for b in E.detect_compute_backends()]
+
+
+def test_hip_devices_are_detected_without_rocminfo(monkeypatch):
+    from rexgraph import gpu_access as A
+    monkeypatch.setattr(E, "_have", lambda name: None)
+    monkeypatch.setattr(E, "_detect_amd_igpus", lambda: [{"integrated": True}])
+    monkeypatch.setattr(A, "probe_hip", lambda: {"available": True, "devices": [{"name": "AMD APU"}]})
+    hip = next(b for b in E.detect_compute_backends() if b["name"] == "rocm")
+    assert hip["devices"] == 1 and hip["integrated"] and hip["detail"] == "AMD APU"
+
+
+def test_vulkan_loader_without_hardware_is_not_an_available_compute_backend(monkeypatch):
+    from rexgraph import gpu_access as A
+    monkeypatch.setattr(A, "probe_vulkan", lambda: {"available": False, "runtime_loaded": True, "devices": []})
+    assert "vulkan" not in [b["name"] for b in E.detect_compute_backends()]
+
+
+def test_vulkan_devices_are_counted_without_an_external_tool(monkeypatch):
+    from rexgraph import gpu_access as A
+    monkeypatch.setattr(E, "_have", lambda name: None)
+    monkeypatch.setattr(A, "probe_vulkan", lambda: {"available": True, "devices": [
+        {"name": "integrated GPU", "hardware_gpu": True, "compute": True, "integrated": True},
+        {"name": "software renderer", "hardware_gpu": False, "compute": True, "integrated": False}]})
+    vk = next(b for b in E.detect_compute_backends() if b["name"] == "vulkan")
+    assert vk["devices"] == 1 and vk["integrated"]
+    assert vk["detail"] == "integrated GPU"
+
+
 def test_detect_python_env_wellformed():
     env = E.detect_python_env()
     assert isinstance(env, dict)

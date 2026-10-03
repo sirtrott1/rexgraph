@@ -6,10 +6,10 @@ rexgraph.core._standard: Classical graph algorithms on the 1 skeleton.
 Operates on the undirected graph underlying a relational complex.
 Input is a symmetric CSR adjacency from _cycles.build_symmetric_adjacency.
 
-PageRank - power iteration, O(nE) per step.
-Betweenness - vertex and edge betweenness centrality, O(nV * nE).
-Clustering - local clustering coefficient via sorted neighbor intersection.
-Louvain - modularity based community detection, O(nE) per pass.
+PageRank: power iteration, O(nE) per step.
+Betweenness: vertex and edge betweenness centrality, O(nV * nE).
+Clustering: local clustering coefficient via sorted neighbor intersection.
+Louvain: modularity based community detection, O(nE) per pass.
 """
 
 from __future__ import annotations

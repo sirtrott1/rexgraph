@@ -27,7 +27,7 @@ def test_change_source_skips_derived_tag():
     # put REAL derived data so get_version would succeed: the skip must be the guard,
     # not an incidental get_version miss.
     rec = store.put("svc::online", _rex([0, 1], [1, 2]), tags=[DERIVED_TAG])
-    # control (fresh source): the SAME id/version WITHOUT the tag genuinely delivers
+    # control (fresh source): the SAME id/version WITHOUT the tag delivers
     ctrl = ChangeSource(store)._event_from_pub(
         {"action": "rcdb.put", "scope": "network",
          "detail": {"id": "svc::online", "version": rec.version, "tags": []}})
@@ -206,4 +206,4 @@ def test_online_loop_closes_over_memory_feed():
 
 
 def test_online_loop_closes_over_file_feed(tmp_path):
-    _drive_dogfood(open_store(f"file://{tmp_path}/rcdb"))
+    _drive_dogfood(open_store(f"file://{tmp_path}/rcdb", read_only=False))

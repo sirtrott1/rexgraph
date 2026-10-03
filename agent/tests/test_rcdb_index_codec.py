@@ -110,20 +110,23 @@ def test_a_torn_log_tail_stops_the_read(tmp_path):
     for cut in (len(whole) - 1, len(whole) - 31, len(whole) // 2, 8, 3):
         torn = tmp_path / f"torn{cut}.rexlog"
         torn.write_bytes(whole[:cut])
-        got = list(ix.log_read(torn))          # must not raise
+        got = list(ix.log_read(torn, allow_torn_tail=True))
         assert len(got) < len(CASES)
         for _op, _rid, rec, _extra in got:
             assert rec is None or rec.signature["nV"] == 10
 
 
-def test_a_numpy_array_in_meta_reads_back_as_a_list(tmp_path):
-    """meta is caller supplied, so an array lands there. It is data, not a tensor to
-    preserve: it comes back as the list it encodes."""
+def test_numpy_metadata_preserves_array_types_shapes_and_values(tmp_path):
     rec = _rec("arr", meta={"a": np.arange(3), "b": np.array([1.5, 2.5])})
     p = tmp_path / "index.rexidx"
     ix.write(p, ix.build([("arr", rec)]))
     back = ix.record_at(ix.read(p), 0)
-    assert back.meta == {"a": [0, 1, 2], "b": [1.5, 2.5]}
+    assert set(back.meta) == {"a", "b"}
+    for key in back.meta:
+        assert isinstance(back.meta[key], np.ndarray)
+        assert back.meta[key].dtype == rec.meta[key].dtype
+        assert back.meta[key].shape == rec.meta[key].shape
+        np.testing.assert_array_equal(back.meta[key], rec.meta[key])
 
 
 def test_a_shared_term_is_stored_once(tmp_path):
@@ -407,9 +410,9 @@ def test_both_readers_stop_at_the_same_torn_tail(tmp_path, monkeypatch):
     for cut in (len(whole) - 1, len(whole) - 31, len(whole) // 2, 12, 8, 3):
         torn = tmp_path / f"t{cut}.rexlog"
         torn.write_bytes(whole[:cut])
-        compiled = [(g[0], g[1]) for g in ix.log_read(torn)]
+        compiled = [(g[0], g[1]) for g in ix.log_read(torn, allow_torn_tail=True)]
         monkeypatch.setattr(ix, "_read_frames", None)
-        pure = [(g[0], g[1]) for g in ix.log_read(torn)]
+        pure = [(g[0], g[1]) for g in ix.log_read(torn, allow_torn_tail=True)]
         monkeypatch.undo()
         assert compiled == pure, f"cut {cut}"
 

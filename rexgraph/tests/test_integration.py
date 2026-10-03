@@ -42,7 +42,7 @@ def drct():
 
 @pytest.fixture
 def k4_partial():
-    """K4 with only 3 of 4 triangles filled - creates 1 void."""
+    """K4 with only 3 of 4 triangles filled: creates 1 void."""
     return RexGraph.from_simplicial(
         sources=np.array([0, 0, 0, 1, 1, 2], dtype=np.int32),
         targets=np.array([1, 2, 3, 2, 3, 3], dtype=np.int32),
@@ -180,9 +180,8 @@ class TestCharacter:
             assert abs(chi[e].sum() - 1.0) < 1e-10
 
     def test_k4_channel_structure(self, k4):
-        # Doc exact channels: T,G,C diagonals equal (chi_T=chi_G=chi_C per edge);
-        # F is orientation dependent (Def 3.3), so chi is a simplex point that is
-        # near- but not exactly uniform. (Pre doc channels made it exactly 1/nhats.)
+        # T, G and C have equal per edge diagonals on K4. Orientation dependent
+        # frustration makes character rows nonuniform while retaining simplex sums.
         chi = k4.structural_character
         names = list(k4._rcf_bundle.get('hat_names', []))
         iT, iG, iC = names.index('L1_down'), names.index('L_O'), names.index('L_C')
@@ -895,7 +894,7 @@ class TestDynamicRCFE:
         assert r['bianchi_ok']
 
 class TestVoidSpectral:
-    """Void spectral theory: Prop 18.3 and 18.8."""
+    """Check void spectral identities on the supplied complexes."""
 
     def test_void_exists(self, k4_partial):
         """K4 with 3/4 faces should have at least 1 void."""
@@ -973,7 +972,7 @@ class TestFrustrationByType:
         """The `signs` array is a WEIGHTED tower signing: it drives the weighted
         signed Gramian frustration `L_frustration_weighted`. (The default integer
         `L_frustration` = F = T-G takes orientation from B1 alone, per the doc, and
-        is independent of the separate signs array - which cannot fold into B1
+        is independent of the separate signs array: which cannot fold into B1
         without breaking the chain condition B1B2=0.)"""
         rex = RexGraph(
             sources=np.array([0, 1, 0], dtype=np.int32),

@@ -1,6 +1,6 @@
 """A branching boundary column must be signed AND sum to zero.
 
-`_build_B1_general` wrote -1 at the first boundary entry and +1 at every other, so a
+The retired dense general boundary builder once wrote -1 at the first boundary entry and +1 at every other, so a
 column of arity k summed to k-2. That is the star, which is the existence tensor: a
 consistent object, but not a boundary. The condition that makes a column a boundary is
 that it is signed and sums to zero, and the share 1/(k-1) is what delivers that at every

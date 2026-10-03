@@ -60,10 +60,11 @@ class TestChiCosine:
         assert np.all(sim >= -1e-10)
 
     def test_k4_high_chi_cosine(self, k4):
-        """K4 edges share the dominant T=G=C structure, so chi cosine similarities
-        are high and positive (<= 1), but not all exactly 1: the orientation-
-        dependent F channel (doc Def 3.3 / Sec 1.3) splits the edges into a few
-        classes. (Pre doc uniform chi made every cosine exactly 1 - an artifact.)"""
+        """K4 edge characters have high positive cosine similarity.
+
+        Orientation dependent frustration distinguishes some pairs, so they need not
+        all have similarity 1.
+        """
         chi = k4.structural_character
         sim = _fiber.chi_cosine(chi, k4.nE, k4.nhats)
         assert np.all(sim > 0.7) and np.all(sim <= 1.0 + 1e-9)

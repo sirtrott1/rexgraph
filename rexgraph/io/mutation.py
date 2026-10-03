@@ -8,9 +8,9 @@ from typing import Any
 
 from .commit import COMMIT_VERSION, CommitLink
 from .manifest import manifest_digest
-from .rex_state import RexState, from_state, to_state, verify_state
-from .temporal_state import VERIFIED_VERSIONS as TEMPORAL_STATE_VERSIONS
-from .temporal_state import (
+from rexgraph.state import RexState, from_state, to_state, verify_state
+from rexgraph.temporal_state import VERIFIED_VERSIONS as TEMPORAL_STATE_VERSIONS
+from rexgraph.temporal_state import (
     TemporalState,
     from_temporal_state,
     to_temporal_state,
@@ -93,7 +93,7 @@ class MutationPackage:
 
 def _legacy_delta_digest(state: TemporalState) -> str:
     """Reproduce the reference v1 tensor only delta identity for migration."""
-    from .rex_state import state_digest
+    from rexgraph.state import state_digest
 
     names = sorted(
         name
@@ -166,7 +166,7 @@ def prepare_mutation(
         history.append_snapshot(previous)
     history.append_snapshot(resulting)
     state = to_temporal_state(history)
-    if not verify_temporal_state(state):  # pragma: no cover - writer invariant
+    if not verify_temporal_state(state):  # pragma: no cover: writer invariant
         raise ValueError("could not produce a verified TemporalState")
 
     resulting_state = to_state(resulting)
@@ -211,7 +211,7 @@ def _signature_valid(
     try:
         if not value.verify(verifier):
             return False
-    except Exception:  # noqa: BLE001 - malformed signatures fail verification
+    except Exception:  # noqa: BLE001  # malformed signatures fail verification
         return False
     return not allowed or signer_id in allowed
 
@@ -303,7 +303,7 @@ def _structural_projection_matches(left: Any, right: Any) -> bool:
             _array_or_default(right, "_signs", int(right.nE), 1.0),
         ):
             return False
-    except Exception:  # noqa: BLE001 - malformed projections do not match
+    except Exception:  # noqa: BLE001  # malformed projections do not match
         return False
     return True
 
@@ -337,7 +337,7 @@ def _endpoints_match(package: MutationPackage, previous: Any) -> bool:
                 return False
             if not _structural_projection_matches(history.reconstruct_at(0), previous):
                 return False
-    except Exception:  # noqa: BLE001 - malformed packages fail verification
+    except Exception:  # noqa: BLE001  # malformed packages fail verification
         return False
     return True
 
@@ -361,7 +361,7 @@ def verify_mutation(
         return False
     try:
         transition_digest = package.transition.digest
-    except Exception:  # noqa: BLE001 - malformed transition fields fail verification
+    except Exception:  # noqa: BLE001  # malformed transition fields fail verification
         return False
     if package.link.transition_digest != transition_digest:
         return False
@@ -397,7 +397,7 @@ def apply_mutation(package, *, previous, parent_digest=None, policy=None, verifi
     It does not modify the prior state or publish a store version.
     """
     from copy import deepcopy
-    from .rex_state import from_state
+    from rexgraph.state import from_state
 
     if not isinstance(package, MutationPackage):
         raise TypeError("package must be a MutationPackage")
@@ -536,7 +536,7 @@ def mutation_from_bytes(blob: bytes, *, allow_legacy: bool = False) -> MutationP
     else:
         if state_version != 1:
             raise ValueError("legacy mutation must contain TemporalState v1")
-        from .temporal_state import _legacy_tensor_payload_matches
+        from rexgraph.temporal_state import _legacy_tensor_payload_matches
 
         if not _legacy_tensor_payload_matches(state):
             raise ValueError("legacy mutation TemporalState tensor digest mismatch")

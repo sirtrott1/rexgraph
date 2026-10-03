@@ -7,17 +7,16 @@
 # CUDA build (GPU kernels via CMake; requires CUDA toolkit and cupy):
 #   REX_BUILD_CUDA=1 pip install .
 #
-# The meson backend compiles .pyx to .c to .so. Parallelism comes from the
-# threaded BLAS the kernels call and from rexgraph.compute above them, not from
-# prange: the kernels are compiled with -fopenmp but contain no parallel loops.
+# The meson backend compiles .pyx to .c to .so. Native kernels use OpenMP loops
+# where available, threaded BLAS and rexgraph.compute task scheduling.
 # CMake is invoked separately for .cu compilation when CUDA support is requested.
 
 [build-system]
 requires = [
-    "meson-python>=0.16",
+    "meson-python>=0.18",
     "meson>=1.3",
     "cython>=3.0",
-    "numpy>=1.24",
+    "numpy>=2.0",
 ]
 build-backend = "mesonpy"
 
@@ -25,7 +24,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "rexgraph"
-version = "1.2.2"
+version = "1.3.0"
 description = "Relational complex (rex) graph analysis: edge-centric topological data analysis with Hodge decomposition"
 readme = "README.md"
 # SPDX, per PEP 639: "Apache License 2.0" is the name, not the identifier,
@@ -60,7 +59,7 @@ classifiers = [
 
 # Core dependencies
 dependencies = [
-    "numpy>=1.24",
+    "numpy>=2.0",
     # Caps inner BLAS/OpenMP pools during compute.parallel_map calls so nested
     # parallelism (outer workers x inner BLAS) does not oversubscribe cores. Tiny,
     # Python only; the compute layer leaves pools uncapped without it.
@@ -92,6 +91,7 @@ io = [
     "pyarrow>=12.0",
     "sqlalchemy>=2.0",
     "pandas>=2.0",
+    "openpyxl>=3.1",  # Streaming declared XLSX records.
 ]
 
 # Authenticated encryption and Ed25519 signing for native Rex artifacts.
@@ -128,7 +128,7 @@ dev = [
     "pytest-benchmark>=4.0",
     "cython>=3.0",
     "meson>=1.3",
-    "meson-python>=0.16",
+    "meson-python>=0.18",
     "ruff>=0.3",
     "mypy>=1.0",
     # so the classifier check runs instead of skipping: PyPI rejects an upload
@@ -202,7 +202,7 @@ ignore_missing_imports = true
 
 # Prebuilt wheels
 #
-# The package is not on PyPI, so today every install compiles 39 Cython kernels from
+# The package is not on PyPI, so today every install compiles 42 Cython extensions from
 # source and therefore needs a C compiler, meson and cython on the user's machine. That
 # is the real cross setup barrier: not that the build is fragile, but that a build is
 # required at all. A wheel removes it, and `pip install rexgraph` becomes a download.

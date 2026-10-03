@@ -33,8 +33,14 @@ The repository contains five packages:
 - [System](system/README.md): API and observatory over RCQL.
 - [Agent](agent/README.md): workers, orchestration, connectors and model tooling.
 
+The five packages share version `1.3.0` and sibling dependency floors. The
+[I/O contracts](rexgraph/io/README.md#current-native-contracts) describe current
+publication, integrity, exact SQL and legacy read behavior.
 
 ## Install
+
+Core requires NumPy 2.0 or newer. Source builds require a C/C++ compiler,
+OpenBLAS and pkg-config. Isolated pip builds resolve the declared Python build tools.
 
 Only git and curl are required on the host. The compilers, OpenBLAS, and Python
 come from a conda-forge environment, so the build does not depend on system
@@ -82,10 +88,7 @@ pip install -e ./agent                                 # agent + integrations
 The order matters, and will until these are published, because pip resolves an
 unsatisfied requirement from PyPI where none of them is yet. It is not a single chain:
 the store and the query language each need only the core and are independent of each
-other, the observatory needs the query language, and the agent needs the store. Core
-first, agent last, and installing out of order fails with `No matching
-distribution found for rexgraph-rcdb>=1.1.3`, which reads like a missing release rather
-than a missing step.
+other, the observatory needs the query language, and the agent needs the store. Install Core first and Agent last.
 
 Minimal (core only, no I/O deps):
 
@@ -347,7 +350,8 @@ data = analyze(rex, vertex_labels=["A","B","C","D"])
 
 ### Eigen free / sparse computation
 
-Every quantity above is computed with no dense eigensolve. The sparse modules
+Native actions and sparse readings avoid dense eigensolves. Explicit spectral
+properties use the declared oracle path. The sparse modules
 expose the same operators directly, for complexes too large to densify.
 
 ```python
@@ -695,7 +699,7 @@ oscillation (retrying without progress).
 
 ## I/O
 
-Nine storage formats with automatic format detection on load.
+Native storage, table interchange and source imports, with automatic format detection on load.
 Bundle (.rcbd) requires zero dependencies beyond numpy. Bundles written before the
 rename carry a `.rex` suffix and are still read.
 
@@ -728,14 +732,20 @@ rex = load_edge_csv("edges.csv")              # column classification
 | JSON | .json | none | Cytoscape, NetworkX, edge list, adjacency |
 | CSV | .csv | none | edge lists with automatic column classification |
 
-All serialization formats support RexGraph, TemporalRex, and cache
-groups (algebra, spectral, relational, topology, hodge, harmonic,
-faces, field, wave, signal, quotient, persistence, temporal,
-standard_metrics). The harmonic cache group persists harmonic_basis,
-frustration_per_edge, coparticipation_per_edge, sigma_asymmetry_per_edge,
-and scalar health metrics.
+RCBD, safetensors, HDF5 and Zarr preserve native RexGraph and TemporalRex state.
+HDF5 and Zarr also store derived cache groups. Table exports and JSON/CSV imports
+have their own schemas; they are not interchangeable with a complete native snapshot.
 
 ### Provenance and integrity
+
+`rexgraph.partition_state.build_rex_partition(rex, edge_mask)` keeps the structural
+projection default. It preserves complete boundaries, exact declared heads and
+shares, metric presence, signs and identities. Pass `carried_state="all"` to carry
+application metadata, signals, retained fields/sections/models/spans, nested
+graphs and sectionings through their registered transport hooks. Explicit upper
+grade masks select the requested cofaces while retaining their full downward
+closure. `partition_from_policy` accepts the same option in its state bound
+policy mapping and binds it into the policy digest.
 
 Twelve further modules in `rexgraph/io/` answer a different question than the format
 loaders do. A format asks how bytes are laid out. These ask what a payload is, whether it
@@ -793,7 +803,7 @@ Full reference with signatures and the digest and signature model:
 
 The repository builds five packages, and the split is a dependency rule rather than
 filing. Nothing lower imports anything higher, which is what lets each be installed
-and reasoned about on its own, and a test in each enforces it.
+and reasoned about on its own, as a separate distribution.
 
 | distribution | is | depends on |
 |---|---|---|

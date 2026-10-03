@@ -3,22 +3,14 @@
 Some implementations are retained alternatives; live primitives and the promoted
 factored channel compatibility import are identified individually below.
 
-- ``build_factored_operator``: compatibility import of the now native
-  ``channel_operator`` implementation, used by RCQL channel actions. The
-  edge primacy MATRIX FREE RL/channel operator
-  (every channel applied through B1/|B1|, never materializing the hub clique
-  blocks). Numerically agrees with the assembled channels within floating
-  tolerance; this is not a bit identity guarantee. It was measured to be
-  *overhead*-bound versus a single assembled sparse matmul at moderate nE (many
-  small scipy calls per matvec), so ``sparse_character.compute_sparse_character``
-  uses the assembled ``RL @ P`` matvec by default. This factored form only wins for
-  *extreme*-degree hubs where nnz(RL) ≫ nnz(factored). RCQL actions use its
-  incidence factorization without a size gate; existing assembled callers remain.
+- ``build_factored_operator`` imports channel_operator for compatibility.
+  It applies channels through incidence without assembling hub clique blocks.
+  Results agree with assembled floating channels within numerical tolerance.
 
 - ``_hutchinson_phi``: a **uniform** stochastic estimator of the vertex character
   (Rademacher trace estimation, ~1/√n_probe error at every scale). It is a distinct
-  Monte Carlo *method*, NOT a size gated fallback - the default character path
-  (``compute_sparse_character``) is now exact block CG at all scales. Kept for the
+  Monte Carlo *method*, NOT a size gated fallback: the default character path
+  (``compute_sparse_character``) now uses fixed tolerance numerical block CG at all scales. Kept for the
   rare case where an approximate but cheap character is explicitly wanted.
 
 - ``_cheb_apply`` / ``_spectral_bounds``: apply a general analytic f(L) to a dense
@@ -27,7 +19,7 @@ factored channel compatibility import are identified individually below.
   Chebyshev heat responses, kept here as the shared primitive.
 
 - ``chebyshev_diag`` / ``heat_propagator_diag``: **DEPRECATED / retired.** These chased
-  diag(e^{-tL}) on the EDGE space - the diagonal of a general matrix function, which
+  diag(e^{-tL}) on the EDGE space: the diagonal of a general matrix function, which
   has no exact O(nnz) form and is blind to inter grade transport. They are SUPERSEDED
   by Dirac STATE propagation, which carries amplitude ACROSS grades through the
   off diagonal boundary blocks:
@@ -56,7 +48,7 @@ def _hutchinson_phi(apply_rl, apply_hat, active_names, Bs, dinv, nhats,
     diag(B1 RL^-1 ĥ_k RL^-1 B1^T) and diag(B1 RL^-1 B1^T) from O(n_probe)
     matrix free solves for ALL vertices at once, independent of nV. Stochastic
     (~1/sqrt(n_probe) relative error), UNIFORM at every scale (not a size gated
-    fallback). The default character path is exact block CG; this is a preserved
+    fallback). The default character path uses fixed tolerance numerical block CG; this is a preserved
     alternative for when an approximate but cheap character is explicitly wanted."""
     nV = Bs.shape[0]
     rng = np.random.default_rng(seed)
@@ -79,7 +71,7 @@ def _hutchinson_phi(apply_rl, apply_hat, active_names, Bs, dinv, nhats,
 
 def _cheb_apply(matvec, func, lam_max, lam_min, order, P):
     """Apply func(L) to a dense block P via a Chebyshev polynomial of L (sparse
-    mat vecs only) - returns func(L) @ P, no eigendecomposition. Coefficients from
+    mat vecs only): returns func(L) @ P, no eigendecomposition. Coefficients from
     the kernel polynomial (discrete cosine) sampling of func on the spectrum."""
     j = np.arange(order)
     xs = np.cos(np.pi * (j + 0.5) / order)

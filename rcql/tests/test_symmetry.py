@@ -90,9 +90,9 @@ def test_rcdb_reopen_uses_stored_boundaries_without_mutation(tmp_path):
     r, _, _ = setup()
     digest = object_digest(r)
     path = f"rex://{tmp_path / 'db'}"
-    with closing(rcdb.open_store(path)) as db:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as db:
         db.put("r", r)
-    with closing(rcdb.open_store(path)) as db:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as db:
         r = db.get("r")
         c = CoordinateComplex.from_rex(r)
         p = GradedMap(c, c, tuple(tuple((i, i, -1) for i in range(n)) for n in c.sizes))

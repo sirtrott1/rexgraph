@@ -13,9 +13,8 @@ the operator receiving it:
     read from which source and when   SourceRef, TemporalRef
     requiring what, causing what      capabilities, effects
 
-The first three fields are ``name``, ``grade`` and ``exactness`` in that order, because
-that was the whole of RCType before this and the extension has to be compatible rather
-than a replacement. Everything added is optional and defaults to unknown.
+The first three fields are ``name``, ``grade`` and ``exactness`` in that order.
+Additional fields are optional and default to unknown.
 
 Unknown is a real answer here and is distinct from a claim. ``exactness=None`` means the
 contract has not been established, which is what the current post execution dtype
@@ -260,6 +259,7 @@ class Effect(str, Enum):
 
 
 class ValueKind(str, Enum):
+    DATASET = "Dataset"
     """The families in the native value schema, plus the metadata readings that exist today.
 
     A name here is a language slot. Its presence is not permission to invent a formula for

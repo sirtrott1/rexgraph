@@ -26,7 +26,7 @@ __all__ = ["relation_field", "semantic_gram", "semantic_spread", "significance"]
 
 
 def relation_field(rex, edges=None):
-    """(V, Q) - the embedding and its quadrances.
+    """(V, Q): the embedding and its quadrances.
 
     V is `nV x len(edges)`, column `i` being `L0^+ b_e` for relation `edges[i]`.
     Q[i] = <V[:,i], V[:,i]>_L = R_eff(edges[i]), summing to rank(B1) over everything.

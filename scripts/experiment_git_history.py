@@ -15,9 +15,23 @@ from fractions import Fraction
 import hashlib
 import importlib.metadata
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
+
+
+def package_version(name):
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError as exc:
+        repository = Path(__file__).resolve().parents[1]
+        package = {"rexgraph": "", "rexgraph-rcql": "rcql", "rexgraph-rcdb": "rcdb"}[name]
+        metadata = (repository / package / "pyproject.toml").read_text()
+        match = re.search(r'^version\s*=\s*"([^"]+)"', metadata, flags=re.MULTILINE)
+        if match is None:
+            raise RuntimeError(f"missing source version for {name}") from exc
+        return match.group(1)
 
 
 def git(repo, *args):
@@ -143,7 +157,7 @@ def run(repo, output, revision="HEAD", limit=100, min_touches=1, stride=20):
     from rexgraph.graph import TemporalRex
     from rexgraph.io.catalog import object_digest
     from rcql import Executor, parse
-    from rcdb import RexStore
+    from rcdb import LocalStore
 
     if isinstance(stride, bool) or not isinstance(stride, int) or stride <= 0:
         raise ValueError("snapshot stride must be a positive integer")
@@ -157,7 +171,7 @@ def run(repo, output, revision="HEAD", limit=100, min_touches=1, stride=20):
     marks = [*range(stride, len(cells), stride), len(cells)]
     timeline = TemporalRex([])
     records = []
-    with closing(RexStore(str(output / "history.rex"))) as store:
+    with closing(LocalStore(str(output / "history.rcdb"))) as store:
         for step, count in enumerate(marks):
             rex = snapshot(files, cells[:count])
             # Git timestamps may tie or reverse. Temporal steps follow ancestry;
@@ -167,7 +181,7 @@ def run(repo, output, revision="HEAD", limit=100, min_touches=1, stride=20):
                       meta={"commit": cells[count-1]["sha"], "relations": count})
             records.append({"version": step + 1, "valid_time": cells[count-1]["time"],
                             "state_digest": object_digest(rex), **measure(rex)})
-    with closing(RexStore(str(output / "history.rex"))) as store:
+    with closing(LocalStore(str(output / "history.rcdb"))) as store:
         executor = Executor(sources={"db": store, "timeline": timeline})
         for record in records:
             result = executor.execute(parse(
@@ -227,7 +241,7 @@ def run(repo, output, revision="HEAD", limit=100, min_touches=1, stride=20):
               "environment": {"python": sys.executable, "rexgraph": rexgraph.__file__,
                   "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                   "compiled_sparse": _sparse.__file__, "numpy": np.__version__,
-                  "versions": {name: importlib.metadata.version(name)
+                  "versions": {name: package_version(name)
                                for name in ("rexgraph", "rexgraph-rcql", "rexgraph-rcdb")}}}
     def encode(value):
         if isinstance(value, Fraction):

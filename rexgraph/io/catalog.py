@@ -9,11 +9,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .manifest import manifest_digest
-
-OBJECT_IDENTITY_VERSION = 2
+from rexgraph.object_identity import (
+    OBJECT_IDENTITY_VERSION,
+    object_digest,
+    state_object_digest,
+)
 
 _RCDB_FILES = {
+    ".rcdb-identity",
+    "store.header",
+    "store.head",
+    "records.journal",
     "MANIFEST.json",
     "records.log",
     "blobs.pack",
@@ -24,7 +30,7 @@ _RCDB_FILES = {
     "index.json",
     "index.log",
 }
-_RCDB_DIRS = {"blobs", "commits"}
+_RCDB_DIRS = {"blobs", "commits", "journal", "frames"}
 _CHUNK = 1024 * 1024
 
 __all__ = [
@@ -343,38 +349,6 @@ class FileCatalog:
         )
 
 
-def object_digest(value: Any) -> str:
-    """Return a semantic identity for a ``RexGraph`` or verified ``TemporalRex``."""
-    from rexgraph.graph import TemporalRex
-
-    if isinstance(value, TemporalRex):
-        from rexgraph.io.temporal_state import to_temporal_state, verify_temporal_state
-
-        state = to_temporal_state(value)
-        if not verify_temporal_state(state):  # pragma: no cover - writer invariant
-            raise ValueError("could not produce a verified TemporalState identity")
-        return str(state.header["digest"])
-
-    from rexgraph.io.rex_state import to_state
-
-    return state_object_digest(to_state(value))
-
-
-def state_object_digest(state: Any) -> str:
-    """Return semantic identity directly from a verified canonical ``RexState``."""
-    from rexgraph.io.rex_state import RexState, verify_state
-
-    if not isinstance(state, RexState) or not verify_state(state):
-        raise ValueError("a verified canonical RexState is required")
-    return manifest_digest(
-        {
-            "header": state.header,
-            "object_identity_version": OBJECT_IDENTITY_VERSION,
-            "object_type": "RexGraphState",
-        }
-    )
-
-
 def _read_json(path: Path, *, max_bytes: int = 4 * 1024 * 1024) -> Any:
     """Read one bounded JSON metadata file."""
     size = path.stat().st_size
@@ -407,19 +381,29 @@ def _walk(root: Path):
 
 def _kind(path: Path) -> str | None:
     if path.is_dir():
+        # These are authoritative native ownership/history markers. Keep even
+        # damaged or partial stores opaque; their injected RCDB loader verifies
+        # them. Discovery must never expose their payloads as standalone files.
+        if any((path / name).exists() and not (path / name).is_symlink()
+               for name in ("store.header", "store.head", "records.journal")):
+            return "rcdb"
+        # Retain the object store boundary even when its manifest is damaged.
+        # Its journal/payload objects are not standalone mathematical sources.
+        if (path / "journal").is_dir() and (path / "blobs").is_dir():
+            return "rcdb"
         if (path / "zarr.json").is_file() or (path / ".zgroup").is_file():
             return "zarr"
         manifest = path / "MANIFEST.json"
         if manifest.is_file():
             try:
                 data = _read_json(manifest)
-            except Exception:  # noqa: BLE001 - malformed candidates are not entries
+            except Exception:  # noqa: BLE001  # malformed candidates are not entries
                 data = {}
             if isinstance(data, dict) and data.get("magic") == "rcbd-bundle":
                 return "rcbd"
             if isinstance(data, dict) and data.get("magic") == "rex-bundle":
                 return "rex-legacy"
-            if isinstance(data, dict) and data.get("format") in {"rcdb-file", "rexstore"}:
+            if isinstance(data, dict) and data.get("format") in {"rcdb-file", "rexstore", "rexdb-object"}:
                 return "rcdb"
         if all((path / name).exists() for name in ("records.log", "blobs.pack")):
             return "rcdb"
@@ -514,7 +498,7 @@ def _metadata(path: Path, kind: str) -> dict[str, Any]:
                 "state_digest": data.get("digest"),
                 "tensors": len(data.get("tensor_names", ())),
             }
-        except Exception:  # noqa: BLE001 - metadata is optional catalog detail
+        except Exception:  # noqa: BLE001  # metadata is optional catalog detail
             return {}
     if kind == "rcbf":
         return {"object_type": "RCBF"}
@@ -535,7 +519,7 @@ def _metadata(path: Path, kind: str) -> dict[str, Any]:
                 "state_digest": data.get("digest"),
                 "tensors": tensors,
             }
-        except Exception:  # noqa: BLE001 - malformed metadata does not expose file contents
+        except Exception:  # noqa: BLE001  # malformed metadata does not expose file contents
             return {"object_type": "Safetensors"}
     if kind == "encrypted":
         try:
@@ -551,7 +535,7 @@ def _metadata(path: Path, kind: str) -> dict[str, Any]:
                 header = handle.read(length)
             info = envelope_info(prefix + header)
             return {"object_type": info.object_type}
-        except Exception:  # noqa: BLE001 - public envelope metadata is best effort
+        except Exception:  # noqa: BLE001  # public envelope metadata is best effort
             return {"object_type": "EncryptedEnvelope"}
     if kind == "transport":
         try:
@@ -567,7 +551,7 @@ def _metadata(path: Path, kind: str) -> dict[str, Any]:
                 header = handle.read(length)
             info = inspect(prefix + header)
             return {"object_type": info.object_type}
-        except Exception:  # noqa: BLE001 - public transport metadata is best effort
+        except Exception:  # noqa: BLE001  # public transport metadata is best effort
             return {"object_type": "RexTransport"}
     if kind == "rcdb":
         return {"object_type": "RCDB"}

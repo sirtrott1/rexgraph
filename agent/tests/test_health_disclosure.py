@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 def server(tmp_path, monkeypatch):
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("REXGRAPH_AUDIT_JOURNAL", str(tmp_path / "audit.jsonl"))
-    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"file://{tmp_path}/rcdb")
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"local://{tmp_path}/rcdb")
     from agent.server import audit, auth
     auth.reset_auth_manager(); audit.reset_cache()
     from agent.server.app import app

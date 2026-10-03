@@ -74,7 +74,7 @@ def test_the_analytics_columns_are_off_by_default_and_betti_is_not(corpus):
 # resume
 
 def test_a_second_run_over_the_same_paths_writes_nothing(tmp_path, corpus):
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     first = ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
     assert first["written"] == 3 and first["failed"] == 0
 
@@ -85,7 +85,7 @@ def test_a_second_run_over_the_same_paths_writes_nothing(tmp_path, corpus):
 
 
 def test_a_resumed_run_finishes_only_the_remainder(tmp_path, corpus):
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus[:1], store, profile=ENGLISH_GUTENBERG, workers=2)
     assert pending(store, corpus) == corpus[1:]
     rest = ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
@@ -96,7 +96,7 @@ def test_a_resumed_run_finishes_only_the_remainder(tmp_path, corpus):
 def test_resume_off_is_how_a_real_new_version_is_written(tmp_path, corpus):
     """Appending a version is correct when it is MEANT: the resume filter exists so it
     is never an accident."""
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus[:1], store, profile=ENGLISH_GUTENBERG, workers=2)
     ingest_corpus(corpus[:1], store, profile=ENGLISH_GUTENBERG, workers=2, resume=False)
     assert len(store.history(doc_id_for(corpus[0]))) == 2
@@ -109,7 +109,7 @@ def test_a_file_that_fails_is_recorded_and_the_run_continues(tmp_path):
     good = tmp_path / "good.txt"
     good.write_text(_BOOK, encoding="utf-8")
     missing = str(tmp_path / "not-here.txt")
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     out = ingest_corpus([str(good), missing], store, profile=ENGLISH_GUTENBERG,
                         workers=2)
     assert out["written"] == 1
@@ -120,7 +120,7 @@ def test_a_file_that_fails_is_recorded_and_the_run_continues(tmp_path):
 
 
 def test_an_empty_corpus_is_not_an_error(tmp_path):
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     assert ingest_corpus([], store, profile=ENGLISH_GUTENBERG)["total"] == 0
 
 
@@ -131,7 +131,7 @@ def test_the_layers_survive_into_the_store(tmp_path, corpus):
     what make a section addressable."""
     from rexgraph.sectioning import sectionings_of
 
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
     rex = store.get(doc_id_for(corpus[0]))
     got = sectionings_of(rex)
@@ -145,7 +145,7 @@ def test_the_heap_pointer_resolves_to_the_documents_own_prose(tmp_path, corpus):
     from rexgraph.document import section_text
     from rexgraph.sectioning import sectionings_of
 
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
     rec = store.get_record(doc_id_for(corpus[0]))
     assert rec.meta["encoding_exact"] is True
@@ -172,15 +172,15 @@ def test_the_heap_pointer_is_withheld_when_spans_cannot_address_the_file(tmp_pat
 
 
 def test_every_record_is_tagged_so_the_corpus_is_separable(tmp_path, corpus):
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
     rec = store.get_record(doc_id_for(corpus[0]))
     assert set(DOC_TAGS) <= set(rec.signature.get("tags", []))
 
 
-def test_the_id_is_stable_across_runs_and_directories():
-    assert doc_id_for("/a/b/pg102.txt") == "pg102"
-    assert doc_id_for("/other/pg102.txt") == doc_id_for("/a/b/pg102.txt")
+def test_the_id_is_stable_for_a_declared_source_and_distinct_across_directories():
+    assert doc_id_for("/a/b/pg102.txt") == doc_id_for("/a/b/./pg102.txt")
+    assert doc_id_for("/other/pg102.txt") != doc_id_for("/a/b/pg102.txt")
 
 
 # the blob is framed and compressed
@@ -238,22 +238,28 @@ def test_digests_are_derived_so_compression_actually_reaches_the_blob(corpus):
 
 # migrating a store written before compression
 
-def _write_legacy_blobs(store):
-    """Rewrite every blob as raw, uncompressed bytes: a store from before framing."""
+def _write_legacy_blobs(store, *, compressed=False):
+    """Build genuine unbound legacy records, before address envelopes existed."""
     from agent.rcdb import decompress_blob
+    from rcdb.envelope import RecordEnvelope
     n = 0
-    for id_ in list(store._idx):
-        for rec in store.history(id_):
+    for versions in store._idx.values():
+        for rec in versions:
             p = store._blob_path(rec.id, rec.version)
-            raw = pathlib.Path(p).read_bytes()
+            _envelope, payload = RecordEnvelope.from_bytes(pathlib.Path(p).read_bytes())
+            raw = payload if compressed else decompress_blob(payload)
             with open(p, "wb") as fh:
-                fh.write(decompress_blob(raw))
+                fh.write(raw)
+            rec.envelope = None
             n += 1
+    # Compaction normally rereads the durable log. This fixture intentionally
+    # replaces both claims, so publish the modified records rather than that log.
+    store._write_index(store._idx)
     return n
 
 
 def test_recompress_shrinks_a_legacy_store_and_keeps_every_complex(tmp_path, corpus):
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
     before = {r: (int(store.get(r).nV), int(store.get(r).nE)) for r in list(store._idx)}
     assert _write_legacy_blobs(store) == 3
@@ -269,7 +275,7 @@ def test_recompress_shrinks_a_legacy_store_and_keeps_every_complex(tmp_path, cor
 def test_recompress_is_idempotent(tmp_path, corpus):
     """An already framed blob is skipped, so running it twice costs nothing and a store
     is never double compressed."""
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
     first = store.recompress()
     assert first["rewritten"] == 0 and first["skipped"] == 3
@@ -280,7 +286,7 @@ def test_recompress_is_idempotent(tmp_path, corpus):
 def test_a_blob_that_cannot_be_read_is_left_alone(tmp_path, corpus):
     """Verify then replace. A failure must leave the original byte for byte, because a
     migration that damages what it cannot convert is worse than one that refuses."""
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
     _write_legacy_blobs(store)
     victim = store._blob_path(doc_id_for(corpus[0]), 1)
@@ -299,13 +305,13 @@ def test_recompress_gives_the_same_answer_on_a_worker_pool(tmp_path, corpus):
     byte identical input, so the store is COPIED rather than ingested twice."""
     import shutil
 
-    src = FileStore(str(tmp_path / "serial"))
+    src = FileStore(str(tmp_path / "serial"), read_only=False)
     ingest_corpus(corpus, src, profile=ENGLISH_GUTENBERG, workers=2)
     _write_legacy_blobs(src)
     shutil.copytree(tmp_path / "serial", tmp_path / "pool")
 
-    a = FileStore(str(tmp_path / "serial")).recompress(workers=1)
-    b = FileStore(str(tmp_path / "pool")).recompress(workers=3)
+    a = FileStore(str(tmp_path / "serial"), read_only=False).recompress(workers=1)
+    b = FileStore(str(tmp_path / "pool"), read_only=False).recompress(workers=3)
     assert a["rewritten"] == b["rewritten"] == 3
     assert a["failed"] == b["failed"] == 0
     assert a["before"] == b["before"], "the two arms must start from the same bytes"
@@ -317,7 +323,7 @@ def test_recompress_gives_the_same_answer_on_a_worker_pool(tmp_path, corpus):
     # which is worth knowing before anyone tries to dedupe blobs by hashing them.
     assert abs(a["after"] - b["after"]) <= 8 * a["rewritten"]
     for name in ("serial", "pool"):
-        store = FileStore(str(tmp_path / name))
+        store = FileStore(str(tmp_path / name), read_only=False)
         for r in list(store._idx):
             assert store.get(r) is not None
 
@@ -325,8 +331,9 @@ def test_recompress_gives_the_same_answer_on_a_worker_pool(tmp_path, corpus):
 def test_force_rewrites_an_already_framed_blob(tmp_path, corpus):
     """The magic says a blob is compressed, not which rex state format_version it holds.
     When the format moves, a store that is already framed still needs rewriting."""
-    store = FileStore(str(tmp_path / "store"))
+    store = FileStore(str(tmp_path / "store"), read_only=False)
     ingest_corpus(corpus, store, profile=ENGLISH_GUTENBERG, workers=2)
+    _write_legacy_blobs(store, compressed=True)
     assert store.recompress()["rewritten"] == 0, "framed, so skipped"
     out = store.recompress(force=True)
     assert out["rewritten"] == 3 and out["failed"] == 0

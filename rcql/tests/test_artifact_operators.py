@@ -275,7 +275,7 @@ def test_rcdb_partition_artifact_roundtrip_preserves_state_and_lineage(rex, serv
     from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
     from rexgraph.io.catalog import object_digest
     uri = f"rex://{tmp_path / 'store'}"
-    store = rcdb.open_store(uri)
+    store = rcdb.open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         store.put("r", rex, analytics=False)
         before = store.read_record("r")
@@ -301,7 +301,7 @@ def test_rcdb_partition_artifact_roundtrip_preserves_state_and_lineage(rex, serv
         assert store.read_record("r").record.version == before.record.version
     finally:
         store.close()
-    store = rcdb.open_store(uri)
+    store = rcdb.open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         result = Executor(sources={"db": store}).execute(parse('FROM RCDB_GET($db,"child") RETURN HASH(), ARITY(CELL(1,0))'))
         assert result.values == (partition.state.result_state, 4)

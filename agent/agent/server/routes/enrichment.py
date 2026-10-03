@@ -53,7 +53,7 @@ async def run_enrichment(
             origins.append(name)
         try:
             k = join(*paths, origins=origins)
-        except Exception as e:                     # noqa: BLE001 - caller's input
+        except Exception as e:                     # noqa: BLE001  # caller's input
             raise HTTPException(400, str(e)[:300]) from e
 
         out = enrich(k, study_set, universe=_split(universe) or None,

@@ -2,6 +2,34 @@
 
 RCQL is the typed query and mutation layer for relational complexes.
 
+## Portable exact results
+
+`Result.to_bytes()` and `Result.from_bytes(payload)` preserve exact values,
+arithmetic declarations, aliases, plans, rewrites, provenance and execution
+records. Graph results carry native sealed states. Chains and cochains retain
+their variance and share the reconstructed source graph when they use the same
+basis. Decoding validates integrity and reconstructs values without running a
+query. The default artifact limit is 64 MiB; pass `max_bytes` to either method
+to choose another limit.
+
+The portable inventory includes the core closed scalar/tensor values, nested
+lists/maps, static and temporal graphs, declared Relations, chains and cochains,
+partitions with lineage, retained tensor fields and channels, sections, models,
+spans, and finite program declarations and transformations. Shared graph and
+FieldSource bindings retain their reference identity; detached sources remain
+detached. No program executes during decoding. A live operator or another value
+without a portable codec raises `TypeError`; request its explicit reading or
+use its dedicated artifact contract. System's JSON response is a bounded
+preview. Large integers use decimal text records, and absence and approximation
+have distinct tags. Parquet export preserves exact coefficient columns and
+partition lineage.
+
+New query cache entries store the same `Result.to_bytes()` payload used for
+downloads. Cache identity includes the implementation and declared input
+identities; reuse checks dependency bindings before returning a result. Older
+cache manifests retain a read compatibility path. Portable result framing and
+graph identity do not certify a live operator that has no portable codec.
+
 ## Certified name transformations
 
 `ProgramTransformation` retains an original name declaration, a candidate,
@@ -335,10 +363,6 @@ operations with explicit union coordinates and correspondence contracts.
 Primary document fields describe query mass,
 coverage, stored section responses and structural closure. These use explicit
 source coordinates and Core rational kernels, without a text similarity graph.
-Their installed acceptance records the
-native checks, storage roundtrips, exactness repairs and measured arithmetic cost.
-The ratio execution repair removes the initial
-accumulation slowdown using checked compiled integers and local promotion.
 The critical family requires explicit weights
 and channels and reports its numerical arithmetic. The
 exact certificates cover adjugate actions
@@ -415,12 +439,10 @@ fields. RCDB remains the versioned, signed lineage workflow.
 
 ## Mathematical contracts
 
-The native math modules are included in built wheels. See the
-isolated packaging verification for build/import
-provenance and installed package test coverage.
+The native math modules are included in built wheels.
 
 
-The native core's coupled field repair preserves
+The native core's coupled field preserves
 the defined coupling while supporting indefinite heat/wave evolution, arbitrary
 initial velocity and sparse full SPD metrics. This is a numerical runtime
 prerequisite, not a new field evolution grammar form or an exact exponential.
@@ -455,6 +477,30 @@ lineage, transport and provider operations with explicit in memory contracts.
 The partition operators expose stored face
 containment and explicit downward closed restriction. They preserve primary
 arity, identities and exact higher storage without requiring SciPy.
+
+`PARTITION` and `RESTRICT` default to `carried_state="structural"`, which omits
+application state. `PARTITION(CELL(3,0), carried_state="all")` carries metadata,
+signals, retained attachments and sectionings through Core component transport.
+`TRAINING_PARTITION` accepts the same option in its explicit policy mapping;
+the normalized policy digest binds the choice. All modes retain exact declared
+shares and source metric presence, and all selected upper cells retain their full
+downward closure.
+
+Python `Selection` and `GradedCellPattern` parameters select several grades in
+one `PARTITION`, `RESTRICT` or `QUOTIENT`. They must be bound to the current
+source. `PARTITION(...).lineage` exposes declared read only state, sizes, requests,
+maps, parent digests and content identity. Method calls are not query members.
+
+`FROM $graph LET a=PARTITION(CELL(1,0)) LET b=PARTITION(CELL(1,1))
+RETURN GLUE_PARTITIONS([a,b])` reconstructs their verified union in `$graph`'s
+original basis. `carried_state="all"` requires all parts to carry application
+state; modified or foreign parts are refused. This operation delegates to Core
+`glue`; the existing `GLUE` operator retains its section contract. Portable result
+artifacts and caches retain selections, shared source references and complete
+lineage. A lineage content hash alone does not prove a derivation or authorize it.
+`HASH(p.lineage,"lineage")`, `LINEAGE(p.lineage)` and `MANIFEST(p.lineage)` use
+the complete lineage identity. For compatibility, the same operators on `p`
+retain the older `PartitionState` summary and its distinct digest domain.
 
 `FROM $graph RETURN SHOW_OPERATORS()` returns the current global inventory;
 `SHOW_OPERATORS(25, 0)` paginates it. Python callers can use
@@ -600,8 +646,7 @@ FROM $graph RETURN INTEGRATE($omega, $chain, exact=true)
 `INTEGRATE` evaluates a Cochain on a Chain with matching source, grade, ordered
 basis and shape. This canonical bilinear dual pairing has no implicit metric
 or complex conjugation; it is distinct from `MOMENT`. Exact mode uses Q and
-the boundary/coboundary operations obey finite Stokes. See
-integration contracts and tests.
+the boundary/coboundary operations obey finite Stokes.
 
 Here `$u`, `$v` and `$weights` are bound C1 Cochains, not untyped arrays.
 `METRIC(grade)` is identity; explicit weights must be strictly positive and on
@@ -712,6 +757,46 @@ accession lookup, induced boundary solving, homotopies and temporal accession
 transport remain future work.
 
 ## Local artifacts
+
+Declared datasets are pinned explicitly by the application:
+
+```python
+from io import StringIO
+from rcql import DatasetSource, run
+from rexgraph import RelationSpec
+from rexgraph.io.declaration import DatasetDeclaration
+from rexgraph.io.records import RecordField, RecordSchema
+
+declaration = DatasetDeclaration(
+    "csv", RecordSchema((RecordField("a"), RecordField("b"))),
+    RelationSpec("pair", ("a", "b")))
+data = DatasetSource(declaration, StringIO("a,b\nx,y\n"))
+result = run('FROM DATASET("edges") RETURN BETTI(0)',
+             sources={"edges": data}, exactness="exact")
+assert result.values == (1,)
+```
+
+DatasetSource uses Core's reader, construction and native state codecs. It owns
+a snapshot; changing an input file or a previously materialized graph requires
+a new binding. Its declaration/reader/state identity travels in SourceRef names
+and cache keys. Policies are checked before materialization and retained by the
+graph binding. Query text only resolves registered names, never paths. The
+binding is a live capability; persist DatasetDeclaration and native records
+through RCDB rather than serializing a live input handle.
+
+`SourceSignature`, `SourceRegistry` and `SOURCES` provide the shared trusted source
+classification registry. Explicit priorities preserve the existing source order;
+equal priority matches refuse. Persisted names never load signature providers.
+
+`run(text_or_query, sources=..., params=..., exactness="declared", cache=None)`
+delegates to Executor and QueryCache. The default retains declared arithmetic.
+`"exact"` accepts finite read only queries without MATCH, refuses effectful
+operations before execution, and rejects approximate/rounded numeric outputs,
+including mixed mappings, sequences and object arrays. It performs no numeric
+conversion. Structural sources and descriptors retain their structural contract;
+their annotations are not reinterpreted as numeric output. The request is retained
+in provenance and cache identity. This policy does not change a numerical operator
+into an exact implementation.
 
 RCQL reads registered `FileCatalog` sources. It does not expose a general filesystem primitive. File names are catalog relative names and the catalog resolves and rechecks them before each access.
 

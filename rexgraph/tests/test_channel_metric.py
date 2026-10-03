@@ -52,7 +52,7 @@ def test_chi_matches_the_external_oracle(w, T, G, F, C):
 
 
 def test_the_channels_move_with_the_metric():
-    """The property the old path lacked: it returned 0.250000 at every weight."""
+    """Channel characters respond to changes in the grade metric."""
     a = np.asarray(_triangle(1.0).structural_character)[0]
     b = np.asarray(_triangle(5.0).structural_character)[0]
     assert abs(a[0] - b[0]) > 1e-6

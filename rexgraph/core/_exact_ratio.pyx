@@ -68,7 +68,9 @@ cdef inline bint _accumulate(int64_t *row, int64_t n, int64_t d,
         left, right = d / divisor, row[2] / divisor
         if not _multiply(row[2], left, &common):
             return False
-    if not _multiply(row[0], left, &a) or not _multiply(n, right, &b):
+    if not _multiply(row[0], left, &a):
+        return False
+    if not _multiply(n, right, &b):
         return False
     if not _add(a, b, &total):
         return False
@@ -126,7 +128,9 @@ def axis_ratio(const int64_t[::1] item,
     each finished rational is converted once to its nearest float.
     """
     cdef Py_ssize_t i, m = item.shape[0], out_n
-    cdef int64_t it, v, g, n, d, common = 1, magnitude = 0, bound = 0
+    # n/d are assigned on every value producing path below; explicit safe
+    # initializers also make that invariant visible to the generated C compiler.
+    cdef int64_t it, v, g, n = 0, d = 1, common = 1, magnitude = 0, bound = 0
     cdef bint coverage = mode == COVERAGE
     cdef bint absolute = mode == ABS
     cdef bint retain_exact

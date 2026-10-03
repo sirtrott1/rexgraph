@@ -205,7 +205,7 @@ def _pdf_to_images(pdf_path: str, dpi: int = 300) -> list[str]:
             future = pool.submit(_pdf_to_images_worker, pdf_path, tmp_dir, dpi)
             future.result(timeout=300)
     except (FuturesTimeout, Exception) as e:
-        # Subprocess died (segfault, timeout, etc.) - check if it
+        # Subprocess died (segfault, timeout, etc.): check if it
         # managed to write any pages before dying
         existing = sorted(
             f for f in os.listdir(tmp_dir)
@@ -1118,7 +1118,7 @@ class MistralOCRClient:
     ) -> OCRBatchResult:
         """Run OCR on a PDF document via the Mistral API.
 
-        Mistral OCR supports PDFs natively - no page to image
+        Mistral OCR supports PDFs natively: no page to image
         conversion is needed.
         """
         start = time.time()
@@ -1340,7 +1340,7 @@ def create_ocr_client(
             logger.warning("OCR server at %s not available, trying other backends", url)
             # Fall through to auto detect chain instead of returning unavailable client
 
-    # Try PaddleOCR (free, local) - skip on ROCm (paddle needs CUDA, segfaults on AMD)
+    # Try PaddleOCR (free, local): skip on ROCm (paddle needs CUDA, segfaults on AMD)
     _skip_paddle = shutil.which("rocminfo") is not None
     if _skip_paddle:
         logger.info("Skipping PaddleOCR (ROCm detected, paddle requires CUDA)")

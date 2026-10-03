@@ -15,8 +15,8 @@ Functions
 
 entity_bioes_matrix   - N × T tag matrix from birth/death, single nogil pass
 entity_bioes_gapped   - gap aware tagging (re appearance = new span)
-vertex_lifecycle      - per vertex birth/death tracking
-cross_document_stats  - summary statistics with document boundaries
+vertex_lifecycle: per vertex birth/death tracking
+cross_document_stats: summary statistics with document boundaries
 persistence_spectrum  - lifespan distribution for persistence analysis
 """
 
@@ -33,7 +33,7 @@ from rexgraph.core._common cimport i32, i64, f64
 
 np.import_array()
 
-# Tags - same values as _temporal.pyx
+# Tags: same values as _temporal.pyx
 cdef enum:
     TAG_B = 0
     TAG_I = 1
@@ -104,13 +104,13 @@ def entity_bioes_matrix(np.ndarray[i32, ndim=1] birth,
 
     Parameters
 
-    birth : i32[N]   - per entity first seen snapshot index
-    death : i32[N]   - per entity snapshot AFTER last presence (-1 = alive)
-    T     : int      - total number of snapshots
+    birth : i32[N]  : per entity first seen snapshot index
+    death : i32[N]  : per entity snapshot AFTER last presence (-1 = alive)
+    T     : int     : total number of snapshots
 
     Returns
 
-    tags : i32[N, T]  - tag matrix (0=B 1=I 2=O 3=E 4=S)
+    tags : i32[N, T] : tag matrix (0=B 1=I 2=O 3=E 4=S)
     """
     cdef Py_ssize_t N = birth.shape[0]
     cdef np.ndarray[i32, ndim=2] tags = np.full((N, T), TAG_O, dtype=np.int32)
@@ -135,7 +135,8 @@ def entity_bioes_matrix(np.ndarray[i32, ndim=1] birth,
 
 def entity_bioes_gapped(list snapshots,
                         np.ndarray[i64, ndim=1] edge_ids,
-                        bint directed=False):
+                        bint directed=False,
+                        bint general=False):
     """Gap aware per entity BIOES tagging.
 
     Tracks actual per snapshot presence and creates separate B-I-E
@@ -144,14 +145,20 @@ def entity_bioes_gapped(list snapshots,
 
     Parameters
 
-    snapshots  : list of (i32 src, i32 tgt) per timestep
+    snapshots  : list of (i32 src, i32 tgt) per timestep, or, when `general`,
+                 one i64 relation id array per timestep.  A relation of arity
+                 other than two has no (src, tgt) to encode, so the pairwise
+                 key cannot name it and every branching relation would read as
+                 absent at every step.  Its identity is the relation id the
+                 snapshot already carries, and `general` says to use it.
     edge_ids   : i64[N] sorted unique IDs from edge_lifecycle
-    directed   : bool
+    directed   : bool, pairwise only; a relation id needs no orientation policy
+    general    : bool
 
     Returns
 
     tags    : i32[N, T]
-    n_spans : i32[N]  - contiguous appearance count per entity
+    n_spans : i32[N] : contiguous appearance count per entity
     """
     cdef Py_ssize_t T = len(snapshots), N = edge_ids.shape[0]
     cdef Py_ssize_t t, j, nE
@@ -174,8 +181,21 @@ def entity_bioes_gapped(list snapshots,
     cdef i32 *sptr
     cdef i32 *tptr_s  # renamed to avoid shadow
     cdef Py_ssize_t row_idx
+    cdef np.ndarray[i64, ndim=1] id_arr
+    cdef i64 *idptr
 
     for t in range(T):
+        if general:
+            id_arr = np.ascontiguousarray(snapshots[t], dtype=np.int64)
+            nE = id_arr.shape[0]
+            idptr = <i64 *>id_arr.data
+            for j in range(nE):
+                key = idptr[j]
+                if key in eid_map:
+                    row_idx = <Py_ssize_t>eid_map[key]
+                    pptr[row_idx * T + t] = 1
+            continue
+
         s_arr = np.ascontiguousarray(snapshots[t][0], dtype=np.int32)
         t_arr = np.ascontiguousarray(snapshots[t][1], dtype=np.int32)
         nE = s_arr.shape[0]

@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from threading import Event
 
 import pytest
 from rexgraph.graph import RexGraph
 from rexgraph.io.catalog import object_digest
 
-from rcdb import FileStore, MemoryStore, ObjectStore, PublicationUncertainError, RexStore, SQLStore
+from rcdb import FileStore, LocalStore, MemoryStore, ObjectStore, PublicationUncertainError, RexStore, SQLStore
 from rcdb.core import serialize_complex, structural_signature
 
 
@@ -16,20 +17,22 @@ def rex(n=2):
     return RexGraph.from_graph(list(range(n)), list(range(1, n + 1)))
 
 
-@pytest.fixture(params=["memory", "file", "rex", "sql", "object"])
+@pytest.fixture(params=["memory", "file", "rex", "sql", "object", "local"])
 def store(request, tmp_path):
     if request.param == "memory":
         result = MemoryStore()
+    elif request.param == "local":
+        result = LocalStore(tmp_path / "local")
     elif request.param == "file":
-        result = FileStore(str(tmp_path / "file"))
+        result = FileStore(str(tmp_path / "file"), read_only=False)
     elif request.param == "rex":
-        result = RexStore(str(tmp_path / "rex"))
+        result = RexStore(str(tmp_path / "rex"), read_only=False)
     elif request.param == "sql":
         pytest.importorskip("sqlalchemy")
         result = SQLStore(f"sqlite:///{tmp_path / 'sql.db'}")
     else:
         pytest.importorskip("fsspec")
-        result = ObjectStore(f"file://{tmp_path / 'object'}")
+        result = ObjectStore(f"file://{tmp_path / 'object'}", read_only=False)
     yield result
     result.close()
 
@@ -100,7 +103,24 @@ def test_uncertain_publication_retains_the_staged_attestation(store, monkeypatch
     monkeypatch.setattr(store, "_put_impl", uncertain)
     with pytest.raises(PublicationUncertainError):
         store.commit_mutation("r", rex(), analytics=False)
-    assert store._load_commit_bytes("r", 1) is not None
+    if store.backend == "sql":
+        # SQL stages both sides in one database transaction. A failure before
+        # COMMIT rolls both back; it cannot leave an independently durable
+        # attestation. The conservative uncertain handle guard still applies.
+        with closing(SQLStore(store.conn_str)) as reopened:
+            assert reopened._load_commit_bytes("r", 1) is None
+            assert reopened.history("r") == []
+    elif store.backend == "local":
+        # Canonical engine handles also refuse internal reads after uncertain
+        # publication. A fresh recovery handle observes the retained artifact.
+        reopened = LocalStore(store.root)
+        try:
+            assert reopened._load_commit_bytes("r", 1) is not None
+            assert reopened.history("r") == []
+        finally:
+            reopened.close()
+    else:
+        assert store._load_commit_bytes("r", 1) is not None
     with pytest.raises(PublicationUncertainError, match="reopen and verify"):
         store.put_prepared("other", b"unused", {})
 
@@ -110,11 +130,11 @@ def test_failed_journal_never_exposes_an_orphan_payload_by_version(kind, tmp_pat
     if kind == "object":
         pytest.importorskip("fsspec")
         def factory():
-            return ObjectStore(f"file://{tmp_path / 'object'}")
+            return ObjectStore(f"file://{tmp_path / 'object'}", read_only=False)
         journal = "_write_journal"
     else:
         def factory():
-            return FileStore(str(tmp_path / "file"))
+            return FileStore(str(tmp_path / "file"), read_only=False)
         journal = "_append_log"
     store = factory()
     store.put("r", rex(), analytics=False)

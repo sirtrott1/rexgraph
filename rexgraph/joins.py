@@ -188,11 +188,9 @@ def join(rex_r, rex_s, *, how: str = "inner", labels_r=None, labels_s=None,
 
 
 def _carry_faces(rex_r, kept, joined) -> int:
-    """Bring R's faces across, but only the ones whose whole boundary survived.
+    """Carry faces whose complete boundary survives relation restriction.
 
-    A face over a relation that was not kept has nothing to bound, so carrying it would
-    break `B_1 B_2 = 0`. Restricting both operators together is what keeps the result a
-    complex rather than a pair of arrays that used to be one.
+    Restrict both boundary operators together to preserve B_1 B_2 = 0.
     """
     rex_r._ensure_clean()
     n_faces = int(getattr(rex_r, "_nF", 0) or 0)

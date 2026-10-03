@@ -101,12 +101,9 @@ def _dirac_low_spectrum(rex, k: int):
     k = int(min(k, n))
 
     def _dense_closest_to_zero():
-        """The k eigenvalues nearest zero, which is what which='SM' returns.
-
-        Sorting the whole spectrum and taking a prefix would return the k most NEGATIVE,
-        since D is indefinite. The selection is by magnitude and the result is then
-        sorted, so the two routes are comparable.
-        """
+        """The k eigenvalues nearest zero on the explicitly tiny compatibility path."""
+        from rexgraph.evaluator import require_small_dense_eigen
+        require_small_dense_eigen("legacy analysis Dirac spectrum", n)
         ev = np.linalg.eigvalsh(np.asarray(rex.dirac_operator, dtype=float))
         return np.sort(ev[np.argsort(np.abs(ev))[:k]])
 
@@ -127,8 +124,11 @@ def _dirac_low_spectrum(rex, k: int):
     D = sp.bmat(rows, format="csr")
     try:
         evals = sla.eigsh(D, k=k, which="SM", return_eigenvectors=False)
-    except Exception:                            # noqa: BLE001 - fall back to dense
-        return _dense_closest_to_zero()
+    except Exception as exc:
+        try:
+            return _dense_closest_to_zero()
+        except Exception as refused:
+            raise refused from exc
     return np.sort(np.asarray(evals, dtype=float))
 
 
@@ -148,13 +148,19 @@ def _low_frequencies(M, k: int):
     if n == 0:
         return []
     k = int(min(k, n))
+    from rexgraph.evaluator import require_small_dense_eigen
     if n <= 12 or k >= n - 1:
+        require_small_dense_eigen("legacy analysis low frequencies", n)
         evals = np.linalg.eigvalsh(M.toarray() if hasattr(M, "toarray") else M)
     else:
         try:
             evals = sla.eigsh(M.astype(np.float64), k=k, which="SA",
                               return_eigenvectors=False)
-        except Exception:                        # noqa: BLE001 - fall back to dense
+        except Exception as exc:
+            try:
+                require_small_dense_eigen("legacy analysis frequency fallback", n)
+            except Exception as refused:
+                raise refused from exc
             evals = np.linalg.eigvalsh(M.toarray() if hasattr(M, "toarray") else M)
     evals = np.sort(np.asarray(evals, dtype=float))[:k]
     return np.sqrt(np.maximum(evals, 0.0))
@@ -477,14 +483,7 @@ def analyze(
     mode_data = {}
     if has_field:
         try:
-            # The field block used to be the whole cost of this function: assembling M
-            # densely, taking its full eigendecomposition, and classifying every mode.
-            # Measured at nE=2396 that was 5.5s + 5.5s + 11.1s of a 37.8s call, and it
-            # scales cubically. `field_propagator` assembles the SAME operator sparsely
-            # (identical to 1e-9, 346x faster), the coupling is O(nnz), and the eight
-            # frequencies actually reported need eight eigenvalues rather than all of
-            # them. `full_field` restores the dense oracle, which is what the mode
-            # census needs, since classifying a mode needs its eigenvector.
+            # Read sparse field modes, coupling and residuals from field_propagator.
             from rexgraph.field_propagator import (
                 assemble_field_operator,
                 field_coupling,
@@ -505,11 +504,12 @@ def analyze(
                 f_evals, f_evecs, f_freqs = rex.field_eigen
                 field_evals = f_evals
                 mode_data = rex.classify_modes()
-                mt = mode_data.get('mode_type', [])
+                labels = np.asarray(mode_data.labels)
                 field_data.update({
-                    "n_edge_modes": int(np.sum(mt == 0)),
-                    "n_face_modes": int(np.sum(mt == 1)),
-                    "n_coupled_modes": int(np.sum(mt == 2)),
+                    "n_edge_modes": int(np.sum(labels == 0)),
+                    "n_face_modes": int(np.sum(labels == 1)),
+                    "n_coupled_modes": int(np.sum(labels == 2)),
+                    "n_resonant_modes": int(mode_data.n_resonant),
                     "top_freqs": [_round(f, 6) for f in f_freqs[:8]],
                 })
         except Exception:
@@ -810,9 +810,7 @@ def analyze(
             "alpha_G": _round(alpha_G),
             "alpha_T": _round(alpha_T),
             "fiedler_RL1": _round(fiedler_RL1),
-            # alpha_G is a RATIO, so its crossing is 1 and there is no band around it.
-            # The old "balanced if > 0.5" invented one: at 0.6 the ratio says topology
-            # is the stronger term by two thirds and the band said balanced.
+            # alpha_G compares the up sector and down sector trace squares; equality is 1.
             "interpretation": (
                 "geometry stronger" if alpha_G > 1
                 else ("balanced" if alpha_G == 1 else "topology stronger")
@@ -1180,7 +1178,9 @@ def analyze(
         strain = rex.rcfe_strain
         from rexgraph.core._sparse import to_scipy_csr
         B2h = rex.B2_hodge_sparse
-        bianchi_ok, bianchi_res = _rcfe.verify_bianchi(
+        # Read the weighted strain B1 @ diag(C) @ B2 separately from chain validity.
+        # Constant face boundary weights imply zero strain when B1 @ B2 = 0.
+        strain_vanishes, curvature_strain = _rcfe.verify_bianchi(
             to_scipy_csr(rex.B1_sparse),
             to_scipy_csr(B2h) if B2h is not None else None,
             curv, nE, rex.nF_hodge)
@@ -1188,8 +1188,11 @@ def analyze(
         export["rcfe"] = {
             "curvature": [_round(float(c), 6) for c in curv],
             "strain": _round(float(strain), 6),
-            "bianchi_ok": bool(bianchi_ok),
-            "bianchi_residual": _round(float(bianchi_res), 8),
+            "curvature_strain": _round(float(curvature_strain), 8),
+            "curvature_is_constant": bool(strain_vanishes),
+            # the law, exact and tolerance free, which is what this key always meant
+            "bianchi_ok": bool(rex.chain_valid),
+            "bianchi_residual": 0.0 if rex.chain_valid else _round(float(curvature_strain), 8),
         }
 
         # Void complex
@@ -1375,7 +1378,7 @@ def analyze_signal(
     Calls analyze() for base structural data, then appends signal specific
     data from rex.signal_dashboard_data(): perturbation trajectories,
     field diffusion, mode classification, BIOES tags, and cascade
-    activation - all precomputed in Python/Cython with zero JS math.
+    activation: all precomputed in Python/Cython with zero JS math.
 
     Parameters
 

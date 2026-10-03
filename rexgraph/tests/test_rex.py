@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._rex - structural operations for the relational complex.
+Tests for rexgraph.core._rex: structural operations for the relational complex.
 
 Verifies:
     - Edge classification (standard, self-loop, branching, witness)
@@ -413,20 +413,10 @@ def test_signed_gram_matches_the_dense_boundary_with_a_self_loop():
 
 
 def test_self_loop_limitations_that_remain_are_pinned():
-    """Two consequences of a self loop are NOT fixed by the dense accumulation, and
-    this pins them so a future change is deliberate rather than accidental.
+    """Self loops retain per occurrence magnitudes and cancel in the signed boundary.
 
-    1. The unsigned Gramian cannot be recovered from the dense SIGNED B1. L_O needs
-       per entry magnitudes (|-1| + |+1| = 2 at the shared vertex); the dense form has
-       already summed them to 0, and |0| = 0. |sum| != sum|.|, so the kernel is right
-       and the dense signed view simply cannot express it.
-    2. RESOLVED, and not by the change I first credited. beta_1 undercounted a self loop
-       because the EXACT RANK was wrong: a self loop stores -1 and +1 at the same
-       (row, col), the reduction built each column with a dict, and the unsummed pair
-       overwrote rather than cancelled, so a zero column took a spurious pivot. With that
-       fixed beta_1 is 2 here (parallel pair + self loop), which is the value this
-       docstring used to call the mathematically correct one, and Euler closes. See
-       test_beta0_rank.py::test_a_self_loop_does_not_inflate_the_rank.
+    The unsigned Gramian uses |-1| + |+1| before accumulation. Exact rank cancels
+    the repeated signed entries; beta_1 counts the parallel pair and self loop.
     """
     import numpy as np
 

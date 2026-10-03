@@ -1,22 +1,7 @@
-"""Every place that states a version must state the same one.
+"""Check all five distribution versions and their sibling dependency floors.
 
-There are eleven, because each serves something that cannot read the others: meson needs
-its own at configure time, pip reads pyproject before any code runs, and `__version__`
-has to answer without the package being installed. None of them is removable without
-giving something up, so instead of one source of truth there is one test.
-
-It matters more than it did. rcdb, rcql and system are their own distributions now, and
-RCQL 1.2.2 reads core modules that 1.2.1 does not have, so every inter distribution floor
-was raised to >=1.2.2. That floor rejects a sibling before 1.2.2; it does not pin the five
-to each other, and a later release can still resolve an older one unless its own floor
-moves. What this test guarantees is the half that is checkable here: this source release
-states 1.2.2 in every one of the eleven places that state a version.
-
-It is here because the drift already happened: meson.build sat at 1.0.1 against a 1.0.6
-package through two releases. Nothing was mis built, since pyproject is what
-meson-python packages from, but `meson dist` produced a tarball named 1.0.1 and anyone
-reading meson.build got the wrong answer. A mismatch is silent everywhere it matters
-until it is embarrassing, which is the kind worth a test rather than a convention.
+The eleven version declarations cover pyproject metadata, Meson and package
+__version__ values. Runtime imports must report the declared release.
 """
 
 from __future__ import annotations
@@ -37,12 +22,7 @@ def _module_version(p):
     return re.search(r'^__version__\s*=\s*"([^"]+)"', p.read_text(), re.M).group(1)
 
 
-#: every file that names a version, and how to get it out.
-#:
-#: There are eleven now rather than five, because rcdb, rcql and system became
-#: distributions of their own. A package declaring one version while its distribution
-#: declares another is what makes a floor meaningless, and each package's own test proves
-#: only that it agrees with ITSELF, so the cross distribution check lives here.
+# Version declarations and their readers.
 SOURCES = {
     "pyproject.toml": _toml_version,
     "agent/pyproject.toml": _toml_version,
@@ -94,13 +74,63 @@ def test_the_runtime_version_is_the_declared_one():
     assert rexgraph.__version__ == _declared()["pyproject.toml"]
 
 
+@pytest.mark.skipif(not (ROOT / "pyproject.toml").exists(), reason="not a source checkout")
+def test_sibling_dependency_floors_cover_the_current_shared_contracts():
+    version = _declared()["pyproject.toml"]
+    for name in ("agent", "rcdb", "rcql", "system"):
+        project = tomllib.loads((ROOT / name / "pyproject.toml").read_text())["project"]
+        dependencies = project.get("dependencies", []) + [
+            item for extra in project.get("optional-dependencies", {}).values() for item in extra]
+        for dependency in dependencies:
+            if re.match(r"rexgraph(?:-(?:rcdb|rcql|system|agent))?>=", dependency):
+                assert dependency.split(">=", 1)[1] == version, (name, dependency, version)
+
+
 @pytest.mark.skipif(not (ROOT / "pyproject.toml").exists(),
                     reason="not a source checkout")
 def test_the_version_is_a_release_number():
     """Three dot separated numbers, optionally a pre release suffix.
 
     Guards the bump itself rather than taste: `1.0.6-dev`, a stray quote, or an empty
-    string all pass an equality check between five identical mistakes.
+    string all pass an equality check between identical invalid declarations.
     """
     version = _declared()["pyproject.toml"]
-    assert re.fullmatch(r"\d+\.\d+\.\d+([abrc]\d+|\.dev\d+|\.post\d+)?", version), version
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+|\.dev\d+|\.post\d+)?", version), version
+
+
+def _version_command(tmp_path, monkeypatch):
+    import runpy
+
+    command = runpy.run_path(str(ROOT / "scripts/set_version.py"))
+    for name in command["TARGETS"]:
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / name).read_bytes())
+    monkeypatch.setitem(command["main"].__globals__, "ROOT", tmp_path)
+    return command
+
+
+def test_version_command_updates_every_distribution_and_floor(tmp_path, monkeypatch):
+    command = _version_command(tmp_path, monkeypatch)
+    original = {name: (tmp_path / name).read_bytes() for name in SOURCES}
+    assert command["main"](["1.4.0rc1", "--dry-run"]) == 0
+    assert original == {name: (tmp_path / name).read_bytes() for name in SOURCES}
+    assert command["main"](["1.4.0rc1"]) == 0
+    assert {extract(tmp_path / name) for name, extract in SOURCES.items()} == {"1.4.0rc1"}
+    for package in ("agent", "rcdb", "rcql", "system"):
+        project = tomllib.loads((tmp_path / package / "pyproject.toml").read_text())["project"]
+        dependencies = project.get("dependencies", []) + [
+            item for extra in project.get("optional-dependencies", {}).values() for item in extra]
+        for dependency in dependencies:
+            if dependency.startswith("rexgraph"):
+                if dependency.startswith(project["name"] + "["):
+                    continue
+                assert dependency.endswith(">=1.4.0rc1"), dependency
+
+
+def test_version_command_validates_all_targets_before_writing(tmp_path, monkeypatch):
+    command = _version_command(tmp_path, monkeypatch)
+    (tmp_path / "system/system/__init__.py").write_text("# missing version\n")
+    original = {name: (tmp_path / name).read_bytes() for name in SOURCES}
+    assert command["main"](["1.4.0"]) == 3
+    assert original == {name: (tmp_path / name).read_bytes() for name in SOURCES}

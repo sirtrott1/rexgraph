@@ -1,9 +1,6 @@
 """The agent layer asks the library for what the library already computes.
 
-Each case here was a hand rolled reimplementation that materialized something dense
-or scanned where an index existed. They are equivalence tests: the rewired path has
-to return what the old one returned, and keep working past the size the old one
-silently gave up at.
+Compare Agent sparse and indexed paths with their reference outputs.
 """
 from __future__ import annotations
 
@@ -55,8 +52,7 @@ def test_the_character_path_is_sparse_at_every_size():
 
 
 def test_the_interfacing_bundle_is_the_librarys_own():
-    """One implementation. The agent used to assemble this from the dense kernel
-    with a different G operator, so its numbers were not these numbers."""
+    """Agent returns the same interfacing bundle as Core."""
     rex = _graph()
     ti, tw = np.array([0, 3, 7], np.int32), np.ones(3)
     b = rex.interfacing_vector(ti, tw, None)
@@ -66,8 +62,7 @@ def test_the_interfacing_bundle_is_the_librarys_own():
 
 
 def test_faces_come_from_the_face_solver():
-    """`rexgraph.faces` solves B1 c = 0 and is arity general; the agent path used to
-    run a triangle only rule of its own."""
+    """Face extraction uses the arity general B1 kernel solver."""
     from rexgraph.faces import autoface, cycle_basis, face_support
     square = RexGraph(sources=np.array([0, 1, 2, 3], np.int32),
                       targets=np.array([1, 2, 3, 0], np.int32))

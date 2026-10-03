@@ -763,3 +763,35 @@ def test_the_exact_character_needs_no_solve():
     elapsed = time.monotonic() - start
     assert exact is not None and len(names) >= 2
     assert elapsed < 20.0, f"exact character took {elapsed:.1f}s on 1500 relations"
+
+
+def test_the_cycle_readings_survive_a_share_that_is_not_binary_exact():
+    """A k-ary column carries `1/(k-1)`, which no double holds past k = 3.
+
+    Read back off the assembled float B1 the column stops summing to zero, and the
+    dependence test flips: `carries_cycle` answered False on a relation of arity 4 closing
+    over its own three pair relations, while the exact tower counted the cycle. The
+    readings are rebuilt from the boundary structure instead, so they agree at every
+    arity rather than only where the share happens to be a binary fraction.
+    """
+    from rexgraph import native_rank
+    for k in range(2, 8):
+        cells = [[0, j] for j in range(1, k)] + [list(range(k))]
+        rex = RexGraph.from_cells([k, cells])
+        every = range(len(cells))
+        betti = native_rank.betti_from_rex(rex)
+        assert rex.cycle_dimension_of(every) == betti[1], (
+            f"k={k}: local cycle dimension {rex.cycle_dimension_of(every)} "
+            f"disagrees with the exact tower's {betti[1]}")
+        assert rex.carries_cycle(every) is (betti[1] > 0)
+
+
+def test_the_boundary_columns_feeding_the_cycle_readings_are_rational():
+    """Not float64 taken at its binary value: the coefficients are the declared ones."""
+    from fractions import Fraction
+    rex = RexGraph.from_cells([4, [[0, 1], [0, 2], [0, 3], [0, 1, 2, 3]]])
+    columns = rex._boundary_columns([3])
+    assert all(isinstance(x, Fraction) for x in columns[0])
+    assert sum(columns[0]) == 0, "the declared k-ary column must still sum to zero"
+    assert sorted(x for x in columns[0] if x != 0) == [
+        Fraction(-1), Fraction(1, 3), Fraction(1, 3), Fraction(1, 3)]

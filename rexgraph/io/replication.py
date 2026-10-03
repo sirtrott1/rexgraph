@@ -103,7 +103,7 @@ def _unframe(payload: bytes, count: int) -> list[bytes]:
     out = []
     at = 0
     for _ in range(count):
-        if at + 8 > len(payload):  # pragma: no cover - preflight count check
+        if at + 8 > len(payload):  # pragma: no cover: preflight count check
             raise ValueError("truncated replication payload")
         length = int.from_bytes(payload[at:at + 8], "big")
         at += 8
@@ -268,7 +268,7 @@ def apply_replication(
 
     from .catalog import object_digest
     from .mutation import MutationPolicy, apply_mutation, mutation_from_bytes
-    from .rex_state import from_state, to_state
+    from rexgraph.state import from_state, to_state
 
     if not callable(checkpoint_loader):
         raise TypeError("checkpoint_loader must be callable")

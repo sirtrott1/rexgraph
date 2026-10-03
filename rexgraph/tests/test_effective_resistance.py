@@ -68,7 +68,7 @@ def test_a_kernel_of_any_dimension_is_finite(k):
 
 @pytest.mark.parametrize("k", [1, 3, 8])
 def test_foster_identity(k):
-    """sum_e R_eff(e) = nV - beta0, exactly. An integer, and a free self test: it is
+    """sum_e R_eff(e) = nV: beta0, exactly. An integer, and a free self test: it is
     the invariant the NaNs violated."""
     rex = _disjoint(k, per=5)
     total = float(_reff(rex).sum())
@@ -94,7 +94,7 @@ def test_matches_the_dense_pseudoinverse():
 
 def test_the_mean_carries_nothing_the_counts_do_not():
     """Foster again, read as a statement about information: the MEAN is
-    (nV - beta0)/nE and needs no solve at all. Only the DISTRIBUTION is content."""
+    (nV: beta0)/nE and needs no solve at all. Only the DISTRIBUTION is content."""
     for k in (1, 4):
         rex = _disjoint(k, per=6)
         r = _reff(rex)
@@ -146,7 +146,7 @@ def test_a_bridge_carries_all_of_its_own_rank_and_none_of_the_cycle_space():
 
 
 def test_the_complement_is_the_cycle_space_and_not_betti_once_faces_exist():
-    """beta1 = n1 - rank(B1) - rank(B2), so it parts company with the resistance sum
+    """beta1 = n1: rank(B1) - rank(B2), so it parts company with the resistance sum
     the moment anything is filled. The resistance reads B1 at its own grade and cannot
     see the grade above; a cycle a face has closed is still a second route."""
     import itertools as _it

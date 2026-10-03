@@ -23,6 +23,8 @@ workspace, and every call lands in the audit trail whether it succeeded or not.
     POST /rex/v1/verify     frame in, its fingerprint out
     POST /rex/v1/store      frame in, kept in the caller's workspace
     GET  /rex/v1/fetch/…    a stored complex back out, as a frame
+    POST /rex/v1/records/store  a selected RCDB record in, copy receipt out
+    GET  /rex/v1/records/fetch  a literal ID/version/time selection as a RecordPacket
     POST /rex/v1/upload     bytes in, a handle out
     GET  /rex/v1/files      the handles this workspace holds
     POST /rex/v1/call       run one tool
@@ -76,6 +78,30 @@ def frame_key() -> bytes | None:
     return raw.encode("utf-8") if raw else None
 
 
+async def _signed_body(request: Request, limit: int):
+    """Bound the actual stream and authenticate bytes before any decoder runs."""
+    from rexgraph.protocol import verify_signature
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        if not declared.isascii() or not declared.isdecimal():
+            raise HTTPException(400, "invalid content length")
+        if len(declared) > 20 or int(declared) > limit:
+            raise HTTPException(413, "body is over the size limit")
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body)+len(chunk) > limit:
+            raise HTTPException(413, "body is over the size limit")
+        body.extend(chunk)
+    if declared is not None and int(declared) != len(body):
+        raise HTTPException(400, "body length differs from content length")
+    raw = bytes(body)
+    key = frame_key()
+    if key is not None and not verify_signature(
+            raw, request.headers.get("X-Rex-Signature", ""), key):
+        raise HTTPException(401, "frame signature missing or invalid")
+    return raw
+
+
 async def _frame(request: Request):
     """Read one frame off the request, refusing it before it is built.
 
@@ -84,19 +110,11 @@ async def _frame(request: Request):
     before the payload is parsed: a frame that cannot be authenticated should not
     reach the decoder at all.
     """
-    from rexgraph.protocol import DEFAULT_MAX_FRAME, decode, verify_signature
+    from rexgraph.protocol import DEFAULT_MAX_FRAME, decode
 
     from ..budget import max_cells
 
-    declared = request.headers.get("content-length")
-    if declared and int(declared) > DEFAULT_MAX_FRAME:
-        raise HTTPException(413, "frame is over the size limit")
-    body = await request.body()
-
-    key = frame_key()
-    if key is not None and not verify_signature(
-            body, request.headers.get("X-Rex-Signature", ""), key):
-        raise HTTPException(401, "frame signature missing or invalid")
+    body = await _signed_body(request, DEFAULT_MAX_FRAME)
 
     try:
         return decode(body, max_cells=max_cells())
@@ -118,7 +136,7 @@ def _rebuild(frame):
         raise HTTPException(422, str(e)) from e
 
 
-def _binary(payload: bytes) -> Response:
+def _binary(payload: bytes, *, content_type=CONTENT_TYPE) -> Response:
     """A frame on the way out, signed if this deployment signs.
 
     Both directions or neither: a client that has to authenticate what it sends and
@@ -129,7 +147,7 @@ def _binary(payload: bytes) -> Response:
     key = frame_key()
     if key is not None:
         headers["X-Rex-Signature"] = sign(payload, key)
-    return Response(content=payload, media_type=CONTENT_TYPE, headers=headers)
+    return Response(content=payload, media_type=content_type, headers=headers)
 
 
 @router.get("/hello")
@@ -141,16 +159,19 @@ async def hello(request: Request, token: TokenEntry = Depends(require_auth)):
     """
     from ..budget import deadline_seconds, max_cells, max_inflight
     from ..handles import paths_allowed
+    from rcdb.packet import PACKET_CONTENT_TYPE, PACKET_LIMIT, PACKET_VERSION
     ctx = _context(request, token)
     return {
         "wire_version": WIRE_VERSION,
         "content_type": CONTENT_TYPE,
+        "record_transfer_version": PACKET_VERSION,
+        "record_content_type": PACKET_CONTENT_TYPE,
         "workspace": ctx.workspace,
         "identity": ctx.identity,
         "auth_enabled": ctx.auth_enabled,
         "paths_allowed": paths_allowed(ctx.auth_enabled),
         "signed_frames": frame_key() is not None,
-        "limits": {"max_cells": max_cells(), "max_inflight": max_inflight(),
+        "limits": {"max_record_bytes": PACKET_LIMIT, "max_cells": max_cells(), "max_inflight": max_inflight(),
                    "deadline_seconds": deadline_seconds()},
     }
 
@@ -172,7 +193,7 @@ async def verify(request: Request, token: TokenEntry = Depends(require_auth)):
         # the concurrency slot and the deadline are the budget middleware's, taken for
         # every route. What is frame specific is the SIZE, which is read off the header
         # before the complex is built, so it is checked here.
-        check_size(frame.header)
+        check_size({grade: frame.header[grade] for grade in ("nV", "nE", "nF")})
         rex = _rebuild(frame)
         out = fingerprint(rex)
     except BudgetExceeded as e:
@@ -200,7 +221,7 @@ async def store(request: Request, token: TokenEntry = Depends(require_auth)):
     ctx = _context(request, token)
     frame = await _frame(request)
     try:
-        check_size(frame.header)
+        check_size({grade: frame.header[grade] for grade in ("nV", "nE", "nF")})
         rex = _rebuild(frame)
         meta = dict(frame.header.get("meta") or {})
         meta["workspace"] = ctx.workspace
@@ -233,19 +254,120 @@ async def fetch(record_id: str, request: Request,
     from .. import audit
     ctx = _context(request, token)
     store_ = default_store()
-    record = store_.get_record(record_id)
+    snapshot = store_.read_record(record_id)
+    record = None if snapshot is None else snapshot.record
     owner = ((record.meta or {}).get("workspace") if record is not None else None)
     if record is None or (ctx.auth_enabled and owner is not None
                           and owner != ctx.workspace):
         audit.record("rex.fetch", user=ctx.identity, workspace=ctx.workspace,
                      target=record_id, outcome="not_found")
         raise HTTPException(404, "no such record in this workspace")
-    rex = store_.get(record_id)
-    if rex is None:
-        raise HTTPException(404, "no such record in this workspace")
+    if not record.is_complex or record.object_type != "RexGraph":
+        raise HTTPException(400, "graph frames require a RexGraph; use the record endpoint")
+    rex = snapshot.value
     audit.record("rex.fetch", user=ctx.identity, workspace=ctx.workspace,
                  target=record_id)
     return _binary(encode(rex, meta={"record_id": record_id}))
+
+
+@router.post("/records/store")
+async def store_record(request: Request, token: TokenEntry = Depends(require_auth)):
+    """Publish a portable record via RCDB's one cross store transfer seam."""
+    import secrets
+    import time
+    from urllib.parse import quote, unquote
+    from agent.rcdb import default_store
+    from rcdb import RecordPacket, VersionConflictError, copy_record
+    from rcdb.packet import PACKET_CONTENT_TYPE, PACKET_LIMIT, RECEIPT_CONTENT_TYPE
+    from .. import audit
+    from ..budget import BudgetExceeded, check_size
+    ctx = _context(request, token)
+    try:
+        if request.headers.get("content-type", "").split(";", 1)[0] != PACKET_CONTENT_TYPE:
+            raise HTTPException(415, "record packet content type required")
+        body = await _signed_body(request, PACKET_LIMIT)
+        packet = RecordPacket.from_bytes(body)
+        original = packet.record
+        meta = original.meta
+        meta.update(workspace=ctx.workspace, stored_by=ctx.identity)
+        meta.setdefault("record_id", original.id)
+        meta.setdefault("source_version", original.version)
+        meta.setdefault("shipped_at", time.time())
+        for header, field in (("X-Rex-Source-Hive", "source_hive"), ("X-Rex-Courier", "courier")):
+            value = request.headers.get(header)
+            if value is not None:
+                decoded = unquote(value, errors="strict")
+                if quote(decoded, safe="") != value:
+                    raise ValueError("courier header requires canonical URI-encoded text")
+                value = decoded
+                if len(value.encode("utf-8")) > 256:
+                    raise ValueError("courier header exceeds its byte limit")
+                meta.setdefault(field, value)
+        destination = default_store()
+        # Metadata projection must retain the authenticated owner. Hold the same
+        # writer across this check and publication to prevent policy races.
+        with destination.write_scope():
+            if destination._stored_meta(meta).get("workspace") != ctx.workspace:
+                raise PermissionError("destination metadata policy would discard workspace ownership")
+            governed = bool(getattr(destination, "_require_commits", False))
+            record_id = f"rx_{secrets.token_hex(8)}"
+            if destination.next_version(record_id) != 1:
+                raise VersionConflictError("random destination address is already allocated")
+            receipt = copy_record(packet.source(check_counts=check_size), destination, original,
+                                  destination_id=record_id, meta=meta,
+                                  actor=ctx.identity if governed else "", return_receipt=True)
+    except BudgetExceeded as e:
+        audit.record("rex.records.store", user=ctx.identity, workspace=ctx.workspace,
+                     outcome="refused", detail={"axis": e.axis})
+        raise HTTPException(429, str(e)) from e
+    except PermissionError as e:
+        audit.record("rex.records.store", user=ctx.identity, workspace=ctx.workspace, outcome="refused",
+                     detail={"reason": "destination_policy"})
+        raise HTTPException(403, str(e)) from e
+    except VersionConflictError as e:
+        audit.record("rex.records.store", user=ctx.identity, workspace=ctx.workspace, outcome="refused",
+                     detail={"reason": "version_conflict"})
+        raise HTTPException(409, str(e)) from e
+    except (ValueError, TypeError) as e:
+        audit.record("rex.records.store", user=ctx.identity, workspace=ctx.workspace, outcome="refused",
+                     detail={"reason": "invalid_record"})
+        raise HTTPException(400, str(e)) from e
+    except HTTPException as e:
+        audit.record("rex.records.store", user=ctx.identity, workspace=ctx.workspace, outcome="refused",
+                     detail={"status": e.status_code})
+        raise
+    audit.record("rex.records.store", user=ctx.identity, workspace=ctx.workspace,
+                 target=receipt.destination_record_id,
+                 detail={"source_store_id": receipt.source_store_id, "receipt_digest": receipt.digest})
+    return _binary(receipt.to_bytes(), content_type=RECEIPT_CONTENT_TYPE)
+
+
+@router.get("/records/fetch")
+@router.get("/records/fetch/{record_id:path}")
+async def fetch_record(record_id: str, request: Request, version: int | None = None,
+                       as_of: float | None = None, valid_at: float | None = None,
+                       token: TokenEntry = Depends(require_auth)):
+    """One pinned version, including None values, with exact source metadata."""
+    from agent.rcdb import default_store
+    from rcdb import RecordPacket
+    from rcdb.packet import PACKET_CONTENT_TYPE
+    from .. import audit
+    ctx = _context(request, token)
+    store_ = default_store()
+    try:
+        snapshot = store_.read_record(record_id, version=version, as_of=as_of, valid_at=valid_at)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e)) from e
+    owner = None if snapshot is None else snapshot.record.meta.get("workspace")
+    if (snapshot is None or snapshot.record.id != record_id
+            or (ctx.auth_enabled and owner is not None and owner != ctx.workspace)):
+        audit.record("rex.records.fetch", user=ctx.identity, workspace=ctx.workspace,
+                     target=record_id, outcome="not_found")
+        raise HTTPException(404, "no such record in this workspace")
+    packet = RecordPacket.from_snapshot(snapshot, source_store_id=store_.store_id)
+    audit.record("rex.records.fetch", user=ctx.identity, workspace=ctx.workspace,
+                 target=record_id, detail={"version": snapshot.record.version})
+    return _binary(packet.to_bytes(), content_type=PACKET_CONTENT_TYPE)
 
 
 @router.post("/upload")
@@ -341,7 +463,7 @@ async def call_tool(request: Request, body: dict = Body(...),
         raise _fail(400, str(e), "bad_arguments") from e
     except BudgetExceeded as e:
         raise _fail(429, str(e), "refused") from e
-    except Exception as e:                       # noqa: BLE001 - the tool's own fault
+    except Exception as e:                       # noqa: BLE001  # the tool's own fault
         raise _fail(400, f"{name} failed: {e}", "error") from e
 
     audit.record("rex.call", user=ctx.identity, workspace=ctx.workspace,

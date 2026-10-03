@@ -131,7 +131,7 @@ def test_cache_reuses_fields_and_retains_sources(tmp_path,monkeypatch):
     with open_store('memory://') as source:
         first=store_record(source)
         cachepath='file://'+str(tmp_path/'results')
-        with open_store(cachepath) as target:
+        with open_store(cachepath, **({"read_only": False} if "://" not in cachepath or cachepath.startswith(("file://", "rex://")) else {})) as target:
             cache=QueryCache(target)
             e=execution(first)
             a=e.execute_cached(QUERY,cache)
@@ -144,7 +144,7 @@ def test_cache_reuses_fields_and_retains_sources(tmp_path,monkeypatch):
             assert b.values[0].source.source is first.value
             assert b.values[0].source.record_id=='input'
             assert b.values[1].dependencies
-        with open_store(cachepath) as reopened:
+        with open_store(cachepath, **({"read_only": False} if "://" not in cachepath or cachepath.startswith(("file://", "rex://")) else {})) as reopened:
             c=execution(first).execute_cached(QUERY,QueryCache(reopened))
             assert c.native_plan['cache']['hit']
             assert len(calls)==1
@@ -220,11 +220,33 @@ def test_cache_record_modified_under_same_key_is_not_trusted():
         result=e.execute_cached(QUERY,cache)
         name='rcql_result/'+result.native_plan['cache']['key']
         record=target.read_record(name).value
-        from rcql.program_codec import loads,dumps
-        manifest=loads(record.get_metadata(1,0,'rcql_cache_manifest'));manifest['key']='wrong'
-        record.attach_metadata(1,0,'rcql_cache_manifest',dumps(manifest).decode())
+        record.attach_metadata(1,0,'rcql_cache_key','wrong')
         target.commit_mutation(name,record,expected_version=1,analytics=False)
         with pytest.raises(ValueError,match='identity'):e.execute_cached(QUERY,cache)
+
+
+@pytest.mark.parametrize("expression", ["PARTITION(CELL(1,0))", "RESTRICT(CELL(1,0))"])
+def test_structural_results_use_the_portable_cache_after_reopen(expression, tmp_path):
+    from rexgraph import RexGraph
+    from rexgraph.object_identity import object_digest
+    from rcql.result_codec import unpack_result
+    graph = RexGraph.from_graph([0, 1], [1, 2])
+    path = "file://"+str(tmp_path / "cache")
+    executor = Executor(sources={"r": graph})
+    query = parse("FROM $r RETURN "+expression)
+    with open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {})) as store:
+        original = executor.execute_cached(query, QueryCache(store))
+        key = "rcql_result/"+original.native_plan["cache"]["key"]
+        payload = store.read_record(key).value.get_metadata(1, 0, "rcql_cache_payload")
+        direct = unpack_result(payload).values[0]
+    with open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {})) as store:
+        restored = executor.execute_cached(query, QueryCache(store))
+        assert restored.native_plan["cache"]["hit"] is True
+        a, b = original.values[0], restored.values[0]
+        if hasattr(a, "rex"):
+            assert a.cell_maps == b.cell_maps and a.manifest == b.manifest
+            a, b, direct = a.rex, b.rex, direct.rex
+        assert object_digest(a) == object_digest(b) == object_digest(direct)
 
 
 def test_evidence_result_reports_cutoff_and_closure():

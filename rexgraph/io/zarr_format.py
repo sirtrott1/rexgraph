@@ -40,6 +40,8 @@ if TYPE_CHECKING:
     from ..graph import TemporalRex
 
 import contextlib
+from .publication import atomic_writer
+from .container_integrity import FORMAT_VERSION, seal_container, verify_container
 
 from ._compat import (
     HAS_ZARR,
@@ -73,7 +75,7 @@ __all__ = [
     "load_zarr_array",
 ]
 
-_FORMAT_VERSION = "2.0.0"
+_FORMAT_VERSION = FORMAT_VERSION
 
 # Cache group definitions
 
@@ -83,6 +85,15 @@ _ALL_CACHEABLE.update(_CACHE_GROUPS.keys())
 
 # Simple array save/load
 
+def _seal_zarr(path):
+    seal_container(open_root_group(path, mode="a"))
+
+
+def _verify_zarr(path):
+    verify_container(open_root_group(path, mode="r"))
+
+
+@atomic_writer(normalize=ensure_zarr_suffix, directory=True, finalize=_seal_zarr)
 def save_zarr_array(arr: NDArray, path: str) -> None:
     """Save a NumPy array into a .zarr store."""
     p = ensure_zarr_suffix(path)
@@ -97,6 +108,7 @@ def save_zarr_array(arr: NDArray, path: str) -> None:
 def load_zarr_array(path: str) -> np.ndarray:
     """Load a NumPy array from a .zarr store."""
     root = open_root_group(ensure_zarr_suffix(path), mode="r")
+    verify_container(root)
     return g_load_complex(root, "data")
 
 
@@ -188,6 +200,7 @@ class RexZarrFormat(CacheLayoutMixin):
 
     # Public API
 
+    @atomic_writer(normalize=ensure_zarr_suffix, directory=True, finalize=_seal_zarr)
     def write(
         self,
         path: str,
@@ -236,6 +249,7 @@ class RexZarrFormat(CacheLayoutMixin):
         """Read a RexGraph, TemporalRex, or ndarray from disk."""
 
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
+        verify_container(root)
         obj_type = as_str(root.attrs.get("object_type"))
 
         if obj_type == "RexGraph":
@@ -248,6 +262,7 @@ class RexZarrFormat(CacheLayoutMixin):
 
     # Container (multi object) API
 
+    @atomic_writer(normalize=ensure_zarr_suffix, directory=True, update=True, finalize=_seal_zarr, prepare=_verify_zarr)
     def write_to_group(self, path: str, name: str, obj: Any, **kw) -> None:
         """Write an object into /objects/<name> inside path."""
         from ..graph import RexGraph, TemporalRex
@@ -281,6 +296,7 @@ class RexZarrFormat(CacheLayoutMixin):
     def read_from_group(self, path: str, name: str) -> Any:
         """Read /objects/<name> from path."""
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
+        verify_container(root)
         g = root["objects"][name]
         t = as_str(g.attrs.get("object_type"))
         if t == "RexGraph":
@@ -297,6 +313,7 @@ class RexZarrFormat(CacheLayoutMixin):
         if not os.path.exists(path):
             return []
         root = open_root_group(path, mode="r")
+        verify_container(root)
         return list(root["objects"].keys()) if "objects" in root else []
 
     # RexGraph serialization
@@ -524,7 +541,8 @@ class RexZarrFormat(CacheLayoutMixin):
 
         if "mode_classification" in names or "field" in names:
             try:
-                modes = rex.classify_modes()
+                # a NamedTuple has no .items(); store its declared fields
+                modes = rex.classify_modes()._asdict()
                 g_store_dict(fg, "modes", modes,
                              compressor=self.compressor, chunks=self.chunks)
             except Exception:
@@ -577,12 +595,13 @@ class RexZarrFormat(CacheLayoutMixin):
 
     # Cache reading
 
-    def read_cache(self, path: str) -> dict:
-        """Read cached properties without full RexGraph reconstruction.
+    def read_cache(self, path: str, *, allow_unsealed: bool = False) -> dict:
+        """Read cached properties after verifying container integrity. Legacy caches require allow_unsealed=True.
 
         Returns a dict of property name to value.
         """
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
+        verify_container(root, required=not allow_unsealed)
         return self._read_cache_groups(root)
 
     def _read_cache_groups(self, g) -> dict:
@@ -737,6 +756,7 @@ class RexZarrFormat(CacheLayoutMixin):
 
     # NamedTuple serialization
 
+    @atomic_writer(normalize=ensure_zarr_suffix, directory=True, finalize=_seal_zarr)
     def write_typed(self, path: str, obj: Any) -> None:
         """Write a types.py NamedTuple to a .zarr store."""
         from ._serialization import ZarrAdapter, write_namedtuple
@@ -757,6 +777,7 @@ class RexZarrFormat(CacheLayoutMixin):
         from ._serialization import ZarrAdapter, read_namedtuple
 
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
+        verify_container(root)
         type_name = as_str(root.attrs.get("object_type"))
         adapter = ZarrAdapter(root, compressor=self.compressor,
                               chunks=self.chunks)
@@ -769,6 +790,7 @@ class RexZarrFormat(CacheLayoutMixin):
 
     # Write/read signal and quotient results directly
 
+    @atomic_writer(normalize=ensure_zarr_suffix, directory=True, update=True, finalize=_seal_zarr, prepare=_verify_zarr)
     def write_signal_result(self, path: str, result, *, group_name: str = "signal") -> None:
         """Write a PerturbationResult or FieldPerturbationResult into a store."""
         from ._serialization import ZarrAdapter, write_namedtuple
@@ -786,11 +808,13 @@ class RexZarrFormat(CacheLayoutMixin):
         from ._serialization import ZarrAdapter, _resolve_type, read_namedtuple
 
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
+        verify_container(root)
         sg = root[group_name]
         adapter = ZarrAdapter(sg, compressor=self.compressor,
                               chunks=self.chunks)
         return read_namedtuple(adapter, type_name, _resolve_type(type_name))
 
+    @atomic_writer(normalize=ensure_zarr_suffix, directory=True, update=True, finalize=_seal_zarr, prepare=_verify_zarr)
     def write_persistence_result(self, path: str, diagram, enrichment=None) -> None:
         """Write persistence diagram and optional enrichment."""
         from ._serialization import ZarrAdapter, write_namedtuple
@@ -809,6 +833,7 @@ class RexZarrFormat(CacheLayoutMixin):
         from ._serialization import ZarrAdapter, read_namedtuple
 
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
+        verify_container(root)
         pg = root["persistence"]
         adapter = ZarrAdapter(pg, compressor=self.compressor,
                               chunks=self.chunks)
@@ -819,6 +844,7 @@ class RexZarrFormat(CacheLayoutMixin):
             result["enrichment"] = read_namedtuple(adapter, "enrichment")
         return result
 
+    @atomic_writer(normalize=ensure_zarr_suffix, directory=True, update=True, finalize=_seal_zarr, prepare=_verify_zarr)
     def write_quotient_result(self, path: str, masks, quotient_result) -> None:
         """Write subcomplex masks and quotient result."""
         from ._serialization import ZarrAdapter, write_namedtuple
@@ -842,6 +868,7 @@ class RexZarrFormat(CacheLayoutMixin):
         from ._serialization import ZarrAdapter, read_namedtuple
 
         root = open_root_group(ensure_zarr_suffix(path), mode="r")
+        verify_container(root)
         qg = root["quotient"]
         result = {}
         if self._has(qg, "masks"):

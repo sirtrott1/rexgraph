@@ -296,3 +296,36 @@ class TestRexGraphIntegration:
         F[0] = 1.0
         f_V = k4.derive_vertex_state(F)
         assert f_V.shape == (k4.nV,)
+
+
+def test_classify_modes_returns_its_declared_type():
+    """`rextypes.ModeClassification` is the declared result and had zero producers.
+
+    The method was annotated `-> dict` and returned the kernel's bare tuple of four, so four
+    consumers reached for `.get('mode_type')`, a name that exists nowhere, and raised
+    inside their own `except Exception` handlers: the dashboard published an empty
+    field block and `analyze(full_field=True)` lost its whole field section. A
+    NamedTuple is still a tuple, so callers that unpack four values are unaffected.
+    """
+    from rexgraph.rextypes import ModeClassification
+
+    rex = RexGraph.from_cells([6, [[0, 1], [1, 2], [2, 0], [0, 4], [4, 5], [5, 1]]])
+    rex.add_faces([[0, 1, 2], [0, 3, 4, 5]])
+    rex._ensure_clean()
+
+    modes = rex.classify_modes()
+    assert isinstance(modes, ModeClassification)
+    assert modes._fields == ("labels", "weights_E", "weights_F", "n_resonant")
+    assert len(modes) == 4, "still a tuple of four, so unpacking callers are unaffected"
+    labels, weights_e, weights_f, n_resonant = modes
+    assert labels is modes.labels and n_resonant == modes.n_resonant
+
+    # Both field consumers expose the structural census.
+    field = rex.signal_dashboard_data().get("field", {})
+    for key in ("mode_types", "edge_weights", "face_weights", "n_resonant"):
+        assert key in field, f"the dashboard lost {key}"
+
+    from rexgraph.analysis import analyze
+    section = analyze(rex, full_field=True)["analysis"]["field"]
+    for key in ("n_edge_modes", "n_face_modes", "n_coupled_modes", "n_resonant_modes"):
+        assert key in section, f"analyze lost {key}"

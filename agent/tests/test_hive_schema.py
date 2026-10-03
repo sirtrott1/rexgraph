@@ -41,7 +41,7 @@ def test_schema_versions_on_structural_change():
     assert [e["version"] for e in evo] == [1, 2, 3]
     assert evo[1]["cause"].startswith("new task")
     assert evo[2]["cause"].startswith("new data")
-    # the structure genuinely grew
+    # the structure grew
     assert evo[0]["n_nodes"] < evo[2]["n_nodes"]
 
 

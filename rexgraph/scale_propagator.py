@@ -1,20 +1,20 @@
 """rexgraph.scale_propagator: the character engine as moments of f(RL4).
 
 The character/coherence layer is a set of **moments of a sparse matrix function
-f(RL4)** - not per vertex Green's solves and not an eigendecomposition. The
+f(RL4)**: not per vertex Green's solves and not an eigendecomposition. The
 identities here are guarded in rexgraph/tests/test_eigenfree.py and
 test_scale_bridge.py.
 
   * Local energy character  = O(nnz) row norms  diag(RL4²)_e = ‖RL4[e,:]‖²
     (the short-time t² moment of the heat propagator).
-  * Resolvent diagonal      = diag(RL4⁻¹) EXACT via block CG solves of RL4·X = I
+  * Resolvent diagonal      = diag(RL4⁻¹) by fixed tolerance block CG solves of RL4·X = I
     to a fixed tolerance - one algorithm at every scale,
     no eigendecomposition, no size-gated approximation.
   * Harmonic log            = eigen free **Rényi-2** (collision) entropy
     H₂(X) = -log(tr(X²)/tr(X)²), with the H₂-H₃/Shannon gap as a free
     **varentropy reliability flag**.
 
-All quantities here are O(nnz) trace/row reductions or exact fixed tolerance
+All quantities here are O(nnz) trace/row reductions or fixed tolerance numerical
 solves; none forms a dense nE×nE operator, calls an eigensolver, or branches to a
 stochastic estimate by size. (The general-f Chebyshev matrix function diagonal -
 diag(e^{-tL}) for arbitrary t has no exact O(nnz) form and is a dense or stochastic
@@ -44,7 +44,7 @@ def _csr(X):
 
 def energy_character(RL4):
     """Local per edge energy character diag(RL4²)_e = ‖RL4[e,:]‖² (row norms),
-    O(nnz). The short time (t²) moment of the heat propagator e^{-tRL4} - the
+    O(nnz). The short time (t²) moment of the heat propagator e^{-tRL4}: the
     local end of the scale profile. Returns f64[nE]."""
     from rexgraph.native_sparse import as_native
     R = as_native(RL4)
@@ -225,7 +225,7 @@ def _multi_gpu_plan(work, ncols):
 
 
 def _block_cg_gpu(Rt, B, dinv, tol=1e-10, maxit=1000):
-    """Jacobi preconditioned block CG on the GPU (torch) - solve Rt X = B for all
+    """Jacobi preconditioned block CG on the GPU (torch): solve Rt X = B for all
     columns at once, every vector on device. Mirrors sparse_character._block_cg."""
     import torch
     X = torch.zeros_like(B)
@@ -261,7 +261,7 @@ def _greens_diagonal_gpu(R, dinv, n, step, tol, device=None, col_range=None):
     identity column tiles are solved on the GPU and only the diagonal entries come
     back. Result identical to the CPU tiling (~1e-9). `col_range=(lo, hi)` restricts the
     work to identity columns [lo, hi) and returns only that slice of the diagonal (length
-    hi lo) - used by the multi GPU dispatch to give each device a sub range; the default
+    hi lo): used by the multi GPU dispatch to give each device a sub range; the default
     (None) computes the full length-n diagonal exactly as before. `device` selects the
     GPU (None -> the current device, unchanged single GPU behavior)."""
     import torch
@@ -293,8 +293,8 @@ def _greens_diagonal_multi(R, dinv, n, step, tol, devices):
 
 def block_cg_solve(L, B, dinv, tol=1e-10, maxit=1000, backend=None):
     """Solve L X = B (L SPD sparse, B a dense block) by Jacobi preconditioned block CG,
-    on CPU (scipy matvec) or - when a GPU backend is active and the work n*cols clears
-    the auto gate - GPU resident (operator + block on device). Returns X (numpy).
+    on CPU (scipy matvec) or: when a GPU backend is active and the work n*cols clears
+    the auto gate: GPU resident (operator + block on device). Returns X (numpy).
     Reusable by any matrix free Green's/resistance solve; CPU is the exact fallback."""
     B = np.ascontiguousarray(np.asarray(B, dtype=_f64))
     n = L.shape[0]
@@ -337,7 +337,7 @@ def _block_cg_gpu_multi(R, B, dinv, devices, tol, maxit):
 
 
 def greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
-    """diag(RL4⁻¹) EXACT via block CG solves of RL4·X = I (RL4/RL3 is SPD, trace-
+    """diag(RL4⁻¹) by fixed tolerance block CG solves of RL4·X = I (RL4/RL3 is SPD, trace-
     normalized and well conditioned). One algorithm at every scale: each solve runs
     to a FIXED residual tolerance, so accuracy is scale independent, and only the
     iteration count and the number of identity columns grow with size (more
@@ -367,7 +367,7 @@ def greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
             pass                                        # any GPU issue -> CPU tiling
     bounds = [(s, min(s + step, n)) for s in range(0, n, step)]
 
-    def _solve(b):                                     # one column tile: RL^-1 e_i, exact to tol
+    def _solve(b):                                     # one column tile: RL^-1 e_i, to declared numerical tolerance
         start, stop = b
         E = np.zeros((n, stop - start), dtype=_f64)
         for i in range(start, stop):
@@ -390,17 +390,16 @@ def greens_diagonal(RL4, tol=1e-10, chunk=512, backend=None):
 def greens_diagonal_deflated(L, H, tol=1e-10, chunk=512):
     """diag(L⁺) for a SINGULAR symmetric PSD L whose kernel is spanned by the columns
     of H (the combinatorial harmonic / cycle basis, nE × k), via the canonical
-    harmonic projector regularization
-    Part VI):
+    harmonic projector regularization:
 
         L⁺ = (L + P_H)⁻¹ − P_H,   P_H = H (HᵀH)⁻¹ Hᵀ   (projector onto ker L)
 
     (L + P_H) is SPD so ordinary sparse block CG solves apply; P_H is applied LOW RANK
-    through H (never densified) and diag(P_H) is formed exactly. Eigen free: no dense
+    through H and diag(P_H) is evaluated from the frame. Eigen free: no dense
     spectrum, no nE × nE inverse. Returns f64[n] = diag(L⁺). For a full rank operator
     (empty H) this reduces to greens_diagonal(L) = diag(L⁻¹).
 
-    This is the seam behind Green's character / coherence for SINGULAR operators - the
+    This is the seam behind Green's character / coherence for SINGULAR operators: the
     individual channel hats and the edge Laplacian L1, whose kernel is the harmonic /
     cycle space (rexgraph.harmonic_sparse.harmonic_basis / cycle_basis). The full rank
     SPD RL4 needs no deflation and uses greens_diagonal directly."""
@@ -413,13 +412,17 @@ def greens_diagonal_deflated(L, H, tol=1e-10, chunk=512):
         return np.zeros(0, dtype=_f64)
     if H is None or (hasattr(H, 'shape') and H.shape[1] == 0):
         return greens_diagonal(L, tol=tol, chunk=chunk)   # full rank: L⁺ = L⁻¹
-    Hd = np.ascontiguousarray(
-        (H.toarray() if sp.issparse(H) else np.asarray(H)), dtype=_f64)   # n × k, k small
+    if sp.issparse(H):
+        from rexgraph.evaluator import check_dense_allocation
+        check_dense_allocation("Green harmonic frame", int(H.shape[0]), int(H.shape[1]))
+        Hd = np.ascontiguousarray(H.toarray(), dtype=_f64)
+    else:
+        Hd = np.ascontiguousarray(np.asarray(H), dtype=_f64)            # n × k, k small
     # VALIDATE the kernel basis: the deflation is only correct when H ⊆ ker(L). The
     # combinatorial cycle basis reduces branching hyperedges to pairwise endpoints and
     # can invent "cycles" that are NOT in ker(B1) (‖L·H‖ ≠ 0); deflating against them is
     # wrong. When H is not a valid kernel basis fall back to the kernel robust LSQR
-    # pseudoinverse diagonal, which needs no explicit kernel and is exact for any L.
+    # numerical pseudoinverse diagonal, which needs no explicit kernel frame.
     hnorm = float(np.linalg.norm(Hd)) or 1.0
     if float(np.linalg.norm(L @ Hd)) > 1e-7 * hnorm:
         return _greens_diagonal_lsqr(L, tol=tol)
@@ -445,39 +448,36 @@ def greens_diagonal_deflated(L, H, tol=1e-10, chunk=512):
 
 
 def _greens_diagonal_lsqr(L, tol=1e-10):
-    """diag(L⁺) for a symmetric PSD L (possibly SINGULAR) with NO kernel basis needed:
-    per column, x = lsqr(L, e_i) is the minimum norm least squares solution = L⁺ e_i
-    (LSQR projects off ker(L) exactly), so diag(L⁺)[i] = x_i. Exact to LSQR tolerance and
-    kernel robust: the correctness fallback when a supplied harmonic basis is invalid
-    (e.g. the pairwise cycle basis on branching hyperedges). O(n) solves; the deflation
-    path is preferred when a VALID kernel basis is available (block solves, cheaper)."""
-    import scipy.sparse.linalg as sla
-    L = _csr(L)
+    """Numerical diag(L^+) for a real symmetric PSD operator, without a kernel frame.
+
+    One checked native minimum norm solve per column applies L^+ to its unit
+    vector. No full inverse or identity matrix is allocated. An unconverged
+    solve raises. Used when the supplied harmonic frame fails its kernel test.
+    """
+    from rexgraph.core._hodge import least_squares
+    from rexgraph.native_sparse import as_native
+    L = as_native(L)
     n = L.shape[0]
+    if L.shape[1] != n:
+        raise ValueError("Green diagonal requires a square operator")
     diag = np.zeros(n, dtype=_f64)
+    e = np.zeros(n, dtype=_f64)
     for i in range(n):
-        e = np.zeros(n, dtype=_f64); e[i] = 1.0
-        x = sla.lsqr(L, e, atol=tol, btol=tol, iter_lim=20000)[0]
+        e[i] = 1.0
+        x = least_squares(L, e, tol=tol, maxiter=20000)
         diag[i] = x[i]
+        e[i] = 0.0
     return diag
 
 
 #### Malaugh action <-> moment calculus across a scale tower
 def action_moment(X):
-    """The Malaugh calculus: action <-> moment across a scale tower
-    rcfe_final-5 sec 21.3-21.6). Given a tower of scale indexed moments
-    X = [X(0), X(1), ...] (scalar per step, or a vector/array per step along axis 0):
+    """Return discrete moments and cumulative action along axis 0.
 
-        moment  DX(k) = X(k+1) - X(k)      (per-step difference = discrete derivative)
-        action  S(k)  = sum_{j<=k} X(j)    (cumulative integral = Lagrangian)
-
-    conjugate by the FTC across scale: S(k) - S(k-1) = X(k), and differencing the action
-    returns the tower (np.diff(S) == X[1:]) while the partial sums of the moment telescope
-    back to X (X[k] = X[0] + sum_{j<k} DX(j)). Watching both across the tower shows the
-    transformation the doc describes: the energy action ACCELERATES (moment grows), the
-    entropy action CONVERGES (moment shrinks). Pure O(len), no eigendecomposition: the
-    X(k) are the edge space trace / harmonic log moments from `malaugh_quantities`.
-    Returns {'moment': DX (len 1 along axis 0), 'action': S (same length as X)}."""
+    For X[k], moment[k] = X[k+1] - X[k] and action[k] = sum_{j<=k} X[j].
+    Return a dict with moment of length X.shape[0] - 1 and action of the same
+    shape as X. Input is converted to float64.
+    """
     X = np.asarray(X, dtype=_f64)
     return {'moment': np.diff(X, axis=0), 'action': np.cumsum(X, axis=0)}
 
@@ -513,18 +513,9 @@ def malaugh_quantities(rex):
     L_T = trT2 / trT ** 2 if trT > 0 else float('nan')
     L_S = trL2 / trL ** 2 if trL > 0 else float('nan')
     ok = trT > 0 and trL > 0
-    # BOTH directions are wanted, so both are named. They are reciprocals and only one of
-    # them satisfies the geometric mean identity, so a bare `c2` could not say which:
-    #
-    #   c2_H     = L_T/L_S = e^{H_S - H_T}   the entropy coupling of C.1, and the one
-    #                                        for which sqrt(c2_E * c2_H) = c0^2 holds
-    #   c2_H_inv = L_S/L_T = e^{H_T - H_S}   the same rate read the other way
-    #
-    # The identity is what pins the direction; the Lagrangian curvature |log c2_H| does
-    # not, which is why the doc's "direction free" note is about the MAGNITUDE only.
-    # Measured on K_k: c0^2 = (k-2)/2, and sqrt(c2_E * c2_H) reproduces it (1.5 at K5,
-    # 2.0 at K6) while sqrt(c2_E * c2_H_inv) collapses to 1.0 at every k. K4 cannot see
-    # the difference because 1 is its own reciprocal.
+    # Return both entropy coupling directions. c2_H = L_T/L_S and
+    # c2_H_inv = L_S/L_T are reciprocals. The logarithmic curvature
+    # uses their common absolute magnitude.
     return {
         'c2_H': (L_T / L_S) if ok else float('nan'),
         'c2_H_inv': (L_S / L_T) if ok else float('nan'),
@@ -609,7 +600,7 @@ def matfunc_apply(L, f, func, order, lam_max=None, backend=None):
     `lambda l: cos(t*sqrt(l))` (wave), `lambda l: 1/(l+s)` (shifted resolvent). L is
     symmetric with spectrum in [0, lam_max]; f is (n,) or a block (n, m). This is the
     reusable f(L)·state primitive underneath heat/wave/field evolution. The mat vecs
-    are spmv/spmm and the combine is a gemm - the SAME computation runs on CPU (scipy)
+    are spmv/spmm and the combine is a gemm: the SAME computation runs on CPU (scipy)
     or, when a GPU backend is active (`backend`, or the compute default), entirely
     on device (a GPU resident Chebyshev). CPU is the always available fallback."""
     order = int(order)

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from rexgraph.graph import RexGraph
 
@@ -23,13 +24,26 @@ def _assert_full_roundtrip(orig, r):
     assert r._agent_meta["vertex_labels"] == ["a", "b", "c", "d"]
 
 
+def test_optional_backend_flags_describe_dependencies_not_lazy_bridge_modules():
+    from importlib.util import find_spec
+
+    from rexgraph import io
+
+    assert io.HAS_ARROW is (find_spec("pyarrow") is not None)
+    assert io.HAS_PARQUET is (find_spec("pyarrow") is not None)
+    assert io.HAS_SQL is (find_spec("sqlalchemy") is not None)
+    assert io.HAS_SAFETENSORS is (find_spec("safetensors") is not None)
+
+
 def test_arrow_full_roundtrip():
+    pytest.importorskip("pyarrow")
     from rexgraph.io.arrow_bridge import arrow_to_rex, rex_to_arrow
     g = _rich()
     _assert_full_roundtrip(g, arrow_to_rex(rex_to_arrow(g)))
 
 
 def test_hdf5_full_roundtrip(tmp_path):
+    pytest.importorskip("h5py")
     from rexgraph.io.hdf5_format import RexHDF5Format
     g = _rich()
     p = str(tmp_path / "g.h5")
@@ -39,6 +53,7 @@ def test_hdf5_full_roundtrip(tmp_path):
 
 
 def test_zarr_full_roundtrip(tmp_path):
+    pytest.importorskip("zarr")
     from rexgraph.io import load, save
     g = _rich()
     p = str(tmp_path / "g.zarr")
@@ -47,21 +62,42 @@ def test_zarr_full_roundtrip(tmp_path):
 
 
 def test_all_formats_agree_on_a_rich_complex(tmp_path):
-    # every full object format reconstructs the SAME rich complex (edge primacy + attribution + signs
-    # + g_channel + labels + cell metadata), via the one canonical rex state encoder.
-    from rexgraph.io import load as zload
-    from rexgraph.io import save as zsave
-    from rexgraph.io.arrow_bridge import arrow_to_rex, rex_to_arrow
+    # Every AVAILABLE full object format reconstructs the SAME rich complex (edge
+    # primacy + attribution + signs + g_channel + labels + cell metadata), via the
+    # one canonical rex state encoder. Optional backends are exercised when installed
+    # rather than turning their absence into a failure of the core test suite.
+    from rexgraph import io
     from rexgraph.io.bundle import load_rcbd, save_rcbd
-    from rexgraph.io.hdf5_format import RexHDF5Format
-    from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
+
     g = _rich()
-    rex_p = str(tmp_path / "g.rcbd"); save_rcbd(rex_p, g)
-    st_p = str(tmp_path / "g.safetensors"); rex_to_safetensors(g, st_p)
-    h5_p = str(tmp_path / "g.h5"); RexHDF5Format().write(h5_p, g)
-    z_p = str(tmp_path / "g.zarr"); zsave(z_p, g)
-    for r in (load_rcbd(rex_p), safetensors_to_rex(st_p), arrow_to_rex(rex_to_arrow(g)),
-              RexHDF5Format().read(h5_p), zload(z_p)):
+    results = []
+
+    rex_p = str(tmp_path / "g.rcbd")
+    save_rcbd(rex_p, g)
+    results.append(load_rcbd(rex_p))
+
+    if io.HAS_SAFETENSORS:
+        from rexgraph.io.safetensors_bridge import rex_to_safetensors, safetensors_to_rex
+        st_p = str(tmp_path / "g.safetensors")
+        rex_to_safetensors(g, st_p)
+        results.append(safetensors_to_rex(st_p))
+
+    if io.HAS_ARROW:
+        from rexgraph.io.arrow_bridge import arrow_to_rex, rex_to_arrow
+        results.append(arrow_to_rex(rex_to_arrow(g)))
+
+    if io.HAS_HDF5:
+        from rexgraph.io.hdf5_format import RexHDF5Format
+        h5_p = str(tmp_path / "g.h5")
+        RexHDF5Format().write(h5_p, g)
+        results.append(RexHDF5Format().read(h5_p))
+
+    if io.HAS_ZARR:
+        z_p = str(tmp_path / "g.zarr")
+        io.save(z_p, g)
+        results.append(io.load(z_p))
+
+    for r in results:
         _assert_full_roundtrip(g, r)
         assert list(r.betti) == list(g.betti)
 

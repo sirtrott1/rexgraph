@@ -1,0 +1,5 @@
+include frontend-files.txt
+include frontend/index.html frontend/app.jsx frontend/react.production.min.js frontend/react-dom.production.min.js frontend/REACT-LICENSE.txt
+include frontend/styles/theme.css
+include frontend/assets/icons.svg frontend/assets/rexgraph_logo_primary.png frontend/assets/favicon64.png
+include frontend/assets/wm_ondark.png frontend/assets/wm_onlight.png frontend/assets/mark_ondark.png frontend/assets/mark_gold.png

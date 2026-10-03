@@ -77,9 +77,7 @@ def test_it_registers_as_a_hive_worker(ans):
 
 
 def test_a_locational_question_is_not_a_definitional_one(ans):
-    # "is" fires the definition interface, and `hunted` is a real WordNet adjective, so
-    # this used to answer "hunted (a): reflecting the fear or terror of one who is
-    # hunted" to a question about where whaling happens. The interrogative governs.
+    # The interrogative governs; the adjective definition does not answer this query.
     r = ans.answer("where is the whale hunted")
     assert not r["answered"]
     assert r["reason"] == "no lexical relation is asked for"

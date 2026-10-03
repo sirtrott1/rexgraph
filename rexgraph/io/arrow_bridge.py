@@ -91,14 +91,12 @@ def arrays_to_arrow(
     exactly.
 
     Parameters
-    ----------
     arrays : dict
         Mapping of name -> ndarray.
     metadata : dict, optional
         Extra metadata embedded in the Arrow schema.
 
     Returns
-    -------
     pyarrow.Table
     """
     pa, _ = _pa()
@@ -156,11 +154,9 @@ def arrow_to_arrays(table) -> dict[str, np.ndarray]:
     arrays_to_arrow().
 
     Parameters
-    ----------
     table : pyarrow.Table
 
     Returns
-    -------
     dict of name -> ndarray
     """
     pa, _ = _pa()
@@ -225,19 +221,16 @@ def rex_to_arrow(rex):
     `rex_user_meta` metadata.
 
     Parameters
-    ----------
     rex : RexGraph
         The graph to export.
 
     Returns
-    -------
     pyarrow.Table
 
     Examples
-    --------
     >>> table = rex_to_arrow(rex)
     """
-    from .rex_state import to_state
+    from rexgraph.state import to_state
 
     st = to_state(rex)
     return arrays_to_arrow(st.tensors, metadata=st.header)
@@ -253,14 +246,12 @@ def arrow_to_rex(table):
     reconstruction to `rex_state.from_state()`.
 
     Parameters
-    ----------
     table : pyarrow.Table
 
     Returns
-    -------
     RexGraph
     """
-    from .rex_state import RexState, from_state
+    from rexgraph.state import RexState, from_state
 
     schema_meta = table.schema.metadata or {}
     hdr = json.loads(schema_meta[b"rex_user_meta"]) if b"rex_user_meta" in schema_meta else {}
@@ -280,7 +271,6 @@ def write_arrow_ipc(
     """Write a dict of arrays to an Arrow IPC file.
 
     Parameters
-    ----------
     arrays : dict
         Mapping of name -> ndarray.
     path : str or path-like
@@ -301,11 +291,9 @@ def read_arrow_ipc(path: str | os.PathLike) -> dict[str, np.ndarray]:
     """Read arrays from an Arrow IPC file.
 
     Parameters
-    ----------
     path : str or path-like
 
     Returns
-    -------
     dict of name -> ndarray
     """
     pa, ipc = _pa()
@@ -334,14 +322,12 @@ def read_arrow_batches(
     loading everything into memory.
 
     Parameters
-    ----------
     path : str or path-like
         Arrow IPC file.
     batch_rows : int
         Target rows per batch.
 
     Yields
-    ------
     dict of name -> ndarray
     """
     pa, ipc = _pa()
@@ -403,7 +389,6 @@ def _arrow_batch_to_arrays(
     :func:`arrow_to_arrays`.
 
     Parameters
-    ----------
     table : pyarrow.Table
         The record batch(es) for this streamed chunk.
     array_meta : dict
@@ -412,7 +397,6 @@ def _arrow_batch_to_arrays(
         Count of flattened rows emitted by previous batches.
 
     Returns
-    -------
     dict of name -> ndarray
     """
     raw: dict[str, np.ndarray] = {}

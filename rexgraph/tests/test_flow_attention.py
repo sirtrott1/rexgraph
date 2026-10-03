@@ -11,10 +11,7 @@ from rexgraph.flow.attention import (
 )
 from rexgraph.graph import RexGraph
 
-# A real data check, pointed at whatever the operator supplies. The path used to
-# be a literal naming a specific private dataset, which put a dataset (and its
-# location on one machine) into a tree that is meant to be dataset agnostic.
-# Unset, the test skips, which is what it already did when the file was absent.
+# REXGRAPH_TEST_BINDING_TSV selects optional test data; an unset path skips it.
 _REAL_DATA_ENV = "REXGRAPH_TEST_BINDING_TSV"
 _REAL_DATA_PATH = os.path.expanduser(os.environ.get(_REAL_DATA_ENV, ""))
 
@@ -133,10 +130,10 @@ def test_binding_subcomplex_honest_ceiling():
 
     ptr, idx = coparticipation_neighbors(rex)
 
-    # face 1: unsupervised - the zero parameter uniform co participation settle (gamma=0)
+    # face 1: unsupervised: the zero parameter uniform co participation settle (gamma=0)
     uniform = coparticipation_attention(ptr, idx, inside, y, obs, gamma=0.0)
 
-    # face 2: self supervised - fit (proj, gamma) from the observed 80% ALONE, predict the held out 20%
+    # face 2: self supervised: fit (proj, gamma) from the observed 80% ALONE, predict the held out 20%
     m_self = CoParticipationAttention(inside_dim=inside.shape[1])
     m_self.fit_self_supervised(rex, inside, np.where(obs, y, 0.0), obs_mask=obs, mask_frac=0.2, seed=2)
     self_supervised = m_self.predict((ptr, idx), inside, y, obs)

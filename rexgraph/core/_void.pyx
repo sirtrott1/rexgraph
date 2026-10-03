@@ -65,7 +65,7 @@ def find_potential_triangles_i32(np.ndarray[i32, ndim=1] adj_ptr,
     cdef Py_ssize_t nT = 0, k = 0
 
     # Pass 1: count triangles (matches the docstring's "count first, then
-    # fill" - the previous version built a Python list of tuples instead).
+    # fill": the previous version built a Python list of tuples instead).
     for v in range(nV):
         lo_v = ap[v]
         hi_v = ap[v + 1]
@@ -178,7 +178,7 @@ def classify_triangles(B2, tri_edges, Py_ssize_t nT, Py_ssize_t nE):
     """For each potential triangle, check if it matches a column of B2.
 
     Realized faces are encoded as sorted edge integer keys, sorted once,
-    then each potential triangle is matched by binary search - no Python
+    then each potential triangle is matched by binary search: no Python
     set/tuple objects in the hot loop.
 
     Returns (realized[nT], void_indices[n_voids], n_voids).
@@ -429,8 +429,8 @@ def harmonic_content_all_sparse(B1, B2, Bvoid, Py_ssize_t n_voids, Py_ssize_t nE
     combinatorial LOW RANK harmonic projector P_H = H(HᵀH)⁻¹Hᵀ (H =
     harmonic_basis_from_boundaries(B1, B2)) instead of a dense eigendecomposition of
     L1. H spans the same ker(L1) as the dense harmonic eigenbasis, so eta is IDENTICAL
-    (to ~1e-9) - but it is scale free: the void harmonic content is now available even
-    when no dense L1 spectrum was computed (previously NaN on large graphs).
+    (to ~1e-9): but it is scale free: the void harmonic content is now available even
+    when no dense L1 spectrum was computed through the sparse boundary path.
 
     eta_k = bv_kᵀ P_H bv_k / ||bv_k||^2 = (Hᵀbv_k)ᵀ (HᵀH)⁻¹ (Hᵀbv_k) / ||bv_k||^2,
     batched over all voids: G = Hᵀ Bvoid (dim_H x n_voids), one shared sparse
@@ -497,7 +497,8 @@ def harmonic_content_all_sparse(B1, B2, Bvoid, Py_ssize_t n_voids, Py_ssize_t nE
     try:
         Y = sla.splu(HtH).solve(G)
     except Exception:
-        Y = np.linalg.solve(np.asarray(HtH.todense()), G)
+        from rexgraph.core._linalg import solve
+        Y = solve(np.asarray(HtH.todense()), G)
     proj_norm_sq = np.einsum('ij,ij->j', G, np.asarray(Y).reshape(k, n_voids))
     nz = bv_norm_sq > 1e-15
     eta[nz] = proj_norm_sq[nz] / bv_norm_sq[nz]
@@ -540,7 +541,7 @@ def void_character_all(Bvoid, RL, hats, Py_ssize_t nhats,
     """chi^void[k,j] = bv^T hat_j bv / bv^T RL bv for all voids.
 
     bv has 3 nonzeros, so each quadratic form is the sum over a 3x3
-    submatrix (9 entries) - computed directly instead of a full dense
+    submatrix (9 entries): computed directly instead of a full dense
     matvec per void. No per void Python loop, no dense Bvoid, and hats
     are consumed one at a time (no nhats*nE*nE stack).
     """
@@ -711,7 +712,7 @@ def build_void_complex(B1, B2, adj_ptr, adj_idx, adj_edge,
     # needs it dense: void nullity is read from the sparse Bvoid (agent pipeline),
     # and void_strain = tr(Lvoid) is computed directly from Bvoid below. Keep it
     # sparse to avoid the nE x nE materialization on the void path. VoidComplex.Lvoid
-    # is typed `object`; `.toarray()` reproduces the old dense array bit for bit.
+    # is typed `object`; `.toarray()` materializes the corresponding dense array.
     result['Lvoid'] = (Bvoid @ Bvoid.T).tocsr()
 
     # Step 4: harmonic content eta_k = ||P_ker(L1) bv_k||^2 / ||bv_k||^2. Prefer the

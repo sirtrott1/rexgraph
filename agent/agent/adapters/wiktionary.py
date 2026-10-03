@@ -156,7 +156,7 @@ def write_index(path, index) -> str:
     """
     from safetensors.numpy import save_file
 
-    from rexgraph.io.rex_state import DIGEST_ALGO, state_digest
+    from rexgraph.state import DIGEST_ALGO, state_digest
 
     t = {}
     for key in ("entry_word", "entry_pos", "entry_offset", "entry_length",
@@ -188,7 +188,7 @@ def read_index(path, *, verify: bool = True):
     from safetensors import safe_open
     from safetensors.numpy import load_file
 
-    from rexgraph.io.rex_state import state_digest
+    from rexgraph.state import state_digest
 
     with safe_open(str(path), "numpy") as fh:
         meta = fh.metadata() or {}

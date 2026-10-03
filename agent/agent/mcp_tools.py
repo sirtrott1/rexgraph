@@ -431,7 +431,7 @@ def _render(files=None, record_id: str = "", dim: int = 3, limit: int = 200,
 def _courier_survey(hive: str, tags=None, limit: int = 100) -> dict:
     from agent.courier import CarrySpec, get_courier
     c = get_courier()
-    spec = CarrySpec(tags=list(tags or []), limit=int(limit))
+    spec = CarrySpec(tags=[] if tags is None else tags, limit=limit)
     return {"hive": hive, "records": c.survey(hive, carry=spec)}
 
 
@@ -449,7 +449,7 @@ def _courier_deliver(source: str, dest: str, tags=None, ids=None,
         raise ValueError(
             f"no destination {dest!r}; this courier routes for "
             f"{', '.join(c.destinations()) or 'nothing yet'}. Register it first.")
-    spec = CarrySpec(tags=list(tags or []), ids=list(ids or []), limit=int(limit))
+    spec = CarrySpec(tags=[] if tags is None else tags, ids=[] if ids is None else ids, limit=limit)
     return c.deliver(source, dest, carry=spec)
 
 
@@ -730,12 +730,12 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
                                   "bound under."},
           "tags": {"type": "array", "items": {"type": "string"},
                    "description": "Only records carrying any of these tags."},
-          "limit": {"type": "integer"}},
+          "limit": {"type": "integer", "minimum": 0, "maximum": 2**63-1}},
          _courier_survey, required=["hive"], requires="admin", reads_files=False),
     Tool("rexgraph_courier_deliver",
          "Carry catalogued complexes from one bound store to another, or to a "
          "registered remote peer. Records the destination already holds are skipped by "
-         "structural signature, so a repeat trip writes nothing. Both ends must already "
+         "selected payload identity, so a repeat trip writes nothing. Both ends must already "
          "be registered on this courier; a destination cannot be named by url here.",
          {"source": {"type": "string", "description": "The store to carry from."},
           "dest": {"type": "string",
@@ -744,7 +744,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
                    "description": "Only records carrying any of these tags."},
           "ids": {"type": "array", "items": {"type": "string"},
                   "description": "Named records, instead of a tag match."},
-          "limit": {"type": "integer"}},
+          "limit": {"type": "integer", "minimum": 0, "maximum": 2**63-1}},
          _courier_deliver, required=["source", "dest"], requires="admin",
          reads_files=False),
 ]}

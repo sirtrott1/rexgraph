@@ -266,18 +266,17 @@ def test_agent_package_imports_without_pandas():
     # The platform must be pandas optional: importing the package (which imports auto) in a fresh
     # interpreter must NOT drag in pandas. pandas is a soft dep, loaded only if a DataFrame/table
     # feature is actually exercised.
-    import subprocess
-    import sys
     import textwrap
-    import os
     code = textwrap.dedent("""
         import sys
         import agent                  # runs __init__ -> from .auto import ...
         assert 'pandas' not in sys.modules, 'agent import pulled in pandas'
         print('OK')
     """)
-    flags = ["-I"] if os.environ.get("REXGRAPH_TEST_INSTALLED") == "1" else []
-    r = subprocess.run([sys.executable, *flags, "-c", code], capture_output=True, text=True)
+    from pathlib import Path
+    from runpy import run_path
+    run_isolated = run_path(str(Path(__file__).resolve().parents[2] / "scripts/test_subprocess.py"))["run_isolated"]
+    r = run_isolated(code, packages=("agent", "rexgraph", "rcdb"), capture_output=True, text=True)
     assert r.returncode == 0, f"agent import loaded pandas or failed:\n{r.stdout}\n{r.stderr}"
 
 

@@ -20,22 +20,11 @@ def _row_id(row, i, id_col):
 
 
 def _link_groups(rows, link_cols):
-    """The observed link groups, as ordered participant lists.
+    """Return observed link groups as ordered participant lists.
 
-    One link value observed across k records is ONE k-ary relation among those records,
-    not k-1 pairwise facts. This previously emitted "a star per group": it anchored on the
-    first member and paired every other member to it, which asserts k-1 separate binary
-    relations the data never contained, and loses the arity entirely. In the boundary the
-    difference is visible directly: four records sharing a value are one column
-    (-1, 1/3, 1/3, 1/3), where the star is three columns of (-1, +1).
-
-    Participants are ordered with a deterministic head. The head is the participant
-    carrying the -1 coefficient, and a record source that does not declare a direction
-    gives no basis to choose one, so the lowest row index is used purely to make the
-    construction reproducible. That choice is canonical, not causal: nothing downstream may
-    read the head of a link group as an assertion about which record came first or caused
-    the others. ``head_is_canonical`` in the returned metadata records that the orientation
-    is under determined by the source.
+    One value shared by k records gives one k-ary relation. Participants use the
+    lowest row index as a deterministic head. The returned head_is_canonical flag
+    marks this orientation as a construction convention, not a causal assertion.
     """
     groups: dict[Any, list[int]] = defaultdict(list)
     for i, r in enumerate(rows):
@@ -120,20 +109,12 @@ def rows_to_complex(rows: list[dict], *, link_on, id_col: str | None = None):
 
 def analyze_rows(rows: list[dict], *, link_on, id_col: str | None = None,
                  top: int = 5) -> dict[str, Any]:
-    """Two distinct readings of a record set, plus structural centrality.
+    """Return support components, homology and structural centrality.
 
-    ``n_support_components`` is the co participation projection: records joined by a chain
-    of shared link values. ``h0_dimension`` is beta_0 of the complex, the algebraic
-    reading. They answer different questions and are not interchangeable. Four records
-    sharing one value are one support component and beta_0 of 3, because that is one
-    4 ary relation of rank 1 over four participants; both numbers are correct.
-
-    The support reading is a projection, not an exact structural invariant, and this
-    function used to describe the whole result as "All exact structural" while computing
-    it with a union find over pairwise links. Only ``h0_dimension`` and the coherence
-    below come from the complex.
-
-    ``n_clusters`` remains as a backward compatible alias for the support component count.
+    n_support_components counts components in the shared link projection.
+    h0_dimension is beta_0 of the complex. Four records sharing one value form
+    one support component and one rank 1 relation, with beta_0 equal to 3.
+    n_clusters is a compatibility alias for n_support_components.
     """
     link_cols = [link_on] if isinstance(link_on, str) else list(link_on)
     row_labels = [_row_id(r, i, id_col) for i, r in enumerate(rows)]

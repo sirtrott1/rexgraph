@@ -8,7 +8,9 @@ typed_face_selection().
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+
+import numpy as np
 
 from numpy.typing import NDArray
 
@@ -53,7 +55,7 @@ class EdgeConstruction:
     #: relations of arity above two, as vertex lists, one per relation.
     #:
     #: `sources`/`targets` hold two vertices per relation and cannot express a wider
-    #: one. Where a source genuinely names a k-way relation - a delocalised ring, a
+    #: one. Where a source names a k-way relation: a delocalised ring, a
     #: coordination centre, a reaction with several reagents, a group over its members -
     #: splitting it into pairs invents edges and dissolves the relation's identity, which
     #: is the same loss clique expansion makes. Adapters that have such a relation put it
@@ -113,6 +115,83 @@ class EdgeConstruction:
 
     #: Declared source files and interpretation used by a registered reader.
     source_manifest: dict = field(default_factory=dict)
+
+    # A legacy adapter may supply pair only arrays. Wider relations carry their
+    # own declarations here, or the original arrays may cover all nE relations.
+    branching_weights: object = None
+    branching_signs: object = None
+    branching_type_labels: object = None
+    head_slots: object = None
+    shares: object = None
+    vertex_ids: object = None
+
+    def to_relations(self):
+        """Normalize source declarations into the public core construction input.
+
+        Missing wider relation weights stay absent. The core's explicit
+        unit for absent rule supplies the mathematical view without changing
+        the declaration. Weights, orientation, shares and identity stay separate.
+        """
+        from rexgraph import Absent, NumberRule, Relations, VertexTable
+        from rexgraph.relations import _integers
+
+        sources = _integers(self.sources, name="source vertices")
+        targets = _integers(self.targets, name="target vertices")
+        if len(sources) != len(targets):
+            raise ValueError("source and target vertices must be aligned")
+        supports = [list(pair) for pair in zip(sources, targets, strict=True)]
+        supports.extend(self.branching or ())
+        n_pairs, n_branch = len(sources), len(self.branching or ())
+
+        def aligned(values, wider, name, missing):
+            values = list(values) if values is not None else []
+            if len(values) == self.nE:
+                if wider is not None:
+                    raise ValueError(f"{name} has conflicting full and branching declarations")
+                return values
+            if len(values) != n_pairs:
+                raise ValueError(f"{name} must cover the pair or full relation basis")
+            extra = [missing]*n_branch if wider is None else list(wider)
+            if len(extra) != n_branch:
+                raise ValueError(f"branching {name} must cover every wider relation")
+            return values + extra
+
+        weights = aligned(self.weights, self.branching_weights, "weights", Absent)
+        signs = aligned(self.signs, self.branching_signs, "signs", 1)
+        if any(isinstance(s, (bool, np.bool_)) or s not in (-1, 1) for s in signs):
+            raise ValueError("relation signs must be -1 or +1")
+        types = aligned(self.type_labels, self.branching_type_labels, "types", Absent)
+        if self.n_types != len(self.type_names):
+            raise ValueError("type names must match the declared type domain")
+        names = []
+        for value in types:
+            if value is Absent:
+                names.append(Absent)
+            elif isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)) and 0 <= value < self.n_types:
+                names.append(self.type_names[int(value)])
+            else:
+                raise ValueError("relation type index is outside its declared domain")
+        ids = tuple(Absent for _ in range(self.nV)) if self.vertex_ids is None else tuple(self.vertex_ids)
+        aliases = tuple(tuple(self.vertex_aliases.get(label, ())) for label in self.vertex_labels)
+        vertices = VertexTable(ids, tuple(self.vertex_labels), aliases)
+        provenance = {"type_names": list(self.type_names), "n_types": self.n_types}
+        if self.origin:
+            provenance["origin"] = self.origin
+        if self.source_manifest:
+            provenance["source_manifest"] = self.source_manifest
+        if self.source_text:
+            provenance["source_text"] = self.source_text
+        if self.edge_spans:
+            provenance["edge_spans"] = [asdict(span) for span in self.edge_spans]
+        if self.sentence_spans:
+            provenance["sentence_spans"] = [asdict(span) for span in self.sentence_spans]
+        return Relations.from_supports(
+            supports, vertices=vertices, weights=weights, signs=np.asarray(signs, np.int8),
+            heads=self.head_slots, shares=self.shares, relation_ids=self.relation_ids,
+            relation_types=names, number_rule=NumberRule.BINARY_EXACT,
+            attributes=self.attributes, provenance=provenance,
+            embedding=self.embedding if self.embedding is not None and len(self.embedding) else None,
+        )
 
     @property
     def nV(self) -> int:

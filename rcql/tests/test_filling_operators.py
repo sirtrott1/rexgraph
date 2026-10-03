@@ -65,14 +65,14 @@ def test_persist_filled_state_and_reopen(tmp_path):
     import rcdb
     path = f"rex://{tmp_path / 'db'}"
     rex = fixture()
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     store.put("r", rex)
     engine = Executor(sources={"r": rex}, params={"c": Chain(1, np.array([2, -1, -1]), source=rex)})
     child = engine.execute(parse('FROM $r RETURN FILL($c)')).values[0]
     Executor(sources={"db": store}, params={"child": child}).execute(parse(
         'FROM $db MUTATE "filled" SET state=$child, actor="Art" COMMIT'))
     store.close()
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     try:
         engine = Executor(sources={"db": store})
         out = engine.execute(parse('FROM RCDB_GET($db,"filled") RETURN BETTI(1), HARMONIC_SHADOW(), STATE_HASH()'))

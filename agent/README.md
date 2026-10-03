@@ -220,6 +220,23 @@ are a cochain on the complex and the router picks GreensCochain, is
 | `hgnn` | hypergraph / higher order relational | fiber bundle advection + diffusion on the complex's signed orientation |
 | `lm` | sequence / language | relational (propagator) or standard attention |
 
+The warehouse HGNN view uses each primary relation as a training node and
+groups relations touching the same declared vertex. Joined knowledge retains
+one entity identity across subject and object positions; tabular edge sources
+retain their distinct source and target domains. Isolated relation rows remain
+in the model's declared node domain. Bundles require aligned finite float32
+features and integer labels within the declared class count. The weight target
+always declares both median classes, including when all weights are equal.
+
+`agent.warehouse.assemble` writes candidates into a fresh `warehouse-*` run
+directory under `save_dir` (or the temporary directory when omitted). Use the
+winner's returned `saved` path to load its checkpoint. Successful assembly
+removes only that run's planned losing outputs, including partial failed writes;
+earlier runs and other files in `save_dir` remain available. Cleanup handles
+checkpoint directories and files, leaves symlink targets alone, and continues
+after an individual cleanup error. If execution or publication raises, outputs
+remain available for inspection and recovery.
+
 ```python
 from agent.models import list_archetypes, build, run
 
@@ -422,6 +439,13 @@ reachable over the network.
   entrypoint, config) for this stack.
 
 
+The package includes the web UI and its licensed React runtime for offline use.
+`rexgraph-deploy` bundles use `RCF_HOST`/`RCF_PORT`, keep configuration, authentication,
+RCDB, audit and sessions in the `rexgraph_data` volume, and read overrides from `.env`.
+Copy `.env.example` to `.env` before starting Compose. Configure TLS certificate/key
+files or the trusted proxy address explicitly; incomplete TLS configuration stops
+startup.
+
 ## Authentication
 
 Bearer tokens with per workspace roles. A workspace is shared; each member holds
@@ -529,6 +553,110 @@ finally:
 Importing RexGraph does not register dataset readers. External readers own
 source interpretation and mappings; native construction, RCQL execution and
 RCDB persistence use the existing platform owners.
+
+## Stored record transfer
+
+The native graph endpoints remain available. For graphs, temporal objects, exact values,
+declarations, provenance and explicitly installed RCQL results, use RCDB's selected
+record packet through the same `RexClient`:
+
+```python
+from agent.client import RexClient
+from rcdb import record_packet
+
+peer = RexClient("https://team-server:8000", api_key=token, workspace="research")
+receipt = peer.rex_store_record(record_packet(local_store, "reading", version=1))
+packet = peer.rex_fetch_record(receipt.destination_record_id,
+                               version=receipt.destination_version)
+snapshot = packet.snapshot()
+```
+
+The receiver uses `rcdb.copy_record`, enforces workspace ownership and destination
+policy, and returns a checked binary receipt. Payload and metadata retain exact values.
+Source clocks, encryption and mutation packages are not transplanted. Both directions
+use the existing optional frame HMAC and bounded body streams. Remote couriers select
+this contract when `/rex/v1/hello` advertises `record_transfer_version=1`; older peers
+keep their graph only compatibility contract. Couriers detect metadata only changes.
+The sender ledger records successful transfers, without claiming exactly once delivery
+after a lost response or remote deletion. See [RCDB's contract](../rcdb/README.md#portable-record-versions).
+
+Use `Ledger(path)` for a durable sender ledger. Independent handles serialize
+shipments through one file gate; POSIX processes share that gate. It covers the
+shipment decision, acknowledgement and ledger publication. Separate ledgers can
+proceed independently. Open fresh courier, ledger and store handles after a fork.
+
+Malformed ledgers refuse loading. An uncertain ledger write blocks reuse until
+`ledger.load()` explicitly verifies the published image. This verifies local
+receipts, not the receiver's current state.
+
+If the remote store succeeded but the sender could not acknowledge its ledger write,
+the shipment reports `refused` and retains the known remote address and checked
+receipt. Modern peers support explicit reconciliation:
+
+```python
+from rcdb import CopyReceipt, record_packet
+
+# remote_peer is the registered agent.courier_remote.Peer; failed is its Shipment.
+receipt = CopyReceipt.from_record(failed.receipt)
+selected = record_packet(local_store, failed.record_id, version=receipt.source_version)
+reconciled = remote_peer.reconcile(selected, receipt)
+```
+
+Reconciliation fetches the exact destination version through `RexClient`, checks both
+store identities, literal addresses, versions and state digests, then records the
+receipt. It returns `held` and issues no store request. The admin route
+`POST /api/v1/courier/reconcile` accepts `{source, dest, record_id, receipt}`, using
+already registered source stores and peers with the existing workspace and audit
+boundary. Delivery, broadcast and reconciliation run in FastAPI worker threads so
+requests to a peer hosted on the same server can complete. A lost response with no
+receipt or remote address still needs operator recovery; automatic retry does not
+establish exactly once delivery. Reconciliation
+of an older selected version is an explicit choice and can replace a newer local
+ledger entry for that source record.
+
+Local couriers use `rcdb.copy_record` with the native destination's publication
+cursor and policy digest. Concurrent arrivals of the same selected version append
+one version; the other trips verify that arrival and report `held`. An intervening
+change to the literal destination record reports `conflict` without overwriting it,
+including deletion and revival. Changes to unrelated records can rebase a known
+negative conditional refusal, up to `Courier(copy_attempts=4)` attempts by default
+(allowed range 1–32). Policy changes and destinations that discard the courier's
+selection identity refuse publication. A failed write reports `refused`; an unknown
+publication outcome reports `uncertain` and requires reopening and verification.
+These are separate counts from source `unreadable` records. The reported
+`parent_version` is the live predecessor, or `None` for a revival after deletion.
+Explicit legacy destination writers retain their compatibility behavior and lack
+these native cross handle publication guarantees; migrate them to native stores.
+
+Each trip captures its routes and selected versions before I/O; route changes
+apply to subsequent trips. Selection uses literal ID lists and a nonnegative
+integer limit. `limit=0` selects nothing, and explicit empty filters override
+configured filters. Caller code owns the registered store handles.
+
+## Warehouse features
+
+Warehouse features are approximate training signals; the carried primary complex
+retains its exact relation state. Signals require one explicit, finite real value
+per edge. Missing/masked values need an explicitly supplied signal rather than
+implicit zero imputation. Core computation errors and invalid outputs propagate.
+Features must also fit finite float32 values before entering training.
+
+Hodge features are absolute gradient/curl/harmonic amplitudes, named
+`hodge_grad_abs`, `hodge_curl_abs` and `hodge_harm_abs`. Persisted feature contracts
+use these names and `feature_contract.version=2`. Heat and Dirac feature paths
+require SciPy. The assembled table is shared across eligible tiers.
+
+## Sender ledger retention
+
+`Ledger` keeps the latest acknowledgement per literal peer/record address.
+`save()` preserves acknowledgements. To retire inactive entries, call
+`plan_retention(before=..., peer=..., max_entries=...)` and then
+`apply_retention(plan, archive_path=...)`. The checked archive is published before
+removal and retains complete receipts. Stale plans refuse application.
+
+Retirement forgets the live shipment decision and may permit a later resend.
+Use archived receipts for reconciliation. An uncertain acknowledgement requires
+explicit verified reload; transfers do not provide exactly once delivery.
 
 ## License
 

@@ -70,7 +70,7 @@ class PropagatorMix(_Module):
         Y = self.lin(X)
         t = self.log_t.exp()
         if self.channel == "wave":
-            return _R.wave_apply(L, Y, t, K=self.K)[0]       # real part of e^{-itL}
+            return _R.propagator_apply(L, Y, t, ("gradient",), K=self.K)[0]
         return _R.heat_apply(L, Y, t, K=self.K)
 
 

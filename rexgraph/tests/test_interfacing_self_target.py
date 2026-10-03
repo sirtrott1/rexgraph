@@ -71,10 +71,7 @@ def test_an_explicit_target_is_unaffected():
 
 
 def test_the_scorer_no_longer_builds_a_whole_bundle_per_document():
-    """The scorer used to call interfacing_vector per candidate, paying a whole
-    interfacing bundle, and passing target=None, which scores psi against itself
-    rather than interfacing with anything. It reads coherence_response now, which is
-    demand driven at the seed, so interfacing_vector is not on that path at all."""
+    """Corpus scoring constructs one query bundle and compares each document target."""
     import inspect
 
     scoring = pytest.importorskip(

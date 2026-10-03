@@ -65,29 +65,6 @@ cdef inline void _swf64(f64* a, f64* b) noexcept nogil:
     b[0] = t
 
 # Insertion sort: key only
-cdef inline void _isort_i32(i32* a, Py_ssize_t n) noexcept nogil:
-    cdef Py_ssize_t i, j
-    cdef i32 key
-    for i in range(1, n):
-        key = a[i]
-        j = i - 1
-        while j >= 0 and a[j] > key:
-            a[j+1] = a[j]
-            j -= 1
-        a[j+1] = key
-
-cdef inline void _isort_i64(i64* a, Py_ssize_t n) noexcept nogil:
-    cdef Py_ssize_t i, j
-    cdef i64 key
-    for i in range(1, n):
-        key = a[i]
-        j = i - 1
-        while j >= 0 and a[j] > key:
-            a[j+1] = a[j]
-            j -= 1
-        a[j+1] = key
-
-# Insertion sort: paired key value
 cdef inline void _isort_kv_i32_f64(i32* k, f64* v, Py_ssize_t n) noexcept nogil:
     cdef Py_ssize_t i, j
     cdef i32 kk
@@ -147,109 +124,6 @@ cdef inline void _isort_kv_i64_f32(i64* k, f32* v, Py_ssize_t n) noexcept nogil:
             j -= 1
         k[j+1] = kk
         v[j+1] = vv
-
-# Iterative quicksort: key only
-cdef void _qsort_i32(i32* a, Py_ssize_t n) noexcept nogil:
-    cdef Py_ssize_t stk[_QS_STACK]
-    cdef Py_ssize_t sp=0, lo, hi, mid, i, j, sz
-    cdef i32 piv
-    if n <= _ISORT_CUTOFF:
-        _isort_i32(a, n)
-        return
-    stk[sp]=0
-    stk[sp+1]=n-1
-    sp+=2
-    while sp > 0:
-        sp-=2
-        lo=stk[sp]
-        hi=stk[sp+1]
-        sz=hi-lo+1
-        if sz <= _ISORT_CUTOFF:
-            _isort_i32(a+lo, sz)
-            continue
-        mid = lo + (hi-lo)//2
-        if a[lo]>a[mid]: _sw32(&a[lo],&a[mid])
-        if a[lo]>a[hi]:  _sw32(&a[lo],&a[hi])
-        if a[mid]>a[hi]: _sw32(&a[mid],&a[hi])
-        piv=a[mid]
-        i=lo
-        j=hi
-        while True:
-            while a[i]<piv: i+=1
-            while a[j]>piv: j-=1
-            if i>=j: break
-            _sw32(&a[i],&a[j])
-            i+=1
-            j-=1
-        if j-lo > hi-j-1:
-            if lo<j:
-                stk[sp]=lo
-                stk[sp+1]=j
-                sp+=2
-            if j+1<hi:
-                stk[sp]=j+1
-                stk[sp+1]=hi
-                sp+=2
-        else:
-            if j+1<hi:
-                stk[sp]=j+1
-                stk[sp+1]=hi
-                sp+=2
-            if lo<j:
-                stk[sp]=lo
-                stk[sp+1]=j
-                sp+=2
-
-cdef void _qsort_i64(i64* a, Py_ssize_t n) noexcept nogil:
-    cdef Py_ssize_t stk[_QS_STACK]
-    cdef Py_ssize_t sp=0, lo, hi, mid, i, j, sz
-    cdef i64 piv
-    if n <= _ISORT_CUTOFF:
-        _isort_i64(a, n)
-        return
-    stk[sp]=0
-    stk[sp+1]=n-1
-    sp+=2
-    while sp > 0:
-        sp-=2
-        lo=stk[sp]
-        hi=stk[sp+1]
-        sz=hi-lo+1
-        if sz <= _ISORT_CUTOFF:
-            _isort_i64(a+lo, sz)
-            continue
-        mid = lo + (hi-lo)//2
-        if a[lo]>a[mid]: _sw64(&a[lo],&a[mid])
-        if a[lo]>a[hi]:  _sw64(&a[lo],&a[hi])
-        if a[mid]>a[hi]: _sw64(&a[mid],&a[hi])
-        piv=a[mid]
-        i=lo
-        j=hi
-        while True:
-            while a[i]<piv: i+=1
-            while a[j]>piv: j-=1
-            if i>=j: break
-            _sw64(&a[i],&a[j])
-            i+=1
-            j-=1
-        if j-lo > hi-j-1:
-            if lo<j:
-                stk[sp]=lo
-                stk[sp+1]=j
-                sp+=2
-            if j+1<hi:
-                stk[sp]=j+1
-                stk[sp+1]=hi
-                sp+=2
-        else:
-            if j+1<hi:
-                stk[sp]=j+1
-                stk[sp+1]=hi
-                sp+=2
-            if lo<j:
-                stk[sp]=lo
-                stk[sp+1]=j
-                sp+=2
 
 # Iterative quicksort: paired key value
 cdef void _qsort_kv_i32_f64(i32* k, f64* v, Py_ssize_t n) noexcept nogil:
@@ -591,8 +465,8 @@ def csr_from_coo_i32_f64(np.ndarray[i32, ndim=1] rows, np.ndarray[i32, ndim=1] c
                           np.ndarray[f64, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
     """Build CSR from COO. i32+f64. Duplicates summed. Rows sorted by col."""
     cdef Py_ssize_t nnz_in = rows.shape[0], i, k, dest
-    cdef i32[::1] r_mv=rows, c_mv=cols
-    cdef f64[::1] v_mv=vals
+    cdef const i32[::1] r_mv=rows, c_mv=cols
+    cdef const f64[::1] v_mv=vals
     cdef np.ndarray[i32, ndim=1] rc = np.zeros(nrow, dtype=np.int32)
     cdef i32[::1] rc_mv = rc
     for k in range(nnz_in): rc_mv[r_mv[k]] += 1
@@ -627,8 +501,8 @@ def csr_from_coo_i32_f64(np.ndarray[i32, ndim=1] rows, np.ndarray[i32, ndim=1] c
 def csr_from_coo_i64_f64(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] cols,
                           np.ndarray[f64, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
     cdef Py_ssize_t nnz_in = rows.shape[0], i, k, dest
-    cdef i64[::1] r_mv=rows, c_mv=cols
-    cdef f64[::1] v_mv=vals
+    cdef const i64[::1] r_mv=rows, c_mv=cols
+    cdef const f64[::1] v_mv=vals
     cdef np.ndarray[i64, ndim=1] rc = np.zeros(nrow, dtype=np.int64)
     cdef i64[::1] rc_mv = rc
     for k in range(nnz_in): rc_mv[r_mv[k]] += 1
@@ -663,8 +537,8 @@ def csr_from_coo_i64_f64(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] c
 def csr_from_coo_i32_f32(np.ndarray[i32, ndim=1] rows, np.ndarray[i32, ndim=1] cols,
                           np.ndarray[f32, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
     cdef Py_ssize_t nnz_in = rows.shape[0], i, k, dest
-    cdef i32[::1] r_mv=rows, c_mv=cols
-    cdef f32[::1] v_mv=vals
+    cdef const i32[::1] r_mv=rows, c_mv=cols
+    cdef const f32[::1] v_mv=vals
     cdef np.ndarray[i32, ndim=1] rc = np.zeros(nrow, dtype=np.int32)
     cdef i32[::1] rc_mv = rc
     for k in range(nnz_in): rc_mv[r_mv[k]] += 1
@@ -699,8 +573,8 @@ def csr_from_coo_i32_f32(np.ndarray[i32, ndim=1] rows, np.ndarray[i32, ndim=1] c
 def csr_from_coo_i64_f32(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] cols,
                           np.ndarray[f32, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
     cdef Py_ssize_t nnz_in = rows.shape[0], i, k, dest
-    cdef i64[::1] r_mv=rows, c_mv=cols
-    cdef f32[::1] v_mv=vals
+    cdef const i64[::1] r_mv=rows, c_mv=cols
+    cdef const f32[::1] v_mv=vals
     cdef np.ndarray[i64, ndim=1] rc = np.zeros(nrow, dtype=np.int64)
     cdef i64[::1] rc_mv = rc
     for k in range(nnz_in): rc_mv[r_mv[k]] += 1
@@ -754,8 +628,8 @@ def dual_from_coo_i32_f64(np.ndarray[i32, ndim=1] rows, np.ndarray[i32, ndim=1] 
                            np.ndarray[f64, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
     """Build DualCSR (CSR+CSC) in one pass. i32+f64."""
     cdef Py_ssize_t nnz_in=rows.shape[0], i, k
-    cdef i32[::1] r_mv=rows, c_mv=cols
-    cdef f64[::1] v_mv=vals
+    cdef const i32[::1] r_mv=rows, c_mv=cols
+    cdef const f64[::1] v_mv=vals
     cdef np.ndarray[i32, ndim=1] rc=np.zeros(nrow,dtype=np.int32), cc=np.zeros(ncol,dtype=np.int32)
     cdef i32[::1] rc_mv=rc, cc_mv=cc
     for k in range(nnz_in):
@@ -813,8 +687,8 @@ def dual_from_coo_i64_f64(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] 
                            np.ndarray[f64, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
     """Build DualCSR single pass. i64+f64."""
     cdef Py_ssize_t nnz_in=rows.shape[0], i, k
-    cdef i64[::1] r_mv=rows, c_mv=cols
-    cdef f64[::1] v_mv=vals
+    cdef const i64[::1] r_mv=rows, c_mv=cols
+    cdef const f64[::1] v_mv=vals
     cdef np.ndarray[i64, ndim=1] rc=np.zeros(nrow,dtype=np.int64), cc=np.zeros(ncol,dtype=np.int64)
     cdef i64[::1] rc_mv=rc, cc_mv=cc
     for k in range(nnz_in):
@@ -872,8 +746,8 @@ def dual_from_coo_i64_f64(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] 
 def dual_from_coo_i32_f32(np.ndarray[i32, ndim=1] rows, np.ndarray[i32, ndim=1] cols,
                            np.ndarray[f32, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
     cdef Py_ssize_t nnz_in=rows.shape[0], i, k
-    cdef i32[::1] r_mv=rows, c_mv=cols
-    cdef f32[::1] v_mv=vals
+    cdef const i32[::1] r_mv=rows, c_mv=cols
+    cdef const f32[::1] v_mv=vals
     cdef np.ndarray[i32, ndim=1] rc=np.zeros(nrow,dtype=np.int32), cc=np.zeros(ncol,dtype=np.int32)
     cdef i32[::1] rc_mv=rc, cc_mv=cc
     for k in range(nnz_in):
@@ -930,8 +804,8 @@ def dual_from_coo_i32_f32(np.ndarray[i32, ndim=1] rows, np.ndarray[i32, ndim=1] 
 def dual_from_coo_i64_f32(np.ndarray[i64, ndim=1] rows, np.ndarray[i64, ndim=1] cols,
                            np.ndarray[f32, ndim=1] vals, Py_ssize_t nrow, Py_ssize_t ncol):
     cdef Py_ssize_t nnz_in=rows.shape[0], i, k
-    cdef i64[::1] r_mv=rows, c_mv=cols
-    cdef f32[::1] v_mv=vals
+    cdef const i64[::1] r_mv=rows, c_mv=cols
+    cdef const f32[::1] v_mv=vals
     cdef np.ndarray[i64, ndim=1] rc=np.zeros(nrow,dtype=np.int64), cc=np.zeros(ncol,dtype=np.int64)
     cdef i64[::1] rc_mv=rc, cc_mv=cc
     for k in range(nnz_in):
@@ -1001,8 +875,10 @@ def dual_from_coo(rows, cols, vals, Py_ssize_t nrow, Py_ssize_t ncol):
 def dual_from_csr(CSRMatrix csr):
     """Add CSC storage to existing CSRMatrix."""
     cdef Py_ssize_t nrow=csr.nrow, nnz=csr.nnz, i, k
-    cdef i32[::1] rp_v, r_mv
-    cdef i64[::1] rp_v64, r_mv64
+    cdef const i32[::1] rp_v
+    cdef i32[::1] r_mv
+    cdef const i64[::1] rp_v64
+    cdef i64[::1] r_mv64
     if csr.idx_bits == 32:
         rows = np.empty(nnz, dtype=np.int32)
         rp_v = csr._row_ptr_arr
@@ -1511,11 +1387,22 @@ def from_scipy_csr(sp_matrix):
 
 def canonical_dual(DualCSR A):
     """Coalesce sorted duplicate addresses and remove numerical zeros."""
-    cdef Py_ssize_t i, p, j
+    cdef Py_ssize_t i, p, j, nrow = A.nrow
     cdef double total
     cdef const i64[::1] rp = np.ascontiguousarray(A.row_ptr, dtype=np.int64)
     cdef const i64[::1] ci = np.ascontiguousarray(A.col_idx, dtype=np.int64)
     cdef const f64[::1] av = np.ascontiguousarray(A.vals, dtype=np.float64)
+    cdef bint needs_coalescing = False
+    with nogil:
+        for i in range(nrow):
+            for p in range(rp[i], rp[i + 1]):
+                if av[p] == 0.0 or (p > rp[i] and ci[p] == ci[p - 1]):
+                    needs_coalescing = True
+                    break
+            if needs_coalescing:
+                break
+    if not needs_coalescing:
+        return A
     rows, cols, values = [], [], []
     for i in range(A.nrow):
         p = rp[i]

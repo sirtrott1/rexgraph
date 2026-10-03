@@ -1,10 +1,4 @@
-"""/api/v1/db/query separates a malformed request from a server fault.
-
-The route splats the request body into the store predicate, so an unsupported key is
-the client's mistake. The store raises TypeError naming the keys it accepts, and the
-route turns that into a 400 carrying the same list. A 500 there would report the
-server as broken and hide the fix from whoever sent the request.
-"""
+"""The database query route returns HTTP 400 for unsupported predicate keys."""
 
 from __future__ import annotations
 

@@ -53,11 +53,11 @@ def extract_attention_rex(
 ) -> dict:
     """Build a weighted directed relational complex from an attention matrix WITHOUT a
     magic threshold. Per query token, keep the smallest set of attended keys whose
-    softmax mass covers ``top_p`` (nucleus) - data adaptive and principled for softmax
-    attention - plus a numerical zero floor. Vectorized (no O(n²) Python loop). Edge
+    softmax mass covers ``top_p`` (nucleus): data adaptive and principled for softmax
+    attention: plus a numerical zero floor. Vectorized (no O(n²) Python loop). Edge
     i->j = token i attends to token j, weighted by the attention value.
 
-    (Weight direct analysis on the full matrix - no discretization - is also available:
+    (Weight direct analysis on the full matrix: no discretization: is also available:
     pass the matrix straight to ``RexGraph.from_adjacency`` and read the moment engine
     metrics; nucleus is for when a sparse discrete complex is wanted.)"""
     A = np.array(attention_matrix, dtype=np.float64, copy=True)
@@ -87,7 +87,7 @@ def extract_attention_rex(
 
 
 def measure_chain_condition(B1: np.ndarray, B2: np.ndarray) -> float:
-    """Measure ||B₁B₂|| - how badly the chain condition is violated."""
+    """Measure ||B₁B₂||: how badly the chain condition is violated."""
     if B2.shape[1] == 0:
         return 0.0
     product = B1 @ B2
@@ -109,29 +109,19 @@ def measure_equiweight(D: np.ndarray, nV: int, nE: int, nF: int) -> dict:
     # obligation to be a graded Dirac. The residual is its distance from being one.
     anticomm_norm = equiweight_residual(D, (nV, nE, nF), ord="fro")
 
-    # A NUMERICAL nullity, and it has to be: D is assembled from attention weights, so it
-    # is a float operator with no exact rational source to reduce. np.linalg.matrix_rank
-    # is a singular value decomposition against a tolerance, and there is no exact rank
-    # available for an operator that was never exact.
-    #
-    # This previously claimed "the EXACT integer dim - dim ker(D) ... no
-    # eigenvalue magnitude threshold", which described a contract the call does not
-    # deliver: the tolerance is a singular value threshold under a different name. The
-    # tolerance is now explicit and travels with the result, so a consumer can see that
-    # this count is a numerical reading rather than a topological invariant. The exact
-    # path exists for exact operands and is used elsewhere, for example _sparse_rank by
-    # elimination in the analysis pipeline.
+    # D contains numerical attention weights. Estimate its nullity by SVD
+    # with an explicit tolerance retained in the result.
     rank_tol = float(max(D.shape) * np.finfo(np.float64).eps * float(np.abs(D).max() or 1.0))
     n_harmonic = dim - int(np.linalg.matrix_rank(D, tol=rank_tol))
     n_nonharmonic = dim - n_harmonic
 
-    # The per mode even/odd (chirality) fraction genuinely needs the eigenVECTORS - it
+    # The per mode even/odd (chirality) fraction needs the eigenVECTORS: it
     # is not reducible to an integer invariant. It's bounded here (an attention complex
     # is small), so a dense symmetric eig is fine; we just skip the exact null space.
     deviations = []
     if 0 < dim <= 4096:
         evals, evecs = np.linalg.eigh(D)
-        # the null space has dimension n_harmonic - skip exactly that many smallest-|λ|
+        # the null space has dimension n_harmonic: skip exactly that many smallest-|λ|
         nonharm_idx = np.argsort(np.abs(evals))[n_harmonic:]
         even_mask = gamma > 0                      # the +1 grades: vertices and faces
         for j in nonharm_idx:

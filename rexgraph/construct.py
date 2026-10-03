@@ -36,51 +36,12 @@ __all__ = ["from_groups", "group_sections", "from_text", "precedence_field",
 
 def from_groups(groups, *, min_pair_count=1, owner_vertex=False,
                 pair_mode="none", verify=True):
-    """The mixed construction over `groups`, an iterable of member id iterables.
+    """Build one complex from participant groups.
 
-    Members are any hashable labels; they are mapped to vertices in first seen order and
-    the mapping comes back so a caller can read a relation's support in its own terms.
-
-    `min_pair_count` drops pairs seen fewer than that many times, which is how a text
-    corpus keeps its co occurrence graph from being noise. A dropped pair simply is not
-    asserted; nothing is reweighted.
-
-    `owner_vertex` prepends one vertex per group to its own wide relation, so the group
-    itself is the distinguished vertex. Use it when the group is a THING (a document, a
-    record) rather than only a set (a protein complex read as its members).
-
-    `pair_mode="none"` carries the groups ALONE: a k-ary relation is one column and
-    nothing is enumerated from it. The other two modes each invent pairwise facts the
-    source never stated, and on prose the invention dominates. Measured on one book,
-    1,469 sentences give 1,469 relations at rank 1,437 under "none" against 12,890 at
-    rank 2,566 under "spanning", so 11,421 pairs manufactured 1,129 dimensions of rank
-    and 10,292 of the 10,324 cycles. It is not a forest of stars either: shared
-    vocabulary leaves 32 real cycles. Use "none" when the relation IS the fact and the
-    readings come from the field; use the others when a caller genuinely wants the
-    pairwise contacts as data.
-
-    `pair_mode` decides HOW MANY pairs a group contributes, and on a wide group it is the
-    difference between a usable complex and an unusable one::
-
-        "clique"    every C(k,2) contact. This is what closes a group most redundantly,
-                    and on a group of arity 1232 it is 758,296 relations from ONE fact.
-        "spanning"  k-1 contacts along the sorted members, which is all that is needed:
-                    a connected set's zero-sum space has dimension k-1, so a spanning
-                    subset already spans the group's column and the group still closes.
-
-    The RANK is the same either way (Corollary 14.2 depends on the group being connected,
-    not on how), and so is closure. What differs is the CYCLE count, and the difference is
-    not information: the data said "these k members are one group", one fact, while the
-    clique asserts C(k,2) separate pairwise facts it never stated. Measured on a fixture
-    with one arity 40 group: rank 59 both ways, group still closes both ways, cycles 1303
-    against 221. On Wiktionary the whole corpus is 84,162,599 clique pairs against
-    1,882,554 spanning ones, 45x, with 82% of the clique coming from the 0.57% of groups
-    at arity >= 100. Clique expansion is what the model exists not to need; "clique" stays
-    the default only because it is what every earlier measurement in this repo used.
-
-    Returns `(rex, info)` where `info` carries `sections` (group index -> relation ids),
-    `vertex_of` (member label -> vertex), `pair_index` ((u,v) -> relation id),
-    `n_wide` and `n_pairs`.
+    Each group declares a branching relation. pair_mode="none" adds no pairwise
+    contacts. clique adds every pair; spanning adds a connected set of k-1 pairs.
+    Connected pair expansions span the same zero sum subspace but have different
+    cycle counts. Use pair expansion only when those contacts are part of the data.
     """
     from rexgraph.graph import RexGraph
 
@@ -287,18 +248,10 @@ def from_text(text, *, sentences=None, stopwords=None, token_pattern=_TOKEN,
 
 
 def first_occurrences(sequences):
-    """Each sequence reduced to the first occurrence of each token, order preserved.
+    """Keep each token's first occurrence in sequence order.
 
-    This is a step on the SEQUENCES and deliberately not an option inside
-    `precedence_field`, because where it happens decides whether a control is a control.
-    An all pairs precedence reading uses each token's position, so a token appearing
-    several times holds the earliest of several positions; that is a multiplicity channel
-    riding alongside the order channel. Permuting a sequence that still has repeats
-    leaves that channel intact, so the "order destroyed" control still carries it and the
-    comparison reports the OPPOSITE conclusion. This was measured, twice.
-
-    So reduce FIRST, then read and shuffle the reduced sequences. Do NOT reduce for an
-    adjacency reading: removing a repeat makes two non neighbours adjacent.
+    Apply this to sequences before computing or shuffling a precedence field when
+    the construction should exclude repeated token occurrences.
     """
     out = []
     for toks in sequences:
@@ -454,29 +407,11 @@ def from_spans(spans, *, min_pair_count=1, sentence_of=None, pair_mode="none",
 
 
 def mixed_rank(rex, info):
-    """`rank(B_1)` of a mixed construction in near linear time, or None if not applicable.
+    """Return the rank for a supported mixed pairwise/branching construction, or None.
 
-    The exact integer elimination is quadratic in the fill it creates, which is 127s at
-    350k relations. For THIS construction it is avoidable, and the reason is the same one
-    that makes the construction worth having.
-
-    The pair relations inside a group span the whole zero sum space on that group's
-    vertices, of dimension `k-1`, so the group's own column, which is zero sum on exactly
-    those vertices, is already in their span and contributes NO rank. The pairs are then a
-    pairwise boundary map, where `dim ker(L_0)` really is the component count
-    holds at arity two and only there), so::
-
-        rank(B_1) = nV - components(pairs)
-
-    by union find.
-
-    THE GUARD IS THE POINT. This needs every group CONNECTED in the surviving pair graph.
-    `min_pair_count > 1` drops pairs and can fragment a group, and a fragmented group's
-    column is no longer spanned, so it does add rank: measured, the shortcut read 35
-    against a true 49. It also does not generalise beyond this construction, since two
-    arity 3 relations over the same three vertices both add rank while being one
-    component. So this returns None unless the construction it was built for is the
-    construction in hand, and the caller falls back to the exact path.
+    Connected surviving pair relations inside each group span its zero sum boundary
+    column, so rank is nV minus the pair graph's component count. Return None when
+    a group is fragmented or the construction does not satisfy that contract.
     """
     from rexgraph.graded_boundary import _beta0_components
 

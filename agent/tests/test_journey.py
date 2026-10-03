@@ -87,9 +87,7 @@ def test_a_document_becomes_a_session_you_can_read_and_store(client):
 
 
 def test_an_unreadable_snapshot_is_reported_not_a_crash(client, tmp_path):
-    """A session whose bundle was written by an older format used to raise through
-    the middleware as a 500 from seven different routes. It is one 422 now, naming
-    the session and why."""
+    """Unreadable session bundles return HTTP 422 with a session identifier."""
     from agent.server.app import get_store
     from agent.session import SnapshotUnreadable
 

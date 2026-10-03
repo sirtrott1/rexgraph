@@ -2,13 +2,13 @@
 
 Parallelism in the compute paths is a PURE performance/dispatch concern: fanning the
 independent work items across a thread pool must produce results BIT IDENTICAL to the
-serial version - same order of reduction, same dtype. These tests force serialize the
+serial version: same order of reduction, same dtype. These tests force serialize the
 parallel path (by monkeypatching ``compute.parallel_map`` to a serial map, and by
 pinning ``get_threads()`` to 1) and assert the parallelized quantity equals the serial
 computation exactly (``np.array_equal``, not ``allclose``).
 
 Covered:
-  * sparse_character.compute_sparse_phi  - the per vertex Green's phi / kappa, whose CPU
+  * sparse_character.compute_sparse_phi: the per vertex Green's phi / kappa, whose CPU
     chunk loop now fans the independent vertex chunks through compute.parallel_map. This
     is exactly what RexGraph.vertex_character / RexGraph.coherence delegate to.
   * RexGraph._effective_resistance_batch - LEFT serial equivalent on purpose (it delegates
@@ -18,7 +18,7 @@ Covered:
 
 Note on `chunk`: block CG uses a stopping criterion shared across the columns of a chunk,
 so DIFFERENT chunk sizes give tol level different values. Bit identity is asserted only
-for the SAME chunk size, parallel vs serial - which is exactly what the parallelization
+for the SAME chunk size, parallel vs serial: which is exactly what the parallelization
 changes (thread dispatch of the same chunks), nothing else.
 """
 import numpy as np
@@ -72,7 +72,7 @@ class TestComputeSparsePhiParallel:
 
     def test_phi_kappa_threads1_equals_default(self):
         """Pinning the thread width to 1 (parallel_map no ops) must reduce to serial and
-        match the default multi thread run bit for bit - the thread cap is respected."""
+        match the default multi thread run bit for bit: the thread cap is respected."""
         g = _graph(nE=200, nV=90, seed=1)
         cheap = build_sparse_character_cheap(g)
 

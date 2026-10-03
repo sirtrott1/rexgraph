@@ -36,7 +36,7 @@ def gen_graph(nV, p, rng):
 def gen_graph_regular(nV, deg, rng):
     """Random d-REGULAR graph (constant degree) → substructure count is DECORRELATED from
     degree/density, so a pairwise GNN (all nodes look identical locally) has nothing to exploit
-    and must genuinely count: the clean test of the higher order advantage."""
+    and must count: the clean test of the higher order advantage."""
     import networkx as nx
     seed = int(rng.integers(0, 2 ** 31 - 1))
     G = nx.random_regular_graph(deg, nV, seed=seed)

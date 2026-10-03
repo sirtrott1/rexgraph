@@ -75,7 +75,7 @@ def test_explain_does_not_compose_and_repeated_call_reuses_core(monkeypatch):
 
 def test_stored_endpoint_uses_native_source_without_scipy(tmp_path):
     from rcdb import RexStore
-    store = RexStore(str(tmp_path / "db"))
+    store = RexStore(str(tmp_path / "db"), read_only=False)
     try:
         rex, _, _, _ = fixture()
         store.put("r", rex)

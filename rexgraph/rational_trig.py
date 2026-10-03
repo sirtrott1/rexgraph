@@ -105,6 +105,8 @@ from fractions import Fraction
 
 import numpy as np
 
+from rexgraph.exact_value import binary_fraction
+
 __all__ = [
     "bareiss_determinant",
     "exact_channel_diagonals",
@@ -117,22 +119,12 @@ __all__ = [
 
 
 def _exact(values):
-    """A row of values as exact Fractions.
-
-    Integers and Fractions pass through. A float is taken at face value via
-    `Fraction(float)`, which is exact for the binary value it holds; callers wanting
-    a small denominator should pass integers or Fractions in the first place.
-    """
+    """A row of values under the stored binary exact source contract."""
     out = []
     for x in values:
         if isinstance(x, (complex, np.complexfloating)):
             raise TypeError("exact rational geometry does not support complex coefficients")
-        if isinstance(x, Fraction):
-            out.append(x)
-        elif isinstance(x, (int, np.integer)):
-            out.append(Fraction(int(x)))
-        else:
-            out.append(Fraction(float(x)))
+        out.append(binary_fraction(x, context="rational geometry coefficient"))
     return out
 
 
@@ -579,7 +571,7 @@ def exact_character(rex):
     That distinction matters against `rational_reconstruct`, which tries to recover a
     rational from a float that has already lost it and refuses past ~4.7e7. This
     cannot lose it, because it never converts to float. The denominators stay whatever
-    the complex genuinely produces at any size.
+    the complex produces at any size.
 
     `vertex_character` (phi) is NOT of this form. It is a Green's function and needs
     solves, so an exact phi is a different and much more expensive problem.

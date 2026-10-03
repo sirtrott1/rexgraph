@@ -21,6 +21,8 @@ from fractions import Fraction
 
 import numpy as np
 
+from rexgraph.exact_value import binary_fraction, exact_fraction
+
 __all__ = ["ExactSparse", "BlockSystem", "exact_adjoint_apply",
            "exact_hodge_apply", "exact_green_apply", "exact_projector_apply",
            "exact_hodge_frames", "exact_hodge_decompose", "exact_boundary",
@@ -28,17 +30,8 @@ __all__ = ["ExactSparse", "BlockSystem", "exact_adjoint_apply",
 
 
 def _rational(value) -> Fraction:
-    """Reject inexact input rather than silently adopting a binary float."""
-    if isinstance(value, bool):
-        raise TypeError("a boolean is not an exact rational coefficient")
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, int):
-        return Fraction(value)
-    raise TypeError(
-        f"exact action coefficients must be int or Fraction; {type(value).__name__} "
-        "is approximate. Convert at the source, where the exact value is known."
-    )
+    """Certified operator coefficient under the shared exact source contract."""
+    return exact_fraction(value, context="exact action coefficient")
 
 
 class ExactSparse:
@@ -232,7 +225,7 @@ def exact_adjoint_apply(boundary, source_metric, target_metric, y):
     """`B^dagger y = M_source^-1 B* M_target y`, by a transpose action and a solve.
 
     The metric solve is the whole adjoint. Dropping it leaves `B* M y`, which
-    coincides with the adjoint only when the source metric is the identity -- so a
+    coincides with the adjoint only when the source metric is the identity: so a
     fixture without weights cannot see the difference, and a weighted one fails
     outright rather than drifting.
     """
@@ -299,7 +292,7 @@ def exact_projector_apply(frame, metric, x, *, assemble_gram=False):
     the one that needs no product of the original maps.
 
     `F` must be INDEPENDENT. A redundant frame has a singular Gram, and the exact
-    solve refuses instead of quietly supplying a pseudoinverse -- take
+    solve refuses instead of quietly supplying a pseudoinverse: take
     `image_frame()` first if the columns may be dependent.
     """
     n, r = frame.nrows, frame.ncols
@@ -412,12 +405,11 @@ def exact_boundary(rex, grade: int) -> ExactSparse:
         entries = {}
         for f in range(int(b2.ncol)):
             for k in range(int(col_ptr[f]), int(col_ptr[f + 1])):
-                value = float(values[k])
-                exact = Fraction(int(round(value)))
-                if float(exact) != value:
+                exact = binary_fraction(values[k], context="stored B2 coefficient")
+                if exact.denominator != 1:
                     raise ValueError(
                         "stored B2 coefficient is not an exact integer; the exact path "
-                        "refuses a rounded face column rather than adopting it")
+                        "refuses a fractional stored face column rather than adopting it")
                 if exact:
                     entries[int(row_idx[k]), f] = exact
         return ExactSparse(int(rex.nE), int(b2.ncol), entries)
@@ -433,7 +425,10 @@ def exact_grade_metric(rex, grade: int, size: int) -> ExactSparse:
         weights = list(weights)
         if len(weights) != size:
             raise ValueError("edge metric does not match the relation count")
-        return ExactSparse.diagonal([_rational(w) for w in weights])
+        exact = [_rational(w) for w in weights]
+        if any(weight <= 0 for weight in exact):
+            raise ValueError("Hodge/Green edge metric must be strictly positive")
+        return ExactSparse.diagonal(exact)
     return ExactSparse.identity(size)
 
 
@@ -442,7 +437,7 @@ def exact_hodge(rex, field, *, grade: int = 1):
 
     The exact reading of `RexGraph.hodge`. Its float counterpart is an oracle: it
     answers the same question in the approximation tower and its parts agree only to
-    rounding. Inputs must be exact -- a float field is refused rather than adopted,
+    rounding. Inputs must be exact: a float field is refused rather than adopted,
     because the binary value of 0.1 is not the number the caller wrote.
     """
     if grade != 1:
@@ -478,31 +473,8 @@ def exact_green(rex, source, lam=1, *, grade: int = 1):
 
 
 def _field_rational(value) -> Fraction:
-    """One field coordinate as a rational, taking a float at its exact binary value.
-
-    Deliberately weaker than `_rational`, and the two must not be merged. `_rational`
-    guards OPERATOR coefficients, where a float means someone recovered a share from
-    the assembled float operator and the exact value was already lost. This guards a
-    FIELD the caller supplied, where -- by the same convention as `edge_metric_exact`
-    -- a stored double means the rational it actually holds. 0.1 enters as
-    3602879701896397/36028797018963968, which is the number in memory, not 1/10.
-    """
-    if isinstance(value, bool):
-        raise TypeError("a boolean is not an exact field coordinate")
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, int):
-        return Fraction(value)
-    if isinstance(value, float):
-        if value != value or value in (float("inf"), float("-inf")):
-            raise ValueError(f"{value} is not a finite field coordinate")
-        return Fraction(value)
-    if isinstance(value, np.integer):
-        return Fraction(int(value))
-    if isinstance(value, np.floating):
-        return _field_rational(float(value))
-    raise TypeError(
-        f"a field coordinate must be int, float or Fraction; got {type(value).__name__}")
+    """One supplied field coordinate under the stored binary source contract."""
+    return binary_fraction(value, context="field coordinate")
 
 
 def exact_field(values):
@@ -510,18 +482,50 @@ def exact_field(values):
     return [_field_rational(v) for v in values]
 
 
-def exact_path_available(rex, grade: int = 1) -> bool:
-    """Whether the exact path answers at this size, under the declared ceiling.
+def exact_structure_available(rex, grade: int = 1) -> bool:
+    """Whether the requested mathematical carrier is representable over Q.
 
-    The ceiling is policy, not mathematics: `configure_algorithms(exact_field_limit=...)`
-    moves it. Rational elimination is cubic in the grade dimension with growing
-    coefficients, so a large complex is answered by the float tower and reported as
-    approximate rather than run for an unbounded time.
+    This answers a structural question only.  It does not consult size ceilings or
+    solver policy, so changing ``exact_field_limit`` cannot turn an exact carrier into
+    an approximate one.  The current exact Hodge/Green construction is grade 1.
     """
+    if isinstance(grade, (bool, np.bool_)):
+        return False
+    grade = int(grade)
+    if grade != 1:
+        return False
+    try:
+        lower = exact_boundary(rex, 1)
+        upper = exact_boundary(rex, 2)
+        exact_grade_metric(rex, 0, lower.nrows)
+        exact_grade_metric(rex, 1, lower.ncols)
+        exact_grade_metric(rex, 2, upper.ncols)
+    except (ArithmeticError, OverflowError, TypeError, ValueError):
+        return False
+    return True
+
+
+def exact_evaluator_available(rex, grade: int = 1) -> bool:
+    """Whether policy currently permits the exact evaluator for an exact carrier.
+
+    Rational elimination can grow cubically with the grade dimension, so the configured
+    ceiling is an evaluator policy.  It is deliberately separate from
+    :func:`exact_structure_available`: a rational complex above the ceiling remains a
+    rational complex and is merely evaluated approximately by the automatic path.
+    """
+    if not exact_structure_available(rex, grade):
+        return False
     from rexgraph.core._common import get_algorithm_config
     limit = int(get_algorithm_config()["exact_field_limit"])
     if limit <= 0:
         return False
-    rex._ensure_clean()
-    size = int(rex.nV) if grade == 0 else int(rex.nE)
-    return size <= limit
+    return int(rex.nE) <= limit
+
+
+def exact_path_available(rex, grade: int = 1) -> bool:
+    """Compatibility alias for the automatic exact *evaluator* policy.
+
+    New code should distinguish :func:`exact_structure_available` from
+    :func:`exact_evaluator_available` instead of using one boolean for both.
+    """
+    return exact_evaluator_available(rex, grade)

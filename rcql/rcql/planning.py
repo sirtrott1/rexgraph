@@ -205,11 +205,17 @@ def _carrier_literal(binding: Binding, value: object) -> RCType | tuple | None:
     if isinstance(value, ArtifactServices):
         raise TypeError("ArtifactServices belongs in Executor configuration, not query values")
     from rexgraph.cells import Cell, CellSet, GradedCellPattern
-    if isinstance(value, GradedCellPattern):
+    from rexgraph.selection import Selection, Lineage
+    if isinstance(value, Lineage):
+        return RCType("Lineage", kind=ValueKind.RECORD, domain=Domain.METADATA,
+                      exactness=Exactness.STRUCTURAL, source=binding.ref)
+    if isinstance(value, (GradedCellPattern, Selection)):
+        if isinstance(value, Selection):
+            value.check_state()
         ref = binding.ref if value.source is binding.value else SourceRef("foreign")
-        return RCType("GradedCellPattern", kind=ValueKind.CELL_PATTERN, domain=Domain.METADATA,
+        return RCType(type(value).__name__, kind=ValueKind.CELL_PATTERN, domain=Domain.METADATA,
                       exactness=Exactness.STRUCTURAL, source=ref, temporal=binding.temporal)
-    from rexgraph.io.partition_state import RexPartition
+    from rexgraph.partition_state import RexPartition
     from rexgraph.boundary_difference import BoundaryDifference
     if isinstance(value, BoundaryDifference):
         value.check_state()

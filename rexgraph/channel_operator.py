@@ -179,7 +179,7 @@ def _exact_channel_action(rex, name):
 
 def build_factored_operator(rex, chan, active_names, traces, *, trace_normalized=True):
     """The RL / channel operators applied MATRIX FREE through B1, |B1| (edge
-    primacy) - never materializing the hub clique blocks. Returns
+    primacy): never materializing the hub clique blocks. Returns
     ``(apply_rl, apply_hat, Bs)`` where apply_rl(P) = RL @ P and
     apply_hat(name, P) = hat @ P, each O(nnz(B1)) per block column, with no hub clique expansion.
 

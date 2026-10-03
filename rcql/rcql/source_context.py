@@ -5,7 +5,6 @@ from dataclasses import dataclass, fields, is_dataclass
 from fractions import Fraction
 from collections.abc import Mapping
 from types import MappingProxyType
-import math
 
 from .capabilities import BoundSource, SourcePolicy
 from .types import SourceRef, TemporalRef
@@ -69,11 +68,13 @@ def _key(ref):
 
 
 def _clock(value):
-    if type(value) is int or isinstance(value, Fraction):
-        return Fraction(value)
-    if type(value) is float and math.isfinite(value):
-        return Fraction.from_float(value)
-    raise TypeError("cutoff requires a finite recorded clock value")
+    from rexgraph.exact_value import binary_fraction, exact_fraction
+    try:
+        if isinstance(value, float):
+            return binary_fraction(value, context="recorded clock value")
+        return exact_fraction(value, context="recorded clock value")
+    except (TypeError, ValueError) as exc:
+        raise TypeError("cutoff requires a finite recorded clock value") from exc
 
 
 @dataclass(frozen=True)
@@ -125,13 +126,16 @@ class SnapshotContext:
             key = _key(ref)
             if key in entries:
                 return entries[key][0]
-            if limit is not None and _clock(float(snapshot.record.tx_from)) > limit:
+            recorded_at = _clock(snapshot.record.tx_from)
+            if limit is not None and recorded_at > limit:
                 raise ValueError("selected evidence was recorded after the query cutoff")
             bound_ref = SourceRef("snapshot/"+ref.record_id+"@"+str(ref.version),
                                   state_digest=ref.state_digest, record_id=ref.record_id,
                                   record_version=ref.version, policy_digest=policy.digest)
             selected = BoundSource(snapshot.value, policy, ref=bound_ref, temporal=TemporalRef(version=ref.version))
-            entries[key] = (selected, float(snapshot.record.tx_from))
+            # Preserve the source's native clock representation, including exact
+            # rational clocks. Existing binary clocks retain their cache identity.
+            entries[key] = (selected, snapshot.record.tx_from)
             for parent in field_references(snapshot.value):
                 if _key(parent) == key:
                     continue
@@ -143,7 +147,8 @@ class SnapshotContext:
                 retain(dependency)
             return selected
 
-        with lock:
+        transaction = getattr(raw, "read_transaction", None)
+        with transaction() if callable(transaction) else lock:
             for selection in selections:
                 as_of = selection.as_of
                 if limit is not None and selection.version is None:

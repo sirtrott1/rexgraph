@@ -1,14 +1,6 @@
-"""Ontology files, read as the formats ontologies actually ship as.
+"""Check ontology and annotation readers for OBO, OWL, OBO Graphs JSON and GAF.
 
-The Ontology screen used to accept one thing: whitespace separated triples typed into
-a box. GO, HPO, MONDO, ChEBI and UBERON ship `.obo` and `.owl`; GO's current
-distribution is OBO Graphs JSON; and what connects any of them to biology is a
-`.gaf`. None of that could be loaded.
-
-The fixtures here are real shaped fragments of those formats, small enough to assert
-against exactly. Every parser is checked for what it extracts *and* for what it must
-not invent, since a reader that silently drops half an ontology diagnoses a clean
-hierarchy.
+Small format fixtures assert extracted terms, relations and annotations.
 """
 from __future__ import annotations
 
@@ -515,7 +507,7 @@ def test_pasted_text_analyses_with_no_format_given(client, fmt, text):
 
 
 def test_the_triple_box_still_works(client):
-    """The format the screen accepted before this: one triple per line."""
+    """The ontology screen accepts one triple per line."""
     r = client.post("/api/v1/ontology/analyze",
                     json={"triples": [["Dog", "subClassOf", "Mammal"],
                                       ["Cat", "subClassOf", "Mammal"]]})

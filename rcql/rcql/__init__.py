@@ -1,7 +1,25 @@
 """Relational Complex Query Language."""
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.2.2"
+__version__ = "1.3.0"
+
+def register_result_storage_codec():
+    """Install native RCDB result storage only when explicitly requested."""
+    from .result_codec import register_result_storage_codec as install
+    return install()
+
+
+def run(query, *, sources=None, params=None, exactness="declared", cache=None):
+    """Run query text or a typed query against explicitly supplied live sources.
+
+    'declared' retains existing arithmetic. 'exact' requires finite read only
+    output without approximate/rounded numeric values and performs no conversion.
+    """
+    from .executor import Executor
+    from .parser import parse
+    executor = Executor(sources=sources, params=params, exactness=exactness)
+    query = parse(query) if isinstance(query, str) else query
+    return executor.execute(query) if cache is None else executor.execute_cached(query, cache)
 
 from .ast import (
     Alias,
@@ -31,6 +49,7 @@ from .builder import (
     at,
     at_time,
     call,
+    dataset,
     let,
     member,
     mutation,
@@ -79,6 +98,8 @@ from .types import (
 # touches numpy or the operator registry: deciding what a call WOULD produce must not
 # require the machinery that would produce it. The executor stays lazy for that reason.
 __all__ = [
+    "run", "dataset", "DatasetSource", "SourceSignature", "SourceRegistry", "SOURCES",
+    "register_result_storage_codec",
     "ArtifactServices",
     "Comparison", "MatchBinding", "StructuralEdit",
     "Alias", "ListExpr", "Member", "alias", "member", "source_call",
@@ -105,6 +126,12 @@ def __getattr__(name):
     Importing it eagerly would pull in the operator registry, and through it the whole
     numeric stack, for a caller that only wanted to parse or build a query.
     """
+    if name == "DatasetSource":
+        from .dataset_source import DatasetSource
+        return DatasetSource
+    if name in {"SourceSignature", "SourceRegistry", "SOURCES"}:
+        from . import source_signatures
+        return getattr(source_signatures, name)
     if name == "ArtifactServices":
         from .artifact_services import ArtifactServices
         return ArtifactServices

@@ -1,30 +1,9 @@
-"""
-agent.overview: one call that says what a complex is.
+"""agent.overview: structural summaries and consistency checks.
 
-`rexgraph.analysis.analyze` was this, for the old dashboard. What it produced was
-partly a picture of where a linear cut fell and partly a table of comparison baselines,
-and getting it cost a dense eigendecomposition. This assembles the same kind of answer
-from the readings that are exact and eigen free, and adds the thing a section by section
-report cannot have: the sections checked against each other.
-
-    shape        counts, and the ARITY distribution. A graph-shaped summary cannot show
-                 this, and it is the first thing worth knowing about a relational
-                 complex: how many relations are pairwise and how many branch.
-    homology     Betti and the rank tower, where each rank is the curl of the grade
-                 below and the gradient of the grade above.
-    integrity    whether every declared face bounds, naming the ones that do not.
-    character    what the complex is made of, per channel, by name.
-    flow         a signal split into gradient, curl and harmonic; without one, the
-                 DIMENSIONS those parts would have.
-    curvature    where the strain sits, per face, with the conservation residual.
-    consistency  the cross-checks. Euler from the cell counts against Euler from Betti,
-                 and the harmonic dimensions against Betti. Both are identities, so a
-                 disagreement is a defect and not a tolerance.
-
-Nothing here reports a Fiedler value, a partition derived from one, or PageRank,
-betweenness, clustering or community. The first describes a cut rather than the cells;
-the rest are the comparison column, still available through
-`analyze(..., standard_metrics=True)` where comparison is the point.
+The summary includes cell counts, relation arities, homology, chain validity,
+named characters, Hodge dimensions or signal components, and RCFE curvature.
+Consistency checks compare Euler characteristics and harmonic dimensions with
+the Betti numbers.
 """
 
 from __future__ import annotations
@@ -194,7 +173,7 @@ def overview(rex, *, labels=None, signal=None, cells: bool = True,
             "law_holds": law["holds"], "law_residual": law["residual"],
             "closure_at_2": closure_at(rex, 2),
         }
-    except Exception:                            # noqa: BLE001 - optional reading
+    except Exception:                            # noqa: BLE001  # optional reading
         pass
     try:
         from rexgraph.mesh_health import harmonic_health
@@ -205,7 +184,7 @@ def overview(rex, *, labels=None, signal=None, cells: bool = True,
             "coparticipation_total": health.get("coparticipation_total"),
             "health_ratio": health.get("health_ratio"),
         }
-    except Exception:                            # noqa: BLE001 - optional reading
+    except Exception:                            # noqa: BLE001  # optional reading
         pass
     if cells:
         from agent.cell_view import cells as _cells

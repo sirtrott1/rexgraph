@@ -212,7 +212,7 @@ def test_retained_codec_native_roundtrip():
     pair=MomentSpan(x,x,CoordinatePairing.metric(CoordinateMetric.identity(s)))
     result=RexGraph.from_cells([1,[[0]]]);result.attach_metadata(1,0,'moment',pair)
     state=to_state(result)
-    assert state.header['format_version']==5
+    assert state.header['format_version']==10
     restored=from_state(state).get_metadata(1,0,"moment")
     assert np.array_equal(restored.support().values,pair.support().values)
     assert restored.left.source.state_digest==source.state_digest

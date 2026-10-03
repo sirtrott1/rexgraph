@@ -144,7 +144,7 @@ def relational_cr(list hats):
 
     nE = hat_T.shape[0]
     # Only the DIAGONALS of the products are used: diag(TS)_e = Σ_k T[e,k]S[k,e]
-    # (row·col), O(nE²) per edge total - never form the nE×nE products (O(nE³)).
+    # (row·col), O(nE²) per edge total: never form the nE×nE products (O(nE³)).
     cdef np.ndarray[f64, ndim=1] TS_diag = np.einsum('ek,ke->e', hat_T, hat_S)
     cdef np.ndarray[f64, ndim=1] ST_diag = np.einsum('ek,ke->e', hat_S, hat_T)
 
@@ -199,7 +199,7 @@ def cr_saddle_score(list hats):
     """
     if len(hats) < 4:
         return 0.0
-    # Reuse the (de densified) per edge CR - diag(TS)/diag(ST) are O(nE²) row·col
+    # Reuse the (de densified) per edge CR: diag(TS)/diag(ST) are O(nE²) row·col
     # dots, no nE×nE products.
     cr = relational_cr(hats)['cr']
     return float(np.mean(cr)) if cr.size > 0 else 0.0

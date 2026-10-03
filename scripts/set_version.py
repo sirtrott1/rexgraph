@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
-"""Set the version in every file that declares one, in one go.
-
-Five files state the version, because each serves something that cannot read the others:
-meson needs its own at configure time, pip reads pyproject before any code runs, and
-`__version__` has to answer without the package being installed. Editing five files by
-hand is why meson.build sat at 1.0.1 through two 1.0.6 releases.
+"""Set all five distribution versions and their sibling dependency floors.
 
     python scripts/set_version.py 1.0.7        write it everywhere
     python scripts/set_version.py --show       print what each file says now
     python scripts/set_version.py 1.0.7 -n     show the edits without making them
 
-Each file is matched by an anchored pattern rather than a bare string replace, so a
-version number appearing in prose, a dependency pin, or a changelog entry is left alone.
-A file whose pattern does not match is an error and stops the run: a silent miss here is
-exactly the drift this exists to prevent.
-
-`rexgraph/tests/test_version_consistency.py` checks the result. This writes it.
+Version declarations and sibling requirements are matched explicitly. All target
+files are validated before writing. README text and unrelated requirements stay
+unchanged. --dry-run reports the planned changes without writing them.
 """
 
 from __future__ import annotations
@@ -39,7 +31,15 @@ TARGETS = {
                                 r"\g<1>{v}\g<2>"),
 }
 
-VERSION_RE = re.compile(r"\d+\.\d+\.\d+([abrc]\d+|\.dev\d+|\.post\d+)?")
+for package in ("rcdb", "rcql", "system"):
+    TARGETS[f"{package}/pyproject.toml"] = (
+        re.compile(r'^(version\s*=\s*")[^"]+(")', re.M), r"\g<1>{v}\g<2>")
+    TARGETS[f"{package}/{package}/__init__.py"] = (
+        re.compile(r'^(__version__\s*=\s*")[^"]+(")', re.M), r"\g<1>{v}\g<2>")
+
+VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+|\.dev\d+|\.post\d+)?")
+SIBLING_FLOOR = re.compile(
+    r'("rexgraph(?:-(?:rcdb|rcql|system|agent))?>=)[^"\s]+(")')
 
 
 def current() -> dict[str, str]:
@@ -78,7 +78,7 @@ def main(argv=None) -> int:
               f"(N.N.N with an optional a/b/rc/dev/post suffix)", file=sys.stderr)
         return 2
 
-    changed = []
+    changed = {}
     for name, (pattern, template) in TARGETS.items():
         path = ROOT / name
         text = path.read_text()
@@ -87,10 +87,14 @@ def main(argv=None) -> int:
             print(f"error: no version line matched in {name}; refusing to continue "
                   f"with a partial update", file=sys.stderr)
             return 3
+        if name.endswith("pyproject.toml"):
+            new = SIBLING_FLOOR.sub(lambda m: m[1] + args.version + m[2], new)
         if new != text:
-            changed.append(name)
-            if not args.dry_run:
-                path.write_text(new)
+            changed[name] = new
+
+    if not args.dry_run:
+        for name, new in changed.items():
+            (ROOT / name).write_text(new)
 
     verb = "would set" if args.dry_run else "set"
     print(f"{verb} {args.version} in {len(changed)} file(s):")

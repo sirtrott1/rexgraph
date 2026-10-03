@@ -62,9 +62,9 @@ def test_reopened_document_uses_original_relation_axis(tmp_path):
     add_sectioning(r, "span", {"span0": [0], "span1": [1, 2]})
     add_coarsening(r, "sentence", "span", [0, 0], ["sentence0"])
     uri = f"rex://{tmp_path / 'store'}"
-    with closing(rcdb.open_store(uri)) as store:
+    with closing(rcdb.open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))) as store:
         store.put("document", r)
-    with closing(rcdb.open_store(uri)) as store:
+    with closing(rcdb.open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))) as store:
         out = Executor(sources={"db": store}).execute(parse(
             'FROM RCDB_GET($db,"document") RETURN APPLY(TEXT_OVERLAP_VIEW(),'
             'INDICATOR(CELL(1,0)),true),PAGERANK_ITERATION(PARTICIPATION_WALK())'))

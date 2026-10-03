@@ -22,8 +22,14 @@ BI = np.array([0, 1, 2, 0, 1, 1, 2, 2, 3], np.int32)
 
 SAVERS = [
     (".rcbd", "save_rcbd", "load_rcbd"),
-    (".zarr", "save_zarr", "load_zarr"),
-    (".h5", "save_hdf5", "load_hdf5"),
+    pytest.param(
+        ".zarr", "save_zarr", "load_zarr",
+        marks=pytest.mark.skipif(not rio.HAS_ZARR, reason="zarr not installed"),
+    ),
+    pytest.param(
+        ".h5", "save_hdf5", "load_hdf5",
+        marks=pytest.mark.skipif(not rio.HAS_HDF5, reason="h5py not installed"),
+    ),
 ]
 
 
@@ -66,7 +72,22 @@ def test_the_registry_holds_the_saver_directly():
     assert not hasattr(rio, "_save_safetensors")
 
 
-@pytest.mark.parametrize("ext", [".rcbd", ".json", ".zarr", ".h5", ".safetensors"])
+@pytest.mark.parametrize("ext", [
+    ".rcbd",
+    ".json",
+    pytest.param(
+        ".zarr", marks=pytest.mark.skipif(not rio.HAS_ZARR, reason="zarr not installed")
+    ),
+    pytest.param(
+        ".h5", marks=pytest.mark.skipif(not rio.HAS_HDF5, reason="h5py not installed")
+    ),
+    pytest.param(
+        ".safetensors",
+        marks=pytest.mark.skipif(
+            not rio.HAS_SAFETENSORS, reason="safetensors not installed"
+        ),
+    ),
+])
 def test_generic_save_load_round_trips_every_format(tmp_path, ext):
     r = _rex()
     p = str(tmp_path / ("g" + ext))

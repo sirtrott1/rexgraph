@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# install.sh - OS agnostic installer for the RexGraph monorepo.
+# install.sh: OS agnostic installer for the RexGraph monorepo.
 
 # Run from the REPO ROOT (the dir with meson.build + agent/):
 # sh install.sh
@@ -12,13 +12,13 @@
 #     - conda: reuses mamba/micromamba/conda if present, else bootstraps
 #       micromamba (no miniforge). Hermetic toolchain + OpenBLAS from
 #       conda-forge. This is the default and the recommended path.
-#     - pip/venv: fallback when no conda frontend is wanted/available - creates
+#     - pip/venv: fallback when no conda frontend is wanted/available: creates
 #       a plain virtualenv (uv if present, else python -m venv) and builds with
 #       pip's isolated build (build deps come from pyproject). Uses the SYSTEM
 #       compiler + BLAS, so ensure a C/C++ toolchain is installed.
 #   Choose with INSTALLER=auto|conda|pip (default auto). NO_CONDA=1 forces pip
 #   when no conda frontend exists instead of bootstrapping micromamba.
-# * GPU (nvidia -> CUDA, amd -> ROCm/Vulkan incl. integrated/APU, else CPU) - reported
+# * GPU (nvidia -> CUDA, amd -> ROCm/Vulkan incl. integrated/APU, else CPU): reported
 # * shell (bash/zsh/fish) for the activation hook (conda path)
 
 # The heavy toolchain (C/C++ compilers, OpenBLAS) comes from the conda-forge
@@ -228,7 +228,7 @@ INENV pip install $BUILD_ISOLATION $NATIVE_ARG ".[io,security]" || die "core bui
 # repo, in dependency order, and they have to be installed before the agent: the agent
 # requires rexgraph-rcdb, and without a local install pip would go looking for it on an
 # index where it does not exist, and the install would fail there rather than here.
-# Editable for the same reason the agent is: this repo stays the source of truth.
+# Editable installs keep the sibling packages linked to this development checkout.
 say "Installing the sibling distributions (rcdb, rcql, system)"
 # Every rcdb extra, because this is the full repo installer: the agent uses SQL and
 # object stores and record encryption, and each of those is an optional dependency of the
@@ -245,39 +245,26 @@ X="$EXTRAS"
 if [ "$RUN_AGENT_TESTS" = 1 ] || [ "$RUN_CORE_TESTS" = 1 ]; then
     X="${X:+$X,}dev"
 fi
-# EDITABLE (-e) is required: the web UI is served from agent/frontend/, which the
-# server locates relative to the package source tree. A non editable install
-# copies the package into site packages, where that sibling frontend/ dir does
-# NOT exist, so the browser app silently 404s (API + CLI still work). Editable
-# keeps the package pointing at this repo - so DO NOT move/delete this repo dir
-# after install.
+# Editable keeps Agent linked to this checkout; keep it at this location.
+# Agent wheels and source distributions also include the licensed frontend.
 INENV pip install -e "./agent[$X]" || die "agent install failed."
 
-# 8. vendor the offline UI assets
-if [ ! -f agent/frontend/react.production.min.js ]; then
-    say "Vendoring React for offline UI (not present)"
-    RV=18.2.0
-    curl -Ls "https://cdnjs.cloudflare.com/ajax/libs/react/$RV/umd/react.production.min.js"        -o agent/frontend/react.production.min.js || true
-    curl -Ls "https://cdnjs.cloudflare.com/ajax/libs/react-dom/$RV/umd/react-dom.production.min.js" -o agent/frontend/react-dom.production.min.js || true
-    if [ -s agent/frontend/react.production.min.js ]; then
-        sed -i.bak 's#https://cdnjs.cloudflare.com/ajax/libs/react/[^"]*#/static/react.production.min.js#;s#https://cdnjs.cloudflare.com/ajax/libs/react-dom/[^"]*#/static/react-dom.production.min.js#' agent/frontend/index.html && rm -f agent/frontend/index.html.bak
-    fi
-else
-    info "React already vendored - UI is offline-capable."
-fi
+# 8. The licensed offline UI ships with Agent and is checked in the neutral
+# installation smoke test below. No install time frontend downloads or rewrites.
 
 # 9. verify
 # The core is installed NON editable (compiled .so live in the env's
 # site packages). Run the smoke tests from a NEUTRAL directory: from the repo
 # root the source rexgraph/ dir (which has the .pyx but no .so) would shadow the
 # compiled package and every core import would fail (this is the real cause of
-# the "_laplacians is None" symptom - it's CWD shadowing, not a cache warmup).
+# the "_laplacians is None" symptom: it's CWD shadowing, not a cache warmup).
 say "Verifying"
 REPO_DIR="$PWD"
 SMOKE_DIR="$(mktemp -d)"
 trap 'rmdir "$SMOKE_DIR" 2>/dev/null || true' 0
 ( cd "$SMOKE_DIR" && INENV python -I -c "from rexgraph.graph import RexGraph; r=RexGraph.from_graph([0,1,0],[1,2,2]); print('  core OK: betti', r.betti)" ) || die "core smoke test failed."
 ( cd "$SMOKE_DIR" && INENV python -I -c "import agent.server.app; print('  server app imports OK')" ) || die "server import failed."
+( cd "$SMOKE_DIR" && INENV python -I -c "from agent.ui_assets import validate_ui_assets; print('  offline UI OK:', validate_ui_assets())" ) || die "agent frontend verification failed."
 if [ "$RUN_AGENT_TESTS" = 1 ]; then
     info "running the agent test suite"
     ( cd "$SMOKE_DIR" && INENV python -I "$REPO_DIR/scripts/test_installed.py" \

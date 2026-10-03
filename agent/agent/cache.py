@@ -73,10 +73,7 @@ def _version_salt() -> str:
 
 
 def _blob_path(key: str) -> Path:
-    # `.rexblob`, not `.safetensors`: `serialize_complex` frames and compresses, so a
-    # file named for the container format would not open as one. The extension has to
-    # say what is actually in the file: CACHE_VERSION 3 is the bump that retires the
-    # entries written under the old name.
+    # serialize_complex writes a framed blob. CACHE_VERSION 3 uses .rexblob.
     return cache_dir() / f"{key}.rexblob"
 
 

@@ -345,12 +345,8 @@ def _label_room(placed, texts=None, font_size=11.0):
 def _resolve_exposure(payload, dLT, eps):
     """Settle `dLT` and `eps` for this payload, and say what was settled and why.
 
-    The K7 colour is a physical consequence of the character, and it is also a photograph:
-    it has an exposure, and at a fixed `dLT = 1` most complexes fall off the end of
-    the visible band and come back black. Measured on a real binding panel, all eight
-    relations did. So the default here is `"auto"`, which asks `rexgraph.color.exposure`
-    to solve for the setting rather than pick one, and reports it in the caption. A caller
-    who passes a number gets that number, unchanged, including 1.
+    The default exposure is auto, resolved through rexgraph.color.exposure
+    and reported in the caption. An explicit numeric exposure is returned unchanged.
     """
     if dLT != "auto" and eps != "auto":
         return float(dLT), float(eps), ""
@@ -398,14 +394,9 @@ def render_svg(payload, *, width: int = 900, height: int = 700, pad: int = 60,
     the difference plain, since its six carbons are structurally identical and stack in
     character space while sitting on a hexagon in the file.
 
-    `view="structural"` is the one to reach for when the question is what the graph LOOKS
-    like. The other views place a cell by what it IS, and two cells that are structurally
-    identical then land on the same point, correctly and unhelpfully: a 9 vertex star puts
-    all 9 on one, because all 9 have star character (1/3, 1/3, 1/3). This view places a
-    cell by what it is NEAR, off L0's low eigenvectors with force refinement, which is the
-    layout already sitting in `rexgraph.core._spectral`. Measured against the plane view,
-    spread being distance from collinear: star of 8 goes 0.0000 to 0.9949, path of 6
-    0.0000 to 0.4862. It is float and iterative, and the caption says so.
+    view="structural" uses the L0 spectral layout and force refinement for pairwise
+    complexes. Character views place cells by their channel coordinates. The structural
+    layout is numerical and its caption reports that contract.
 
     `view="plane"` uses the exact rational coordinates, where a position is the cell's own
     star and nothing else, so it is exact and local. `view="character"` uses the 3D

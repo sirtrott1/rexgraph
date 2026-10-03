@@ -4,7 +4,7 @@ Provides the parts to build and train models, not the models themselves. torch i
 dependency (guarded at use); without it the numpy `rexgraph` core and the hodge_* primitives
 still work.
 
-  optim                - the optimizers. Build one with `factory.make_optimizer("auto", ...)`,
+  optim               : the optimizers. Build one with `factory.make_optimizer("auto", ...)`,
                          which routes to GreensCochain (Green's-preconditioned Adam, the native
                          optimizer for relational-native cochain models) or plain Adam for a
                          standard feature-space model. HodgeAdam / HodgeSGD are back-compat only
@@ -12,8 +12,8 @@ still work.
                          not on this top-level surface, so nothing reaches for them by name.
                          Also: build_optimizer, hodge_groups (architecture-aware), training backends
   relational_attention: PropagatorAttention / CausalPropagatorAttention (attention on f(L_W))
-  rcf_torch            - differentiable RCF propagators (heat / wave / green_resolvent)
-  factory              - component registry and builders (make_optimizer, build_attention,
+  rcf_torch: differentiable RCF propagators (heat / wave / green_resolvent)
+  factory             : component registry and builders (make_optimizer, build_attention,
                          build_model); native pieces are the defaults
 """
 from . import rcf_torch  # noqa: F401
@@ -46,6 +46,7 @@ from .optim import (  # noqa: F401
 # HodgeAdam / HodgeSGD are back compat only (tie plain Adam on standard models); reach them at
 # rexgraph.nn.optim if a legacy caller needs them. Prefer factory.make_optimizer("auto", ...).
 from .relational_attention import CausalPropagatorAttention, PropagatorAttention  # noqa: F401
+from .packed import PackedTernaryLinear  # noqa: F401
 
 __all__ = [
     "rcf_torch",
@@ -55,7 +56,7 @@ __all__ = [
     "hodge_matrix_decompose", "hodge_matrix_precondition",
     "hodge_flow_decompose", "hodge_flow_precondition",
     "PropagatorAttention", "CausalPropagatorAttention",
-    "GreenResolvent", "PropagatorMix", "RelationalBlock",
+    "GreenResolvent", "PropagatorMix", "RelationalBlock", "PackedTernaryLinear",
     "register", "list_components", "inventory", "default_name", "available",
     "build_attention", "make_optimizer", "build_model",
 ]

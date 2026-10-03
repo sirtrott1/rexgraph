@@ -48,9 +48,12 @@ def refine(typed, children, context):
     from rexgraph.graph import RexGraph, TemporalRex
     from rexgraph.io.commit import CommitLink
     from rexgraph.io.export import ExportManifest
-    from rexgraph.io.partition_state import PartitionState, RexPartition
+    from rexgraph.partition_state import PartitionState, RexPartition
+    from rexgraph.selection import Lineage
     from rexgraph.io.transition import TransitionCommit
-    lineage_types = (PartitionState, RexPartition, CommitLink, TransitionCommit)
+    lineage_types = (PartitionState, RexPartition, CommitLink, TransitionCommit, Lineage)
+    def typed_lineage(value):
+        return isinstance(value, RCType) and value.kind is ValueKind.RECORD and value.name == "Lineage"
     args, name = typed.args, typed.operator
     if name == "EXPORT_PARQUET":
         data, partition = args
@@ -73,7 +76,8 @@ def refine(typed, children, context):
                     "manifest": (Mapping,), "lineage": lineage_types}[kind]
         kinds = {"state": {ValueKind.REX, ValueKind.TEMPORAL_REX}, "bytes": {ValueKind.ARTIFACT_BYTES},
                  "manifest": {ValueKind.RECORD}, "lineage": {ValueKind.REX_PARTITION}}[kind]
-        if not (isinstance(value, expected) or isinstance(value, RCType) and value.kind in kinds):
+        if not (isinstance(value, expected) or isinstance(value, RCType) and value.kind in kinds
+                or kind == "lineage" and typed_lineage(value)):
             raise TypeError(f"HASH value does not have the declared {kind} contract")
         if kind == "manifest" and isinstance(value, Mapping):
             json_mapping(value)
@@ -81,7 +85,7 @@ def refine(typed, children, context):
         value = args[0]
         expected = lineage_types + ((bytes, ExportManifest) if name == "MANIFEST" else ())
         kinds = {ValueKind.REX_PARTITION} | ({ValueKind.ARTIFACT_BYTES} if name == "MANIFEST" else set())
-        if not (isinstance(value, expected) or isinstance(value, RCType) and value.kind in kinds):
+        if not (isinstance(value, expected) or isinstance(value, RCType) and value.kind in kinds or typed_lineage(value)):
             raise TypeError(f"{name} requires a declared Core artifact or lineage value")
     elif name == "TRANSPORT":
         _nonempty(args[1], "object_type")

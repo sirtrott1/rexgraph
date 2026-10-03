@@ -130,7 +130,7 @@ def test_rcstore_roundtrips_full_state(tmp_path):
     ).FileStore
     g = _simple()
     g._agent_meta = {"vertex_labels": ["a", "b", "c", "d"], "source": "unit"}
-    store = FileStore(str(tmp_path / "rcdb"))
+    store = FileStore(str(tmp_path / "rcdb"), read_only=False)
     store.put("g1", g)
     r = store.get("g1")
     assert np.array_equal(np.asarray(r._signs), np.asarray(g._signs))   # signs survive the RCDB
@@ -286,7 +286,7 @@ def test_a_version_1_bundle_still_loads():
     from rexgraph.io.rex_state import (CODEC_TENSOR, RexState, from_state,
                                        state_digest, to_state)
     r = RexGraph(sources=[0, 1, 2], targets=[1, 2, 0])
-    st = to_state(r)
+    st = to_state(r, _native=False)
     t = dict(st.tensors)
     spec = None
     if CODEC_TENSOR in t:

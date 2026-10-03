@@ -120,7 +120,7 @@ def test_canonical_annotation_roundtrip(nested):
         g=RexGraph.from_cells([1,[[0]]]);g.attach_metadata(1,0,'child',child)
     else:g=child
     state=to_state(g)
-    assert state.header['format_version']==4
+    assert state.header['format_version']==10
     restored=from_state(state)
     target=restored.get_metadata(1,0,'child') if nested else restored
     assert target.get_metadata(1,0,'annotation')==a
@@ -129,9 +129,9 @@ def test_canonical_annotation_roundtrip(nested):
 
 
 def test_legacy_numeric_and_exact_state_versions_unchanged():
-    numeric=RexGraph.from_cells([2,[[0,1]]]); assert to_state(numeric).header['format_version']==2
+    numeric=RexGraph.from_cells([2,[[0,1]]]); assert to_state(numeric, _native=False).header['format_version']==2
     exact=RexGraph.from_hypergraph([0,2],[0,1],w_E=np.array([Q(1,3)],object))
-    assert to_state(exact).header['format_version']==3
+    assert to_state(exact, _native=False).header['format_version']==3
     assert from_state(to_state(exact)).w_E[0]==Q(1,3)
 
 
@@ -158,10 +158,10 @@ def test_corrupt_schema_is_refused():
 def test_rcdb_versions_and_query_roundtrip(tmp_path,backend):
     from rcdb import open_store, RexStore
     from rcql import Executor,parse
-    if backend=='rex':store=RexStore(str(tmp_path/'native'))
+    if backend=='rex':store=RexStore(str(tmp_path/'native'), read_only=False)
     else:
         uri={'memory':'memory://','file':'file://'+str(tmp_path/'files'),'sqlite':'sqlite:///'+str(tmp_path/'sql.db')}[backend]
-        store=open_store(uri)
+        store=open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         g=RexGraph.from_cells([2,[[0,1]]]);a=attachment();g.attach_metadata(1,0,'annotation',a)
         c1=store.commit_mutation('doc',g,expected_version=0)
@@ -198,11 +198,11 @@ def test_store_reopen_with_unrelated_working_directory(tmp_path,backend,monkeypa
     from rcdb import open_store
     uri={'file':'file://'+str(tmp_path/'files'),'rex':'rex://'+str(tmp_path/'rex'),'sqlite':'sqlite:///'+str(tmp_path/'sql.db')}[backend]
     g=RexGraph.from_cells([2,[[0,1]]]);a=attachment();g.attach_metadata(1,0,'annotation',a)
-    store=open_store(uri)
+    store=open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:store.put('document',g)
     finally:store.close()
     elsewhere=tmp_path/'elsewhere';elsewhere.mkdir();monkeypatch.chdir(elsewhere)
-    store=open_store(uri)
+    store=open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         out=store.read_record('document').value
         assert out.get_metadata(1,0,'annotation')==a

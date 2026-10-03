@@ -4,13 +4,10 @@
 rexgraph.core._curvature: Lagrangian curvature and the five curvature
 localizations, on the sparse/integer path.
 
-The Lagrangians and the five curvatures. This is the math that previously lived in
-the agent layer (`schema_complex._lagrangian_curvature` / `_star_curvature`) as
-dense `np.trace(L @ L)` - an O(nE^3)/O(nE^2) crash source. Here every quantity is
-a SPARSE reduction or a pure integer degree sum; no dense nE x nE product and no
-eigendecomposition.
+Sparse reductions and integer degree sums compute the curvature readings
+without a dense edge space product or eigendecomposition.
 
-GLOBAL Lagrangian curvature - NORMALIZED inverse participation ratio Lagrangians
+GLOBAL Lagrangian curvature: NORMALIZED inverse participation ratio Lagrangians
 The Lagrangians are normalized concentrations, NOT bare traces:
     L_T = tr(T^2) / tr(T)^2      T  = B1^w^T B1^w   (topological / down)
     L_S = tr(L1^2) / tr(L1)^2    L1 = B2^w B2^w^T   (geometric / up)

@@ -364,7 +364,7 @@ def test_paths_are_not_allowed_once_auth_is_on(network):
 
 
 def test_a_file_path_is_refused_where_a_handle_is_wanted(network, tmp_path):
-    """The hole this closes: `files: ["/etc/passwd"]` used to be a valid request."""
+    """Socket calls refuse filesystem paths where uploaded handles are required."""
     client, admin, _ = network
     secret = tmp_path / "secret.obo"
     secret.write_text("[Term]\nid: GO:0000001\nname: leaked\n")

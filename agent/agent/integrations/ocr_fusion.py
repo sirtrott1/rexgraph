@@ -1,16 +1,9 @@
-"""
-Multi backend OCR fusion: structural comparison via rexgraph.
+"""Multi backend OCR fusion: structural comparison via rexgraph.
 
 Runs the same document through multiple OCR backends, builds a
 relational complex from each output, and uses Hodge decomposition,
 void analysis, and structural character to measure where the
 backends agree and disagree.
-
-This is novel: nobody else has the mathematics to structurally
-compare OCR outputs.  Traditional comparison is character level
-diff.  This compares the *relational topology* of the extracted
-content: gradient vs curl vs harmonic structure, void patterns,
-coherence distributions.
 
 Usage:
 

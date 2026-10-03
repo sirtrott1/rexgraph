@@ -1,7 +1,7 @@
 """Packaging metadata: a shipped subsystem must have an install path.
 
 A module that hard imports a third party package, with no extra that declares it, cannot be
-enabled by ANY `pip install rexgraph-agent[...]` invocation - the feature ships dead. That is a
+enabled by ANY `pip install rexgraph-agent[...]` invocation: the feature ships dead. That is a
 distribution bug the runtime test suite cannot see, because it only ever observes the import
 failing in an environment somebody set up by hand.
 """

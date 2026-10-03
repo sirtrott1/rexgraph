@@ -1,5 +1,5 @@
 """
-Tests for agent_complex - the agentic relational complex + monitor. Asserts the stable signals
+Tests for agent_complex: the agentic relational complex + monitor. Asserts the stable signals
 (load bearing centrality, cross agent alignment ordering, query routing), not the binary flag.
 Needs the compiled rexgraph core (RexGraph); skips cleanly if unavailable.
 """

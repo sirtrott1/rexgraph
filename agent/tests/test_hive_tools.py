@@ -161,7 +161,7 @@ def test_the_same_caller_may_register_again(obo):
 
 
 def test_separate_hives_are_the_way_two_callers_coexist(obo):
-    """The refusal names this as the fix, so it has to actually work."""
+    """Separate hives permit distinct callers to register identical tool names."""
     from agent.hive import get_network
     from agent.mcp_tools import Context
 

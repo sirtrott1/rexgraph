@@ -57,7 +57,7 @@ register_policy("recency", lambda f, r, d: r.get(d, 1.0))
 #: recent AND undisputed
 register_policy("settled", lambda f, r, d: f[d]["stability"] * r.get(d, 1.0))
 
-#: kept as a name for callers that enumerated the old tuple
+#: registered policy names
 MODES = tuple(_POLICIES.available())
 
 

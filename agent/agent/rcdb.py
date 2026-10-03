@@ -16,3 +16,9 @@ for _name in dir(_source):
         globals()[_name] = getattr(_source, _name)
 
 del _name, _source
+
+# Export new backends alongside older private core helpers.
+import rcdb as _package
+for _name in _package.__all__:
+    globals()[_name] = getattr(_package, _name)
+del _name, _package

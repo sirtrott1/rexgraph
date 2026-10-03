@@ -488,19 +488,20 @@ class GraphData:
         RexGraph
         """
         from ..graph import RexGraph
+        from ..relations import Relations, VertexTable
 
         w_mag = np.abs(self.w_E)
-        signs = np.sign(self.w_E).astype(np.float64)
-
-        w_E_arg = w_mag if not np.allclose(w_mag, 1.0) else None
-        signs_arg = signs if np.any(signs < 0) else None
-
-        return RexGraph(
-            sources=self.src_idx,
-            targets=self.tgt_idx,
-            w_E=w_E_arg,
-            signs=signs_arg,
+        # Zero magnitude is still a declared weight; it carries no negative
+        # orientation. Exact equality never discards a nearly unit measurement.
+        signs = np.where(self.w_E < 0, -1, 1).astype(np.int8)
+        from ..value import NumberRule
+        relations = Relations.from_supports(
+            zip(self.src_idx, self.tgt_idx, strict=True),
+            vertices=VertexTable(tuple(self.vertices), tuple(self.vertices)),
+            weights=w_mag, signs=signs, number_rule=NumberRule.BINARY_EXACT,
+            attributes={1: {i: {key: values[i] for key, values in self.meta.items()} for i in range(self.nE)}},
         )
+        return RexGraph.from_relations(relations)
 
 
 def load_edge_csv(
@@ -566,7 +567,10 @@ def load_edge_csv(
         polarity-derived negative type list. Call `.to_rex()` to
         get a RexGraph directly.
     """
-    with open(path, newline="", encoding="utf-8-sig") as f:
+    from contextlib import nullcontext
+    stream = nullcontext(path) if hasattr(path, "read") else open(
+        path, newline="", encoding="utf-8-sig")
+    with stream as f:
         sample = f.read(8192)
         f.seek(0)
         if delimiter is not None:

@@ -75,7 +75,7 @@ def test_multi_gpu_min_work_env_and_default(monkeypatch):
 def test_multi_gpu_plan_gates(monkeypatch):
     """_multi_gpu_plan returns device indices ONLY with >1 column, >=2 GPUs, and work over the
     multi gate; otherwise None (the single device fall through). On a <2 GPU host it is always
-    None regardless of work - the property that keeps this machine on the existing path."""
+    None regardless of work: the property that keeps this machine on the existing path."""
     assert spg._multi_gpu_plan(1 << 40, 1) is None           # single column never tiles
     if compute.gpu_count() < 2:
         assert spg._multi_gpu_plan(1 << 40, 16) is None      # <2 GPUs -> single device
@@ -99,7 +99,7 @@ def test_tile_columns_equivalence_cpu_reference(big_L):
     """THE device count agnostic equivalence test: drive _tile_columns_across_gpus with a forced
     tile count >=2 (devices=[0,1,2]) over a CPU reference kernel and assert the tiled+concatenated
     result equals the untiled single call to ~1e-12. This proves the partition then concatenate
-    logic is exact even though only one physical GPU exists - the kernel is device agnostic, so the
+    logic is exact even though only one physical GPU exists: the kernel is device agnostic, so the
     same helper drives real GPUs in production."""
     rng = np.random.default_rng(0)
     F = rng.standard_normal((big_L.shape[0], 9))
@@ -167,7 +167,7 @@ def test_greens_multi_over_same_device_matches_single(spd_A):
 def test_public_matfunc_matches_cpu_oracle(big_L, monkeypatch):
     """matfunc_apply(backend='gpu') matches the CPU oracle on this host to ~1e-12 (GPU if present,
     else the CPU fallback). Gate forced low so the GPU/multi dispatch actually runs; on a 1 GPU
-    host the plan is None, so the single device path is taken - unchanged."""
+    host the plan is None, so the single device path is taken: unchanged."""
     monkeypatch.setattr(spg, "_GPU_MIN_WORK", 0)
     rng = np.random.default_rng(3)
     F = rng.standard_normal((big_L.shape[0], 8))

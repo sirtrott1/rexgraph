@@ -34,6 +34,7 @@ from __future__ import annotations
 from collections import namedtuple
 from collections.abc import Sequence
 from fractions import Fraction
+from numbers import Integral
 from functools import cached_property
 
 import numpy as np
@@ -112,9 +113,41 @@ def _coefficient_concat(parts):
         result = np.concatenate([a.astype(object) for a in arrays])
         for i, value in enumerate(result):
             if isinstance(value, (float, np.floating)):
-                result[i] = Fraction.from_float(float(value))
+                from rexgraph.exact_value import binary_fraction
+                result[i] = binary_fraction(value)
         return result
     return np.concatenate(arrays)
+
+
+def _weight_carrier(values, count):
+    """Read declared metric values and presence independently of their unit view."""
+    if values is None:
+        return None, None
+    if isinstance(values, np.ndarray) and values.dtype.kind in "iuf":
+        if values.shape != (count,) or not np.isfinite(values).all():
+            raise ValueError("weights require one finite real value per relation")
+        return values.copy(), np.ones(count, bool)
+    from rexgraph.exact_array import ExactArray
+    from rexgraph.value import NumberRule
+    exact = ExactArray.from_values(values, rule=NumberRule.BINARY_EXACT)
+    if exact.shape != (count,):
+        raise ValueError("weights require one value per relation")
+    if not exact.presence.any():
+        return None, None
+    weights = exact.values()
+    weights[~exact.presence] = 1
+    if not exact.kind.any() and not exact.bigint:
+        weights = np.asarray(weights, dtype=np.int64)
+    return weights, exact.presence.copy()
+
+
+def _relation_signs(values, count):
+    if values is None:
+        return None
+    a = np.asarray(values)
+    if a.shape != (count,) or a.dtype.kind not in "iuf" or not np.isin(a, (-1, 1)).all():
+        raise ValueError("signs require one -1 or +1 per relation")
+    return np.asarray(a, dtype=_i32).copy()
 
 
 def _as_exact_i32_vector(values, *, context: str) -> NDArray:
@@ -177,7 +210,7 @@ def _validate_primary_boundary(boundary_ptr, boundary_idx) -> tuple[NDArray, NDA
     for relation in range(ptr.size - 1):
         lo, hi = int(ptr[relation]), int(ptr[relation + 1])
         _validate_c1_support(idx[lo:hi], context=f"C1 relation {relation}")
-    return ptr, idx
+    return ptr.copy(), idx.copy()
 
 
 def _validate_face_boundary(B2_col_ptr, B2_row_idx, B2_vals, *, n_edges: int):
@@ -207,7 +240,7 @@ def _validate_face_boundary(B2_col_ptr, B2_row_idx, B2_vals, *, n_edges: int):
             raise ValueError("a grade-2 cell must have nonempty relation support")
         if np.unique(support).size != support.size:
             raise ValueError("a grade-2 cell cannot repeat a C1 relation in one boundary")
-    return ptr, rows, np.ascontiguousarray(values, dtype=_f64)
+    return ptr.copy(), rows.copy(), np.ascontiguousarray(values, dtype=_f64).copy()
 
 
 def _validate_face_support(values, *, context: str, n_edges: int) -> NDArray:
@@ -246,7 +279,7 @@ def _as_relation_ids(values, expected: int, *, context: str = "relation_ids") ->
         )
     if np.unique(ids).shape[0] != ids.shape[0]:
         raise ValueError(f"{context} must be unique within a RexGraph snapshot")
-    return ids
+    return ids.copy()
 
 
 def _csc_arrays(dual) -> tuple[NDArray, NDArray, NDArray]:
@@ -471,6 +504,17 @@ class _LazyL0Spectrum(dict):
 _CG_RESIDUAL_SLACK = 100.0
 
 
+def _quotient_signal_arrays(signal, mask, *, lift=False):
+    signal = np.ascontiguousarray(signal, dtype=_f64)
+    mask = np.ascontiguousarray(mask, dtype=_u8)
+    if signal.ndim != 1 or mask.ndim != 1:
+        raise ValueError("signal and mask must be one-dimensional")
+    expected = int(np.count_nonzero(mask == 0)) if lift else mask.size
+    if signal.size != expected:
+        raise ValueError("signal length must equal the mask length or surviving quotient length")
+    return signal, mask
+
+
 class RexGraph:
     """A relational complex (rex) with lazily computed derived properties.
 
@@ -478,7 +522,7 @@ class RexGraph:
 
         C_k -> C_{k-1} -> ... -> C_0
 
-    whose boundary maps carry entries in {-1, 0, +1} and satisfy the chain
+    whose boundary maps carry integer or rational entries and satisfy the chain
     condition d_{k-1} . d_k = 0.  Edges are primitive; the vertex set is
     derived: V = union over e in E of supp(d_1(e)).  A column may carry any
     arity, so a branching hyperedge is a first class cell rather than a clique
@@ -517,16 +561,20 @@ class RexGraph:
         "_relation_ids",
         "_declaration",
         "_w_E",
+        "_weight_presence",
         "_w_boundary",
         "_directed",
         "_signs",
         "_nV",
         "_nE",
         "_nF",
+        "_face_grade",
         "_graded_duals",
         "_pending_edges",
         "_pending_hyperedges",
         "_pending_faces",
+        "_pending_order",
+        "_pending_basis",
         "_live_edges",
         "_live_faces",
         "_dirty",
@@ -555,12 +603,14 @@ class RexGraph:
         head_slot: NDArray | None = None,
         shares=None,
     ):
+        _core.require_core()
+
         # G (overlap) channel form used by the RL4 character:
-        #   "raw"        - K = |B1|^T |B1| (DEFAULT). The exact co incidence Gramian, on
+        #   "raw"       : K = |B1|^T |B1| (DEFAULT). The exact co incidence Gramian, on
         #                  the integer/exact tower: integer entries on a pairwise complex,
         #                  rational once any relation has arity above two, because the
         #                  boundary share is 1/(k-1).
-        #   "normalized" - L_O = I - D^{-1/2} K D^{-1/2}. The implemented full action
+        #   "normalized": L_O = I - D^{-1/2} K D^{-1/2}. The implemented full action
         #                  is numerical; off diagonals need not be rational. Its diagonal
         #                  1-K_ee/row_sum(K)_e and character remain rational on rational
         #                  nonnegative metric data. Degree comparable, opt in.
@@ -586,8 +636,8 @@ class RexGraph:
             tgt = _as_exact_i32_vector(targets, context="targets")
             if src.shape[0] != tgt.shape[0]:
                 raise ValueError("sources and targets must have equal length")
-            self._sources = src
-            self._targets = tgt
+            self._sources = src.copy()
+            self._targets = tgt.copy()
             self._nE = src.shape[0]
             bp = np.arange(0, 2 * self._nE + 1, 2, dtype=_i32)
             bi = np.empty(2 * self._nE, dtype=_i32)
@@ -616,6 +666,7 @@ class RexGraph:
             self._nV = 0
 
         # Face data
+        self._face_grade = B2_col_ptr is not None
         if B2_col_ptr is not None:
             self._B2_col_ptr, self._B2_row_idx, self._B2_vals = _validate_face_boundary(
                 B2_col_ptr, B2_row_idx, B2_vals, n_edges=self._nE
@@ -639,10 +690,14 @@ class RexGraph:
             self._relation_ids = _as_relation_ids(relation_ids, self._nE)
 
         # Attribution
-        self._w_E = w_E
-        self._w_boundary = w_boundary if w_boundary is not None else {}
+        self._w_E, self._weight_presence = _weight_carrier(w_E, self._nE)
+        if w_boundary:
+            from rexgraph.components.transport import _clone_value
+            self._w_boundary = _clone_value(w_boundary)
+        else:
+            self._w_boundary = {}
         self._directed = directed
-        self._signs = signs
+        self._signs = _relation_signs(signs, self._nE)
 
         # Optional graded boundaries for grade >= 3 (B_3, B_4, ...) as a list of
         # scipy sparse matrices. Populated by from_cells; None for the classic
@@ -651,10 +706,22 @@ class RexGraph:
         self._pending_edges = None
         self._pending_hyperedges = None
         self._pending_faces = None
+        self._pending_order = []
+        self._pending_basis = None
         self._live_edges = None
         self._live_faces = None
         self._dirty = False
         self._last_remap = None
+
+    def _ensure_vertex_count(self, nV: int):
+        """Retain declared isolated vertices and invalidate dimension dependent caches."""
+        nV = int(nV)
+        if nV < 0:
+            raise ValueError("vertex count must be nonnegative")
+        if nV > self._nV:
+            self._nV = nV
+            self._invalidate(_TIER_B1_ONLY, _TIER_GLOBAL)
+        return self
 
     def _invalidate(self, *tiers):
         """Drop the cached_property keys belonging to the named dependency tiers.
@@ -698,7 +765,6 @@ class RexGraph:
                     "cannot attach relation_ids to a populated anonymous RexGraph; "
                     "supply identities when constructing the complete C1 basis"
                 )
-            self._relation_ids = np.zeros(0, dtype=np.int64)
         elif relation_ids is None:
             raise ValueError(
                 "adding to a RexGraph with relation_ids requires one identity for "
@@ -710,21 +776,38 @@ class RexGraph:
         for store in (self._pending_edges, self._pending_hyperedges):
             if store is not None:
                 pending.extend(store.get("relation_ids", ()))
-        existing = [self._relation_ids, *pending]
+        existing = ([] if self._relation_ids is None else [self._relation_ids]) + pending
         prior = np.concatenate(existing) if existing else np.zeros(0, dtype=np.int64)
         if prior.size and np.intersect1d(prior, ids).size:
             raise ValueError("appended relation_ids must not repeat a live relation identity")
+        if self._relation_ids is None:
+            self._relation_ids = np.zeros(0, dtype=np.int64)
         return ids
+
+    def _remember_append_basis(self):
+        if self._pending_basis is None:
+            self._pending_basis = (self._nV, len(self._boundary_ptr)-1, len(self._B2_col_ptr)-1)
+
+    def _append_attribution(self, w_E, signs, count):
+        weights, presence = _weight_carrier(w_E, count)
+        signs = _relation_signs(signs, count)
+        source = getattr(self, "_relation_source", None)
+        if source is not None and source.weight_rule == "declared" and (presence is None or not presence.all()):
+            raise ValueError("the declared metric rule requires a weight for every appended relation")
+        return (np.ones(count, np.int64) if weights is None else weights,
+                np.zeros(count, bool) if presence is None else presence,
+                np.ones(count, _i32) if signs is None else signs)
 
     def add_edges(self, sources, targets, *, relation_ids=None, w_E=None, signs=None,
                   w_boundary=None):
         """Stage new standard edges for O(delta) append (materialized on next read).
 
         Records the columns in the pending buffer, bumps the logical _nE/_nV, and
-        stages attribution. No array copy at call time. New edges land at the end.
+        stages owned attribution and support batches. Existing arrays are copied
+        only when the batches are materialized. New edges land at the end.
         """
-        ns = _as_exact_i32_vector(sources, context="sources")
-        nt = _as_exact_i32_vector(targets, context="targets")
+        ns = _as_exact_i32_vector(sources, context="sources").copy()
+        nt = _as_exact_i32_vector(targets, context="targets").copy()
         if ns.shape[0] != nt.shape[0]:
             raise ValueError("sources and targets must have equal length")
         for edge, (source, target) in enumerate(zip(ns, nt, strict=True)):
@@ -732,20 +815,34 @@ class RexGraph:
                 np.asarray([source, target], dtype=_i32), context=f"C1 relation {edge}"
             )
         n_new = int(ns.shape[0])
+        weights, presence, sign_values = self._append_attribution(w_E, signs, n_new)
+        if not n_new:
+            return
+        source = getattr(self, "_relation_source", None)
+        if source is not None and source.share_rule == "declared" and np.any(ns != nt):
+            raise ValueError("appending ordinary relations requires declared shares under this source rule")
+        boundary = {}
+        for key, feature in (w_boundary or {}).items():
+            edge, vertex = key if isinstance(key, tuple) and len(key) == 2 else (key, None)
+            if not isinstance(edge, Integral) or isinstance(edge, (bool, np.bool_)) or not 0 <= edge < n_new:
+                raise ValueError("appended boundary attribution requires a local relation index")
+            if vertex is not None and (not isinstance(vertex, Integral) or vertex not in (ns[edge], nt[edge])):
+                raise ValueError("appended boundary attribution vertex must participate in its relation")
+            from rexgraph.components.transport import _clone_value
+            boundary[(self._nE+int(edge), int(vertex)) if vertex is not None else self._nE+int(edge)] = _clone_value(feature)
         ids = self._stage_relation_ids(relation_ids, n_new)
+        self._remember_append_basis()
         if self._pending_edges is None:
             self._pending_edges = {"src": [], "tgt": [], "relation_ids": [],
-                                   "w_E": [], "signs": []}
+                                   "w_E": [], "presence": [], "signs": []}
         self._pending_edges["src"].append(ns)
         self._pending_edges["tgt"].append(nt)
         self._pending_edges["relation_ids"].append(ids)
-        self._pending_edges["w_E"].append(
-            np.zeros(n_new, _f64) if w_E is None else np.asarray(w_E))
-        self._pending_edges["signs"].append(
-            np.ones(n_new, _i32) if signs is None else _asarray(signs, _i32))
-        if w_boundary:
-            for (e_local, _v), feat in w_boundary.items():
-                self._w_boundary[self._nE + int(e_local)] = feat
+        self._pending_edges["w_E"].append(weights)
+        self._pending_edges["presence"].append(presence)
+        self._pending_edges["signs"].append(sign_values)
+        self._pending_order.append(("edges", len(self._pending_edges["src"])-1))
+        self._w_boundary.update(boundary)
         self._nE += n_new
         mx = int(max(int(ns.max()) if n_new else -1, int(nt.max()) if n_new else -1))
         if mx + 1 > self._nV:
@@ -762,22 +859,30 @@ class RexGraph:
         next read). Each entry of `columns` is an int array of the vertex ids incident
         to one new cell (arity = its length; 2 recovers a plain edge). Complements
         add_edges (the 2 arity convenience); removal/compaction are already general.
-        No array copy at call time. New cells land at the end on flush."""
+        Owns the new batches without copying existing arrays. New cells land at
+        the end on flush."""
         cols = []
         for edge, column in enumerate(columns):
             support = _as_exact_i32_vector(column, context=f"C1 relation {edge}")
-            cols.append(_validate_c1_support(support, context=f"C1 relation {edge}"))
+            cols.append(_validate_c1_support(support, context=f"C1 relation {edge}").copy())
         n_new = len(cols)
+        weights, presence, sign_values = self._append_attribution(w_E, signs, n_new)
+        if not n_new:
+            return
+        source = getattr(self, "_relation_source", None)
+        if source is not None and source.share_rule == "declared" and any(len(col) > 1 and not (len(col) == 2 and col[0] == col[1]) for col in cols):
+            raise ValueError("appending ordinary relations requires declared shares under this source rule")
         ids = self._stage_relation_ids(relation_ids, n_new)
+        self._remember_append_basis()
         if self._pending_hyperedges is None:
             self._pending_hyperedges = {"cols": [], "relation_ids": [],
-                                        "w_E": [], "signs": []}
-        self._pending_hyperedges["cols"].extend(cols)
+                                        "w_E": [], "presence": [], "signs": []}
+        self._pending_hyperedges["cols"].append(cols)
         self._pending_hyperedges["relation_ids"].append(ids)
-        self._pending_hyperedges["w_E"].append(
-            np.zeros(n_new, _f64) if w_E is None else np.asarray(w_E))
-        self._pending_hyperedges["signs"].append(
-            np.ones(n_new, _i32) if signs is None else _asarray(signs, _i32))
+        self._pending_hyperedges["w_E"].append(weights)
+        self._pending_hyperedges["presence"].append(presence)
+        self._pending_hyperedges["signs"].append(sign_values)
+        self._pending_order.append(("hyperedges", len(self._pending_hyperedges["cols"])-1))
         self._nE += n_new
         mx = -1
         for c in cols:
@@ -844,15 +949,23 @@ class RexGraph:
                 return
         if len(face_edges) != len(face_signs):
             raise ValueError("face_edges and face_signs must have equal length")
-        if self._pending_faces is None:
-            self._pending_faces = {"edges": [], "signs": []}
+        validated = []
         for face, (fe, fs) in enumerate(zip(face_edges, face_signs, strict=False)):
             fe = _validate_face_support(
                 fe, context=f"grade-2 cell {face}", n_edges=self._nE
             )
-            fs = np.ascontiguousarray(fs, dtype=_f64)
+            fs = np.ascontiguousarray(fs, dtype=_f64).copy()
             if fe.shape[0] != fs.shape[0]:
                 raise ValueError("each face's edges and signs must have equal length")
+            if not np.isfinite(fs).all():
+                raise ValueError("face coefficients must be finite")
+            validated.append((fe.copy(), fs))
+        if not validated:
+            return
+        self._remember_append_basis()
+        if self._pending_faces is None:
+            self._pending_faces = {"edges": [], "signs": []}
+        for fe, fs in validated:
             self._pending_faces["edges"].append(fe)
             self._pending_faces["signs"].append(fs)
             self._nF += 1
@@ -873,79 +986,17 @@ class RexGraph:
         if not self._dirty:
             return self._last_remap if self._last_remap is not None else self._identity_remap()
         touched = []
-        # 1. flush pending edge appends (numpy concatenate)
-        if self._pending_edges is not None:
-            nE_before = int(self._boundary_ptr.shape[0] - 1)
-            src_all = (np.concatenate(self._pending_edges["src"])
-                       if self._pending_edges["src"] else np.zeros(0, _i32))
-            tgt_all = (np.concatenate(self._pending_edges["tgt"])
-                       if self._pending_edges["tgt"] else np.zeros(0, _i32))
-            k = int(src_all.shape[0])
-            new_idx = np.empty(2 * k, dtype=_i32)
-            new_idx[0::2] = src_all
-            new_idx[1::2] = tgt_all
-            last = int(self._boundary_ptr[-1])
-            add_ptr = last + np.arange(2, 2 * k + 1, 2, dtype=_i32)
-            self._boundary_ptr = np.concatenate([self._boundary_ptr, add_ptr])
-            self._boundary_idx = np.concatenate([self._boundary_idx, new_idx])
-            self._sources = None
-            self._targets = None
-            # Attribution carry through for the new edges: batches were already
-            # staged at batch length in add_edges (defaulting to zeros/ones), so we
-            # only need to concatenate. Skip allocating when nothing was ever set,
-            # so w_E/signs stay None until real attribution shows up.
-            w_e_batches = self._pending_edges["w_E"]
-            signs_batches = self._pending_edges["signs"]
-            if self._w_E is not None or any(np.any(b) for b in w_e_batches):
-                base = (np.zeros(nE_before, dtype=_f64) if self._w_E is None
-                        else np.asarray(self._w_E))
-                self._w_E = _coefficient_concat([base, *w_e_batches])
-            if self._signs is not None or any(np.any(b != 1) for b in signs_batches):
-                base = (np.ones(nE_before, dtype=_i32) if self._signs is None
-                        else np.asarray(self._signs, dtype=_i32))
-                self._signs = np.concatenate([base, np.concatenate(signs_batches)])
-            if self._relation_ids is not None:
-                self._relation_ids = np.concatenate([
-                    self._relation_ids,
-                    np.concatenate(self._pending_edges["relation_ids"]),
-                ])
-            self._pending_edges = None
-            touched.append(_TIER_B1_ONLY)
-            touched.append(_TIER_GLOBAL)
-        # 1b. flush pending general arity hyperedge appends (numpy concatenate)
-        if self._pending_hyperedges is not None:
-            nE_before = int(self._boundary_ptr.shape[0] - 1)
-            cols = self._pending_hyperedges["cols"]
-            sizes = (np.array([c.shape[0] for c in cols], dtype=_i32) if cols
-                     else np.zeros(0, _i32))
-            flat = np.concatenate(cols) if cols else np.zeros(0, _i32)
-            last = int(self._boundary_ptr[-1])
-            add_ptr = last + np.cumsum(sizes).astype(_i32)
-            self._boundary_ptr = np.concatenate([self._boundary_ptr, add_ptr])
-            self._boundary_idx = np.concatenate([self._boundary_idx, flat])
-            self._sources = None
-            self._targets = None
-            we_b = self._pending_hyperedges["w_E"]
-            sg_b = self._pending_hyperedges["signs"]
-            if self._w_E is not None or any(np.any(b) for b in we_b):
-                base = (np.zeros(nE_before, dtype=_f64) if self._w_E is None
-                        else np.asarray(self._w_E))
-                self._w_E = _coefficient_concat([base, *we_b])
-            if self._signs is not None or any(np.any(b != 1) for b in sg_b):
-                base = (np.ones(nE_before, dtype=_i32) if self._signs is None
-                        else np.asarray(self._signs, dtype=_i32))
-                self._signs = np.concatenate([base, np.concatenate(sg_b)])
-            if self._relation_ids is not None:
-                self._relation_ids = np.concatenate([
-                    self._relation_ids,
-                    np.concatenate(self._pending_hyperedges["relation_ids"]),
-                ])
-            self._pending_hyperedges = None
-            touched.append(_TIER_B1_ONLY)
-            touched.append(_TIER_GLOBAL)
-        # 2. flush pending face appends (filled in by add_faces)
+        from rexgraph.components import component_registry
+        registry = component_registry()
+        captured = registry.capture(self) if self._pending_basis is not None else None
+        old_basis = self._pending_basis
+        self._flush_relations(touched)
         if self._pending_faces is not None:
             self._flush_faces(touched)
+        if captured is not None:
+            registry.remap(captured, self, {grade: np.arange(size, dtype=_i32)
+                           for grade, size in enumerate(old_basis)}, mode="append")
+            self._pending_basis = None
         # 3. compaction (reconcile mask lengths first: same batch appends may have
         # grown _nE/_nF after the tombstone masks were created; appended cells are live)
         remap = self._identity_remap()
@@ -964,6 +1015,51 @@ class RexGraph:
         if touched:
             self._invalidate(*touched)
         return remap
+
+    def _flush_relations(self, touched):
+        """Materialize pair/general batches in call order, with declared presence."""
+        if not self._pending_order:
+            return
+        n_before = len(self._boundary_ptr)-1
+        idx_parts, sizes, weights, presence, signs, ids = [], [], [], [], [], []
+        for kind, batch in self._pending_order:
+            store = self._pending_edges if kind == "edges" else self._pending_hyperedges
+            if kind == "edges":
+                source, target = store["src"][batch], store["tgt"][batch]
+                idx_parts.append(np.column_stack((source, target)).reshape(-1))
+                sizes.append(np.full(len(source), 2, dtype=_i32))
+            else:
+                columns = store["cols"][batch]
+                idx_parts.append(np.concatenate(columns))
+                sizes.append(np.asarray([len(col) for col in columns], dtype=_i32))
+            weights.append(store["w_E"][batch])
+            presence.append(store["presence"][batch])
+            signs.append(store["signs"][batch])
+            if self._relation_ids is not None:
+                ids.append(store["relation_ids"][batch])
+        add_ptr = int(self._boundary_ptr[-1]) + np.cumsum(np.concatenate(sizes), dtype=np.int64)
+        if add_ptr.size and add_ptr[-1] >= 2**31:
+            raise ValueError("appended support exceeds the native index domain")
+        self._boundary_ptr = np.concatenate((self._boundary_ptr, add_ptr)).astype(_i32)
+        self._boundary_idx = np.concatenate([self._boundary_idx, *idx_parts])
+        base_presence = (np.full(n_before, self._w_E is not None, bool)
+                         if self._weight_presence is None else self._weight_presence)
+        all_presence = np.concatenate([base_presence, *presence])
+        if all_presence.any():
+            base = np.ones(n_before, np.int64) if self._w_E is None else self._w_E
+            self._w_E = _coefficient_concat([base, *weights])
+            self._weight_presence = all_presence
+        else:
+            self._w_E = self._weight_presence = None
+        if self._signs is not None or any(np.any(batch != 1) for batch in signs):
+            base = np.ones(n_before, _i32) if self._signs is None else self._signs
+            self._signs = np.concatenate([base, *signs])
+        if self._relation_ids is not None:
+            self._relation_ids = np.concatenate([self._relation_ids, *ids])
+        self._sources = self._targets = None
+        self._pending_edges = self._pending_hyperedges = None
+        self._pending_order = []
+        touched.extend((_TIER_B1_ONLY, _TIER_GLOBAL))
 
     def _flush_faces(self, touched):
         """Concatenate staged faces onto the B2 CSC arrays. Called by _ensure_clean."""
@@ -1025,31 +1121,19 @@ class RexGraph:
         a Remap. Called by _ensure_clean when tombstones are present (after appends
         have already been flushed, so _boundary_* and _B2_* are up to date)."""
         from rexgraph.core import _rex
+        from rexgraph.components import component_registry
+        registry = component_registry()
+        captured = registry.capture(self)
         # edges
         if self._live_edges is not None:
             live = self._live_edges.astype(_i32)
             new_ptr, new_idx, nV_new, v_map, e_map = _rex.compact_boundary(
                 self._boundary_ptr, self._boundary_idx, live)
+            v_map = np.pad(np.asarray(v_map), (0, self._nV-len(v_map)), constant_values=-1)
             self._boundary_ptr = new_ptr
             self._boundary_idx = new_idx
             self._sources = None
             self._targets = None
-            keep = self._live_edges
-            if self._w_E is not None:
-                self._w_E = np.asarray(self._w_E)[keep]
-            if self._signs is not None:
-                self._signs = np.asarray(self._signs)[keep]
-            if self._relation_ids is not None:
-                self._relation_ids = np.asarray(self._relation_ids, dtype=np.int64)[keep]
-            if self._w_boundary:
-                em = np.asarray(e_map)
-                new_wb = {}
-                for key, feat in self._w_boundary.items():
-                    e_old = key[0] if isinstance(key, tuple) else key
-                    e_new = int(em[e_old])
-                    if e_new >= 0:
-                        new_wb[(e_new, key[1]) if isinstance(key, tuple) else e_new] = feat
-                self._w_boundary = new_wb
             self._nE = int(new_ptr.shape[0] - 1)
             self._nV = int(nV_new)
             self._live_edges = None
@@ -1064,8 +1148,7 @@ class RexGraph:
         touched.append(_TIER_B1_ONLY)
         touched.append(_TIER_B2_ONLY)
         touched.append(_TIER_GLOBAL)
-        from rexgraph.structural_edit import remap_carried_state
-        remap_carried_state(self, {0: np.asarray(v_map), 1: np.asarray(e_map), 2: face_map})
+        registry.remap(captured, self, {0: np.asarray(v_map), 1: np.asarray(e_map), 2: face_map})
         return Remap(edge_map=np.asarray(e_map), vertex_map=np.asarray(v_map),
                      face_map=face_map)
 
@@ -1104,22 +1187,122 @@ class RexGraph:
         """Set per cell attribution in place at the given current indices, then
         invalidate the character/global tier (signs/weights feed those). Used
         by apply_edge_delta to replay a delta's MODIFIED cells."""
+        idx = _as_exact_i32_vector(indices, context="attribute relation indices")
+        incoming, present = _weight_carrier(w_E, len(idx))
+        new_signs = _relation_signs(signs, len(idx))
+        source = getattr(self, "_relation_source", None)
+        if w_E is not None and source is not None and source.weight_rule == "declared" and (present is None or not present.all()):
+            raise ValueError("the declared metric rule does not permit absent weights")
         self._ensure_clean()
-        idx = _asarray(indices, _i32)
+        if np.any(idx < 0) or np.any(idx >= self._nE) or np.unique(idx).size != idx.size:
+            raise ValueError("attribute indices must be unique current relation indices")
         if w_E is not None:
-            if self._w_E is None:
-                self._w_E = np.zeros(self._nE, dtype=_f64)
-            weights = _coefficient_concat([self._w_E, np.asarray(w_E)])
+            presence = (np.full(self._nE, self._w_E is not None, bool)
+                        if self._weight_presence is None else self._weight_presence.copy())
+            base = np.ones(self._nE, np.int64) if self._w_E is None else self._w_E
+            values = np.ones(len(idx), np.int64) if incoming is None else incoming
+            weights = _coefficient_concat([base, values])
             self._w_E = weights[:self._nE].copy()
             self._w_E[idx] = weights[self._nE:]
+            presence[idx] = np.zeros(len(idx), bool) if present is None else present
+            self._weight_presence = presence
+            if not presence.any():
+                self._w_E = self._weight_presence = None
         if signs is not None:
-            if self._signs is None:
-                self._signs = np.ones(self._nE, dtype=_i32)
-            self._signs = np.asarray(self._signs, dtype=_i32).copy()
-            self._signs[idx] = np.asarray(signs, dtype=_i32)
+            base = np.ones(self._nE, _i32) if self._signs is None else self._signs
+            self._signs = np.asarray(base, _i32).copy()
+            self._signs[idx] = new_signs
         self._invalidate(_TIER_GLOBAL)
 
     # Factory constructors
+
+    @classmethod
+    def from_relations(cls, relations, *, directed=False, g_channel="raw", c_channel="share", validate=True):
+        """Construct the declared sparse carrier without reader or Agent semantics."""
+        from rexgraph.relations import Relations
+        if not isinstance(relations, Relations):
+            raise TypeError("from_relations requires Relations")
+        # Relations validation is mandatory even if a caller suppresses optional
+        # higher chain checks. Native support/declaration validation stays engaged.
+        rex = cls(**relations.graph_arguments(), directed=directed, g_channel=g_channel, c_channel=c_channel)
+        rex._ensure_vertex_count(len(relations.vertices))
+        rex._relation_source = relations
+        rex._weight_presence = None if rex._w_E is None else relations.weight.presence.copy()
+        for grade, cells in relations.attributes.items():
+            for index, attributes in cells.items():
+                for key, value in attributes.items():
+                    rex.attach_metadata(int(grade), int(index), str(key), value)
+        for index, attributes in relations.vertices.attributes.items():
+            for key, value in attributes.items():
+                rex.attach_metadata(0, int(index), str(key), value)
+        provenance = dict(relations.provenance)
+        if any(relations.vertices.labels) or "vertex_labels" in provenance:
+            provenance["vertex_labels"] = list(relations.vertices.labels)
+        if provenance:
+            rex.set_provenance(provenance)
+        if relations.embedding is not None and len(relations.embedding):
+            rex.set_embedding(relations.embedding)
+        return rex
+
+    def copy(self):
+        """Independent semantic copy through the registered component transport."""
+        self._ensure_clean()
+        from rexgraph.components import component_registry
+        registry = component_registry()
+        captured = registry.capture(self)
+        output = type(self)(boundary_ptr=self._boundary_ptr.copy(), boundary_idx=self._boundary_idx.copy(),
+                            B2_col_ptr=self._B2_col_ptr.copy(), B2_row_idx=self._B2_row_idx.copy(),
+                            B2_vals=self._B2_vals.copy(), directed=self._directed,
+                            g_channel=self.g_channel, c_channel=self.c_channel)
+        output._ensure_vertex_count(self._nV)
+        registry.remap(captured, output, {0: np.arange(self._nV, dtype=_i32),
+                       1: np.arange(self._nE, dtype=_i32), 2: np.arange(self._nF, dtype=_i32)})
+        return output
+
+    @property
+    def relations(self):
+        """Current sparse declarations with identity, types, aliases and presence."""
+        from rexgraph.relations import Relations
+        return Relations.from_graph(self)
+
+    @property
+    def provenance(self):
+        from copy import deepcopy
+        return deepcopy(getattr(self, "_agent_meta", {}))
+
+    def set_provenance(self, metadata, *, merge=True):
+        """Publish source interpretation through a public core contract."""
+        from copy import deepcopy
+        if not isinstance(metadata, dict):
+            raise TypeError("provenance must be a mapping")
+        value = self.provenance if merge else {}
+        value.update(deepcopy(metadata))
+        labels = value.get("vertex_labels")
+        if labels is not None and len(labels) != self.nV:
+            raise ValueError("vertex labels must match the declared vertex domain")
+        self._agent_meta = value
+        return self
+
+    @property
+    def embedding(self):
+        from copy import deepcopy
+        return deepcopy(getattr(self, "_embedding", None))
+
+    def set_embedding(self, values):
+        from copy import deepcopy
+        if len(values) != self.nV:
+            raise ValueError("embedding must have one position per declared vertex")
+        self._embedding = deepcopy(values)
+        return self
+
+    @property
+    def vertex_labels(self):
+        return tuple(self.provenance.get("vertex_labels", ()))
+
+    @property
+    def relation_keys(self):
+        """Declared arbitrary IDs; absence is distinct from a generated identity."""
+        return self.relations.relation_id
 
     @classmethod
     def from_graph(
@@ -1132,19 +1315,20 @@ class RexGraph:
         w_E: NDArray | None = None,
         signs: NDArray | None = None,
         g_channel: str = "raw",
+        c_channel: str = "share",
     ) -> RexGraph:
         """Embed a simple graph as a 1 rex. ``g_channel`` selects the overlap G
         form used by the character ('raw' default, the exact Gramian; 'normalized'
         opt in, which takes a square root and leaves the exact tower)."""
-        return cls(
-            sources=np.asarray(sources),
-            targets=np.asarray(targets),
-            directed=directed,
-            relation_ids=relation_ids,
-            w_E=w_E,
-            signs=signs,
-            g_channel=g_channel,
-        )
+        from rexgraph.relations import Relations, _integers
+        src = _integers(sources, name="source vertices")
+        tgt = _integers(targets, name="target vertices")
+        if src.shape != tgt.shape:
+            raise ValueError("source and target vertices must be aligned")
+        support = np.column_stack((src, tgt)).reshape(-1)
+        relations = Relations.from_arrays(np.arange(0, len(support)+1, 2, dtype=np.int64), support,
+                                         weights=w_E, signs=signs, relation_ids=relation_ids)
+        return cls.from_relations(relations, directed=directed, g_channel=g_channel, c_channel=c_channel)
 
     @classmethod
     def from_hypergraph(
@@ -1157,6 +1341,7 @@ class RexGraph:
         signs: NDArray | None = None,
         directed: bool = False,
         g_channel: str = "raw",
+        c_channel: str = "share",
     ) -> RexGraph:
         """Ingest boundary spans as primary branching C1 relations.
 
@@ -1166,15 +1351,10 @@ class RexGraph:
         same primary C1 basis, so a weighted field never has to mutate a private
         carrier after construction.
         """
-        return cls(
-            boundary_ptr=np.asarray(hyperedge_ptr),
-            boundary_idx=np.asarray(hyperedge_idx),
-            relation_ids=relation_ids,
-            w_E=w_E,
-            signs=signs,
-            directed=directed,
-            g_channel=g_channel,
-        )
+        from rexgraph.relations import Relations
+        relations = Relations.from_arrays(hyperedge_ptr, hyperedge_idx, weights=w_E, signs=signs,
+                                         relation_ids=relation_ids)
+        return cls.from_relations(relations, directed=directed, g_channel=g_channel, c_channel=c_channel)
 
     @classmethod
     def from_simplicial(
@@ -1188,6 +1368,7 @@ class RexGraph:
         w_E: NDArray | None = None,
         signs: NDArray | None = None,
         g_channel: str = "raw",
+        c_channel: str = "share",
     ) -> RexGraph:
         """Embed a simplicial 2 complex as a 2 rex.
 
@@ -1200,18 +1381,35 @@ class RexGraph:
             Edges are looked up from (sources, targets); orientation signs
             are determined by vertex ordering.
         """
-        src = _asarray(sources, _i32)
-        tgt = _asarray(targets, _i32)
-        tri = np.asarray(triangles, dtype=_i32)
-        nV = int(max(src.max(), tgt.max())) + 1
-        nE = src.shape[0]
+        src = _as_exact_i32_vector(sources, context="sources")
+        tgt = _as_exact_i32_vector(targets, context="targets")
+        rex = cls.from_graph(src, tgt, directed=directed, relation_ids=relation_ids,
+                             w_E=w_E, signs=signs, g_channel=g_channel, c_channel=c_channel)
+        # Native face readers consume these pairwise carriers directly. Keep the
+        # simplicial constructor's eager, owned endpoint arrays even though the
+        # general relation constructor derives them lazily.
+        rex._sources = rex.sources
+        rex._targets = rex.targets
+        raw_tri = np.asarray(triangles)
+        if raw_tri.size == 0:
+            tri = np.empty((0, 3), dtype=_i32)
+        elif raw_tri.ndim != 2 or raw_tri.shape[1] != 3:
+            raise ValueError("triangles require three integral vertices per row")
+        else:
+            tri = _as_exact_i32_vector(raw_tri.ravel(), context="triangle vertices").reshape(-1, 3)
+        if any(len(set(row)) != 3 for row in tri):
+            raise ValueError("a triangle requires three distinct vertices")
+        nV, nE = rex._nV, rex._nE
 
         # Build edge lookup: (min_v, max_v) -> (edge_index, sign)
         # sign = +1 if src < tgt (matches canonical orientation), -1 otherwise
         edge_map = {}
+        ambiguous = set()
         for e in range(nE):
             s, t = int(src[e]), int(tgt[e])
             key = (min(s, t), max(s, t))
+            if key in edge_map:
+                ambiguous.add(key)
             edge_map[key] = (e, +1.0 if s < t else -1.0)
 
         nT = tri.shape[0]
@@ -1232,6 +1430,8 @@ class RexGraph:
                 (v1, v2, +1.0),
             ]):
                 key = (min(va, vb), max(va, vb))
+                if key in ambiguous:
+                    raise ValueError("triangle names multiple primary relations for one side; supply explicit face edges")
                 if key not in edge_map:
                     raise ValueError(
                         f"Triangle ({v0},{v1},{v2}) references edge ({va},{vb}) "
@@ -1257,38 +1457,33 @@ class RexGraph:
         cp, ri, vv = _rex.from_simplicial_2complex(
             nV, src, tgt, tri_e0, tri_e1, tri_e2, tri_s0, tri_s1, tri_s2
         )
-        return cls(
-            sources=src, targets=tgt,
-            B2_col_ptr=cp, B2_row_idx=ri, B2_vals=vv,
-            directed=directed,
-            relation_ids=relation_ids,
-            w_E=w_E,
-            signs=signs,
-            g_channel=g_channel,
-        )
+        rex._B2_col_ptr, rex._B2_row_idx, rex._B2_vals = _validate_face_boundary(cp, ri, vv, n_edges=nE)
+        rex._face_grade = True
+        rex._nF = len(rex._B2_col_ptr)-1
+        return rex
 
     @classmethod
     def from_adjacency(cls, A: NDArray, *, directed: bool = False,
-                       g_channel: str = "raw") -> RexGraph:
-        """Construct a 1 rex from an adjacency matrix."""
-        if directed:
-            rows, cols = np.nonzero(A)
-        else:
-            rows, cols = np.nonzero(np.triu(A, k=1))
-        weights = A[rows, cols]
-        w_E = weights.reshape(-1, 1) if not np.allclose(weights, 1) else None
-        return cls(
-            sources=rows.astype(_i32),
-            targets=cols.astype(_i32),
-            directed=directed,
-            w_E=w_E,
-            g_channel=g_channel,
-        )
+                       g_channel: str = "raw", c_channel: str = "share") -> RexGraph:
+        """Import a square adjacency declaration, retaining weights and isolates.
+
+        Directed input consumes every nonzero entry. Undirected input consumes
+        the strict upper triangle, as the historical simple graph API does.
+        """
+        matrix = np.asarray(A)
+        if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+            raise ValueError("adjacency requires a square two-dimensional matrix")
+        rows, cols = np.nonzero(matrix if directed else np.triu(matrix, k=1))
+        from rexgraph.relations import Relations
+        indices = np.column_stack((rows, cols)).reshape(-1)
+        relations = Relations.from_arrays(np.arange(0, len(indices)+1, 2, dtype=np.int64), indices,
+                                         n_vertices=matrix.shape[0], weights=matrix[rows, cols])
+        return cls.from_relations(relations, directed=directed, g_channel=g_channel, c_channel=c_channel)
 
     @classmethod
     def from_cells(cls, cells_by_grade, *, relation_ids: NDArray | None = None,
                    w_E: NDArray | None = None, signs: NDArray | None = None,
-                   directed: bool = False, g_channel: str = "raw") -> RexGraph:
+                   directed: bool = False, g_channel: str = "raw", c_channel: str = "share") -> RexGraph:
         """Build a rex of ARBITRARY top grade from a graded, mixed arity cell list.
 
         Parameters
@@ -1389,23 +1584,21 @@ class RexGraph:
                 B2_vals=np.asarray(B2.vals_csc, dtype=_f64),
             )
 
-        rex = cls(
-            boundary_ptr=boundary_ptr,
-            boundary_idx=boundary_idx,
-            relation_ids=relation_ids,
-            w_E=w_E,
-            signs=signs,
-            directed=directed,
-            g_channel=g_channel,
-            head_slot=(np.asarray(head_slots, dtype=_i32) if declared_any else None),
-            shares=(share_parts if declared_any else None),
-            **b2_kwargs,
-        )
-
-        # Honor the declared vertex count (isolated vertices are not visible from
-        # the edge supports alone).
-        if n_verts > rex._nV:
-            rex._nV = n_verts
+        from dataclasses import replace
+        from rexgraph.relations import Relations
+        from rexgraph.exact_array import ExactArray
+        from rexgraph.value import Absent
+        relations = Relations.from_arrays(boundary_ptr, boundary_idx, n_vertices=n_verts,
+                                         relation_ids=relation_ids, weights=w_E, signs=signs)
+        if declared_any:
+            relations = replace(relations, head_slot=np.asarray(head_slots, dtype=_i32),
+                                share=ExactArray.from_values([Absent if value is None else value for value in share_parts]))
+        rex = cls.from_relations(relations, directed=directed, g_channel=g_channel, c_channel=c_channel)
+        if b2_kwargs:
+            rex._face_grade = True
+            rex._B2_col_ptr, rex._B2_row_idx, rex._B2_vals = _validate_face_boundary(
+                b2_kwargs["B2_col_ptr"], b2_kwargs["B2_row_idx"], b2_kwargs["B2_vals"], n_edges=rex._nE)
+            rex._nF = len(rex._B2_col_ptr)-1
 
         # Higher grades retain the native dual storage built by the importer.
         if len(boundaries) >= 3:
@@ -1469,7 +1662,7 @@ class RexGraph:
     def dirac_light(self, t: float, psi0: NDArray = None, order: int = None):
         """Light/wave propagator ``e^{-itD}`` of a graded tensor state, returned as
         ``(re, im)``: ``re = cos(tD)`` is the in grade (gradient) part and
-        ``im = -sin(tD)`` is the grade CROSSING (curl) part - amplitude the
+        ``im = -sin(tD)`` is the grade CROSSING (curl) part: amplitude the
         off diagonal boundary blocks transport between grades. Sparse mat vecs, any
         ``t``, no eigendecomposition. Supersedes the dense ``dirac_operator`` /
         ``dirac_eigenvalues`` eigenpath for propagation."""
@@ -1478,7 +1671,7 @@ class RexGraph:
 
     def dirac_heat(self, t: float, psi0: NDArray = None):
         """Per grade heat propagator ``e^{-tD^2} = e^{-tL}`` of a graded state
-        (stable, in grade diffusion) - the diffusive companion to
+        (stable, in grade diffusion): the diffusive companion to
         :meth:`dirac_light`, whose imaginary part is the grade crossing transport."""
         from rexgraph.dirac_propagator import dirac_heat as _dh
         return _dh(self, float(t), psi0=psi0)
@@ -1557,7 +1750,7 @@ class RexGraph:
         A branching relation has one distinguished boundary participant and
         multiple shares; choosing its first share as a ``target`` would turn a
         primary relation into an unrequested pairwise projection.  Consumers
-        that genuinely need a graph view must derive one explicitly.
+        that need a graph view must derive one explicitly.
         """
         self._ensure_clean()
         if not self._is_standard_only:
@@ -1623,20 +1816,10 @@ class RexGraph:
 
     @cached_property
     def _vertex_info(self) -> tuple[int, NDArray, NDArray, NDArray]:
-        """(nV, degree, in_degree, out_degree) from the BOUNDARY, at any arity.
+        """Return (nV, degree, in_degree, out_degree) from complete relation boundaries.
 
-        Not from (sources, targets). Those arrays hold two vertices per relation, so
-        `_ensure_src_tgt` truncates a k-ary relation to its first two and every vertex
-        past them disappears: on a single arity 5 relation `degree` came back with two
-        entries for a five vertex complex, so vertices 2, 3 and 4 were not reported
-        isolated, they were absent. `_v2e` already made exactly this correction for the
-        stars, the quotients and the local character; the degree readings were left
-        behind on the old path and disagreed with both `_v2e` and the B1 row counts.
-
-        Orientation generalises without a special case: the head of a relation is the
-        participant carrying the NEGATIVE entry at any arity, so `out_degree` counts the
-        columns a vertex heads and `in_degree` the ones it is carried by. At k=2 that is
-        the source/target split unchanged.
+        Degree counts every participating vertex at every arity. out_degree counts
+        negative boundary occurrences; in_degree counts positive occurrences.
         """
         self._ensure_clean()
         nV = int(self._nV)
@@ -1794,19 +1977,6 @@ class RexGraph:
         keep = ~np.repeat(selfloop, k)
         return bi[keep], owner[keep], vals[keep]
 
-    def _build_B1_general(self) -> NDArray:
-        """Dense B1 from general boundary data, scattered from the same entries.
-
-        It used to write the canonical column out a second time, in a Python loop, which
-        is one more copy of the rule to keep in step with `_b1_general_coo`. Repeated
-        participants accumulate, which the scatter below preserves.
-        """
-        rows, cols, vals = self._b1_general_coo()
-        B1 = np.zeros((self._nV, self._nE), dtype=_f64)
-        if rows.size:
-            np.add.at(B1, (rows, cols), vals)
-        return B1
-
     @cached_property
     def _B2_dual(self):
         """DualCSR representation of B2, assembled straight from the CSC triplet. The columns are
@@ -1892,7 +2062,7 @@ class RexGraph:
         I built consistent"), but now exactly and with `chain_report` to say which face is
         at fault. A tolerance here stood in for the arithmetic rather than the
         mathematics: B_1 carries the share 1/(k-1), not binary exact at most arities, so a
-        face that genuinely bounds can come back at 1e-17 and one that does not can come
+        face that bounds can come back at 1e-17 and one that does not can come
         back below any fence you pick.
         """
         if self._nF == 0:
@@ -1934,7 +2104,7 @@ class RexGraph:
         return RexGraph(
             sources=new_src,
             targets=new_tgt,
-            w_E=new_weights.reshape(-1, 1),
+            w_E=new_weights,
         )
 
     # BUNDLE 1: Symmetric adjacency CSR
@@ -1995,6 +2165,10 @@ class RexGraph:
         inv_sqrt[nz] = 1.0 / np.sqrt(d_ov[nz])
         Dis = _sp.diags(inv_sqrt)
         # Consumer (dense build_all_laplacians / rl_pipeline) expects dense L_O/S.
+        # This is a legacy dense bundle, so make its allocation explicit instead of
+        # bypassing the global dense memory ceiling.
+        from rexgraph.evaluator import check_dense_allocation
+        check_dense_allocation("legacy overlap bundle", nE, nE)
         S = np.ascontiguousarray((Dis @ K @ Dis).toarray(), dtype=_f64)
         L_O = np.eye(nE, dtype=_f64) - S
         return {'L_O': L_O, 'S': S, 'd_ov': d_ov}
@@ -2039,17 +2213,11 @@ class RexGraph:
 
     @cached_property
     def L_coparticipation(self):
-        """The C channel Laplacian in the selected reading, sparse.
+        """Return the sparse C channel Laplacian for the selected overlap reading.
 
-        ONE construction, so the sparse character, the dense bundle and anything else
-        reading C cannot answer different questions from the same process. RexGraph had
-        three places that could build it and only one was live; passing this into the
-        dense kernel keeps the dormant one from waking with the old reading, which would
-        leave trC and RL4 disagreeing from one process.
-
-        `D_L - K_off` over the selected overlap: the off diagonal is the co participation
-        between two relations and the diagonal is its row sum, so the row sums vanish and
-        it is a proper Laplacian at any arity.
+        D_L - K_off uses co participation between relations off diagonal and its row
+        sum on the diagonal. Row sums vanish at every arity. Dense and sparse bundles
+        consume the same operator.
         """
         from scipy import sparse as _sp
 
@@ -2174,8 +2342,9 @@ class RexGraph:
                 continue
             cols = _exact_b1_block(self, edges)
             acc: dict[int, Fraction] = {}
+            from rexgraph.exact_value import binary_fraction
             for c, coeff in zip(cols, data[lo:hi], strict=True):
-                q = Fraction(float(coeff))
+                q = binary_fraction(coeff, context="stored B2 coefficient")
                 for v, share in c.items():
                     acc[v] = acc.get(v, Fraction(0)) + q * share
             out[f] = not any(v != 0 for v in acc.values())
@@ -2296,7 +2465,7 @@ class RexGraph:
         complex is explicitly opting into the dense cost."""
         L_SG = None
         if _HAS_RCF:
-            # F = T - G (integer/exact tower, Def 3.3), the default frustration.
+            # F = T - G (integer/exact tower), the default frustration.
             L_SG = _ensure_dense(self.frustration_exact)
         # L_C is PASSED rather than left to the kernel, which derives it from K1 and so
         # always answers the share whatever the character selected. That is the exact trap
@@ -2357,7 +2526,7 @@ class RexGraph:
     @cached_property
     def edge_fiedler(self) -> tuple[float, NDArray]:
         """(fiedler_val_L1, fiedler_vec_L1): the smallest NONZERO eigenpair of the edge Laplacian
-        L1 = B1^T B1 + B2 B2^T - the algebraic connectivity of the edge space. Computed ON DEMAND
+        L1 = B1^T B1 + B2 B2^T: the algebraic connectivity of the edge space. Computed ON DEMAND
         (ARPACK smallest eigenvalue solve, expensive on a large edge space), skipping exactly the
         beta1 known kernel modes (no float threshold). Not built into spectral_bundle, which the
         character/coherence hot path rebuilds constantly and never needs the Fiedler for."""
@@ -2428,7 +2597,7 @@ class RexGraph:
     # ndarrays: that is the documented API and what the dense character/RL kernel
     # and the io consumers expect. Those densify nE x nE (nV x nV for L0) and
     # so OOM if accessed on a very large graph. These *_sparse accessors return the
-    # SAME operators as scipy CSR (nnz ~ 2*nE) via the sparse core builders - no
+    # SAME operators as scipy CSR (nnz ~ 2*nE) via the sparse core builders: no
     # densification, for callers that need the operator, not a dense matrix. (The
     # agent pipeline already hand rolls this pattern; see pipeline._sparse_L0.)
 
@@ -2490,25 +2659,12 @@ class RexGraph:
 
     @cached_property
     def overlap_share_sparse(self):
-        """The SHARE reading of co participation: `sum_v |c_i(v)| |c_j(v)|`, sparse CSR.
+        """Return the share overlap sum_v |c_i(v)| |c_j(v)| as sparse CSR.
 
-        How MUCH of each relation meets, not how many vertices they meet at. `|B1|^T|B1|`
-        on the boundary magnitudes, so the distinguished vertex carries 1 and the rest
-        `1/(k-1)`, WITHOUT the edge metric: co participation is about which relations meet
-        and how much of them does, not how far apart they are. G is the weighted twin and
-        is geometric precisely because it carries the metric. Weight this one too and
-        every channel shifts (measured: 0.286 flat instead of 0.351/0.351/0.172/0.126).
-
-        This is the reading that CONSERVES, which is why it is RexGraph's default: a
-        relation spread over k vertices carries proportionally less at each, so signal
-        moving through a branching vertex divides rather than multiplies. Propagation,
-        attention and the flow layer all need that. `overlap_count_sparse` is the other
-        honest answer and is the one a language wants, where the question is how crowded a
-        neighbourhood is rather than how much of it moves.
-
-        Named `overlap_counts_sparse` until it was pointed out that it returns shares and
-        its "unweighted" meant without the metric rather than integer. The old name still
-        resolves.
+        Boundary magnitudes retain declared coefficients without the edge metric.
+        The canonical column has a head of magnitude 1 and shares 1/(k-1).
+        overlap_count_sparse instead counts shared boundary occurrences.
+        overlap_counts_sparse is a compatibility alias for this share reading.
         """
         from scipy import sparse as _sp
         if self._is_standard_only:
@@ -2538,9 +2694,8 @@ class RexGraph:
         self loop's -1 and +1 have already summed to 0 there, and |0| is not
         |-1| + |+1| (see `test_self_loop_limitations_that_remain_are_pinned`). Every
         magnitude is 1 while the column is the ternary composite, so this reproduces
-        the old numbers on any complex without a repeated boundary entry; it is the
-        share 1/(k-1) that makes the distinction load bearing, and this is the one
-        place that has to change for it.
+        unit occurrence counts on complexes without repeated boundary entries.
+        Declared shares determine occurrence magnitudes at higher arities.
         """
         from scipy import sparse as _sp
         bp = np.array(self._boundary_ptr, dtype=np.int32)      # copy: not the graph's
@@ -2556,9 +2711,9 @@ class RexGraph:
     def _boundary_magnitudes(self) -> NDArray:
         """|coefficient| for each boundary entry, in `_boundary_idx` order.
 
-        The single place the column's magnitude profile is defined. `_build_B1_general`
-        writes the same profile with signs and with duplicates accumulated; this writes
-        it unsigned and per entry, which is what an unsigned Gramian needs.
+        The single place the unsigned column magnitude profile is defined. The signed
+        sparse boundary is assembled from the same declaration reader in `_b1_general_coo`;
+        this view stays per incidence because an unsigned Gramian must not cancel repeats.
 
         The profile is |-1| = 1 at the distinguished entry and the tail's own share on
         the others, so a wide relation contributes less overlap mass per leg than a narrow
@@ -2629,7 +2784,7 @@ class RexGraph:
     def betti(self) -> tuple[int, int, int]:
         """Legacy three grade Betti tuple, exact over Q and eigenfree.
 
-        Every beta_k = n_k - rank(B_k) - rank(B_(k+1)). Union find is a
+        Every beta_k = n_k - rank(B_k): rank(B_(k+1)). Union find is a
         guarded rank shortcut, NOT general branching beta_0. The original
         rational tower must satisfy the chain law. Use betti_tower
         for all carried grades; spectral readings remain reference oracles.
@@ -2641,7 +2796,7 @@ class RexGraph:
     @cached_property
     def dirac_dimension(self) -> int:
         """Number of Dirac modes = dim of the Dirac operator D = nV + nE + nF_hodge.
-        Exact - no dense (nV+nE+nF)² operator is materialized."""
+        Exact: no dense (nV+nE+nF)² operator is materialized."""
         return int(self._nV + self._nE + self.nF_hodge)
 
     @cached_property
@@ -2657,7 +2812,7 @@ class RexGraph:
         """(coupling g, is_psd) for the coupled field operator
         M = [[RL1, -g·B2],[-g·B2ᵀ, L2]], computed WITHOUT a dense (nE+nF)² operator:
         g = 1/max(‖B2‖_F, 1) (cheap, matches _field), and is_psd = (smallest
-        eigenvalue of the SPARSE block M ≥ -ε) via Lanczos (eigsh, k=1) - no full
+        eigenvalue of the SPARSE block M ≥ -ε) via Lanczos (eigsh, k=1): no full
         eigendecomposition. Scale safe."""
         import scipy.sparse as _sp
         import scipy.sparse.linalg as _sla
@@ -2674,17 +2829,22 @@ class RexGraph:
         L2 = self.L2_sparse.tocsr()
         M = _sp.bmat([[RL1, (-g) * B2], [(-g) * B2.T, L2]], format='csr')
         n = M.shape[0]
+        from rexgraph.evaluator import require_small_dense_eigen
         try:
-            # Same EXACT quantity (smallest eigenvalue of M) either way. This is a
-            # solver capability boundary, not an accuracy at scale trade: ARPACK's
-            # eigsh needs k < n and is unreliable at n≤3, so tiny M uses the direct
-            # dense eig; both are exact.
+            # ARPACK requires k < n and is not the right tool for a tiny block. Tiny
+            # matrices are an explicitly bounded dense kernel; a solver failure on a
+            # larger sparse operator is never allowed to change the complexity class.
             if n <= 3:
+                require_small_dense_eigen("field_coupling_psd", n)
                 lam_min = float(np.linalg.eigvalsh(M.toarray()).min())
             else:
                 lam_min = float(_sla.eigsh(M, k=1, which='SA', return_eigenvectors=False,
                                            maxiter=n * 20, tol=1e-5)[0])
-        except Exception:
+        except Exception as exc:
+            try:
+                require_small_dense_eigen("field_coupling_psd fallback", n)
+            except Exception as refused:
+                raise refused from exc
             lam_min = float(np.linalg.eigvalsh(M.toarray()).min())
         return g, bool(lam_min >= -1e-9)
 
@@ -2735,36 +2895,18 @@ class RexGraph:
     # exchange rate constants, exact rational (integer tower)
 
     def _exact_column_norms_B1(self):
-        """||c_e||^2 per relation, as exact rationals, rebuilt from the boundary structure.
+        """``||c_e||^2`` per primary relation from the canonical C1 column reader.
 
-        Not read back from the assembled float B1: the coefficients are -1 and 1/(k-1), and
-        recovering those from a float loses the exactness this whole tower exists to keep.
-        Duplicate boundary entries accumulate first, exactly as `_build_B1_general` writes
-        them, so a self loop's cancelling pair contributes 0 here too.
+        Exactness comes from the declaration carrier, never from assembled float B1 and
+        never from an arity reconstruction.  Unequal shares, moved heads, witnesses and
+        repeated incidences therefore use the exact same column that every other declared
+        C1 reader sees.
         """
         self._ensure_clean()
-        if self._boundary_ptr is None:
-            # standard only: every column is (-1, +1), so ||c||^2 = 2 (0 on a self loop)
-            src, tgt = self._ensure_src_tgt()
-            return [Fraction(0) if int(s) == int(t) else Fraction(2) for s, t in zip(src, tgt, strict=False)]
-        bp, bi = self._boundary_ptr, self._boundary_idx
-        out = []
-        for e in range(int(self._nE)):
-            start, end = int(bp[e]), int(bp[e + 1])
-            k = end - start
-            if k == 0:
-                out.append(Fraction(0))
-                continue
-            if k == 1:
-                out.append(Fraction(1))
-                continue           # witness: a single +1
-            acc = {}
-            share = Fraction(1, k - 1)
-            for j in range(start, end):
-                v = int(bi[j])
-                acc[v] = acc.get(v, Fraction(0)) + (Fraction(-1) if j == start else share)
-            out.append(sum((c * c for c in acc.values()), Fraction(0)))
-        return out
+        from rexgraph.column import declaration_of, exact_column_quadrances
+        return exact_column_quadrances(
+            self._boundary_ptr, self._boundary_idx, declaration_of(self)
+        )
 
     @property
     def edge_metric(self):
@@ -2806,17 +2948,17 @@ class RexGraph:
         values = list(w.ravel()) if isinstance(w, np.ndarray) else list(w)
         if len(values) != int(self._nE):
             return None
-        out = [x if isinstance(x, Fraction)
-               else (Fraction(int(x)) if isinstance(x, (int, np.integer))
-                     else Fraction(float(x))) for x in values]
+        from rexgraph.exact_value import binary_fraction
+        out = [binary_fraction(x, context="edge metric coefficient") for x in values]
         return None if all(x == 1 for x in out) else out
 
     @cached_property
     def trace_T(self) -> Fraction:
         """tr(T) = tr(B1^T B1) = ||B1||_F^2 = sum_e ||c_e||^2, exact. O(nnz), no matmul.
 
-        A pairwise relation contributes 2; a branching relation of arity k contributes
-        1 + 1/(k-1), which is what makes this arity aware rather than a 2*nE count.
+        A canonical pair contributes 2 and an equal share branching relation contributes
+        ``1 + 1/(k-1)``.  A relation with declared unequal shares contributes the actual
+        declared quadrance ``1 + sum_i s_i^2`` instead; no arity template is substituted.
         """
         return sum(self._exact_column_norms_B1(), Fraction(0))
 
@@ -2827,7 +2969,9 @@ class RexGraph:
         if int(self.nF_hodge) == 0:
             return Fraction(0)
         from rexgraph.core._sparse import to_scipy_csr as _tsc
-        return sum((Fraction(float(v)) ** 2 for v in _tsc(self._B2_hodge_dual).data), Fraction(0))
+        from rexgraph.exact_value import binary_fraction
+        return sum((binary_fraction(v, context="stored B2 coefficient") ** 2
+                    for v in _tsc(self._B2_hodge_dual).data), Fraction(0))
 
     @cached_property
     def c0_squared(self) -> Fraction:
@@ -3043,23 +3187,12 @@ class RexGraph:
 
     @cached_property
     def frustration_exact(self):
-        """Doc exact frustration channel F = T - G (Def 3.3), as a sparse scipy CSR.
-        F[i,j] = T[i,j] - G[i,j] off diagonal (0 same orientation, -2 opposite at a
-        shared vertex), F[i,i] = Σ_j|F[i,j]|.
+        """Return the frustration channel as a sparse SciPy CSR matrix.
 
-        BOTH sides carry the metric. `overlap_gramian_sparse` is the WEIGHTED
-        unsigned Gram W|B₁|ᵀ|B₁|W, which is what G is: the weights are the metric,
-        and an unweighted G is only a count of shared vertices. Taking an unweighted
-        T against it subtracted one tower from the other, and the difference then
-        reported the WEIGHTS rather than the sign mismatch: on a uniformly oriented
-        complex, where every vertex heads all or none of its relations and F is zero
-        by construction, weights (3,1,2) gave a nonzero F while the sparse and the
-        exact rational characters both correctly read 0. Unweighted complexes never
-        showed it, W being the identity there.
-
-        The signed and unsigned Grams have identical diagonals whatever the metric,
-        because squaring kills the sign, so the mismatch F isolates is entirely
-        off diagonal.
+        Off diagonal entries are T[i,j] - G[i,j], using the same edge metric in the
+        signed and unsigned Grams. The diagonal is the absolute off diagonal row sum.
+        For canonical unweighted pairwise columns, an opposite signed shared occurrence
+        contributes -2; declared coefficients retain their own magnitudes.
         """
         from scipy import sparse as _sp
         T = _laplacians.build_L1_down_sparse(self._B1_dual).tocsr()   # B₁ᵀB₁
@@ -3075,7 +3208,7 @@ class RexGraph:
 
     @cached_property
     def L_frustration(self) -> NDArray:
-        """Frustration channel F = T - G (integer/exact tower; Def 3.3). Dense
+        """Frustration channel F = T - G (integer/exact tower). Dense
         nE×nE view of `frustration_exact`."""
         if not _HAS_RCF:
             return np.zeros((self._nE, self._nE), dtype=_f64)
@@ -3083,7 +3216,7 @@ class RexGraph:
 
     @cached_property
     def L_frustration_weighted(self) -> NDArray:
-        """Legacy inverse log degree *weighted* signed Gramian frustration - the
+        """Legacy inverse log degree *weighted* signed Gramian frustration: the
         geometric/approximation-tower alternate (float weights). Kept for the
         explicit integer vs weighted distinction; not used in the default RL4."""
         self._require_pairwise_c1("L_frustration_weighted")
@@ -3134,6 +3267,8 @@ class RexGraph:
         moment quantities use self._rl4_sparse and never reach this accessor.
         """
         if self._use_sparse_character:
+            from rexgraph.evaluator import check_dense_allocation
+            check_dense_allocation("RexGraph.RL dense accessor", self._nE, self._nE)
             return np.ascontiguousarray(self._rl4_sparse.toarray(), dtype=_f64)
         rcf = self._rcf_bundle
         return rcf.get('RL', np.zeros((self._nE, self._nE), dtype=_f64))
@@ -3150,7 +3285,7 @@ class RexGraph:
     @cached_property
     def _sparse_character(self) -> dict:
         """The O(nnz) character bundle {chi, chi_star, nhats, hat_names, RL, hats,
-        rl_diag} - per edge character and star average from DIAGONALS only, no
+        rl_diag}: per edge character and star average from DIAGONALS only, no
         per vertex solves. The per vertex Green's phi/kappa is computed separately
         and lazily (``_sparse_phi``) so accessing chi never pays the nV solves."""
         from rexgraph.sparse_character import build_sparse_character_cheap
@@ -3158,7 +3293,7 @@ class RexGraph:
 
     @cached_property
     def _sparse_phi(self) -> dict:
-        """Per vertex Green's character {phi, kappa} (nV block CG solves) - computed
+        """Per vertex Green's character {phi, kappa} (nV block CG solves): computed
         lazily, only when vertex_character/coherence is actually accessed."""
         from rexgraph.sparse_character import compute_sparse_phi
         return compute_sparse_phi(self, self._sparse_character)
@@ -3263,7 +3398,7 @@ class RexGraph:
 
     @cached_property
     def local_coherence(self) -> NDArray:
-        """O(nnz) per vertex coherence κ_loc(v) = 1 - 0.5·mean_{e∈star(v)}‖χ(e)-χ*(v)‖₁
+        """O(nnz) per vertex coherence κ_loc(v) = 1: 0.5·mean_{e∈star(v)}‖χ(e)-χ*(v)‖₁
         - how consistent a vertex's incident edge characters are with their star
         average. Uses only the per edge character χ and χ* (diagonals, no solves),
         so it is available at every scale. This is the LOCAL tower coherence; the
@@ -3296,7 +3431,7 @@ class RexGraph:
 
     @cached_property
     def vertex_energy_character(self) -> NDArray:
-        """Per vertex LOCAL energy character - the per edge energy diag(RL4²)
+        """Per vertex LOCAL energy character: the per edge energy diag(RL4²)
         (row norms, O(nnz)) aggregated over each vertex's star through the boundary
         B₁. This is the vertex propagator's local end via the boundary, NOT a
         Green's solve. Shape (nV,)."""
@@ -3319,7 +3454,7 @@ class RexGraph:
         star neighborhood's structure at each scale, via sparse matvecs / row norms
         (no eigendecomposition). k≤2 are exact O(nnz) (1, deg, ‖L0[v,:]‖²); k=3 =
         closed 3 walks (clustering/triangles) via one sparse L0² pass. Two vertices
-        of equal degree agree at k≤1 and DIVERGE at k≥2 by local clustering - the
+        of equal degree agree at k≤1 and DIVERGE at k≥2 by local clustering: the
         local<->global bridge. Shape (nV, 4): [1, deg, (L0²)_vv, (L0³)_vv]."""
         L0 = self.L0_sparse.tocsr()
         n = L0.shape[0]
@@ -3337,10 +3472,10 @@ class RexGraph:
     def scale_bridge(self) -> dict:
         """Local<->global structure across the scale profile. The
         low order closed walk moments (L0^k)_vv are the LOCAL character; two vertices
-        of equal degree agree at k≤1 and DIVERGE at k≥2 by their clustering - the
+        of equal degree agree at k≤1 and DIVERGE at k≥2 by their clustering: the
         thing the star neighborhood exposes. The clean per vertex clustering signal is
         the local clustering coefficient C(v) = 2·triangles(v)/(deg(deg 1)), with
-        triangles(v) = (A³)_vv/2 (A = adjacency = D - L0). All sparse matvecs, O(nnz)
+        triangles(v) = (A³)_vv/2 (A = adjacency = D: L0). All sparse matvecs, O(nnz)
         for bounded degree (one A² pass). Returns O(nnz) summaries + the per vertex
         clustering coefficient (0 = star/path, 1 = fully clustered)."""
         import scipy.sparse as _sp
@@ -3384,7 +3519,7 @@ class RexGraph:
 
     def weighted_curvature_signature(self, w_e: NDArray = None) -> dict:
         """The weighted geometric signature (Part F /): curvature is the
-        weighted chain residual R = B₁(W-I)B₂ = B₁WB₂ (using B₁B₂=0) - the deviation
+        weighted chain residual R = B₁(W-I)B₂ = B₁WB₂ (using B₁B₂=0): the deviation
         of the weighted state from the unweighted ∂²=0 ideal, zero iff W=cI. Sparse
         (no dense B1/B2/R), decomposed by group, all O(nnz):
           per vertex  ‖R[v,:]‖  (which junction bends most),
@@ -3443,7 +3578,7 @@ class RexGraph:
     @cached_property
     def energy_character(self) -> NDArray:
         """Local per edge energy character diag(RL4²)_e = ‖RL4[e,:]‖² (row norms,
-        O(nnz)) - the short time moment of the heat propagator. Shape (nE,)."""
+        O(nnz)): the short time moment of the heat propagator. Shape (nE,)."""
         from rexgraph import scale_propagator as _spg
         return _spg.energy_character(self._rl4_sparse)
 
@@ -3456,14 +3591,14 @@ class RexGraph:
 
     @cached_property
     def character_reliability(self) -> dict:
-        """Varentropy reliability flag {H2, H3, shannon_est, gap} - the cheap
+        """Varentropy reliability flag {H2, H3, shannon_est, gap}: the cheap
         self diagnostic certifying when the trace norm (Rényi-2) character suffices;
         ~0 on flat/unweighted spectra, grows when weighted."""
         from rexgraph import scale_propagator as _spg
         return _spg.reliability_gap(self._rl4_sparse)
 
     def heat_character(self, t: float, mode: str = 'exact') -> NDArray:
-        """Scale resolved edge space character diag(e^{-t·RL4}) - the general-f heat
+        """Scale resolved edge space character diag(e^{-t·RL4}): the general-f heat
         propagator DIAGONAL. SUPERSEDED: a general matrix function diagonal has no
         exact O(nnz) form and is blind to inter grade transport. Prefer
         :meth:`dirac_light` (grade crossing heat in the Dirac vector space) for the
@@ -3488,7 +3623,7 @@ class RexGraph:
 
     @cached_property
     def greens_diagonal_eigenfree(self) -> NDArray:
-        """diag(RL4⁻¹) EXACT via block CG solves of RL4·X = I to a fixed tolerance -
+        """diag(RL4⁻¹) by block CG solves of RL4·X = I to a fixed tolerance -
         one algorithm at every scale, no eigendecomposition, no size gated
         approximation. Shape (nE,).
 
@@ -3501,7 +3636,7 @@ class RexGraph:
 
     @cached_property
     def greens_character_edge(self) -> NDArray:
-        """diag(L1⁺) - the Green's character of the SINGULAR edge Laplacian L1 =
+        """diag(L1⁺): the Green's character of the SINGULAR edge Laplacian L1 =
         B1ᵀB1 + B2B2ᵀ, eigen-free via harmonic-projector deflation L1⁺=(L1+P_H)⁻¹−P_H
 . P_H projects onto the harmonic space ker(L1) via the combinatorial
         harmonic basis (rexgraph.harmonic_sparse.harmonic_basis, fundamental cycles
@@ -3531,11 +3666,11 @@ class RexGraph:
         Fiedler value). One discoverable entry point onto quantities that already live in
         the tower, all eigen free:
 
-          effective_modes : e^{H2} - effective number of RL4 spectral modes (mode count)
+          effective_modes : e^{H2}: effective number of RL4 spectral modes (mode count)
           harmonic_log    : H2 = -log(tr(RL4^2)/tr(RL4)^2)  (Renyi 2 collision entropy)
-          energy_character: diag(RL4^2) per edge  - the LOCAL short time heat moment
-          greens_edge     : diag(L1^+)  per edge  - the GLOBAL integrated self response
-          varentropy_gap  : H2 - H3, a cheap certificate of when the 2nd-moment summary
+          energy_character: diag(RL4^2) per edge : the LOCAL short time heat moment
+          greens_edge     : diag(L1^+)  per edge : the GLOBAL integrated self response
+          varentropy_gap  : H2: H3, a cheap certificate of when the 2nd-moment summary
                             is trustworthy (~0 = exact)
 
         The per channel spectral GAP metric (lambda_2 / mixing times) is a SEPARATE scope
@@ -3678,11 +3813,6 @@ class RexGraph:
         `f(e) = L_t(e) + i L_s(e)` is one complex number per relation and
         `c2 = L_s/L_t` is their ratio. See `core._holomorphic`.
 
-        Measured: `mean(c2) = 3` exactly on every PAIRWISE complex tried (tetrahedron,
-        C4, path, two triangles, an asymmetric tree) while the per relation value ranges
-        over 2 to 4. A branching complex reads 2.9815, so the deviation from 3 is an
-        arity signature. That is a pattern over six cases, not a proof.
-
         Needs all four channels. A complex whose F channel has zero trace drops it, and
         this returns None rather than silently reading the wrong three.
         """
@@ -3703,10 +3833,8 @@ class RexGraph:
         `B_1 B_2 = 0`; non zero on the RL_4 hats, where the channels interact through
         overlap, frustration and co participation. That difference is the content.
 
-        Measured: INVARIANT under filling. A tetrahedron reads 0.407017 at zero, one,
-        two, three and four faces, and C4 reads 0.583333 latent and filled. The channels
-        are strictly 1 skeleton, so this cannot see a face and does not separate latent
-        from closed. It separates different 1 skeletons.
+        The channels read the 1 skeleton. Attaching faces without changing B1
+        does not change this reading.
         """
         from rexgraph.core import _holomorphic as _holo
         from rexgraph.sparse_character import build_sparse_rl
@@ -3741,7 +3869,7 @@ class RexGraph:
         kappa_f = ||R[:,f]||, where B1^w[v,e] = a_v * B1[v,e] * sqrt(w_e) and B2^w = sqrt(w_e) * B2.
 
         Each face boundary has only a few edges, so we contract B2 in its sparse (CSC) form -
-        R[:,f] is the signed sum of the boundary edges' B1^w columns - instead of building the dense
+        R[:,f] is the signed sum of the boundary edges' B1^w columns: instead of building the dense
         nE x nF matrix and a dense matmul. Identical to the dense kernel to 1e-16, and O(nV*nF + nnz)
         memory rather than O(nE*nF), so it scales to complexes where dense B2 would not fit."""
         if not _HAS_RCF:
@@ -3799,7 +3927,7 @@ class RexGraph:
         """Full dynamic strain equilibrium analysis.
 
         The optimal coupling alpha = <B2 kappa, B2 pF> / ||B2 pF||^2, the face deficit
-        delta = kappa - alpha pF, the relational strain sigma = B2 delta and the Bianchi
+        delta = kappa: alpha pF, the relational strain sigma = B2 delta and the Bianchi
         residual B1 sigma, which are the readings of `_rcfe.strain_equilibrium`, applied
         through the sparse boundaries rather than their dense materializations."""
         if not _HAS_RCF:
@@ -3854,7 +3982,7 @@ class RexGraph:
     def propagate_signal(self, vertex_signal: NDArray, mode: str = "heat",
                          t: float = 1.0, order: int = 40,
                          tol: float = 1e-8) -> NDArray:
-        """Dynamic vertex propagator - the vertex propagator S₀ = B₁ RL⁺ B₁ᵀ applied
+        """Dynamic vertex propagator: the vertex propagator S₀ = B₁ RL⁺ B₁ᵀ applied
         to a SIGNAL by diffusion, not by enumerating vertices. A vertex signal s is
         lifted to its incident edge boundaries through the coboundary B₁ᵀ, diffused
         through the SPARSE relational operator RL4, and projected back to vertices
@@ -3863,7 +3991,7 @@ class RexGraph:
         signal flows through the relevant edge boundaries to the relevant vertices,
         rather than the static O(nV·solve) per vertex Green's enumeration.
         Scale free (sparse RL, no per vertex loop). Modes:
-          'heat'   : e^{-t·RL4} - diffusive/local (small t -> tight star, large t ->
+          'heat'   : e^{-t·RL4}, diffusive/local (small t -> tight star, large t ->
                      the global role; the script-15 scale bridge, one signal at a time)
           'greens' : RL4⁻¹, the equilibrium/global Green's response, CG to `tol`.
         Returns the propagated vertex response (nV,), nonzero on the reached vertices.
@@ -3924,6 +4052,16 @@ class RexGraph:
         apply_rl, apply_hat = factored_channel_actions(
             self, list(names), list(np.asarray(cheap['trace_values'], dtype=_f64)))
         B1 = to_scipy_csr(self._B1_dual).tocsr()            # nV × nE
+        # Seed response is a block solve. Bound the dense RHS block by the same memory
+        # policy used by other matrix free Green actions instead of allocating nE x
+        # |seed| blindly when a caller asks for a very large seed set.
+        from rexgraph.fiedler import solve_block_width
+        safe_width = solve_block_width(self._nE, self._nV)
+        if seeds.size > safe_width:
+            return np.vstack([
+                self.character_response(seeds[start:start + safe_width], tol=tol)
+                for start in range(0, seeds.size, safe_width)
+            ])
         Bc = np.ascontiguousarray(B1[seeds].toarray().T)    # nE × |seed| = b_v columns
         dinv = np.where(np.abs(rl_diag) > 1e-30, 1.0 / rl_diag, 1.0)
         X = _block_cg(apply_rl, Bc, dinv, tol=tol)          # RL⁻¹ b_v (one block solve)
@@ -3957,7 +4095,7 @@ class RexGraph:
         enumerating the whole graph. A seed indicator is diffused through e^{-t·RL4}
         (small t -> tight star, larger t -> wider role; the script 15 scale bridge), and
         the reached vertices (|response| > threshold) form the relevant sub complex.
-        Returns {seeds, reached, weights, n_reached, character} - the demand driven
+        Returns {seeds, reached, weights, n_reached, character}: the demand driven
         'relevant subgraph' primitive the agent layer acts on: propagate from the
         query, work the bounded neighborhood, never pay for the combinatorial whole."""
         seeds = np.asarray(seed_vertices, dtype=int).ravel()
@@ -3979,7 +4117,7 @@ class RexGraph:
         }
 
     def _explain_vertex_dynamic(self, idx: int) -> dict:
-        """Single vertex diagnostic by DEMAND DRIVEN diffusion - φ, κ, χ*, the channel
+        """Single vertex diagnostic by DEMAND DRIVEN diffusion: φ, κ, χ*, the channel
         discrepancy, degree, incident edges and neighbor vertices, all from the query
         vertex via one diffusion + sparse local reads, no full per vertex enumeration
         and no dense B1/RL. Matches the _query.explain_vertex return contract."""
@@ -4016,14 +4154,14 @@ class RexGraph:
 
     def _explain_edge_dynamic(self, idx: int) -> dict:
         """Single edge (relation) diagnostic: its place in the Hodge tower plus its
-        criticality - all from sparse local reads and ONE diffusion, no dense B1/B2/K1
+        criticality: all from sparse local reads and ONE diffusion, no dense B1/B2/K1
         scans and no eigendecomposition. Matches the _query.explain_edge contract:
-          below   = boundary participants                    - sparse B1 column, ∂/down
-          above   = co boundary faces containing the edge    - sparse B2 row, δ/up
-          lateral = sibling relations sharing a participant  - C0 stars (_v2e)
-          chi     = channel character [T,G,F,C]              - diagonals, O(nnz)
-          effective_resistance = b_e^T (B1 B1^T)^+ b_e      - sparse Green action
-          relational_self_response = RL4^+[e,e]              - relation space diffusion.
+          below   = boundary participants                   : sparse B1 column, ∂/down
+          above   = co boundary faces containing the edge   : sparse B2 row, δ/up
+          lateral = sibling relations sharing a participant : C0 stars (_v2e)
+          chi     = channel character [T,G,F,C]             : diagonals, O(nnz)
+          effective_resistance = b_e^T (B1 B1^T)^+ b_e     : sparse Green action
+          relational_self_response = RL4^+[e,e]             : relation space diffusion.
 
         The first reading is the classic primary boundary leverage (high means
         load bearing); the second is the relation space response. Both preserve the
@@ -4085,7 +4223,7 @@ class RexGraph:
                         t: float = 1.0, threshold: float = 1e-6,
                         max_cells: int | None = None) -> dict:
         """The forged contextual picture around query ENTITIES (vertices) and RELATIONS
-        (edges) - the unified view the LLM reads. Per seed diagnostics (explain_vertex
+        (edges): the unified view the LLM reads. Per seed diagnostics (explain_vertex
         for entities, explain_edge for relations) PLUS the bounded relevant sub complex
         reached by ONE heat diffusion seeded across both grades: a vertex seed injects
         its incident edge boundaries (B₁ᵀ e_v), an edge seed injects itself (e_e), the
@@ -4144,18 +4282,23 @@ class RexGraph:
 
     def _effective_resistance_batch(self, edge_indices: NDArray, *,
                                     method: str = "sparse") -> NDArray:
-        """Classic effective resistance R_eff(e) = b_eᵀ L0⁺ b_e for a BATCH of edges
-        (``b_e = B1[:, e]`` is the declared C1 boundary, at any arity) in one sparse
-        Green/leverage action. It is the bridge measure: R_eff -> 1 for a true bridge
-        (removal disconnects), < 1 for a redundant relation in a cycle.
+        """Metric aware C1 leverage/effective-resistance reading for a batch of relations.
 
-        ``method="sparse"`` is the default semantic route: it acts on the full
-        declared primary boundary without allocating a dense matrix. It evaluates the
-        Green action numerically, while the C1 carrier, chain checks, and rank
-        constraint remain exact. The optional ``method="dense_oracle"`` is a
-        deliberately requested SVD projector for comparison. The dense allocation
-        guard may reject that oracle; it never silently changes the method selected by
-        the caller.
+        For identity C1 metric this is the familiar
+        ``b_e^T (B1 B1^T)^+ b_e``.  If the complex declares a positive relation metric
+        ``M1 = diag(w)``, the grade 0 Hodge is ``L0 = B1 M1^-1 B1^T`` and this method
+        returns the projector diagonal
+
+            ``(1 / w_e) b_e^T L0^+ b_e``.
+
+        That normalization is not optional bookkeeping: it is exactly the diagonal of
+        the metric orthogonal projector onto ``im(B1^dagger)`` and therefore still sums
+        to ``rank(B1)``.  The raw Green quadrance ``b_e^T L0^+ b_e`` is available by
+        applying :func:`rexgraph.green.vertex_green` directly.
+
+        ``method="sparse"`` acts on the full declared primary boundary factor without
+        allocating a Gram matrix. ``method="dense_oracle"`` explicitly requests an SVD
+        projector over the same metric factor for parity/benchmarking.
         """
         if method not in {"sparse", "dense_oracle"}:
             raise ValueError("method must be 'sparse' or 'dense_oracle'")
@@ -4164,12 +4307,12 @@ class RexGraph:
             return np.zeros(edges.size, dtype=_f64)
         if np.any(edges < 0) or np.any(edges >= self._nE):
             raise ValueError("effective resistance edge index is outside C1")
-        from rexgraph.core._sparse import to_scipy_csr
-        B1 = to_scipy_csr(self._B1_dual).tocsc()            # nV × nE
+
+        from rexgraph.green import _metric_boundary_factor
+        from rexgraph.native_sparse import NativeSparse
+        factor, _metric = _metric_boundary_factor(self, NativeSparse(self._B1_dual))
+        B1 = factor.as_scipy().tocsc()                     # B1 M1^-1/2, or B1
         if method == "dense_oracle":
-            # The oracle forms the projector for the whole primary C1 boundary, then
-            # selects requested diagonal entries.  Slicing first changes row(B1), so a
-            # singleton query on a triangle would incorrectly report 1 instead of 2/3.
             from rexgraph.core._common import check_dense_allocation
 
             check_dense_allocation("effective_resistance dense oracle",
@@ -4182,9 +4325,8 @@ class RexGraph:
             all_values = np.einsum("ie,ie->e", row_basis, row_basis)
             out = all_values[edges]
         else:
-            # A bridge has R_eff exactly 1 and is settled by one sparse structural
-            # walk.  Every remaining relation is evaluated against the FULL B1, never
-            # a query induced subcomplex.
+            # A structural bridge is a basis direction of the row space under every
+            # positive diagonal metric, so its projector leverage is exactly one.
             from rexgraph.bridges import bridge_mask
             out = np.zeros(edges.size, dtype=_f64)
             try:
@@ -4197,41 +4339,23 @@ class RexGraph:
                 _check_resistance_closes(self, edges, out)
                 return out
 
-            if not self._is_standard_only:
-                # A branching C1 can have a kernel larger than its support component
-                # count. The pairwise deflated CG path therefore cannot be repaired by
-                # handing it component indicators. The general Green action is the
-                # minimum norm LSMR solve on B1 B1.T itself: numerical by nature, but
-                # it acts on the full declared boundary and introduces no fabricated
-                # kernel. Block only to the configured memory ceiling.
-                from rexgraph.fiedler import solve_block_width
-                from rexgraph.green import vertex_green
-
-                green = vertex_green(self, tol=1e-12, maxiter=1000)
-                width = solve_block_width(int(self._nV), int(self._nE))
-                for lo in range(0, rest.size, width):
-                    selected = rest[lo:lo + width]
-                    columns = edges[selected]
-                    sources = np.asarray(B1[:, columns].todense(), dtype=_f64)
-                    solved = np.asarray(green.solve(sources), dtype=_f64)
-                    out[selected] = np.einsum("ve,ve->e", sources, solved)
-            else:
-                # Pairwise C1 has exactly the component indicator kernel. The blocked
-                # route keeps B1 sparse and never forms L0 = B1 B1.T.
-                from rexgraph.fiedler import deflated_operator, leverage_diagonal
-
-                _apply, _dinv, kernel, n_kernel = deflated_operator(B1)
-                out[rest], _r = leverage_diagonal(B1, columns=edges[rest],
-                                                  kernel=(kernel, n_kernel))
+            # One primitive owns pairwise and branching C1. For pairwise incidence it
+            # uses the deflated block CG path; for larger kernels it switches to the
+            # minimum norm factor solve. The factor already carries M1^-1/2, so both are
+            # the same metric projector and no caller reconstructs weighting separately.
+            from rexgraph.fiedler import leverage_diagonal
+            out[rest], _rank = leverage_diagonal(B1, columns=edges[rest])
         _check_resistance_closes(self, edges, out)
         return out
 
     def effective_resistance(self, edge_idx: int, *, method: str = "sparse") -> float:
-        """Classic effective resistance R_eff(e) = b_eᵀ L0⁺ b_e for one edge (relation)
-        via a sparse numerical L0 Green solve. It is the load bearing measure: R_eff
-        -> 1 for a bridge (critical/near-unique relation, removal fragments the graph),
-        lower for a redundant relation. ``method`` has the same explicit sparse/oracle
-        contract as :meth:`_effective_resistance_batch`."""
+        """One relation's metric aware projector leverage/effective resistance.
+
+        It is 1 for a structural bridge and below 1 for a redundant relation. With a
+        declared C1 metric it uses the normalized metric projector described by
+        :meth:`_effective_resistance_batch`; ``method`` keeps the same explicit
+        sparse versus dense oracle contract.
+        """
         return float(self._effective_resistance_batch(
             np.asarray([int(edge_idx)]), method=method
         )[0])
@@ -4247,7 +4371,7 @@ class RexGraph:
                          (high = critical/near-unique, removal fragments), top_k.
           frustrated   : entities whose coherence is a LOW outlier (data adaptive lower
                          Tukey fence on the neighborhood's κ) - the incoherent/frustrated.
-          context_size : |reached vertices| + |reached edges| - the bounded relevant
+          context_size : |reached vertices| + |reached edges|: the bounded relevant
                          size, i.e. the real token/cost driver (how much context a
                          correct answer needs).
         All demand driven and bounded: no whole graph enumeration."""
@@ -4288,7 +4412,7 @@ class RexGraph:
         if dim == 1:
             # Demand driven: below/above/lateral from the sparse boundary/coboundary/
             # endpoint stars, χ from diagonals, and effective_resistance = RL4⁺[e,e]
-            # from ONE diffusion - no dense B1/B2/K1 scans and no eigendecomposition
+            # from ONE diffusion: no dense B1/B2/K1 scans and no eigendecomposition
             # (the dense kernel returned NaN for effective_resistance at scale).
             return self._explain_edge_dynamic(idx)
         elif dim == 0:
@@ -4505,6 +4629,8 @@ class RexGraph:
         vc = self.void_complex
         Bvoid = vc.get('Bvoid')
         if hasattr(Bvoid, "toarray"):           # void_complex hands back a sparse Bvoid; the kernel
+            from rexgraph.evaluator import check_dense_allocation
+            check_dense_allocation("face_void_dipole Bvoid", int(Bvoid.shape[0]), int(Bvoid.shape[1]))
             Bvoid = np.ascontiguousarray(Bvoid.toarray(), dtype=_f64)  # needs a dense array (else ValueError)
         return _character.face_void_dipole(     # Bvoid stays None when there are no voids (kernel handles it)
             np.ascontiguousarray(psi, dtype=_f64),
@@ -4531,35 +4657,33 @@ class RexGraph:
         and per_context_void_fraction as attributes.
         """
         self._require_pairwise_c1("context_face_selection")
+        contexts = np.asarray(context_matrix)
+        if (contexts.ndim != 2 or contexts.shape[1] != self.nV
+                or contexts.dtype.kind not in "biuf"
+                or not np.isin(contexts, [0, 1]).all()):
+            raise ValueError("context matrix must be binary with shape (n_contexts, nV)")
         adj_ptr, adj_idx, adj_edge = self._adjacency_bundle
         result = _faces.context_face_selection(
             self.B1,
-            np.ascontiguousarray(context_matrix, dtype=_u8),
+            np.ascontiguousarray(contexts, dtype=_u8),
             adj_ptr, adj_idx, adj_edge,
             self._nV, self._nE,
         )
-        nF = result['nF']
-        if nF == 0:
-            rex = RexGraph(
-                boundary_ptr=self._boundary_ptr.copy(),
-                boundary_idx=self._boundary_idx.copy(),
-                w_E=self._w_E, directed=self._directed, signs=self._signs,
-            )
-        else:
-            from rexgraph.core._boundary import build_B2_from_cycles
-            B2_dual = build_B2_from_cycles(
-                self._nE, result['cycle_edges'],
-                result['cycle_signs'], result['cycle_lengths'])
-            col_ptr, row_idx, vals = _csc_arrays(B2_dual)
-            rex = RexGraph(
-                boundary_ptr=self._boundary_ptr.copy(),
-                boundary_idx=self._boundary_idx.copy(),
-                B2_col_ptr=col_ptr,
-                B2_row_idx=row_idx,
-                B2_vals=vals,
-                w_E=self._w_E, directed=self._directed, signs=self._signs,
-            )
+        from rexgraph.faces import orient_triangle_selection
+        orient_triangle_selection(self, result, [("cycle_edges", "cycle_signs"), ("void_edges", "void_signs")])
+        rex = self._replace_selected_faces(result['cycle_edges'], result['cycle_signs'])
         rex._context_face_result = result
+        return rex
+
+    def _replace_selected_faces(self, edges, signs):
+        """Replace the face family through the registered structural transport."""
+        rex = self.copy()
+        if rex.nF:
+            rex.remove_faces(np.ones(rex.nF, np.int32))
+            rex.compact()
+        if np.asarray(edges).size:
+            rex.add_faces(np.asarray(edges).reshape(-1, 3), np.asarray(signs).reshape(-1, 3))
+            rex._ensure_clean()
         return rex
 
     # Typed face selection
@@ -4580,35 +4704,20 @@ class RexGraph:
         with void data as an attribute.
         """
         self._require_pairwise_c1("typed_face_selection")
+        from rexgraph.relations import _integers
+        labels = _integers(edge_type_labels, name="edge type labels", dtype="<i4")
+        if labels.shape != (self.nE,) or (labels.size and np.any(labels < 0)):
+            raise ValueError("edge type labels must cover the current relation basis")
         adj_ptr, adj_idx, adj_edge = self._adjacency_bundle
-        n_types = int(np.max(edge_type_labels)) + 1
+        n_types = int(labels.max()) + 1 if labels.size else 0
         result = _faces.typed_face_selection(
-            _asarray(edge_type_labels, _i32),
+            labels.copy(),
             adj_ptr, adj_idx, adj_edge,
             self._nV, self._nE, n_types,
         )
-        nF = result['nF_realized']
-        if nF == 0:
-            rex = RexGraph(
-                boundary_ptr=self._boundary_ptr.copy(),
-                boundary_idx=self._boundary_idx.copy(),
-                w_E=self._w_E, directed=self._directed, signs=self._signs,
-            )
-        else:
-            from rexgraph.core._boundary import build_B2_from_cycles
-            cycle_lengths = np.full(nF, 3, dtype=_i32)
-            B2_dual = build_B2_from_cycles(
-                self._nE, result['realized_edges'],
-                result['realized_signs'], cycle_lengths)
-            col_ptr, row_idx, vals = _csc_arrays(B2_dual)
-            rex = RexGraph(
-                boundary_ptr=self._boundary_ptr.copy(),
-                boundary_idx=self._boundary_idx.copy(),
-                B2_col_ptr=col_ptr,
-                B2_row_idx=row_idx,
-                B2_vals=vals,
-                w_E=self._w_E, directed=self._directed, signs=self._signs,
-            )
+        from rexgraph.faces import orient_triangle_selection
+        orient_triangle_selection(self, result, [("realized_edges", "realized_signs"), ("void_edges", "void_signs")])
+        rex = self._replace_selected_faces(result['realized_edges'], result['realized_signs'])
         rex._typed_face_result = result
         return rex
 
@@ -4729,21 +4838,10 @@ class RexGraph:
 
     @cached_property
     def cycle_basis(self) -> list:
-        """A basis of ker(B_1), the cycle space, as float vectors of length nE.
+        """Return a basis of ker(B_1) as float vectors of length nE.
 
-        Pairwise complexes take the tree cotree traversal, which is correct there and
-        compiled. ANY arity above two goes to `faces.cycle_basis`, which solves ker(B_1)
-        by exact elimination.
-
-        It used to take the clique expansion for branching, which was wrong twice over.
-        `rank(B_1) = n_0 - c` is a graph identity that an arity-k relation breaks, since
-        it touches k vertices while contributing rank one, so the expansion is a lossy
-        shadow of the kernel rather than a route to it. And the cycles came back indexed
-        against the EXPANDED edge set while being written into an array of length nE, so
-        a lone 4 ary relation raised IndexError: five slots, indices up to nine.
-
-        `clique_expansion` is still here. It is what demonstrates the loss, which is a
-        reason to keep it and not a reason to compute through it.
+        Pairwise complexes use compiled tree cotree traversal. Higher arities use
+        faces.cycle_basis with exact elimination on the declared boundary.
         """
         if not self._is_standard_only:
             from rexgraph.faces import cycle_basis as _exact
@@ -4828,13 +4926,13 @@ class RexGraph:
 
         The exact rational path is primary. `C_1 = im B_1^dagger + im B_2 + H_1` with
         `H_1 = ker B_1 ^ ker B_2^dagger`, and the sectors come from exact image and
-        kernel frames with Gram solves -- no eigensolve, no threshold deciding what is
+        kernel frames with Gram solves: no eigensolve, no threshold deciding what is
         harmonic. The float path is that answer's ORACLE: it resolves the same question
         in the approximation tower and agrees only to rounding.
 
         `B_2^dagger` is `M_2^-1 B_2^* M_1`, so a declared `edge_metric_exact` belongs
         inside the adjoint. The float routine takes no metric, so under a nonidentity
-        grade metric it answers the UNWEIGHTED question -- a different decomposition,
+        grade metric it answers the UNWEIGHTED question: a different decomposition,
         not a rounded one.
 
         exact=None (default) takes Q when the complex is within
@@ -4845,8 +4943,8 @@ class RexGraph:
 
         Uses B2_hodge (self loop faces filtered) so that B_1 B_2 = 0 holds exactly.
         """
-        from rexgraph.exact_green import exact_field, exact_hodge, exact_path_available
-        if exact is not False and (exact is True or exact_path_available(self, 1)):
+        from rexgraph.exact_green import exact_field, exact_hodge, exact_evaluator_available
+        if exact is not False and (exact is True or exact_evaluator_available(self, 1)):
             parts = exact_hodge(self, exact_field(np.asarray(g).ravel()))
             if exact:
                 return parts
@@ -4880,8 +4978,8 @@ class RexGraph:
         `W . im B_1^*` while a boundary source lies in the unweighted `im B_1^*`, and
         the two coincide only at `W = cI`.
         """
-        from rexgraph.exact_green import exact_field, exact_green, exact_path_available
-        if exact is not False and (exact is True or exact_path_available(self, grade)):
+        from rexgraph.exact_green import exact_field, exact_green, exact_evaluator_available
+        if exact is not False and (exact is True or exact_evaluator_available(self, grade)):
             values = exact_green(self, exact_field(np.asarray(j).ravel()), lam,
                                  grade=grade)
             if exact:
@@ -5063,13 +5161,63 @@ class RexGraph:
         idx = np.asarray(edge_indices, dtype=_i32)
         return _signal.build_multi_edge_perturbation(self._nE, self._nF, idx)
 
-    def spectral_perturbation(self, mode_idx: int = 1) -> tuple[NDArray, NDArray]:
-        """Perturbation from a single RL_1 eigenmode."""
-        evecs = self.evecs_RL1
-        if evecs is None:
-            evecs = np.linalg.eigh(self.L1)[1]
-        return _signal.build_spectral_perturbation(
-            self._nE, self._nF, evecs, mode_idx)
+    def spectral_perturbation(
+        self, mode_idx: int = 1, *, method: str = "sparse"
+    ) -> tuple[NDArray, NDArray]:
+        """Perturbation from one RL_1 eigenmode without an accidental dense fallback.
+
+        ``method="sparse"`` (default) uses a cached full basis when one already exists,
+        otherwise computes only the requested extremal prefix with ``eigsh``.
+        ``method="dense_oracle"`` explicitly requests the retained dense reference.
+        """
+        if method not in {"sparse", "dense_oracle"}:
+            raise ValueError("method must be 'sparse' or 'dense_oracle'")
+        mode_idx = int(mode_idx)
+        if mode_idx < 0 or mode_idx >= self._nE:
+            raise IndexError("spectral mode index out of range")
+
+        cached = self.evecs_RL1 if method == "sparse" else None
+        if cached is not None:
+            return _signal.build_spectral_perturbation(
+                self._nE, self._nF, np.ascontiguousarray(cached, dtype=_f64), mode_idx)
+
+        L = self.relational_laplacian_sparse
+        if L is None:
+            L = self.L1_sparse
+        n = int(L.shape[0])
+        from rexgraph.evaluator import (
+            require_explicit_dense_oracle, require_small_dense_eigen,
+        )
+
+        if method == "dense_oracle":
+            require_explicit_dense_oracle("spectral_perturbation dense oracle", n)
+            evecs = np.linalg.eigh(np.asarray(L.toarray(), dtype=_f64))[1]
+            return _signal.build_spectral_perturbation(
+                self._nE, self._nF, np.ascontiguousarray(evecs, dtype=_f64), mode_idx)
+
+        import scipy.sparse.linalg as _sla
+        try:
+            if n <= 3:
+                require_small_dense_eigen("spectral_perturbation tiny evaluator", n)
+                evecs = np.linalg.eigh(np.asarray(L.toarray(), dtype=_f64))[1]
+                return _signal.build_spectral_perturbation(
+                    self._nE, self._nF, np.ascontiguousarray(evecs, dtype=_f64), mode_idx)
+            if mode_idx == n - 1:
+                _evals, vecs = _sla.eigsh(L, k=1, which="LA")
+                vec = vecs[:, 0]
+            else:
+                evals, vecs = _sla.eigsh(L, k=mode_idx + 1, which="SA")
+                order = np.argsort(evals)
+                vec = vecs[:, order[mode_idx]]
+        except Exception as exc:
+            try:
+                require_small_dense_eigen("spectral_perturbation fallback", n)
+            except Exception as refused:
+                raise refused from exc
+            evecs = np.linalg.eigh(np.asarray(L.toarray(), dtype=_f64))[1]
+            vec = evecs[:, mode_idx]
+        basis = np.ascontiguousarray(np.asarray(vec, dtype=_f64)[:, None])
+        return _signal.build_spectral_perturbation(self._nE, self._nF, basis, 0)
 
     # Per edge energy decomposition
 
@@ -5345,29 +5493,46 @@ class RexGraph:
         traj_V = np.asarray(_sparse.to_scipy_csr(self._B1_dual) @ traj_E.T).T   # (nT, nV)
         return traj_E, traj_F, traj_V
 
-    def measure_in_eigenbasis(self, psi: NDArray, dim: int = 1) -> tuple:
-        """Measure in the eigenbasis of the Laplacian for dimension dim.
+    def measure_in_eigenbasis(
+        self, psi: NDArray, dim: int = 1, *, method: str = "auto"
+    ) -> tuple:
+        """Measure in a complete Laplacian eigenbasis with an explicit evaluator contract.
 
-        For dim=1 with RL_1 available, uses RL_1 eigenvectors.
-        Returns (outcome, probability, collapsed_state).
+        Cached eigenvectors are always reused. ``method="cached"`` refuses to build a
+        missing basis. ``method="auto"`` permits a full eigensolve only within the
+        configured dense eigen limit. ``method="dense_oracle"`` is the explicit retained
+        reference path and is still protected by the dense memory ceiling.
         """
+        if method not in {"auto", "cached", "dense_oracle"}:
+            raise ValueError("method must be 'auto', 'cached', or 'dense_oracle'")
+        if dim not in (0, 1, 2):
+            raise ValueError("dim must be 0, 1, or 2")
         psi = np.asarray(psi, dtype=_c128)
         sb = self.spectral_bundle
         if dim == 1 and sb.get('evecs_RL_1') is not None:
             evecs = sb['evecs_RL_1']
-        elif dim == 0:
+        elif dim == 0 and sb.get('evecs_L0') is not None:
             evecs = sb['evecs_L0']
         elif dim == 2 and sb.get('evecs_L2') is not None:
             evecs = sb['evecs_L2']
         else:
-            # on demand FULL eigenbasis. dim=1 uses RL_1 (matches the fast path above), not L1.
+            if method == "cached":
+                raise RuntimeError("requested eigenbasis is not cached")
             if dim == 1:
-                L = self.relational_laplacian
+                L = self.relational_laplacian_sparse
                 if L is None:
-                    L = self.L1
+                    L = self.L1_sparse
             else:
-                L = [self.L0, self.L1, self.L2][dim]
-            _, evecs = np.linalg.eigh(np.ascontiguousarray(_ensure_dense(L), dtype=_f64))
+                L = [self.L0_sparse, self.L1_sparse, self.L2_sparse][dim]
+            n = int(L.shape[0])
+            from rexgraph.evaluator import (
+                require_bounded_full_eigen, require_explicit_dense_oracle,
+            )
+            if method == "dense_oracle":
+                require_explicit_dense_oracle("measure_in_eigenbasis dense oracle", n)
+            else:
+                require_bounded_full_eigen("measure_in_eigenbasis", n)
+            _, evecs = np.linalg.eigh(np.ascontiguousarray(L.toarray(), dtype=_f64))
         return _wave.measure_in_eigenbasis(psi, np.ascontiguousarray(evecs, dtype=_f64))
 
     # Field operator (coupled edge face dynamics from _field)
@@ -5406,8 +5571,8 @@ class RexGraph:
 
         Parameters
 
-        F0 : f64[nE + nF] - packed initial field state
-        times : f64[T] - timepoints
+        F0 : f64[nE + nF]: packed initial field state
+        times : f64[T]: timepoints
 
         Returns
 
@@ -5430,8 +5595,8 @@ class RexGraph:
 
         Parameters
 
-        F0 : f64[nE + nF] - initial position
-        dFdt0 : f64[nE + nF] - initial velocity
+        F0 : f64[nE + nF]: initial position
+        dFdt0 : f64[nE + nF]: initial velocity
         times : f64[T]
 
         Returns
@@ -5445,13 +5610,22 @@ class RexGraph:
         pos, vel = _fp.field_wave_full(self, F0, times, velocity=dFdt0)
         return pos, vel
 
-    def classify_modes(self) -> dict:
+    def classify_modes(self):
         """Classify field eigenmodes as edge dominated, face dominated, or coupled.
 
-        Returns (mode_type, edge_weight, face_weight, n_resonant).
+        Returns the declared `rextypes.ModeClassification`: `labels`, `weights_E`,
+        `weights_F`, `n_resonant`. It was annotated `-> dict` and returned the kernel's
+        bare tuple of four, while `ModeClassification` sat unused with a third set of names,
+        so four consumers reached for `.get('mode_type')` and raised an AttributeError
+        inside their own `except Exception` handlers: `analyze` dropped its whole field
+        section, the dashboard published an empty field block, and the zarr and hdf5
+        writers persisted an empty `modes` group. A NamedTuple is still a tuple, so
+        callers that unpack four values are unaffected.
         """
+        from rexgraph.rextypes import ModeClassification
         evals, evecs, freqs = self.field_eigen
-        return _field.classify_modes(evals, evecs, self._nE, int(self.nF_hodge))
+        return ModeClassification(
+            *_field.classify_modes(evals, evecs, self._nE, int(self.nF_hodge)))
 
     def derive_vertex_state(self, F: NDArray) -> NDArray:
         """Derive vertex observable from packed field state via B_1.
@@ -5559,7 +5733,7 @@ class RexGraph:
         try:
             from rexgraph.dirac_propagator import dirac_from_rex
             return dirac_from_rex(self).light(psi0, t=float(t))
-        except Exception:                        # noqa: BLE001 - fall back to the modes
+        except Exception:                        # noqa: BLE001  # fall back to the modes
             evals, evecs = self._dirac_eigen
             return _dirac.schrodinger_evolve(evals, evecs, psi0, t)
 
@@ -5687,11 +5861,8 @@ class RexGraph:
         from rexgraph.graded_boundary import _sparse_rank, graded_boundaries_from_rex
 
         boundaries = graded_boundaries_from_rex(self)
-        # B1 in its INTEGER representative, for the same reason `betti` uses it: rank is
-        # invariant under column scaling, and the stored share 1/(k-1) is not an integer,
-        # so a branching complex would otherwise fall past the exact path into the float
-        # one. Measured on BindingDB, 60 wide relations sent rank(B1) from 4673 to a
-        # capped 400 through that route.
+        # Use the integer column representative. Nonzero column scaling preserves
+        # rank and retains the exact path for branching columns.
         if boundaries:
             boundaries = [self._integer_B1()] + boundaries[1:]
         sizes = [int(self._nV), int(self._nE), int(self.nF_hodge)]
@@ -5796,11 +5967,11 @@ class RexGraph:
 
         Parameters
 
-        f_E : f64[nE] - initial edge signal
-        f_F : f64[nF] or None - initial face signal (default zeros)
-        times : f64[T] or None - timepoints (auto generated if None)
-        n_steps : int - number of steps if times is None
-        t_max : float - max time if times is None
+        f_E : f64[nE]: initial edge signal
+        f_F : f64[nF] or None: initial face signal (default zeros)
+        times : f64[T] or None: timepoints (auto generated if None)
+        n_steps : int: number of steps if times is None
+        t_max : float: max time if times is None
 
         Returns
 
@@ -6164,7 +6335,7 @@ class RexGraph:
             cos2 = (G * G) / denom
         cos2[denom == 0] = 0.0
         cos2[G < 0] = 0.0                    # the same clamp fiber_similarity applies
-        # 1 - TV = sum of elementwise minima, exact for probability vectors
+        # 1: TV = sum of elementwise minima, exact for probability vectors
         overlap = np.array([
             [np.minimum(phi[i], phi[j]).sum() for j in range(self._nV)]
             for i in range(self._nV)], dtype=_f64)
@@ -6330,11 +6501,24 @@ class RexGraph:
         }
 
     def _boundary_columns(self, edge_ids):
-        """The B1 columns of the given relations, densely, as integer rows."""
-        from rexgraph.graded_boundary import _rex_b1_csr
-        B1 = _rex_b1_csr(self).tocsc()
-        return [np.asarray(B1[:, int(e)].todense()).ravel()
-                for e in np.asarray(edge_ids, dtype=int).ravel()]
+        """The B1 columns of the given relations, densely, as exact rationals.
+
+        Rebuilt through `faces._exact_b1_block`, not read back off the assembled float
+        B1. The declared share `1/(k-1)` is not binary exact past k = 3, so a column
+        recovered from doubles stops summing to zero and the dependence test it feeds
+        changes its answer: on one relation of arity 4 over three pair relations
+        `carries_cycle` read False while the exact tower read betti 1. Every other exact
+        reader already rebuilds rather than reads back, and this one now does too.
+        """
+        from rexgraph.faces import _exact_b1_block
+        ids = np.asarray(edge_ids, dtype=int).ravel()
+        rows = []
+        for column in _exact_b1_block(self, ids):
+            row = np.full(int(self._nV), Fraction(0), dtype=object)
+            for v, coefficient in column.items():
+                row[v] = coefficient
+            rows.append(row)
+        return rows
 
     def _face_columns(self):
         """The B2 columns already attached, densely."""
@@ -6542,10 +6726,8 @@ class RexGraph:
 
         f64[n_quot]
         """
-        return _quotient.restrict_signal(
-            np.ascontiguousarray(signal, dtype=_f64),
-            _asarray(mask, _u8),
-        )
+        signal, mask = _quotient_signal_arrays(signal, mask)
+        return _quotient.restrict_signal(signal, mask)
 
     def lift_signal(
         self,
@@ -6568,11 +6750,8 @@ class RexGraph:
 
         f64[n]
         """
-        return _quotient.lift_signal(
-            np.ascontiguousarray(signal_quot, dtype=_f64),
-            _asarray(mask, _u8),
-            fill_value,
-        )
+        signal_quot, mask = _quotient_signal_arrays(signal_quot, mask, lift=True)
+        return _quotient.lift_signal(signal_quot, mask, fill_value)
 
     def restrict_field_state(
         self,
@@ -6588,12 +6767,9 @@ class RexGraph:
         f_E_quot : f64[nE_quot]
         f_F_quot : f64[nF_quot]
         """
-        return _quotient.restrict_field_state(
-            np.ascontiguousarray(f_E, dtype=_f64),
-            np.ascontiguousarray(f_F, dtype=_f64),
-            _asarray(e_mask, _u8),
-            _asarray(f_mask, _u8),
-        )
+        f_E, e_mask = _quotient_signal_arrays(f_E, e_mask)
+        f_F, f_mask = _quotient_signal_arrays(f_F, f_mask)
+        return _quotient.restrict_field_state(f_E, f_F, e_mask, f_mask)
 
     def lift_field_state(
         self,
@@ -6610,13 +6786,9 @@ class RexGraph:
         f_E : f64[nE]
         f_F : f64[nF]
         """
-        return _quotient.lift_field_state(
-            np.ascontiguousarray(f_E_quot, dtype=_f64),
-            np.ascontiguousarray(f_F_quot, dtype=_f64),
-            _asarray(e_mask, _u8),
-            _asarray(f_mask, _u8),
-            fill_value,
-        )
+        f_E_quot, e_mask = _quotient_signal_arrays(f_E_quot, e_mask, lift=True)
+        f_F_quot, f_mask = _quotient_signal_arrays(f_F_quot, f_mask, lift=True)
+        return _quotient.lift_field_state(f_E_quot, f_F_quot, e_mask, f_mask, fill_value)
 
     # Congruence classes (bulk)
 
@@ -6786,7 +6958,7 @@ class RexGraph:
             # The Fiedler value is the smallest NONZERO eigenvalue, so which ones are
             # zero has to be decided. That count is the relative beta_1, already
             # computed exactly from ranks, so skip that many rather than cut at a
-            # magnitude: a genuinely small gap and a numerical zero are indistinguishable
+            # magnitude: a small gap and a numerical zero are indistinguishable
             # to a threshold and are not the same thing.
             null_L1 = int((Q.get('betti_rel') or (0, 0, 0))[1])
             fiedler_L1q = (float(evals_L1q[null_L1])
@@ -6815,10 +6987,10 @@ class RexGraph:
         except Exception:
             pass
 
-        # 11. Hodge orthogonality on quotient
-        hodge_orthogonal = True
-        if H_RI.get('orthogonality'):
-            hodge_orthogonal = H_RI['orthogonality'].get('orthogonal', True)
+        # Hodge orthogonality on the quotient follows its exact chain condition.
+        # The signal decomposition reports a separate numerical residual.
+        hodge_orthogonal = bool(Q['chain_valid'])
+        hodge_residual = float(H_RI.get('orthogonality', {}).get('max_relative', 0.0))
 
         return {
             'dims': (nVq, nEq, nFq),
@@ -6836,6 +7008,9 @@ class RexGraph:
                 'pct_curl': float(H_RI.get('pct_curl', 0)),
                 'pct_harm': float(H_RI.get('pct_harm', 0)),
                 'orthogonal': hodge_orthogonal,
+                # the solve residual, scale free, kept beside the verdict rather than
+                # standing in for it
+                'orthogonality_residual': hodge_residual,
             },
             'congruence_labels': cong_labels.tolist(),
             'n_congruence_classes': n_classes,
@@ -6868,30 +7043,6 @@ class RexGraph:
         bi = np.asarray(self._boundary_idx)
         return [[int(v) for v in bi[bp[e]:bp[e + 1]]] for e in range(self._nE)]
 
-    def _rebuilt(self, supports, *, B2=None, relation_ids=None, w_E=None, signs=None) -> RexGraph:
-        """A new complex over the given relation supports, carrying this one's settings.
-
-        Built from a boundary CSR rather than (sources, targets), so a k-ary relation
-        survives as a k-ary relation. Orientation, weights and the channel selection come
-        across because a mutation should change what was asked for and nothing else.
-        """
-        ptr = np.zeros(len(supports) + 1, dtype=_i32)
-        for i, support in enumerate(supports):
-            ptr[i + 1] = ptr[i] + len(support)
-        idx = np.fromiter((v for support in supports for v in support),
-                          dtype=_i32, count=int(ptr[-1]))
-        kw = {"boundary_ptr": ptr, "boundary_idx": idx,
-              "directed": self._directed, "g_channel": self.g_channel}
-        if w_E is not None:
-            kw["w_E"] = w_E
-        if signs is not None:
-            kw["signs"] = signs
-        if relation_ids is not None:
-            kw["relation_ids"] = relation_ids
-        if B2 is not None:
-            kw["B2_col_ptr"], kw["B2_row_idx"], kw["B2_vals"] = B2
-        return RexGraph(**kw)
-
     def subgraph(
         self, edge_mask: NDArray,
     ) -> tuple[RexGraph, NDArray, NDArray]:
@@ -6919,66 +7070,37 @@ class RexGraph:
         e_map : i32[nE_sub]
             Maps new relation index -> old relation index.
         """
+        self._ensure_clean()
         keep = np.asarray(edge_mask, dtype=bool)
-        supports = self.relation_supports()
-
-        e_indices = np.where(keep)[0].astype(_i32)
-        if e_indices.shape[0] == 0:
-            return (
-                self._rebuilt(
-                    [],
-                    relation_ids=(np.zeros(0, dtype=np.int64)
-                                  if self._relation_ids is not None else None),
-                ),
-                np.zeros(0, dtype=_i32),
-                np.zeros(0, dtype=_i32),
-            )
-
-        kept = [supports[int(e)] for e in e_indices]
-
-        v_used = np.unique(np.fromiter((v for support in kept for v in support),
-                                       dtype=_i32))
-        v_map = v_used.astype(_i32)
-        v_remap = np.full(self._nV, -1, dtype=_i32)
-        v_remap[v_used] = np.arange(v_used.shape[0], dtype=_i32)
-        remapped = [[int(v_remap[v]) for v in support] for support in kept]
-
-        # a face survives only if every relation it bounds does
-        survivors = []
-        if self._nF > 0:
-            kept_set = set(int(e) for e in e_indices)
-            cp, ri = self._B2_col_ptr, self._B2_row_idx
-            survivors = [f for f in range(self._nF)
-                         if all(int(ri[j]) in kept_set for j in range(cp[f], cp[f + 1]))]
-
-        B2 = None
-        if survivors:
-            from scipy import sparse as sp
-            e_remap = np.full(self._nE, -1, dtype=_i32)
-            e_remap[e_indices] = np.arange(e_indices.shape[0], dtype=_i32)
-            cp, ri, vl = self._B2_col_ptr, self._B2_row_idx, self._B2_vals
-            rows, cols, vals = [], [], []
-            for f_new, f_old in enumerate(survivors):
-                for j in range(cp[f_old], cp[f_old + 1]):
-                    rows.append(int(e_remap[int(ri[j])]))
-                    cols.append(f_new)
-                    vals.append(float(vl[j]))
-            B2_sp = sp.csc_matrix(
-                (np.asarray(vals, dtype=_f64), (rows, cols)),
-                shape=(e_indices.shape[0], len(survivors)))
-            B2 = (np.asarray(B2_sp.indptr, dtype=_i32),
-                  np.asarray(B2_sp.indices, dtype=_i32),
-                  np.asarray(B2_sp.data, dtype=_f64))
-
-        sub = self._rebuilt(
-            remapped, B2=B2,
-            relation_ids=(np.asarray(self._relation_ids, dtype=np.int64)[e_indices]
-                          if self._relation_ids is not None else None),
-            w_E=(np.asarray(self._w_E)[e_indices] if self._w_E is not None else None),
-            signs=(np.asarray(self._signs)[e_indices]
-                   if self._signs is not None else None),
-        )
-        return sub, v_map, e_indices.astype(_i32)
+        if keep.shape != (self._nE,):
+            raise ValueError("edge mask must have one entry per relation")
+        from rexgraph.components import component_registry
+        registry = component_registry()
+        captured = registry.capture(self)
+        ptr, idx, nv, v_old_to_new, e_old_to_new = _rex.compact_boundary(
+            self._boundary_ptr, self._boundary_idx, keep.astype(_i32))
+        v_old_to_new = np.pad(np.asarray(v_old_to_new), (0, self._nV-len(v_old_to_new)), constant_values=-1)
+        e_old_to_new = np.asarray(e_old_to_new)
+        face_map = np.full(self._nF, -1, dtype=_i32)
+        cp, rows, values = [0], [], []
+        for old in range(self._nF):
+            a, b = map(int, self._B2_col_ptr[old:old+2])
+            mapped = e_old_to_new[self._B2_row_idx[a:b]]
+            if np.any(mapped < 0):
+                continue
+            face_map[old] = len(cp)-1
+            rows.extend(mapped)
+            values.extend(self._B2_vals[a:b])
+            cp.append(len(rows))
+        sub = type(self)(boundary_ptr=ptr, boundary_idx=idx,
+                         B2_col_ptr=np.asarray(cp, _i32), B2_row_idx=np.asarray(rows, _i32),
+                         B2_vals=np.asarray(values, _f64), directed=self._directed,
+                         g_channel=self.g_channel, c_channel=self.c_channel)
+        sub._ensure_vertex_count(int(nv))
+        registry.remap(captured, sub, {0: v_old_to_new, 1: e_old_to_new, 2: face_map})
+        v_new_to_old = np.flatnonzero(v_old_to_new >= 0).astype(_i32)
+        e_new_to_old = np.flatnonzero(e_old_to_new >= 0).astype(_i32)
+        return sub, v_new_to_old, e_new_to_old
 
     # Community based graph partitioning
 
@@ -7155,9 +7277,10 @@ class RexGraph:
                     'is_psd': bool(is_psd),
                     'evals': f_evals.tolist(),
                     'freqs': f_freqs.tolist(),
-                    'mode_types': mode_data.get('mode_type', np.array([])).tolist(),
-                    'edge_weights': mode_data.get('edge_weight', np.array([])).tolist(),
-                    'face_weights': mode_data.get('face_weight', np.array([])).tolist(),
+                    'mode_types': np.asarray(mode_data.labels).tolist(),
+                    'edge_weights': np.asarray(mode_data.weights_E).tolist(),
+                    'face_weights': np.asarray(mode_data.weights_F).tolist(),
+                    'n_resonant': int(mode_data.n_resonant),
                     'diffusion_norm_E': norm_E.tolist(),
                     'diffusion_norm_F': norm_F.tolist(),
                 }
@@ -7372,15 +7495,15 @@ class RexGraph:
         vertex named that did not exist. Existing relations come across with their whole
         boundary column.
         """
-        supports = [[int(v) for v in support] for support in supports]
-        for support in supports:
-            if len(support) < 1:
-                raise ValueError("a relation needs at least one boundary vertex")
-        w_E = None
-        if self._w_E is not None:
-            w_E = np.concatenate([np.asarray(self._w_E, dtype=_f64),
-                                  np.ones(len(supports), dtype=_f64)])
-        return self._rebuilt(self.relation_supports() + supports, w_E=w_E)
+        from rexgraph.structural_edit import validate_edit
+        supports = list(supports)
+        if any(np.asarray(support).size == 0 for support in supports):
+            raise ValueError("a relation needs at least one boundary vertex")
+        validate_edit("ADD", supports)
+        output = self.copy()
+        output.add_hyperedges(supports)
+        output.compact()
+        return output
 
     def insert_edges(
         self,
@@ -7394,8 +7517,8 @@ class RexGraph:
         with, which reading (sources, targets) here did not: it flattened every branching
         relation to its first two vertices and orphaned every vertex past them.
         """
-        ns = _asarray(new_sources, _i32)
-        nt = _asarray(new_targets, _i32)
+        ns = _as_exact_i32_vector(new_sources, context="new sources")
+        nt = _as_exact_i32_vector(new_targets, context="new targets")
         return self.insert_relations([[int(a), int(b)]
                                       for a, b in zip(ns, nt, strict=True)])
 
@@ -7458,7 +7581,14 @@ class RexGraph:
         return d
 
     def to_dict(self) -> dict:
+        """Full sealed state plus legacy primary projections for existing callers.
+
+        ``from_dict`` checks those projections rather than trusting conflicting
+        copies. Native state preserves declarations and every registered carrier.
+        """
         self._ensure_clean()
+        from rexgraph.state import to_state
+        state = to_state(self)
         return {
             "boundary_ptr": self._boundary_ptr,
             "boundary_idx": self._boundary_idx,
@@ -7470,10 +7600,35 @@ class RexGraph:
             "directed": self._directed,
             "signs": self._signs,
             "relation_ids": self._relation_ids,
+            "rex_state": {"tensors": state.tensors, "header": state.header},
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> RexGraph:
+        if "rex_state" in d:
+            from rexgraph.state import RexState, from_state
+            from rexgraph.exact_array import ExactArray
+            from rexgraph.value import NumberRule
+            from rexgraph.value_codec import pack_value
+            payload = d["rex_state"]
+            if not isinstance(payload, dict) or set(payload) != {"tensors", "header"}:
+                raise ValueError("invalid native dictionary state")
+            rex = from_state(RexState(payload["tensors"], payload["header"]))
+            for name in ("boundary_ptr", "boundary_idx", "B2_col_ptr", "B2_row_idx", "B2_vals", "w_E", "signs", "relation_ids"):
+                if name not in d:
+                    continue
+                actual, declared = getattr(rex, "_"+name), d[name]
+                if actual is None or declared is None:
+                    matches = actual is None and declared is None
+                elif name == "w_E":
+                    matches = ExactArray.from_values(actual, rule=NumberRule.BINARY_EXACT) == ExactArray.from_values(declared, rule=NumberRule.BINARY_EXACT)
+                else:
+                    matches = np.array_equal(actual, declared)
+                if not matches:
+                    raise ValueError(f"dictionary projection {name!r} disagrees with its sealed state")
+            if ("directed" in d and d["directed"] != rex._directed) or ("w_boundary" in d and pack_value(d["w_boundary"]) != pack_value(rex._w_boundary)):
+                raise ValueError("dictionary attribution disagrees with its sealed state")
+            return rex
         return cls(
             boundary_ptr=d["boundary_ptr"],
             boundary_idx=d["boundary_idx"],
@@ -7503,19 +7658,9 @@ class RexGraph:
         return cell_md if key is None else cell_md.get(key)
 
     def edge_signature(self, edge_idx: int) -> tuple:
-        """Hashable algebraic signature for a relation on Delta^2: (T, G+C, F).
+        """Return a hashable relation signature on Delta^2: (T, G+C, F).
 
-        Channels are read by NAME, which is now belt and braces rather than the only
-        safe route. It used to be the only one: a channel whose trace vanished was
-        DROPPED and the remaining columns closed up, so a positional read was wrong
-        twice over. Indexing chi[3] raised IndexError on any complex where frustration
-        vanished, which is not an edge case (a consistently oriented complex has no
-        head to tail disagreement, so trace(F) = 0, and a bipartite measurement complex
-        is exactly that), and where it did not raise the columns were (T, G, C) so
-        chi[2] silently reported co participation as frustration.
-
-        Channels are carried at zero now instead of dropped, so positions are fixed.
-        Reading by name stays because it says what it means.
+        Read channels by name. A zero trace channel remains present at zero.
         """
         #: operator name -> channel. `hat_names` carries the OPERATOR names, and which
         #: ones are present varies with nhats: L_SG (frustration) is the one that drops
@@ -7649,10 +7794,7 @@ class RexGraph:
         else:
             combined_faces = old_faces
         new_rex = RexGraph.from_simplicial(combined_src, combined_tgt, combined_faces)
-        # exact, and sparse: the old check densified B1 and B2 to multiply them and then
-        # compared the result against a cutoff, so a face that bounds could fail on
-        # rounding and one that nearly bounds could pass. The complex's own predicate
-        # answers per face over the rationals.
+        # Check face boundaries exactly over rational coefficients.
         unbounded = new_rex.self_loop_face_indices
         if unbounded:
             raise ValueError(
@@ -7718,8 +7860,9 @@ def _make_exact_edge_delta(pp, pi, pw, ps, cp, ci, cw, cs, directed):
     previous = {int(key): i for i, key in enumerate(cell_keys_of(pp, pi, directed))}
     current = {int(key): i for i, key in enumerate(cell_keys_of(cp, ci, directed))}
     modified = set(map(int, delta.mod_keys))
+    from rexgraph.exact_value import binary_fraction
     modified.update(key for key in previous.keys() & current.keys()
-                    if pw[previous[key]] != cw[current[key]])
+                    if binary_fraction(pw[previous[key]]) != binary_fraction(cw[current[key]]))
     keys = np.asarray(sorted(modified), dtype=np.int64)
     positions = np.asarray([current[int(key)] for key in keys], dtype=np.int64)
     born = cell_keys_of(delta.born_offsets, delta.born_cols, directed)
@@ -7768,6 +7911,7 @@ def _make_identity_edge_delta(
     born_positions = np.asarray([curr_pos[int(identity)] for identity in born], dtype=np.int64)
 
     mod_ids, mod_wE, mod_signs, mod_heads = [], [], [], []
+    from rexgraph.exact_value import binary_fraction
     changed_columns: list[NDArray] = []
     for identity in sorted(previous_set & current_set):
         before_position, after_position = prev_pos[identity], curr_pos[identity]
@@ -7775,7 +7919,7 @@ def _make_identity_edge_delta(
         after = column(cp, ci, after_position)
         structure_changed = not np.array_equal(before, after)
         attrs_changed = (
-            prev_wE[before_position] != curr_wE[after_position]
+            binary_fraction(prev_wE[before_position]) != binary_fraction(curr_wE[after_position])
             or int(prev_signs[before_position]) != int(curr_signs[after_position])
         )
         if not (structure_changed or attrs_changed):
@@ -7818,6 +7962,57 @@ def _cell_state(rex):
     Returns (boundary_ptr, boundary_idx, w_E_or_None, signs_or_None)."""
     rex._ensure_clean()
     return rex._boundary_ptr, rex._boundary_idx, rex._w_E, rex._signs
+
+
+def _declaration_state(rex):
+    """Copy the exact primary column declaration carried by ``rex``.
+
+    The arrays are checkpoint state: one head slot per relation and one rational
+    numerator/denominator per incidence.  ``None`` means the canonical equal share
+    constructor and remains distinct from an all zero declaration.
+    """
+    from rexgraph.column import declaration_of
+    declaration = declaration_of(rex)
+    if declaration is None:
+        return None
+    return (
+        np.ascontiguousarray(np.asarray(declaration.head_slot, dtype=_i32)).copy(),
+        np.ascontiguousarray(np.asarray(declaration.share_num, dtype=_i64)).copy(),
+        np.ascontiguousarray(np.asarray(declaration.share_den, dtype=_i64)).copy(),
+    )
+
+
+def _copy_declaration_state(state):
+    if not _declaration_state_present(state):
+        return None
+    return tuple(np.ascontiguousarray(np.asarray(value)).copy() for value in state)
+
+
+def _declaration_state_present(state) -> bool:
+    return bool(
+        state is not None
+        and len(state) == 3
+        and all(value is not None for value in state)
+    )
+
+
+def _declaration_kwargs(state) -> dict:
+    """Reconstruct RexGraph constructor arguments from exact checkpoint arrays."""
+    if not _declaration_state_present(state):
+        return {}
+    head_slot, share_num, share_den = state
+    head_slot = np.asarray(head_slot, dtype=_i32)
+    share_num = np.asarray(share_num, dtype=_i64)
+    share_den = np.asarray(share_den, dtype=_i64)
+    if share_num.shape != share_den.shape:
+        raise ValueError("temporal declared-column numerator/denominator shapes differ")
+    from fractions import Fraction
+    shares = [
+        None if int(denominator) == 0
+        else Fraction(int(numerator), int(denominator))
+        for numerator, denominator in zip(share_num, share_den, strict=True)
+    ]
+    return {"head_slot": head_slot, "shares": shares}
 
 
 def _declaration_from_entries(indices, coefficients):
@@ -8226,6 +8421,7 @@ class TemporalRex:
         "__dict__",
         "_snapshots",
         "_snapshot_relation_ids",
+        "_snapshot_declarations",
         "_face_snapshots",
         "_directed",
         "_general",
@@ -8294,6 +8490,7 @@ class TemporalRex:
                 self._snapshot_relation_ids.append(_as_relation_ids(
                     ids, n_cells, context=f"relation_ids for temporal snapshot {step}"
                 ))
+        self._snapshot_declarations = [None] * len(snapshots)
         self._face_snapshots = face_snapshots or []
         self._directed = directed
         self._general = general
@@ -8381,6 +8578,9 @@ class TemporalRex:
         relation_ids = self._snapshot_relation_ids[t]
         if relation_ids is not None:
             kwargs["relation_ids"] = relation_ids
+        declaration = (self._snapshot_declarations[t]
+                       if t < len(self._snapshot_declarations) else None)
+        kwargs.update(_declaration_kwargs(declaration))
         kwargs["g_channel"] = self._channel_at("_g_channels", t, "raw")
         kwargs["c_channel"] = self._channel_at("_c_channels", t, "share")
 
@@ -8421,9 +8621,11 @@ class TemporalRex:
         a checkpoint with no attribution/faces seeds a bare connectivity rex."""
         _, bp, bi, wE, signs, b2cp, b2ri, b2v, *identity = checkpoint
         relation_ids = identity[0] if identity else None
+        declaration = tuple(identity[1:4]) if len(identity) >= 4 else None
         kw = dict(boundary_ptr=bp, boundary_idx=bi, directed=self._directed)
         if relation_ids is not None:
             kw["relation_ids"] = relation_ids
+        kw.update(_declaration_kwargs(declaration))
         if wE is not None:
             kw["w_E"] = wE
         if signs is not None:
@@ -8441,10 +8643,16 @@ class TemporalRex:
         bp, bi, wE, signs = _cell_state(rex)
         b2cp, b2ri, b2v, _ = _face_state(rex)
         relation_ids = rex.relation_ids
+        declaration = _declaration_state(rex)
+        if declaration is None:
+            head_slot = share_num = share_den = None
+        else:
+            head_slot, share_num, share_den = declaration
         return (
             t, bp.copy(), bi.copy(), None if wE is None else wE.copy(),
             None if signs is None else signs.copy(), b2cp.copy(), b2ri.copy(), b2v.copy(),
             None if relation_ids is None else relation_ids.copy(),
+            head_slot, share_num, share_den,
         )
 
     def _checkpoint_of(self, rex: RexGraph, t: int) -> tuple:
@@ -8499,6 +8707,8 @@ class TemporalRex:
         cw = np.zeros(nE, _f64) if cw is None else np.asarray(cw)
         cs = np.ones(nE, _i32) if cs is None else np.asarray(cs, _i32)
         relation_ids = rex.relation_ids
+        declaration_state = _declaration_state(rex)
+        current_declared = declaration_state is not None
         curr_face_state = _face_state(rex)
 
         if self._last_state is None:
@@ -8510,7 +8720,7 @@ class TemporalRex:
             self._index_face_deltas.append(None)
             self._cumulative_delta = 0
         else:
-            pp, pi, pw, ps, previous_relation_ids = self._last_state
+            pp, pi, pw, ps, previous_relation_ids, previous_declared = self._last_state
             if (previous_relation_ids is None) != (relation_ids is None):
                 raise ValueError(
                     "a TemporalRex history cannot switch between anonymous C1 cells "
@@ -8527,7 +8737,13 @@ class TemporalRex:
                     _temporal_face_state_needs_identity_checkpoint(self._last_face_state)
                     or _temporal_face_state_needs_identity_checkpoint(curr_face_state)
                 )
-            if identity_checkpoint:
+            # The current delta schema carries support/head changes but not unequal
+            # rational share vectors.  Until the v10 Relations delta owns declared
+            # columns directly, any transition touching a declaration is represented
+            # as a full checkpoint.  This is exact, sparse in time, and, critically,
+            # never flattens a declared column back to the arity derived equal share.
+            declaration_checkpoint = bool(previous_declared or current_declared)
+            if identity_checkpoint or declaration_checkpoint:
                 self._index_checkpoints[t] = self._checkpoint_of(rex, t)
                 self._index_cp_times = np.append(self._index_cp_times, t).astype(np.int64)
                 self._index_deltas.append(None)
@@ -8571,29 +8787,28 @@ class TemporalRex:
                 if rex._is_standard_only:
                     self._snapshots.append((rex.sources, rex.targets))
                 elif t == 0:
-                    # An empty store has no established carrier.  Promote it
+                    # An empty store has no established carrier. Promote it
                     # to the boundary CSR temporal representation rather than
-                    # reject a perfectly valid first primary C1 snapshot or
-                    # manufacture a pairwise shadow.  Once a standard step
-                    # exists, changing representations would make prior deltas
-                    # ambiguous and is declined below.
+                    # reject a valid first primary C1 snapshot or manufacture
+                    # a pairwise shadow. An established standard history keeps
+                    # its carrier contract until the Relations migration.
                     self._general = True
                     self._encoding = "general"
                     self._snapshots.append((cp, ci))
                 else:
-                    rex._require_pairwise_c1(
-                        "a standard TemporalRex snapshot"
-                    )
+                    rex._require_pairwise_c1("a standard TemporalRex snapshot")
             self._snapshot_relation_ids.append(
                 None if relation_ids is None else relation_ids.copy()
             )
+            self._snapshot_declarations.append(_copy_declaration_state(declaration_state))
 
         if len(self._vertex_labels) == t:
             self._vertex_labels.append(labels)
         else:
             self._vertex_labels[t] = labels
         self._last_state = (cp.copy(), ci.copy(), cw.copy(), cs.copy(),
-                            None if relation_ids is None else relation_ids.copy())
+                            None if relation_ids is None else relation_ids.copy(),
+                            current_declared)
         self._last_face_state = curr_face_state
         self._T = t + 1
         while len(self._times) < self._T:
@@ -8626,7 +8841,6 @@ class TemporalRex:
         if self._T and timestamp < self._times[self._T - 1]:
             raise ValueError("timestamp precedes the last step; supply a nondecreasing clock")
         self._ensure_index()
-        rex._require_canonical_columns("a temporal snapshot")
         t = self._append_index_entry(rex, face=face, record_snapshot=True)
         self._times[t] = timestamp
         return t
@@ -8722,6 +8936,12 @@ class TemporalRex:
             return self._restore_channels(self._seed_rex(checkpoint), t)
         _, bp, bi, wE, signs, b2cp, b2ri, b2v, *identity = checkpoint
         relation_ids = identity[0] if identity else None
+        declaration = tuple(identity[1:4]) if len(identity) >= 4 else None
+        if _declaration_state_present(declaration):
+            raise ValueError(
+                "reconstruct_at: a declared-column checkpoint precedes a key-level delta; "
+                "declared shares require checkpoint transitions and this temporal index is malformed"
+            )
         directed = self._directed
 
         # Live cells are addressed by a caller supplied relation ID when one was
@@ -9032,6 +9252,24 @@ class TemporalRex:
         if self._general:
             return _temporal.edge_lifecycle_general(snaps)
         return _temporal.edge_lifecycle(snaps, self._directed)
+
+    def relation_bioes(self) -> tuple:
+        """Return gap aware BIOES tags over C1 relation identities at every arity.
+
+        Each contiguous appearance has a separate B, I, E span; gaps carry O.
+        Returns (ids, tags, n_spans), with tags 0=B, 1=I, 2=O, 3=E, 4=S.
+        """
+        from rexgraph.core import _temporal_entity
+        identities = self._relation_id_snapshots()
+        if identities is None:
+            raise ValueError(
+                "relation_bioes reads C1 lifetimes off relation identities, and this "
+                "store's snapshots are anonymous; append snapshots carrying relation_ids, "
+                "or use edge_lifecycle, which falls back to support keys")
+        steps = [np.asarray(step, dtype=np.int64) for step in identities]
+        ids = np.unique(np.concatenate(steps)) if steps else np.zeros(0, dtype=np.int64)
+        tags, n_spans = _temporal_entity.entity_bioes_gapped(steps, ids, general=True)
+        return ids, tags, n_spans
 
     def bioes(
         self,
@@ -9440,8 +9678,8 @@ class TemporalRex:
 
         Parameters
 
-        E_kin : f64[T] - topological energy per timestep
-        E_pot : f64[T] - geometric energy per timestep
+        E_kin : f64[T]: topological energy per timestep
+        E_pot : f64[T]: geometric energy per timestep
 
         Returns
 
@@ -9487,7 +9725,7 @@ class TemporalRex:
 
         Parameters
 
-        edge_signals : f64[T, nE] - signal magnitude per timestep
+        edge_signals : f64[T, nE]: signal magnitude per timestep
 
         Returns
 

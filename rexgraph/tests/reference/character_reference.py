@@ -24,7 +24,7 @@ The framework's algebraic identities (these are debug oracles):
 
 If any of these identities fail to hold, something upstream is broken
 (usually the channel construction). Do NOT clip or renormalize to "fix"
-them - that masks the actual bug.
+them: that masks the actual bug.
 
 Reference: rcf_session_bundle/rex_phase_b_v2.py and rexgraph.core._character
 """
@@ -148,7 +148,7 @@ def compute_chi_star(B_1: np.ndarray, chi: np.ndarray) -> np.ndarray:
 
 
 def compute_kappa(phi: np.ndarray, chi_star: np.ndarray) -> np.ndarray:
-    """Per vertex coherence: κ(v) = 1 - 0.5 * L1(φ(v) - χ*(v)).
+    """Per vertex coherence: κ(v) = 1 - 0.5 * L1(φ(v): χ*(v)).
 
     Range [0, 1]. High κ means the rigorous pseudoinverse character
     agrees with the naive averaged edge character (the vertex sits in

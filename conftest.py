@@ -31,12 +31,12 @@ elif _src not in rexgraph.__path__:
 
 # The sibling distributions shadow themselves from this directory. `rex-agent/rcql` is a
 # DIRECTORY holding the `rcql` package and its tests, so with the repo root on sys.path --
-# which pytest puts there to find this file -- `import rcql` binds that directory as a
+# which pytest puts there to find this file: `import rcql` binds that directory as a
 # namespace package: importable, `__file__` None, and carrying none of the real module's
 # names. A test guarded by `pytest.importorskip("rcql")` therefore does not skip; it
 # proceeds and fails on the first attribute.
 #
-# Bind each one to its installed location instead, and only when it is genuinely shadowed,
+# Bind each one to its installed location instead, and only when it is shadowed,
 # so an environment without the distribution still raises ImportError and still skips.
 for _dist in ("rcql", "rcdb", "system"):
     _shadowed = sys.modules.get(_dist)

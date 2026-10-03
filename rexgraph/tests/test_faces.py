@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._faces - face classification, extraction, and metrics.
+Tests for rexgraph.core._faces: face classification, extraction, and metrics.
 
 Verifies:
     - Proper vs self-loop face classification

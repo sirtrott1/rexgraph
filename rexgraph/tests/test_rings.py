@@ -190,9 +190,7 @@ def test_the_diagnostics_never_materialise_the_dense_boundary():
 
 #### rings read the cycle space, not homology
 def test_a_cycle_basis_counts_dim_z1_and_not_betti_one():
-    """The distinction the module docstring used to blur. rings never consults B2,
-    so with faces present a minimum cycle basis has dim Z1 = nE - rank(B1) members,
-    which is strictly more than beta_1 once a face fills something."""
+    """Cycle bases have dim Z1 = nE - rank(B1), independently of filled faces."""
     import itertools
 
     import numpy as np

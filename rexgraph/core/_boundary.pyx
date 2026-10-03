@@ -502,7 +502,7 @@ def compute_rank(M, str method="auto", double tol=1e-10):
 
     # INTEGER boundary maps (the unweighted topology): EXACT eigen free rank via
     # rational column reduction: no SVD, no densification, no silent svds cap.
-    # Genuinely non integer (weighted) matrices keep the SVD dispatch below.
+    # non integer (weighted) matrices keep the SVD dispatch below.
     if min_dim == 0 or M.nnz == 0:
         return 0
     from rexgraph.core._sparse import DualCSR
@@ -525,7 +525,7 @@ def compute_rank(M, str method="auto", double tol=1e-10):
     if method == "dense":
         D = to_dense_f64(M)
         from rexgraph.core._linalg import svd as _lp_svd
-        _, s, _ = _lp_svd(np.asarray(D, dtype=np.float64))
+        s = _lp_svd(np.asarray(D, dtype=np.float64), compute_uv=False)
         return int(np.sum(s > tol))
 
     # scipy.sparse.linalg.svds replaced by dense SVD via _linalg
@@ -533,7 +533,7 @@ def compute_rank(M, str method="auto", double tol=1e-10):
 
     if min_dim <= 1:
         from rexgraph.core._linalg import svd as _lp_svd
-        _, s, _ = _lp_svd(np.asarray(sp.toarray(), dtype=np.float64))
+        s = _lp_svd(np.asarray(sp.toarray(), dtype=np.float64), compute_uv=False)
         return int(np.sum(s > tol))
 
     cdef Py_ssize_t k = min(min_dim - 1, M.nnz)
@@ -545,7 +545,7 @@ def compute_rank(M, str method="auto", double tol=1e-10):
 
     if count == k:
         from rexgraph.core._linalg import svd as _lp_svd
-        _, s_full, _ = _lp_svd(np.asarray(sp.toarray(), dtype=np.float64))
+        s_full = _lp_svd(np.asarray(sp.toarray(), dtype=np.float64), compute_uv=False)
         return int(np.sum(s_full > tol))
 
     return count

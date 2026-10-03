@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._spectral - spectral layout and force directed refinement.
+Tests for rexgraph.core._spectral: spectral layout and force directed refinement.
 
 Verifies:
     - Spectral embedding produces finite coordinates within canvas bounds

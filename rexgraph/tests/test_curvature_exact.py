@@ -1,4 +1,4 @@
-"""Exact integer/weighted curvature identities - the integer tower, no float drift.
+"""Exact integer/weighted curvature identities: the integer tower, no float drift.
 
 The Lagrangian and weighted curvature quantities have closed form or exact integer
 oracles; these guard the sparse/integer kernels against silent regression.

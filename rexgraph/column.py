@@ -27,9 +27,9 @@ all pairwise therefore never carries a declaration.
 from __future__ import annotations
 
 from fractions import Fraction
-from numbers import Integral
-
 import numpy as np
+
+from rexgraph.exact_value import exact_fraction
 
 __all__ = [
     "ColumnDeclaration",
@@ -38,6 +38,7 @@ __all__ = [
     "require_canonical",
     "declaration_from_entries",
     "exact_slot_coefficients",
+    "exact_column_quadrances",
     "slot_coefficients",
     "validate_declaration",
 ]
@@ -103,16 +104,10 @@ def canonical_column(arity: int) -> list[Fraction]:
 
 
 def _rational(value) -> Fraction:
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, Integral) and not isinstance(value, bool):
-        return Fraction(int(value))
-    if isinstance(value, tuple) and len(value) == 2:
-        return Fraction(int(value[0]), int(value[1]))
-    if isinstance(value, (np.integer,)):
-        return Fraction(int(value))
-    raise TypeError("a declared share must be an integer, a Fraction, or (numerator, "
-                    f"denominator); got {type(value).__name__}")
+    return exact_fraction(
+        value, allow_pair=True,
+        context="a declared share",
+    )
 
 
 def validate_declaration(boundary_ptr, boundary_idx, head_slot=None, shares=None):
@@ -281,6 +276,28 @@ def exact_slot_coefficients(boundary_ptr, boundary_idx, declaration=None) -> lis
             if head and arity > 1:
                 column[head], column[0] = column[0], column[head]
         out.extend(column)
+    return out
+
+
+def exact_column_quadrances(boundary_ptr, boundary_idx, declaration=None) -> list[Fraction]:
+    """Squared norm of every declared C1 column, over Q and after duplicate coalescing.
+
+    This is the one exact concentration reader for the primary boundary.  It consumes
+    :func:`exact_slot_coefficients`, so an unequal declared share is never reconstructed
+    from arity, and repeated incidences cancel/accumulate exactly as the assembled B1
+    column does.
+    """
+    ptr = np.asarray(boundary_ptr, dtype=_i64)
+    idx = np.asarray(boundary_idx, dtype=_i64)
+    coefficients = exact_slot_coefficients(ptr, idx, declaration)
+    out: list[Fraction] = []
+    for e in range(max(int(ptr.size) - 1, 0)):
+        lo, hi = int(ptr[e]), int(ptr[e + 1])
+        coalesced: dict[int, Fraction] = {}
+        for position in range(lo, hi):
+            vertex = int(idx[position])
+            coalesced[vertex] = coalesced.get(vertex, Fraction(0)) + coefficients[position]
+        out.append(sum((value * value for value in coalesced.values()), Fraction(0)))
     return out
 
 

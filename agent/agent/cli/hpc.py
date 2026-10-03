@@ -265,7 +265,7 @@ def generate_slurm_array(
 
     Each array task handles a batch of files. Submit with:
         sbatch --array=0-N array.sbatch
-    where N = ceil(total_files / files_per_task) - 1
+    where ``N = ceil(total_files / files_per_task) - 1``
     """
     return _header("rexgraph-array", partition, time_limit, mem, 4, account, array_spec="0-99") + "\n" + _activate(conda_env) + textwrap.dedent("""\
 

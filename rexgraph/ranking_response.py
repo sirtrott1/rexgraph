@@ -120,7 +120,7 @@ class _RankingSystem:
         if isinstance(self.view, CoordinateMap):
             view_id = self.view.coefficient_digest
         else:
-            from rexgraph.io.catalog import object_digest
+            from rexgraph.object_identity import object_digest
             view_id = _identity((object_digest(self.view.source), self.view.construction,
                                  repr(self.view.parameters)))
         return _identity(("exact-ranking-v1", view_id, hex(self.damping.numerator), hex(self.damping.denominator)))

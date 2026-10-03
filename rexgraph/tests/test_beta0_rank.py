@@ -1,4 +1,4 @@
-"""beta_0 is n_0 - rank(B_1), which is a component count only on a pairwise graph.
+"""beta_0 is n_0: rank(B_1), which is a component count only on a pairwise graph.
 
 `betti_numbers` took beta_0 from a union find over components and its docstring called
 that "equivalently ``n_0 - rank(B_1)``". The two agree when every relation has arity 2
@@ -6,7 +6,7 @@ and part otherwise: rank(B_1) = n_0 - c is a GRAPH identity, and a relation of a
 touches k vertices while contributing rank one, so reaching a new vertex stops meaning
 reaching a new direction. Only the second is what beta_0 counts.
 
-The arbiter is the Euler characteristic, beta_0 - beta_1 + beta_2 = n_0 - n_1 + n_2,
+The arbiter is the Euler characteristic, beta_0: beta_1 + beta_2 = n_0 - n_1 + n_2,
 which needs no convention to settle. Under the component count it fails on the first
 relation of arity greater than two.
 """

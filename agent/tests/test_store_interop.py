@@ -41,10 +41,10 @@ def _open(kind, tmp_path, tag=""):
     if kind == "memory":
         return rcdb.MemoryStore()
     if kind == "file":
-        return rcdb.FileStore(str(tmp_path / f"fs{tag}"))
+        return rcdb.FileStore(str(tmp_path / f"fs{tag}"), read_only=False)
     if kind == "sql":
         return rcdb.SQLStore(f"sqlite:///{tmp_path / f'rc{tag}.sqlite'}")
-    return rcdb.open_store(f"rex://{tmp_path / f'rx{tag}'}")
+    return rcdb.open_store(f"rex://{tmp_path / f'rx{tag}'}", read_only=False)
 
 
 @contextmanager
@@ -73,7 +73,7 @@ def test_filestore_put_cost_no_longer_grows_with_the_store(tmp_path):
     """It reserialized its whole index on every put: 4 ms at a hundred records,
     35 ms at sixteen hundred. The blobs stay one file each, which is the reason to
     choose it; the index does not have to be rewritten to keep that."""
-    store = rcdb.FileStore(str(tmp_path / "fs"))
+    store = rcdb.FileStore(str(tmp_path / "fs"), read_only=False)
     early, late = [], []
     for k in range(600):
         t0 = time.perf_counter()
@@ -85,30 +85,25 @@ def test_filestore_put_cost_no_longer_grows_with_the_store(tmp_path):
             late.append(dt)
     ratio = (sum(late) / len(late)) / (sum(early) / len(early))
 
-    # The property is "not quadratic", and the bound is a proxy for it. The old
-    # behaviour reserialized the whole index per put, so this ratio tracked the record
-    # count: it was 8.6x over 1600 and would be ~5x over the 600 measured here. A
-    # shared CI runner adds noise on the same order as the effect at 2.5, so the bound
-    # is set where quadratic still fails and scheduler jitter does not. Measured 2.8x
-    # on a GitHub runner against 1.2x locally, with the fix in place both times.
+    # Allow shared runner timing variation while rejecting quadratic growth.
     assert ratio < 4.0, f"per-put cost grew {ratio:.1f}x over 600 records"
 
 
 def test_filestore_still_keeps_one_readable_blob_per_record(tmp_path):
     import os
 
-    store = rcdb.FileStore(str(tmp_path / "fs"))
+    store = rcdb.FileStore(str(tmp_path / "fs"), read_only=False)
     _put(store, "a")
     blobs = [f for _, _, fs in os.walk(os.path.join(store.root, "blobs")) for f in fs]
     assert len(blobs) == 1
 
 
 def test_filestore_survives_a_reopen_after_the_index_change(tmp_path):
-    store = rcdb.FileStore(str(tmp_path / "fs"))
+    store = rcdb.FileStore(str(tmp_path / "fs"), read_only=False)
     _put(store, "a", ["kept", "x", "y", "z"])
     _put(store, "a", ["newer", "x", "y", "z"])
     _put(store, "b")
-    again = rcdb.FileStore(str(tmp_path / "fs"))
+    again = rcdb.FileStore(str(tmp_path / "fs"), read_only=False)
     assert sorted(r.id for r in again.list(limit=9)) == ["a", "b"]
     assert [r.version for r in again.history("a")] == [1, 2]
     assert (again.get("a")._agent_meta or {})["vertex_labels"][0] == "newer"
@@ -120,7 +115,7 @@ def test_an_existing_filestore_still_opens(tmp_path):
     import os
 
     root = tmp_path / "legacy"
-    store = rcdb.FileStore(str(root))
+    store = rcdb.FileStore(str(root), read_only=False)
     _put(store, "a", ["legacy", "x", "y", "z"])
     # collapse it back to the old single document index
     recs = store._read_index()
@@ -131,7 +126,7 @@ def test_an_existing_filestore_still_opens(tmp_path):
     with open(os.path.join(root, "index.json"), "w") as fh:
         json.dump(payload, fh)
 
-    again = rcdb.FileStore(str(root))
+    again = rcdb.FileStore(str(root), read_only=False)
     assert (again.get("a")._agent_meta or {})["vertex_labels"][0] == "legacy"
 
 
@@ -189,7 +184,7 @@ def test_auto_picks_an_embedded_store_for_a_plain_path(tmp_path):
 def test_auto_reopens_whatever_is_already_there(tmp_path):
     """Choosing a backend must never orphan data written by a previous choice."""
     root = tmp_path / "existing"
-    first = rcdb.FileStore(str(root))
+    first = rcdb.FileStore(str(root), read_only=False)
     _put(first, "a", ["written_as_file", "x", "y", "z"])
 
     again = rcdb.open_store(f"auto://{root}")
@@ -198,7 +193,7 @@ def test_auto_reopens_whatever_is_already_there(tmp_path):
 
 def test_auto_recognises_an_existing_rexstore(tmp_path):
     root = tmp_path / "existing_rex"
-    first = rcdb.open_store(f"rex://{root}")
+    first = rcdb.open_store(f"rex://{root}", read_only=False)
     _put(first, "a", ["written_as_rex", "x", "y", "z"])
 
     again = rcdb.open_store(f"auto://{root}")
@@ -215,15 +210,15 @@ def test_recommend_backend_explains_itself():
 
 # object storage
 #
-# Exercised over fsspec's in memory filesystem, which is the SAME code path S3 takes
-# rather than a stand in for it: what differs on a real bucket is the driver's wire
-# protocol, not this layout.
+# These tests explicitly enable the legacy writer on the memory filesystem.
+# They qualify its layout and compatibility reads; cloud provider consistency,
+# conditional publication and crash durability require separate qualification.
 
 def _objstore(tag=""):
     import uuid
 
     from agent.objectstore import ObjectStore
-    return ObjectStore(f"memory://rcdb-{tag}-{uuid.uuid4().hex[:8]}")
+    return ObjectStore(f"memory://rcdb-{tag}-{uuid.uuid4().hex[:8]}", read_only=False)
 
 
 def test_an_object_store_answers_the_whole_contract():
@@ -308,7 +303,7 @@ def test_deletion_removes_the_payload_objects():
 
 
 def test_a_corpus_migrates_into_object_storage(tmp_path):
-    src = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    src = rcdb.open_store(f"rex://{tmp_path / 'rx'}", read_only=False)
     _put(src, "one", ["alpha", "b", "c", "d"])
     _put(src, "two", ["beta", "b", "c", "d"])
     dst = _objstore("migrate")

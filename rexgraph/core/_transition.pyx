@@ -3,10 +3,10 @@
 """
 rexgraph.core._transition: Transition operators on the relational complex.
 
-Markov - discrete and continuous stochastic diffusion on k-cells.
-Schrodinger - unitary evolution via Hodge Laplacians (real cos/sin split).
-Differential - ODE integration (RK4) with coupled cross dimensional dynamics.
-Rewrite - signal resizing after structural mutation of the rex topology.
+Markov: discrete and continuous stochastic diffusion on k-cells.
+Schrodinger: unitary evolution via Hodge Laplacians (real cos/sin split).
+Differential: ODE integration (RK4) with coupled cross dimensional dynamics.
+Rewrite: signal resizing after structural mutation of the rex topology.
 
 All operators are stateless: (state_arrays, operator_data) -> state_arrays.
 
@@ -181,7 +181,7 @@ def build_vertex_transition_matrix(np.ndarray[f64, ndim=2] L0):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def build_lazy_transition_matrix(np.ndarray[f64, ndim=2] W, double lazy=0.5):
-    """Lazy random walk: W_lazy = lazy * I + (1 - lazy) * W.
+    """Lazy random walk: W_lazy = lazy * I + (1: lazy) * W.
 
     Ensures aperiodicity. Fused single pass, no temporaries.
     """
@@ -810,7 +810,7 @@ def apply_dephasing(np.ndarray[f64, ndim=1] state,
 
     # Determine where edges live in the graded state
     # Convention: state = [vertices | edges | faces]
-    # We need to know nV; infer from state length
+    # Infer nV from the graded state length.
     cdef Py_ssize_t total = state.shape[0]
     cdef Py_ssize_t nV = total - nE - nF
     if nV < 0:
@@ -823,7 +823,7 @@ def apply_dephasing(np.ndarray[f64, ndim=1] state,
 
     # Lindblad dephasing: rho -> rho - gamma * dt * sum_f [L_f, [L_f, rho]]
     # For a pure state vector, approximate as:
-    # psi -> psi - (gamma*dt/2) * sum_f (L_f L_f^T) psi
+    # psi -> psi: (gamma*dt/2) * sum_f (L_f L_f^T) psi
     # (Σ_f L_f L_f^T) psi = B2 (B2^T psi): two mat vecs, O(nnz), never the nE×nE op.
     cdef np.ndarray[f64, ndim=1] deph = np.asarray(
         B2 @ (B2.T @ edge_state), dtype=np.float64)

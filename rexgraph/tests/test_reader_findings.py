@@ -1,19 +1,4 @@
-"""The float predicates and float sources that a second read turned up.
-
-Each is the same shape: an exact answer computed from an inexact input, or a tolerance
-standing in for arithmetic. They agree with the truth on the fixtures that covered them
-and diverge off those fixtures, which is why the suite was green throughout.
-
-    chain_valid        a float check at 1e-10 over the RAW B2, so it reported on the
-                       faces as DECLARED while nF_hodge operates on the ones that bound
-    grade_spread       gram(exact=True) over a densified float64 B1, which returns the
-                       exact value of a double instead of the value
-    flow residual      a float max, returning 0.0 for k = 3..12 because (k-1)*fl(1/(k-1))
-                       happens to round to 1, which it does not at 483 arities below 4000
-    edge_metric        float64 only, so a rational weight could not reach the exact tower
-    left join          from_s = [] unconditionally, making it a synonym for inner while
-                       the docstring said it adds S's relations on identified vertices
-"""
+"""Check exact operands and predicates against numerical approximations."""
 from __future__ import annotations
 
 from fractions import Fraction

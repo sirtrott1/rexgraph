@@ -35,7 +35,7 @@ from cython.parallel cimport prange
 from libc.math cimport fabs
 from libc.stdint cimport int32_t, int64_t, uint64_t
 
-# DO NOT cimport from rexgraph.core._common - it's THIS module!
+# DO NOT cimport from rexgraph.core._common: it's THIS module!
 # The .pxd file declarations are automatically available.
 
 np.import_array()
@@ -80,7 +80,7 @@ cdef double _fill_ratio_dense_threshold = 0.3
 # the one it gives and the float path is that answer's oracle. It is not unconditional.
 # Rational elimination is cubic in the grade dimension and its coefficients grow, so
 # above this many cells the exact solve is not attempted and the float tower produces
-# instead -- an approximation, and reported as one. Raise it to buy exactness at a
+# instead: an approximation, and reported as one. Raise it to buy exactness at a
 # cost the caller has chosen; there is no size at which the exact answer becomes wrong.
 cdef Py_ssize_t _exact_field_limit = 512
 

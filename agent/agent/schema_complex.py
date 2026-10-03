@@ -7,7 +7,7 @@ tables are co participations (faces). Once a schema is a complex, the
 same algebra that analyses documents diagnoses the schema's *actual
 topology*:
 
-  * Betti 1 = independent cycles = **circular FK dependencies** - the
+  * Betti 1 = independent cycles = **circular FK dependencies**: the
     thing that breaks migration ordering, cascade deletes, and topological
     insert/delete.
   * Hodge gradient % = how cleanly the FK graph forms a hierarchy.
@@ -472,7 +472,7 @@ def _associative_entities(model: SchemaModel) -> set:
     """Tables whose identity *is* their relationships: associative /
     junction entities. Signal: a primary key composed of foreign key
     columns, binding two or more parents. These are the cells that
-    genuinely co participate, so they license a co participation face.
+    co participate, so they license a co participation face.
     """
     fk_cols: dict[str, set] = {}
     fk_count: dict[str, int] = {}
@@ -579,13 +579,13 @@ def _schema_face_b2(names, src, tgt, edge_tables, model, mode):
     """Return the schema's B₂ as (col_ptr, row_idx, vals) CSC arrays under the
     chosen face selection algorithm, or None for no faces:
 
-      'coparticipation' - faces only over associative/junction entities (the
+      'coparticipation': faces only over associative/junction entities (the
                           "real" co-participations); ordinary FK cycles stay
                           harmonic (broken). [_coparticipation_b2]
-      'autoface'        - fill every triangle AND bigon the FK graph allows
+      'autoface'       : fill every triangle AND bigon the FK graph allows
                           (geometry-from-topology; more curl, less harmonic).
                           [_autoface_b2]
-      'none'            - 1 rex, no faces (pure gradient/harmonic split).
+      'none'           : 1 rex, no faces (pure gradient/harmonic split).
     ('promote' is handled by the core face finder in schema_to_rex, not here.)"""
     if mode == "coparticipation":
         cp, rp, vp, _ = _coparticipation_b2(names, src, tgt, model)
@@ -613,10 +613,10 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
 
     Vertices = tables. Edges = foreign keys (child -> parent). Faces are chosen by
     ``face_selection`` (see `SCHEMA_FACE_SELECTIONS` / `explore_schema_faces`):
-    'coparticipation' (default - associative/junction entities), 'autoface' (every
+    'coparticipation' (default: associative/junction entities), 'autoface' (every
     triangle+bigon the FK graph allows), 'promote' (the core face finder), or 'none'
     (1 rex). ``weights`` optionally maps "from_table->to_table" to an edge magnitude
-    (e.g. cardinality) - the complex then carries ``w_E`` into the core channels, so
+    (e.g. cardinality): the complex then carries ``w_E`` into the core channels, so
     the weighted/curvature story lives on the standard complex rather than a separate
     hand rolled path. Different valid geometries of the same schema. Returns
     ``(rex_or_None, meta)``.
@@ -641,7 +641,7 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
     src = np.asarray(sources, dtype=np.int32)
     tgt = np.asarray(targets, dtype=np.int32)
     # Cap construction/diagnosis on oversized schemas (same guard as the edge
-    # chokepoint) - schema_to_rex builds RexGraph directly, bypassing auto.py.
+    # chokepoint): schema_to_rex builds RexGraph directly, bypassing auto.py.
     from .auto import check_analysis_size
     check_analysis_size(len(names), len(sources))
     # co participation face descriptions are always reported (meta), independent
@@ -672,6 +672,14 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
                     w_arr[e] = max(float(val), 1e-9)
         w_E = w_arr
     from rexgraph.graph import RexGraph
+    from rexgraph.relations import Relations, VertexTable
+    from rexgraph.value import NumberRule
+    relations = Relations.from_supports(
+        zip(sources, targets, strict=True), vertices=VertexTable(tuple(names), tuple(names)),
+        weights=w_E, relation_types=["foreign_key"] * len(sources),
+        number_rule=NumberRule.BINARY_EXACT, provenance=meta,
+    )
+    rex = RexGraph.from_relations(relations)
     b2 = (_schema_face_b2(names, src, tgt, edge_tables, model, face_selection)
           if face_selection != "none" else None)
     if b2 is not None:
@@ -679,17 +687,13 @@ def schema_to_rex(model: SchemaModel, face_selection: str = "coparticipation",
         # its false harmonic hole into bounded curl; unfilled FK cycles stay
         # harmonic (broken).
         cp, rp, vp = b2
-        try:
-            rex = RexGraph(sources=src, targets=tgt, w_E=w_E,
-                           B2_col_ptr=cp, B2_row_idx=rp, B2_vals=vp)
-        except Exception:
-            rex = RexGraph(sources=src, targets=tgt, w_E=w_E)
+        rex.add_faces([rp[a:b] for a, b in zip(cp[:-1], cp[1:], strict=True)],
+                      [vp[a:b] for a, b in zip(cp[:-1], cp[1:], strict=True)])
     else:
-        rex = RexGraph(sources=src, targets=tgt, w_E=w_E)
         if face_selection == "promote":         # core face finder
             with contextlib.suppress(Exception):
                 rex = rex.promote()
-    rex._agent_meta = meta
+    rex.set_provenance(meta)
     return rex, meta
 
 
@@ -700,7 +704,7 @@ def explore_schema_faces(model: SchemaModel, modes=SCHEMA_FACE_SELECTIONS):
     hierarchy/gradient vs bounded/curl vs persistent/harmonic). Filling more loops
     (autoface) trades harmonic "broken cycle" content for bounded curl; filling only
     genuine junctions (coparticipation) leaves ordinary FK cycles harmonic. Returns
-    ``{mode: {n_faces, betti, hodge}}`` - a side by side of the schema's options."""
+    ``{mode: {n_faces, betti, hodge}}``: a side by side of the schema's options."""
     out: dict[str, Any] = {}
     for mode in modes:
         try:
@@ -898,7 +902,7 @@ def _lagrangian_curvature(B1, B2, w):
     Lagrangians.
 
     L_T = tr(T²)/tr(T)² is the weighted *topological* (down) Lagrangian, T =
-    B₁^wᵀB₁^w - it exists on spans, from B₁ alone. L_S = tr(L₁²)/tr(L₁)² is the
+    B₁^wᵀB₁^w: it exists on spans, from B₁ alone. L_S = tr(L₁²)/tr(L₁)² is the
     weighted *geometric* (up) Lagrangian, L₁ = B₂^wB₂^wᵀ. Both are inverse
     participation ratios (= e^{-H}) of the normalized spectrum, so they stay O(1)
     (no int64 overflow). c² = L_T/L_S = (k-2)/2 on Kₖ; curvature = |log c²| =
@@ -1065,15 +1069,15 @@ def schema_strain(model: SchemaModel, weights=None):
     B1 = sp.csr_matrix((_b1v, (_b1r, _b1c)), shape=(nV, nE), dtype=np.float64)
     B2, faces = _autoface_b2(names, edges, B1)          # sparse nE × nF
     # global Lagrangian curvature: tower exchange deviance (works with or
-    # without faces - L_T is a B₁^w quantity, so it captures span pressure).
+    # without faces: L_T is a B₁^w quantity, so it captures span pressure).
     report["lagrangian_curvature"] = _lagrangian_curvature(B1, B2, w)
     if B2 is None:
-        # no co participation faces (tree/star): flat, no curvature - but the
+        # no co participation faces (tree/star): flat, no curvature: but the
         # fan out load above still surfaces span/junction pressure.
         return report
     report["has_geometry"] = True
 
-    # curvature (how much / where): R = B1 diag(w) B2 - the weighted chain
+    # curvature (how much / where): R = B1 diag(w) B2: the weighted chain
     # residual (Part F). All sparse; total/per-join are Frobenius reductions.
     R = (B1 @ sp.diags(w) @ B2).tocsr()
     report["total_strain"] = round(float(R.multiply(R).sum()), 6)
@@ -1084,7 +1088,7 @@ def schema_strain(model: SchemaModel, weights=None):
 
     # connection (who / what): the strain Gram M[i,j] = <U_i, U_j> with the
     # per relation contribution vectors U_e = (√w_e-1)·(B1[:,e] ⊗ B2[e,:]) reduces
-    # EXACTLY to M = diag(s)·(T ⊙ B2B2ᵀ)·diag(s),  s = √w-1,  T = B1ᵀB1  - a sparse
+    # EXACTLY to M = diag(s)·(T ⊙ B2B2ᵀ)·diag(s),  s = √w-1,  T = B1ᵀB1 : a sparse
     # Hadamard product (no dense (nV·nF)×nE outer product stack).
     s = np.sqrt(w) - 1.0
     T = (B1.T @ B1).tocsr()                             # topology channel (nE×nE)
@@ -1152,7 +1156,7 @@ def pull_cardinality_stats(conn_str: str, model: SchemaModel = None,
     Cardinality ≈ child_row_count / parent_row_count (average fan out). In
     ``approximate`` mode, uses fast catalog estimates (pg_class.reltuples,
     information_schema.table_rows, sys.dm_db_partition_stats) instead of
-    COUNT(*) - essential on very large tables. Returns ``(weights, row_counts)``.
+    COUNT(*): essential on very large tables. Returns ``(weights, row_counts)``.
     """
     from sqlalchemy import create_engine
     if model is None:
@@ -1230,7 +1234,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
         report["hodge"] = None
     # EXACT integer invariants (threshold free): the harmonic dimension β₁ counts
     # persistent (unfilled) cycles; rank(B₂) = nF - β₂ counts the co participation-
-    # filled (curl) cycles. These are combinatorial facts - the verdict/findings
+    # filled (curl) cycles. These are combinatorial facts: the verdict/findings
     # below are driven by them (β₁>0, rank(B₂)>0), not by a Hodge fraction cutoff.
     # The fractions above are kept only as informative magnitudes.
     _b = report.get("betti")
@@ -1244,7 +1248,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
 
     # valid order of operations + the relations to cut to reach a DAG. The cut
     # breaks EVERY cycle (harmonic and bounded/curl) so a strict order exists;
-    # `readout.harmonic_fraction` says how many are genuinely broken vs intended
+    # `readout.harmonic_fraction` says how many are broken vs intended
     # recursion (a non empty cut with low harmonic fraction is expected).
     order, cut = topological_order(model)
     report["order_of_operations"] = order
@@ -1256,7 +1260,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
             "intended recursion (bounded curl).")
         report["migration_plan"] = export_migration_plan(model)
 
-    # co participation faces (associative entities) - these make otherwise
+    # co participation faces (associative entities): these make otherwise
     # cycle looking structure into bounded recursion (curl), not broken cycles
     if meta.get("coparticipation_faces"):
         report["findings"].append({
@@ -1268,7 +1272,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
             "tables": meta.get("associative_entities", []),
         })
 
-    # circular FK dependencies - classified by harmonic vs curl (exact: β₁>0 means
+    # circular FK dependencies: classified by harmonic vs curl (exact: β₁>0 means
     # at least one directed cycle is unfilled/persistent; else all are face closed).
     cycles = _find_cycles(names, edges)
     if cycles:
@@ -1379,10 +1383,10 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
 
     # descriptive state: a readout, not a judgment. Two INDEPENDENT axes, kept
     # separate so they never contradict:
-    #   * directed orderability - does a strict insert/delete order exist? That is
+    #   * directed orderability: does a strict insert/delete order exist? That is
     #     purely the FK *dependency* structure: a valid order exists iff there are
     #     no directed FK cycles, i.e. the feedback arc cut is empty (`not cut`).
-    #   * harmonic content - persistent (undirected) co participation tension in the
+    #   * harmonic content: persistent (undirected) co participation tension in the
     #     Hodge split; this CAN be present even in a perfectly orderable DAG (e.g. an
     #     FK triangle with no associative entity filling it), so it must not drive the
     #     "no valid order" claim.
@@ -1419,7 +1423,7 @@ def diagnose_schema(model: SchemaModel) -> dict[str, Any]:
         "cycles_present": directed_cycles,
         # EXACT integer invariants (the decision basis):
         "harmonic_dimension": harmonic_dim,        # β₁: persistent unfilled cycles
-        "curl_dimension": curl_dim,                # rank(B₂) - face filled cycles
+        "curl_dimension": curl_dim,                # rank(B₂): face filled cycles
         "directed_cut_size": len(cut),             # feedback arcs to reach a DAG
         # informative (flow dependent) magnitudes, not decision thresholds:
         "harmonic_fraction": round(float(harm), 4),

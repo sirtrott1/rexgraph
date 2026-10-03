@@ -91,14 +91,19 @@ def compute_strain_per_face(B2, curvature, Py_ssize_t nE, Py_ssize_t nF):
     return strain_f
 
 
-# Bianchi identity
+# Weighted strain residual
 
 def verify_bianchi(B1, B2, curvature, Py_ssize_t nE, Py_ssize_t nF,
                     f64 tol=1e-10):
-    """Verify B1 @ diag(C) @ B2 ~ 0.
+    """Return the weight induced strain B1 @ diag(C) @ B2 and whether it vanishes.
 
-    The RCFE Bianchi identity: curvature is a cocycle. Sparse boundaries are
-    multiplied sparsely, so neither they nor diag(C) is materialized densely.
+    A nonzero strain is not a chain condition failure. When B1 B2 = 0,
+    the product equals B1 @ (diag(C) - I) @ B2. Constant weights on each
+    face boundary imply zero strain. RexGraph.chain_valid checks the chain
+    condition separately and exactly.
+
+    Sparse boundaries use sparse products without a dense diagonal matrix.
+    Returns (strain_vanishes, strain_magnitude), using tol for the magnitude.
     """
 
     if nF == 0:
@@ -272,7 +277,7 @@ def face_overlap_K2(np.ndarray[f64, ndim=2] B2, Py_ssize_t nE, Py_ssize_t nF):
     K2[f,f'] = number of shared boundary edges between faces f and f'.
     """
     # K2[f,f'] = # shared boundary edges = (|B2|>0)^T (|B2|>0), a SPARSE matmul over the
-    # face incidence - O(nnz), never the O(nF^2 * nE) dense pair scan.
+    # face incidence: O(nnz), never the O(nF^2 * nE) dense pair scan.
     import scipy.sparse as _sp
     A = _sp.csr_matrix((np.abs(np.asarray(B2)) > 0.5).astype(np.float64))
     return np.asarray((A.T @ A).todense(), dtype=np.float64)
@@ -305,7 +310,7 @@ def attributed_curvature(np.ndarray[f64, ndim=2] B1,
                           np.ndarray[f64, ndim=1] w_e,
                           np.ndarray[f64, ndim=1] a_v,
                           Py_ssize_t nV, Py_ssize_t nE, Py_ssize_t nF):
-    """Attributed boundary curvature (Def 3.1-3.2).
+    """Attributed boundary curvature.
 
     Build attributed boundary operators:
         B1^w[v,e] = a_v * B1[v,e] * sqrt(w_e)
@@ -318,8 +323,8 @@ def attributed_curvature(np.ndarray[f64, ndim=2] B1,
 
     B1 : f64[nV, nE]
     B2 : f64[nE, nF]
-    w_e : f64[nE] - edge weights (> 0)
-    a_v : f64[nV] - vertex amplitudes (>= 0)
+    w_e : f64[nE]: edge weights (> 0)
+    a_v : f64[nV]: vertex amplitudes (>= 0)
     nV, nE, nF : dimensions
 
     Returns
@@ -376,17 +381,17 @@ def face_deficit(np.ndarray[f64, ndim=1] kappa_f,
                   f64 alpha,
                   np.ndarray[f64, ndim=1] born_face,
                   Py_ssize_t nF):
-    """Face deficit: delta_f = kappa_f - alpha * |Psi_f|^2 (Def 5.1).
+    """Face deficit: delta_f = kappa_f - alpha * |Psi_f|^2.
 
     Parameters
 
-    kappa_f : f64[nF] - attributed curvature per face
-    alpha : float - coupling constant
-    born_face : f64[nF] - Born probability per face from Dirac state
+    kappa_f : f64[nF]: attributed curvature per face
+    alpha : float: coupling constant
+    born_face : f64[nF]: Born probability per face from Dirac state
 
     Returns
 
-    delta : f64[nF] - deficit per face
+    delta : f64[nF]: deficit per face
     """
     cdef np.ndarray[f64, ndim=1] delta = np.empty(nF, dtype=np.float64)
     cdef f64[::1] dv = delta, kv = kappa_f, bv = born_face
@@ -399,7 +404,7 @@ def face_deficit(np.ndarray[f64, ndim=1] kappa_f,
 def relational_strain_dynamic(np.ndarray[f64, ndim=2] B2,
                                 np.ndarray[f64, ndim=1] delta,
                                 Py_ssize_t nE, Py_ssize_t nF):
-    """Relational strain: sigma = B2 @ delta (Def 5.2).
+    """Relational strain: sigma = B2 @ delta.
 
     sigma(e) measures the net face deficit across edge e.
     B1 @ sigma = 0 by the chain condition (Bianchi conservation).
@@ -425,7 +430,7 @@ def optimal_alpha(np.ndarray[f64, ndim=2] B2,
                    np.ndarray[f64, ndim=1] kappa_f,
                    np.ndarray[f64, ndim=1] born_face,
                    Py_ssize_t nE, Py_ssize_t nF):
-    """Optimal coupling: alpha = <B2 kappa, B2 pF> / ||B2 pF||^2 (Def 5.3).
+    """Optimal coupling: alpha = <B2 kappa, B2 pF> / ||B2 pF||^2.
 
     Minimizes ||sigma||^2 = ||B2 (kappa - alpha pF)||^2.
 

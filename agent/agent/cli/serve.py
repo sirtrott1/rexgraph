@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_PORT = 10000
 # A first run downloads a multi GB model AND loads it onto the GPU via vLLM; 120s reported a false
 # TIMEOUT while the server was still legitimately loading. Env configurable; 15 min covers a cold
-# download. (A genuinely broken model still fails fast via the process died check below.)
+# download. (A broken model still fails fast via the process died check below.)
 HEALTH_TIMEOUT = int(os.environ.get("REXGRAPH_OCR_HEALTH_TIMEOUT", "900"))
 HEALTH_INTERVAL = 2      # seconds between health checks
 
@@ -222,7 +222,7 @@ def wait_for_health(
     log_file=None,
 ) -> bool:
     """Poll /health and /v1/models until the server responds 200. Surfaces the server log (what it
-    is actually doing - downloading, loading weights) instead of a wall of dots."""
+    is actually doing: downloading, loading weights) instead of a wall of dots."""
     import urllib.error
     import urllib.request
 

@@ -107,8 +107,10 @@ class _FlowLayer(_nn.Module):
         self.log_t0 = _nn.Parameter(_t.tensor(0.0)); self.log_t1 = _nn.Parameter(_t.tensor(0.0))
         self.K = K
 
-    def forward(self, h0, h1, L0, L1, B1, lam0, lam1):
+    def forward(self, h0, h1, L0, L1, B1, lam0, lam1, *, flow=True):
         diff = R.rcf_torch.heat_apply(L0, self.Wd(h0), self.log_t0.exp(), K=self.K, lam_max=lam0)
+        if not flow:
+            return _F.gelu(diff), h1
         cell = B1.t() @ self.Wg(h0) + self.Wc(h1)
         cell = R.rcf_torch.heat_apply(L1, cell, self.log_t1.exp(), K=self.K, lam_max=lam1)
         return _F.gelu(diff + B1 @ self.Wv(cell)), _F.gelu(cell)
@@ -116,10 +118,13 @@ class _FlowLayer(_nn.Module):
 
 
 class HGNN(_nn.Module):
-    def __init__(self, d_in, n_classes, he_ptr, he_idx, d_hid=32, n_layers=2, flow=True):
+    def __init__(self, d_in, n_classes, he_ptr, he_idx, d_hid=32, n_layers=2, flow=True, *, n_nodes=None):
         super().__init__()
         from rexgraph.graph import RexGraph
-        g = RexGraph.from_hypergraph(np.asarray(he_ptr, "int32"), np.asarray(he_idx, "int32"))
+        from rexgraph.relations import Relations
+        # Feature rows include isolates absent from every participation group.
+        # Declare their domain through Core rather than inferring it from he_idx.
+        g = RexGraph.from_relations(Relations.from_arrays(he_ptr, he_idx, n_vertices=n_nodes))
         self.register_buffer("B1", _t.as_tensor(np.asarray(g.B1_dense, "float32")))
         self.register_buffer("L0", _t.as_tensor(np.asarray(g.L0, "float32")))
         self.register_buffer("L1", _t.as_tensor(np.asarray(g.L1, "float32")))
@@ -132,14 +137,15 @@ class HGNN(_nn.Module):
     def forward(self, X):
         h0 = self.enc(X); h1 = self.he0.expand(self.B1.shape[1], -1).contiguous()
         for layer in self.layers:
-            h0, h1 = layer(h0, h1, self.L0, self.L1, self.B1, self.lam0, self.lam1)
+            h0, h1 = layer(h0, h1, self.L0, self.L1, self.B1, self.lam0, self.lam1, flow=self.flow)
         return self.head(h0)
 
 
 
 def _build_hgnn(cfg, bundle):
+    from .store import _bundle_node_count
+    n_nodes = _bundle_node_count(bundle)
     return HGNN(bundle.meta.get("feat_dim", cfg["feat_dim"]),
                 bundle.meta.get("n_classes", cfg["n_classes"]),
                 bundle.extra["he_ptr"], bundle.extra["he_idx"],
-                cfg["d_hid"], cfg["n_layers"], cfg["flow"])
-
+                cfg["d_hid"], cfg["n_layers"], cfg["flow"], n_nodes=n_nodes)

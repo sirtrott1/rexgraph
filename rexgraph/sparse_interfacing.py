@@ -8,7 +8,7 @@ the oracle. channel_direction is a separate three score normalization.
 Field taxonomy
 
 EIGEN FREE (tight parity to the dense oracle, ~1e-8 or better):
-  ``rho``               - weighted vertex source (scatter add, no linear algebra).
+  ``rho``: weighted vertex source (scatter add, no linear algebra).
   ``psi = B1^T L0^+ rho`` - one CG solve of ``L0 + Pi_h`` on the SPARSE graph Laplacian
                           ``L0 = B1 B1^T``, where ``Pi_h`` projects onto the component
                           frame. ``L0^# = (L0 + Pi_h)^-1 - Pi_h`` is the harmonic-
@@ -17,7 +17,7 @@ EIGEN FREE (tight parity to the dense oracle, ~1e-8 or better):
                           than found by a solver or a threshold. This is numerical, not
                           exact arithmetic. No nV x nV pseudoinverse is constructed.
   ``signal_magnitude``  - ``||psi||``.
-  ``scores[0]`` (I_T)   - topological channel. The dense contraction is
+  ``scores[0]`` (I_T)  : topological channel. The dense contraction is
                           ``target^T S_T psi = (B1 target)^T L0^+ (B1 psi)``, a matrix free
                           bilinear ``u^T L0^+ v`` (LSQR seam ``pinv_bilinear_form``).
                           Because ``psi = B1^T L0^+ rho`` and ``L0 L0^+`` is the projector
@@ -25,13 +25,13 @@ EIGEN FREE (tight parity to the dense oracle, ~1e-8 or better):
                           so ``I_T = (B1 target)^T y`` with ``y = L0^+ rho`` already in hand -
                           exact and solve-free (see parity test, which also cross-checks
                           the literal two-solve ``pinv_bilinear_form`` form).
-  ``scores[1]`` (I_G)   - normalized G-channel: ``target^T L_O psi`` (down sector).
-  ``scores[2]`` (I_F)   - frustration: ``target^T L_SG psi`` (sparse integer F = T - G matvec).
-  ``channel_direction``, ``efficiency`` - assembled from the above (efficiency counts
+  ``scores[1]`` (I_G)  : normalized G-channel: ``target^T L_O psi`` (down sector).
+  ``scores[2]`` (I_F)  : frustration: ``target^T L_SG psi`` (sparse integer F = T - G matvec).
+  ``channel_direction``, ``efficiency``: assembled from the above (efficiency counts
                           activating/deactivating boundary entries straight from sparse B1 rows).
 
-GENUINELY SPECTRAL (per mode densities over the edge RL spectrum; no matrix free reduction):
-  ``schrodinger = sum_j (v_j.psi)^2 (v_j.target)^2`` over ``lambda_j > 0`` - degree 4 in the
+SPECTRAL (per mode densities over the edge RL spectrum; no matrix free reduction):
+  ``schrodinger = sum_j (v_j.psi)^2 (v_j.target)^2`` over ``lambda_j > 0``: degree 4 in the
                           eigenvectors, not a trace / bilinear, so it genuinely needs the modes.
   ``coverage``          - fraction of positive RL modes activated by psi (per mode count).
   These are available ONLY through ``build_interfacing_bundle_oracle``. They
@@ -68,26 +68,36 @@ def _normalized_overlap_sparse(rex):
 
 
 def pinv_bilinear_form(A, u, v, atol=1e-13, btol=1e-13, iter_lim=20000):
-    """``u^T A^+ v`` for a symmetric PSD sparse ``A`` (possibly SINGULAR), matrix free
-    via LSQR: ``x = A^+ v`` is the minimum norm least squares solution, so LSQR projects
-    off ``ker(A)`` exactly and ``u^T A^+ v = u^T x``. The bilinear generalization of
-    ``sparse_character.pinv_quadratic_form`` (``A^+`` symmetric). Equals the dense
-    eigenmode pseudoinverse ``sum_{lambda_j>0} <p_j,u><p_j,v>/lambda_j`` to machine
-    precision: no eigendecomposition, no explicit kernel projection."""
-    import scipy.sparse as sp
-    import scipy.sparse.linalg as sla
-    u = np.ascontiguousarray(u, dtype=_f64).ravel()
-    v = np.ascontiguousarray(v, dtype=_f64).ravel()
-    A = A.tocsr() if sp.issparse(A) else sp.csr_matrix(np.asarray(A, dtype=_f64))
-    x = sla.lsqr(A, v, atol=atol, btol=btol, iter_lim=iter_lim)[0]
-    return float(u @ x)
+    """Numerical u.T A^+ v for a real symmetric PSD operator.
+
+    Native LSQR computes the minimum norm solution without a spectrum or an
+    explicit kernel projector. atol and btol set normal and relative residual
+    thresholds; iter_lim caps iterations. An unconverged solve raises.
+    Native, dense and supplied SciPy sparse matrices are accepted.
+    """
+    from rexgraph.core._hodge import least_squares
+    from rexgraph.linear_operator import _numeric_array
+    from rexgraph.native_sparse import as_native
+    u = _numeric_array(u, operation="pseudoinverse bilinear form").ravel()
+    v = _numeric_array(v, operation="pseudoinverse bilinear form").ravel()
+    if np.iscomplexobj(u) or np.iscomplexobj(v):
+        raise TypeError("pseudoinverse bilinear form requires real vectors")
+    A = as_native(A)
+    if A.shape != (v.size, v.size) or u.shape != v.shape:
+        raise ValueError("pseudoinverse bilinear form requires matching vectors and a square operator")
+    x = least_squares(A, v, atol=atol, btol=btol, maxiter=iter_lim)
+    with np.errstate(over='ignore', invalid='ignore'):
+        result = float(u @ x)
+    if not np.isfinite(result):
+        raise FloatingPointError("pseudoinverse bilinear form is outside float64")
+    return result
 
 
 def _component_labels(L0):
     """Component id per vertex, from the union find kernel in ``_common.pxd``.
 
     ``L0 = B1 B1^T`` has zero row sums, so every component indicator is in its kernel,
-    and for a graph Laplacian those indicators SPAN it -- ``x^T L0 x = 0`` forces ``x``
+    and for a graph Laplacian those indicators SPAN it: ``x^T L0 x = 0`` forces ``x``
     constant along every relation. So the kernel is a pattern traversal, not an
     eigensolve with a threshold deciding which eigenvalue counts as zero.
 
@@ -118,7 +128,7 @@ def _component_projector(L0):
     """`Pi_h` for a graph Laplacian's kernel, in O(nV) time and O(nV) memory.
 
     The kernel frame is an indicator matrix, so the projector is "replace each
-    coordinate by its component mean" -- one bincount, rather than the `O(nV beta_0)`
+    coordinate by its component mean": one bincount, rather than the `O(nV beta_0)`
     a dense frame would cost to store and apply.
     """
     label = _component_labels(L0)
@@ -239,10 +249,10 @@ def build_interfacing_bundle_sparse(rex, target_indices, target_weights,
     Parameters
 
     rex : RexGraph
-    target_indices : int array   - source vertex indices.
-    target_weights : f64 array   - per target weights.
-    target_signal  : f64[nE]     - target/phenotype edge vector.
-    vertex_weights : f64[nV], optional - defaults to IDF ``1 / ln(deg + e)``.
+    target_indices : int array  : source vertex indices.
+    target_weights : f64 array  : per target weights.
+    target_signal  : f64[nE]    : target/phenotype edge vector.
+    vertex_weights : f64[nV], optional: defaults to IDF ``1 / ln(deg + e)``.
 
     Returns
 
@@ -253,9 +263,7 @@ def build_interfacing_bundle_sparse(rex, target_indices, target_weights,
     nV, _nE = int(rex.nV), int(rex.nE)
 
     # target_signal=None means "score psi against itself": the self interfacing
-    # reading, resolved below once psi exists. Callers used to get it by running the
-    # whole bundle twice (a throwaway call with a zero target purely to obtain psi,
-    # then a real one) paying two L0^+ solves for one reading.
+    # Resolve the reading once psi is available.
     self_target = target_signal is None
     def real_vector(value, name, size=None):
         raw = np.asarray(value)

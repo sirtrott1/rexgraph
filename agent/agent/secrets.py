@@ -8,7 +8,7 @@ production pattern: config stores a *reference* (an env var / secret path), and
 the real secret is fetched at resolve time and never persisted by us.
 
 Select via ``REXGRAPH_SECRETS_URI``:
-  * ``file://…``  (default) - FileSecretStore, a local JSON store.
+  * ``file://…``  (default): FileSecretStore, a local JSON store.
   * ``env://``    - EnvSecretStore, URIs resolved from environment references.
 """
 
@@ -19,6 +19,7 @@ import contextlib
 import json
 import os
 import re
+import tempfile
 from urllib.parse import urlparse, urlunparse
 
 
@@ -50,6 +51,39 @@ class SecretStore:
         raise NotImplementedError
 
 
+def _load_store(path: str, field: str) -> dict:
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        raise ValueError("unreadable secret store; refusing to modify") from exc
+    if not isinstance(data, dict) or any(
+        not isinstance(name, str) or not isinstance(record, dict)
+        or not isinstance(record.get(field), str)
+        or ("kind" in record and not isinstance(record["kind"], str))
+        for name, record in data.items()
+    ):
+        raise ValueError("invalid secret store; refusing to modify")
+    return data
+
+
+def _save_store(path: str, data: dict) -> None:
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".rex-secrets-", dir=parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
 class FileSecretStore(SecretStore):
     """Local JSON store (development default). Masks on list."""
 
@@ -57,29 +91,18 @@ class FileSecretStore(SecretStore):
         self.path = os.path.expanduser(path)
 
     def _load(self) -> dict:
-        if os.path.exists(self.path):
-            try:
-                with open(self.path) as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
+        return _load_store(self.path, "uri")
 
     def _save(self, data: dict) -> None:
         # This file holds connection URIs WITH embedded credentials in plaintext.
         # Create it owner only (0o600) and lock down the parent dir (0o700) so
         # other local users can't read stored secrets. For production, prefer the
         # env:// backend (REXGRAPH_SECRETS_URI=env://) over a file.
-        parent = os.path.dirname(self.path)
+        parent = os.path.dirname(self.path) or "."
         os.makedirs(parent, exist_ok=True)
         with contextlib.suppress(OSError):
             os.chmod(parent, 0o700)
-        tmp = self.path + ".tmp"
-        # Open with 0o600 from the start so the secrets never briefly exist world readable.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f)
-        os.replace(tmp, self.path)
+        _save_store(self.path, data)
         with contextlib.suppress(OSError):
             os.chmod(self.path, 0o600)
 
@@ -116,18 +139,10 @@ class EnvSecretStore(SecretStore):
         self.path = os.path.expanduser(index_path)
 
     def _load(self) -> dict:
-        if os.path.exists(self.path):
-            try:
-                with open(self.path) as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
+        return _load_store(self.path, "ref")
 
     def _save(self, data: dict) -> None:
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        with open(self.path, "w") as f:
-            json.dump(data, f)
+        _save_store(self.path, data)
 
     def get(self, name: str) -> str:
         rec = self._load().get(name)
@@ -220,10 +235,7 @@ def open_secret_store(uri: str = None) -> SecretStore:
         return EnvSecretStore()
     if uri.startswith("file://"):
         return FileSecretStore(uri[len("file://"):])
-    # A bare path is a file store. Anything carrying an unsupported scheme is a
-    # configuration error: falling through to FileSecretStore(uri) used to create a
-    # file literally named "vault://team/prod" and report success, so every secret
-    # went somewhere the operator did not intend.
+    # Bare paths select a file store. Unsupported schemes raise before file creation.
     if "://" in uri:
         scheme = uri.split("://", 1)[0]
         raise ValueError(

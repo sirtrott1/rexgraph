@@ -17,7 +17,7 @@ def _wait(cond, timeout=2.0):
 
 def test_journal_tailer_folds_peer_events(tmp_path):
     # a peer process (different src) appends to the shared journal; the tailer folds it into this log
-    # AND pushes it live to subscribers - this is exactly what a CLI action -> running server looks like.
+    # AND pushes it live to subscribers: this is exactly what a CLI action -> running server looks like.
     jp = tmp_path / "activity.jsonl"
     activity.reset()
     log = activity.get_log()

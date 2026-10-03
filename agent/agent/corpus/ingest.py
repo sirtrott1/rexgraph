@@ -39,13 +39,16 @@ DOC_TAGS = ("document", "corpus")
 
 
 def doc_id_for(path: str) -> str:
-    """A stable id for a source file: its basename without extension.
+    """A stable id for the canonical declared source path.
 
     Stable across runs is the whole requirement: it is what lets `pending` recognise
     an already ingested document, and what makes a re ingest a new VERSION of the same
     document rather than a second document.
     """
-    return os.path.splitext(os.path.basename(str(path)))[0]
+    import hashlib
+    declared = os.path.normcase(os.path.realpath(os.path.abspath(os.path.expanduser(path))))
+    digest = hashlib.sha256(b"rexgraph-corpus-source-v1\0" + declared.encode("utf-8"))
+    return "doc_" + digest.hexdigest()[:24]
 
 
 def ingest_one(path: str, *, profile=None, analytics: bool = False,
@@ -96,13 +99,20 @@ def pending(store, paths) -> list[str]:
     This is what makes a re run a resume instead of a duplicate: `put` appends a
     version, so an unfiltered re run silently doubles the corpus.
     """
+    paths = list(paths)
+    legacy_sources = {}
+    for path in paths:
+        legacy = os.path.splitext(os.path.basename(str(path)))[0]
+        legacy_sources.setdefault(legacy, set()).add(doc_id_for(str(path)))
     have = set()
     try:
         have = {str(k) for k in store._idx}         # FileStore / MemoryStore index
     except AttributeError:
         for rec in store.list(limit=10 ** 9):
             have.add(str(rec.id))
-    return [p for p in paths if doc_id_for(p) not in have]
+    return [p for p in paths if doc_id_for(str(p)) not in have
+            and not (os.path.splitext(os.path.basename(str(p)))[0] in have
+                     and len(legacy_sources[os.path.splitext(os.path.basename(str(p)))[0]]) == 1)]
 
 
 def ingest_corpus(paths, store, *, profile=None, workers: int | None = None,

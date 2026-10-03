@@ -1,34 +1,25 @@
-"""
-rcdb.core: the Relational Complex Database (RCDB).
+"""RCDB: native relational complex and typed record persistence.
 
-A backend agnostic store where **every record is a relational complex**.
-One interface (:class:`RCStore`), several pluggable backends, and
-**structural query** (the part nobody else has): select complexes by their
-topology (Betti numbers, coherence, voids), not just by id or column value.
+Memory, Local and new SQLite stores share the checked state engine, exact
+metadata, version/tombstone rules, envelope ownership and logical change cursors.
+Graph signatures support structural queries; generic values declare installed
+codecs and do not impersonate graph grades. Backends register public factories.
 
-The design separates two things:
-  * the *blob*: the complex itself, serialized with the ``rexgraph.io``
-    layer (safetensors by default; any supported format works);
-  * the *signature*: a small, queryable structural summary
-    (nV/nE/nF, Betti, κ, chain validity, types, tags, source).
+    open_store("memory://")                   # native ephemeral store
+    open_store("local:///var/lib/rexgraph/db") # canonical durable local engine
+    open_store("sqlite:///rcdb.sqlite")       # native new SQLite store
+    open_store("file:///existing/legacy-db")  # read-only migration source
 
-Backends differ only in where blob + signature live, so an enterprise can
-run the default file store on a laptop and the same code against Postgres
-or S3 in production by changing one URI:
-
-    open_store("memory://")                       # ephemeral / tests
-    open_store("file:///var/lib/rexgraph/store")  # local, no deps
-    open_store("sqlite:///rcdb.sqlite")           # embedded SQL
-    open_store("postgresql://user@host/db")       # any SQLAlchemy backend
-
-New backends register themselves via :func:`register_backend`, so a team
-can plug in their own database or object store without touching the core.
+Legacy file/packed readers preserve existing data without implicit migration.
+Object and non native SQL adapters retain their compatibility contracts; their
+engine adoption and provider durability qualification remain separate work.
 """
 
 from __future__ import annotations
 
 import builtins
 import contextlib
+import hashlib
 import json
 import os
 import sys
@@ -37,7 +28,7 @@ import time
 import zlib
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import wraps
 from math import isfinite
 from numbers import Integral, Real
@@ -46,6 +37,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import numpy as np
+from .envelope import RecordEnvelope, encode_mapping, decode_mapping, dumps_mapping, loads_mapping, snapshot_mapping, wire_mapping
 
 from .analytics import coherence_greens_mean, coherence_mean
 
@@ -89,16 +81,10 @@ def _now():
 # serialization (complex <-> bytes)
 
 class _Prepared:
-    """A complex that was built and serialized somewhere else, carrying its bytes.
+    """Prepared native complex bytes accepted by serialize_complex.
 
-    A corpus ingest builds each complex in a worker PROCESS, because the build and the
-    exact rank reduction are pure Python and a thread pool cannot run them in parallel.
-    What comes back over the pipe is bytes, not an object, and re deserialising it in the
-    parent just to have `_put_impl` serialize it again would pay the whole cost twice.
-
-    Every store's `_put_impl` touches its `rex` argument through `serialize_complex` and
-    nowhere else, so passing one of these through is enough to make all three accept a
-    finished artifact. That is why this is a sentinel rather than a fourth store method.
+    The payload carries serialized graph state without reconstructing a RexGraph
+    in the receiving process.
     """
 
     __slots__ = ("blob",)
@@ -118,13 +104,9 @@ _CODEC_ZSTD = b"s"
 
 
 def _codec():
-    """The compressor to write with: zstd where it is installed, else zlib.
+    """Return the zstd codec marker when installed, otherwise the zlib marker.
 
-    zstd at level 3 measured 500 MiB/s against zlib 6's 28 MiB/s for the same ratio on a
-    document blob, which over a corpus is the difference between minutes and an hour. It
-    is an optional dependency, so a host without it still writes a readable store, but
-    a store written WITH it needs it to read, which is why the codec is named in the
-    frame rather than assumed.
+    Reading a frame requires the compressor named by its marker.
     """
     try:
         import zstandard  # noqa: F401
@@ -133,15 +115,19 @@ def _codec():
         return _CODEC_ZLIB
 
 
-def compress_blob(raw: bytes, level: int | None = None) -> bytes:
-    """Frame and compress a serialized complex.
-
-    The tensors are exact integers and offsets, mostly small values in sorted runs, so a
-    general compressor takes about 45% of them. What it cannot touch is anything already
-    at full entropy: see `merkle.pack_merkle`, which is why the digests are DERIVED
-    rather than stored.
-    """
-    c = _codec()
+def compress_blob(raw: bytes, level: int | None = None, *, codec: str | None = None) -> bytes:
+    """Frame and compress a serialized complex using the selected codec and level."""
+    if codec is not None and (type(codec) is not str or codec not in {"none", "zlib", "zstd"}):
+        raise ValueError("unknown blob compression codec")
+    if level is not None and type(level) is not int:
+        raise ValueError("blob compression level requires a native integer")
+    if codec == "none":
+        if level is not None:
+            raise ValueError("uncompressed blobs cannot declare a compression level")
+        return raw
+    # None is retained for callers of the legacy ambient selection API. The
+    # record engine supplies the codec sealed in its store header.
+    c = _codec() if codec is None else (_CODEC_ZSTD if codec == "zstd" else _CODEC_ZLIB)
     if c == _CODEC_ZSTD:
         import zstandard
         body = zstandard.ZstdCompressor(level=3 if level is None else level).compress(raw)
@@ -150,9 +136,13 @@ def compress_blob(raw: bytes, level: int | None = None) -> bytes:
     return _BLOB_MAGIC + c + body
 
 
-def decompress_blob(blob: bytes) -> bytes:
+def decompress_blob(blob: bytes, *, max_output_bytes: int = 256*1024*1024) -> bytes:
     """The inverse, passing a legacy uncompressed blob through untouched."""
+    if type(max_output_bytes) is not int or max_output_bytes <= 0:
+        raise ValueError("blob output limit must be positive")
     if not blob[:4] == _BLOB_MAGIC:
+        if len(blob) > max_output_bytes:
+            raise ValueError("blob exceeds its declared output limit")
         return blob                                         # written before compression
     c, body = blob[4:5], blob[5:]
     if c == _CODEC_ZSTD:
@@ -162,9 +152,33 @@ def decompress_blob(blob: bytes) -> bytes:
             raise RuntimeError(
                 "this blob was written with zstd; install `zstandard` to read it "
                 "(pip install zstandard)") from exc
-        return zstandard.ZstdDecompressor().decompress(body, max_output_size=0)
+        decoder = zstandard.ZstdDecompressor()
+        try:
+            size = zstandard.frame_content_size(body)
+            if size > max_output_bytes:
+                raise ValueError("decompressed blob exceeds its declared output limit")
+            # max_output_size bounds frames without a declared size; zstd ignores
+            # it when the header supplies a size, which is why the check is above.
+            raw = decoder.decompress(body, max_output_size=max_output_bytes, allow_extra_data=False)
+            if size < 0:
+                # Some zstd bindings ignore allow_extra_data for unknown size
+                # frames. The bounded decode above has established the first
+                # frame's output size before this explicit framing check.
+                framing = decoder.decompressobj()
+                framing.decompress(body)
+                if not framing.eof or framing.unused_data:
+                    raise ValueError("compressed blob is incomplete or contains trailing bytes")
+        except zstandard.ZstdError as exc:
+            raise ValueError("compressed blob is invalid, incomplete, or exceeds its output limit") from exc
+        return raw
     if c == _CODEC_ZLIB:
-        return zlib.decompress(body)
+        decoder = zlib.decompressobj()
+        raw = decoder.decompress(body, max_output_bytes+1)
+        if len(raw) > max_output_bytes or decoder.unconsumed_tail:
+            raise ValueError("decompressed blob exceeds its declared output limit")
+        if not decoder.eof or decoder.unused_data:
+            raise ValueError("compressed blob is incomplete or contains trailing bytes")
+        return raw
     raise ValueError(f"unknown blob codec {c!r}")
 
 
@@ -332,20 +346,7 @@ def structural_signature(rex, meta: dict | None = None,
         sig["kappa_mean"] = None
     if voids:
         try:
-            # The void reading routes an nE x nE object through LAPACK, which overflows
-            # its int32 indexing past ~46k relations: measured, it grinds 42s on a
-            # 52,246 relation complex and then raises. Ask the library's own guard first
-            # and decline fast, which reaches the same `except` in a millisecond.
-            #
-            # That guard bounds MEMORY, and the cost here is TIME. `build_void_complex`
-            # densifies nE x nE internally whatever the caller does, so a complex whose
-            # dense form merely FITS still pays O(nE^2): measured, one 12,890 relation
-            # book took 1,332 s (97% of it in csr_matmat) while a LARGER 27,192 relation
-            # book returned in 3.0 s because 5.9 GB tripped the ceiling and 1.3 GB did
-            # not. Being under a memory ceiling is not the same as being affordable, so
-            # the reading is off by default rather than gated by a number that answers
-            # the wrong question. A caller analysing ONE document asks for it; a corpus
-            # ingest, which is what this signature is on the path of, does not.
+            # Check the dense allocation guard before the optional void reading.
             from rexgraph.core._common import check_dense_allocation
             check_dense_allocation("void_complex nE x nE", int(rex.nE), int(rex.nE))
             vc = rex.void_complex
@@ -374,7 +375,11 @@ def structural_signature(rex, meta: dict | None = None,
 
 @dataclass
 class ComplexRecord:
-    """A stored relational complex + its structural signature."""
+    """Owned stored object metadata; complex records carry structural signatures.
+
+    StoredRecord is the general public alias. Historical ComplexRecord imports
+    remain the same type and serialization contract.
+    """
     id: str
     signature: dict[str, Any]
     created: float = field(default_factory=_now)
@@ -384,21 +389,72 @@ class ComplexRecord:
     tx_to: float | None = None
     valid_from: float | None = None
     valid_to: float | None = None
+    envelope: RecordEnvelope | None = None
+
+    @property
+    def is_complex(self):
+        return self.envelope is None or self.envelope.codec == "rexgraph.safetensors"
+
+    @property
+    def object_type(self):
+        return self.envelope.object_type if self.envelope is not None else self.signature.get("object_type")
+
+    def __post_init__(self):
+        if self.envelope is not None:
+            if not isinstance(self.envelope, RecordEnvelope):
+                raise TypeError("record envelope must be a declared RecordEnvelope")
+            if (type(self.version) is not int or self.id != self.envelope.record_id
+                    or self.version != self.envelope.record_version):
+                raise ValueError("record envelope differs from its metadata address")
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "signature": self.signature, "created": self.created,
-                "meta": self.meta, "version": self.version, "tx_from": self.tx_from,
+        """Caller owned semantic fields, independent of the storage envelope."""
+        result = {"id": self.id, "signature": snapshot_mapping(self.signature), "created": self.created,
+                "meta": snapshot_mapping(self.meta), "version": self.version, "tx_from": self.tx_from,
                 "tx_to": self.tx_to, "valid_from": self.valid_from, "valid_to": self.valid_to}
+        if self.envelope is not None:
+            result["envelope"] = self.envelope.as_record()
+        return result
+
+    def to_storage_dict(self) -> dict:
+        result = self.to_dict()
+        result.update(record_values_version=1, signature=encode_mapping(self.signature), meta=encode_mapping(self.meta))
+        return result
+
+    def detached(self):
+        """Return caller owned metadata without copying any stored payload."""
+        return replace(self, signature=snapshot_mapping(self.signature), meta=snapshot_mapping(self.meta))
+
+    def to_wire_dict(self) -> dict:
+        """JSON transport with explicit native envelopes for exact fields.
+
+        Read with ``ComplexRecord.from_dict``. Ordinary JSON signatures and
+        metadata keep their existing shape; storage and HTTP share one codec.
+        """
+        result = self.to_dict()
+        for name in ("signature", "meta"):
+            value = result[name]
+            encoded = wire_mapping(value)
+            result[name] = encoded
+            if encoded is not value:
+                result["record_values_version"] = 1
+        return result
 
     @classmethod
     def from_dict(cls, d: dict) -> ComplexRecord:
         created = d.get("created", _now())
+        decode = decode_mapping if d.get("record_values_version") == 1 else snapshot_mapping
+        if "record_values_version" in d and (type(d["record_values_version"]) is not int or d["record_values_version"] != 1):
+            raise ValueError("unknown record values version")
         return cls(
-            id=d["id"], signature=d.get("signature", {}), created=created,
-            meta=d.get("meta", {}), version=d.get("version", 1),
+            id=d["id"], signature=decode(d.get("signature", {})), created=created,
+            meta=decode(d.get("meta", {})), version=d.get("version", 1),
             tx_from=d.get("tx_from", created), tx_to=d.get("tx_to"),
-            valid_from=d.get("valid_from"), valid_to=d.get("valid_to"))
+            valid_from=d.get("valid_from"), valid_to=d.get("valid_to"),
+            envelope=None if d.get("envelope") is None else RecordEnvelope.from_record(d["envelope"]))
 
+
+StoredRecord = ComplexRecord
 
 # structural predicate
 
@@ -446,10 +502,13 @@ def _write_interval(valid_from, valid_to):
 class VersionConflictError(ValueError):
     """An expected record version no longer matches the published current state."""
 
-def _sig_index_values(sig: dict[str, Any]) -> dict[str, Any]:
+def _sig_index_values(sig: dict[str, Any], *, is_complex=True) -> dict[str, Any]:
     """Extract the promoted to column values from a signature (for SQLStore)."""
     betti = sig.get("betti") or []
     source = sig.get("source") or ""
+    if not is_complex:
+        return {"nV": None, "nE": None, "betti1": None, "kappa_mean": None, "chain_valid": None,
+                "source": source if isinstance(source, str) else None}
     return {
         "nV": int(sig.get("nV", 0) or 0),
         "nE": int(sig.get("nE", 0) or 0),
@@ -484,7 +543,7 @@ def _record_labels(sig: dict[str, Any], meta: dict[str, Any] | None = None) -> s
 
 
 def _matches(sig: dict[str, Any], q: dict[str, Any],
-             meta: dict[str, Any] | None = None) -> bool:
+             meta: dict[str, Any] | None = None, *, is_complex=True, record_type=None) -> bool:
     """Evaluate a structural query against a signature.
 
     Supported keys: min_nV/max_nV, min_nE/max_nE, min_nF,
@@ -496,12 +555,15 @@ def _matches(sig: dict[str, Any], q: dict[str, Any],
     match every record, which returns a wrong answer that looks like a right one:
     `query(nE=4)` reads as a filter but the bound is spelled `max_nE`.
     """
-    checks = _query_checks(sig, meta)
+    checks = _query_checks(sig, meta, record_type=record_type)
     unknown = sorted(set(q) - _QUERY_KEYS)
     if unknown:
         raise TypeError(
             f"unsupported query key(s): {', '.join(unknown)}. Supported: "
             f"{', '.join(sorted(_QUERY_KEYS))}")
+    if (not is_complex and any(v is not None and (k.startswith(("min_", "max_"))
+                                      or k in {"chain_valid", "has_voids"}) for k, v in q.items())):
+        return False  # Generic declarations carry no graph grades or invariants.
     for key, pred in checks:
         if key in q and q[key] is not None:
             try:
@@ -515,12 +577,13 @@ def _matches(sig: dict[str, Any], q: dict[str, Any],
     return True
 
 
-def _query_checks(sig: dict[str, Any], meta: dict[str, Any] | None):
+def _query_checks(sig: dict[str, Any], meta: dict[str, Any] | None, *, record_type=None):
     """(key, predicate) for every supported query key, bound to one record."""
     def betti(i):
         b = sig.get("betti")
         return b[i] if (b and len(b) > i) else 0
     return [
+        ("record_type", lambda v: (sig.get("object_type") if record_type is None else record_type) == v),
         ("labels_any", lambda v: bool(_record_labels(sig, meta)
                                       & {str(x).lower() for x in v})),
         ("labels_all", lambda v: {str(x).lower() for x in v}
@@ -562,6 +625,15 @@ def _recompress_one(path: str, verify: bool = True, force: bool = False) -> tupl
     except OSError as exc:
         return (path, 0, 0, f"{type(exc).__name__}: {exc}", False)
     from rexgraph.io.security import ENVELOPE_MAGIC
+    from .envelope import RECORD_MAGIC
+    if raw.startswith(RECORD_MAGIC):
+        # The claim names exact payload bytes. Changing compression would also
+        # require a transactionally published replacement metadata envelope.
+        try:
+            RecordEnvelope.from_bytes(raw)
+        except ValueError as exc:
+            return (path, len(raw), len(raw), f"ValueError: {exc}", False)
+        return (path, len(raw), len(raw), None, False)
     if raw.startswith(ENVELOPE_MAGIC):
         # Recompression deserializes and rewrites. A sealed blob cannot be opened here,
         # and forcing it would replace ciphertext with whatever the failure produced.
@@ -591,6 +663,7 @@ def _serialized(method):
     @wraps(method)
     def run(self, *args, **kwargs):
         with self._transaction_lock:
+            self._check_open()
             if self._publication_uncertain:
                 raise PublicationUncertainError("RCDB publication is uncertain; reopen and verify before writing")
             self._corpus_cache = None
@@ -604,24 +677,83 @@ def _serialized(method):
     return run
 
 
+def _owned_records(method):
+    """All public record reads return snapshots under the store handle's lock."""
+    @wraps(method)
+    def run(self, *args, **kwargs):
+        with self._transaction_lock:
+            self._check_open()
+            if self._publication_uncertain:
+                raise PublicationUncertainError("RCDB publication is uncertain; reopen and verify before reading")
+            value = method(self, *args, **kwargs)
+            if value is None:
+                return None
+            if isinstance(value, ComplexRecord):
+                return value.detached()
+            return [record.detached() for record in value]
+    return run
+
+
 class RCStore:
     """Abstract Relational Complex Store."""
 
     backend = "abstract"
     _cache_corpus = False
 
+    @property
+    def logical_state_version(self):
+        """Format identity advertised with this provider's logical state digest."""
+        return 2
+
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
         instance._transaction_lock = RLock()
         instance._publication_uncertain = False
         instance._corpus_cache = None
+        instance._store_identity = None
         return instance
+
+    @property
+    def store_id(self):
+        """Opaque identity of this logical store, stable across durable reopenings."""
+        with self._transaction_lock:
+            if self._store_identity is None:
+                self._store_identity = self._load_store_identity()
+            return self._store_identity.id
+
+    def _load_store_identity(self):
+        raise NotImplementedError("this backend must supply a durable store identity")
+
+    def _check_open(self):
+        """Providers with an explicit closed state refuse further operations here."""
+        return None
+
+    def _check_writable(self):
+        if getattr(self, "read_only", False):
+            raise PermissionError("legacy RCDB stores are read-only; migrate into LocalStore, MemoryStore or native SQLite")
 
     def corpus_snapshot(self, *, as_of=None, valid_at=None, signature_fields=None):
         """Capture projected accession terms on one visible version per record."""
         from .corpus import capture
-        return capture(self, as_of=as_of, valid_at=valid_at, signature_fields=signature_fields)
+        with self.read_transaction():
+            return capture(self, as_of=as_of, valid_at=valid_at, signature_fields=signature_fields)
 
+    @contextlib.contextmanager
+    def read_transaction(self):
+        """Pin reads on this handle; providers may supply stronger arbitration."""
+        with self._transaction_lock:
+            self._check_open()
+            if self._publication_uncertain:
+                raise PublicationUncertainError("RCDB publication is uncertain; reopen before reading")
+            yield self
+
+    @contextlib.contextmanager
+    def write_scope(self):
+        """Reserve a native provider's writer through one conditional publication."""
+        raise NotImplementedError("this backend has no native writer scope")
+        yield self
+
+    @_serialized
     def configure_security(self, *, key_id=None, keys=None, mutation_policy=None,
                            verifiers=None, transition_signer=None, lineage_signer=None,
                            signature_mode="public", metadata_fields=None,
@@ -633,29 +765,34 @@ class RCStore:
         calls it reads and writes exactly as before, which is what keeps every existing
         store readable.
         """
-        self._security_key_id = None if key_id is None else str(key_id)
-        self._security_keys = keys
-        self._mutation_policy = mutation_policy
-        self._mutation_verifiers = dict(verifiers or {})
-        self._transition_signer = transition_signer
-        self._lineage_signer = lineage_signer
-        self._require_commits = bool(require_commits)
         mode = str(signature_mode).lower()
         if mode not in {"public", "structural", "minimal"}:
             raise ValueError("signature_mode must be public, structural, or minimal")
-        self._signature_mode = mode
-        self._metadata_fields = (None if metadata_fields is None
-                                 else frozenset(str(x) for x in metadata_fields))
+        selected_fields = (None if metadata_fields is None
+                           else frozenset(str(x) for x in metadata_fields))
+        selected_verifiers = dict(verifiers or {})
         for signer in (transition_signer, lineage_signer):
             if signer is not None and hasattr(signer, "verifier"):
                 verifier = signer.verifier()
-                self._mutation_verifiers.setdefault(str(verifier.signer_id), verifier)
+                selected_verifiers.setdefault(str(verifier.signer_id), verifier)
+        selected_key_id = None if key_id is None else str(key_id)
+        selected_require_commits = bool(require_commits)
+        self._security_key_id = selected_key_id
+        self._security_keys = keys
+        self._mutation_policy = mutation_policy
+        self._mutation_verifiers = selected_verifiers
+        self._transition_signer = transition_signer
+        self._lineage_signer = lineage_signer
+        self._require_commits = selected_require_commits
+        self._signature_mode = mode
+        self._metadata_fields = selected_fields
         return self
 
     def _stored_meta(self, meta):
         """The meta this store persists, which need not be all of it."""
         value = _priv(meta) or {}
-        if getattr(self, "_signature_mode", "public") == "public":
+        if (getattr(self, "_signature_mode", "public") == "public"
+                and getattr(self, "_metadata_fields", None) is None):
             return value
         allowed = getattr(self, "_metadata_fields", None) or frozenset()
         return {k: value[k] for k in sorted(allowed) if k in value}
@@ -708,7 +845,7 @@ class RCStore:
             return decrypt_bytes(raw, keys=keys)
         except PermissionError:
             raise
-        except Exception as exc:                     # noqa: BLE001 - wrong key or tamper
+        except Exception as exc:                     # noqa: BLE001  # wrong key or tamper
             # A wrong key is a refusal, not a library exception. decrypt_bytes lets
             # cryptography's InvalidTag through, so without this a caller would have to
             # import cryptography to catch what the store did, and a store configured
@@ -721,6 +858,32 @@ class RCStore:
 
     def _deserialize_payload(self, blob: bytes, *, verify: bool = True):
         return deserialize_complex(self._decode_payload(blob), verify=verify)
+
+    def _record_payload(self, record, rex=None, *, payload=None, identity=None):
+        """Bind a serialized object before any backend publishes its metadata."""
+        from .engine import bind_record
+        from .codecs import EncodedRecord
+        if isinstance(rex, EncodedRecord):
+            self.header.check_record_codec(rex.reference.name, rex.reference.version)
+            payload = self.blob_codec.encode(rex.payload)
+            record, raw = bind_record(record, payload, store_id=self.store_id,
+                identity=(rex.object_type, rex.digest), codec=rex.reference.name, codec_version=rex.reference.version)
+            return record, self._encode_payload(raw, object_type="RCDB.Record")
+        if payload is None:
+            # Keep the existing serialization hook's single argument contract.
+            payload = self._decode_payload(self._serialize_payload(rex))
+        record, raw = bind_record(record, payload, store_id=self.store_id, identity=identity,
+                                  compression=getattr(self, "blob_codec", None))
+        return record, self._encode_payload(raw, object_type="RCDB.Record")
+
+    def _read_record_payload(self, record, blob, *, verify=True):
+        from .engine import open_record, rebuild_record
+        from .envelope import RECORD_MAGIC
+        raw = self._decode_payload(blob)
+        store_id = self.store_id if raw.startswith(RECORD_MAGIC) or record.envelope is not None else None
+        payload, state = open_record(record, raw, store_id=store_id,
+                                     compression=getattr(self, "blob_codec", None))
+        return rebuild_record(payload, state, verify=verify)
 
     def _encode_commit(self, package) -> bytes:
         from rexgraph.io.mutation import mutation_to_bytes
@@ -749,6 +912,7 @@ class RCStore:
         that a record was meant to stop existing, so where commits are required a raw
         delete would silently end a lineage the chain still claims is intact.
         """
+        self._check_writable()
         if getattr(self, "_require_commits", False):
             raise PermissionError(
                 "raw deletion is disabled when this store requires mutation commits")
@@ -782,7 +946,7 @@ class RCStore:
         started from is the one on disk, which is why `previous` is passed here and why
         verify_mutation requires it rather than defaulting.
         """
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         from rexgraph.io.mutation import MutationPolicy, verify_mutation
         policy = getattr(self, "_mutation_policy", None) or MutationPolicy()
         verifiers = getattr(self, "_mutation_verifiers", {})
@@ -790,9 +954,16 @@ class RCStore:
         previous_state = ""
         previous_rex = None
         for rec in self.history(str(id)):
-            rex = self.get_version(rec.id, rec.version)
+            if self._commit_predecessor_reset(rec):
+                parent, previous_state, previous_rex = None, "", None
+            try:
+                rex = self.get_version(rec.id, rec.version)
+            except ValueError:
+                return False  # A refused record binding cannot certify a commit chain.
             if rex is None:
                 return False
+            if rec.envelope is not None and rec.envelope.codec != "rexgraph.safetensors":
+                return False  # Current Core mutation packages attest complex states.
             current_state = object_digest(rex)
             raw = self._load_commit_bytes(rec.id, rec.version)
             if raw is None:
@@ -816,10 +987,14 @@ class RCStore:
             previous_rex = rex
         return True
 
+    def _commit_predecessor_reset(self, record):
+        """Engine stores may retain old incarnations across durable tombstones."""
+        return False
+
     @_serialized
     def commit_mutation(self, id, rex, meta=None, tags=None, *, valid_from=None,
                         valid_to=None, actor="", tx_time=None, analytics=True,
-                        voids=False, expected_version=None):
+                        voids=False, expected_version=None, signature=None):
         """Append a version together with the signed artifact that attests to it.
 
         The artifact is staged BEFORE the record and rolled back if the record write
@@ -828,6 +1003,7 @@ class RCStore:
         behind, and that direction is the safe one: an unreferenced artifact is inert,
         while a version with no commit is a hole in the chain.
         """
+        self._check_writable()
         from rexgraph.io.mutation import (
             MutationPolicy,
             prepare_mutation,
@@ -837,6 +1013,8 @@ class RCStore:
         valid_from, valid_to = _write_interval(valid_from, valid_to)
         if not isinstance(actor, str):
             raise TypeError("mutation actor must be a string")
+        if signature is not None:
+            signature = snapshot_mapping(signature)
         if expected_version is not None and (
             isinstance(expected_version, bool) or not isinstance(expected_version, Integral)
             or expected_version < 0
@@ -878,9 +1056,16 @@ class RCStore:
         version = self.next_version(str(id))
         self._store_commit_bytes(str(id), version, self._encode_commit(package))
         try:
-            rec = self.put(id, rex, meta, tags, valid_from=valid_from,
-                           valid_to=valid_to, analytics=analytics, voids=voids,
-                           _tx_time=now, _mutation_commit=_MUTATION_COMMIT)
+            if signature is None:
+                rec = self.put(id, rex, meta, tags, valid_from=valid_from,
+                               valid_to=valid_to, analytics=analytics, voids=voids,
+                               _tx_time=now, _mutation_commit=_MUTATION_COMMIT)
+            else:
+                from .engine import encode_native_payload
+                from .header import BlobCodecSpec
+                rec = self.put_prepared(id, encode_native_payload(rex, BlobCodecSpec()), signature, meta, tags,
+                                       valid_from=valid_from, valid_to=valid_to, _tx_time=now,
+                                       _mutation_commit=_MUTATION_COMMIT)
             if int(rec.version) != int(version):
                 raise RuntimeError("RCDB version changed while publishing mutation")
             return rec
@@ -905,11 +1090,25 @@ class RCStore:
             "allowed_signer_count": len(getattr(policy, "allowed_signers", ()) or ()),
         }
 
+    def transfer_policy_digest(self):
+        """Pin the destination's logical copy policy without exporting capabilities."""
+        from rexgraph.value_codec import pack_value
+        with self._transaction_lock:
+            self._check_open()
+            policy = getattr(self, "_mutation_policy", None)
+            fields = getattr(self, "_metadata_fields", None)
+            value = {"security": self.security_status(),
+                     "metadata_fields": None if fields is None else sorted(fields),
+                     "mutation_policy": None if policy is None else policy.manifest()}
+            return hashlib.sha256(b"rexgraph-migration-destination-policy\x00"
+                                  + pack_value(value)).hexdigest()
+
     @_serialized
     def put(self, id, rex, meta=None, tags=None, *, valid_from=None, valid_to=None,
             analytics=True, voids=False, _tx_time=None, _mutation_commit=False):
         """Append a new version of `id`. Template method: build the signature, delegate
         storage to _put_impl, then emit a best effort change feed event."""
+        self._check_writable()
         if getattr(self, "_require_commits", False) and _mutation_commit is not _MUTATION_COMMIT:
             # An ungoverned write into a store that requires commits would create a
             # version with nothing attesting to it, which is the hole the requirement
@@ -918,7 +1117,7 @@ class RCStore:
                 "this RCDB store requires TemporalRex mutation commits")
         _read_selector(id, None, _tx_time, None)
         valid_from, valid_to = _write_interval(valid_from, valid_to)
-        raw_meta = _priv(meta) or {}
+        raw_meta = snapshot_mapping(_priv(meta) or {})
         # `analytics=False` writes the structural facts (nV/nE/betti/chain_valid/
         # sectionings/merkle_root/labels_sample) and leaves the analytics columns unset.
         # It exists for corpus ingest, where those columns are 85% of the cost and
@@ -931,38 +1130,87 @@ class RCStore:
         # from and the index must answer for the real term even when the record no longer
         # carries it.
         search_terms = tuple(sorted(_record_labels(raw_sig, raw_meta)))
-        meta = self._stored_meta(raw_meta)
-        sig = self._stored_signature(raw_sig)
+        meta = snapshot_mapping(self._stored_meta(raw_meta))
+        sig = snapshot_mapping(self._stored_signature(raw_sig))
         rec = self._put_impl(id, rex, sig, meta, tags, valid_from, valid_to,
                              search_terms, tx_time=_tx_time)
         self._emit("rcdb.put", id, rec.version, sig)
-        return rec
+        return rec.detached()
 
     @_serialized
     def put_prepared(self, id, blob, sig, meta=None, tags=None, *,
-                     valid_from=None, valid_to=None):
+                     valid_from=None, valid_to=None, _tx_time=None, _mutation_commit=False):
         """`put` for a complex already built, serialized and signed elsewhere.
 
         Same record, same versioning, same change feed event: it skips only the two
         steps the caller has already paid for. The caller owns the signature, so it also
         owns whether `analytics` were computed into it.
         """
-        if getattr(self, "_require_commits", False):
-            raise PermissionError("this RCDB store requires TemporalRex mutation commits")
-        _read_selector(id, None, None, None)
+        self._check_writable()
+        if getattr(self, "_require_commits", False) and _mutation_commit is not _MUTATION_COMMIT:
+            raise PermissionError("this RCDB store requires mutation commits")
+        _read_selector(id, None, _tx_time, None)
         valid_from, valid_to = _write_interval(valid_from, valid_to)
-        raw_meta = _priv(meta) or {}
+        raw_meta = snapshot_mapping(_priv(meta) or {})
         search_terms = tuple(sorted(_record_labels(sig, raw_meta)))
-        meta = self._stored_meta(raw_meta)
-        sig = self._stored_signature(sig)
+        meta = snapshot_mapping(self._stored_meta(raw_meta))
+        sig = snapshot_mapping(self._stored_signature(sig))
         rec = self._put_impl(id, _Prepared(blob), sig, meta, tags, valid_from, valid_to,
-                             search_terms)
+                             search_terms, tx_time=_tx_time)
         self._emit("rcdb.put", id, rec.version, sig)
-        return rec
+        return rec.detached()
 
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to,
                   search_terms=None, tx_time=None):
         raise NotImplementedError
+
+    def put_record(self, id, value, *, codec=None, meta=None, tags=None, signature=None,
+                   valid_from=None, valid_to=None, tx_time=None, expected_version=None):
+        """Publish a declared native value through this provider's shared engine.
+
+        Codecs are installed process capabilities and must be declared in the
+        immutable store header. Current graph mutation commits cannot govern
+        generic values; required commit stores refuse this operation.
+        """
+        self._check_writable()
+        from .codecs import VALUE_CODEC, record_codec
+        from .header import StoreHeader
+        _read_selector(id, None, tx_time, None)
+        valid_from, valid_to = _write_interval(valid_from, valid_to)
+        if expected_version is not None and (type(expected_version) is not int or expected_version < 0):
+            raise ValueError("expected version requires a nonnegative native integer")
+        if not isinstance(getattr(self, "header", None), StoreHeader):
+            raise ValueError("generic records require native record-state storage")
+        with self.write_scope():
+            if not isinstance(getattr(self, "header", None), StoreHeader):
+                raise ValueError("generic records require native record-state storage")
+            if getattr(self, "_require_commits", False):
+                raise PermissionError("current mutation commits cannot govern generic native records")
+            reference = VALUE_CODEC if codec is None else codec
+            provider = record_codec(reference)
+            self.header.check_record_codec(reference.name, reference.version)
+            current = self.get_record(id)
+            if current is not None and current.id != id:
+                current = None  # A legacy @version display alias is not this address.
+            actual = 0 if current is None else current.version
+            if expected_version is not None and actual != expected_version:
+                raise VersionConflictError("record expected version differs from current native version")
+            if self._load_commit_bytes(id, self.next_version(id)) is not None:
+                raise ValueError("native record address has an unpublished mutation artifact")
+            raw_meta = snapshot_mapping(_priv(meta) or {})
+            raw_signature = ({"object_type": provider.object_type, "tags": list(tags or []),
+                              "source": raw_meta.get("source", "")} if signature is None else snapshot_mapping(signature))
+            if raw_signature.get("object_type") != provider.object_type:
+                raise ValueError("native record signature must declare its codec's object type")
+            terms = tuple(sorted(_record_labels(raw_signature, raw_meta)))
+            encoded, _ = provider.prepare(value)
+            stored_meta = snapshot_mapping(self._stored_meta(raw_meta))
+            stored_signature = snapshot_mapping(self._stored_signature(raw_signature))
+            record = self._put_impl(id, encoded, stored_signature, stored_meta, tags,
+                                    valid_from, valid_to, terms, tx_time=tx_time)
+            self._corpus_cache = None
+            self._emit("rcdb.put", id, record.version, stored_signature)
+            return record.detached()
 
     def get(self, id, *, as_of=None, valid_at=None, verify: bool = True):
         """Return the reconstructed RexGraph, or None.
@@ -982,6 +1230,28 @@ class RCStore:
         written on the same tick."""
         raise NotImplementedError
 
+    def checkpoint(self, *, max_frames=256, target_bytes=8*1024*1024):
+        """Providers may coalesce physical replay without retiring logical history."""
+        raise NotImplementedError("this provider has no persistent replay checkpoint")
+
+    def plan_retention(self, policy=None):
+        """Plan bounded collection of unpublished staging; preserve all history."""
+        from .retention import plan_retention
+        return plan_retention(self, policy)
+
+    def apply_retention(self, plan):
+        """Recheck a retention plan under provider writer arbitration, then apply."""
+        from .retention import apply_retention
+        return apply_retention(self, plan)
+
+    def _record_at_version(self, id, version):
+        """Select literal address metadata; compatibility providers retain history lookup.
+
+        Native providers override this within their pinned read scope. Decoding
+        stays in _read_published_record so payload checks and identity stay shared.
+        """
+        return next((row for row in self.history(id) if row.version == version), None)
+
     def read_record(self, id: str, *, version=None, as_of=None, valid_at=None):
         """Select and decode one published version under this handle's write lock.
 
@@ -990,12 +1260,18 @@ class RCStore:
         None means no selected record; an existing record without its payload is
         an integrity failure, not a missing record. No numerical analytics run.
         """
+        from .header import StoreHeader
         _read_selector(id, version, as_of, valid_at)
         with self._transaction_lock:
             if self._publication_uncertain:
                 raise PublicationUncertainError("RCDB publication is uncertain; reopen and verify before reading")
             if version is not None:
-                rec = next((r for r in self.history(id) if r.version == version), None)
+                rec = self._record_at_version(id, version)
+            elif isinstance(getattr(self, "header", None), StoreHeader):
+                # Native providers share literal-ID/alias and bitemporal selection.
+                # Their pinned read scopes and point selection avoid cloning an
+                # entire retained lineage before decoding one published payload.
+                rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
             else:
                 # Backend legacy aliases vary; check the literal id's own history
                 # first so a stored id containing @ is never silently shadowed.
@@ -1014,12 +1290,19 @@ class RCStore:
 
     def _read_published_record(self, rec):
         """Decode a selected record while the caller holds the handle's lock."""
-        metadata = deepcopy(rec)
+        metadata = rec.detached()
         value = self.get_version(metadata.id, metadata.version)
-        if value is None:
+        if value is None and metadata.is_complex:
             raise ValueError(f"published RCDB record {metadata.id!r}@{metadata.version} has no payload")
-        from rexgraph.io.catalog import object_digest
-        return RecordSnapshot(metadata, value, object_digest(value))
+        from rexgraph.object_identity import object_digest
+        if metadata.envelope is not None and metadata.envelope.codec != "rexgraph.safetensors":
+            from .codecs import record_codec
+            from .header import CodecRef
+            provider = record_codec(CodecRef(metadata.envelope.codec, metadata.envelope.codec_version))
+            digest = provider.identity(provider.encode(value))
+        else:
+            digest = object_digest(value)
+        return RecordSnapshot(metadata, value, digest)
 
     def state_manifest(self):
         """Canonical logical history, excluding backend layout and derived analytics.
@@ -1048,12 +1331,13 @@ class RCStore:
                     "tags": sorted(set(metadata.signature.get("tags", []))),
                     "commit": None if artifact is None else self._decode_commit(artifact).digest,
                 })
-            return {"object_type": "RCDBLogicalState", "version": 1, "records": rows}
+            return {"object_type": "RCDBLogicalState", "version": self.logical_state_version, "records": rows}
 
     def state_digest(self):
-        """Hash the versioned logical manifest using the framework manifest codec."""
-        from rexgraph.io.manifest import manifest_digest
-        return manifest_digest(self.state_manifest())
+        """Hash logical state v2 without coercing native exact metadata to JSON."""
+        from rexgraph.value_codec import pack_value
+        return hashlib.sha256(b"rexgraph-rcdb-logical-state\x00\x02"
+                              + pack_value(self.state_manifest())).hexdigest()
 
     def history(self, id):
         raise NotImplementedError
@@ -1126,15 +1410,17 @@ class RCStore:
         raise NotImplementedError
 
     def stats(self) -> dict[str, Any]:
-        recs = self.list(limit=10 ** 9)
-        n = len(recs)
-        return {
-            "backend": self.backend, "count": n,
-            "total_vertices": sum(r.signature.get("nV", 0) for r in recs),
-            "total_edges": sum(r.signature.get("nE", 0) for r in recs),
-            "mean_kappa": (round(float(np.mean([r.signature.get("kappa_mean") or 0
-                                                for r in recs])), 4) if n else None),
-        }
+        with self.read_transaction():
+            recs = self.list(limit=sys.maxsize)
+            graphs = [r for r in recs if r.is_complex]
+            return {
+                "backend": self.backend, "count": len(recs), "n_records": len(recs),
+                "n_versions": len(self.list(limit=sys.maxsize, include_history=True)),
+                "total_vertices": sum(r.signature.get("nV", 0) for r in graphs),
+                "total_edges": sum(r.signature.get("nE", 0) for r in graphs),
+                "mean_kappa": (round(float(np.mean([r.signature.get("kappa_mean") or 0
+                                                    for r in graphs])), 4) if graphs else None),
+            }
 
     def close(self):
         pass
@@ -1146,46 +1432,105 @@ class MemoryStore(RCStore):
     backend = "memory"
     _cache_corpus = True
 
-    def __init__(self):
-        self._recs: dict[str, list[ComplexRecord]] = {}
+    def __init__(self, *, compression=None, record_codecs=None):
+        from .engine import StoreState
+        from .header import BlobCodecSpec, StoreHeader, record_codec_inventory
+        from .store_identity import StoreIdentity
+        if compression is not None and not isinstance(compression, BlobCodecSpec):
+            raise TypeError("memory compression requires a declared BlobCodecSpec")
+        self._header = StoreHeader(StoreIdentity.create(self.backend), compression or BlobCodecSpec(),
+                                   record_codec_inventory(record_codecs))
+        self._store_identity = self.header.identity
+        self._state = StoreState(self.header)
+        self._recs = self._state._rows  # Compatibility inspection, not an import/publication API.
         self._blobs: dict[tuple[str, int], bytes] = {}
         self._commit_blobs: dict[tuple[str, int], bytes] = {}
+        self._closed = False
+
+    def _load_store_identity(self):
+        return self.header.identity
+
+    @property
+    def header(self):
+        return self._header
+
+    @property
+    def blob_codec(self):
+        return self.header.compression
+
+    def _check_open(self):
+        if self._closed:
+            raise ValueError("memory store handle is closed")
+
+    @contextlib.contextmanager
+    def write_scope(self):
+        with self.read_transaction():
+            yield self
+
+    def _serialize_payload(self, rex):
+        from .engine import encode_native_payload
+        return self._encode_payload(encode_native_payload(rex, self.blob_codec), object_type="RCDB.Rex")
 
     def _store_commit_bytes(self, id, version, blob):
-        self._commit_blobs[(str(id), int(version))] = bytes(blob)
+        if self._state.change_for(id, version) is not None:
+            raise ValueError("cannot replace a published memory mutation artifact")
+        raw = bytes(blob)
+        existing = self._commit_blobs.get((id, version))
+        if existing is not None and existing != raw:
+            raise ValueError("unpublished mutation artifact already occupies this memory address")
+        self._commit_blobs[(id, version)] = raw
 
     def _load_commit_bytes(self, id, version):
-        return self._commit_blobs.get((str(id), int(version)))
+        import hashlib
+        raw = self._commit_blobs.get((id, version))
+        change = self._state.change_for(id, version)
+        if change is not None:
+            if raw is None and change.commit_digest is not None:
+                raise ValueError("published memory mutation artifact is missing")
+            if raw is not None and hashlib.sha256(raw).hexdigest() != change.commit_digest:
+                raise ValueError("memory mutation artifact differs from its published digest")
+        return raw
 
     def _delete_commit_bytes(self, id, version):
-        self._commit_blobs.pop((str(id), int(version)), None)
+        if self._state.change_for(id, version) is not None:
+            raise ValueError("cannot remove a published memory mutation artifact")
+        self._commit_blobs.pop((id, version), None)
 
     def next_version(self, id):
-        rs = self._recs.get(id)
-        return (rs[-1].version + 1) if rs else 1
+        with self.read_transaction():
+            if id in self._recs and id not in self._state._highwater:
+                raise ValueError("unpublished legacy memory metadata requires explicit migration before writing")
+            return self._state.next_version(id)
 
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to,
                   search_terms=None, tx_time=None):
         now = _now() if tx_time is None else float(tx_time)
-        blob = self._serialize_payload(rex)
         v = self.next_version(id)
-        rs = self._recs.setdefault(id, [])
-        for r in rs:
-            if r.tx_to is None:
-                r.tx_to = now                       # close the prior open row
         rec = ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
                             tx_from=now, tx_to=None,
                             valid_from=valid_from if valid_from is not None else now,
                             valid_to=valid_to)
-        rs.append(rec)
-        self._blobs[(id, v)] = blob
+        rec, blob = self._record_payload(rec, rex)
+        commit = self._commit_blobs.get((id, v))
+        import hashlib
+        frame = self._state.prepare_put(rec, blob_digest=hashlib.sha256(blob).hexdigest(),
+            commit_digest=None if commit is None else hashlib.sha256(commit).hexdigest())
+        self._blobs[(id, v)] = blob  # Becomes visible only after the checked state transition.
+        self._state.apply(frame)
         return rec
 
+    @_owned_records
     def get_record(self, id, *, as_of=None, valid_at=None):
+        _read_selector(id, None, as_of, valid_at)
+        split = self._split_versioned_id(id) if id not in self._recs else None
+        if id in self._state._highwater or (split is not None and split[0] in self._state._highwater):
+            return self._state.selected(id, as_of=as_of, valid_at=valid_at)
         rec = self._select_version(self._recs.get(id, []), as_of, valid_at)
-        if rec is None:
+        if rec is None and id not in self._recs:
             split = self._split_versioned_id(id)
             if split is not None:
+                if as_of is not None or valid_at is not None:
+                    raise ValueError("version display aliases cannot combine time selectors")
                 base, v = split
                 # a lineage() display id: resolve the explicit version directly
                 # (version is explicit, so as_of/valid_at do not apply)
@@ -1193,47 +1538,113 @@ class MemoryStore(RCStore):
         return rec
 
     def get(self, id, *, as_of=None, valid_at=None, verify: bool = True):
-        rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
-        if rec is None:
-            return None
-        # rec.id is the record's OWN stored id: for a direct hit that is `id`
-        # itself, but for a display id fallback (get_record resolved "base@v"
-        # through history(base)) it is `base`, never the raw "base@v" string
-        # the blob is never keyed by. Keying on rec.id is correct either way.
-        blob = self._blobs.get((rec.id, rec.version))
-        return self._deserialize_payload(blob, verify=verify) if blob is not None else None
+        with self.read_transaction():
+            rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
+            return None if rec is None else self._read_version(rec, verify=verify)
 
     def get_version(self, id, version):
-        blob = self._blobs.get((id, version))
-        return self._deserialize_payload(blob) if blob is not None else None
+        _read_selector(id, version, None, None)
+        if version is None:
+            raise ValueError("record version must be a positive integer")
+        with self.read_transaction():
+            rec = (self._state.record(id, version) if id in self._state._highwater else
+                   next((r for r in self._recs.get(id, []) if r.version == version), None))
+            return None if rec is None else self._read_version(rec)
 
+    def _record_at_version(self, id, version):
+        with self.read_transaction():
+            if id in self._state._highwater or id not in self._recs:
+                return self._state.record(id, version)
+            # Injected legacy rows need not have contiguous native allocations.
+            return super()._record_at_version(id, version)
+
+    def _read_version(self, record, *, verify=True):
+        import hashlib
+        blob = self._blobs.get((record.id, record.version))
+        if blob is None:
+            raise ValueError("published memory record payload is missing")
+        change = self._state.change_for(record.id, record.version)
+        if change is None:
+            if record.envelope is not None:
+                raise ValueError("bound memory record has no published engine transition")
+        else:
+            if hashlib.sha256(blob).hexdigest() != change.blob_digest:
+                raise ValueError("memory record payload differs from its published content digest")
+            if change.commit_digest is not None and self._load_commit_bytes(record.id, record.version) is None:
+                raise ValueError("published memory mutation artifact is missing")
+        return self._read_record_payload(record, blob, verify=verify)
+
+    @_owned_records
     def history(self, id):
+        _read_selector(id, None, None, None)
         return list(self._recs.get(id, []))
 
+    @_owned_records
     def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
              include_history=False):
-        recs = ([r for rs in self._recs.values() for r in rs] if include_history
-                else [self._select_version(rs, as_of, valid_at)
-                      for rs in self._recs.values()])
-        recs = [r for r in recs if r is not None]
-        recs.sort(key=lambda r: -r.tx_from)
-        return recs[offset:offset + limit]
+        if type(limit) is not int or type(offset) is not int or limit < 0 or offset < 0:
+            raise ValueError("memory collection bounds require nonnegative native integers")
+        _read_selector("selector", None, as_of, valid_at)
+        return self._state.select_records(limit=limit, offset=offset, as_of=as_of,
+                                         valid_at=valid_at, include_history=include_history)
 
-    def query(self, limit=100, *, as_of=None, valid_at=None, **predicate):
-        return [r for r in self.list(limit=10 ** 9, as_of=as_of, valid_at=valid_at)
-                if _matches(r.signature, predicate, r.meta)][:limit]
+    @_owned_records
+    def query(self, limit=100, *, as_of=None, valid_at=None, include_history=False, **predicate):
+        if type(limit) is not int or limit < 0:
+            raise ValueError("memory query limit requires a nonnegative native integer")
+        if set(predicate)-_QUERY_KEYS:
+            raise TypeError("unsupported query keys: "+", ".join(sorted(set(predicate)-_QUERY_KEYS))
+                            +". Supported: "+", ".join(sorted(_QUERY_KEYS)))
+        return self._state.select_records(limit=limit, as_of=as_of, valid_at=valid_at,
+                                         include_history=include_history, predicate=predicate)
 
     @_serialized
-    def delete(self, id):
-        reclaim = self._claim_delete(id)
-        existed = id in self._recs
-        self._recs.pop(id, None)
-        for k in [k for k in self._blobs if k[0] == id]:
-            self._blobs.pop(k, None)
-        self._reclaim_commits(id, reclaim)
-        if existed:
-            self._emit("rcdb.delete", id, 0, {})
-        return existed
+    def delete(self, id, *, tx_time=None, expected_version=None):
+        _read_selector(id, None, tx_time, None)
+        if expected_version is not None and (type(expected_version) is not int or expected_version < 0):
+            raise ValueError("expected version requires a nonnegative native integer")
+        self._claim_delete(id)
+        current = self._state.current(id)
+        actual = 0 if current is None else current.version
+        if expected_version is not None and expected_version != actual:
+            raise VersionConflictError("deletion expected version differs from current memory record")
+        frame = self._state.prepare_delete(id, _now() if tx_time is None else tx_time)
+        if frame is None:
+            return False
+        self._state.apply(frame)
+        self._emit("rcdb.delete", id, frame.mutation.version, {})
+        return True
+
+    @property
+    def change_cursor(self):
+        with self.read_transaction():
+            return self._state.cursor
+
+    def changes(self, after=None, *, limit=100):
+        with self.read_transaction():
+            return self._state.changes(after, limit=limit)
+
+    def cursor_for(self, change):
+        with self.read_transaction():
+            return self._state.cursor_for(change)
+
+    def tombstone(self, id):
+        _read_selector(id, None, None, None)
+        with self.read_transaction():
+            return self._state.tombstone(id)
+
+    def commit_history(self, id):
+        with self.read_transaction():
+            return [self._decode_commit(raw) for row in self._state.incarnation_history(id)
+                    if (raw := self._load_commit_bytes(id, row.version)) is not None]
+
+    def _commit_predecessor_reset(self, record):
+        change = self._state.change_for(record.id, record.version)
+        return change is not None and change.previous_version == 0
+
+    def close(self):
+        with self._transaction_lock:
+            self._closed = True
 
 
 # file backend (default, no deps beyond io)
@@ -1453,12 +1864,23 @@ class _LazyIndex(dict):
 
 
 class FileStore(RCStore):
+    """Legacy file layout reader. ``read_only=False`` opts into temporary compatibility writing."""
     backend = "file"
     _cache_corpus = True
 
-    def __init__(self, root: str):
-        self.root = root
-        os.makedirs(os.path.join(root, "blobs"), exist_ok=True)
+    def __init__(self, root: str, *, read_only=True):
+        if type(read_only) is not bool:
+            raise TypeError("read_only must be a bool")
+        self.read_only = read_only
+        self.root = os.fspath(root)
+        if _existing_backend(self.root) not in {None, "file"}:
+            raise ValueError("FileStore cannot adopt another store layout")
+        if read_only:
+            from .legacy import check_source_root, source_fingerprint
+            check_source_root(self.root, "file")
+            self._legacy_source_fingerprint = source_fingerprint(self.root)
+        else:
+            os.makedirs(os.path.join(root, "blobs"), exist_ok=True)
         # The binary pair is authoritative. The json pair is read when it is all that
         # exists, so a store written by an earlier version opens unchanged and is
         # converted on the next compaction.
@@ -1470,6 +1892,21 @@ class FileStore(RCStore):
         # put, is what made ingest quadratic; the log means the cache stays authoritative
         # and each change costs one line.
         self._idx = self._read_index()
+        if not os.path.exists(os.path.join(self.root, ".rcdb-identity")):
+            from .store_identity import bound_identity
+            if bound_identity(record for versions in self._idx.values() for record in versions) is not None:
+                self._load_store_identity()  # Refuse missing ownership; never create a new UUID.
+        if read_only and source_fingerprint(self.root) != self._legacy_source_fingerprint:
+            raise ValueError("legacy source changed while opening its read-only snapshot")
+
+    def _load_store_identity(self):
+        from .store_identity import bound_identity, local_identity
+        from .journal import journal_identity
+        path = os.path.join(self.root, ".rcdb-identity")
+        known = journal_identity(self._log_path)
+        if known is None and not os.path.exists(path) and hasattr(self, "_idx"):
+            known = bound_identity(record for versions in self._idx.values() for record in versions)
+        return local_identity(path, backend="file", existing_id=known, read_only=self.read_only)
 
     def _read_index(self) -> dict[str, builtins.list[ComplexRecord]]:
         """`{id -> [ComplexRecord, ...]}`, the snapshot with the log layered on top.
@@ -1484,52 +1921,36 @@ class FileStore(RCStore):
         # A snapshot, if one exists: written by an older version of this store, or
         # left by compaction. Read first so the log layers on top of it.
         if os.path.exists(self._index_path):
-            try:
-                from . import index as _ix
-                snap = _ix.read(self._index_path)
-                for row, rid in enumerate(snap["ids"]):
-                    rows_by_id.setdefault(str(rid), []).append(row)
-            except Exception:
-                # An unreadable snapshot costs only speed while the log still holds
-                # the same changes. `_write_index` removes the log once it has folded it
-                # in, so past a compaction this file IS the index, and continuing
-                # without it reports an EMPTY store over intact blobs. That is the
-                # answer the digest exists to prevent, so it raises instead.
-                snap, rows_by_id = None, {}
-                if not os.path.exists(self._log_path):
-                    raise
+            from . import index as _ix
+            # A log after compaction contains only the new tail. Its existence
+            # cannot establish that it can replace an unreadable base snapshot.
+            snap = _ix.read(self._index_path)
+            for row, rid in enumerate(snap["ids"]):
+                rows_by_id.setdefault(str(rid), []).append(row)
         elif os.path.exists(self._legacy_index):
-            try:
-                with open(self._legacy_index) as f:
-                    raw = json.load(f)
-                for id, v in raw.items():
-                    if isinstance(v, dict):
-                        eager[id] = [ComplexRecord.from_dict(v)]
-                    else:
-                        eager[id] = [ComplexRecord.from_dict(x) for x in v]
-            except Exception:
-                eager = {}
+            from .legacy import loads_metadata, record_metadata
+            with open(self._legacy_index, "rb") as f:
+                raw = loads_metadata(f.read())
+            if type(raw) is not dict:
+                raise ValueError("legacy index must declare a record mapping")
+            for id, v in raw.items():
+                if type(id) is not str or not id or type(v) not in (dict, list):
+                    raise ValueError("invalid legacy index record address or versions")
+                eager[id] = [record_metadata(x, id) for x in ([v] if type(v) is dict else v)]
         # then the append only log. Rewriting the whole index on every put made the
         # cost of a put grow with the store: 4 ms at a hundred records, 35 ms at
         # sixteen hundred, which is quadratic ingest. One frame per change instead.
         entries = []
+        if snap is None and os.path.exists(self._legacy_log):
+            from .legacy import line_changes
+            entries.extend({"op": op, "id": rid, "record": rec}
+                           for op, rid, rec, _extra in line_changes(self._legacy_log))
         if os.path.exists(self._log_path):
             from . import index as _ix
-            entries = [{"op": op, "id": rid, "record": rec}
-                       for op, rid, rec, _x in _ix.log_read(self._log_path)]
-        elif os.path.exists(self._legacy_log):
-            try:
-                with open(self._legacy_log) as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            entries.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            break            # torn tail: the rest is unwritable
-            except OSError:
-                entries = []
+            from .journal import journal_identity
+            owner = self.store_id if journal_identity(self._log_path) is not None else None
+            entries.extend({"op": op, "id": rid, "record": rec}
+                           for op, rid, rec, _x in _ix.log_read(self._log_path, store_id=owner))
         pending: dict[str, list[ComplexRecord]] = {}
         for entry in entries:
             rid = entry.get("id")
@@ -1541,7 +1962,10 @@ class FileStore(RCStore):
             raw = entry["record"]
             # the frame log decodes to a record; the line log it replaces gave a dict
             rec = raw if isinstance(raw, ComplexRecord) else ComplexRecord.from_dict(raw)
-            pending.setdefault(rid, []).append(rec)
+            versions = pending.setdefault(rid, eager.pop(rid, []))
+            versions[:] = [r for r in versions if int(r.version) != int(rec.version)]
+            versions.append(rec)
+            versions.sort(key=lambda r: int(r.version))
         if not rows_by_id and not pending:
             return eager
         return _LazyIndex(snap, rows_by_id, pending, eager)
@@ -1553,7 +1977,7 @@ class FileStore(RCStore):
         rec = entry.get("record")
         if rec is not None and not isinstance(rec, ComplexRecord):
             rec = ComplexRecord.from_dict(rec)
-        _ix.log_append(self._log_path, entry.get("op", "put"), entry["id"], rec)
+        _ix.log_append(self._log_path, entry.get("op", "put"), entry["id"], rec, store_id=self.store_id)
 
     def _write_index(self, idx: dict[str, builtins.list[ComplexRecord]]):
         """Write a full snapshot and drop the log. This is compaction, not the write
@@ -1588,6 +2012,7 @@ class FileStore(RCStore):
         any of that is left exactly as it was and counted in `failed`. Nothing is
         deleted: an entry either gets smaller or stays the same.
         """
+        self._check_writable()
         out = {"total": 0, "rewritten": 0, "skipped": 0, "failed": 0,
                "before": 0, "after": 0, "failures": []}
         seen, paths = set(), []
@@ -1634,6 +2059,7 @@ class FileStore(RCStore):
 
     def compact(self) -> dict:
         """Fold the log into a snapshot. Optional: reading is correct either way."""
+        self._check_writable()
         before = os.path.getsize(self._log_path) if os.path.exists(self._log_path) else 0
         self._write_index(self._read_index())
         return {"log_bytes_reclaimed": before}
@@ -1649,12 +2075,12 @@ class FileStore(RCStore):
         index kept both records. Ids like 'doc:agent/rcdb.py' are exactly what a
         knowledge core is keyed by.
         """
-        from rexgraph.io.rex_state import RESERVED_PATH, encode_name
+        from rexgraph.state import RESERVED_PATH, encode_name
         return encode_name(id, RESERVED_PATH)
 
     @staticmethod
     def _sanitized_name(id: str) -> str:
-        """The pre fix lossy encoding, kept so existing stores stay readable."""
+        """Encode legacy path components by replacing unsupported characters with underscores."""
         return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in id)
 
     def _blob_path(self, id: str, version: int) -> str:
@@ -1665,39 +2091,67 @@ class FileStore(RCStore):
         """Every path a blob for (id, version) may live at, newest scheme first: the
         reversible encoding, then the lossy one, then the pre versioned layout."""
         b = os.path.join(self.root, "blobs")
-        return [
-            os.path.join(b, "%s@%d.safetensors" % (self._safe_name(id), version)),
-            os.path.join(b, "%s@%d.safetensors" % (self._sanitized_name(id), version)),
-            self._legacy_blob_path(id),
-        ]
+        paths = [self._blob_path(id, version)]
+        if not self._legacy_commit_collides(id, version):
+            paths.append(os.path.join(b, "%s@%d.safetensors" % (self._sanitized_name(id), version)))
+        if not any(str(rid) != str(id) and self._sanitized_name(str(rid)) == self._sanitized_name(id)
+                   for rid in self._idx):
+            paths.append(self._legacy_blob_path(id))
+        return list(dict.fromkeys(paths))
 
     def _legacy_blob_path(self, id: str) -> str:
         return os.path.join(self.root, "blobs", self._sanitized_name(id) + ".safetensors")
 
     def _commit_path(self, id, version) -> str:
         d = os.path.join(self.root, "commits")
-        os.makedirs(d, exist_ok=True)
-        return os.path.join(d, f"{self._sanitized_name(str(id))}@{int(version)}.rexpkg")
+        return os.path.join(d, f"{self._safe_name(str(id))}@{int(version)}.rexpkg")
+
+    def _legacy_commit_path(self, id, version) -> str:
+        return os.path.join(self.root, "commits",
+                            f"{self._sanitized_name(str(id))}@{int(version)}.rexpkg")
+
+    def _legacy_commit_collides(self, id, version) -> bool:
+        name = self._sanitized_name(str(id))
+        return any(str(rid) != str(id) and self._sanitized_name(str(rid)) == name
+                   and any(int(r.version) == int(version) for r in self.history(rid))
+                   for rid in self._idx)
 
     def _store_commit_bytes(self, id, version, blob):
+        self._check_writable()
         path = self._commit_path(id, version)
-        tmp = path + ".tmp"
-        with open(tmp, "wb") as fh:
-            fh.write(bytes(blob))
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".rcdb-commit-", dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(bytes(blob))
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
 
     def _load_commit_bytes(self, id, version):
         path = self._commit_path(id, version)
         if not os.path.exists(path):
-            return None
+            legacy = self._legacy_commit_path(id, version)
+            if not os.path.exists(legacy):
+                return None
+            if self._legacy_commit_collides(id, version):
+                raise ValueError(f"ambiguous legacy commit for {id!r} version {version}")
+            if self.read_only:
+                path = legacy
+            else:
+                os.replace(legacy, path)
         with open(path, "rb") as fh:
             return fh.read()
 
     def _delete_commit_bytes(self, id, version):
         with contextlib.suppress(OSError):
             os.unlink(self._commit_path(id, version))
+        if not self._legacy_commit_collides(id, version):
+            with contextlib.suppress(OSError):
+                os.unlink(self._legacy_commit_path(id, version))
 
     def next_version(self, id):
         rs = self._idx.get(id)
@@ -1706,7 +2160,6 @@ class FileStore(RCStore):
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to,
                   search_terms=None, tx_time=None):
         now = _now() if tx_time is None else float(tx_time)
-        blob = self._serialize_payload(rex)
         idx = self._idx
         versions = idx.get(id, [])
         v = (versions[-1].version + 1) if versions else 1
@@ -1714,6 +2167,7 @@ class FileStore(RCStore):
                             tx_from=now, tx_to=None,
                             valid_from=valid_from if valid_from is not None else now,
                             valid_to=valid_to)
+        rec, blob = self._record_payload(rec, rex)
         path = self._blob_path(id, v)
         fd, temporary = tempfile.mkstemp(prefix=".rcdb-payload-", dir=os.path.dirname(path))
         try:
@@ -1727,17 +2181,18 @@ class FileStore(RCStore):
                 os.unlink(temporary)
         # Payload first, durable publication next, cached metadata last. An
         # unreferenced payload after a log failure is not a published version.
-        self._append_log({"op": "put", "id": id, "record": rec.to_dict()})
+        self._append_log({"op": "put", "id": id, "record": rec.to_storage_dict()})
         for r in versions:
             if r.tx_to is None:
                 r.tx_to = now
         idx.setdefault(id, []).append(rec)
         return rec
 
+    @_owned_records
     def get_record(self, id, *, as_of=None, valid_at=None):
         idx = self._idx
         rec = self._select_version(idx.get(id, []), as_of, valid_at)
-        if rec is None:
+        if rec is None and id not in idx:
             split = self._split_versioned_id(id)
             if split is not None:
                 base, v = split
@@ -1762,17 +2217,20 @@ class FileStore(RCStore):
         # rec.id is the record's OWN stored id (see MemoryStore.get for why
         # this, not the local `id`, is the correct blob key on a fallback hit).
         blob = self._read_blob(rec.id, rec.version)
-        return self._deserialize_payload(blob, verify=verify) if blob is not None else None
+        return self._read_record_payload(rec, blob, verify=verify) if blob is not None else None
 
     def get_version(self, id, version):
-        if not any(r.version == version for r in self.history(id)):
+        rec = next((r for r in self.history(id) if r.version == version), None)
+        if rec is None:
             return None
         blob = self._read_blob(id, version)
-        return self._deserialize_payload(blob) if blob is not None else None
+        return self._read_record_payload(rec, blob) if blob is not None else None
 
+    @_owned_records
     def history(self, id):
         return list(self._idx.get(id, []))
 
+    @_owned_records
     def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
              include_history=False):
         """The store's records, newest first.
@@ -1806,6 +2264,7 @@ class FileStore(RCStore):
         recs.sort(key=lambda r: -r.tx_from)
         return recs[offset:offset + limit]
 
+    @_owned_records
     def query(self, limit=100, *, as_of=None, valid_at=None, **predicate):
         """Narrow on the columns, then evaluate the full predicate on the survivors.
 
@@ -1849,6 +2308,13 @@ class FileStore(RCStore):
 # SQL backend (any SQLAlchemy database)
 
 class SQLStore(RCStore):
+    """Indexed SQL records with the common state engine for new SQLite stores.
+
+    Populated headerless databases keep their compatibility semantics. They need
+    explicit migration before native tombstones/cursors can be claimed. ``native``
+    can select that compatibility path for an empty database; it cannot downgrade
+    an existing native store. Compression is persisted in the native store header.
+    """
     backend = "sql"
 
     # signature fields promoted to indexed columns for in database queries
@@ -1863,7 +2329,28 @@ class SQLStore(RCStore):
         "valid_from": "FLOAT", "valid_to": "FLOAT",
     }
 
-    def __init__(self, conn_str: str, table: str = "rc_complexes"):
+    def _load_store_identity(self):
+        from .store_identity import sql_identity
+        from .sql_journal import sql_state_header
+        from sqlalchemy import select
+        self._check_open()
+        with self.engine.connect() as connection:
+            if self.engine.dialect.name == "sqlite":
+                connection.exec_driver_sql("BEGIN")
+            else:
+                connection.begin()
+            claim = connection.execute(select(self.table.c.record_envelope).where(
+                self.table.c.record_envelope.is_not(None)).limit(1)).scalar_one_or_none()
+            native = sql_state_header(connection, self.table.name)
+        known = None if claim is None else RecordEnvelope.from_record(json.loads(claim)).store_id
+        if native is not None:
+            if known is not None and known != native.identity.id:
+                raise ValueError("SQL record and journal ownership claims name different stores")
+            known = native.identity.id
+        return sql_identity(self.engine, self.table.name, existing_id=known)
+
+    def __init__(self, conn_str: str, table: str = "rc_complexes", *, compression=None, native=None,
+                 record_codecs=None):
         from sqlalchemy import (
             Boolean,
             Column,
@@ -1876,9 +2363,33 @@ class SQLStore(RCStore):
             Text,
             create_engine,
         )
+        from sqlalchemy.engine import make_url
+        from sqlalchemy.pool import StaticPool
+        from .store_identity import sql_identity_table
+        from .header import BlobCodecSpec, record_codec_inventory
+        inventory = record_codec_inventory(record_codecs)
+        if compression is not None and not isinstance(compression, BlobCodecSpec):
+            raise TypeError("SQL compression requires a declared BlobCodecSpec")
+        if native is not None and type(native) is not bool:
+            raise TypeError("SQL native mode requires a boolean or None")
         self._sa = __import__("sqlalchemy")
+        self._native = None
+        self._sql_opening = True
         self.conn_str = conn_str
-        self.engine = create_engine(conn_str)
+        self._closed = False
+        self._sql_connection = None
+        self._sql_writing = False
+        self._sql_rollback_only = False
+        self._sql_events = []
+        self._sql_schema_connection = None
+        url = make_url(conn_str)
+        options = {}
+        if url.get_backend_name() == "sqlite" and url.database in {None, "", ":memory:"}:
+            # A handle's RLock serializes use of the one private in memory database.
+            # SQLite's default per thread pool would give each thread a different DB.
+            options = {"poolclass": StaticPool, "connect_args": {"check_same_thread": False}}
+        self.engine = create_engine(conn_str, **options)
+        self.identity_table = sql_identity_table(table)
         self.meta = MetaData()
         self.table = Table(
             table, self.meta,
@@ -1888,6 +2399,7 @@ class SQLStore(RCStore):
             Column("meta", Text),
             Column("created", Float),
             Column("blob", LargeBinary),
+            Column("record_envelope", Text),
             Column("nV", Integer), Column("nE", Integer),
             Column("betti1", Integer), Column("kappa_mean", Float),
             Column("chain_valid", Boolean), Column("source", String(256)),
@@ -1910,45 +2422,321 @@ class SQLStore(RCStore):
             Column("version", Integer, primary_key=True),
             Column("artifact", LargeBinary),
         )
-        self.meta.create_all(self.engine)
-        self._migrate_index_columns(table)
-        self._create_label_index(table)
+        try:
+            with self._schema_transaction() as conn:
+                from sqlalchemy import insert, inspect
+                from .header import StoreHeader
+                from .sql_engine import SQLRecordEngine
+                from .sql_journal import sql_state_header
+                from .store_identity import StoreIdentity
+                self._sql_table_existed = inspect(conn).has_table(table)
+                self._sql_owner_schema_existed = inspect(conn).has_table(self.identity_table.name)
+                claimed = sql_state_header(conn, table)
+                if claimed is not None:
+                    if native is False:
+                        raise ValueError("native SQL state cannot be downgraded; explicit migration required")
+                    if compression is not None and compression != claimed.compression:
+                        raise ValueError("SQL compression differs from persisted header; explicit migration required")
+                    if record_codecs is not None and inventory != claimed.record_codecs:
+                        raise ValueError("SQL record codecs differ from persisted header; explicit migration required")
+                    if any(not inspect(conn).has_table(projection.name)
+                            for projection in (self.table, self.labels_table, self.commits_table)):
+                        raise ValueError("native SQL projection schema is missing; explicit recovery required")
+                    # Verify claimed native metadata before any schema repair. Its
+                    # owner was checked against the durable identity by discovery.
+                    self._store_identity = claimed.identity
+                    self._native = SQLRecordEngine(self, conn, claimed)
+                self.meta.create_all(conn)
+                self._migrate_index_columns(table)
+                self._create_label_index(table)
+                if (claimed is None and not self._sql_table_existed and not self._sql_owner_schema_existed
+                        and native is not False and self.engine.dialect.name == "sqlite"):
+                    # Schema, identity, header and genesis head are one publication.
+                    # Another constructor must never observe a headerless interval.
+                    self.identity_table.create(conn)
+                    self._store_identity = StoreIdentity.create(self.backend)
+                    conn.execute(insert(self.identity_table).values(key="identity", value=self._store_identity.to_bytes()))
+                    header = StoreHeader(self._store_identity, compression or BlobCodecSpec(), inventory)
+                    self._native = SQLRecordEngine(self, conn, header)
+            if self._native is None:
+                self._open_record_engine(compression=compression, native=native, record_codecs=record_codecs)
+            self._sql_opening = False
+        except BaseException:
+            self._closed = True
+            self.engine.dispose()
+            raise
+
+    def _open_record_engine(self, *, compression, native, record_codecs=None):
+        from sqlalchemy import select
+        from .header import BlobCodecSpec, StoreHeader, record_codec_inventory
+        from .sql_engine import SQLRecordEngine
+        from .sql_journal import sql_state_header
+        from .store_identity import StoreIdentity
+        with self._sql_transaction(write=True) as conn:
+            header = sql_state_header(conn, self.table.name)
+            if header is not None:
+                if native is False:
+                    raise ValueError("native SQL state cannot be downgraded; explicit migration required")
+                if compression is not None and compression != header.compression:
+                    raise ValueError("SQL compression differs from persisted header; explicit migration required")
+                if record_codecs is not None and record_codec_inventory(record_codecs) != header.record_codecs:
+                    raise ValueError("SQL record codecs differ from persisted header; explicit migration required")
+            elif native is False:
+                if compression is not None or record_codecs is not None:
+                    raise ValueError("declared SQL compression requires native state")
+                return
+            else:
+                populated = any(conn.execute(select(table.c.id).limit(1)).first() is not None
+                                for table in (self.table, self.labels_table, self.commits_table))
+                if populated or self._sql_table_existed or self._sql_owner_schema_existed:
+                    if native is True or compression is not None or record_codecs is not None:
+                        raise ValueError("existing headerless SQL store requires explicit native-state migration")
+                    return
+                if self.engine.dialect.name != "sqlite":
+                    if native is True or compression is not None or record_codecs is not None:
+                        raise ValueError("native SQL state currently requires the qualified SQLite provider")
+                    return
+                header = StoreHeader(StoreIdentity(self.store_id, self.backend), compression or BlobCodecSpec(),
+                                     record_codec_inventory(record_codecs))
+            self._native = SQLRecordEngine(self, conn, header)
+
+    @property
+    def header(self):
+        return None if self._native is None else self._native.header
+
+    @property
+    def blob_codec(self):
+        return None if self._native is None else self.header.compression
+
+    def _serialize_payload(self, rex):
+        if self._native is None:
+            return super()._serialize_payload(rex)
+        from .engine import encode_native_payload
+        return self._encode_payload(encode_native_payload(rex, self.blob_codec), object_type="RCDB.Rex")
+
+    @contextlib.contextmanager
+    def _schema_transaction(self):
+        """Keep SQLite DDL and legacy backfills in one actual DB transaction."""
+        with self._transaction_lock:
+            self._check_open()
+            if self._sql_schema_connection is not None:
+                yield self._sql_schema_connection
+                return
+            with self.engine.connect() as conn:
+                if self.engine.dialect.name == "sqlite":
+                    conn.exec_driver_sql("BEGIN IMMEDIATE")
+                else:
+                    conn.begin()
+                self._sql_schema_connection = conn
+                try:
+                    yield conn
+                    conn.commit()
+                except BaseException:
+                    conn.rollback()
+                    raise
+                finally:
+                    self._sql_schema_connection = None
+
+    def _check_open(self):
+        if self._closed:
+            raise RuntimeError("SQLStore is closed")
+
+    @contextlib.contextmanager
+    def _sql_transaction(self, *, write=False):
+        """Own one connection from selection through publication or snapshot capture.
+
+        SQLite writers reserve the database before checking versions; readers use
+        an explicit BEGIN, including with Python's legacy sqlite transaction mode.
+        Other SQL dialects serialize provider operations on the durable identity
+        row. Their isolation, driver and failure behavior still require qualification.
+        """
+        from sqlalchemy import select, update
+        from .store_identity import StoreIdentity, sql_identity_payload
+        from .sql_journal import sql_state_header
+        with self._transaction_lock:
+            self._check_open()
+            if self._publication_uncertain:
+                raise PublicationUncertainError("RCDB publication is uncertain; reopen and verify before accessing SQL")
+            if self._sql_connection is not None:
+                if write and not self._sql_writing:
+                    raise RuntimeError("cannot write inside a SQL read transaction")
+                try:
+                    yield self._sql_connection
+                except BaseException:
+                    if self._sql_writing:
+                        self._sql_rollback_only = True
+                    raise
+                return
+            # Creating the owner row with another connection during a SQLite
+            # write transaction would deadlock against our own reservation.
+            owner = self.store_id
+            events = []
+            with self.engine.connect() as conn:
+                if self.engine.dialect.name == "sqlite":
+                    conn.exec_driver_sql("BEGIN IMMEDIATE" if write else "BEGIN")
+                else:
+                    conn.begin()
+                    # A no operation UPDATE is a portable write lock even for dialects
+                    # where SELECT FOR UPDATE is ignored. It covers reads too so
+                    # provider writers cannot alter a dependency closure midway.
+                    conn.execute(update(self.identity_table).where(
+                        self.identity_table.c.key == "identity").values(value=self.identity_table.c.value))
+                self._sql_connection = conn
+                self._sql_writing = write
+                self._sql_rollback_only = False
+                self._sql_events = events
+                try:
+                    payload = conn.execute(select(self.identity_table.c.value).where(
+                        self.identity_table.c.key == "identity")).scalar_one_or_none()
+                    if payload is None:
+                        raise ValueError("store identity is missing from bound durable state; explicit recovery required")
+                    if StoreIdentity.from_bytes(sql_identity_payload(payload), backend="sql").id != owner:
+                        raise ValueError("store identity differs from this SQL handle's durable ownership claim")
+                    native = sql_state_header(conn, self.table.name)
+                    if native is not None and native.identity.id != owner:
+                        raise ValueError("SQL record and journal ownership claims name different stores")
+                    if self._native is not None:
+                        self._native.refresh(conn)
+                    elif native is not None and not self._sql_opening:
+                        raise ValueError("SQL store acquired native state after this compatibility handle opened; reopen")
+                    yield conn
+                    if self._sql_rollback_only:
+                        raise RuntimeError("SQL transaction was aborted by a nested operation")
+                    try:
+                        conn.commit()
+                    except BaseException as exc:
+                        if write:
+                            self._publication_uncertain = True
+                            raise PublicationUncertainError("SQL commit outcome is uncertain; reopen and verify") from exc
+                        raise
+                except BaseException as exc:
+                    if self._native is not None:
+                        self._native.discard()
+                    try:
+                        conn.rollback()
+                    except BaseException as rollback:
+                        if write:
+                            self._publication_uncertain = True
+                            raise PublicationUncertainError("SQL rollback failed; reopen and verify") from rollback
+                        raise rollback from exc
+                    raise
+                finally:
+                    self._sql_connection = None
+                    self._sql_writing = False
+                    self._sql_rollback_only = False
+                    self._sql_events = []
+                    if write:
+                        self._corpus_cache = None
+            for action, record_id, version, signature in events:
+                super()._emit(action, record_id, version, signature)
+
+    @contextlib.contextmanager
+    def read_transaction(self):
+        """Pin record, artifact and RCQL dependency reads to one SQL snapshot."""
+        with self._sql_transaction():
+            yield self
+
+    @contextlib.contextmanager
+    def write_scope(self):
+        with self._sql_transaction(write=True):
+            self._require_record_engine()
+            yield self
+
+    def put(self, *args, **kwargs):
+        with self._sql_transaction(write=True):
+            return super().put(*args, **kwargs)
+
+    def put_prepared(self, *args, **kwargs):
+        with self._sql_transaction(write=True):
+            return super().put_prepared(*args, **kwargs)
+
+    def commit_mutation(self, *args, **kwargs):
+        with self._sql_transaction(write=True):
+            return super().commit_mutation(*args, **kwargs)
+
+    def read_record(self, *args, **kwargs):
+        with self.read_transaction():
+            return super().read_record(*args, **kwargs)
+
+    def _record_at_version(self, id, version):
+        with self._sql_transaction():
+            if self._native is not None:
+                return self._native.state.record(id, version)
+            return super()._record_at_version(id, version)
+
+    def state_manifest(self):
+        with self.read_transaction():
+            return super().state_manifest()
+
+    def commit_history(self, id):
+        with self.read_transaction():
+            if self._native is not None:
+                _read_selector(id, None, None, None)
+                return [self._decode_commit(raw) for row in self._native.state.incarnation_history(id)
+                        if (raw := self._load_commit_bytes(id, row.version)) is not None]
+            return super().commit_history(id)
+
+    def _commit_predecessor_reset(self, record):
+        if self._native is None:
+            return False
+        change = self._native.state.change_for(record.id, record.version)
+        return change is not None and change.previous_version == 0
+
+    def verify_commits(self, id):
+        with self.read_transaction():
+            return super().verify_commits(id)
+
+    def _emit(self, action, id, version, sig):
+        if self._sql_connection is not None:
+            self._sql_events.append((action, id, version, snapshot_mapping(sig)))
+        else:
+            super()._emit(action, id, version, sig)
 
     def _store_commit_bytes(self, id, version, blob):
-        from sqlalchemy import delete, insert
-        with self.engine.begin() as conn:
-            conn.execute(delete(self.commits_table).where(
-                self.commits_table.c.id == str(id),
-                self.commits_table.c.version == int(version)))
+        from sqlalchemy import insert, select
+        with self._sql_transaction(write=True) as conn:
+            if conn.execute(select(self.table.c.id).where(
+                self.table.c.id == str(id), self.table.c.version == int(version))).first() is not None:
+                raise ValueError("cannot overwrite a published SQL mutation artifact")
+            prior = conn.execute(select(self.commits_table.c.artifact).where(
+                self.commits_table.c.id == str(id), self.commits_table.c.version == int(version))).scalar_one_or_none()
+            if prior is not None:
+                if bytes(prior) != bytes(blob):
+                    raise ValueError("SQL mutation artifact address contains different bytes")
+                return
             conn.execute(insert(self.commits_table).values(
                 id=str(id), version=int(version), artifact=bytes(blob)))
 
     def _load_commit_bytes(self, id, version):
         from sqlalchemy import select
-        with self.engine.connect() as conn:
+        with self._sql_transaction() as conn:
             row = conn.execute(select(self.commits_table.c.artifact).where(
                 self.commits_table.c.id == str(id),
                 self.commits_table.c.version == int(version))).first()
+            if self._native is not None:
+                return self._native.commit_bytes(id, version, None if row is None else row[0])
         return None if row is None else bytes(row[0])
 
     def _delete_commit_bytes(self, id, version):
-        from sqlalchemy import delete
-        with self.engine.begin() as conn:
+        from sqlalchemy import delete, select
+        with self._sql_transaction(write=True) as conn:
+            if self._sql_rollback_only:
+                # RCStore's compatibility cleanup runs after a failed nested put.
+                # Its provisional row may still be visible on this connection;
+                # the outer rollback discards both row and artifact together.
+                return
+            if conn.execute(select(self.table.c.id).where(
+                self.table.c.id == str(id), self.table.c.version == int(version))).first() is not None:
+                raise ValueError("cannot delete a published SQL mutation artifact")
             conn.execute(delete(self.commits_table).where(
                 self.commits_table.c.id == str(id),
                 self.commits_table.c.version == int(version)))
 
     def _create_label_index(self, table):
-        """Index the label column. Idempotent, and never fatal: a store that cannot
-        create the index still answers correctly through the Python residual path."""
-        from sqlalchemy import text as _text
-        try:
-            with self.engine.begin() as conn:
-                conn.execute(_text(
-                    f"CREATE INDEX IF NOT EXISTS ix_{table}_labels_label "
-                    f"ON {table}_labels (label)"))
-        except Exception:
-            pass
+        """The label index is part of the declared SQL schema, with literal names."""
+        from sqlalchemy import Index
+        with self._schema_transaction() as conn:
+            Index(f"ix_{table}_labels_label", self.labels_table.c.label).create(conn, checkfirst=True)
 
     def _migrate_index_columns(self, table):
         """Add indexed columns to a pre existing table and backfill from the
@@ -1959,31 +2747,30 @@ class SQLStore(RCStore):
         design requires, and finally (re)creates the indexes on the
         promoted columns. Idempotent: re opening an already migrated table
         is a no op."""
-        from sqlalchemy import inspect, text
-        insp = inspect(self.engine)
-        have = {c["name"] for c in insp.get_columns(table)}
-        missing = [c for c in self._INDEX_COLS if c not in have]
-        with self.engine.begin() as conn:
+        from sqlalchemy import inspect, select, text, update
+        with self._schema_transaction() as conn:
+            quote = self.engine.dialect.identifier_preparer.quote
+            named = quote(table)
+            have = {c["name"] for c in inspect(conn).get_columns(table)}
+            missing = [c for c in self._INDEX_COLS if c not in have]
+            if "record_envelope" not in have:
+                conn.execute(text(f'ALTER TABLE {named} ADD COLUMN record_envelope TEXT'))
             for col in missing:
-                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {self._INDEX_COLS[col]}'))
+                conn.execute(text(f'ALTER TABLE {named} ADD COLUMN {quote(col)} {self._INDEX_COLS[col]}'))
             if missing:
-                rows = conn.execute(text(f"SELECT id, signature FROM {table}")).fetchall()
+                rows = conn.execute(select(self.table.c.id, self.table.c.signature)).fetchall()
                 for rid, sigjson in rows:
-                    vals = _sig_index_values(json.loads(sigjson or "{}"))
-                    sets = ", ".join(f"{k} = :{k}" for k in self._INDEX_COLS)
-                    conn.execute(text(f"UPDATE {table} SET {sets} WHERE id = :id"),
-                                 dict(id=rid, **vals))
-        have_t = {c["name"] for c in insp.get_columns(table)}
-        missing_t = [c for c in self._TEMPORAL_COLS if c not in have_t]
-        with self.engine.begin() as conn:
+                    vals = _sig_index_values(loads_mapping(sigjson or "{}"))
+                    conn.execute(update(self.table).where(self.table.c.id == rid).values(**vals))
+            have_t = {c["name"] for c in inspect(conn).get_columns(table)}
+            missing_t = [c for c in self._TEMPORAL_COLS if c not in have_t]
             for col in missing_t:
-                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {self._TEMPORAL_COLS[col]}'))
+                conn.execute(text(f'ALTER TABLE {named} ADD COLUMN {quote(col)} {self._TEMPORAL_COLS[col]}'))
             if missing_t:
-                conn.execute(text(
-                    f"UPDATE {table} SET version = 1, tx_from = created, "
-                    f"valid_from = created WHERE version IS NULL"))
-        self._ensure_composite_pk(table)
-        self._create_promoted_indexes(table)
+                conn.execute(update(self.table).where(self.table.c.version.is_(None)).values(
+                    version=1, tx_from=self.table.c.created, valid_from=self.table.c.created))
+            self._ensure_composite_pk(table)
+            self._create_promoted_indexes(table)
 
     def _create_promoted_indexes(self, table):
         """(Re)create the indexes on the promoted signature columns and the
@@ -1992,20 +2779,12 @@ class SQLStore(RCStore):
         that already has the indexes is a no op, and a table that just lost
         them (a primary key rebuild drops indexes along with the table)
         gets them rebuilt."""
-        from sqlalchemy import inspect, text
-        insp = inspect(self.engine)
-        existing_idx = {i["name"] for i in insp.get_indexes(table)}
-        with self.engine.begin() as conn:
-            for col in ("betti1", "kappa_mean", "source"):
-                iname = f"ix_{table}_{col}"
-                if iname not in existing_idx:
-                    with contextlib.suppress(Exception):
-                        conn.execute(text(f"CREATE INDEX {iname} ON {table} ({col})"))
-            for iname, cols_sql in ((f"ix_{table}_id_txto", "(id, tx_to)"),
-                                     (f"ix_{table}_id_validfrom", "(id, valid_from)")):
-                if iname not in existing_idx:
-                    with contextlib.suppress(Exception):
-                        conn.execute(text(f"CREATE INDEX {iname} ON {table} {cols_sql}"))
+        from sqlalchemy import Index
+        with self._schema_transaction() as conn:
+            for suffix, columns in (("betti1", ("betti1",)), ("kappa_mean", ("kappa_mean",)),
+                                    ("source", ("source",)), ("id_txto", ("id", "tx_to")),
+                                    ("id_validfrom", ("id", "valid_from"))):
+                Index(f"ix_{table}_{suffix}", *(self.table.c[col] for col in columns)).create(conn, checkfirst=True)
 
     def _ensure_composite_pk(self, table):
         """Repair a legacy id only primary key to the composite (id, version)
@@ -2013,87 +2792,93 @@ class SQLStore(RCStore):
         created by this class already has the composite key (it is declared
         directly on self.table), so this only ever fires against a
         pre Slice-C database. Idempotent: a table already keyed on
-        (id, version) is left untouched, and an unrecognized primary key
-        shape is left alone rather than guessed at.
+        (id, version) is left untouched. An unrecognized primary key
+        requires explicit migration rather than an inferred rewrite.
 
         SQLite cannot ALTER a primary key in place, so the table is rebuilt
         under a temporary name with the composite key declared, the data is
         copied over column by column, and the temporary table is swapped in
         for the original. Other dialects can ALTER the constraint directly."""
         from sqlalchemy import MetaData, inspect, text
-        insp = inspect(self.engine)
-        pk = insp.get_pk_constraint(table).get("constrained_columns") or []
-        if sorted(pk) == ["id", "version"]:
-            return                          # already composite: idempotent no op
-        if pk != ["id"]:
-            return                          # unexpected PK shape: leave it alone
-        dialect = self.engine.dialect.name
-        if dialect == "sqlite":
-            cols = [c["name"] for c in insp.get_columns(table)]
-            collist = ", ".join(cols)
-            tmp = table + "__pkmig"
-            new_meta = MetaData()
-            new_table = self.table.to_metadata(new_meta, name=tmp)
-            with self.engine.begin() as conn:
-                conn.execute(text(f"DROP TABLE IF EXISTS {tmp}"))
+        from uuid import uuid4
+        with self._schema_transaction() as conn:
+            insp = inspect(conn)
+            quote = self.engine.dialect.identifier_preparer.quote
+            named = quote(table)
+            pk = insp.get_pk_constraint(table).get("constrained_columns") or []
+            if sorted(pk) == ["id", "version"]:
+                return
+            if pk != ["id"]:
+                raise ValueError("SQL record primary key is incompatible; explicit migration required")
+            dialect = self.engine.dialect.name
+            if dialect == "sqlite":
+                cols = [c["name"] for c in insp.get_columns(table)]
+                collist = ", ".join(quote(col) for col in cols)
+                # Never drop an occupied name to make room for a migration.
+                tmp = "rcdb_pkmig_"+uuid4().hex
+                temporary = quote(tmp)
+                new_table = self.table.to_metadata(MetaData(), name=tmp)
                 new_table.create(conn)
                 conn.execute(text(
-                    f"INSERT INTO {tmp} ({collist}) SELECT {collist} FROM {table}"))
-                conn.execute(text(f"DROP TABLE {table}"))
-                conn.execute(text(f"ALTER TABLE {tmp} RENAME TO {table}"))
-        elif dialect == "mysql":
-            with self.engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} DROP PRIMARY KEY"))
-                conn.execute(text(f"ALTER TABLE {table} ADD PRIMARY KEY (id, version)"))
-        else:
-            pk_name = insp.get_pk_constraint(table).get("name") or f"{table}_pkey"
-            with self.engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {pk_name}"))
-                conn.execute(text(f"ALTER TABLE {table} ADD PRIMARY KEY (id, version)"))
+                    f"INSERT INTO {temporary} ({collist}) SELECT {collist} FROM {named}"))
+                conn.execute(text(f"DROP TABLE {named}"))
+                conn.execute(text(f"ALTER TABLE {temporary} RENAME TO {named}"))
+            elif dialect in {"mysql", "mariadb"}:
+                conn.execute(text(f"ALTER TABLE {named} DROP PRIMARY KEY"))
+                conn.execute(text(f"ALTER TABLE {named} ADD PRIMARY KEY (id, version)"))
+            else:
+                pk_name = insp.get_pk_constraint(table).get("name") or f"{table}_pkey"
+                conn.execute(text(f"ALTER TABLE {named} DROP CONSTRAINT IF EXISTS {quote(pk_name)}"))
+                conn.execute(text(f"ALTER TABLE {named} ADD PRIMARY KEY (id, version)"))
 
     def next_version(self, id):
-        from sqlalchemy import text
-        with self.engine.connect() as conn:
-            row = conn.execute(text(
-                f"SELECT COALESCE(MAX(version), 0) + 1 FROM {self.table.name} "
-                f"WHERE id = :id"), {"id": id}).first()
-        return int(row[0]) if row is not None else 1
+        from sqlalchemy import func, select
+        with self._sql_transaction() as conn:
+            if self._native is not None:
+                return self._native.state.next_version(id)
+            return int(conn.execute(select(func.coalesce(func.max(self.table.c.version), 0)+1)
+                                    .where(self.table.c.id == id)).scalar_one())
 
     def _put_impl(self, id, rex, sig, meta, tags, valid_from, valid_to,
                   search_terms=None, tx_time=None):
-        from sqlalchemy import insert, text
+        if self._native is not None:
+            with self._sql_transaction(write=True) as conn:
+                return self._native.put(conn, id, rex, sig, meta or {}, valid_from, valid_to, tx_time)
+        from sqlalchemy import insert, update
+        from .engine import payload_identity
         now = _now() if tx_time is None else float(tx_time)
-        blob = self._serialize_payload(rex)
-        with self.engine.begin() as conn:
-            conn.execute(text(
-                f"UPDATE {self.table.name} SET tx_to = :now "
-                f"WHERE id = :id AND tx_to IS NULL"), {"now": now, "id": id})
-            row = conn.execute(text(
-                f"SELECT COALESCE(MAX(version), 0) + 1 FROM {self.table.name} "
-                f"WHERE id = :id"), {"id": id}).first()
-            v = int(row[0]) if row is not None else 1
+        payload = self._decode_payload(self._serialize_payload(rex))
+        identity = payload_identity(payload)
+        with self._sql_transaction(write=True) as conn:
+            conn.execute(update(self.table).where(
+                self.table.c.id == id, self.table.c.tx_to.is_(None)).values(tx_to=now))
+            v = self.next_version(id)
             vfrom = valid_from if valid_from is not None else now
-            values = dict(id=id, signature=json.dumps(sig), meta=json.dumps(meta or {}),
+            rec = ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
+                                tx_from=now, tx_to=None, valid_from=vfrom, valid_to=valid_to)
+            rec, blob = self._record_payload(rec, payload=payload, identity=identity)
+            values = dict(id=id, signature=dumps_mapping(sig), meta=dumps_mapping(meta or {}),
                           created=now, blob=blob, version=v, tx_from=now, tx_to=None,
-                          valid_from=vfrom, valid_to=valid_to, **_sig_index_values(sig))
+                          valid_from=vfrom, valid_to=valid_to,
+                          record_envelope=json.dumps(rec.envelope.as_record()), **_sig_index_values(sig))
             conn.execute(insert(self.table).values(**values))
             labels = sorted(_record_labels(sig, meta))
             if labels:
                 conn.execute(insert(self.labels_table),
                              [{"id": id, "version": v, "label": lab} for lab in labels])
-        return ComplexRecord(id=id, signature=sig, created=now, meta=meta or {}, version=v,
-                             tx_from=now, tx_to=None, valid_from=vfrom, valid_to=valid_to)
+        return rec
 
     def _row_to_record(self, row) -> ComplexRecord:
         created = row.created or 0.0
-        return ComplexRecord(id=row.id, signature=json.loads(row.signature or "{}"),
-                             created=created, meta=json.loads(row.meta or "{}"),
+        return ComplexRecord(id=row.id, signature=loads_mapping(row.signature or "{}"),
+                             created=created, meta=loads_mapping(row.meta or "{}"),
                              version=row.version if row.version is not None else 1,
                              tx_from=row.tx_from if row.tx_from is not None else created,
-                             tx_to=row.tx_to, valid_from=row.valid_from, valid_to=row.valid_to)
+                             tx_to=row.tx_to, valid_from=row.valid_from, valid_to=row.valid_to,
+                             envelope=None if row.record_envelope is None else RecordEnvelope.from_record(json.loads(row.record_envelope)))
 
     _RECORD_COLS = ("id", "signature", "meta", "created", "version",
-                    "tx_from", "tx_to", "valid_from", "valid_to")
+                    "tx_from", "tx_to", "valid_from", "valid_to", "record_envelope")
 
     def _record_cols(self):
         t = self.table
@@ -2101,44 +2886,61 @@ class SQLStore(RCStore):
 
     def _records_for(self, id):
         from sqlalchemy import select
-        with self.engine.connect() as conn:
+        with self._sql_transaction() as conn:
             rows = conn.execute(select(*self._record_cols())
                                 .where(self.table.c.id == id)).fetchall()
         return [self._row_to_record(r) for r in rows]
 
+    @_owned_records
     def get_record(self, id, *, as_of=None, valid_at=None):
-        rec = self._select_version(self._records_for(id), as_of, valid_at)
-        if rec is None:
-            split = self._split_versioned_id(id)
-            if split is not None:
-                base, v = split
-                # a lineage() display id: resolve the explicit version directly
-                # (version is explicit, so as_of/valid_at do not apply)
-                rec = next((r for r in self._records_for(base) if r.version == v), None)
-        return rec
+        with self._sql_transaction():
+            if self._native is not None:
+                return self._native.selected(id, as_of, valid_at)
+            literal_versions = self._records_for(id)
+            rec = self._select_version(literal_versions, as_of, valid_at)
+            if rec is None and not literal_versions:
+                split = self._split_versioned_id(id)
+                if split is not None:
+                    base, v = split
+                    # a lineage() display id: resolve the explicit version directly
+                    # (version is explicit, so as_of/valid_at do not apply)
+                    rec = next((r for r in self._records_for(base) if r.version == v), None)
+            return rec
 
     def get(self, id, *, as_of=None, valid_at=None, verify: bool = True):
-        rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
-        if rec is None:
-            return None
-        # rec.id is the record's OWN stored id (see MemoryStore.get for why
-        # this, not the local `id`, is the correct blob key on a fallback hit).
         from sqlalchemy import select
-        with self.engine.connect() as conn:
+        with self._sql_transaction() as conn:
+            rec = self.get_record(id, as_of=as_of, valid_at=valid_at)
+            if rec is None:
+                return None
+            if self._native is not None:
+                return self._native.read(conn, rec, verify=verify)
+            # rec.id is the literal stored id, including display alias fallback.
             row = conn.execute(select(self.table.c.blob).where(
                 self.table.c.id == rec.id, self.table.c.version == rec.version)).first()
-        return self._deserialize_payload(row.blob, verify=verify) if row else None
+            if row is None or row.blob is None:
+                raise ValueError("published SQL record payload is missing")
+            return self._read_record_payload(rec, row.blob, verify=verify)
 
     def get_version(self, id, version):
         from sqlalchemy import select
-        with self.engine.connect() as conn:
-            row = conn.execute(select(self.table.c.blob).where(
+        with self._sql_transaction() as conn:
+            if self._native is not None:
+                rec = self._native.state.record(id, version)
+                return None if rec is None else self._native.read(conn, rec)
+            row = conn.execute(select(self.table).where(
                 self.table.c.id == id, self.table.c.version == version)).first()
-        return self._deserialize_payload(row.blob) if row else None
+            if row is not None and row.blob is None:
+                raise ValueError("published SQL record payload is missing")
+            return self._read_record_payload(self._row_to_record(row), row.blob) if row else None
 
+    @_owned_records
     def history(self, id):
         from sqlalchemy import select
-        with self.engine.connect() as conn:
+        with self._sql_transaction() as conn:
+            if self._native is not None:
+                _read_selector(id, None, None, None)
+                return self._native.state.history(id)
             rows = conn.execute(select(*self._record_cols())
                                 .where(self.table.c.id == id)
                                 .order_by(self.table.c.version)).fetchall()
@@ -2164,24 +2966,84 @@ class SQLStore(RCStore):
             conds.append(t.c.tx_to.is_(None))
         return conds
 
+    def _collection_conds(self, as_of, valid_at, include_history):
+        """Choose one native version per id before applying query predicates."""
+        conds = self._temporal_conds(as_of, valid_at, include_history)
+        if self._native is None:
+            return conds
+        _read_selector("selector", None, as_of, valid_at)
+        if type(include_history) is not bool:
+            raise TypeError("include_history must be a bool")
+        if include_history:
+            if as_of is not None or valid_at is not None:
+                raise ValueError("history collection cannot combine time selectors")
+            return conds
+        from sqlalchemy import and_, func, select
+        t = self.table
+        selected = select(t.c.id, func.max(t.c.version).label("version"))
+        if conds:
+            selected = selected.where(and_(*conds))
+        selected = selected.group_by(t.c.id).subquery()
+        return [select(selected.c.id).where(selected.c.id == t.c.id,
+                                            selected.c.version == t.c.version).exists()]
+
+    def _canonical_time_selection(self, as_of, valid_at):
+        """SQL Float parameters must not change the point selector's comparison.
+
+        Fractions, extended/custom reals and integers rounded by binary64 use
+        checked engine selection. Native floats and exactly represented integers
+        retain SQL predicates and indexes.
+        """
+        return self._native is not None and any(
+            value is not None and (type(value) not in (int, float)
+                                   or (type(value) is int and float(value) != value))
+            for value in (as_of, valid_at))
+
+    def _canonical_time_page(self, *, limit, offset=0, as_of=None, valid_at=None,
+                             include_history=False, predicate=None):
+        with self._sql_transaction() as conn:
+            if self._sql_writing:
+                self._native.check_projection(conn)
+            return self._native.state.select_records(limit=limit, offset=offset, as_of=as_of,
+                    valid_at=valid_at, include_history=include_history, predicate=predicate)
+
+    @_owned_records
     def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
              include_history=False):
         from sqlalchemy import and_, select
+        if self._native is not None and (type(limit) is not int or type(offset) is not int or limit < 0 or offset < 0):
+            raise ValueError("SQL collection bounds require nonnegative native integers")
+        if self._canonical_time_selection(as_of, valid_at):
+            return self._canonical_time_page(limit=limit, offset=offset, as_of=as_of,
+                                             valid_at=valid_at, include_history=include_history)
         t = self.table
         stmt = select(*self._record_cols())
-        conds = self._temporal_conds(as_of, valid_at, include_history)
+        conds = self._collection_conds(as_of, valid_at, include_history)
         if conds:
             stmt = stmt.where(and_(*conds))
-        stmt = stmt.order_by(t.c.tx_from.desc()).limit(limit).offset(offset)
-        with self.engine.connect() as conn:
+        order = (t.c.tx_from.desc(), t.c.id, t.c.version.desc()) if self._native is not None else (t.c.tx_from.desc(),)
+        stmt = stmt.order_by(*order).limit(limit).offset(offset)
+        with self._sql_transaction() as conn:
+            if self._native is not None and self._sql_writing:
+                self._native.check_projection(conn)
             rows = conn.execute(stmt).fetchall()
         return [self._row_to_record(r) for r in rows]
 
+    @_owned_records
     def query(self, limit=100, include_history=False, *, as_of=None,
               valid_at=None, **predicate):
         # push the indexed predicates into SQL; apply the rest (tags, voids)
         # in Python only over the narrowed candidate set.
         from sqlalchemy import and_, select
+        if self._native is not None:
+            if type(limit) is not int or limit < 0:
+                raise ValueError("SQL query limit requires a nonnegative native integer")
+            if set(predicate)-_QUERY_KEYS:
+                raise TypeError("unsupported query keys: "+", ".join(sorted(set(predicate)-_QUERY_KEYS))
+                                +". Supported: "+", ".join(sorted(_QUERY_KEYS)))
+            if self._canonical_time_selection(as_of, valid_at):
+                return self._canonical_time_page(limit=limit, as_of=as_of, valid_at=valid_at,
+                                                include_history=include_history, predicate=predicate)
         t = self.table
         builders = {
             "min_nV": lambda v: t.c.nV >= v,
@@ -2222,53 +3084,97 @@ class SQLStore(RCStore):
                           .having(func.count(func.distinct(lt.c.label)) == len(wanted)))
             conds.append(sub.exists())
             pushed.add(key)
-        conds.extend(self._temporal_conds(as_of, valid_at, include_history))
+        conds.extend(self._collection_conds(as_of, valid_at, include_history))
         stmt = select(*self._record_cols())
         if conds:
             stmt = stmt.where(and_(*conds))
-        stmt = stmt.order_by(t.c.created.desc())
+        order = (t.c.tx_from.desc(), t.c.id, t.c.version.desc()) if self._native is not None else (t.c.created.desc(),)
+        stmt = stmt.order_by(*order)
         residual = {k: v for k, v in predicate.items() if k not in pushed}
         if not residual:
             # nothing left for Python to reject, so stop the database at `limit`
             # instead of materializing every match and slicing afterwards.
             stmt = stmt.limit(limit)
-        with self.engine.connect() as conn:
+        with self._sql_transaction() as conn:
+            if self._native is not None:
+                if self._sql_writing:
+                    self._native.check_projection(conn)
+                if not limit:
+                    return []
+                out = []
+                # Residual predicates may reject early SQL candidates. Stream
+                # until enough complete matches survive, then close the cursor
+                # before releasing this same checked provider snapshot.
+                with conn.execute(stmt) as rows:
+                    for row in rows:
+                        record = self._row_to_record(row)
+                        if residual and not _matches(record.signature, residual, record.meta,
+                                is_complex=record.is_complex, record_type=record.object_type):
+                            continue
+                        out.append(record)
+                        if len(out) == limit:
+                            break
+                return out
             rows = conn.execute(stmt).fetchall()
         out = [self._row_to_record(r) for r in rows]
         if residual:
-            out = [r for r in out if _matches(r.signature, residual, r.meta)]
+            out = [r for r in out if _matches(r.signature, residual, r.meta,
+                                            is_complex=r.is_complex, record_type=r.object_type)]
         return out[:limit]
 
     @_serialized
-    def delete(self, id):
-        reclaim = self._claim_delete(id)
+    def delete(self, id, *, tx_time=None, expected_version=None):
         from sqlalchemy import delete, select
-        with self.engine.begin() as conn:
+        with self._sql_transaction(write=True) as conn:
+            if self._native is not None:
+                return self._native.delete(conn, id, tx_time=tx_time, expected_version=expected_version)
+            if tx_time is not None or expected_version is not None:
+                raise ValueError("native deletion selectors require explicit migration of this SQL store")
+            reclaim = self._claim_delete(id)
             existed = conn.execute(select(self.table.c.id).where(
                 self.table.c.id == id)).first() is not None
             conn.execute(delete(self.table).where(self.table.c.id == id))
             # the label index is a projection of the record; it must not outlive it
             conn.execute(delete(self.labels_table).where(self.labels_table.c.id == id))
-        if existed:
-            self._reclaim_commits(id, reclaim)
-            self._emit("rcdb.delete", id, 0, {})
-        return existed
+            if existed:
+                self._reclaim_commits(id, reclaim)
+                self._emit("rcdb.delete", id, 0, {})
+            return existed
+
+    def _require_record_engine(self):
+        if self._native is None:
+            raise ValueError("SQL change history requires explicit native-state migration")
+        return self._native.state
+
+    @property
+    def change_cursor(self):
+        with self.read_transaction():
+            return self._require_record_engine().cursor
+
+    def changes(self, after=None, *, limit=100):
+        with self.read_transaction():
+            return self._require_record_engine().changes(after, limit=limit)
+
+    def cursor_for(self, change):
+        with self.read_transaction():
+            return self._require_record_engine().cursor_for(change)
+
+    def tombstone(self, id):
+        _read_selector(id, None, None, None)
+        with self.read_transaction():
+            return self._require_record_engine().tombstone(id)
 
     def close(self):
-        """Release the engine's connection pool.
-
-        SQLStore had no close, so it inherited RCStore's no op and every caller that
-        dutifully called close kept the pool open. The connections then surfaced at
-        garbage collection, which reports whatever frame happened to be running rather
-        than where they were opened, so the leak read as scattered third party warnings
-        instead of one lifecycle bug here.
-
-        Idempotent: dispose on an already disposed engine is a no op in SQLAlchemy, and
-        close is called from several paths and from reset_default_store.
-        """
-        engine = getattr(self, "engine", None)
-        if engine is not None:
-            engine.dispose()
+        """Idempotently close this handle and release its connection pool."""
+        with self._transaction_lock:
+            if self._closed:
+                return
+            if self._sql_connection is not None:
+                raise RuntimeError("cannot close SQLStore inside an active transaction")
+            if self._native is not None:
+                self._native.discard()
+            self._closed = True
+            self.engine.dispose()
 
 
 
@@ -2428,6 +3334,8 @@ def find_similar(store: RCStore, query_rex, query_labels, top_k: int = 10,
     qset = {str(x).lower() for x in (query_labels or [])}
     out = []
     for rec in store.list(limit=10 ** 9):
+        if not rec.is_complex:
+            continue
         if exclude_id is not None and rec.id == exclude_id:
             continue
         try:
@@ -2614,7 +3522,7 @@ def cluster_complexes(store: RCStore, tags_any=None, threshold: float = 0.7):
     import math
 
     from rexgraph.graph import cross_complex_bridge
-    recs = store.list(limit=10 ** 9)
+    recs = [record for record in store.list(limit=10 ** 9) if record.is_complex]
     if tags_any:
         tset = set(tags_any)
         recs = [r for r in recs if tset & set(r.signature.get("tags", []))]
@@ -2705,7 +3613,9 @@ def compare(store: RCStore, id_a: str, id_b: str):
 
 
 def copy_record(src: RCStore, dst: RCStore, record, *, meta=None, tags=None,
-                governed=None, actor="", expected_version=None):
+                governed=None, actor="", expected_version=None, return_receipt=False,
+                tx_time=None, expected_digest=None, expected_cursor=None,
+                expected_policy_digest=None, preserve_signature=False, destination_id=None):
     """Copy one stored version of one record from `src` into `dst`.
 
     The single place a record crosses between stores. `migrate` walks a whole history
@@ -2726,25 +3636,94 @@ def copy_record(src: RCStore, dst: RCStore, record, *, meta=None, tags=None,
     Source commit packages are not transplanted into a different lineage. False
     uses put and cannot bypass a required commit destination. actor and
     expected_version apply only to governed copies. Payload integrity failures raise.
+    With return_receipt=True, return a closed CopyReceipt naming the actual source
+    and published destination versions instead of the destination ComplexRecord.
+    It records Core object identities, not physical container or commit digests.
+    Checked migration can supply tx_time, expected_digest, expected_cursor and
+    expected_policy_digest. Source selection finishes before the destination writer
+    is acquired; cursor/policy conditions are checked under that writer. A
+    preserve_signature copy refuses metadata/tag overrides or lossy projection.
+    destination_id optionally names a different literal destination address; the
+    receipt continues to name the original source address and version.
     """
     if governed is not None and not isinstance(governed, bool):
         raise TypeError("governed must be a bool or None")
+    if type(return_receipt) is not bool:
+        raise TypeError("return_receipt must be a bool")
+    if type(preserve_signature) is not bool:
+        raise TypeError("preserve_signature must be a bool")
+    _read_selector(record.id, None, tx_time, None)
+    target_id = record.id if destination_id is None else destination_id
+    _read_selector(target_id, None, None, None)
+    if expected_digest is not None:
+        from .envelope import _hex_identity
+        _hex_identity(expected_digest, 64, "expected source object digest")
+    if expected_policy_digest is not None:
+        from .envelope import _hex_identity
+        _hex_identity(expected_policy_digest, 64, "expected destination policy digest")
+    if expected_cursor is not None:
+        from .engine import ChangeCursor
+        if not isinstance(expected_cursor, ChangeCursor):
+            raise TypeError("conditional copy requires a declared ChangeCursor")
+    if preserve_signature and (meta is not None or tags is not None):
+        raise ValueError("signature-preserving copy cannot override source metadata or tags")
     snapshot = src.read_record(record.id, version=record.version)
     if snapshot is None:
         return None
+    if expected_digest is not None and snapshot.state_digest != expected_digest:
+        raise ValueError("copied source object differs from its pinned digest")
+    source_owner = src.store_id if return_receipt else None
     record = snapshot.record
     options = {
         "meta": deepcopy(record.meta or {}) if meta is None else meta,
         "tags": list((record.signature or {}).get("tags", [])) if tags is None else tags,
         "valid_from": record.valid_from, "valid_to": record.valid_to,
     }
-    governed = bool(getattr(dst, "_require_commits", False)) if governed is None else governed
-    if governed:
-        return dst.commit_mutation(record.id, snapshot.value, actor=actor,
-                                   expected_version=expected_version, **options)
-    if expected_version is not None or actor:
-        raise ValueError("actor and expected_version require a governed copy")
-    return dst.put(record.id, snapshot.value, **options)
+    # Source selection is complete before acquiring a destination publication gate.
+    # This avoids nested directory locks or a source SQL snapshot blocking COMMIT.
+    scope = dst._transaction_lock if expected_cursor is None else dst.write_scope()
+    with scope:
+        if expected_cursor is not None and dst.change_cursor != expected_cursor:
+            raise VersionConflictError("destination cursor changed before conditional copy")
+        if expected_policy_digest is not None and dst.transfer_policy_digest() != expected_policy_digest:
+            raise ValueError("destination policy differs from the conditional copy")
+        governed = bool(getattr(dst, "_require_commits", False)) if governed is None else governed
+        if not governed and (expected_version is not None or actor):
+            raise ValueError("actor and expected_version require a governed copy")
+        if preserve_signature:
+            from rexgraph.value_codec import pack_value
+            if (pack_value(snapshot_mapping(dst._stored_meta(_priv(record.meta)))) != pack_value(record.meta)
+                    or pack_value(snapshot_mapping(dst._stored_signature(record.signature))) != pack_value(record.signature)):
+                raise ValueError("destination policy would change the source metadata or signature")
+        if preserve_signature and dst._load_commit_bytes(target_id, dst.next_version(target_id)) is not None:
+            raise ValueError("destination record address has an unpublished mutation artifact")
+        if record.envelope is not None and record.envelope.codec != "rexgraph.safetensors":
+            if governed:
+                raise ValueError("current mutation commits cannot govern generic native copies")
+            from .header import CodecRef
+            copied = dst.put_record(target_id, snapshot.value,
+                                    codec=CodecRef(record.envelope.codec, record.envelope.codec_version),
+                                    signature=record.signature if preserve_signature else None,
+                                    tx_time=tx_time, **options)
+        elif governed:
+            copied = dst.commit_mutation(target_id, snapshot.value, actor=actor,
+                                         expected_version=expected_version, tx_time=tx_time,
+                                         signature=record.signature if preserve_signature else None, **options)
+        elif preserve_signature:
+            from .engine import encode_native_payload
+            from .header import BlobCodecSpec
+            copied = dst.put_prepared(target_id, encode_native_payload(snapshot.value, BlobCodecSpec()),
+                                      record.signature, _tx_time=tx_time, **options)
+        else:
+            copied = dst.put(target_id, snapshot.value, _tx_time=tx_time, **options)
+    if not return_receipt:
+        return copied
+    from .transfer import CopyReceipt
+    if copied.envelope is None:
+        raise ValueError("published destination has no record binding for a copy receipt")
+    copied.envelope.check_address(store_id=dst.store_id, record_id=copied.id, record_version=copied.version)
+    return CopyReceipt(source_owner, record.id, int(record.version), snapshot.state_digest,
+                       dst.store_id, copied.id, int(copied.version), copied.envelope.object_digest)
 
 
 def migrate(src: RCStore, dst: RCStore, *, ids=None, limit: int = 10 ** 9) -> dict:
@@ -2754,19 +3733,32 @@ def migrate(src: RCStore, dst: RCStore, *, ids=None, limit: int = 10 ** 9) -> di
     without either knowing the other exists, which is what makes the choice of
     backend reversible rather than a commitment. Existing records in `dst` are left
     alone; a colliding id gains versions rather than losing its own.
+    Each successful version has a closed identity receipt in the report. This
+    compatibility history copy selects current ids by default and assigns new
+    transaction times; it does not replay native tombstones or whole store clocks.
+    Legacy callers should use plan_legacy_migration/migrate_legacy_batch for
+    pinned inventory, explicit loss acceptance and verified resume.
     """
+    if src.store_id == dst.store_id:
+        raise ValueError("migration source and destination name the same logical store")
     wanted = list(ids) if ids is not None else [r.id for r in src.list(limit=limit)]
     n_records = n_versions = 0
+    receipts = []
     for rid in wanted:
         history = src.history(rid)
         if not history:
             continue
         n_records += 1
         for rec in sorted(history, key=lambda r: r.version):
-            if copy_record(src, dst, rec) is not None:
+            receipt = copy_record(src, dst, rec, return_receipt=True)
+            if receipt is not None:
                 n_versions += 1
+                receipts.append(receipt.as_record())
+    from .legacy_migration import LEGACY_MIGRATION_LIMITATIONS
     return {"records": n_records, "versions": n_versions,
-            "src": getattr(src, "backend", "?"), "dst": getattr(dst, "backend", "?")}
+            "src": getattr(src, "backend", "?"), "dst": getattr(dst, "backend", "?"),
+            "receipts": tuple(receipts), "scope": "compatibility_history_copy",
+            "limitations": LEGACY_MIGRATION_LIMITATIONS}
 
 
 def _existing_backend(path: str):
@@ -2775,12 +3767,47 @@ def _existing_backend(path: str):
     import os
     if not os.path.isdir(path):
         return None
-    if os.path.exists(os.path.join(path, "records.log")):
-        return "rex"
-    if any(os.path.exists(os.path.join(path, n)) for n in
-           ("index.rexidx", "index.rexlog", "index.json", "index.log")):
-        return "file"
-    return None
+    candidates = []
+    native_object = os.path.lexists(os.path.join(path, "store.head"))
+    header_path = os.path.join(path, "store.header")
+    if os.path.lexists(header_path):
+        from .header import HEADER_LIMIT, StoreHeader
+        if os.path.islink(header_path) or not os.path.isfile(header_path):
+            raise ValueError("store header requires a regular file")
+        with open(header_path, "rb") as stream:
+            header = StoreHeader.from_bytes(stream.read(HEADER_LIMIT+65))
+        native_object = native_object or header.identity.backend == "object"
+    if native_object:
+        candidates.append("object")
+    markers = {"local": ("store.header", "records.journal"),
+               "rex": ("records.log", "blobs.pack"),
+               "file": ("index.rexidx", "index.rexlog", "index.json", "index.log")}
+    if native_object:
+        markers["local"] = ("records.journal",)
+    manifest_path = os.path.join(path, "MANIFEST.json")
+    if os.path.lexists(manifest_path):
+        from .legacy import loads_metadata
+        if os.path.islink(manifest_path) or not os.path.isfile(manifest_path):
+            raise ValueError("store manifest requires a regular file")
+        with open(manifest_path, "rb") as stream:
+            raw = stream.read(4097)
+        if len(raw) > 4096:
+            raise ValueError("store manifest exceeds its byte limit")
+        manifest = loads_metadata(raw)
+        if type(manifest) is not dict or manifest.get("format") not in {"rexdb-object", "rexstore"}:
+            raise ValueError("unknown legacy store manifest declaration")
+        owner = "object" if manifest["format"] == "rexdb-object" else "rex"
+        if owner not in candidates:
+            candidates.append(owner)
+        if owner == "object":
+            markers["file"] = tuple(name for name in markers["file"] if name != "index.json")
+    for backend, names in markers.items():
+        if any(os.path.lexists(os.path.join(path, name)) for name in names):
+            if backend not in candidates:
+                candidates.append(backend)
+    if len(candidates) > 1:
+        raise ValueError("directory contains conflicting RCDB store layouts")
+    return candidates[0] if candidates else None
 
 
 def recommend_backend(path: str = "", *, uri: str = "") -> dict:
@@ -2793,85 +3820,99 @@ def recommend_backend(path: str = "", *, uri: str = "") -> dict:
     """
     if uri:
         scheme = urlparse(uri).scheme
-        if scheme and scheme not in ("auto", "file"):
+        if scheme and scheme != "auto":
             return {"backend": scheme, "reason": f"explicit in the uri ({scheme}://)"}
+        if scheme == "auto" and not path:
+            path = uri[len("auto://"):] or "./rcdb"
     found = _existing_backend(path) if path else None
     if found:
         return {"backend": found,
                 "reason": f"a {found} store already exists at this path"}
-    return {"backend": "rex",
-            "reason": "embedded, append-only: constant-cost writes, three files, "
-                      "no server"}
+    return {"backend": "local",
+            "reason": "canonical checked local engine with retained history and tombstones, no server"}
 
 
-def open_store(uri: str = "memory://") -> RCStore:
+def open_store(uri: str = "memory://", **options) -> RCStore:
     """Open an RCStore from a URI.
 
-    auto:///path                    -> whatever already lives there, else RexStore
-    s3://…, gs://…, az://…          -> ObjectStore (needs s3fs / gcsfs / adlfs)
+    auto:///path                    -> existing layout, else canonical LocalStore
+    s3://…, gs://…, az://…          -> object adapter (driver and native publication capability required)
     memory://                       -> MemoryStore
-    rex:///path                     -> RexStore (embedded, append only, no server)
-    file:///path  or  /path         -> FileStore (legacy: quadratic ingest)
+    local:///path                   -> canonical checked local engine
+    rex:///path                     -> read only legacy packed source
+    file:///path  or  /path         -> read only legacy file source
     sqlite:///f.db, postgresql://…  -> SQLStore (any SQLAlchemy backend)
     <custom>://…                    -> a registered backend
+
+    Explicit keyword options are passed to that backend's constructor/factory.
+    Legacy writing requires read_only=False for the compatibility transition;
+    new application stores should use local://, memory:// or native SQLite.
     """
     parsed = urlparse(uri)
     scheme = parsed.scheme or "file"
     if scheme == "auto":
         path = uri[len("auto://"):] or "./rcdb"
         chosen = recommend_backend(path)["backend"]
-        return open_store(f"{chosen}://{path}")
+        if chosen == "object":
+            from .objectstore import open_object_store
+            return open_object_store("file://"+os.path.abspath(path), **options)
+        return open_store(f"{chosen}://{path}", **options)
     if scheme in _BACKENDS:
-        return _BACKENDS.require(scheme)(uri)
+        return _BACKENDS.require(scheme)(uri, **options)
     if scheme == "memory":
-        return MemoryStore()
+        return MemoryStore(**options)
     if scheme == "file":
         path = uri[len("file://"):] if uri.startswith("file://") else uri
-        return FileStore(path or "./rcdb")
+        return FileStore(path or "./rcdb", **options)
     # anything SQLAlchemy understands
-    return SQLStore(uri)
+    return SQLStore(uri, **options)
 
 
 # built in registrations
-def _open_rexstore(uri: str):
+def _open_rexstore(uri: str, **options):
     from .rexstore import RexStore
     path = uri[len("rex://"):] if uri.startswith("rex://") else uri
-    return RexStore(path or "./rexdb")
+    return RexStore(path or "./rexdb", **options)
 
 
-def _open_objectstore(uri: str):
-    from .objectstore import ObjectStore
-    return ObjectStore(uri)
+def _open_objectstore(uri: str, **options):
+    from .objectstore import open_object_store
+    return open_object_store(uri, **options)
 
 
-register_backend("memory", lambda uri: MemoryStore())
+def _open_localstore(uri: str, **options):
+    from .localstore import LocalStore
+    return LocalStore(uri[len("local://"):] or "./rcdb-local", **options)
+
+
+register_backend("memory", lambda uri, **options: MemoryStore(**options))
 register_backend("rex", _open_rexstore)
+register_backend("local", _open_localstore)
 # one backend, every provider: fsspec routes the wire protocol to its driver.
 for _scheme in ("s3", "gs", "gcs", "az", "abfs", "adl"):
     register_backend(_scheme, _open_objectstore)
-register_backend("file", lambda uri: FileStore(
-    uri[len("file://"):] if uri.startswith("file://") else uri))
+register_backend("file", lambda uri, **options: FileStore(
+    uri[len("file://"):] if uri.startswith("file://") else uri, **options))
 
 
 # The process wide default store
 #
-# Before this existed, the only code resolving REXGRAPH_RCDB_URI lived inside
-# server/routes/rcdb.py, so every non HTTP consumer fell back to its own
-# `MemoryStore()` and silently discarded whatever it wrote. Callers that want a
-# specific store still pass one; callers that just want "the store" get this.
+# Resolve REXGRAPH_RCDB_URI once for callers using the process default store.
 
 _DEFAULT_STORE: RCStore | None = None
 
 
 def default_store_uri() -> str:
-    """The configured store URI: REXGRAPH_RCDB_URI, else a file store under the
-    config dir (REXGRAPH_CONFIG_DIR, else ~/.config/rexgraph)."""
+    """Configured URI, else auto:// under the config directory.
+
+    New paths use LocalStore; existing legacy data opens read only for migration.
+    """
     uri = os.environ.get("REXGRAPH_RCDB_URI")
     if uri:
         return uri
     base = os.environ.get("REXGRAPH_CONFIG_DIR",
                           os.path.join(os.path.expanduser("~"), ".config", "rexgraph"))
-    return "file://" + os.path.join(base, "rcdb")
+    return "auto://" + os.path.join(base, "rcdb")
 
 
 def default_store() -> RCStore:

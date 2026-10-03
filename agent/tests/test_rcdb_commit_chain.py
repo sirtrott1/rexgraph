@@ -100,7 +100,7 @@ def test_a_signing_policy_refuses_an_unsigned_package():
 @pytest.mark.parametrize("backend", ["memory", "file", "rex"])
 def test_every_backend_holds_the_artifact(backend, tmp_path):
     uri = "memory://" if backend == "memory" else f"{backend}://{tmp_path / backend}"
-    s = open_store(uri)
+    s = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     s.commit_mutation("r1", _rex(2), actor="alice")
     s.commit_mutation("r1", _rex(3), actor="alice")
     assert len(s.commit_history("r1")) == 2
@@ -110,10 +110,18 @@ def test_every_backend_holds_the_artifact(backend, tmp_path):
 def test_an_unattested_version_is_ordinary_where_commits_are_optional(store):
     """With commits optional a version may simply not have one, so the walk continues."""
     store.commit_mutation("r1", _rex(2), actor="alice")
-    store.commit_mutation("r1", _rex(3), actor="alice")
-    store._commit_blobs.pop(("r1", 2))
+    store.put("r1", _rex(3))
     assert store.verify_commits("r1") is True
     assert len(store.commit_history("r1")) == 1
+
+
+def test_a_claimed_optional_commit_cannot_be_erased_as_if_it_were_never_published(store):
+    store.commit_mutation("r1", _rex(2), actor="alice")
+    store.commit_mutation("r1", _rex(3), actor="alice")
+    store._commit_blobs.pop(("r1", 2))
+    assert store.verify_commits("r1") is False
+    with pytest.raises(ValueError, match="artifact is missing"):
+        store.commit_history("r1")
 
 
 def test_deleting_an_artifact_cannot_hide_a_version_where_commits_are_required(store):
@@ -168,7 +176,7 @@ def test_deleting_a_record_reclaims_its_artifacts(backend, tmp_path):
     earned.
     """
     uri = "memory://" if backend == "memory" else f"{backend}://{tmp_path / backend}"
-    s = open_store(uri)
+    s = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     s.commit_mutation("r1", _rex(2), actor="alice")
     s.commit_mutation("r1", _rex(3), actor="alice")
     assert len(s.commit_history("r1")) == 2

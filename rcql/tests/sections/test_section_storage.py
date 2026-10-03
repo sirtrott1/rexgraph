@@ -32,7 +32,7 @@ def test_native_record_roundtrip(kind):
     record=RexGraph.from_hypergraph([0,1],[0])
     record.attach_metadata(1,0,'section',value)
     state=to_state(record)
-    assert state.header['format_version']==6
+    assert state.header['format_version']==10
     restored=from_state(state).get_metadata(1,0,'section')
     assert restored.coefficient_digest==value.coefficient_digest
     if kind=='recipe':
@@ -43,11 +43,11 @@ def test_native_record_roundtrip(kind):
         assert restored.particular.values.tolist()==[2**100+1,0,2**100+1,0]
 
 
-def test_nested_recipe_selects_version6():
+def test_nested_recipe_selects_native_semantic_state():
     c,_=native();child=RexGraph.from_hypergraph([0,1],[0]);child.attach_metadata(1,0,'equations',c.recipe)
     parent=RexGraph.from_hypergraph([0,1],[0]);parent.attach_metadata(1,0,'child',child)
     state=to_state(parent)
-    assert state.header['format_version']==6
+    assert state.header['format_version']==10
     restored=from_state(state).get_metadata(1,0,'child').get_metadata(1,0,'equations')
     assert restored.coefficient_digest==c.coefficient_digest
 
@@ -58,12 +58,12 @@ def test_store_reopen_and_query(backend,tmp_path):
     record=RexGraph.from_hypergraph([0,1],[0]);record.attach_metadata(1,0,'recipe',c.recipe);record.attach_metadata(1,0,'family',f)
     uri={'memory':'memory://','rex':str(tmp_path/'history.rexdb'),'file':'file://'+str(tmp_path/'files'),
          'sql':'sqlite:///'+str(tmp_path/'history.db')}[backend]
-    store=open_store(uri)
+    store=open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         saved=store.commit_mutation('section_result',record,expected_version=0)
         version=saved.version
         if backend!='memory':
-            store.close();store=open_store(uri)
+            store.close();store=open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
         restored=store.read_record('section_result',version=version).value
         recipe=restored.get_metadata(1,0,'recipe')
         out=Executor(sources={'g':c.source.source},params={'r':recipe}).execute(parse('FROM $g RETURN SECTION_RESTORE($r)')).values[0]

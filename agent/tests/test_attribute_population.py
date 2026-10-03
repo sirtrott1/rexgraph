@@ -115,15 +115,18 @@ def test_a_delocalised_relation_says_so_rather_than_borrowing_an_order(tmp_path)
     assert rex.get_metadata(1, 0, "relation_kind") == "bond"
 
 
-def test_a_mixed_type_column_is_packed_as_strings(tmp_path):
-    """Worth pinning, because it is silent: one string among the numbers under a key
-    coerces the whole column. Keep a key to one type."""
+def test_a_mixed_type_column_preserves_its_values(tmp_path):
+    """Native attributes preserve types and missing cells across a round trip."""
     from rexgraph.io.rex_state import from_state, to_state
 
     rex = _built(load_sdf(_write(tmp_path, "b.sdf", _BENZENE)))
     rex.attach_metadata(1, 0, "mixed", 4)
     rex.attach_metadata(1, 1, "mixed", "four")
-    assert from_state(to_state(rex)).get_metadata(1, 0, "mixed") == "4"
+    back = from_state(to_state(rex))
+    assert back.get_metadata(1, 0, "mixed") == 4
+    assert type(back.get_metadata(1, 0, "mixed")) is int
+    assert back.get_metadata(1, 1, "mixed") == "four"
+    assert back.get_metadata(1, 2, "mixed") is None
 
 
 def test_pdb_keeps_the_chain_it_used_to_discard(tmp_path):

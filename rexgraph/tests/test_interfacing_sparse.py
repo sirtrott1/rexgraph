@@ -9,9 +9,9 @@ Small graph fixtures (cycle, K4, two triangles sharing an edge) mirror
 Tolerances
 
 * EIGEN FREE fields (rho, psi, signal_magnitude, scores T/G/F, iv[:3], efficiency)
-  are exact to ~1e-8 - they are matrix free reproductions of the dense contraction.
+  are exact to ~1e-8: they are matrix free reproductions of the dense contraction.
 * On small graphs the sparse path REUSES the exact dense RL eigenbasis for the
-  genuinely spectral schrodinger/coverage, so those (and hence sphere_pos, confidence)
+  spectral schrodinger/coverage, so those (and hence sphere_pos, confidence)
   are also exact to ~1e-8.
 * When the scale free path is FORCED (eigen_dense_limit lowered so no dense RL is
   built) schrodinger/coverage come from a bounded eigsh surrogate; only the eigen free

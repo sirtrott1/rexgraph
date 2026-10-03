@@ -75,6 +75,17 @@ def test_metric_delta_does_not_depend_on_numerical_event_detection():
     assert entries_by_key(value) == {7: Q(1)}
 
 
+def test_mixed_binary_and_integer_snapshots_have_exact_metric_events():
+    timeline = TemporalRex([])
+    before = RexGraph(sources=[0], targets=[1], relation_ids=np.array([7]),
+                      w_E=np.array([float(2**100)]))
+    after = graph([(0, 1)], [7], [2**100+1])
+    timeline.append_snapshot(before)
+    timeline.append_snapshot(after)
+    assert timeline.reconstruct_at(1).edge_metric_exact == [Q(2**100+1)]
+    assert entries_by_key(run(timeline, "METRIC_DELTA", call("DELTA", 1))) == {7: Q(1)}
+
+
 def test_literal_and_nested_deltas_have_the_same_contract(timeline):
     literal = temporal_signal(timeline, 1)
     for name in ("EXISTENCE_DELTA", "ORIENTATION_DELTA", "SIGNING_DELTA", "HEAD_DELTA", "STRUCTURAL_DELTA", "METRIC_DELTA"):
@@ -148,12 +159,12 @@ def test_branching_orientation_delta_separates_two_nonminimal_heads():
 def test_temporal_readings_roundtrip_through_rcdb(timeline, tmp_path, backend):
     rcdb = pytest.importorskip("rcdb")
     from rcql import parse
-    store = rcdb.MemoryStore() if backend == "memory" else rcdb.open_store(f"rex://{tmp_path / 'store'}")
+    store = rcdb.MemoryStore() if backend == "memory" else rcdb.open_store(f"rex://{tmp_path / 'store'}", read_only=False)
     try:
         store.put("history", timeline, analytics=False)
         if backend == "rex":
             store.close()
-            store = rcdb.open_store(f"rex://{tmp_path / 'store'}")
+            store = rcdb.open_store(f"rex://{tmp_path / 'store'}", read_only=False)
         result = Executor(sources={"db": store}).execute(parse(
             'FROM RCDB_GET($db,"history") LET d=DELTA(1) '
             'RETURN METRIC_DELTA(d), STRUCTURAL_DELTA(d), SIGNING_DELTA(d), '

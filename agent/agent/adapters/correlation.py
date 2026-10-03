@@ -49,7 +49,7 @@ class CorrelationAdapter(DomainAdapter):
 
         threshold_val = _auto_threshold(R_work) if threshold == "auto" else float(threshold)
 
-        # Build edges - vectorized over the upper triangle (was an O(n²) Python
+        # Build edges: vectorized over the upper triangle (was an O(n²) Python
         # double loop); identical result and edge order (i<j).
         iu, ju = np.triu_indices(n, k=1)
         r_up = R_work[iu, ju]
@@ -104,7 +104,7 @@ class AdjacencyAdapter(DomainAdapter):
         labels: list[str] | None = None,
         directed: bool = False,
     ) -> EdgeConstruction:
-        """Build edges from an adjacency matrix. No thresholding - every
+        """Build edges from an adjacency matrix. No thresholding: every
         nonzero entry becomes an edge."""
         A = np.asarray(A, dtype=np.float64)
         n = A.shape[0]

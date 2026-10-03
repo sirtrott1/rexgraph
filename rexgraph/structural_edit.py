@@ -12,60 +12,14 @@ from numbers import Integral
 import numpy as np
 
 
-def remap_carried_state(rex, maps):
-    """Transport metadata and all upper boundaries through native C1/C2 maps."""
-    from rexgraph.native_sparse import csr_carrier, sparse_arrays
-    upper = []
-    for grade, matrix in enumerate(rex._graded_duals or (), 3):
-        ptr, columns, data, shape = sparse_arrays(matrix)
-        lower = maps[grade - 1]
-        if shape[0] != len(lower):
-            raise ValueError("upper boundary shape does not match the lower cell basis")
-        alive = np.ones(shape[1], dtype=bool)
-        for i in np.flatnonzero(lower < 0):
-            start, stop = int(ptr[i]), int(ptr[i + 1])
-            alive[columns[start:stop][data[start:stop] != 0]] = False
-        current = np.full(shape[1], -1, dtype=np.int32)
-        current[alive] = np.arange(np.count_nonzero(alive), dtype=np.int32)
-        maps[grade] = current
-        out_ptr, out_idx, out_data = [0], [], []
-        for i in np.flatnonzero(lower >= 0):
-            start, stop = int(ptr[i]), int(ptr[i + 1])
-            cols, vals = columns[start:stop], data[start:stop]
-            keep = alive[cols]
-            out_idx.extend(current[cols[keep]])
-            out_data.extend(vals[keep])
-            out_ptr.append(len(out_idx))
-        upper.append(csr_carrier(np.asarray(out_ptr, dtype=np.int64),
-                     np.asarray(out_idx, dtype=np.int64), np.asarray(out_data, dtype=data.dtype),
-                     (int(np.count_nonzero(lower >= 0)), int(np.count_nonzero(alive)))))
-    if rex._graded_duals is not None:
-        rex._graded_duals = upper
-    metadata = getattr(rex, "_cell_metadata", None)
-    if metadata:
-        rex._cell_metadata = {grade: {int(maps[grade][i]): value for i, value in entries.items()
-                                     if maps[grade][i] >= 0}
-                              for grade, entries in metadata.items() if grade in maps}
-    from rexgraph.sectioning import sectionings_of
-    for section in sectionings_of(rex).values():
-        mapping = maps[section.grade]
-        section.n_cells = int(np.count_nonzero(mapping >= 0))
-        if section.refines:
-            continue  # section IDs/parent hierarchy have not changed
-        ptr, ids = [0], []
-        for i in range(section.n_sections):
-            members = mapping[section.cells(i)]
-            ids.extend(members[members >= 0])
-            ptr.append(len(ids))
-        section.indptr = np.asarray(ptr, dtype=np.int64)
-        section.indices = np.asarray(ids, dtype=np.int64)
-    meta = getattr(rex, "_agent_meta", None)
-    if meta and "vertex_labels" in meta:
-        meta["vertex_labels"] = [label for i, label in enumerate(meta["vertex_labels"])
-                                 if i < len(maps[0]) and maps[0][i] >= 0]
-    signals = getattr(rex, "_signals", None)
-    if isinstance(signals, np.ndarray) and signals.ndim and signals.shape[0] == len(maps[1]):
-        rex._signals = signals[maps[1] >= 0].copy()
+def remap_carried_state(rex, maps, *, captured):
+    """Apply components captured before replacing the primary cell support.
+
+    Native edits and functional restrictions share the registered owners. Requiring
+    the pre edit capture prevents reconstructing lost declarations from new arrays.
+    """
+    from rexgraph.components import component_registry
+    return component_registry().remap(captured, rex, maps)
 
 
 def edit_relations(state, operation, value):
@@ -77,7 +31,7 @@ def edit_relations(state, operation, value):
     by the preceding clause; it never silently reuses a stale cell basis.
     """
     from rexgraph.graph import RexGraph
-    from rexgraph.io.rex_state import RexState, from_state, to_state
+    from rexgraph.state import RexState, from_state, to_state
     if not isinstance(state, RexGraph):
         raise TypeError("structural editing requires a static native RexGraph")
     validate_edit(operation, value)

@@ -68,7 +68,7 @@ register_archetype(
     data_kind="vector",
     defaults={"feat_dim": 16, "n_classes": 4, "d_hid": 128, "n_layers": 2, "task": "classification"},
     build=_model_build("_build_mlp"), synth=lambda cfg, seed: _data.synth_vectors(
-        feat_dim=cfg["feat_dim"], n_classes=cfg["n_classes"], seed=seed))
+        feat_dim=cfg["feat_dim"], n_classes=cfg["n_classes"], task=cfg["task"], seed=seed))
 
 
 # CNN, for images
@@ -93,7 +93,7 @@ register_archetype(
         vocab=cfg["vocab"], seq_len=cfg["seq_len"], seed=seed))
 
 
-# HGNN - relational complex hypergraph net (advection + diffusion)
+# HGNN: relational complex hypergraph net (advection + diffusion)
 
 register_archetype(
     "hgnn", use_case="Node classification on hypergraphs / higher-order relational data. "

@@ -365,9 +365,7 @@ class TestLinearSolve:
         x = _relational.rl_cg_solve(RL, b)
         assert x.shape == (nE,)
         # RL @ x should approximate the projection of b onto col(RL)
-        # the comment here used to assert nothing: the residual was computed, the claim
-        # was written down, and the next line moved on to a different check. Measured
-        # ||RL @ residual|| = 6.4e-16, so the claim is true and is now tested.
+        # Compare the computed residual with the chain condition tolerance.
         residual = RL @ x - b
         assert np.allclose(RL @ residual, 0, atol=1e-8), np.linalg.norm(RL @ residual)
         evals, evecs = _relational.rl_eigen(RL)
@@ -498,11 +496,10 @@ class TestRexGraphIntegration:
 
 
 class TestCoParticipationBranching:
-    """C / L_C is the Laplacian of the WEIGHTED line graph (adjacency = shared vertex
-    counts). It must stay a proper zero row sum PSD Laplacian at ANY arity - including
-    branching hyperedges, parallel edges and self loops where two edges share >1 vertex.
-    Regression: the old binarized degree diagonal made L_C indefinite there (dragging
-    RL4 and the moment character non PSD). On simple graphs the fix is a no op."""
+    """The shared vertex count line graph gives a zero row sum PSD Laplacian.
+
+    Cases include branching relations sharing multiple vertices and simple graphs.
+    """
 
     def _sparse_LC(self, g):
         from rexgraph.sparse_character import build_sparse_channels
@@ -546,7 +543,7 @@ class TestCoParticipationBranching:
         assert np.allclose(A.sum(axis=1), 0.0) and np.linalg.eigvalsh(A).min() > -1e-9
 
     def test_branching_rl4_psd(self):
-        # the indefinite L_C used to drag RL4 (and Renyi/harmonic-log) negative on branching
+        # The branching coparticipation channel preserves the PSD contract.
         g = RexGraph.from_hypergraph(np.array([0, 3, 6]), np.array([0, 1, 2, 1, 2, 3]))
         from rexgraph.sparse_character import build_sparse_character_cheap
         RL = build_sparse_character_cheap(g)['RL'].toarray()

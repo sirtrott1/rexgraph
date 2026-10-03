@@ -111,7 +111,7 @@ def test_an_all_zero_operator_is_the_zero_map():
 
 
 def test_the_arity_identity_agrees_with_counting_both_sides():
-    """agree - disagree == k - 2*disagree, which is why one popcount suffices."""
+    """agree: disagree == k - 2*disagree, which is why one popcount suffices."""
     import rexgraph.core._ternary as k
     a = _rand(64, 256)
     P, S, nc = k.pack(a)
@@ -183,6 +183,7 @@ def test_hip_availability_rejects_a_loadable_runtime_without_a_device(monkeypatc
 
 
 def test_hip_availability_releases_its_successful_probe(monkeypatch):
+    import ctypes
     from rexgraph import hip_ternary as H
 
     class RuntimeWithDevice:
@@ -191,6 +192,17 @@ def test_hip_availability_releases_its_successful_probe(monkeypatch):
 
         def ternary_alloc(self, _ptr, _nbytes):
             self.allocations += 1
+            ctypes.cast(_ptr, ctypes.POINTER(ctypes.c_void_p))[0] = 1024
+            return 0
+
+        def ternary_upload(self, *_args):
+            return 0
+
+        def ternary_pm1_launch(self, *_args):
+            return 0
+
+        def ternary_download(self, dest, *_args):
+            ctypes.cast(dest, ctypes.POINTER(ctypes.c_int64))[0] = 1
             return 0
 
         def ternary_free(self, _ptr):
@@ -279,3 +291,13 @@ def test_the_hip_float_path_agrees_with_the_cpu():
     with H.resident(op) as r:
         assert np.allclose(r.matvec_f64(v), want)
     assert np.allclose(tn.matvec(op, v, prefer="hip"), want)
+
+
+def test_torch_float_lane_preserves_float64_cancellation_on_a_host_oracle(monkeypatch):
+    """Exercise its tensor conversion on CPU; GPU execution is checked separately."""
+    torch = pytest.importorskip("torch")
+    original = torch.Tensor.to
+    monkeypatch.setattr(torch.Tensor, "to", lambda self, device: original(self, "cpu"))
+    op = tn.pack([[1, 1, 1]])
+    got = tn._f64_cuda(op, np.array([1e8, 1., -1e8]))
+    np.testing.assert_array_equal(got, [1.])

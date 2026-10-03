@@ -75,7 +75,7 @@ class PlanTopology:
 
     @classmethod
     def from_record(cls, record):
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         meta = getattr(record, "_agent_meta", {})
         if meta.get("rcql_plan_schema") != 1:
             raise ValueError("record does not carry the plan topology schema")

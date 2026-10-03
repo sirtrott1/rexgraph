@@ -203,8 +203,8 @@ def test_roundtrip(binding, tmp_path, rule, format):
         else:
             from rcdb import open_store
             uri = 'file://'+str(tmp_path/'store')
-            db = open_store(uri); db.commit_mutation('t',record,expected_version=0,analytics=False); db.close()
-            db = open_store(uri); record = db.read_record('t',version=1).value
+            db = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {})); db.commit_mutation('t',record,expected_version=0,analytics=False); db.close()
+            db = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {})); record = db.read_record('t',version=1).value
             assert db.verify_commits('t'); db.close()
         restored = ProgramTransformation.from_record(record)
     assert restored.to_bytes() == t.to_bytes()

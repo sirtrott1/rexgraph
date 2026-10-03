@@ -78,17 +78,20 @@ class GreensCochainField:
         """Instance level bounded cache over the module level `_sparse_L_C(rex)`
         builder. Keyed by id(rex); the cache entry holds a STRONG reference to
         `rex` alongside its L_C, so while cached the id cannot be reused by another
-        object and the identity check (`hit[0] is rex`) is collision free. Bounded
+        object. The native boundary identity follows Core's mutation invalidation;
+        the C-channel selector is also part of the cache key. Bounded
         to 4 entries (evict oldest) so it never grows unbounded across a long run."""
         from collections import OrderedDict
         cache = self.__dict__.setdefault("_lc_cache", OrderedDict())   # id(rex) -> (rex, L_C)
+        rex._ensure_clean()
+        boundary = rex._B1_dual
         key = id(rex)
         hit = cache.get(key)
-        if hit is not None and hit[0] is rex:                          # identity verified hit
+        if hit is not None and hit[0] is rex and hit[1] is boundary and hit[2] == rex.c_channel:
             cache.move_to_end(key)
-            return hit[1]
+            return hit[3]
         L = _sparse_L_C(rex)                                           # the existing module level accessor
-        cache[key] = (rex, L)
+        cache[key] = (rex, boundary, rex.c_channel, L)
         cache.move_to_end(key)
         while len(cache) > 4:                                          # bounded
             cache.popitem(last=False)

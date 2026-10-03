@@ -1,6 +1,6 @@
-# RexGraph laptop environment - conda-forge only, full mamba in env.
+# RexGraph laptop environment: conda-forge only, full mamba in env.
 
-# Create with mamba (bootstrapped via micromamba - see setup script):
+# Create with mamba (bootstrapped via micromamba: see setup script):
 # mamba env create -f environment.yml
 # mamba activate rexgraph
 # # then, from the repo root (core builds from '.', NOT ./rexgraph):
@@ -20,7 +20,7 @@ channels:
   - conda-forge
 
 dependencies:
- # Python (pinned to 3.13 - top of the supported 3.10-3.13 range)
+ # Python (pinned to 3.13: top of the supported 3.10-3.13 range)
   - python=3.13
 
  # Full mamba/conda in env so `mamba install ...` works for later additions
@@ -29,13 +29,13 @@ dependencies:
 
  # Build toolchain for the Cython core (meson-python + Cython -> .so)
   - meson>=1.3
-  - meson-python>=0.16
+  - meson-python>=0.18
   - ninja
   - cython>=3.0
   - pkg-config
   - packaging
 
- # Compilers from conda-forge - hermetic build, no reliance on /usr toolchain
+ # Compilers from conda-forge: hermetic build, no reliance on /usr toolchain
   - c-compiler
   - cxx-compiler
   - libgomp          # OpenMP runtime (Linux)
@@ -47,7 +47,7 @@ dependencies:
   - liblapack
 
  # Core scientific stack
-  - numpy>=1.24
+  - numpy>=2.0
   - scipy>=1.10  # Full development and Agent analysis, not a native core requirement.
 
  # I/O stack (core rexgraph[io]: HDF5 export, Zarr, Arrow, SQL, pandas)
@@ -57,7 +57,7 @@ dependencies:
   - sqlalchemy>=2.0
   - pandas>=2.0
 
- # RCDB persistence + training export (the piece the old extras list missed)
+ # RCDB persistence and training export
   - safetensors>=0.3
 
  # Schema diagnosis (dialect aware SQL parsing)

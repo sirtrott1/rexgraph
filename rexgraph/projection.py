@@ -87,19 +87,9 @@ def channel_parameters(shares) -> tuple:
 
 
 def project(shares) -> tuple:
-    """One cell's plane coordinates, both exact rationals.
+    """Return one cell's plane coordinates as exact rationals.
 
-    Each channel pair contributes one axis through the cosine of its parameter, so the two
-    axes are the same function of their own parameter and respond alike.
-
-    Taking the SINE on the second axis is what this replaced, and it collapsed the picture.
-    `sin` is at its maximum at `t = 1`, so its derivative there is zero, and `t = 1` is
-    exactly where the parameters sit for an ordinary complex: `v = chi_2 / chi_1` with
-    `chi_0 = chi_1` identically, so a cell with no strong channel preference has `v` near
-    one and the axis annihilates its variation. Measured on a 4 ary relation with its
-    spanning cycle, four vertices with genuinely different characters spread 0.136 in x and
-    0.005 in y, an aspect of 1:26 that is an artifact of the map rather than a fact about
-    the complex. Through the cosine the same four spread 0.136 by 0.175.
+    Each selected channel pair supplies an axis through its rational cosine parameter.
     """
     u, v = channel_parameters(shares)
     cu, _su = rational_direction(u)

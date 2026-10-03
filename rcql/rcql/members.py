@@ -41,10 +41,13 @@ def project(value, name):
     # Explicit read only result fields, never arbitrary Python traversal. The
     # lazy import keeps parse-only/type-only callers independent of the core.
     if not isinstance(value, Mapping):
-        from rexgraph.io.partition_state import RexPartition
-        if isinstance(value, RexPartition) and name in {"rex", "manifest", "digest", "cell_maps"}:
+        from rexgraph.partition_state import RexPartition
+        if isinstance(value, RexPartition) and name in {"rex", "manifest", "digest", "cell_maps", "lineage"}:
             value.check_state()
             return getattr(value, name)
+        from rexgraph.selection import Lineage
+        if isinstance(value, Lineage) and name in value.as_record():
+            return value.as_record()[name]
         from rexgraph.cell_neighborhood import Hyperslice
         from rexgraph.column_expansion import ColumnExpansion, ColumnLegs, PrimaryColumnLift
         if isinstance(value, Hyperslice) and name in {"cell", "below", "above", "lateral"}:
@@ -92,6 +95,13 @@ def member_type(parent, name, context):
         return project(parent, name)
     if not isinstance(parent, RCType):
         raise TypeError("member access requires a declared record")
+    if parent.name == "Lineage" and parent.kind is ValueKind.RECORD:
+        sequences = {"source_sizes", "result_sizes", "requested", "cell_maps", "parents"}
+        text = {"object_type", "source_state", "result_state", "policy_digest", "carried_state", "selection_digest", "digest"}
+        if name not in sequences | text | {"version"}:
+            raise TypeError(f"Lineage has no declared member {name!r}")
+        kind = ValueKind.SEQUENCE if name in sequences else ValueKind.EXACT_INTEGER if name == "version" else ValueKind.TEXT
+        return RCType(kind.value, kind=kind, domain=Domain.METADATA, exactness=Exactness.STRUCTURAL, source=parent.source)
     if parent.name == "ReadoutEquivalence":
         kinds = {"equivalent": ValueKind.BOOLEAN, "family_dimension": ValueKind.EXACT_INTEGER,
                  "family_digest": ValueKind.TEXT, "left_digest": ValueKind.TEXT,
@@ -285,10 +295,10 @@ def member_type(parent, name, context):
                       exactness=Exactness.STRUCTURAL)
     if parent.kind is ValueKind.REX_PARTITION:
         kinds = {"rex": ValueKind.REX, "manifest": ValueKind.RECORD,
-                 "digest": ValueKind.TEXT, "cell_maps": ValueKind.SEQUENCE}
+                 "digest": ValueKind.TEXT, "cell_maps": ValueKind.SEQUENCE, "lineage": ValueKind.RECORD}
         if name not in kinds:
             raise TypeError(f"RexPartition has no declared member {name!r}")
-        return RCType(kinds[name].value, kind=kinds[name], domain=Domain.METADATA,
+        return RCType("Lineage" if name == "lineage" else kinds[name].value, kind=kinds[name], domain=Domain.METADATA,
                       exactness=Exactness.STRUCTURAL, source=parent.source)
     if parent.kind is ValueKind.HYPERSLICE:
         from dataclasses import replace

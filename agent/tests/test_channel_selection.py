@@ -1,17 +1,7 @@
-"""A structural channel is selected by name, never by position.
+"""Check channel selection by name in mesh health and pipeline readings.
 
-The character channels are ordered ``['L1_down', 'L_O', 'L_SG', 'L_C']``: topology,
-geometry, frustration, coparticipation. Reading frustration from index 0 and
-coparticipation from index 1 takes topology and geometry instead, and those two share a
-diagonal because the diagonal squares each incidence entry and squaring kills the sign.
-That identity is not incidental; it is the reason the F channel exists to carry the
-signed/unsigned mismatch that the diagonal cannot.
-
-The consequence is a metric that cannot fail. ``health_ratio`` computed from indices 0 and
-1 is identically 1.0 on every complex, so it reported perfect health for two years'
-worth of structures without ever being able to say anything else. rexgraph's
-``mesh_health.harmonic_health`` resolves by name and documents the trap; the pipeline
-carried a stale positional copy of the same computation.
+T and G share their per relation diagonal, so their diagonal ratio is always one.
+The frustration channel supplies the signed/unsigned mismatch reading.
 """
 
 from __future__ import annotations
@@ -81,9 +71,7 @@ def test_the_pipeline_does_not_select_a_channel_by_index():
     about which channel it is.
     """
     source = (pathlib.Path(__file__).resolve().parents[1] / "agent" / "pipeline.py").read_text()
-    # code only: the comment above the fix quotes the bad form on purpose, to say what it
-    # was and why it was wrong, and a guard that cannot tell prose from code would forbid
-    # explaining the very thing it guards against
+    # Inspect executable source without comments.
     code = "\n".join(line for line in source.splitlines()
                      if not line.lstrip().startswith("#"))
     offenders = re.findall(r"chi\[:, ?\d\]", code)

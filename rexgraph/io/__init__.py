@@ -16,6 +16,13 @@ Labeled vector corpora (embeddings, structural fingerprints) share one container
     matrix, labels, names, meta = load_vectors("emb.safetensors")
 """
 
+from importlib.util import find_spec as _find_spec
+
+from rexgraph.artifacts import register_artifact_backend as _register_artifact_backend
+from .artifact_backend import IOArtifactBackend as _IOArtifactBackend
+
+_register_artifact_backend(_IOArtifactBackend())
+
 from ._compat import HAS_HDF5, HAS_ZARR, ZARR_V3
 from ._container_crypto import (
     ContainerDecryptionProperties,
@@ -34,7 +41,7 @@ from .mutation import (
     prepare_mutation,
     verify_mutation,
 )
-from .partition_state import PartitionState, RexPartition, build_rex_partition
+from rexgraph.partition_state import PartitionState, RexPartition, build_rex_partition
 from .privacy import (
     IdentityKeyProvider,
     PrivacyProjection,
@@ -61,7 +68,7 @@ from .security import (
     encrypt_bytes,
     envelope_info,
 )
-from .temporal_state import (
+from rexgraph.temporal_state import (
     TemporalState,
     from_temporal_state,
     to_temporal_state,
@@ -134,9 +141,11 @@ __all__ = [
     "load",
 ]
 
-if HAS_ZARR:
-    from .zarr_format import RexZarrFormat, load_zarr, save_zarr
-    __all__ += ["RexZarrFormat", "save_zarr", "load_zarr"]
+# zarr_format is deliberately import safe without the optional zarr package: its
+# public entry points raise a focused ImportError only when used. Export the names
+# unconditionally so documented imports and introspection describe a stable API.
+from .zarr_format import RexZarrFormat, load_zarr, save_zarr
+__all__ += ["RexZarrFormat", "save_zarr", "load_zarr"]
 
 if HAS_HDF5:
     from .hdf5_format import RexHDF5Format, load_hdf5, save_hdf5
@@ -170,7 +179,9 @@ try:
         "rex_to_arrow", "arrow_to_rex", "arrays_to_arrow", "arrow_to_arrays",
         "write_arrow_ipc", "read_arrow_ipc", "read_arrow_batches",
     ]
-    HAS_ARROW = True
+    # arrow_bridge is intentionally import safe without pyarrow, so importing the
+    # bridge is not evidence that the optional backend is actually usable.
+    HAS_ARROW = _find_spec("pyarrow") is not None
 except ImportError:
     HAS_ARROW = False
 
@@ -216,7 +227,8 @@ try:
         "write_vertex_character_table", "read_vertex_character_table",
         "write_void_table", "read_void_table",
     ]
-    HAS_PARQUET = True
+    # parquet_bridge is lazy for the same reason as arrow_bridge.
+    HAS_PARQUET = _find_spec("pyarrow") is not None
 except ImportError:
     HAS_PARQUET = False
 
@@ -262,7 +274,8 @@ try:
         "write_vertex_character_sql", "read_vertex_character_sql",
         "write_void_sql", "read_void_sql",
     ]
-    HAS_SQL = True
+    # sql_bridge imports SQLAlchemy lazily; capability means the dependency exists.
+    HAS_SQL = _find_spec("sqlalchemy") is not None
 except ImportError:
     HAS_SQL = False
 
@@ -283,7 +296,7 @@ try:
     )
     # Discoverable front door for the labeled vector corpus container. The stored schema
     # (object_type="FingerprintCorpus") is unchanged; these are the general names for the
-    # same primitive - a stacked (n, d) matrix + labels + feature_names + block_offsets +
+    # same primitive: a stacked (n, d) matrix + labels + feature_names + block_offsets +
     # metadata. Any embedding matrix (model token embeddings, sentence embeddings, the
     # agent's structural fingerprints) round trips through here without a new subsystem.
     save_vectors = fingerprints_to_safetensors
@@ -296,7 +309,8 @@ try:
         "fingerprints_to_safetensors", "safetensors_to_fingerprints",
         "save_vectors", "load_vectors",
     ]
-    HAS_SAFETENSORS = True
+    # safetensors_bridge also defers its third party import until first use.
+    HAS_SAFETENSORS = _find_spec("safetensors") is not None
 except ImportError:
     HAS_SAFETENSORS = False
 
@@ -396,10 +410,7 @@ def load(path, *, format=None, **kwargs):
 def _detect_format(path, override=None):
     """Resolve a path to a format name.
 
-    An UNRECOGNIZED extension is an error, not a default. The fallback used to be
-    "zarr", so `save("graph.saftensors", rex)` silently wrote a Zarr store under a
-    misspelled name and reported success. An extensionless path keeps the directory
-    heuristics, because that is how a Zarr store is normally named.
+    Unknown extensions raise. Extensionless paths use directory format detection.
     """
     import os
     if override is not None:

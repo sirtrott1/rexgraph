@@ -37,7 +37,7 @@ class TypePattern:
 
     ``literal`` accepts a plain Python value of the given type, which is how a record id or
     a limit arrives. ``kind`` constrains a typed RCQL value. A pattern with neither
-    accepts anything, which is only correct where the operator genuinely does not care.
+    accepts anything, which is only correct where the operator does not care.
     """
 
     name: str
@@ -226,9 +226,7 @@ register(OperatorSignature(
 
 # file catalog
 #
-# The catalog indexes loadable kinds only, so an entry name that exists on disk is not
-# necessarily an entry. That is a precondition rather than a runtime KeyError, and is
-# recorded here so Phase 2 can check it during binding.
+# Catalog operators require an indexed loadable entry name.
 
 _ENTRY_EXISTS = ("name is an indexed catalog entry; the catalog holds loadable kinds only",)
 

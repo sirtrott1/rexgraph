@@ -65,7 +65,7 @@ def test_gpu_handles_1d_and_block_shapes(big_L):
 @gpu_only
 def test_compute_default_backend_routes_to_gpu(big_L):
     """Setting the compute default backend to a GPU one makes heat_apply(backend=None)
-    run on device automatically - the dispatch seam callers rely on."""
+    run on device automatically: the dispatch seam callers rely on."""
     from rexgraph import compute
     rng = np.random.default_rng(3)
     F = rng.standard_normal((big_L.shape[0], 8))

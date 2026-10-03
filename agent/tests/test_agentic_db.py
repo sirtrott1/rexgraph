@@ -59,6 +59,10 @@ def test_schema_reflected_into_rcdb(db_url, make_db):
     assert store.get(db.schema_id) is not None
     names = {t["name"] for t in db.tables()}
     assert {"customers", "orders", "order_items", "products", "suppliers"} <= names
+    saved = store.get(db.schema_id)
+    assert saved.nV == len(names)
+    assert set(saved.relations.vertices.ids) == names
+    assert "suppliers" in saved.vertex_labels
 
 
 def test_health_is_topological(db_url, make_db):

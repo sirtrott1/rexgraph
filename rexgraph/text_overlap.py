@@ -8,7 +8,7 @@ from fractions import Fraction as Q
 import numpy as np
 
 from rexgraph.channel_operator import _exact_gram_action
-from rexgraph.io.catalog import object_digest
+from rexgraph.object_identity import object_digest
 from rexgraph.linear_operator import RexOperator, _exact_array, _numeric_array
 from rexgraph.markov import _participation_entries, validate_markov_source
 from rexgraph.native_sparse import native_coo

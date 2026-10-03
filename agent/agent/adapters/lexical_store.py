@@ -45,7 +45,7 @@ def _paths(root=DEFAULT_ROOT):
 
 
 def _digest_of(rex):
-    from rexgraph.io.rex_state import to_state
+    from rexgraph.state import to_state
     st = to_state(rex)
     return st.header.get("digest", "")
 
@@ -106,12 +106,12 @@ def build_lexical_store(root=DEFAULT_ROOT, *, pair_mode="none",
     """Load the lexical sources into a record store, in dependency order."""
     from agent.adapters import lexical as L
     from agent.adapters import wiktionary as WK
-    from agent.rcdb import FileStore
+    from agent.rcdb import open_store
     from rexgraph.construct import from_groups
 
     p = _paths(root)
     os.makedirs(p["store"], exist_ok=True)
-    store = FileStore(p["store"])
+    store = open_store("auto://" + p["store"])
     written = {}
 
     if "wordnet" in include:

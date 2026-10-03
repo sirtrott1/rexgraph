@@ -133,7 +133,7 @@ def test_replayed_state_is_published_only_by_explicit_rcdb_commit(tmp_path, name
     from rcdb import RexStore
     executor, target = engine(name)
     path = str(tmp_path / "db")
-    store = RexStore(path).configure_security(require_commits=True)
+    store = RexStore(path, read_only=False).configure_security(require_commits=True)
     try:
         prior = executor.sources["r"]
         Executor(sources={"db": store}, params={"r": prior}).execute(parse(
@@ -145,7 +145,7 @@ def test_replayed_state_is_published_only_by_explicit_rcdb_commit(tmp_path, name
         assert store.verify_commits("r")
     finally:
         store.close()
-    store = RexStore(path)
+    store = RexStore(path, read_only=False)
     try:
         result = Executor(sources={"db": store}).execute(parse('FROM $db RETURN RCDB_GET("r")')).values[0]
         assert object_digest(result) == object_digest(target)

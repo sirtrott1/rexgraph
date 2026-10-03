@@ -1,6 +1,6 @@
 """Full tower Chain Dirac calculus with positive diagonal grade metrics.
 
-D = boundary + metric adjoint; A = boundary - metric adjoint.
+D = boundary + metric adjoint; A = boundary: metric adjoint.
 Grade blocks stay explicit. Neither a block matrix nor square root metric
 coordinates are constructed. The Euclidean propagation API is separate.
 """

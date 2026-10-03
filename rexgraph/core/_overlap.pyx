@@ -18,7 +18,7 @@ The formula is:
 K_ij counts the weighted number of vertices shared by edges i and j.
 W = diag(w_v) holds optional per vertex weights (default: uniform).
 
-L_O is PSD with eigenvalues in [0, 1] because D_ov - K is diagonally
+L_O is PSD with eigenvalues in [0, 1] because ``D_ov - K`` is diagonally
 dominant (nonneg diagonal, nonneg off diagonal), so K <= D_ov in the
 Loewner order, giving S <= I after congruence by D_ov^{-1/2}.
 

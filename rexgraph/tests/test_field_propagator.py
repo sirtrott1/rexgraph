@@ -5,7 +5,7 @@ The field operator M = [[RL1,-gB2],[-gB2ᵀ,L2]] on the graded space C1(+)C2 is 
 by a Chebyshev polynomial of the SPARSE M (never the dense (nE+nF)² matrix, no
 eigensolve). heat e^{-tM} and wave cos(t√M) must match the dense eigendecomposition
 apply, and a tensor shaped field (a block of components) must propagate as a single
-spmm - the shape the parallel/GPU backend batches over.
+spmm: the shape the parallel/GPU backend batches over.
 """
 import numpy as np
 import pytest
@@ -88,7 +88,7 @@ def test_field_heat_trajectory_shares_matvecs():
 
 
 def test_tensor_field_block_propagates_as_spmm():
-    """A block field (N, m) - m tensor components - propagates in one spmm and equals
+    """A block field (N, m) - m tensor components: propagates in one spmm and equals
     component by component evolution."""
     g = _tetra()
     N = g.nE + g.nF_hodge
@@ -110,7 +110,7 @@ def test_edge_signal_lifts_to_graded_state():
 
 def test_graded_3rex_field_runs_and_matches_dense():
     """The field operator and its evolution generalize to a grade 3 rex (octahedron
-    solid) - the graded space is C1(+)C2 here regardless of higher grades."""
+    solid): the graded space is C1(+)C2 here regardless of higher grades."""
     g = _octa_solid()
     M = fp.assemble_field_operator(g)
     w, V = _dense(M)

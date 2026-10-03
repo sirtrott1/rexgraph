@@ -4,7 +4,7 @@ The combinatorial, low rank harmonic projector in ``harmonic_sparse`` (spanning 
 cycle basis + reduced null space, NO dense nE x nE eigendecomposition) must produce
 exactly the same projector onto ker(L1) as the dense ``_harmonic.harmonic_projectors``
 (which forms hb @ hbᵀ from a full eigensolve). If these agree, the eigen free path can
-replace the dense one with no loss - which is the whole point of the eigen free tower.
+replace the dense one with no loss: which is the whole point of the eigen free tower.
 """
 import numpy as np
 import pytest
@@ -125,7 +125,7 @@ def test_harmonic_basis_from_boundaries_stays_in_ker_b1_on_branching():
     ref = cycle_basis(h)
     got = harmonic_basis_from_boundaries(B1, None)
 
-    # same dimension as the validated basis, and genuinely in ker(B1)
+    # same dimension as the validated basis, and in ker(B1)
     assert got.shape[1] == ref.shape[1] == 0
     dense = got.toarray() if sp.issparse(got) else np.asarray(got)
     if dense.size:
@@ -153,3 +153,54 @@ def test_harmonic_basis_from_boundaries_matches_cycle_basis_on_a_branching_cycle
     dense = got.toarray() if sp.issparse(got) else np.asarray(got)
     if dense.size:
         assert float(np.abs(B1 @ dense).max()) < 1e-9
+
+
+def test_the_cycle_frame_survives_a_coefficient_no_fixed_width_holds():
+    """Exact cycle frames retain coefficients exceeding float64 and int64 precision."""
+    from fractions import Fraction
+
+    from rexgraph.harmonic_sparse import (ExactCycleFrame, harmonic_basis,
+                                          harmonic_winding)
+
+    # a branching fan: k-ary relations over shared participants, whose cycle
+    # coefficients clear to integers larger than either fixed width carrier
+    cells = [[0, i, i + 1, i + 2, i + 3] for i in range(1, 40)]
+    cells += [[0, i] for i in range(1, 44)]
+    rex = RexGraph.from_cells([44, cells])
+    from rexgraph import native_rank
+    betti = native_rank.betti_from_rex(rex)
+    assert betti[1] > 0, "the fixture must carry cycles to test their carrier"
+
+    frame = harmonic_basis(rex)
+    assert frame.shape == (rex.nE, betti[1])
+
+    flow = np.zeros(rex.nE, dtype=object)
+    for index in range(rex.nE):
+        flow[index] = Fraction(index % 7)
+    winding = harmonic_winding(frame, flow)
+    assert len(winding) == betti[1]
+    assert all(isinstance(value, (int, np.integer, Fraction)) for value in winding), (
+        "the winding must stay integer or rational, never a float")
+
+    if isinstance(frame, ExactCycleFrame):
+        largest = max(abs(v) for column in frame.columns for v in column.values())
+        assert largest > 2 ** 53, "the exact carrier is only for coefficients past float64"
+
+
+def test_the_exact_frame_offers_shape_and_columns_and_no_arithmetic():
+    """It is a carrier, not a matrix: arithmetic on a fixed width copy would be wrong."""
+    from rexgraph.harmonic_sparse import ExactCycleFrame
+    frame = ExactCycleFrame([{0: 2 ** 70, 3: -1}, {1: 5}], n_rows=4)
+    assert frame.shape == (4, 2)
+    assert frame.nnz == 3
+    assert frame.dtype is object
+    assert frame.columns[0][0] == 2 ** 70
+    assert not hasattr(frame, "tocsc")
+
+
+def test_the_integer_reader_takes_the_exact_frame_directly():
+    """`_integer_columns` returns its columns without a fixed width round trip."""
+    from rexgraph.graded_boundary import _integer_columns
+    from rexgraph.harmonic_sparse import ExactCycleFrame
+    frame = ExactCycleFrame([{0: 2 ** 80, 2: -3}], n_rows=4)
+    assert _integer_columns(frame) == [{0: 2 ** 80, 2: -3}]

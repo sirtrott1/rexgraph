@@ -301,7 +301,7 @@ class PhraseSheaf(ExactSheaf):
         # Selected database versions carry a native payload digest. Do not claim
         # that provenance after a caller mutates the detached payload in place.
         from rexgraph.graph import RexGraph, TemporalRex
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         checked = set()
         for stalk in self.stalks:
             value, ref = stalk.source.value, stalk.source.ref

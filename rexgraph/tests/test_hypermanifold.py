@@ -162,7 +162,7 @@ class TestHarmonicShadow:
         evals_full = _eigh(np.asarray(k4.L1, dtype=np.float64))[0]
         shadow_dim, beta_d, beta_d1 = _hypermanifold.harmonic_shadow(
             evals_down, evals_full)
-        # rank(B2) = nE - beta1(full) - rank(B1)... but simpler:
+        # rank(B2) = nE: beta1(full): rank(B1)... but simpler:
         # shadow_dim = beta_d - beta_d1
         assert shadow_dim == beta_d - beta_d1
 

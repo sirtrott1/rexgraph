@@ -7,7 +7,7 @@ The L_gb operator measures structural coupling between adjacent grades
 of a relational complex, generalizing the within grade RL_4 character
 bundle to a between grade tensor.
 
-Two flavors:
+Two forms:
 
   RANK 2 SCALAR  l_gb(grade_d, grade_d+1):
       A single scalar measuring how much the spectral content of the
@@ -20,26 +20,10 @@ Two flavors:
       For self-tensor (B = A), the diagonal is identically zero and the
       off-diagonals encode within-grade channel-mixing structure.
 
-Reference values, verified to 3 decimals:
-    K_4    : TG=0.471  TC=0.760  GC=0.810
-    K_5    : TG=0.740  TC=0.884  GC=0.820
-    K_6    : TG=0.806  TC=1.036  GC=0.892
-    Cycles : TC=0     (uniquely identifies cycle graphs)
-    Universal: TF=GF=FC=1 (the F channel is always orthogonal to T,G,C)
-
-This file is the Cython port of the pure numpy reference in
-rexgraph/tests/reference/l_gb_reference.py. Use `python -m pytest
-tests/test_l_gb.py` to verify the compiled output matches the reference
-to 1e-13 relative error.
-
-Algorithm:
-    Eigendecompose the Hodge Dirac at grades d and d+1 (each O(n_E^3)),
-    extract sorted absolute eigenvalues, compare via the channel tensor
-    formula. Vertex-driven assembly.
-
-    Dense throughout: every routine here goes through numpy.linalg, there is no
-    sparse path and no spectrum truncation. Earlier text advertised an "optional
-    sparse path for large n_E" and a `top_k_eig` parameter; neither exists.
+Full coherence spectra use native LAPACK without eigenvectors. Sparse operators
+retain their storage and split spectral work by connected support. Pairwise projector
+distances use a closed form without an eigensolver. Tower localization reads
+the leading eigenvector of the entrywise absolute projector difference.
 """
 
 from __future__ import annotations
@@ -64,24 +48,35 @@ np.import_array()
 # Spectrum extraction
 
 
-def normalized_coherence_spectrum(np.ndarray[f64, ndim=2] M):
+def normalized_coherence_spectrum(M):
     """Return sorted absolute eigenvalues of symmetric M, rescaled max=1.
 
     Parameters
 
-    M : ndarray[nE, nE]
-        Symmetric operator (any Laplacian or hat).
+    M : ndarray[nE, nE] or sparse matrix
+        Operator read through its symmetric part.
 
     Returns
 
     spec : ndarray[k] of f64
-        Top eigenvalues sorted descending, with spec[0] = 1.0.
+        All retained eigenvalue magnitudes sorted descending, with spec[0] = 1.0.
         Length k is the number of nonzero (above EPSILON_DIV) eigenvalues.
+        A zero operator returns a single zero.
     """
-    if M.shape[0] == 0:
+    from rexgraph.core._linalg import eigvalsh, symmetric_sparse_spectrum
+    cdef np.ndarray[f64, ndim=1] evals
+    if hasattr(M, 'tocsr') or hasattr(M, 'dual') or hasattr(M, 'row_ptr'):
+        evals = symmetric_sparse_spectrum(M)
+    else:
+        a = np.asarray(M)
+        if np.iscomplexobj(a):
+            raise TypeError("coherence spectrum requires a real matrix")
+        a = np.asarray(a, dtype=np.float64)
+        if a.ndim != 2 or a.shape[0] != a.shape[1]:
+            raise ValueError("coherence spectrum requires a square matrix")
+        evals = eigvalsh(0.5 * a + 0.5 * a.T)
+    if evals.shape[0] == 0:
         return np.zeros(1, dtype=np.float64)
-    cdef np.ndarray[f64, ndim=2] M_sym = 0.5 * (M + M.T)
-    cdef np.ndarray[f64, ndim=1] evals = np.linalg.eigvalsh(M_sym)
     cdef np.ndarray[f64, ndim=1] absvals = np.sort(np.abs(evals))[::-1]
     cdef f64 cutoff = get_EPSILON_DIV()
     absvals = absvals[absvals > cutoff]
@@ -110,8 +105,29 @@ def dirac_spectrum_at_grade(B1_in, B2_in, int grade):
     Returns
 
     spec : ndarray[?] of f64
-        Eigenvalues at the requested grade, sorted ascending.
+        Nonzero absolute eigenvalues, sorted descending and rescaled to max=1.
     """
+    from rexgraph.native_sparse import as_native
+    if (hasattr(B1_in, 'tocsr') or hasattr(B1_in, 'dual') or hasattr(B1_in, 'row_ptr')
+            or (B2_in is not None and (hasattr(B2_in, 'tocsr') or hasattr(B2_in, 'dual')
+                                      or hasattr(B2_in, 'row_ptr')))):
+        b1 = as_native(B1_in)
+        b2 = as_native(B2_in) if B2_in is not None else None
+        if b2 is not None and b2.shape[0] != b1.shape[1]:
+            raise ValueError("adjacent boundary axes do not match")
+        if grade == 0:
+            return normalized_coherence_spectrum(b1.product(b1.T)) if b1.shape[0] else np.empty(0)
+        if grade == 1:
+            if not b1.shape[1]:
+                return np.empty(0)
+            operator = b1.T.product(b1)
+            if b2 is not None:
+                operator = operator.add(b2.product(b2.T))
+            return normalized_coherence_spectrum(operator)
+        if grade == 2:
+            return (normalized_coherence_spectrum(b2.T.product(b2))
+                    if b2 is not None and b2.shape[1] else np.empty(0))
+        raise ValueError(f"grade must be 0, 1, or 2; got {grade}")
     cdef np.ndarray[f64, ndim=2] B1 = np.ascontiguousarray(B1_in, dtype=np.float64)
     cdef int nV = B1.shape[0]
     cdef int nE = B1.shape[1]
@@ -146,71 +162,86 @@ def dirac_spectrum_at_grade(B1_in, B2_in, int grade):
 
 
 
-#: The reference floors each spectrum's norm before normalising, so a spectrum that
-#: is identically zero leaves the OTHER projector standing rather than collapsing the
-#: pair to nothing. That is where the T[i,F] = 1 reading comes from. This is not a
-#: decision threshold: it reproduces the reference's normalisation, and the formula
-#: below carries it through in closed form instead of branching on it.
+#: Spectrum norms are floored before normalization. A zero spectrum contributes a
+#: zero projector; the other spectrum retains its normalized projector.
 cdef f64 _LGB_FLOOR = 1e-12
 
 
-cdef inline void _pair_spectrum(np.ndarray[f64, ndim=1] a, np.ndarray[f64, ndim=1] b,
+cdef inline f64 _stable_norm(const f64[::1] x) noexcept:
+    """Overflow/underflow-resistant Euclidean norm without Python or BLAS dispatch."""
+    cdef Py_ssize_t k, n = x.shape[0]
+    cdef f64 scale = 0.0
+    cdef f64 ssq = 1.0
+    cdef f64 ax, ratio
+    for k in range(n):
+        ax = fabs(x[k])
+        if ax == 0.0:
+            continue
+        if scale < ax:
+            ratio = scale / ax
+            ssq = 1.0 + ssq * ratio * ratio
+            scale = ax
+        else:
+            ratio = ax / scale
+            ssq += ratio * ratio
+    return scale * sqrt(ssq) if scale > 0.0 else 0.0
+
+
+cdef inline f64 _dot_prefix(const f64[::1] a, const f64[::1] b,
+                             Py_ssize_t n) noexcept:
+    cdef Py_ssize_t k
+    cdef f64 total = 0.0
+    for k in range(n):
+        total += a[k] * b[k]
+    return total
+
+
+cdef inline void _pair_spectrum(const f64[::1] a, const f64[::1] b,
                                 f64 *top, f64 *bot, f64 *frob) noexcept:
-    """The spectrum and Frobenius norm of `a a^T/|a|^2 - b b^T/|b|^2`, in closed form.
+    """Closed form spectrum/Frobenius norm of two normalized rank 1 projectors.
 
-    Write the operator as `alpha P_a - beta P_b` with P unit rank 1 projectors and
-    `alpha = (|a| / max(|a|, floor))^2`, which is 1 for any ordinary spectrum and 0
-    for one that is identically zero. On the two dimensional span it has
-
-        trace        alpha - beta
-        determinant  -alpha beta s^2          s^2 = 1 - cos^2
-
-    so the eigenvalues are `((alpha - beta) +- sqrt((alpha - beta)^2 + 4 alpha beta
-    s^2)) / 2` and `||L||_F^2 = alpha^2 + beta^2 - 2 alpha beta cos^2`. One dot
-    product settles all three, at O(n) against O(n^2) to form the outer products,
-    and no eigensolver.
-
-    Every regime falls out of the one expression rather than being special cased:
-
-        both ordinary   +-sqrt(spread), frob sqrt(2 spread)
-        a zero          0 and -1,       frob 1
-        b zero          1 and 0,        frob 1
-        both zero       0 and 0,        frob 0
-        parallel        0 and 0,        frob 0
-
-    Checked against forming the operator and eigendecomposing it: 3.3e-16 across
-    all of them, the tiny but nonzero regime included.
+    Contiguous memoryviews may have different lengths. The shorter spectrum is
+    implicitly zero padded without allocating a padded vector.
     """
-    cdef f64 ra = <f64>np.linalg.norm(a)
-    cdef f64 rb = <f64>np.linalg.norm(b)
+    cdef Py_ssize_t n_a = a.shape[0]
+    cdef Py_ssize_t n_b = b.shape[0]
+    cdef Py_ssize_t n_common = n_a if n_a < n_b else n_b
+    cdef Py_ssize_t k
+    cdef f64 ra = _stable_norm(a)
+    cdef f64 rb = _stable_norm(b)
     cdef f64 na = ra if ra > _LGB_FLOOR else _LGB_FLOOR
     cdef f64 nb = rb if rb > _LGB_FLOOR else _LGB_FLOOR
     cdef f64 al = (ra / na) * (ra / na)
     cdef f64 be = (rb / nb) * (rb / nb)
     cdef f64 s2 = 1.0
-    cdef f64 tr, disc, q
-    cdef np.ndarray[f64, ndim=1] ah, perp
+    cdef f64 tr, disc, q, dot_ab, coeff, perp, perp2
+
     if ra > 0.0 and rb > 0.0:
-        # sin^2 from the component of b ORTHOGONAL to a, not from 1 - cos^2.
-        # Subtracting nearly equal numbers under a square root is what wrecks the
-        # near parallel case: for identical spectra cos^2 lands at 1 - 2e-16, and
-        # sqrt turns that into 3e-8. Taking the perpendicular part instead keeps
-        # the cancellation in the vector space where it is exact, and the same
-        # clamp that hid the first error also drove the near parallel reading to a
-        # flat 0 where the true value is 8.5e-10.
-        ah = np.asarray(a, dtype=np.float64) / ra
-        perp = np.asarray(b, dtype=np.float64) - (<f64>np.dot(ah, b)) * ah
-        s2 = (<f64>np.dot(perp, perp)) / (rb * rb)
+        # Compute ||b - proj_a(b)||^2 directly without allocating normalized vectors
+        # or a residual array. Unequal lengths contribute the zero padded tails.
+        dot_ab = _dot_prefix(a, b, n_common)
+        coeff = dot_ab / (ra * ra)
+        perp2 = 0.0
+        for k in range(n_common):
+            perp = b[k] - coeff * a[k]
+            perp2 += perp * perp
+        for k in range(n_common, n_b):
+            perp2 += b[k] * b[k]
+        for k in range(n_common, n_a):
+            perp = -coeff * a[k]
+            perp2 += perp * perp
+        s2 = perp2 / (rb * rb)
         if s2 > 1.0:
             s2 = 1.0
         elif s2 < 0.0:
             s2 = 0.0
+
     tr = al - be
     disc = sqrt(tr * tr + 4.0 * al * be * s2)
     top[0] = 0.5 * (tr + disc)
     bot[0] = 0.5 * (tr - disc)
-    # alpha^2 + beta^2 - 2 alpha beta cos^2 written as (alpha beta)^2 + 2 alpha
-    # beta sin^2: a sum of non negative terms, so nothing cancels here either
+    # alpha^2 + beta^2 - 2 alpha beta cos^2, rearranged as a sum of
+    # nonnegative terms to avoid cancellation near parallel spectra.
     q = tr * tr + 2.0 * al * be * s2
     frob[0] = sqrt(q) if q > 0.0 else 0.0
 
@@ -229,10 +260,9 @@ def l_gb_scalar(np.ndarray[f64, ndim=1] spec_d,
     """
     if spec_d.shape[0] == 0 or spec_d1.shape[0] == 0:
         return 0.0
-    cdef int L = max(spec_d.shape[0], spec_d1.shape[0])
-    cdef np.ndarray[f64, ndim=1] a = np.pad(spec_d, (0, L - spec_d.shape[0]))
-    cdef np.ndarray[f64, ndim=1] b = np.pad(spec_d1, (0, L - spec_d1.shape[0]))
     cdef f64 top, bot, frob
+    cdef const f64[::1] a = spec_d
+    cdef const f64[::1] b = spec_d1
     _pair_spectrum(a, b, &top, &bot, &frob)
     return float(frob)
 
@@ -251,30 +281,37 @@ def l_gb_channel_tensor(list hats_A, list hats_B=None):
     identically zero (channel matches itself), off diagonals encode
     within grade structure.
 
-    Universal identity (verified across graph families):
-        T[i, F] = T[F, i] = 1 for i in {T, G, C}
-    The F channel is always Frobenius orthogonal to T, G, C in unit norm
-    projection space.
-
-    Reference values:
-        K_4 self-tensor:  TG=0.471  TC=0.760  GC=0.810
-        K_5 self-tensor:  TG=0.740  TC=0.884  GC=0.820
-        K_6 self-tensor:  TG=0.806  TC=1.036  GC=0.892
-        cycle graphs:     TC=0  (uniquely characterizes cycles)
+    A zero spectrum retains a zero projector. Comparing it with a unit
+    projector gives distance 1; two zero projectors give distance 0.
     """
+    cdef bint self_tensor = hats_B is None or hats_B is hats_A
     if hats_B is None:
         hats_B = hats_A
     cdef int n_A = len(hats_A)
     cdef int n_B = len(hats_B)
     cdef np.ndarray[f64, ndim=2] T = np.zeros((n_A, n_B), dtype=np.float64)
     cdef int i, j
-    for i in range(n_A):
-        sA = normalized_coherence_spectrum(hats_A[i])
-        for j in range(n_B):
-            if i == j:
-                continue
-            sB = normalized_coherence_spectrum(hats_B[j])
-            T[i, j] = l_gb_scalar(sA, sB)
+
+    # Compute each channel spectrum once and reuse it across channel pairs.
+    specs_A = [normalized_coherence_spectrum(hats_A[i]) for i in range(n_A)]
+    specs_B = specs_A if self_tensor else [
+        normalized_coherence_spectrum(hats_B[j]) for j in range(n_B)]
+
+    if self_tensor and n_A == n_B:
+        # Frobenius projector distance is symmetric, so a self tensor needs only the
+        # strict upper triangle. The diagonal stays exactly zero by construction.
+        for i in range(n_A):
+            for j in range(i + 1, n_B):
+                T[i, j] = l_gb_scalar(specs_A[i], specs_B[j])
+                T[j, i] = T[i, j]
+    else:
+        for i in range(n_A):
+            for j in range(n_B):
+                # Preserve the historical cross tensor convention: matching channel
+                # indices are left at zero even when hats_B is a different list.
+                if i == j:
+                    continue
+                T[i, j] = l_gb_scalar(specs_A[i], specs_B[j])
     return T
 
 
@@ -286,22 +323,32 @@ def l_gb_tower(list B_list):
 
     Parameters
 
-    B_list : list of ndarray
+    B_list : list of ndarray or sparse matrix
         [B_0, B_1, B_2, ...] boundary operators. B_d has shape
         (n_{d-1}, n_d). Pass None for empty grades.
 
     Returns
 
     results : list of dict
-        One dict per adjacent pair (d, d+1), each containing the fields
-        from l_gb_scalar plus 'pair': (d, d+1).
+        One dict per adjacent pair, with top_eig, bot_eig, spread, frob,
+        localization, L_gb and pair.
     """
     cdef int n_grades = len(B_list)
     cdef int d
     cdef f64 na, nb
     cdef f64 c_top, c_bot, c_frob
+    cdef Py_ssize_t i, j, L_size
+    cdef f64 dena, denb, value, dot_a, dot_b
+    cdef const f64[::1] av, bv, vv
+    cdef f64[:, ::1] difference, absolute
     if n_grades == 0:
         return []
+    from rexgraph.native_sparse import as_native
+    from rexgraph.core._linalg import largest_eigenpair
+    sparse = any(b is not None and (hasattr(b, 'tocsr') or hasattr(b, 'dual')
+                                   or hasattr(b, 'row_ptr')) for b in B_list)
+    if sparse:
+        B_list = [as_native(b) if b is not None else None for b in B_list]
 
     # Build spectrum at each grade 0..n_grades using Hodge Laplacian
     specs = []
@@ -310,16 +357,22 @@ def l_gb_tower(list B_list):
         L_down = None
         if d >= 1 and (d - 1) < n_grades:
             B_d = B_list[d - 1]
-            if B_d is not None and B_d.size > 0:
-                B_d = np.ascontiguousarray(B_d, dtype=np.float64)
-                L_down = B_d.T @ B_d
+            if B_d is not None and all(B_d.shape):
+                if sparse:
+                    L_down = B_d.T.product(B_d)
+                else:
+                    B_d = np.ascontiguousarray(B_d, dtype=np.float64)
+                    L_down = B_d.T @ B_d
         # Up part: B_{d+1} @ B_{d+1}^T
         L_up = None
         if d < n_grades:
             B_dp1 = B_list[d]
-            if B_dp1 is not None and B_dp1.size > 0:
-                B_dp1 = np.ascontiguousarray(B_dp1, dtype=np.float64)
-                L_up = B_dp1 @ B_dp1.T
+            if B_dp1 is not None and all(B_dp1.shape):
+                if sparse:
+                    L_up = B_dp1.product(B_dp1.T)
+                else:
+                    B_dp1 = np.ascontiguousarray(B_dp1, dtype=np.float64)
+                    L_up = B_dp1 @ B_dp1.T
 
         if L_down is None and L_up is None:
             specs.append(np.zeros(1, dtype=np.float64))
@@ -327,6 +380,10 @@ def l_gb_tower(list B_list):
             specs.append(normalized_coherence_spectrum(L_up))
         elif L_up is None:
             specs.append(normalized_coherence_spectrum(L_down))
+        elif sparse:
+            if L_down.shape != L_up.shape:
+                raise ValueError("adjacent boundary axes do not match")
+            specs.append(normalized_coherence_spectrum(L_down.add(L_up)))
         else:
             # Match dimensions by zero padding the smaller
             n = max(L_down.shape[0], L_up.shape[0])
@@ -345,10 +402,12 @@ def l_gb_tower(list B_list):
         sd1 = specs[d + 1]
         # Build the full l_gb_scalar dict (matching the reference)
         L_size = max(len(sd), len(sd1))
+        if not can_allocate_dense_f64(L_size, L_size):
+            raise MemoryError("grade projector difference exceeds the dense allocation budget")
         a = np.pad(sd, (0, L_size - len(sd)))
         b = np.pad(sd1, (0, L_size - len(sd1)))
-        na = max(float(np.linalg.norm(a)), 1e-12)
-        nb = max(float(np.linalg.norm(b)), 1e-12)
+        na = max(_stable_norm(a), _LGB_FLOOR)
+        nb = max(_stable_norm(b), _LGB_FLOOR)
         # the spectrum in closed form: see _pair_spectrum. No eigensolver, and the
         # L x L outer products are never formed for these three.
         _pair_spectrum(a, b, &c_top, &c_bot, &c_frob)
@@ -358,17 +417,25 @@ def l_gb_tower(list B_list):
 
         # Localization reads the ENTRYWISE absolute value, which is not rank 2 and
         # has no closed form, so this one pair of outer products is still built.
-        PA = np.outer(a, a) / (na * na)
-        PB = np.outer(b, b) / (nb * nb)
-        L_gb = PA - PB
-        abs_L = np.abs(L_gb)
+        L_gb = np.empty((L_size, L_size), dtype=np.float64)
+        abs_L = np.empty((L_size, L_size), dtype=np.float64)
+        av = a; bv = b; difference = L_gb; absolute = abs_L
+        dena = na * na; denb = nb * nb
+        with nogil:
+            for i in range(L_size):
+                for j in range(i + 1):
+                    value = av[i] * av[j] / dena - bv[i] * bv[j] / denb
+                    difference[i, j] = value
+                    difference[j, i] = value
+                    absolute[i, j] = fabs(value)
+                    absolute[j, i] = fabs(value)
         try:
-            eigvals_abs, eigvecs_abs = np.linalg.eigh(0.5 * (abs_L + abs_L.T))
-            v_top = eigvecs_abs[:, -1]
-            a_norm = a / na
-            b_norm = b / nb
-            ma = float(np.dot(v_top, a_norm)) ** 2
-            mb = float(np.dot(v_top, b_norm)) ** 2
+            _top, v_top = largest_eigenpair(abs_L)
+            vv = v_top
+            dot_a = _dot_prefix(vv, av, L_size) / na
+            dot_b = _dot_prefix(vv, bv, L_size) / nb
+            ma = dot_a * dot_a
+            mb = dot_b * dot_b
             if ma + mb > 1e-15:
                 localization = (mb - ma) / (mb + ma)
             else:

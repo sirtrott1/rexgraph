@@ -37,8 +37,9 @@ import struct as _struct
 from collections.abc import Sequence
 
 import numpy as np
+from rexgraph.value_codec import pack_value, unpack_value
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 4
 
 #: 0 cochains over the record vertices. Measurements, not relations: a query filters on
 #: these without touching the incidence.
@@ -269,6 +270,7 @@ def build(records) -> dict:
 K_INT, K_FLOAT, K_BOOL, K_STR, K_NONE = 0, 1, 2, 3, 4
 K_EMPTY_LIST, K_EMPTY_DICT = 5, 6
 K_LIST_INT, K_LIST_FLOAT, K_LIST_BOOL, K_LIST_STR = 7, 8, 9, 10
+K_NATIVE = 11
 _LIST_KINDS = (K_LIST_INT, K_LIST_FLOAT, K_LIST_BOOL, K_LIST_STR)
 
 #: caller data is arbitrary, so the walk is bounded. A cycle in `meta` would otherwise
@@ -277,6 +279,8 @@ _MAX_DEPTH = 64
 
 
 def _scalar_kind(v):
+    if isinstance(v, np.generic):
+        return K_NATIVE
     if v is None:
         return K_NONE
     if isinstance(v, (bool, np.bool_)):
@@ -285,11 +289,13 @@ def _scalar_kind(v):
         return K_INT
     if isinstance(v, (float, np.floating)):
         return K_FLOAT
-    return K_STR                                # str, and anything else as its str
+    return K_STR if isinstance(v, str) else K_NATIVE
 
 
 def _list_kind(vals):
     """The packed kind for a homogeneous scalar list, or None if it is not one."""
+    if any(isinstance(v, np.generic) for v in vals):
+        return None
     def _isnum(v):
         return isinstance(v, (int, float, np.integer, np.floating)) and \
             not isinstance(v, (bool, np.bool_))
@@ -297,7 +303,7 @@ def _list_kind(vals):
         return K_LIST_BOOL
     if all(_isnum(v) and isinstance(v, (int, np.integer)) for v in vals):
         return K_LIST_INT
-    if all(_isnum(v) for v in vals):
+    if all(type(v) is float for v in vals):
         return K_LIST_FLOAT
     if all(isinstance(v, str) for v in vals):
         return K_LIST_STR
@@ -307,15 +313,17 @@ def _list_kind(vals):
 def _flatten(value, path, out, depth=0, seen=None):
     """Append (path, kind, value) leaves. Dicts and ragged lists recurse by path.
 
-    A container already on the current walk is written as its repr rather than followed,
-    so a self referential meta is recorded instead of fatal.
+    Native carriers keep their declared kind, shape and exact presence. Unsupported
+    values and cycles are refused; metadata must not become a display string.
     """
-    if isinstance(value, np.ndarray):
-        value = value.tolist()
+    if isinstance(value, (np.ndarray, np.generic, tuple)) or (
+            isinstance(value, dict) and any(type(k) is not str for k in value)):
+        pack_value(value)
+        out.append((path, K_NATIVE, value))
+        return
     if isinstance(value, (dict, list, tuple)):
         if (seen and id(value) in seen) or depth >= _MAX_DEPTH:
-            out.append((path, K_STR, repr(value)[:200]))
-            return
+            raise ValueError("cyclic or oversized record metadata")
         seen = (seen or frozenset()) | {id(value)}
     if isinstance(value, dict):
         if not value:
@@ -349,11 +357,17 @@ def _residual_columns(recs):
     known_sig = {c[0] for c in MEASURES} | set(KINDS) | {"betti"}
     cells: dict = {}
     for i, r in enumerate(recs):
+        if r.envelope is not None:
+            cells.setdefault((2, (), K_NATIVE), {})[i] = r.to_dict()
+            continue
+        # Index measurements and term relations are query projections. The exact
+        # signature retains its declared fields, kinds, order and absence.
+        cells.setdefault((0, (), K_NATIVE), {})[i] = r.signature or {}
         for scope, d, known in ((0, r.signature or {}, known_sig),
                                 (1, r.meta or {}, FROM_META)):
             for k, v in (d or {}).items():
                 typed_source = scope == 0 and k == "source" and not isinstance(v, str)
-                if k in known and not typed_source:
+                if scope == 0 and k in known and not typed_source:
                     continue
                 leaves = []
                 _flatten(v, ((str(k), False),), leaves)
@@ -365,6 +379,8 @@ def _residual_columns(recs):
 def _leaf_strings(kind, value):
     """A leaf's value as strings. The kind reconstructs the type, and repr round trips a
     float exactly, so passing through text costs no precision."""
+    if kind == K_NATIVE:
+        return [pack_value(value).hex()]
     if kind in (K_NONE, K_EMPTY_LIST, K_EMPTY_DICT):
         return []
     if kind in _LIST_KINDS:
@@ -373,6 +389,10 @@ def _leaf_strings(kind, value):
 
 
 def _leaf_value(kind, parts):
+    if kind == K_NATIVE:
+        if len(parts) != 1:
+            raise ValueError("invalid native record value")
+        return unpack_value(bytes.fromhex(parts[0]))
     if kind == K_NONE:
         return None
     if kind == K_EMPTY_LIST:
@@ -393,7 +413,9 @@ def _leaf_value(kind, parts):
         return [x == "True" for x in parts]
     if kind == K_LIST_INT:
         return [int(x) for x in parts]
-    return [float(x) for x in parts]
+    if kind == K_LIST_FLOAT:
+        return [float(x) for x in parts]
+    raise ValueError(f"unknown record value kind {kind}")
 
 
 def _assign(root, path, value):
@@ -473,8 +495,8 @@ def _residual_tensors(cells, t):
             t[g + "vals"] = np.asarray([int(v) for v in vals], np.int64)
         elif kind == K_FLOAT:
             t[g + "vals"] = np.asarray([float(v) for v in vals], np.float64)
-        elif kind == K_STR:
-            blob, offs = _pack_strings([str(v) for v in vals])
+        elif kind in (K_STR, K_NATIVE):
+            blob, offs = _pack_strings([_leaf_strings(kind, v)[0] for v in vals])
             t[g + "sbytes"] = np.frombuffer(blob, np.uint8).copy()
             t[g + "soffs"] = offs
         elif kind in _LIST_KINDS:
@@ -558,6 +580,8 @@ def _group_value(e, i):
         return {}
     if kind == K_STR:
         return e["strings"][i]
+    if kind == K_NATIVE:
+        return _leaf_value(kind, [e["strings"][i]])
     if kind == K_BOOL:
         return bool(e["vals"][i])
     if kind == K_INT:
@@ -601,9 +625,11 @@ def write(path, index: dict, *, extra: dict | None = None) -> None:
     The digest covers them with everything else, which is why they belong here rather
     than in a second file or in the metadata.
     """
-    from rexgraph.io.rex_state import DIGEST_ALGO, state_digest
+    from rexgraph.state import DIGEST_ALGO, state_digest
     from safetensors.numpy import save_file
     t = _tensors(index)
+    declaration = {"format": FORMAT_VERSION, "n": index["n"], "n_terms": index["n_terms"]}
+    t["index_header"] = np.frombuffer(pack_value(declaration), np.uint8).copy()
     for name, arr in (extra or {}).items():
         t[f"extra/{name}"] = np.ascontiguousarray(arr)
     save_file(t, str(path), metadata={
@@ -616,25 +642,42 @@ def write(path, index: dict, *, extra: dict | None = None) -> None:
 
 def read(path, *, verify: bool = True) -> dict:
     """The inverse of `write`. A digest that does not match raises."""
-    from rexgraph.io.rex_state import state_digest
+    from rexgraph.state import state_digest
     from safetensors import safe_open
     from safetensors.numpy import load_file
     with safe_open(str(path), "numpy") as f:
         meta = f.metadata() or {}
-    if int(meta.get("format", 0)) != FORMAT_VERSION:
+    version = int(meta.get("format", 0))
+    if version not in (2, 3, FORMAT_VERSION):
         raise ValueError(f"index format {meta.get('format')} != {FORMAT_VERSION}")
     t = load_file(str(path))
+    n, nt = int(meta["n"]), int(meta["n_terms"])
+    if version == FORMAT_VERSION:
+        raw = t.get("index_header")
+        if raw is None or raw.dtype != np.uint8 or raw.ndim != 1:
+            raise ValueError("native index has no declared semantic header")
+        declaration = unpack_value(raw.tobytes())
+        if (type(declaration) is not dict or set(declaration) != {"format", "n", "n_terms"}
+                or any(type(declaration[key]) is not int for key in declaration)
+                or declaration != {"format": version, "n": n, "n_terms": nt}):
+            raise ValueError("native index metadata differs from its sealed header")
+        if not meta.get("digest"):
+            raise ValueError("native index has no content digest")
     algo = int(meta.get("digest_algo", 1))
     if verify and meta.get("digest") and state_digest(t, algo=algo) != meta["digest"]:
         raise ValueError("index digest mismatch: the file is not what was written")
-    n, nt = int(meta["n"]), int(meta["n_terms"])
 
     def _table(prefix):
         return StringTable(t[f"{prefix}/table"].tobytes(), t[f"{prefix}/offsets"])
+    ids, vocabulary = _table("ids"), _table("vocab")
+    if n != len(ids) or nt != len(vocabulary) or n < 0 or nt < 0:
+        raise ValueError("index table dimensions differ from their declaration")
+    if any(t[f"measure/{name}"].shape != (n,) for name, _dt in MEASURES):
+        raise ValueError("index measurements differ from their record basis")
     shared, bridge = _residual_groups(t)
     ptr, idx = t["rel/ptr"], t["rel/idx"]
     return {"n": n, "n_terms": nt, "nV": n + nt,
-            "ids": _table("ids"), "vocab": _table("vocab"),
+            "ids": ids, "vocab": vocabulary,
             "rel_ptr": ptr, "rel_idx": idx, "rel_kind": t["rel/kind"],
             "measures": {name: t[f"measure/{name}"] for name, _dt in MEASURES},
             "residual_groups": shared, "residual_bridges": bridge,
@@ -724,22 +767,11 @@ def _term_codes(index: dict) -> dict:
 
 
 def boundary_operator(index: dict):
-    """`B1` for the stored index as a scipy CSC matrix, built from the arrays it holds.
+    """Return the stored index boundary as a cached SciPy CSC matrix.
 
-    The index already stores `rel_ptr` and `rel_idx`, and those ARE the column structure:
-    relation `e` occupies `rel_idx[rel_ptr[e]:rel_ptr[e+1]]`, the record first. So the
-    boundary operator is those two arrays plus the values the arity determines:
-
-        data[rel_ptr[e]]        = -1            the record, which the relation is OF
-        data[rel_ptr[e]+1:...]  = 1/(k-1)       its terms, sharing
-
-   , which is a vectorised fill, not a build. Going through `complex_of` and
-    `to_scipy_csr(rex.B1_sparse)` reconstructs a whole RexGraph to arrive at the same
-    matrix and measured 40 s on the 61,353 record store, paid by the first query of every
-    process. This is about a second, and nothing is cached that a restart has to earn
-    back.
-
-    Cached on the index anyway, because a query does not need it rebuilt.
+    rel_ptr and rel_idx give each relation's record followed by its terms. The head
+    coefficient is -1 and the remaining coefficients are 1/(k-1). Construct the values
+    directly from these arrays without reconstructing a RexGraph.
     """
     import scipy.sparse as sp
 
@@ -930,13 +962,6 @@ def record_response(index: dict, terms, *, steps: int = 1, rex=None,
     proper. Each further step is one more moment of the same propagator, reaching records
     through shared vocabulary.
 
-    MEASURED on the 61,353 document Gutenberg store, and the default follows it: one step
-    ranks the right book at 1, 1, 2, 3 and 7 on five title queries, and two steps is
-    WORSE on every one of them: Alice falls from 115 to 8474, the second Frankenstein
-    from 179 to 37201. At this grade the vocabulary is shared so widely that a second
-    moment smears rather than bridges. That is a property of the accession complex, not
-    of the method: one grade down, inside a document, the further scales are what reach.
-
     `channels=True` returns the response RESOLVED INTO THE CHANNELS instead of summed:
     `(n_records, 4)` over (topology, geometry, frustration, coparticipation), plus their
     names. A record then answers with a PROFILE rather than a scalar. The scalar is that
@@ -947,17 +972,8 @@ def record_response(index: dict, terms, *, steps: int = 1, rex=None,
 
     `reading` chooses WHICH TOWER is read, and the two answer different questions.
 
-        "share"      the boundary as built, so each term contributes `1/(k-1)`. A
-                     record's response is therefore a DENSITY: what fraction of this
-                     record the query is. Measured on the 8 documents that all hold
-                     `221b baker street`, the resulting order agrees with the ordering
-                     by accession width at rank correlation +1.000: a 3,206-term
-                     pamphlet mentioning a page number beat the 8,332-term Adventures
-                     of Sherlock Holmes, which sat at 37.
-        "existence"  the {0,1} incidence pattern, so a term contributes its seed weight
-                     and nothing is divided by the width. A record's response is then the
-                     MASS of query terms it holds. On the same query that puts Holmes at
-                     5 and the pamphlet at 22.
+    "share" divides each term contribution by the relation width minus one.
+    "existence" uses binary incidence, so each term contributes its seed weight.
 
     Both are exact and neither is a normalisation of the other: they are the integer and
     the share towers of the same boundary, and accession asks "does this record hold the
@@ -1354,18 +1370,28 @@ def ids_of(index: dict, rows) -> list:
 
 
 def payload_at(index: dict, row: int) -> dict:
-    """{"s": ..., "m": ...} - the residual for one row, from its columns and bridges."""
+    """{"s": ..., "m": ...}: the residual for one row, from its columns and bridges."""
     out = {"s": {}, "m": {}}
     for e in index.get("residual_groups") or ():
         rows = e["rows"]
         i = int(np.searchsorted(rows, row))
         if i >= rows.size or int(rows[i]) != row:
             continue
-        _assign(out["s" if e["scope"] == 0 else "m"], e["path"], _group_value(e, i))
+        if not e["path"] and e["scope"] == 2:
+            out["native_record"] = _group_value(e, i)
+        elif not e["path"] and e["scope"] == 0:
+            out["native_signature"] = _group_value(e, i)
+        else:
+            _assign(out["s" if e["scope"] == 0 else "m"], e["path"], _group_value(e, i))
     for e in index.get("residual_bridges") or ():
         if e["row"] == row:
-            _assign(out["s" if e["scope"] == 0 else "m"], e["path"],
-                    _leaf_value(e["kind"], e["parts"]))
+            value = _leaf_value(e["kind"], e["parts"])
+            if not e["path"] and e["scope"] == 2:
+                out["native_record"] = value
+            elif not e["path"] and e["scope"] == 0:
+                out["native_signature"] = value
+            else:
+                _assign(out["s" if e["scope"] == 0 else "m"], e["path"], value)
     return out
 
 
@@ -1378,6 +1404,11 @@ def record_at(index: dict, row: int):
     from .core import ComplexRecord
     c = index["measures"]
     extra = payload_at(index, row)
+    if "native_record" in extra:
+        record = ComplexRecord.from_dict(extra["native_record"])
+        if record.id != index["ids"][row] or record.version != int(c["version"][row]):
+            raise ValueError("native record differs from its index address")
+        return record
     terms = terms_of(index, row)
 
     def _f(name):
@@ -1404,9 +1435,11 @@ def record_at(index: dict, row: int):
         if v is not None:
             sig[k] = v
     sig.update(extra.get("s", {}))
+    if "native_signature" in extra:
+        sig = extra["native_signature"]
     meta = dict(extra.get("m", {}))
     labels = terms.get("vertex_labels", [])
-    if labels:
+    if labels and "vertex_labels" not in meta:
         meta["vertex_labels"] = labels
     return ComplexRecord(
         id=index["ids"][row], signature=sig, created=float(c["created"][row]),
@@ -1455,18 +1488,28 @@ def _leaves_of(record):
     return leaves
 
 
-def log_append(path, op: str, rid: str, record=None, extra=None) -> None:
-    """Append one frame: op, id, the measurements, and the record's terms.
+def legacy_log_append(path, op: str, rid: str, record=None, extra=None) -> None:
+    """Append a compatibility frame containing the operation, ID, metadata and terms.
 
-    Terms travel with the frame because a log entry has no vocabulary to reference yet;
-    the vocabulary is built when the log is folded into an index.
-
-    `extra` is a backend's own int64 row, written after the record and signalled by the
-    presence byte reading 2 rather than 1. A log written before this reads unchanged,
-    because it only ever wrote 0 or 1 there.
+    Terms remain literal until index compaction builds their vocabulary. Presence
+    bytes 0 and 1 omit backend coordinates; byte 2 includes an int64 backend row.
     """
     import io
-    import os
+    if type(op) is not str or op not in {"put", "delete"}:
+        raise ValueError("unknown journal operation")
+    if type(rid) is not str or not rid:
+        raise ValueError("journal record identity must be nonempty text")
+    if (op == "put" and record is None) or (op == "delete" and (record is not None or extra is not None)):
+        raise ValueError("journal operation differs from its record payload")
+    if record is not None and record.envelope is not None and record.id != rid:
+        raise ValueError("native record differs from its journal address")
+    if extra is not None:
+        from numbers import Integral
+        values = tuple(extra)
+        if any(isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral)
+               or not -(2**63) <= value < 2**63 for value in values):
+            raise ValueError("journal backend coordinates require exact int64 values")
+        extra = tuple(int(value) for value in values)
     rb = rid.encode("utf-8")
     scal = np.zeros(len(_FRAME_COLS), dtype=np.float64)
     strings: list[str] = []
@@ -1509,6 +1552,24 @@ def log_append(path, op: str, rid: str, record=None, extra=None) -> None:
                 ex = np.asarray(extra, np.int64)
                 f.write(np.int32(ex.size).tobytes()); f.write(ex.tobytes())
         frame = f.getvalue()
+    from .journal import FRAME_LIMIT
+    if len(frame) > FRAME_LIMIT:
+        raise ValueError("legacy journal frame exceeds its byte limit")
+    from pathlib import Path
+    from rexgraph.io.publication import publication_lock
+    target = Path(path)
+    with publication_lock(target.parent):
+        if target.is_symlink():
+            raise ValueError("journal requires a regular file, not a symbolic link")
+        # Refuse torn tails and checked/unknown framing before changing any bytes.
+        if target.exists() and target.stat().st_size:
+            list(legacy_log_read(target))
+        _append_legacy_frame(target, frame)
+
+
+def _append_legacy_frame(path, frame):
+    """Caller holds publication arbitration and has validated the existing prefix."""
+    import os
     with open(path, "a+b") as f:
         start = f.tell()
         try:
@@ -1531,82 +1592,174 @@ def log_append(path, op: str, rid: str, record=None, extra=None) -> None:
             raise failure
 
 
-def log_read(path, start: int = 0):
-    """Yield (op, id, record|None, extra|None). A torn tail ends the read.
+def legacy_log_read(path, start: int = 0, *, allow_torn_tail=False):
+    """Yield (op, id, record|None, extra|None) from a validated legacy log.
 
     `start` resumes at a byte offset a caller recorded earlier, which is how a store
     replays only the frames its snapshot does not already hold.
 
-    The scan runs in `rexgraph.core._recordlog` where that is built. The python below
-    is the same codec and stays the reference: a source checkout with no compiled core
-    still reads its own logs.
+    Ordinary replay refuses incomplete tails. ``allow_torn_tail=True`` explicitly
+    reads the complete prefix for recovery; complete corruption always raises.
+    Legacy logs have no checksum or cursor anchor, so validating a resume boundary
+    requires scanning the prefix. Checked journals supply bounded cursor validation.
     """
     import os
+    from pathlib import Path
+    from .journal import TornJournalError
+    if type(start) is not int or start < 0:
+        raise ValueError("journal cursor requires a nonnegative native byte offset")
+    if Path(path).is_symlink():
+        raise ValueError("journal requires a regular file, not a symbolic link")
     if not os.path.exists(path):
+        if start:
+            raise ValueError("journal cursor is beyond the published file")
         return
     with open(path, "rb") as f:
         buf = f.read()
-    if not buf.startswith(LOG_MAGIC):
+    if not buf:
+        if start:
+            raise ValueError("journal cursor is beyond the published file")
         return
-    at = len(LOG_MAGIC) if start <= len(LOG_MAGIC) else int(start)
-    if _read_frames is not None:
-        for op, rid, scal, kterms, rest, leaves, extra in _read_frames(
-                buf, at, len(_FRAME_COLS)):
+    if len(buf) < len(LOG_MAGIC) and LOG_MAGIC.startswith(buf):
+        if not allow_torn_tail:
+            raise TornJournalError(0)
+        return
+    if not buf.startswith(LOG_MAGIC):
+        raise ValueError("unsupported legacy journal format")
+    scan = _read_frames if _read_frames is not None else _python_read_frames
+    entries, valid_end = scan(buf, len(LOG_MAGIC), len(_FRAME_COLS), return_offsets=True)
+    at = len(LOG_MAGIC) if start == 0 else start
+    if at not in {len(LOG_MAGIC), *(end for end, _ in entries)}:
+        raise ValueError("journal cursor is not a complete frame boundary")
+    restored = []
+    begin = len(LOG_MAGIC)
+    for end, (op, rid, scal, kterms, rest, leaves, extra) in entries:
+        try:
             rec = (_record_from_parts(rid, scal, kterms, rest, leaves)
                    if scal is not None else None)
-            yield ("put" if op == _OP_PUT else "delete"), rid, rec, extra
-        return
+        except (TypeError, IndexError, KeyError, OverflowError) as failure:
+            raise ValueError("malformed legacy journal record") from failure
+        if begin >= at:
+            restored.append((("put" if op == _OP_PUT else "delete"), rid, rec, extra))
+        begin = end
+    if valid_end != len(buf) and not allow_torn_tail:
+        raise TornJournalError(valid_end)
+    yield from restored
+
+
+class _IncompleteLegacyFrame(Exception):
+    pass
+
+
+def _python_read_frames(buf, start, nscal, return_offsets=False):
+    """Reference legacy scanner; only positive short reads stop the scan."""
+    from .journal import FRAME_LIMIT
     n = len(buf)
-    o = len(LOG_MAGIC) if start <= len(LOG_MAGIC) else int(start)
-    nscal = len(_FRAME_COLS)
-    # `struct` for the single scalars: np.frombuffer builds an array object per field,
-    # which at eight fields a frame is most of a replay. Arrays still come off numpy.
+    if not 0 < nscal <= 4096 or not 0 <= start <= n:
+        raise ValueError("invalid legacy journal scalar width or start offset")
+    o, valid_end = start, start
+    out = []
+
+    def need(size):
+        if size > n-o:
+            raise _IncompleteLegacyFrame
+
+    def count(value, maximum, name, minimum=0):
+        if not minimum <= value <= maximum:
+            raise ValueError(f"invalid legacy journal {name}")
+
     u_i8 = _struct.Struct("<b").unpack_from
     u_i32 = _struct.Struct("<i").unpack_from
     u_2i8 = _struct.Struct("<bb").unpack_from
     while o < n:
         try:
+            need(1)
             (op,) = u_i8(buf, o); o += 1
+            if op not in {_OP_PUT, _OP_DELETE}:
+                raise ValueError("unknown legacy journal operation")
+            need(4)
             (ln,) = u_i32(buf, o); o += 4
-            if o + ln > n:
-                return
+            count(ln, FRAME_LIMIT, "record identity length", 1)
+            need(ln+1)
             rid = buf[o:o + ln].decode("utf-8"); o += ln
             (has,) = u_i8(buf, o); o += 1
-            rec, extra = None, None
+            if has not in {0, 1, 2} or (op == _OP_PUT and has == 0) or (op == _OP_DELETE and has != 0):
+                raise ValueError("invalid legacy journal operation presence flag")
+            extra = None
+            scal, terms, rest, leaves = None, [], [], []
             if has:
-                scal = np.frombuffer(buf, np.float64, nscal, o); o += 8 * nscal
+                need(8*nscal+4)
+                scal = np.frombuffer(buf, "<f8", nscal, o).copy(); o += 8*nscal
                 (no,) = u_i32(buf, o); o += 4
-                soffs = np.frombuffer(buf, np.int64, no, o); o += 8 * no
+                count(no, FRAME_LIMIT//8, "string offset count", 2)
+                need(8*no+4)
+                soffs = np.frombuffer(buf, "<i8", no, o); o += 8*no
                 (bl,) = u_i32(buf, o); o += 4
-                if o + bl > n:
-                    return
-                strings = _unpack_strings(buf[o:o + bl], soffs); o += bl
+                count(bl, FRAME_LIMIT, "string blob length")
+                need(bl+4)
+                if soffs[0] != 0 or soffs[-1] != bl or np.any(soffs < 0) or np.any(soffs[1:] < soffs[:-1]):
+                    raise ValueError("invalid legacy journal string offsets")
+                strings = [buf[o+int(lo):o+int(hi)].decode("utf-8")
+                           for lo, hi in zip(soffs[:-1], soffs[1:], strict=True)]
+                o += bl
                 (nl,) = u_i32(buf, o); o += 4
-                leaves = []
+                count(nl, FRAME_LIMIT//10, "leaf count")
                 for _ in range(nl):
+                    need(6)
                     scope, kind = u_2i8(buf, o); o += 2
+                    if not 0 <= scope <= 2 or not 0 <= kind <= K_NATIVE:
+                        raise ValueError("unknown legacy journal leaf scope or kind")
                     (ns,) = u_i32(buf, o); o += 4
+                    count(ns, FRAME_LIMIT, "leaf path length")
+                    need(ns+4)
                     isidx = np.frombuffer(buf, np.int8, ns, o).copy(); o += ns
+                    if np.any((isidx != 0) & (isidx != 1)):
+                        raise ValueError("invalid legacy journal leaf path flag")
                     (nv,) = u_i32(buf, o); o += 4
+                    count(nv, FRAME_LIMIT, "leaf value count")
                     leaves.append((int(scope), int(kind), isidx, nv))
-                rec = _record_from_frame(rid, scal, strings, leaves)
+                terms, rest = _split_legacy_terms(strings)
                 if has == 2:
+                    need(4)
                     (ne,) = u_i32(buf, o); o += 4
-                    extra = np.frombuffer(buf, np.int64, ne, o).copy(); o += 8 * ne
-        except (ValueError, IndexError, UnicodeDecodeError, _struct.error):
-            return                      # a torn tail: a short read is where it stopped
-        yield ("put" if op == _OP_PUT else "delete"), rid, rec, extra
+                    count(ne, FRAME_LIMIT//8, "extra row length")
+                    need(8*ne)
+                    extra = np.frombuffer(buf, "<i8", ne, o).copy(); o += 8*ne
+        except _IncompleteLegacyFrame:
+            break
+        if o-valid_end > FRAME_LIMIT:
+            raise ValueError("legacy journal frame exceeds its byte limit")
+        frame = (op, rid, scal, terms, rest, leaves, extra)
+        out.append((o, frame) if return_offsets else frame)
+        valid_end = o
+    return (out, valid_end) if return_offsets else out
+
+
+def _split_legacy_terms(strings):
+    if not strings:
+        raise ValueError("missing legacy journal term declaration")
+    count = int(strings[0])
+    if not 0 <= count <= len(KINDS) or str(count) != strings[0]:
+        raise ValueError("invalid legacy journal term count")
+    terms, seen, at = [], set(), 1
+    for _ in range(count):
+        if at+2 > len(strings):
+            raise ValueError("incomplete legacy journal term declaration")
+        code, size = int(strings[at]), int(strings[at+1])
+        if (not 0 <= code < len(KINDS) or code in seen or str(code) != strings[at]
+                or size <= 0 or str(size) != strings[at+1] or size > len(strings)-at-2):
+            raise ValueError("invalid legacy journal term declaration")
+        seen.add(code)
+        at += 2
+        terms.append((code, strings[at:at+size]))
+        at += size
+    return terms, strings[at:]
 
 
 def _record_from_frame(rid, scal, strings, leaves=()):
     """The reference path: split the string table, then build the record."""
-    it = iter(strings)
-    terms = []
-    for _ in range(int(next(it, "0") or 0)):
-        code = int(next(it, "0"))
-        cnt = int(next(it, "0") or 0)
-        terms.append((code, [next(it, "") for _ in range(cnt)]))
-    return _record_from_parts(rid, scal, terms, list(it), leaves)
+    terms, rest = _split_legacy_terms(strings)
+    return _record_from_parts(rid, scal, terms, rest, leaves)
 
 
 def _record_from_parts(rid, scal, kind_terms, rest, leaves=()):
@@ -1616,16 +1769,46 @@ def _record_from_parts(rid, scal, kind_terms, rest, leaves=()):
     `[(kind code, [term])]` and `rest` holds what the residual leaves index.
     """
     from .core import ComplexRecord
+    if len(scal) != len(_FRAME_COLS):
+        raise ValueError("invalid legacy journal scalar width")
+    v = scal.tolist()
+    if not np.isfinite(v[_C_VERSION]) or v[_C_VERSION] <= 0 or not v[_C_VERSION].is_integer():
+        raise ValueError("invalid legacy journal record version")
+    for k in (_C_CREATED, _C_TXF):
+        if not np.isfinite(v[k]):
+            raise ValueError("invalid legacy journal record time")
+    for k in (_C_TXT, _C_VFROM, _C_VTO):
+        if np.isinf(v[k]):
+            raise ValueError("invalid legacy journal optional time")
+    seen_terms = set()
+    for code, values in kind_terms:
+        if (not 0 <= code < len(KINDS) or code in seen_terms or not values
+                or (KINDS[code] in SINGLE and len(values) != 1)):
+            raise ValueError("invalid legacy journal term declaration")
+        seen_terms.add(code)
+    decoded = _checked_legacy_leaves(rest, leaves)
+    native_record = next((value for scope, path, value in decoded if scope == 2), None)
+    if native_record is not None:
+        from .journal import _RECORD_FIELDS
+        if (type(native_record) is not dict or not _RECORD_FIELDS <= native_record.keys()
+                or set(native_record)-_RECORD_FIELDS-{"envelope"}):
+            raise ValueError("unknown or incomplete native journal record declaration")
+        record = ComplexRecord.from_dict(native_record)
+        if (record.id != rid or type(record.version) is not int or not 0 < record.version < 2**63
+                or float(record.version) != v[_C_VERSION]):
+            raise ValueError("native record differs from its journal address")
+        return record
     # one conversion to python floats, then `v != v` for the NaN test. Reading the
     # numpy scalars one at a time and calling np.isnan on each was the single largest
     # cost of a log replay.
     # `tolist` once, then read the row by position. Building a dict of twenty names to
     # look each one back out of was the last Python layer in a replay.
-    v = scal.tolist()
     terms = {KINDS[code]: vs for code, vs in kind_terms}
-    it = iter(rest)
-    b1 = int(v[_C_B1] or 0)
-    sig = {
+    native_signature = next((value for scope, path, value in decoded if scope == 0 and not path), None)
+    # A native signature is authoritative; its measurement columns are projections.
+    # Constructing legacy projections first could reject an exact declared absence.
+    b1 = int(v[_C_B1] or 0) if native_signature is None else 0
+    sig = native_signature if native_signature is not None else {
         "object_type": (terms.get("object_type") or [""])[0],
         "source": (terms.get("source") or [""])[0],
         "coherence_method": (terms.get("coherence_method") or [""])[0],
@@ -1637,20 +1820,149 @@ def _record_from_parts(rid, scal, kind_terms, rest, leaves=()):
         "n_voids": int(v[_C_VOIDS] or 0), "n_labels": int(v[_C_NLAB] or 0),
         "tags": terms.get("tags", []), "labels_sample": terms.get("labels_sample", []),
     }
-    for name, k in (("kappa_greens_mean", _C_KGREENS),
+    for name, k in (() if native_signature is not None else (("kappa_greens_mean", _C_KGREENS),
                     ("structural_perplexity", _C_PERP),
-                    ("effective_modes", _C_MODES), ("varentropy_gap", _C_VGAP)):
+                    ("effective_modes", _C_MODES), ("varentropy_gap", _C_VGAP))):
         if v[k] == v[k]:                      # NaN is how an absent measurement writes
             sig[name] = v[k]
     meta = ({"vertex_labels": terms["vertex_labels"]}
             if terms.get("vertex_labels") else {})
-    for scope, kind, isidx, nvals in leaves:
-        path = tuple((next(it, ""), bool(b)) for b in isidx)
-        parts = [next(it, "") for _ in range(nvals)]
-        _assign(sig if scope == 0 else meta, path, _leaf_value(kind, parts))
+    for scope, path, value in decoded:
+        if not path and scope == 0:
+            sig = value
+        else:
+            _assign(sig if scope == 0 else meta, path, value)
     return ComplexRecord(
         id=rid, signature=sig, created=float(v[_C_CREATED] or 0.0), meta=meta,
         version=int(v[_C_VERSION] or 1), tx_from=float(v[_C_TXF] or 0.0),
         tx_to=None if v[_C_TXT] != v[_C_TXT] else v[_C_TXT],
         valid_from=None if v[_C_VFROM] != v[_C_VFROM] else v[_C_VFROM],
         valid_to=None if v[_C_VTO] != v[_C_VTO] else v[_C_VTO])
+
+
+def _checked_legacy_leaves(rest, leaves):
+    """Close the residual grammar before any path can allocate or overwrite data."""
+    if len(rest) != sum(len(flags)+count for _scope, _kind, flags, count in leaves):
+        raise ValueError("legacy journal leaves do not consume the string table")
+    decoded, seen, at = [], set(), 0
+    for scope, kind, flags, count in leaves:
+        if (scope not in {0, 1, 2} or not 0 <= kind <= K_NATIVE or count < 0
+                or any(flag not in (0, 1) for flag in flags)):
+            raise ValueError("invalid legacy journal leaf declaration")
+        if ((kind in (K_NONE, K_EMPTY_LIST, K_EMPTY_DICT) and count != 0)
+                or (kind in (K_INT, K_FLOAT, K_BOOL, K_STR, K_NATIVE) and count != 1)):
+            raise ValueError("invalid legacy journal leaf value count")
+        path = tuple((rest[at+i], bool(flag)) for i, flag in enumerate(flags))
+        at += len(flags)
+        parts = rest[at:at+count]
+        at += count
+        if scope == 2 and (path or kind != K_NATIVE):
+            raise ValueError("native journal record requires a root declaration")
+        if not path and (scope == 1 or kind != K_NATIVE):
+            raise ValueError("invalid legacy journal root declaration")
+        for segment, is_index in path:
+            if is_index:
+                try:
+                    position = int(segment)
+                except ValueError as failure:
+                    raise ValueError("invalid legacy journal list index") from failure
+                if str(position) != segment or not 0 <= position < len(leaves):
+                    raise ValueError("invalid or unbounded legacy journal list index")
+        address = (scope, path)
+        if address in seen:
+            raise ValueError("duplicate legacy journal leaf address")
+        seen.add(address)
+        if kind in (K_BOOL, K_LIST_BOOL) and any(part not in {"True", "False"} for part in parts):
+            raise ValueError("invalid legacy journal boolean value")
+        value = _leaf_value(kind, parts)
+        if kind == K_NATIVE and (pack_value(value).hex() != parts[0]):
+            raise ValueError("noncanonical legacy journal native value")
+        if not path and type(value) is not dict:
+            raise ValueError("native journal root requires a mapping")
+        decoded.append((scope, path, value))
+    return decoded
+
+
+def migrate_legacy_log(path, *, store_id, legacy_format="binary"):
+    """Replace a fully validated legacy journal under one publication lock.
+
+    Checksums seal the migrated bytes; they do not authenticate the legacy source.
+    The receipt reports both physical digests. Incomplete or corrupt sources leave
+    the original file unchanged. Cooperating checked appenders use the same lock.
+    """
+    import hashlib
+    from pathlib import Path
+    from rexgraph.io.publication import staged_publication
+    from .journal import JOURNAL_MAGIC, LocalJournal, write_checked_journal
+    from .envelope import _hex_identity
+    _hex_identity(store_id, 32, "journal store identity")
+    if type(legacy_format) is not str or legacy_format not in {"binary", "rex-json"}:
+        raise ValueError("unknown legacy journal migration format")
+    target = Path(path)
+    with staged_publication(target, update=True) as staged:
+        raw = staged.read_bytes() if staged.exists() else b""
+        if raw.startswith(JOURNAL_MAGIC):
+            status = LocalJournal(staged, store_id=store_id).inspect()
+            if status.torn:
+                from .journal import TornJournalError
+                raise TornJournalError(status.valid_end)
+            entries = None
+            count = status.frame_count
+        else:
+            if legacy_format == "rex-json":
+                from .legacy import rex_json_entries
+                entries = list(rex_json_entries(staged)) if raw else []
+            else:
+                entries = list(legacy_log_read(staged)) if raw else []
+            count = len(entries)
+            with staged.open("wb") as stream:
+                write_checked_journal(stream, store_id, entries)
+        return {"migration_version": 1, "store_id": store_id, "frame_count": count,
+                "source_format": legacy_format if entries is not None else "checked",
+                "source_sha256": hashlib.sha256(raw).hexdigest(),
+                "target_sha256": hashlib.sha256(staged.read_bytes()).hexdigest(),
+                "converted": entries is not None}
+
+
+def log_append(path, op: str, rid: str, record=None, extra=None, *, store_id=None):
+    """Shared adapter writer; explicit store ownership selects checked framing.
+
+    Omitting ``store_id`` retains the legacy compatibility codec. New persistent
+    adapters always supply it. Existing legacy binary logs migrate as whole files.
+    """
+    if store_id is None:
+        return legacy_log_append(path, op, rid, record, extra)
+    from pathlib import Path
+    from .journal import GENESIS_DIGEST, JOURNAL_MAGIC, JournalFrame, LocalJournal, exact_coordinates
+    # Validate the proposed change before a legacy file can be migrated.
+    extra = exact_coordinates(extra)
+    JournalFrame(store_id, 1, GENESIS_DIGEST, op, rid,
+                 None if record is None else pack_value(record.to_dict()), extra)
+    target = Path(path)
+    if target.exists():
+        with target.open("rb") as stream:
+            head = stream.read(len(LOG_MAGIC))
+        if head and not head.startswith(JOURNAL_MAGIC):
+            migrate_legacy_log(path, store_id=store_id)
+    return LocalJournal(path, store_id=store_id).append(op, rid, record, extra=extra)
+
+
+def log_read(path, start=0, *, store_id=None, allow_torn_tail=False):
+    """Read checked or validated compatibility framing without mixing grammars."""
+    from pathlib import Path
+    from .journal import JOURNAL_MAGIC, LocalJournal
+    target = Path(path)
+    if target.is_symlink():
+        raise ValueError("journal requires a regular file, not a symbolic link")
+    if target.exists():
+        with target.open("rb") as stream:
+            head = stream.read(len(LOG_MAGIC))
+        if head and (head.startswith(JOURNAL_MAGIC) or JOURNAL_MAGIC.startswith(head)):
+            for frame in LocalJournal(path, store_id=store_id).frames(start, allow_torn_tail=allow_torn_tail):
+                extra = None if frame.extra is None else np.asarray(frame.extra, np.int64)
+                yield frame.operation, frame.record_id, frame.record, extra
+            return
+    for operation, record_id, record, extra in legacy_log_read(path, start, allow_torn_tail=allow_torn_tail):
+        if store_id is not None and record is not None and record.envelope is not None:
+            record.envelope.check_address(store_id=store_id, record_id=record_id, record_version=record.version)
+        yield operation, record_id, record, extra

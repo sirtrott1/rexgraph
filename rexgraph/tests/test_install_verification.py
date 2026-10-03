@@ -9,7 +9,7 @@ INSTALLER = Path(__file__).resolve().parents[2] / "install.sh"
 
 
 @pytest.mark.parametrize("frontend", ["conda", "pip"])
-@pytest.mark.parametrize("failed", ["none", "core_smoke", "server_smoke", "agent_suite", "core_suite"])
+@pytest.mark.parametrize("failed", ["none", "core_smoke", "server_smoke", "ui_smoke", "agent_suite", "core_suite"])
 def test_installer_checks_fail_without_running_any_install(tmp_path, frontend, failed):
     source = INSTALLER.read_text()
     verification = source.split("# 9. verify\n", 1)[1].split("# 10. next steps\n", 1)[0]
@@ -24,6 +24,7 @@ INENV() {
     case "$*" in
         *'from rexgraph.graph'*) stage=core_smoke ;;
         *'import agent.server.app'*) stage=server_smoke ;;
+        *'from agent.ui_assets import validate_ui_assets'*) stage=ui_smoke ;;
         *'/agent/tests'*) stage=agent_suite ;;
         *'/rexgraph/tests'*) stage=core_suite ;;
         *) printf 'unexpected command: %s\n' "$*" >&2; exit 2 ;;
@@ -39,7 +40,7 @@ RUN_CORE_TESTS=1
     script = f"FRONTEND={frontend}\nfailed={failed}\n" + stubs + verification
     result = subprocess.run(["sh", "-c", script], cwd=checkout, text=True, capture_output=True)
     assert result.returncode == (0 if failed == "none" else 1), result.stdout + result.stderr
-    stages = ["core_smoke", "server_smoke", "agent_suite", "core_suite"]
+    stages = ["core_smoke", "server_smoke", "ui_smoke", "agent_suite", "core_suite"]
     count = len(stages) if failed == "none" else stages.index(failed) + 1
     assert [line for line in result.stdout.splitlines() if line.startswith("checked ")] == [
         f"checked {stage}" for stage in stages[:count]]

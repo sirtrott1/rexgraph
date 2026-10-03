@@ -418,11 +418,11 @@ def subcomplex_by_energy_regime(np.ndarray[f64, ndim=1] E_kin_per_edge,
 
     Parameters
 
-    E_kin_per_edge : f64[nE] - per edge topological energy
-    E_pot_per_edge : f64[nE] - per edge geometric energy
+    E_kin_per_edge : f64[nE]: per edge topological energy
+    E_pot_per_edge : f64[nE]: per edge geometric energy
     regime : int (0=kinetic, 1=crossover, 2=potential)
     ratio_tol : float
-    nV : int - vertex count (for closure)
+    nV : int: vertex count (for closure)
     boundary_ptr, boundary_idx : boundary representation (for closure)
 
     Returns
@@ -710,7 +710,7 @@ def relative_betti(np.ndarray[f64, ndim=2] B1_quot,
     import scipy.sparse as sp
     from rexgraph.graded_boundary import _sparse_rank
     # Betti from RANKS (canon Part III), computed EXACTLY and eigen free from the
-    # INTEGER quotient boundary maps via rational column reduction - no dense SVD,
+    # INTEGER quotient boundary maps via rational column reduction: no dense SVD,
     # no spectrum Betti. rank(B1) also gives beta0 = nV_quot - rank(B1) (component
     # count), matching a union find over the quotient 1 skeleton.
     if nV_quot > 0 and nE_quot > 0:
@@ -754,7 +754,7 @@ def relative_cycle_basis(np.ndarray[f64, ndim=2] B1_quot,
 
     # Eigen free: the harmonic plane ker(L1q) = ker(B1q) ∩ ker(B2qᵀ) is the
     # combinatorial cycle basis projected off im(B2q) (harmonic_basis_from_boundaries),
-    # orthonormalized by a thin QR - no dense eigendecomposition of L1q. The quotient
+    # orthonormalized by a thin QR: no dense eigendecomposition of L1q. The quotient
     # B1q is a signed graph incidence (subcomplex vertices collapse to the basepoint),
     # so the cycle basis spans ker(B1q). Guarded: its dimension must equal the exact
     # relative beta1 = nE - rank(B1q) - rank(B2q); on any mismatch fall back to the
@@ -773,7 +773,8 @@ def relative_cycle_basis(np.ndarray[f64, ndim=2] B1_quot,
     Hd = np.asarray(H.todense()) if sp.issparse(H) else np.asarray(H, dtype=np.float64)
 
     if Hd.shape[1] == beta1_rel and Hd.shape[1] > 0:
-        Q, _ = np.linalg.qr(Hd)                    # orthonormal basis for ker(L1q)
+        from rexgraph.core._linalg import qr_basis
+        Q = qr_basis(Hd)
         return np.ascontiguousarray(Q[:, :beta1_rel])
 
     # Fallback: dense eigendecomposition oracle (exact for any structure).
@@ -950,46 +951,65 @@ def congruent_faces(Py_ssize_t a, Py_ssize_t b,
 
 
 cdef _congruence_partition(M, mask, f64 tol):
-    """Partition the columns of M NOT in the subcomplex (mask==0) into congruence
-    classes: columns a, b are congruent iff (M[:,a] - M[:,b]) lies in colspan(M[:,I]),
-    I = {mask==1}. Equivalently their residuals off colspan(M[:,I]) are equal.
+    """Partition columns outside the subcomplex into congruence classes.
 
-    FACTOR ONCE: reduce the subcomplex basis a single time (thin QR), project ALL
-    survivor columns onto its orthogonal complement as one block matmul, then group by
-    equal residual columns - O(n_surv^2) cheap vector compares plus one factorization,
-    replacing the previous O(n_surv^2) that re ran a full lstsq (re factoring the basis)
-    for EVERY pair. Labels are assigned in first encounter survivor order, so the output
-    partition AND label numbering are identical to the per pair version."""
-    M = np.asarray(M, dtype=np.float64)
-    cdef Py_ssize_t ncol = M.shape[1]
-    labels = np.full(ncol, -1, dtype=np.int32)
-    survivors = np.where(~np.asarray(mask).astype(bool))[0]
+    The subcomplex basis is factored once. Survivor columns are projected onto its
+    orthogonal complement as one block, then compared in the residual space. The
+    hot pairwise loop is allocation free: it walks the residual matrix directly
+    instead of constructing ``R[:, j] - R[:, i]`` for every candidate pair.
+    """
+    cdef np.ndarray[f64, ndim=2] M_arr = np.asarray(M, dtype=np.float64)
+    cdef Py_ssize_t nrow = M_arr.shape[0]
+    cdef Py_ssize_t ncol = M_arr.shape[1]
+    cdef np.ndarray[i32, ndim=1] labels = np.full(ncol, -1, dtype=np.int32)
+    mask_bool = np.asarray(mask, dtype=bool)
+    cdef np.ndarray[np.intp_t, ndim=1] survivors = np.where(~mask_bool)[0]
     cdef Py_ssize_t n_surv = survivors.shape[0]
     if n_surv == 0:
         return labels, 0
 
-    cols = M[:, survivors]                                  # (nrow, n_surv)
-    idx_I = np.where(np.asarray(mask).astype(bool))[0]
+    cdef np.ndarray[f64, ndim=2] cols = np.ascontiguousarray(
+        np.take(M_arr, survivors, axis=1), dtype=np.float64)
+    cdef np.ndarray[np.intp_t, ndim=1] idx_I = np.where(mask_bool)[0]
+    cdef np.ndarray[f64, ndim=2] R
     if idx_I.shape[0] > 0:
-        basis = M[:, idx_I]
-        Q, _ = np.linalg.qr(basis)                          # factor the basis ONCE
-        R = cols - Q @ (Q.T @ cols)                         # residuals off colspan(basis)
+        basis = np.take(M_arr, idx_I, axis=1)
+        from rexgraph.core._linalg import qr_basis
+        Q = qr_basis(basis)
+        R = np.ascontiguousarray(
+            cols - Q @ (Q.T @ cols), dtype=np.float64)      # residuals off the basis
     else:
-        R = cols                                            # no subcomplex -> raw columns
+        R = cols                                             # no subcomplex -> raw columns
 
     cdef i32[::1] lv = labels
-    cdef Py_ssize_t i, j
+    cdef np.intp_t[::1] sv = survivors
+    cdef f64[:, ::1] rv = R
+    cdef Py_ssize_t i, j, k, si, sj
     cdef i32 next_label = 0
+    cdef f64 delta, dist2, tol2 = tol * tol
+
     for i in range(n_surv):
-        if lv[survivors[i]] >= 0:
+        si = <Py_ssize_t>sv[i]
+        if lv[si] >= 0:
             continue
-        lv[survivors[i]] = next_label
-        ri = R[:, i]
+        lv[si] = next_label
         for j in range(i + 1, n_surv):
-            if lv[survivors[j]] >= 0:
+            sj = <Py_ssize_t>sv[j]
+            if lv[sj] >= 0:
                 continue
-            if float(np.linalg.norm(R[:, j] - ri)) < tol:
-                lv[survivors[j]] = next_label
+
+            # np.linalg.norm(R[:, j] - R[:, i]) allocated two temporary vectors per
+            # comparison. Compare squared distances directly; for tol <= 0 the
+            # historical strict ``norm < tol`` relation can never hold.
+            if tol > 0.0:
+                dist2 = 0.0
+                for k in range(nrow):
+                    delta = rv[k, j] - rv[k, i]
+                    dist2 += delta * delta
+                    if dist2 >= tol2:
+                        break
+                if dist2 < tol2:
+                    lv[sj] = next_label
         next_label += 1
 
     return labels, int(next_label)
@@ -1004,7 +1024,7 @@ def congruence_classes_edges(np.ndarray[f64, ndim=2] B1,
     Two surviving edges share a class when their signed incidence difference lies in
     the column span of edges in the subcomplex up to the given tolerance. The
     subcomplex basis is factored ONCE and applied to the whole survivor block (see
-    :func:`_congruence_partition`) - identical partition and labels to the historical
+    :func:`_congruence_partition`): identical partition and labels to the historical
     per pair lstsq, without re factoring per pair.
 
     Returns
@@ -1025,7 +1045,7 @@ def congruence_classes_faces(np.ndarray[f64, ndim=2] B2,
 
     Two surviving faces share a class when their signed boundary difference lies in the
     column span of faces in the subcomplex up to the given tolerance. Factor once over
-    the subcomplex basis (see :func:`_congruence_partition`) - identical partition and
+    the subcomplex basis (see :func:`_congruence_partition`): identical partition and
     labels to the historical per pair lstsq.
 
     Returns
@@ -1062,6 +1082,8 @@ def restrict_signal(np.ndarray[f64, ndim=1] signal,
         Signal restricted to surviving cells.
     """
     cdef Py_ssize_t n = signal.shape[0], i, count = 0
+    if mask.shape[0] != n:
+        raise ValueError("mask length must equal signal length")
     cdef np.uint8_t[::1] m = mask
     cdef f64[::1] sv = signal
 
@@ -1090,6 +1112,8 @@ def restrict_signal_complex(np.ndarray[np.complex128_t, ndim=1] signal,
     compacted into a new array.
     """
     cdef Py_ssize_t n = signal.shape[0], i, count = 0
+    if mask.shape[0] != n:
+        raise ValueError("mask length must equal signal length")
     cdef np.uint8_t[::1] m = mask
 
     for i in range(n):
@@ -1131,6 +1155,8 @@ def lift_signal(np.ndarray[f64, ndim=1] signal_quot,
         Signal on the full complex.
     """
     cdef Py_ssize_t n = mask.shape[0], i, j = 0
+    if signal_quot.shape[0] != np.count_nonzero(mask == 0):
+        raise ValueError("quotient signal length must equal the number of surviving cells")
     cdef np.uint8_t[::1] m = mask
     cdef f64[::1] sv = signal_quot
 
@@ -1154,6 +1180,8 @@ def lift_signal_complex(np.ndarray[np.complex128_t, ndim=1] signal_quot,
     copied from signal_quot.
     """
     cdef Py_ssize_t n = mask.shape[0], i, j = 0
+    if signal_quot.shape[0] != np.count_nonzero(mask == 0):
+        raise ValueError("quotient signal length must equal the number of surviving cells")
     cdef np.uint8_t[::1] m = mask
 
     cdef np.ndarray[np.complex128_t, ndim=1] out = np.zeros(n, dtype=np.complex128)
@@ -1202,8 +1230,8 @@ def quotient_RL1(np.ndarray[f64, ndim=2] B1_quot,
 
     B1_quot : f64[nV_q, nE_q]
     B2_quot : f64[nE_q, nF_q]
-    LO_quot : f64[nE_q, nE_q] - overlap Laplacian on quotient edges
-    alpha_G : float - coupling constant
+    LO_quot : f64[nE_q, nE_q]: overlap Laplacian on quotient edges
+    alpha_G : float: coupling constant
 
     Returns
 
@@ -1272,9 +1300,9 @@ def restrict_field_state(np.ndarray[f64, ndim=1] f_E,
 
     Parameters
 
-    f_E : f64[nE] - edge signal
-    f_F : f64[nF] - face signal
-    e_mask, f_mask : uint8 - subcomplex masks (1 = in subcomplex)
+    f_E : f64[nE]: edge signal
+    f_F : f64[nF]: face signal
+    e_mask, f_mask : uint8: subcomplex masks (1 = in subcomplex)
 
     Returns
 
@@ -1282,6 +1310,8 @@ def restrict_field_state(np.ndarray[f64, ndim=1] f_E,
     f_F_quot : f64[nF_quot]
     """
     cdef Py_ssize_t nE = f_E.shape[0], nF = f_F.shape[0]
+    if e_mask.shape[0] != nE or f_mask.shape[0] != nF:
+        raise ValueError("edge and face mask lengths must equal their signal lengths")
     cdef Py_ssize_t e, f, je = 0, jf = 0
     cdef np.uint8_t[::1] em = e_mask, fm = f_mask
     cdef f64[::1] ev = f_E, fv = f_F
@@ -1326,6 +1356,10 @@ def lift_field_state(np.ndarray[f64, ndim=1] f_E_quot,
     f_F : f64[nF]
     """
     cdef Py_ssize_t nE = e_mask.shape[0], nF = f_mask.shape[0]
+    if f_E_quot.shape[0] != np.count_nonzero(e_mask == 0):
+        raise ValueError("edge quotient signal length must equal the number of surviving edges")
+    if f_F_quot.shape[0] != np.count_nonzero(f_mask == 0):
+        raise ValueError("face quotient signal length must equal the number of surviving faces")
     cdef Py_ssize_t e, f, je = 0, jf = 0
     cdef np.uint8_t[::1] em = e_mask, fm = f_mask
     cdef f64[::1] eqv = f_E_quot, fqv = f_F_quot
@@ -1358,8 +1392,8 @@ def per_edge_energy(np.ndarray[f64, ndim=1] f_E, object L1, object LO):
 
     Parameters
 
-    f_E : f64[nE] - edge signal
-    L1, LO : (nE, nE) - Hodge and overlap Laplacians
+    f_E : f64[nE]: edge signal
+    L1, LO : (nE, nE): Hodge and overlap Laplacians
 
     Returns
 
@@ -1543,7 +1577,7 @@ def temporal_quotient(Py_ssize_t n_snapshots,
     return closure_of_edges(e_mask_union, nV, src_union, tgt_union)
 
 
-# Convenience - full quotient pipeline
+# Convenience: full quotient pipeline
 
 
 def build_quotient(np.ndarray[f64, ndim=2] B1,
@@ -1909,7 +1943,7 @@ def quotient_filtration_by_character(np.ndarray[f64, ndim=2] chi,
             B2_sub = np.zeros((max(nE_sub, 1), 0), dtype=np.float64)
 
         # Betti from EXACT integer rank on the subcomplex operators (relative_betti
-        # now uses rational column reduction, not SVD) - eigen free per filtration step.
+        # now uses rational column reduction, not SVD): eigen free per filtration step.
         b0, b1, b2 = relative_betti(B1_sub, B2_sub)
         beta0_arr[step] = b0
         beta1_arr[step] = b1
@@ -1980,6 +2014,8 @@ def congruence_residual(np.ndarray[f64, ndim=2] B1,
         basis_mat[:, j] = B1[:, basis_edges[j]]
 
     cdef np.ndarray sol
-    sol, _, _, _ = np.linalg.lstsq(basis_mat, diff, rcond=None)
+    from rexgraph.core._linalg import lstsq
+    sol, _ = lstsq(basis_mat, diff, rcond=np.finfo(np.float64).eps
+                   * max(basis_mat.shape[0], basis_mat.shape[1]))
     cdef np.ndarray[f64, ndim=1] resid = diff - basis_mat @ sol
     return float(np.linalg.norm(resid))

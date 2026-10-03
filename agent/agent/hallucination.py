@@ -119,9 +119,6 @@ def detect_hallucinations_exchange(
         # output is shared, so averaging them is the same category error as averaging
         # a synonym group's connotation with a document's. Each is reported by name.
         #
-        # The old form also carried a magic `edge_density * 2`, declaring half density
-        # to be full, and averaged a list whose LENGTH varied: when exchange_kappa was
-        # NaN the same structure scored differently because the divisor changed.
         entity_ratio = ex_result.n_shared / max(ex_result.n_output_vertices, 1)
         deficiency = {
             "sparsity": float(max(0.0, 1.0 - edge_density)),
@@ -132,7 +129,7 @@ def detect_hallucinations_exchange(
         report.deficiency = deficiency
         scores = [v for v in deficiency.values() if v is not None]
 
-        # Typed void analysis - characterize WHAT kind of structure is missing
+        # Typed void analysis: characterize WHAT kind of structure is missing
         if rex is not None:
             try:
                 vc = rex.void_complex

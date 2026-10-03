@@ -32,15 +32,8 @@ on a triangle whose edges run consistently around the cycle, `<b_i, L0+ b_j> = -
 reversing one edge flips it to `+1/3`; on a tree it is exactly 0, because distinct edges
 share no current path. So NEGATIVE is co oriented along a shared cycle.
 
-That does NOT license reading the fraction as "these relations disagree". On a knowledge
-complex every relation is built with the same convention (the record at position 0), so
-there is no orientation disagreement present to find, and the fraction reads the geometry
-of how supports overlap instead. Measured on 1373 Complex Portal complexes against the
-file's own GO annotations, with the shared subunit count HELD FIXED by stratification,
-functionally related pairs score HIGHER: pooled +0.0411 +- 0.0045, z = +9.12, 11 of 14
-strata agreeing, and only rho +0.21 against the raw overlap. So it is coupling, it is not
-a rescaled overlap count, and it is not conflict. The mean Gram does not survive the same
-control (its per stratum sign flips), so the FRACTION is the reading and the mean is not.
+The coupling sign depends on the stored orientation convention and shared
+cycle paths. It does not by itself assert a conflict between source relations.
 """
 from __future__ import annotations
 
@@ -359,7 +352,7 @@ def candidate_readings(rex, candidates, *, shares=True):
     # NO DECOMPOSITION OF B. range(B) = range(B B^T) = ker(L0) orthogonal, so "is this
     # column spanned" is a test against the KERNEL, which has dimension beta_0 and is
     # tiny, rather than against a factorisation of the whole operator. The quadrance is
-    # then one deflated CG solve, matrix free, exactly as _effective_resistance_batch
+    # then one deflated CG solve, matrix free, the same way as _effective_resistance_batch
     # does it. The earlier version densified B and took its SVD, which is 1.05 GB at
     # nV 4000 and nE 33k and is not what this library does anywhere else.
     # L0 is never formed here either: membership is a kernel test and the quadrance is
@@ -508,19 +501,6 @@ def energy_tensor(rex, sections, labels, *, moments=("total", "mean", "spread"))
         total    sum of the byte energies of the section's distinct vertices
         mean     total / number of them
         spread   peak / total, so a section dominated by one long label reads high
-
-    PICK THE MOMENT DELIBERATELY. Per VERTEX the energy is corpus free, and measured on
-    prose it sits at rho = +0.175 against the structural reading while the structural
-    readings sit at -0.737 with frequency among themselves. Per SECTION that only
-    survives for `mean`. Over 135 sentence sections of the same corpus::
-
-        total    +0.61 to +0.70 against n, mass, own_rank, share and gap
-        spread   -0.49 to -0.63 against the same
-        mean     |rho| <= 0.13 against all of them except efficiency, at +0.33
-
-    `total` is a sum over the section's vertices and `spread` is a share of it, so both
-    carry how BIG the section is, which the structural readings already say. `mean` is
-    the size free one and is the moment that earns a separate axis.
 
     `labels` is indexed by vertex. Returns `(E, moment_names)`.
     """

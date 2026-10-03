@@ -206,11 +206,8 @@ class RexConfidenceTool(BaseTool):
         # Confidence flag
         va = result.get("void_affinity")
         km = result.get("kappa_mean")
-        # A high void affinity is on its own enough to say LOW. Every other rung of this
-        # ladder reads the coherence, so without it there is no rank to give. MODERATE
-        # used to be the catch all, which meant a complex with no coherence reading was
-        # told it had "some structural support": kappa_mean was NaN, every comparison
-        # against NaN was False, and the fall through answered anyway.
+        # High void affinity gives LOW confidence. Other confidence levels
+        # require a finite coherence reading.
         if va is not None and va > 0.5:
             result["confidence"] = "LOW - high void affinity, structural gaps present"
         elif km is None:

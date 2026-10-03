@@ -8,7 +8,6 @@ One command starts everything: python run.py
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,7 +33,7 @@ from .state import SessionStore
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """On startup: warm load the activity journal (history across restarts) and tail it, so events
-    recorded by any other local process - a `rexgraph-*` CLI, a worker - fold into this server's log
+    recorded by any other local process: a `rexgraph-*` CLI, a worker: fold into this server's log
     and stream live to the UI. The journal is the cross process event bus; this is the server's end."""
     try:
         from agent import activity
@@ -223,10 +222,8 @@ app.include_router(rex.router, tags=["rex"])
 
 # Frontend
 
-# Frontend static files live at the sibling root (agent/frontend/), not inside
-# the Python package. From agent/agent/server/app.py, go up 3 levels to reach
-# agent/, then down into frontend/.
-_FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend"
+from agent.ui_assets import frontend_dir
+_FRONTEND_DIR = frontend_dir()
 
 
 @app.get("/", response_class=HTMLResponse)

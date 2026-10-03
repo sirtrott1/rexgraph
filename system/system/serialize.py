@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
+from decimal import Decimal
 from fractions import Fraction
 from math import isfinite
 from typing import Any
 
 import numpy as np
+from rexgraph.exact_array import ExactArray
+from rexgraph.value import Absent, Approx, ExactTime, TimeRange
 from rcql.capabilities import SourcePolicy
 from rexgraph.channel_operator import ChannelOperator
 from rexgraph.cochain import Chain, Cochain, Field
@@ -33,10 +36,40 @@ def _array(value: Any, max_values: int) -> dict[str, Any]:
     return out
 
 
+def _cell_inventory(indices, max_values):
+    return [{"grade": grade, "count": len(selected), "indices": list(selected[:max_values]),
+             "truncated": len(selected) > max_values}
+            for grade, selected in enumerate(indices)]
+
+
 def json_value(value: Any, *, max_values: int = 256) -> Any:
     """Render one RCQL result as JSON, bounding array previews by max_values."""
     if isinstance(max_values, bool) or not isinstance(max_values, int) or max_values < 0:
         raise ValueError("max_values must be a nonnegative integer")
+    if value is Absent:
+        return {"kind": "Absent"}
+    if isinstance(value, Approx):
+        return {"kind": "Approx", "value": value.value, "source": value.source}
+    if isinstance(value, ExactTime):
+        return {"kind": "ExactTime", "seconds": json_value(value.seconds, max_values=max_values)}
+    if isinstance(value, TimeRange):
+        return {"kind": "TimeRange", "start": json_value(value.start, max_values=max_values),
+                "end": json_value(value.end, max_values=max_values)}
+    if isinstance(value, ExactArray):
+        count = min(value.size, max_values)
+        preview = ExactArray(*(getattr(value, name).ravel()[:count] for name in
+                               ("numerator", "denominator", "presence", "kind")),
+                             tuple(entry for entry in value.bigint if entry[0] < count))
+        values = preview.values()
+        if count == value.size:
+            values = values.reshape(value.shape)
+        return {"kind": "ExactArray", "shape": list(value.shape),
+                "values" if count == value.size else "sample": json_value(values.tolist(), max_values=max_values),
+                "truncated": count < value.size}
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2**53-1:
+        # Decimal(int) is exact and does not depend on Python's configurable
+        # int to text digit limit. Browser clients receive text, never a rounded Number.
+        return {"kind": "Integer", "decimal": str(Decimal(value))}
     if isinstance(value, float) and not isfinite(value):
         return {"nonfinite_float": str(value)}
     if value is None or isinstance(value, (bool, int, float, str)):
@@ -46,14 +79,49 @@ def json_value(value: Any, *, max_values: int = 256) -> Any:
         return {"kind": "ArtifactBytes", "size": len(value),
                 "sha256": hashlib.sha256(value).hexdigest(), "payload": "omitted"}
     if isinstance(value, Fraction):
-        return {"numerator": value.numerator, "denominator": value.denominator}
+        return {"numerator": json_value(value.numerator, max_values=max_values),
+                "denominator": json_value(value.denominator, max_values=max_values)}
     if isinstance(value, np.generic):
-        return json_value(value.item(), max_values=max_values)
+        scalar = value.item()
+        if isinstance(scalar, np.generic):
+            if value.dtype.kind == "f":
+                if not np.isfinite(value):
+                    return {"nonfinite_float": str(value)}
+                from rexgraph.exact_value import binary_fraction
+                return {"kind": "BinaryFloat", "dtype": str(value.dtype),
+                        "exact": json_value(binary_fraction(value), max_values=max_values)}
+            if value.dtype.kind == "c":
+                return {"real": json_value(value.real, max_values=max_values),
+                        "imaginary": json_value(value.imag, max_values=max_values)}
+            raise TypeError(f"unsupported NumPy result scalar {value.dtype}")
+        return json_value(scalar, max_values=max_values)
     if isinstance(value, complex):
         return {"real": json_value(value.real, max_values=max_values),
                 "imaginary": json_value(value.imag, max_values=max_values)}
     if isinstance(value, np.ndarray):
         return _array(value, max_values)
+    from rexgraph.selection import Selection, Lineage
+    from rexgraph.partition_state import RexPartition
+    if isinstance(value, Selection):
+        value.check_state()
+        return {"kind": "Selection", "digest": value.digest, "source_state": value.source_state,
+                "source_sizes": list(value.source_sizes),
+                "indices": _cell_inventory(value.indices, max_values)}
+    if isinstance(value, Lineage):
+        return {"kind": "Lineage", "digest": value.digest, "source_state": value.source_state,
+                "result_state": value.result_state, "source_sizes": list(value.source_sizes),
+                "result_sizes": list(value.result_sizes), "carried_state": value.carried_state,
+                "selection_digest": value.selection_digest, "policy_digest": value.policy_digest,
+                "requested": _cell_inventory(value.requested, max_values),
+                "cell_maps": _cell_inventory(value.cell_maps, max_values),
+                "parents": list(value.parents[:max_values]), "parent_count": len(value.parents),
+                "parents_truncated": len(value.parents) > max_values}
+    if isinstance(value, RexPartition):
+        value.check_state()
+        return {"kind": "RexPartition", "rex": json_value(value.rex, max_values=max_values),
+                "state": value.manifest, "digest": value.digest,
+                "cell_maps": _cell_inventory(value.cell_maps, max_values),
+                "lineage": json_value(value.lineage, max_values=max_values) if value.source_sizes else None}
     from rexgraph.model_state import ModelState, ModelOutput, ModelBatch, ModelTimeline, ModelInput
     if isinstance(value, (ModelState, ModelOutput, ModelBatch, ModelTimeline, ModelInput)):
         value.check_state()

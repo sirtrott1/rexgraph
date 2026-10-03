@@ -1,17 +1,8 @@
-"""
-End to end biology pipeline test through the RexGraph agent.
+"""End to end biology pipeline example through Agent entry points.
 
-Mirrors the manual workflow in NEXT_SESSION_BRIEF.md:
-  - multiple 10X scRNA seq datasets (stand ins for GSE121861/72056/123366)
-  - marker gene cell typing
-  - curated ligand receptor interaction scoring between cell types
-  - full relational complex analysis (Hodge / void / sigma sweep / ...)
-  - TrustGraph ontology enrichment
-  - cross dataset Poincaré-style structural comparison
-
-Uses synthetic but structured 10X data (real GEO downloads aren't available
-here) with planted cell populations and signaling so every stage has real
-structure to find. Everything runs through the actual agent entry points.
+Synthetic 10X data carries planted cell populations and signaling. The example
+runs marker typing, ligand receptor scoring, relational analysis, ontology
+enrichment and cross dataset structural comparison.
 """
 
 import gzip

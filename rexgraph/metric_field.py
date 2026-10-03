@@ -28,6 +28,7 @@ from typing import Any
 import numpy as np
 
 from rexgraph.cochain import Cochain
+from rexgraph.exact_value import exact_fraction
 from rexgraph.cells import cell_count
 
 __all__ = ["MetricCurvature", "relation_metric_curvature"]
@@ -66,11 +67,7 @@ def _exact_metric(values: np.ndarray) -> bool:
 
 def _as_exact(value: Any) -> Fraction:
     """Read one certified integer/rational coefficient without float conversion."""
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, (int, np.integer)):
-        return Fraction(int(value))
-    raise TypeError("exact metric coefficients must be integers or Fractions")
+    return exact_fraction(value, context="exact metric coefficient")
 
 
 def _incidences(rex) -> tuple[tuple[tuple[int, Fraction], ...], ...]:

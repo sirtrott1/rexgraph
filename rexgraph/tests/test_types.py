@@ -122,7 +122,7 @@ class TestRCFEnums:
         assert JoinType.UNION == 3
 
 
-# NamedTuples - Hodge
+# NamedTuples: Hodge
 
 class TestHodgeDecomposition:
 
@@ -139,7 +139,7 @@ class TestHodgeDecomposition:
         assert HodgeDecomposition._fields == ("gradient", "curl", "harmonic")
 
 
-# NamedTuples - SpectralBundle (updated)
+# NamedTuples: SpectralBundle (updated)
 
 class TestSpectralBundle:
 
@@ -180,7 +180,7 @@ class TestSpectralBundle:
         assert "evecs_RL_1" in SpectralBundle._fields
 
 
-# NamedTuples - RCFBundle (updated)
+# NamedTuples: RCFBundle (updated)
 
 class TestRCFBundle:
 
@@ -204,7 +204,7 @@ class TestRCFBundle:
         assert rcf.hat_names == ["L1_down", "L_O"]
 
 
-# NamedTuples - VertexBundle
+# NamedTuples: VertexBundle
 
 class TestVertexBundle:
 
@@ -221,7 +221,7 @@ class TestVertexBundle:
         assert vb.kappa.shape == (4,)
 
 
-# NamedTuples - VoidComplex (updated)
+# NamedTuples: VoidComplex (updated)
 
 class TestVoidComplex:
 
@@ -249,7 +249,7 @@ class TestVoidComplex:
         assert VoidComplex._fields == expected
 
 
-# NamedTuples - RCFEResult
+# NamedTuples: RCFEResult
 
 class TestRCFEResult:
 
@@ -268,7 +268,7 @@ class TestRCFEResult:
         assert r.strain == 0.5
 
 
-# NamedTuples - Energy
+# NamedTuples: Energy
 
 class TestEnergyKinPot:
 
@@ -284,7 +284,7 @@ class TestEnergyKinPot:
         assert d["E_kin"] == 1.0
 
 
-# NamedTuples - Subcomplex, Filtration, State
+# NamedTuples: Subcomplex, Filtration, State
 
 class TestSubComplex:
 
@@ -324,7 +324,7 @@ class TestWaveState:
         assert ws.F.shape == (5,)
 
 
-# NamedTuples - Results
+# NamedTuples: Results
 
 class TestMeasurementResult:
 

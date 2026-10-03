@@ -90,8 +90,7 @@ def test_it_never_under_counts_once_the_thread_lane_draws():
 
 
 def test_a_lane_drawing_alone_still_pays_nothing():
-    """The idea being preserved: one draw and no other is not contention. If this broke,
-    the fix would have turned a co drawn term into a plain total."""
+    """A lane drawing alone has zero shared bus contention."""
     cap = _cap()
     t = {ln: 0.1 for ln in C.LANES}
     for lane in C.LANES:
@@ -123,17 +122,7 @@ def test_the_thread_lane_no_longer_draws_for_free():
 
 
 def test_local_llm_is_distinguished_from_io_llm():
-    """They tied at 0.1180 before, despite 0.9 bandwidth against 0.1, because the
-    difference sat on the invisible lane. What the fix moved is the BANDWIDTH term,
-    so that is what is read, at every capacity.
-
-    Deliberately not the TOTAL. A local model is also a shared type, so four
-    concurrent units divide their wall clock by the batch gain, and that pulls the
-    total the other way: at 1 per lane io_llm totals 0.4080 against local_llm's
-    0.2812, and from 2 per lane up the order reverses. Which of the two effects
-    wins is a property of the host's core count, not of the cost model, so the
-    total is the wrong thing to assert. The bandwidth term is above io_llm's
-    everywhere."""
+    """Bus contention distinguishes local generation from low bandwidth I/O."""
     cm = C.CostModel()
     for cap in _caps():
         bwt, total = {}, {}

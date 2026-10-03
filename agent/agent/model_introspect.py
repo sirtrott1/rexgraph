@@ -1,7 +1,7 @@
 """
 model_introspect: run the RCF relational math on the model's own internals, pulled
 live from the running llama.cpp server (Tier 1 bridge: embeddings + logits over the
-OpenAI compatible API - no PyTorch, no C++ patch).
+OpenAI compatible API: no PyTorch, no C++ patch).
 
 The model's embedding geometry becomes a relational complex analyzed by the same
 compiled Cython kernels + moment engine, reading the model at inference on the
@@ -90,7 +90,7 @@ def _complex_from_vectors(V: np.ndarray, labels, top_p: float = 0.9) -> dict:
 
 def embedding_complex(texts, url=None, top_p: float = 0.9, persist: str = None) -> dict:
     """The model's EMBEDDING GEOMETRY as a relational complex: embed the items and run the
-    RCF moment engine on the cosine graph - "which concepts are central vs bridge vs
+    RCF moment engine on the cosine graph: "which concepts are central vs bridge vs
     frustrated in the model's own representation space." Tier 1: no PyTorch, no C++ patch -
     the compiled Cython core reading the C++ engine's output over the API. If ``persist`` is
     a path, the embedding matrix is saved (via ``model_io``/``rexgraph.io``) so it can be

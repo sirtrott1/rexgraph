@@ -4,8 +4,10 @@ agent.server.routes.rcdb: the Relational Complex Database over HTTP.
 Stores every analysed complex as a first class record and lets you query
 the database *by structure* (Betti, coherence, voids), not just by id.
 The backend is chosen per deployment via the ``REXGRAPH_RCDB_URI`` env
-var (default: a file store under the config dir), so the same API runs on
-SQLite locally and Postgres in production.
+var. The default auto URI opens an existing layout or creates the canonical
+LocalStore under the config directory. Native Memory/Local/SQLite records share
+the checked engine; other adapters retain their documented compatibility scope.
+Typed payload transport lives in /rex/v1/records and uses the same record codecs.
 """
 
 from __future__ import annotations
@@ -37,8 +39,8 @@ def _rex_from_body(body: dict):
             pass
     text = body.get("text")
     if text and text.strip():
-        from agent.auto import auto_rex
-        return auto_rex(text), "text"
+        from agent.auto import auto_rex_text
+        return auto_rex_text(text), "text"
     return None, "no session_id or text"
 
 
@@ -80,12 +82,12 @@ async def db_put(body: dict = Body(...)):
         raise HTTPException(403, str(e)) from e
     except Exception as e:
         raise HTTPException(500, f"Store failed: {e}") from e
-    return {"stored": True, "source": source, **rec.to_dict()}
+    return {"stored": True, "source": source, **rec.to_wire_dict()}
 
 
 @router.get("/list")
 async def db_list(limit: int = 100, offset: int = 0):
-    return {"records": [r.to_dict() for r in _store().list(limit=limit, offset=offset)]}
+    return {"records": [r.to_wire_dict() for r in _store().list(limit=limit, offset=offset)]}
 
 
 @router.post("/query")
@@ -105,7 +107,7 @@ async def db_query(body: dict = Body(...)):
         raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(500, f"Query failed: {e}") from e
-    return {"count": len(recs), "records": [r.to_dict() for r in recs]}
+    return {"count": len(recs), "records": [r.to_wire_dict() for r in recs]}
 
 
 @router.get("/get/{rec_id}")
@@ -113,7 +115,7 @@ async def db_get(rec_id: str):
     rec = _store().get_record(rec_id)
     if rec is None:
         raise HTTPException(404, "Record not found")
-    return rec.to_dict()
+    return rec.to_wire_dict()
 
 
 @router.get("/export/{rec_id}")
@@ -123,10 +125,12 @@ async def db_export(rec_id: str, format: str = "safetensors"):
     safetensors (the storage form), .rcbd, hdf5 or zarr. The complex itself, not a
     summary of it.
     """
-    rex = _store().get(rec_id)
-    if rex is None:
+    snapshot = _store().read_record(rec_id)
+    if snapshot is None:
         raise HTTPException(404, "Record not found")
-    return complex_file(rex, rec_id, format)
+    if not snapshot.record.is_complex:
+        raise HTTPException(400, "This export route requires a complex record")
+    return complex_file(snapshot.value, rec_id, format)
 
 
 @router.post("/similar")
@@ -143,6 +147,8 @@ async def db_similar(body: dict = Body(...)):
     if body.get("id"):
         rex = st.get(body["id"])
         rec = st.get_record(body["id"])
+        if rec is not None and not rec.is_complex:
+            raise HTTPException(400, "Structural similarity requires a complex record")
         from agent.rcdb import _labels_of
         labels = _labels_of(rec, rex) if rec else []
         exclude = body["id"]

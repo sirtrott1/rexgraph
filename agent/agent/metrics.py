@@ -4,10 +4,10 @@ carriers: the relational spectrum (structural) and an LLM token distribution (th
 standard LLM metrics).
 
 Perplexity = exp(entropy); entropy has an eigen free Rényi form
-); varentropy = the spread of surprisal - a known LLM uncertainty
+); varentropy = the spread of surprisal: a known LLM uncertainty
 signal AND the RCF H₂-H₃ reliability gap. Same math, two carriers: a nonnegative
 spectrum (RL4 channels) or a token probability vector. That is why "these LLM
-metrics work here" - they are the relational entropy calculus applied to tokens.
+metrics work here": they are the relational entropy calculus applied to tokens.
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def entropy(p, order: float = 1.0) -> float:
 
 
 def perplexity(p, order: float = 1.0) -> float:
-    """exp(entropy) - the effective number of states (Hill number / effective support
+    """exp(entropy): the effective number of states (Hill number / effective support
     size). For tokens this is the classic perplexity; for a spectrum it is the
     effective mode count."""
     return float(np.exp(entropy(p, order)))
@@ -76,7 +76,7 @@ def varentropy(p) -> float:
 def token_metrics(logprobs) -> dict:
     """Standard LLM metrics from per token logprobs (natural log): `perplexity` =
     exp(-mean logprob) (the cross entropy PPL), `mean_surprisal` (nats/token), and
-    the token `varentropy` (variance of surprisal across tokens) - the same varentropy
+    the token `varentropy` (variance of surprisal across tokens): the same varentropy
     the RCF reliability gap uses, here on the token distribution. High varentropy at
     low perplexity flags a confident but branchy step (a good place to look twice)."""
     lp = np.asarray(logprobs, dtype=float).ravel()
@@ -169,7 +169,7 @@ def corpus_metrics(rexes) -> dict:
     }
     if len(cohs) > 1:
         # effective number of coherence distinct documents (Hill number of the
-        # normalized per document coherence) - corpus structural diversity.
+        # normalized per document coherence): corpus structural diversity.
         out["corpus_diversity"] = round(perplexity(cohs), 3)
     return out
 
@@ -177,7 +177,7 @@ def corpus_metrics(rexes) -> dict:
 def reply_metrics(text: str, logprobs=None, token: dict = None,
                   structural: bool = False) -> dict:
     """Metrics for a generated reply. TWO COST TIERS:
-      token (always, ~free): perplexity/varentropy from the reply's logprobs - the
+      token (always, ~free): perplexity/varentropy from the reply's logprobs: the
         model already produced these, so extracting them costs ~0.02 ms.
       structural (only if `structural=True`, ~250 ms): builds the reply's OWN
         relational complex (auto_rex) for structural_perplexity/effective_modes/

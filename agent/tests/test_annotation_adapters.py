@@ -275,7 +275,7 @@ def test_native_store_roundtrip(tmp_path, backend):
     p = fixture(tmp_path / "inputs")
     uri = {"memory": "memory://", "file": f"file://{tmp_path / 'files'}",
            "rex": str(tmp_path / "data.rexdb"), "sql": f"sqlite:///{tmp_path / 'data.sqlite'}"}[backend]
-    store = open_store(uri)
+    store = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         _, meta = ingest_annotations(store, p, document_id="test_document", **temporal_options(p))
         snapshot = store.read_record("test_document", version=meta["version"])

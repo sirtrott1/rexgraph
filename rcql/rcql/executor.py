@@ -41,6 +41,16 @@ class Result:
     def named_values(self):
         return {name: value for name, value in zip(self.aliases, self.values, strict=False) if name is not None}
 
+    def to_bytes(self, **options):
+        """Export portable exact values, provenance and sealed graph bases."""
+        from .result_codec import pack_result
+        return pack_result(self, **options)
+
+    @classmethod
+    def from_bytes(cls, payload, **options):
+        from .result_codec import unpack_result
+        return unpack_result(payload, **options)
+
 
 # A direct C1 temporal field is carried on the reconstructed current Rex, not on the
 # TemporalRex history object that supplied it.  These operators consume that carrier's
@@ -55,8 +65,10 @@ _CARRIER_SOURCE_OPERATORS = frozenset({
 class Executor:
     """Evaluate RCQL against explicit source and parameter bindings."""
 
-    def __init__(self, *, sources=None, params=None, artifacts=None, scheduler=None, evidence=None):
+    def __init__(self, *, sources=None, params=None, artifacts=None, scheduler=None, evidence=None, exactness="declared"):
         from .artifact_services import ArtifactServices
+        from .evaluation_policy import check_policy
+        self.exactness_policy = check_policy(exactness)
         if artifacts is not None and not isinstance(artifacts, ArtifactServices):
             raise TypeError("artifacts must be ArtifactServices")
         self.sources = dict(sources or {})
@@ -99,7 +111,8 @@ class Executor:
             arguments_expr += (Literal(limits), Literal(history), Literal(memoize))
         child = Executor(sources=self.sources,
                          params={"recursive_definition": program, "recursive_arguments": arguments},
-                         artifacts=self.artifacts, scheduler=self.scheduler, evidence=self.evidence)
+                         artifacts=self.artifacts, scheduler=self.scheduler, evidence=self.evidence,
+                         exactness=self.exactness_policy)
         return child.execute(Query(source_expr, (Call(operator, arguments_expr),)))
 
     def topology(self, query):
@@ -155,6 +168,27 @@ class Executor:
             if expr.name not in self.sources:
                 raise KeyError(f"unknown source ${expr.name}")
             return self.sources[expr.name]
+        if isinstance(expr, Call) and expr.name == "DATASET" and len(expr.args) == 1:
+            from .capabilities import BoundSource, SourcePolicy
+            from .dataset_source import DatasetSource
+            from .types import SourceRef
+            name = self._eval(expr.args[0], None)
+            if type(name) is not str:
+                raise TypeError("DATASET expects a registered name")
+            if name not in self.sources:
+                raise KeyError(f"unknown dataset {name!r}")
+            parent = self.sources[name]
+            raw, policy = self._unwrap(parent, "read")
+            if not isinstance(raw, DatasetSource):
+                raise TypeError(f"source {name!r} is not a declared DatasetSource")
+            policy = SourcePolicy.allow("*") if policy is None else policy
+            graph = raw.materialize()
+            # Preserve the complete declaration/reader identity in existing
+            # SourceRef framing, so provenance and caches bind it without a new
+            # portable result schema or an invented RCDB record address.
+            ref = SourceRef(name+"/dataset/"+raw.digest,
+                            state_digest=raw.as_record()["state_digest"], policy_digest=policy.digest)
+            return BoundSource(graph, policy, ref=ref)
         if isinstance(expr, Call) and expr.name in {"REX", "CATALOG", "RCDB"} and len(expr.args) == 1:
             name = self._eval(expr.args[0], None)
             if not isinstance(name, str):
@@ -243,7 +277,7 @@ class Executor:
                 return BoundSource(snapshot, parent.policy, ref=parent.ref,
                                    temporal=TemporalRef(as_of=float(when)))
             return snapshot
-        raise TypeError("FROM expects a source parameter, REX(name), CATALOG(name), RCDB(name), "
+        raise TypeError("FROM expects a source parameter, REX(name), CATALOG(name), RCDB(name), DATASET(name), "
                         "FILE(catalog, name), RCDB_GET(store, id), RCDB_VERSION(store, id, "
                         "version), RCDB_AS_OF(store, id, time), RCDB_VALID_AT(store, id, time), "
                         "TRANSACTION_AT(store, id, time), VALID_AT(store, id, time), "
@@ -328,7 +362,7 @@ class Executor:
         """Name a bound query source without evaluating an expression under it."""
         if isinstance(expr, Parameter):
             return expr.name
-        if isinstance(expr, Call) and expr.name in {"REX", "CATALOG", "RCDB"}:
+        if isinstance(expr, Call) and expr.name in {"REX", "CATALOG", "RCDB", "DATASET"}:
             if len(expr.args) == 1 and isinstance(expr.args[0], Literal):
                 return str(expr.args[0].value)
             return expr.name.lower()
@@ -459,7 +493,7 @@ class Executor:
         return computed, observations
 
     def _execute_mutation(self, query, source):
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
 
         from .mutation_plan import plan_mutation, validate_arguments
         from .native_plan import plain
@@ -504,6 +538,15 @@ class Executor:
         from .execution_trace import evidence_scope
         with evidence_scope(self.evidence):
             result = self._execute(query)
+            if self.exactness_policy == "exact":
+                from .evaluation_policy import require_exact
+                for value in result.values:
+                    require_exact(value)
+            if self.exactness_policy != "declared":
+                from dataclasses import replace
+                policy = {"requested": self.exactness_policy, "conversion": "none"}
+                result = replace(result, native_plan=dict(result.native_plan or {}, evaluation_policy=policy),
+                                 provenance=tuple(dict(item, evaluation_policy=policy) for item in result.provenance))
             if self.evidence is not None:
                 from dataclasses import replace
                 self.evidence.validate_values(result.values)
@@ -515,6 +558,8 @@ class Executor:
     def _execute(self, query: Query | MutationQuery) -> Result:
         if not isinstance(query, (Query, MutationQuery)):
             raise TypeError("Executor.execute requires a typed Query or MutationQuery")
+        if self.exactness_policy == "exact" and (isinstance(query, MutationQuery) or query.matches):
+            raise ValueError("exact output policy requires a finite read-only query without MATCH")
         if isinstance(query, MutationQuery) and (self.scheduler is not None or self.evidence is not None):
             raise ValueError("snapshot and parallel execution are read only; commit separately")
         source = self._eval_source(query.source)
@@ -531,6 +576,11 @@ class Executor:
             from .matching import execute_match, plan_match
             return execute_match(self, source, plan_match(binding, query, parameters=self.params))
         original = plan_query(binding, query, parameters=self.params)
+        if self.exactness_policy == "exact":
+            from .types import Effect
+            if any(node.expression.call is not None and node.expression.call.signature.effects - {Effect.READ}
+                   for node in original.dag().nodes):
+                raise ValueError("exact output policy refuses effectful operations before execution")
         planned, rewrites = optimize(query, plan=original, parameters=self.params)
         phrase = plan_query(binding, planned, parameters=self.params) if rewrites else original
         dag = phrase.dag()
@@ -619,6 +669,21 @@ def value_exactness(value: Any) -> Exactness:
     exact tensor carriers come from the core library, and the only numpy in this stack
     belongs to the binary bundles beneath it.
     """
+    from numbers import Integral
+    from rexgraph.value import Absent, Approx, ExactTime
+    from rexgraph.exact_array import ExactArray
+    if value is Absent or value is None or isinstance(value, bool):
+        return Exactness.STRUCTURAL
+    if isinstance(value, Integral):
+        return Exactness.INTEGER
+    if isinstance(value, Fraction):
+        return Exactness.RATIONAL
+    if isinstance(value, ExactTime):
+        return Exactness.RATIONAL
+    if isinstance(value, Approx):
+        return Exactness.APPROXIMATE
+    if isinstance(value, ExactArray):
+        return Exactness.RATIONAL if value.kind.any() else Exactness.INTEGER
     from .program_transformation import ProgramTransformation
     if isinstance(value, ProgramTransformation):
         return Exactness.STRUCTURAL

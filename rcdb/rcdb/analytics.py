@@ -96,14 +96,10 @@ def structural_metrics(rex) -> dict:
     `structural_perplexity` = exp(H₂) = the effective mode count (how many degrees of
     freedom the relation graph carries); `varentropy_gap` = the H₂-H₃ reliability
     certificate (small -> the H₂ summary is trustworthy). The structural analog of an
-    LLM's perplexity/varentropy - computed with the same calculus as token_metrics."""
+    LLM's perplexity/varentropy: computed with the same calculus as token_metrics."""
     H2 = float(rex.harmonic_entropy)
-    # The H3 half needs tr(RL4^3), which forms RL4^2, and that product's FILL is
-    # data dependent: on a complex with wide branching groups the co participation
-    # matrix squares into something enormous. Measured on a lexical complex, 31.4s and
-    # 22.3 GB at nE 553,021, and still climbing through 94 GB at nE 1,626,490 before it
-    # was killed. The bound nnz(X^2) <= sum_i sum_{j in row i} nnz(row j) is one matvec,
-    # so the cost is knowable BEFORE paying it rather than after.
+    # Bound the fill of RL4 squared before computing tr(RL4 cubed).
+    # The bound uses one sparse pass over row degrees.
     ve = {"H2": round(H2, 6), "H3": None, "gap": None, "declined": None}
     try:
         X = rex._rl4_sparse
@@ -126,11 +122,7 @@ def structural_metrics(rex) -> dict:
         # gap is None when the H3 moment was declined; that is "not certified", which is
         # a different statement from "certified unreliable"
         # `reliability_gap` certifies that the CHEAP H2 is exact, and its own docstring
-        # says when: "~0 on flat/unweighted spectra (the cheap H2 is exact); grows with
-        # weight induced non uniformity". So this is an exactness test, not a policy
-        # band, and measured the values are 13 orders apart with nothing in between:
-        # 5.6e-16 and 1.1e-15 where H2 is exact, 4.3e-02 where it is not. The old 0.05
-        # sat ABOVE the inexact case and certified it.
+        # A reliable H2 estimate has a gap within the relative numerical tolerance.
         "reliable": (None if ve.get("gap") is None
                      else bool(abs(ve["gap"]) <= 1e-9 * max(abs(ve.get("H2") or 1.0), 1.0))),
     }

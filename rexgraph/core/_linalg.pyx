@@ -1,35 +1,47 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._linalg: LAPACK/BLAS runtime and workspace.
+rexgraph.core._linalg: native LAPACK/BLAS operations and operator actions.
 
-Allocates the static workspace buffer used by all LAPACK calls.
-Provides Python callable wrappers for testing.
+Dense decompositions retain caller arrays and check LAPACK status. Reduced
+decompositions and decompositions that return only values omit unused vectors.
+Sparse spectra are split by connected support; scalar and 2 by 2 blocks have
+analytic spectra.
 """
 
 import numpy as np
 cimport numpy as np
 from libc.stdlib cimport malloc, free
 from libc.string cimport memset, memcpy
-from libc.math cimport fabs
+from libc.math cimport fabs, hypot, isfinite
+from libc.float cimport DBL_EPSILON
 
 from rexgraph.core._linalg cimport *
+from rexgraph.core._common cimport can_allocate_dense_f64
 
 np.import_array()
 
-# Static workspace buffer for dsyev_ (allocated once at module load)
-cdef double _work_static[WORK_SIZE]
-_lp_work = _work_static
+def _matrix_input(A_in):
+    """Validate a finite numerical matrix before passing its shape to LAPACK."""
+    a = np.asarray(A_in)
+    if a.ndim != 2 or a.dtype.kind not in "fiuc":
+        raise TypeError("native linear algebra requires a real or complex numerical matrix")
+    if max(a.shape) > 2147483647:
+        raise OverflowError("matrix dimensions exceed the LAPACK integer range")
+    if not np.all(np.isfinite(a)):
+        raise ValueError("native linear algebra requires a finite matrix")
+    return a
 
 
 # Python callable eigensolve
 
-def eigh(np.ndarray[f64, ndim=2] A_in, *, bint clip_negative_roundoff=True):
-    """Symmetric eigendecomposition via LAPACK dsyev_.
+def eigh(A_in, *, bint clip_negative_roundoff=True):
+    """Symmetric or Hermitian eigendecomposition via native LAPACK.
 
     Parameters
 
-    A_in : f64[n, n], symmetric.
+    A_in : f64[n, n] or complex128[n, n]
+        Symmetric or Hermitian matrix. The upper triangle is read.
     clip_negative_roundoff : bool
         Legacy PSD-oriented cleanup of negative values smaller than 1e-10.
         Set False for general symmetric/indefinite spectral reference work.
@@ -39,17 +51,25 @@ def eigh(np.ndarray[f64, ndim=2] A_in, *, bint clip_negative_roundoff=True):
     (evals f64[n], evecs f64[n, n]) sorted ascending.
     Eigenvectors in columns of evecs (row major: evecs[:, k] is eigenvector k).
     """
-    cdef int n = A_in.shape[0]
-    if A_in.shape[1] != n or not np.all(np.isfinite(A_in)):
+    a = _matrix_input(A_in)
+    cdef int n = a.shape[0]
+    if a.shape[1] != n:
         raise ValueError("eigh requires a finite square matrix")
+    cdef bint complex_input = np.iscomplexobj(a)
     if n == 0:
-        return np.zeros(0, dtype=np.float64), np.zeros((0, 0), dtype=np.float64)
+        return np.empty(0, dtype=np.float64), np.empty((0, 0),
+                dtype=np.complex128 if complex_input else np.float64)
 
-    # dsyev_ needs column major (Fortran order)
-    cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(A_in.copy())
+    cdef np.ndarray A_F = np.array(a, dtype=np.complex128 if complex_input else np.float64,
+                                 order='F', copy=True)
     cdef np.ndarray[f64, ndim=1] evals = np.empty(n, dtype=np.float64)
-
-    lp_eigh(&A_F[0, 0], &evals[0], n)
+    cdef int info
+    with nogil:
+        if complex_input:
+            info = lp_heev(<void*>A_F.data, &evals[0], n, True, b'U')
+        else:
+            info = lp_eigh(<double*>A_F.data, &evals[0], n)
+    check_lapack_info(info)
 
     # Clean eigenvalues
     cdef int i
@@ -57,76 +77,312 @@ def eigh(np.ndarray[f64, ndim=2] A_in, *, bint clip_negative_roundoff=True):
         if clip_negative_roundoff and evals[i] < 0 and fabs(evals[i]) < 1e-10:
             evals[i] = 0.0
 
-    # Convert to row major (eigenvectors in columns)
-    cdef np.ndarray[f64, ndim=2] evecs = np.ascontiguousarray(A_F)
-    return evals, evecs
+    return evals, np.ascontiguousarray(A_F)
+
+
+def eigvalsh(A_in):
+    """Ascending eigenvalues of a symmetric or Hermitian matrix, reading its lower triangle."""
+    a = _matrix_input(A_in)
+    cdef int n = a.shape[0]
+    if a.shape[1] != n:
+        raise ValueError("eigvalsh requires a square matrix")
+    cdef np.ndarray[f64, ndim=1] values = np.empty(n, dtype=np.float64)
+    if n == 0:
+        return values
+    cdef bint complex_input = np.iscomplexobj(a)
+    cdef np.ndarray work = np.array(a, dtype=np.complex128 if complex_input else np.float64,
+                                   order='F', copy=True)
+    cdef int info
+    with nogil:
+        if complex_input:
+            info = lp_heev(<void*>work.data, &values[0], n, False, b'L')
+        else:
+            info = lp_eigh_mode(<double*>work.data, &values[0], n, False, b'L')
+    check_lapack_info(info)
+    return values
+
+
+def largest_eigenpair(A_in):
+    """Largest eigenvalue and one unit eigenvector of a real symmetric matrix.
+
+    Native LAPACK selects the last eigenpair without allocating a full basis.
+    The lower triangle is read; the input is retained.
+    """
+    a = _matrix_input(A_in)
+    cdef int n = a.shape[0]
+    if a.shape[1] != n or np.iscomplexobj(a):
+        raise ValueError("largest eigenpair requires a real square matrix")
+    if n == 0:
+        return 0.0, np.empty(0, dtype=np.float64)
+    cdef np.ndarray[f64, ndim=2] A = np.array(a, dtype=np.float64, order='F', copy=True)
+    cdef np.ndarray[f64, ndim=1] values = np.empty(n, dtype=np.float64)
+    cdef np.ndarray[f64, ndim=1] vector = np.empty(n, dtype=np.float64)
+    cdef np.ndarray[int, ndim=1] support = np.empty(2, dtype=np.intc)
+    cdef char jobz = b'V', selection = b'I', uplo = b'L'
+    cdef int il = n, iu = n, found = 0, info = 0, lwork = -1, liwork = -1
+    cdef int integer_query
+    cdef double vl = 0.0, vu = 0.0, abstol = 0.0, work_query
+    with nogil:
+        dsyevr_(&jobz, &selection, &uplo, &n, &A[0, 0], &n, &vl, &vu,
+                 &il, &iu, &abstol, &found, &values[0], &vector[0], &n,
+                 &support[0], &work_query, &lwork, &integer_query, &liwork, &info)
+    check_lapack_info(info)
+    lwork = <int>work_query
+    liwork = integer_query
+    cdef np.ndarray[f64, ndim=1] work = np.empty(lwork, dtype=np.float64)
+    cdef np.ndarray[int, ndim=1] iwork = np.empty(liwork, dtype=np.intc)
+    with nogil:
+        dsyevr_(&jobz, &selection, &uplo, &n, &A[0, 0], &n, &vl, &vu,
+                 &il, &iu, &abstol, &found, &values[0], &vector[0], &n,
+                 &support[0], &work[0], &lwork, &iwork[0], &liwork, &info)
+    check_lapack_info(info)
+    if found != 1:
+        raise ArithmeticError("native LAPACK did not return the selected eigenpair")
+    return float(values[0]), vector
+
+
+def symmetric_sparse_spectrum(A_in):
+    """Full spectrum of (A + A.T)/2, split into connected sparse support blocks.
+
+    Scalar blocks read the diagonal; 2 by 2 blocks use the quadratic formula.
+    Larger blocks use LAPACK without eigenvectors within the dense
+    allocation budget. No full matrix or eigenvector matrix is constructed.
+    """
+    from rexgraph.native_sparse import as_native
+    from rexgraph.core import _sparse
+    matrix = as_native(A_in)
+    cdef Py_ssize_t n = matrix.shape[0]
+    if matrix.shape[1] != n:
+        raise ValueError("sparse spectrum requires a square matrix")
+    if not np.all(np.isfinite(matrix.data)):
+        raise ValueError("sparse spectrum requires finite coefficients")
+    matrix = matrix.with_data(np.asarray(matrix.data, dtype=np.float64) * 0.5)
+    matrix = matrix.add(matrix.T)
+    labels, count = _sparse.connected_components(matrix.dual.row_ptr, matrix.dual.col_idx, n)
+    cdef const np.int64_t[::1] sizes = np.bincount(labels, minlength=count).astype(np.int64)
+    cdef const np.int64_t[::1] nodes = np.argsort(labels, kind='stable').astype(np.int64)
+    cdef np.int64_t[::1] local = np.empty(n, dtype=np.int64)
+    cdef const np.int64_t[::1] ptr = np.asarray(matrix.dual.row_ptr, dtype=np.int64)
+    cdef const np.int64_t[::1] idx = np.asarray(matrix.dual.col_idx, dtype=np.int64)
+    cdef const double[::1] data = np.asarray(matrix.data, dtype=np.float64)
+    cdef np.ndarray[f64, ndim=1] values = np.empty(n, dtype=np.float64)
+    cdef double[::1] result = values
+    cdef np.ndarray[f64, ndim=2] block
+    cdef double[:, ::1] bv
+    cdef Py_ssize_t component, size, start = 0, i, row, pos
+    cdef double a, b, c, middle, radius
+    for component in range(count):
+        size = sizes[component]
+        for i in range(size):
+            local[nodes[start + i]] = i
+        if size == 1:
+            a = 0.0
+            row = nodes[start]
+            for pos in range(ptr[row], ptr[row + 1]):
+                a += data[pos]
+            result[start] = a
+        elif size == 2:
+            a = 0.0; b = 0.0; c = 0.0
+            row = nodes[start]
+            for pos in range(ptr[row], ptr[row + 1]):
+                if local[idx[pos]] == 0:
+                    a += data[pos]
+                else:
+                    b += data[pos]
+            row = nodes[start + 1]
+            for pos in range(ptr[row], ptr[row + 1]):
+                if local[idx[pos]] == 1:
+                    c += data[pos]
+            middle = 0.5 * a + 0.5 * c
+            radius = hypot(0.5 * a - 0.5 * c, b)
+            result[start] = middle - radius
+            result[start + 1] = middle + radius
+        else:
+            if not can_allocate_dense_f64(size, size):
+                raise MemoryError("sparse spectrum component exceeds the dense allocation budget")
+            block = np.zeros((size, size), dtype=np.float64)
+            bv = block
+            with nogil:
+                for i in range(size):
+                    row = nodes[start + i]
+                    for pos in range(ptr[row], ptr[row + 1]):
+                        bv[i, local[idx[pos]]] += data[pos]
+            values[start:start + size] = eigvalsh(block)
+        start += size
+    values.sort()
+    return values
 
 
 # Python callable SVD
 
-def svd(np.ndarray[f64, ndim=2] A_in):
-    """General SVD via LAPACK dgesvd_.
+def svd(A_in, *, bint full_matrices=True, bint compute_uv=True):
+    """Real or complex SVD via native LAPACK.
 
-    Returns (U, S, Vt) where A = U @ diag(S) @ Vt.
+    Returns (U, S, Vh). full_matrices=False returns min(m,n) vectors.
+    compute_uv=False returns only singular values and allocates no vector matrices.
     """
-    cdef int m = A_in.shape[0]
-    cdef int n = A_in.shape[1]
+    a = _matrix_input(A_in)
+    cdef int m = a.shape[0]
+    cdef int n = a.shape[1]
     cdef int mn = m if m < n else n
-
-    cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(A_in.copy())
+    cdef bint complex_input = np.iscomplexobj(a)
+    dtype = np.complex128 if complex_input else np.float64
     cdef np.ndarray[f64, ndim=1] S = np.empty(mn, dtype=np.float64)
-    cdef np.ndarray[f64, ndim=2] U = np.empty((m, m), dtype=np.float64, order='F')
-    cdef np.ndarray[f64, ndim=2] Vt = np.empty((n, n), dtype=np.float64, order='F')
-
-    lp_svd(&A_F[0, 0], &S[0], &U[0, 0], &Vt[0, 0], m, n)
-
-    return np.ascontiguousarray(U), S, np.ascontiguousarray(Vt)
+    if mn == 0:
+        if not compute_uv:
+            return S
+        return (np.eye(m, dtype=dtype) if full_matrices else np.empty((m, 0), dtype=dtype),
+                S, np.eye(n, dtype=dtype) if full_matrices else np.empty((0, n), dtype=dtype))
+    cdef np.ndarray A_F = np.array(a, dtype=dtype, order='F', copy=True)
+    cdef np.ndarray U = np.empty((m if compute_uv else 1,
+                                 (m if full_matrices else mn) if compute_uv else 1),
+                                dtype=dtype, order='F')
+    cdef np.ndarray Vh = np.empty(((n if full_matrices else mn) if compute_uv else 1,
+                                  n if compute_uv else 1),
+                                 dtype=dtype, order='F')
+    cdef char job = (b'A' if full_matrices else b'S') if compute_uv else b'N'
+    cdef int info
+    with nogil:
+        if complex_input:
+            info = lp_zsvd(<void*>A_F.data, &S[0], <void*>U.data, <void*>Vh.data, m, n, job)
+        else:
+            info = lp_svd_mode(<double*>A_F.data, &S[0], <double*>U.data,
+                               <double*>Vh.data, m, n, job)
+    check_lapack_info(info)
+    return (np.ascontiguousarray(U), S, np.ascontiguousarray(Vh)) if compute_uv else S
 
 
 # Python callable least squares
 
-def lstsq(np.ndarray[f64, ndim=2] A_in, np.ndarray[f64, ndim=1] b_in):
+def lstsq(A_in, b_in, *, rcond=None):
     """Least squares via LAPACK dgelsd_.
 
     Solves min ||A @ x - b||_2.
     Returns (x, rank).
+    None uses float64 precision times max(m, n) as the relative rank cutoff.
+    Values outside (0, 1) use LAPACK machine precision.
     """
-    cdef int m = A_in.shape[0]
-    cdef int n = A_in.shape[1]
-    cdef int nrhs = 1
+    a = _matrix_input(A_in)
+    if np.iscomplexobj(a):
+        raise TypeError("native least squares requires a real matrix")
+    b = np.asarray(b_in)
+    if (b.ndim not in (1, 2) or b.shape[0] != a.shape[0] or b.dtype.kind not in "fiu"
+            or not np.all(np.isfinite(b))):
+        raise ValueError("least squares requires a finite matching vector or block")
+    cdef int m = a.shape[0]
+    cdef int n = a.shape[1]
+    cdef double cutoff_ratio = DBL_EPSILON * (m if m > n else n) if rcond is None else rcond
+    if not isfinite(cutoff_ratio):
+        raise ValueError("least squares requires a finite rank cutoff")
+    cdef char epsilon = b'E'
+    if rcond is not None and (cutoff_ratio <= 0.0 or cutoff_ratio >= 1.0):
+        cutoff_ratio = dlamch_(&epsilon)
+    cdef int nrhs = 1 if b.ndim == 1 else b.shape[1]
     cdef int mn = m if m < n else n
-
-    cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(A_in.copy())
-    # B must be max(m, n) for dgelsd
+    if mn == 0:
+        if b.ndim == 1:
+            return np.zeros(n, dtype=np.float64), 0
+        return np.zeros((n, nrhs), dtype=np.float64), 0
+    if nrhs == 0:
+        singular = svd(a, compute_uv=False)
+        cutoff = cutoff_ratio * singular[0]
+        return np.empty((n, 0), dtype=np.float64), int(np.count_nonzero(singular > cutoff))
+    cdef np.ndarray[f64, ndim=2] A_F = np.array(a, dtype=np.float64, order='F', copy=True)
     cdef int ldb = m if m > n else n
-    cdef np.ndarray[f64, ndim=1] B = np.zeros(ldb, dtype=np.float64)
-    B[:m] = b_in
-
+    cdef np.ndarray[f64, ndim=2] B = np.zeros((ldb, nrhs), dtype=np.float64, order='F')
+    B[:m] = b[:, None] if b.ndim == 1 else b
     cdef np.ndarray[f64, ndim=1] S = np.empty(mn, dtype=np.float64)
     cdef int rank = 0
 
-    cdef int info = lp_lstsq(&A_F[0, 0], &B[0], m, n, nrhs, &S[0], &rank)
+    cdef int info
+    with nogil:
+        info = lp_lstsq(&A_F[0, 0], &B[0, 0], m, n, nrhs, &S[0], &rank, cutoff_ratio)
+    check_lapack_info(info)
+    return (B[:n, 0].copy() if b.ndim == 1 else np.ascontiguousarray(B[:n])), rank
 
-    return B[:n].copy(), rank
+
+def qr_basis(A_in):
+    """Reduced orthonormal QR basis of a real matrix, without constructing R."""
+    a = _matrix_input(A_in)
+    if np.iscomplexobj(a):
+        raise TypeError("native QR basis requires a real matrix")
+    cdef int m = a.shape[0], n = a.shape[1]
+    cdef int k = m if m < n else n
+    if k == 0:
+        return np.empty((m, 0), dtype=np.float64)
+    cdef np.ndarray[f64, ndim=2] A = np.array(a, dtype=np.float64, order='F', copy=True)
+    cdef np.ndarray[f64, ndim=1] tau = np.empty(k, dtype=np.float64)
+    cdef np.ndarray[f64, ndim=1] work
+    cdef double query
+    cdef int info = 0, lwork = -1
+    with nogil:
+        dgeqrf_(&m, &n, &A[0, 0], &m, &tau[0], &query, &lwork, &info)
+    check_lapack_info(info)
+    lwork = <int>query
+    work = np.empty(lwork, dtype=np.float64)
+    with nogil:
+        dgeqrf_(&m, &n, &A[0, 0], &m, &tau[0], &work[0], &lwork, &info)
+    check_lapack_info(info)
+    lwork = -1
+    with nogil:
+        dorgqr_(&m, &k, &k, &A[0, 0], &m, &tau[0], &query, &lwork, &info)
+    check_lapack_info(info)
+    lwork = <int>query
+    work = np.empty(lwork, dtype=np.float64)
+    with nogil:
+        dorgqr_(&m, &k, &k, &A[0, 0], &m, &tau[0], &work[0], &lwork, &info)
+    check_lapack_info(info)
+    return np.ascontiguousarray(A[:, :k])
+
+
+def solve(A_in, b_in):
+    """Solve a real nonsingular square system for a vector or block via native LU."""
+    a = _matrix_input(A_in)
+    cdef int n = a.shape[0]
+    if a.shape[1] != n or np.iscomplexobj(a):
+        raise ValueError("native solve requires a real square matrix")
+    b = np.asarray(b_in)
+    if (b.ndim not in (1, 2) or b.shape[0] != n or b.dtype.kind not in "fiu"
+            or not np.all(np.isfinite(b))):
+        raise ValueError("native solve requires a finite matching vector or block")
+    cdef int nrhs = 1 if b.ndim == 1 else b.shape[1]
+    if n == 0 or nrhs == 0:
+        return np.array(b, dtype=np.float64, copy=True)
+    cdef np.ndarray[f64, ndim=2] A = np.array(a, dtype=np.float64, order='F', copy=True)
+    cdef np.ndarray[f64, ndim=2] B = np.array(b[:, None] if b.ndim == 1 else b,
+                                           dtype=np.float64, order='F', copy=True)
+    cdef np.ndarray[int, ndim=1] pivots = np.empty(n, dtype=np.intc)
+    cdef int info = 0
+    with nogil:
+        dgesv_(&n, &nrhs, &A[0, 0], &n, &pivots[0], &B[0, 0], &n, &info)
+    if info > 0:
+        raise np.linalg.LinAlgError("native solve requires a nonsingular matrix")
+    check_lapack_info(info)
+    return B[:, 0].copy() if b.ndim == 1 else np.ascontiguousarray(B)
 
 
 # Python callable matrix rank
 
 def matrix_rank(np.ndarray[f64, ndim=2] A_in, double tol=1e-10):
-    """Matrix rank via SVD."""
-    cdef int m = A_in.shape[0]
-    cdef int n = A_in.shape[1]
-    cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(A_in.copy())
-    return compute_rank_svd(&A_F[0, 0], m, n, tol)
+    """Numerical rank from singular values, without singular vectors."""
+    if not np.isfinite(tol) or tol < 0:
+        raise ValueError("rank tolerance must be finite and nonnegative")
+    return int(np.count_nonzero(svd(A_in, compute_uv=False) > tol))
 
 
 # Python callable matrix multiply
 
 def gemm_nn(np.ndarray[f64, ndim=2] A, np.ndarray[f64, ndim=2] B):
     """C = A @ B via BLAS dgemm."""
+    if A.shape[1] != B.shape[0]:
+        raise ValueError("matrix product inner axes do not match")
+    A = np.ascontiguousarray(A)
+    B = np.ascontiguousarray(B)
     cdef int M = A.shape[0]
     cdef int K = A.shape[1]
     cdef int N = B.shape[1]
+    if M == 0 or N == 0 or K == 0:
+        return np.zeros((M, N), dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] C = np.empty((M, N), dtype=np.float64)
     bl_gemm_nn(&A[0, 0], &B[0, 0], &C[0, 0], M, N, K)
     return C
@@ -134,9 +390,15 @@ def gemm_nn(np.ndarray[f64, ndim=2] A, np.ndarray[f64, ndim=2] B):
 
 def gemm_nt(np.ndarray[f64, ndim=2] A, np.ndarray[f64, ndim=2] B):
     """C = A @ B^T via BLAS dgemm."""
+    if A.shape[1] != B.shape[1]:
+        raise ValueError("matrix product inner axes do not match")
+    A = np.ascontiguousarray(A)
+    B = np.ascontiguousarray(B)
     cdef int M = A.shape[0]
     cdef int K = A.shape[1]
     cdef int N = B.shape[0]  # B^T is K x N, so B is N x K
+    if M == 0 or N == 0 or K == 0:
+        return np.zeros((M, N), dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] C = np.empty((M, N), dtype=np.float64)
     bl_gemm_nt(&A[0, 0], &B[0, 0], &C[0, 0], M, N, K)
     return C
@@ -144,9 +406,15 @@ def gemm_nt(np.ndarray[f64, ndim=2] A, np.ndarray[f64, ndim=2] B):
 
 def gemm_tn(np.ndarray[f64, ndim=2] A, np.ndarray[f64, ndim=2] B):
     """C = A^T @ B via BLAS dgemm."""
+    if A.shape[0] != B.shape[0]:
+        raise ValueError("matrix product inner axes do not match")
+    A = np.ascontiguousarray(A)
+    B = np.ascontiguousarray(B)
     cdef int K = A.shape[0]
     cdef int M = A.shape[1]  # A^T is M x K
     cdef int N = B.shape[1]
+    if M == 0 or N == 0 or K == 0:
+        return np.zeros((M, N), dtype=np.float64)
     cdef np.ndarray[f64, ndim=2] C = np.empty((M, N), dtype=np.float64)
     bl_gemm_tn(&A[0, 0], &B[0, 0], &C[0, 0], M, N, K)
     return C
@@ -258,7 +526,7 @@ def rl_pipeline(np.ndarray[f64, ndim=2] B1,
 
     # Eigendecompose RL via LAPACK dsyev_
     cdef np.ndarray[f64, ndim=2] RL_F = np.asfortranarray(RL.copy())
-    lp_eigh(&RL_F[0, 0], &ev[0], nE)
+    check_lapack_info(lp_eigh(&RL_F[0, 0], &ev[0], nE))
     for i in range(nE):
         if ev[i] < 0: ev[i] = 0
         if fabs(ev[i]) < 1e-12: ev[i] = 0
@@ -331,14 +599,8 @@ def rl_pipeline(np.ndarray[f64, ndim=2] B1,
     }
 
 
-# Nonspectral solve contracts.
-#
-# Everything above this line needs the whole matrix in memory: dsyev_ on an nE x nE
-# operator, dgelsd_ on a dense system. The field calculus never requires that. A
-# boundary action is a pass over the incidence, a metric adjoint is one solve, and
-# the sector projectors follow from image and kernel frames with small Gram solves.
-# Nothing below forms an operator, an inverse, or an eigendecomposition; each takes
-# the operator as an action and the frame as the narrow thing it actually is.
+# Nonspectral solves accept operator actions and image or kernel frames.
+# Metric adjoints use iterative solves. Sector projectors use frame Gram solves.
 
 
 def _as_action(operator):
@@ -497,7 +759,7 @@ def metric_cg(operator, b, metric=None, x0=None, precond=None,
 
     Conjugate gradients in the `M` inner product, because that is the pairing the
     operator is symmetric in. `L_k` is self adjoint in its grade metric, not in
-    Euclidean coordinates -- `M L` is the symmetric object -- so running ordinary CG
+    Euclidean coordinates: `M L` is the symmetric object: so running ordinary CG
     on `L` under a nonidentity metric is solving with a nonsymmetric operator and its
     convergence means nothing. Returns (y, iterations, relative residual).
     """

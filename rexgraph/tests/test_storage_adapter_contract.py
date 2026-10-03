@@ -1,10 +1,4 @@
-"""StorageAdapter is a contract, so every adapter is held to the same behaviour.
-
-It used to be a bare class of NotImplementedError stubs with nothing enforcing them:
-a subclass that forgot get_json constructed fine and blew up later, deep inside a
-write, and no test ever ran the three adapters through the same paces. These tests
-are the contract: one parametrized suite, every implementation.
-"""
+"""Check the shared StorageAdapter contract for every implementation."""
 
 import numpy as np
 import pytest

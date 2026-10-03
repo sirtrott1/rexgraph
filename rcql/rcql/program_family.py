@@ -166,7 +166,7 @@ class ProgramAssembly:
 
     @classmethod
     def from_record(cls, record):
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         raw = record.get_metadata(1, 0, "rcql_program_assembly")
         if not isinstance(raw, str):
             raise ValueError("record has no program assembly")
@@ -246,7 +246,7 @@ class ProgramFamily:
                      record.get_metadata(1, 0, "rcql_program_sections"))
         if result.coefficient_digest != record.get_metadata(1, 0, "rcql_program_family"):
             raise ValueError("program family certificate mismatch")
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         if object_digest(result.to_record()) != object_digest(record):
             raise ValueError("program family carrier differs from its declaration")
         return result

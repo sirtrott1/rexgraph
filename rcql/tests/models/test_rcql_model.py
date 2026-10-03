@@ -135,7 +135,7 @@ def test_repeated_functional_training_expression_is_memoized(monkeypatch):
 def test_rcdb_model_versions_commit_reopen_and_train(backend,tmp_path):
     from rcdb import open_store
     url={'file':'file://'+str(tmp_path/'files'),'rex':'rex://'+str(tmp_path/'native'),'sqlite':'sqlite:///'+str(tmp_path/'model.sqlite')}[backend]
-    db=open_store(url).configure_security(require_commits=True)
+    db=open_store(url, **({"read_only": False} if "://" not in url or url.startswith(("file://", "rex://")) else {})).configure_security(require_commits=True)
     g=rex();db.commit_mutation('data',g,expected_version=0)
     ex=Executor(sources={'db':db},params={'config':{'n_classes':2}})
     m=ex.execute(parse('FROM RCDB_VERSION($db,"data",1) RETURN MODEL_INIT("coparticipation",$config)')).values[0]
@@ -148,7 +148,7 @@ def test_rcdb_model_versions_commit_reopen_and_train(backend,tmp_path):
     ex.execute(mutation(source('db'),'model',model_record(g,n),expected_version=1))
     assert len(db.history('model'))==2 and db.verify_commits('model')
     with pytest.raises(Exception):ex.execute(mutation(source('db'),'model',record,expected_version=1))
-    db.close();db=open_store(url)
+    db.close();db=open_store(url, **({"read_only": False} if "://" not in url or url.startswith(("file://", "rex://")) else {}))
     old=Executor(sources={'db':db}).execute(parse('FROM RCDB_VERSION($db,"model",1) RETURN MODEL_VALUES(MODEL_INFER(MODEL_STATE()))')).values[0]
     np.testing.assert_array_equal(old,before)
     snap=db.read_record('model',version=2);saved,data=read_model_record(snap.value)

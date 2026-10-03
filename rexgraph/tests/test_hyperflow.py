@@ -140,7 +140,7 @@ def test_propagation_conserves_the_graded_norm():
 
 
 def test_the_propagator_obeys_a_parity_selection_rule():
-    """Equiweight, showing up in the dynamics rather than on paper.
+    """Equiweight holds in the graded dynamics.
 
     e^{-itD} = cos(tD) - i sin(tD). Equiweight makes D ODD with respect to the grading,
     so any EVEN power of D preserves grade parity and any ODD power flips it. Therefore

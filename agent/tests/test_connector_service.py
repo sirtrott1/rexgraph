@@ -63,7 +63,7 @@ def test_read_validate_ingest_roundtrip(tmp_path):
     from contextlib import closing
 
     from agent.rcdb import open_store
-    with closing(open_store(store)) as reopened:      # the test opens it, the test closes it
+    with closing(open_store(store, **({"read_only": False} if "://" not in store or store.startswith(("file://", "rex://")) else {}))) as reopened:      # the test opens it, the test closes it
         got = reopened.get("shop")
     assert got is not None and got.nV == 3 and got.nE == 2
 
@@ -99,7 +99,7 @@ def test_cli_ingest(tmp_path):
     from contextlib import closing
 
     from agent.rcdb import open_store
-    with closing(open_store(store)) as reopened:
+    with closing(open_store(store, **({"read_only": False} if "://" not in store or store.startswith(("file://", "rex://")) else {}))) as reopened:
         assert reopened.get("shop") is not None
 
 

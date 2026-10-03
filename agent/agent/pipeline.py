@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable
+from inspect import getattr_static
 from typing import Any
 
 import numpy as np
@@ -23,7 +24,7 @@ def _sparse_L0(rex):
 
     We deliberately DO NOT use ``rex.L0`` or the core ``build_L0``: both allocate
     a dense array (nV x nV, and internally nV x nE for B1), which OOMs on large
-    graphs - even though L0 itself is sparse (nnz ~ 2*nE). Building D - A directly
+    graphs: even though L0 itself is sparse (nnz ~ 2*nE). Building D - A directly
     keeps it sparse and is identical to B1 B1^T for the standard incidence.
     """
     try:
@@ -33,10 +34,18 @@ def _sparse_L0(rex):
     nV = int(getattr(rex, "nV", 0) or 0)
     src = getattr(rex, "sources", None)
     tgt = getattr(rex, "targets", None)
-    if nV >= 1 and src is not None and tgt is not None:
+    if src is not None and tgt is not None:
         src = np.asarray(src).ravel()
         tgt = np.asarray(tgt).ravel()
-        if src.size and tgt.size == src.size:
+        if tgt.size != src.size:
+            return None
+        # The zero edge case is still a perfectly valid Laplacian. Returning the
+        # 0/isolated-vertex sparse operator here is important: falling through to
+        # rex.L0 would execute its dense cached_property and, for a 0x0 boundary,
+        # can reach BLAS with dimensions its C wrapper does not accept.
+        if src.size == 0:
+            return sparse.csr_matrix((nV, nV), dtype=float)
+        if nV >= 1:
             w = getattr(rex, "w_E", None)
             if w is not None and np.size(w) == src.size:
                 w = np.abs(np.asarray(w, dtype=float)).ravel()
@@ -48,10 +57,10 @@ def _sparse_L0(rex):
                 shape=(nV, nV)).tocsr()
             deg = np.asarray(A.sum(axis=1)).ravel()
             return (sparse.diags(deg) - A).tocsr()
-    # Fallback: an already sparse L0 supplied on the object (e.g. tests, or
-    # callers holding a sparse Laplacian). Use it ONLY if it's already sparse so
-    # we never trigger the dense nV x nV materialization of rex.L0.
-    L0 = getattr(rex, "L0", None)
+    # Fallback: accept an L0 that has ALREADY been materialized as sparse, but
+    # inspect it statically. getattr() here would execute RexGraph.L0 (a dense
+    # cached_property), defeating this helper's scale/safety contract.
+    L0 = getattr_static(rex, "L0", None)
     if L0 is not None and sparse.issparse(L0):
         return sparse.csr_matrix(L0)
     return None
@@ -101,7 +110,7 @@ def _smallest_eigenvalues_L0(rex, k: int = 20) -> np.ndarray | None:
 
 
 def _strain_equilibrium_sparse(rex, kappa_f, born_face):
-    """strain_equilibrium via SPARSE B1/B2 matvecs - no dense boundary
+    """strain_equilibrium via SPARSE B1/B2 matvecs: no dense boundary
     operators, O(nnz), scale free. Mirrors `_rcfe.strain_equilibrium`:
       alpha = <B2 κ, B2 pF> / ||B2 pF||²,  δ = face_deficit(κ, alpha, pF),
       σ = B2 δ  (relational strain),  Bianchi: B1 σ = 0."""
@@ -132,7 +141,7 @@ def _strain_equilibrium_sparse(rex, kappa_f, born_face):
 
 
 def _attributed_kappa_sparse(rex, w_e=None):
-    """Per face attributed curvature κ_f = ||R[:,f]|| with R = B1·diag(w)·B2 - the
+    """Per face attributed curvature κ_f = ||R[:,f]|| with R = B1·diag(w)·B2: the
     weighted chain residual (Part F; = 0 when w is uniform, since B1B2=0), via sparse
     matvecs, O(nnz). Matches rex.attributed_curvature()['kappa_f'] (vertex
     amplitudes a_v = 1). No dense B1w/B2w/R."""
@@ -178,7 +187,7 @@ class AnalysisPipeline:
         "advanced", "rcfe", "sigma_sweep", "ricci_flow", "continuum_limit",
     )
 
-    def __init__(self, rex, *, draw: bool = True, draw_limit: int = 400):
+    def __init__(self, rex, *, draw: bool = True, draw_limit: int = 400, labels=None):
         self.rex = rex
         self.results: dict[str, Any] = {}
         self.callbacks: list[Callable] = []
@@ -186,6 +195,7 @@ class AnalysisPipeline:
         self.completed_stages: list[str] = []
         self.draw = bool(draw)
         self.draw_limit = int(draw_limit)
+        self.labels = None if labels is None else list(labels)
 
     def on_stage(self, callback: Callable[[str, dict], None]):
         """Register a callback for progressive stage reporting."""
@@ -296,7 +306,8 @@ class AnalysisPipeline:
             result["input_type"] = meta.get("input_type", "unknown")
             result["n_types"] = meta.get("n_types", 0)
             result["type_names"] = meta.get("type_names", [])
-            result["vertex_labels"] = meta.get("vertex_labels", [])
+            result["vertex_labels"] = (self.labels if self.labels is not None
+                                               else meta.get("vertex_labels", []))
         return result
 
     def _stage_drawing(self) -> dict:
@@ -317,7 +328,9 @@ class AnalysisPipeline:
             from agent.graph_view import render_payload
             from agent.render_svg import render_svg
 
-            labels = (getattr(self.rex, "_agent_meta", {}) or {}).get("vertex_labels")
+            labels = self.labels
+            if labels is None:
+                labels = (getattr(self.rex, "_agent_meta", {}) or {}).get("vertex_labels")
             payload = render_payload(self.rex, labels=labels, limit=self.draw_limit)
             drawn = {r["index"] for r in payload.get("relations", [])}
             # a face whose relations were not all drawn is not drawn either, so count the
@@ -371,7 +384,7 @@ class AnalysisPipeline:
                     # Fiedler value = smallest strictly positive eigenvalue, so which
                     # ones are zero has to be decided. dim ker(L0) is beta_0, an integer
                     # the rank tower gives exactly, so skip that many rather than cut at
-                    # a magnitude: a graph with a genuinely tiny gap (a near disconnected
+                    # a magnitude: a graph with a tiny gap (a near disconnected
                     # component, which is exactly what the Fiedler value is for) is
                     # indistinguishable from a numerical zero to a threshold.
                     try:
@@ -417,7 +430,7 @@ class AnalysisPipeline:
         #    The per vertex Green's φ (the GLOBAL moment) is
         # an optional refinement at the end.
 
-        # (1) Per EDGE character χ = ĥ_k[e,e]/RL[e,e] - the base character (diagonals).
+        # (1) Per EDGE character χ = ĥ_k[e,e]/RL[e,e]: the base character (diagonals).
         try:
             chi = rex.structural_character
             result["nhats"] = int(rex.nhats)
@@ -449,7 +462,7 @@ class AnalysisPipeline:
             pass
 
         # (3) Per VERTEX character via the boundary: χ*(v) = star average of χ over
-        #     incident edges (B₁ aggregation, O(nnz)) - the default vertex character.
+        #     incident edges (B₁ aggregation, O(nnz)): the default vertex character.
         try:
             chistar = np.asarray(rex.star_character, dtype=float)
             if chistar.ndim == 2 and chistar.shape[0] > 0:
@@ -466,7 +479,7 @@ class AnalysisPipeline:
             pass
 
         # (4) SCALE BRIDGE (local<->global): the closed-k-walk
-        #     moments (L0^k)_vv per vertex - the star neighborhood's structure at each
+        #     moments (L0^k)_vv per vertex: the star neighborhood's structure at each
         #     scale, plus the clustering signal that separates locally clustered from
         #     unclustered members at equal degree. All sparse matvecs, O(nnz).
         try:
@@ -486,7 +499,7 @@ class AnalysisPipeline:
         try:
             result["harmonic_entropy_H2"] = round(float(rex.harmonic_entropy), 6)
             # Varentropy self diagnostic: the H₂-H₃ gap certifies when the
-            # cheap H₂ coherence is trustworthy - ~0 on flat/unweighted spectra, grows
+            # cheap H₂ coherence is trustworthy: ~0 on flat/unweighted spectra, grows
             # with weight induced non uniformity. One extra sparse matmul.
             ve = rex.character_varentropy
             result["coherence_varentropy_gap"] = ve["gap"]
@@ -508,7 +521,7 @@ class AnalysisPipeline:
 
         # OPTIONAL GLOBAL REFINEMENT: the per vertex Green's character φ and
         #    coherence κ_greens (the GLOBAL moment, t->∞: diag of B₁ RL4⁺ ĥ RL4⁺ B₁ᵀ).
-        #    This is the one quantity that genuinely needs nV solves (its sandwiched
+        #    This is the one quantity that needs nV solves (its sandwiched
         #    two inverse form resists selected inversion), so it is a bounded add on,
         #    NOT the default character. Budget: REXGRAPH_VERTEX_CHARACTER_MAX_NODES
         # (default 1500; 0 = always). The character above is complete without it.
@@ -546,13 +559,16 @@ class AnalysisPipeline:
             result["pct_curl"] = float(hodge_data.get("pct_curl", 0))
             result["pct_harmonic"] = float(hodge_data.get("pct_harm", 0))
 
-            # Orthogonality verification
+            # Orthogonality is STRUCTURAL: the three sectors are orthogonal whenever
+            # B_1 B_2 = 0, which `chain_valid` decides exactly, so the verdict comes
+            # from the complex and not from a fence on an inner product. The residual
+            # is reported beside it, normalised by the flow's energy so it does not
+            # move when the signal is rescaled.
             orth = hodge_data.get("orthogonality")
             if orth:
-                result["orthogonal"] = bool(orth.get("orthogonal", True))
-                result["max_inner_product"] = float(
-                    orth.get("max_inner", 0)
-                )
+                result["orthogonal"] = bool(rex.chain_valid)
+                result["max_inner_product"] = float(orth.get("max_inner", 0))
+                result["orthogonality_residual"] = float(orth.get("max_relative", 0))
 
             # Per edge component norms (how much of the signal at
             # each edge is gradient vs curl vs harmonic)
@@ -651,17 +667,8 @@ class AnalysisPipeline:
 
                     nh = int(rex.nhats)
                     if nh >= 3:
-                        # The frustration and coparticipation reading is rexgraph's, not
-                        # this stage's. mesh_health.harmonic_health is the same
-                        # computation promoted to a reusable call, and it resolves the
-                        # two channels BY NAME. This stage previously read them
-                        # positionally as chi[:,0] and chi[:,1], which are L1_down and
-                        # L_O, that is topology and geometry rather than frustration and
-                        # coparticipation. Those two share a diagonal, because the
-                        # diagonal squares each incidence entry and squaring kills the
-                        # sign, so chi[:,0] == chi[:,1] exactly and health_ratio was
-                        # identically 1.0 on every complex. A channel is selected by
-                        # name here for that reason and never by index.
+                        # Read frustration and coparticipation through mesh_health.harmonic_health,
+                        # which selects channels by name.
                         from rexgraph.mesh_health import harmonic_health
 
                         health = harmonic_health(rex, flow)
@@ -796,12 +803,11 @@ class AnalysisPipeline:
             if div_d is not None:
                 result["divergence"] = div_d.tolist()
 
-            # Orthogonality
+            # Orthogonality, structural: see the note on the other reader above.
             orth = h.get("orthogonality")
             if orth:
-                result["orthogonal"] = bool(
-                    orth.get("orthogonal", True)
-                )
+                result["orthogonal"] = bool(rex.chain_valid)
+                result["orthogonality_residual"] = float(orth.get("max_relative", 0))
         except Exception as e:
             result["hodge_error"] = str(e)
 
@@ -917,7 +923,7 @@ class AnalysisPipeline:
             # Kernel dimension of the void Laplacian Lvoid = Bvoid·Bvoidᵀ (nE×nE).
             # This is an EXACT integer nullity, not a count of near zero eigenvalues:
             #   dim ker(Lvoid) = nE - rank(Bvoid)   (since rank(Bvoid Bvoidᵀ)=rank(Bvoid)).
-            # Computed on the small sparse Bvoid (nE × n_voids) - the nE×nE Lvoid is
+            # Computed on the small sparse Bvoid (nE × n_voids): the nE×nE Lvoid is
             # never materialized, and there is no eigendecomposition or magic threshold.
             Bvoid = vc.get("Bvoid")
             if Bvoid is not None:
@@ -1141,7 +1147,7 @@ class AnalysisPipeline:
         try:
             nF = rex.nF_hodge
 
-            # Curvature only strain (delta = kappa, born = 0) - sparse B1/B2 matvecs
+            # Curvature only strain (delta = kappa, born = 0): sparse B1/B2 matvecs
             born_zero = np.zeros(nF, dtype=np.float64)
             se_curv = _strain_equilibrium_sparse(rex, kappa_f, born_zero)
             result["curvature_strain"] = {

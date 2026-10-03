@@ -114,7 +114,7 @@ def record(kind: str, labels: list[str], *, lineage_id: str,
         temporal = prev
     else:
         temporal = TemporalRex([])
-        if prev is not None:             # a lineage recorded before this ran
+        if prev is not None:             # existing static lineage
             try:
                 temporal.append_snapshot(prev, at=at)
             except Exception:

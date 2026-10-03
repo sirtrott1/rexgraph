@@ -24,7 +24,7 @@ from rexgraph.core._common cimport (
 )
 
 from rexgraph.core._linalg cimport (
-    lp_eigh, lp_lstsq,
+    lp_eigh, lp_lstsq, check_lapack_info,
     bl_gemm_nn, bl_gemm_nt, bl_gemm_tn,
     bl_dot,
     spectral_pinv, spectral_pinv_matvec,
@@ -227,7 +227,7 @@ def rl_eigen(np.ndarray[f64, ndim=2] RL):
     cdef np.ndarray[f64, ndim=2] RL_F = np.asfortranarray(RL.copy())
     cdef np.ndarray[f64, ndim=1] evals = np.empty(n, dtype=np.float64)
     cdef int i
-    lp_eigh(&RL_F[0, 0], &evals[0], n)
+    check_lapack_info(lp_eigh(&RL_F[0, 0], &evals[0], n))
     for i in range(n):
         if evals[i] < 0 and fabs(evals[i]) < 1e-10: evals[i] = 0.0
         if fabs(evals[i]) < 1e-12: evals[i] = 0.0
@@ -271,7 +271,7 @@ def build_green_cache(np.ndarray[f64, ndim=2] RL,
 
 def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
                            np.ndarray[f64, ndim=2] B1):
-    """Green cache via SPD Cholesky solve - no eigendecomposition, no full pinv.
+    """Green cache via SPD Cholesky solve: no eigendecomposition, no full pinv.
 
     For RL3/RL4 the relational Laplacian is full rank symmetric positive definite
     (the overlap/frustration/co-participation channels fill the cycle space kernel
@@ -282,7 +282,7 @@ def build_green_cache_spd(np.ndarray[f64, ndim=2] RL,
 
     Returns the same shaped cache (B1_RLp, S0) with 'spd_solve': True so the phi
     kernel consumes B1_RLp directly. Returns None if RL is empty or not numerically
-    SPD (Cholesky info != 0) - the caller then falls back to build_green_cache
+    SPD (Cholesky info != 0): the caller then falls back to build_green_cache
     (spectral pinv), so behaviour is preserved on any degenerate RL.
     """
     cdef int nV = B1.shape[0]
@@ -333,7 +333,7 @@ def rl_cg_solve(np.ndarray[f64, ndim=2] RL, np.ndarray[f64, ndim=1] b):
     cdef np.ndarray[f64, ndim=1] B = b.copy()
     cdef np.ndarray[f64, ndim=1] S = np.empty(n, dtype=np.float64)
     cdef int rank = 0
-    lp_lstsq(&A_F[0, 0], &B[0], n, n, 1, &S[0], &rank)
+    check_lapack_info(lp_lstsq(&A_F[0, 0], &B[0], n, n, 1, &S[0], &rank))
     return B
 
 
@@ -389,9 +389,9 @@ def build_L_coPC(line_graph_info):
     Edge weights are the shared vertex COUNTS (line_graph_info['weights']), so L_C is
     a proper zero row sum PSD Laplacian at ANY arity, including branching hyperedges
     where two edges share >1 vertex. On simple graphs every weight is 1, so this is
-    identical to the old unit weight form (and K_k, being simple, keeps G = C exactly).
+    the unit weight form; K_k therefore has equal G and C channels.
 
-    The topological form B1_L^T B1_L differs from D_L - A_L by introducing
+    The topological form B1_L^T B1_L differs from ``D_L - A_L`` by introducing
     orientation dependent signs in the off diagonal entries, producing
     21 distinct eigenvalues on K_7 instead of the expected 3.
     """

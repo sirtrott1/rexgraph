@@ -1,11 +1,4 @@
-"""The profile: what a corpus contributes, separated from what the math does.
-
-The tests that matter here are the ones that used to return NOTHING. `_TOKEN =
-r"[a-z']+"` gave six tokens for English and zero for Greek, Russian, Chinese and Arabic,
-so four corpora out of seven built an empty complex and nothing raised. A tokenizer that
-fails silently is worse than one that fails, because every reading above it is then a
-reading of nothing.
-"""
+"""Check corpus profiles, Unicode scripts, token boundaries and case folding."""
 from __future__ import annotations
 
 import pytest
@@ -41,9 +34,7 @@ def test_indic_vowel_marks_do_not_break_the_word():
 
 
 def test_a_mixed_script_run_survives():
-    """The exact case the energy channel was demonstrated on. `αβγ` used to vanish.
-    Case is folded because that is a PROSE fact carried by the profile: a
-    sentence initial capital is noise here and load bearing in source."""
+    """Mixed script tokens survive case folding and complex construction."""
     assert _toks("The coefficient αβγ equals 3") == [
         "the", "coefficient", "αβγ", "equals", "3"]
 
@@ -215,9 +206,7 @@ def test_without_the_veto_the_abbreviation_ends_a_sentence():
 
 
 def test_a_vetoed_period_belongs_to_its_token_at_every_layer():
-    """It used to be a suffix at the sentence layer and a delimiter at the span layer,
-    so the same period was two different things depending on who asked. `Mr.` is one
-    token or it is one token nowhere."""
+    """A vetoed period remains part of the same token at each layer."""
     toks = [t for t, _a, _b in tokenize(_BURGERS, ENGLISH_GUTENBERG)]
     assert "mr." in toks and "mr" not in toks
 

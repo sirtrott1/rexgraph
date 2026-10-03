@@ -143,7 +143,7 @@ class TestQuotientFiltration:
 
 class TestQuotientEigenFree:
     """The quotient kernels compute Betti/harmonic/congruence eigen free (exact rank,
-    combinatorial harmonic basis, factor once congruence) - each pinned to its dense
+    combinatorial harmonic basis, factor once congruence): each pinned to its dense
     oracle."""
 
     def _quot(self):

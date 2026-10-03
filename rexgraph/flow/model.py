@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 from rexgraph.model_state import ModelState, ModelOutput
-from rexgraph.model_runtime import model_coordinates
+from rexgraph.model_contract import model_coordinates
 from rexgraph.tensor_field import FieldSource
 from rexgraph.coordinate_map import CoordinateMap
 

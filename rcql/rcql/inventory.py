@@ -13,6 +13,7 @@ from .types import ValueKind
 # FROM forms have a separate grammar/evaluator. In particular, the legacy REX
 # adapter returns a name; it is not an executable typed RETURN expression.
 SOURCE_FORMS = {
+    "DATASET": "DATASET(name): resolve a pinned declared dataset registered by the application",
     "RCDB": "RCDB(name): resolve an explicitly bound RCDB store; never open a URI",
     "REX": "REX(name): resolve an explicitly bound source",
     "CATALOG": "CATALOG(name): resolve an explicitly bound catalog source",
@@ -83,6 +84,7 @@ CONTRACT_NOTES = {
     "FACES": "Stored C2 cells with a nonempty boundary wholly inside the C1 Cell or CellSet. The original exact chain law is required. No new faces are inferred.",
     "RESTRICT": "One Cell or CellSet at any carried grade, with subcomplex closure. Returns an owned Rex retaining full arity, relation identities and metrics, without application metadata. Rebind it before querying its new basis.",
     "PARTITION": "The same explicit restriction with source, result, requested selection and bound policy digests plus source index maps at every grade. One RexPartition per call, not automatic clustering. Lineage is not an authorization grant.",
+    "GLUE_PARTITIONS": "Union of nonempty RexPartition values in their bound original source basis. Each lineage must reproduce its exact restricted state; foreign or modified parts are refused. Structural default; all requires all inputs to carry application state. The original source governs overlap; no edited-complex merge or automatic face inference.",
     "SIMPLE_HOMOLOGY": "Exact dimension of H_k(X/W) over Q. Identify nonzero B_k columns equal up to sign at one declared grade, project the upper map, and retain distinct zero columns. Not a harmonic basis or a simultaneous quotient at all grades.",
     "MULTIPLICITY_HOMOLOGY": "Exact dimension of ker(H_k(X) -> H_k(X/W)), with the same declared quotient as SIMPLE_HOMOLOGY. Filled multiplicity cycles do not count. The two dimensions sum to BETTI(k).",
     "EFFECTIVE_MODES": "Exact effective mode count tr(X)^2/tr(X^2) of one Hodge sector X at a declared grade, in the declared grade metrics. The default sector 'completed' is the harmonic completion L_k + w Pi^h, which places each harmonic direction at eigenvalue w; 'hodge' is L_k, and 'down' and 'up' are its two sides. The weight 'unit' is the complete field coordinates, w = 1; 'mean' takes w = tr L_k / rank L_k and 'energy' takes w = tr L_k^2 / tr L_k, both invariant under scaling L_k, and the energy weight gives exactly EFFECTIVE_MODES(k, 'hodge') + BETTI(k). Reads sparse Gram traces and the exact Betti number; forms no operator, harmonic frame or eigenvalue. calculus=$c reads every grade's metric from a bound NativeFieldCalculus of the source.",

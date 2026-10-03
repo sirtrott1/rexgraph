@@ -19,7 +19,7 @@ def server(tmp_path, monkeypatch):
     """An instance admin and a plain user."""
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("REXGRAPH_AUDIT_JOURNAL", str(tmp_path / "audit.jsonl"))
-    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"file://{tmp_path}/rcdb")
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"local://{tmp_path}/rcdb")
     monkeypatch.delenv(S.REQUEST_REFS_ENV, raising=False)
     from agent.rcdb import reset_default_store
     from agent.server import audit, auth

@@ -55,11 +55,11 @@ def test_read_policy_and_unknown_members():
 def test_reopened_rcdb_void_reading(tmp_path):
     import rcdb
     path = f"rex://{tmp_path / 'db'}"
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     rex = fixture()
     store.put("r", rex)
     store.close()
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     try:
         result = Executor(sources={"db": store}).execute(parse(
             'FROM RCDB_GET($db,"r") RETURN VOID(CELLS(1)).n_voids, STATE_HASH()'))

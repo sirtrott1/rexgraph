@@ -60,7 +60,7 @@ def test_structurally_different_vertices_do_not_stack_on_the_default():
     separated from the right kind to see it.
 
     Two relations {0,1,2,3} and {0,1,4,3} plus a leg {4,5}. Vertex 2 is in one relation
-    and vertex 3 in two, so they are genuinely different cells. Both appear only past the
+    and vertex 3 in two, so they are different cells. Both appear only past the
     second position, so the pairwise path made both isolated and drew them on the same
     (0, 1). Vertices 0, 1 and 3 DO share a position here, and should: their stars are
     equal.

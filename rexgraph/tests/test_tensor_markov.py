@@ -1,4 +1,4 @@
-"""Paper participation transition, exact actions and compiled solver parity."""
+"""Check participation transitions, exact actions and compiled solver parity."""
 from fractions import Fraction as Q
 
 import numpy as np

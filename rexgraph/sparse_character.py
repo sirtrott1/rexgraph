@@ -227,7 +227,7 @@ def _block_cg(apply_A, B, dinv, tol=1e-10, maxit=1000, *, return_info=False):
 # NOTE: the edge primacy MATRIX FREE RL operator (`build_factored_operator`) is the
 # native `channel_operator`. It is NOT bit identical to the assembled channels: it
 # applies through B1/|B1| rather than through an assembled Gram, so the summation
-# order differs and the last bits with it -- relative 1.2e-16 on a k=2 path to
+# order differs and the last bits with it: relative 1.2e-16 on a k=2 path to
 # 1.4e-15 on a degree 6 hub, largest in C, which sums over deg(v) pairs. That is
 # reassociation, not a different operator.
 #
@@ -568,7 +568,7 @@ def _hip_reads_declared() -> bool:
     try:
         from rexgraph import hip_ternary
         lib = hip_ternary._load()
-    except Exception:                                    # noqa: BLE001 - absent is False
+    except Exception:                                    # noqa: BLE001  # absent is False
         return False
     return lib is not None and hasattr(lib, "tower_launch_coef")
 
@@ -594,28 +594,8 @@ def _any_arity_diagonals(rex):
         return None
     from rexgraph import compute
     w = _channel_metric(rex)
-    # Prefer the parallel lane. `_tower_cpu`'s `threads=1` is a signature default rather
-    # than a decision, and dispatch was reaching it first because "cpu" registers before
-    # "openmp", so the tower ran serial. Bit identical either way, the serial lane
-    # staying as the reference. Measured on this path, serial against the width
-    # `_tower_width` picks:
-    #
-    #     nnz         nnz/nV     serial      now
-    #     10.5M            7   379.9 ms   96.1 ms
-    #     10.5M           52   318.4 ms   42.8 ms
-    #      1.4M           23    23.4 ms    8.3 ms
-    #
-    # Preferred only when the caller has expressed nothing: an explicit
-    # `set_default_backend` still wins, which is how the hip lane is reached. Hip is not
-    # the default because it is SLOWER, measured once the transpose went parallel too:
-    # 208.0 ms against 104.4 at 10.5M over 1.5M vertices, 199.6 against 43.8 over 200k,
-    # 22.3 against 10.2 at 1.7M. It pays the same CPU transpose and then gathers over
-    # variable degree vertices, which suits the device poorly. Against the serial path it
-    # won; the CPU overtook it.
-    # A declared head or share travels as one coefficient per incidence. Every lane reads
-    # it, including the device one, EXCEPT where the built HIP object predates the column
-    # argument: there the lane would answer about the canonical column, so the preference
-    # moves to the compiled CPU lanes rather than asking it.
+    # Use the explicit default backend, or prefer OpenMP. Declared coefficients
+    # fall back to OpenMP when the installed HIP lane lacks that capability.
     coefficients = None
     if getattr(rex, "declares_columns", False):
         from rexgraph.column import slot_coefficients
@@ -660,23 +640,7 @@ def _tower_cpu(bp, bi, nV, w, threads=1, transposed=None, coefficients=None):
 
 
 def _tower_width() -> int:
-    """The width the tower runs at when the caller has not set one.
-
-    PHYSICAL cores, not logical. Both passes stream the incidence and scatter into
-    vertex indexed arrays, so the kernel is memory bound, and SMT siblings share L1 and
-    the load/store units: they add contention without adding memory parallelism. Swept
-    at three densities, median of 5, the best width is 14 on a 16c/32t machine and the
-    curve is flat from 10 to 24, while all 32 logical costs 10 to 15%:
-
-        nnz/nV      12      14      16      32
-             7    96.7    91.8    95.6   107.4  ms
-            52    47.6    44.8    49.4    55.3
-
-    Physical cores lands inside that flat region on every case without anyone picking a
-    number, and it moves correctly on a machine with a different SMT ratio or none.
-    An explicit `compute.set_threads` still wins, which is how a measured per host
-    optimum gets used where someone has actually measured one.
-    """
+    """Return the explicit compute thread count, or the available physical core count."""
     from rexgraph import compute as _c
     explicit = _c.get_threads()
     if explicit:
@@ -686,13 +650,11 @@ def _tower_width() -> int:
 
 
 def _tower_openmp(bp, bi, nV, w, transposed=None, coefficients=None):
-    """The accumulation is over VERTICES after transposing the incidence, so each
-    thread owns what it writes and no atomic is needed. Measured 9.2x at 12 threads on
-    12M nonzeros, bit identical to the serial path at every width.
+    """Run the channel tower with the configured thread width.
 
-    The transpose it depends on is split the same way, so a cold call is parallel
-    throughout. Passing `transposed` still skips it entirely, which is worth it when the
-    same complex is read more than once."""
+    Transpose incidence into vertex ordered rows and assign each row to one thread.
+    Passing transposed reuses an existing incidence transpose.
+    """
     return _tower_cpu(bp, bi, nV, w, _tower_width(), transposed, coefficients)
 
 
@@ -718,6 +680,41 @@ def _register_tower_lanes():
 
 
 _register_tower_lanes()
+
+
+def channel_arithmetic_contract(rex):
+    """Arithmetic carried by the channel tower and used by its live evaluator.
+
+    The raw channel structure is rational whenever its primary columns and relation
+    metric are rational.  The production channel kernel evaluates those coefficients in
+    float64.  ``integer_scale`` records when the same result also has an exact int64
+    numerator carrier; it is a capability verdict, not a claim that the live evaluator
+    executed in integer arithmetic.
+    """
+    rex._ensure_clean()
+    if getattr(rex, "g_channel", "raw") != "raw":
+        return {
+            "carrier": "mixed-rational-algebraic",
+            "evaluator": "approximate-float64",
+            "integer_scale": None,
+            "reason": ("T/F/C retain rational carriers; normalized G introduces "
+                       "inverse square roots and can be algebraic"),
+        }
+    if rex.edge_metric_exact is not None or getattr(rex, "declares_columns", False):
+        return {
+            "carrier": "rational",
+            "evaluator": "approximate-float64",
+            "integer_scale": None,
+            "reason": ("declared rational shares or relation metric use the exact "
+                       "carrier but the live compiled tower evaluates float64"),
+        }
+    precision = channel_tower_precision(rex._boundary_ptr, rex._boundary_idx)
+    return {
+        "carrier": "integer" if precision["scale"] == 1 else "rational",
+        "evaluator": "approximate-float64",
+        "integer_scale": precision["scale"],
+        "reason": precision["reason"],
+    }
 
 
 def channel_diagonals(rex):
@@ -806,13 +803,15 @@ def channel_diagonals(rex):
 
 
 def build_sparse_character_cheap(rex):
-    """The O(nnz) character: assemble the doc exact channels (T,G,F=T-G,C) and the
-    trace normalized RL once, then the per edge character chi and star average chi*
-    from DIAGONALS only: no per vertex solves, no eigendecomposition. This is the
-    always affordable layer; the per vertex Green's phi/kappa (nV solves) is a
-    separate, opt in refinement in ``compute_sparse_phi``.
+    """Build sparse channel characters and incident star averages.
 
-    Returns {chi, chi_star, nhats, hat_names, trace_values, RL, hats, rl_diag}."""
+    Assemble T, G, F and C and their trace normalized sum. Read per edge chi and
+    star average chi_star from operator diagonals without vertex Green solves.
+    Cost depends on incidence and operator fill. compute_sparse_phi supplies the
+    separate vertex Green reading.
+
+    Return chi, chi_star, nhats, hat_names, trace_values, RL, hats and rl_diag.
+    """
 
     nV, nE = int(rex.nV), int(rex.nE)
     # Diagonals in closed form: assembling the channel operators to read them costs
@@ -871,7 +870,8 @@ def build_sparse_character_cheap(rex):
 
     return _CheapCharacter(
         {'chi': chi, 'chi_star': chi_star, 'nhats': nhats, 'hat_names': names,
-         'trace_values': np.asarray(traces), 'rl_diag': rl_diag},
+         'trace_values': np.asarray(traces), 'rl_diag': rl_diag,
+         'channel_arithmetic': channel_arithmetic_contract(rex)},
         rex, names, traces)
 
 
@@ -906,7 +906,9 @@ def _compute_sparse_phi_gpu(rex, cheap, chunk, device=None):
     dinv = np.where(np.abs(cheap['rl_diag']) > 1e-30, 1.0 / cheap['rl_diag'], 1.0)
     dinv_t = torch.as_tensor(dinv, dtype=torch.float64, device=dev)
     Bs = _b1_csr(rex)
-    step = max(1, min(nV, int(chunk)))
+    from rexgraph.fiedler import solve_block_width
+    safe_width = solve_block_width(int(rex.nE), int(rex.nV))
+    step = max(1, min(nV, int(chunk), int(safe_width)))
     for start in range(0, nV, step):
         stop = min(start + step, nV)
         Bc = torch.as_tensor(np.ascontiguousarray(Bs[start:stop].toarray().T),
@@ -927,8 +929,8 @@ def compute_sparse_phi(rex, cheap, chunk=1024, backend=None, device=None):
     """Per vertex Green's character phi and coherence kappa, given the cheap bundle.
 
     phi(v,k) = [b_v^T RL^-1 hat_k RL^-1 b_v] / [b_v^T RL^-1 b_v], b_v = B1[v,:], via
-    EXACT per vertex block CG solves RL X = B1^T (CG to a fixed tolerance; accuracy
-    is scale independent). This is the O(nV·solve) global Green's refinement - the
+    Fixed tolerance numerical per vertex block CG solves RL X = B1^T (accuracy
+    is scale independent). This is the O(nV·solve) global Green's refinement: the
     sandwiched two inverse numerator resists selected inversion, so it genuinely
     costs the nV solves; callers gate it to a tractable node budget and fall back to
     the O(nnz) cheap character (chi/chi*) + moment character otherwise. Returns
@@ -940,7 +942,7 @@ def compute_sparse_phi(rex, cheap, chunk=1024, backend=None, device=None):
     phi = np.full((nV, nhats), uniform, dtype=_f64)
     if nhats > 0 and nE > 0 and nV > 0:
         # GPU resident solve when a GPU backend is active and the work (nV*nE) clears
-        # the auto gate - the agent's coherence/character hot path runs on device.
+        # the auto gate: the agent's coherence/character hot path runs on device.
         from rexgraph import scale_propagator as _spg
         if nV * nE >= _spg._GPU_MIN_WORK and _spg._resolve_backend(backend) == "gpu":
             try:
@@ -949,14 +951,16 @@ def compute_sparse_phi(rex, cheap, chunk=1024, backend=None, device=None):
                 pass                                    # any GPU issue -> CPU tiling
         from rexgraph import compute as _compute
         # The channels apply THROUGH INCIDENCE; RL is never assembled here. An
-        # assembled RL carries sum_v deg(v)^2 nonzeros -- the hub blocks a Gram
-        # materialises -- and those blocks are what the action never forms.
+        # assembled RL carries sum_v deg(v)^2 nonzeros: the hub blocks a Gram
+        # materialises: and those blocks are what the action never forms.
         apply_rl, apply_hat = factored_channel_actions(
             rex, list(cheap['hat_names']), list(np.asarray(cheap['trace_values'], dtype=_f64)))
         Bs = _b1_csr(rex)
         rl_diag = cheap['rl_diag']
         dinv = np.where(np.abs(rl_diag) > 1e-30, 1.0 / rl_diag, 1.0)  # Jacobi precond
-        step = max(1, min(nV, int(chunk)))
+        from rexgraph.fiedler import solve_block_width
+        safe_width = solve_block_width(nE, nV)
+        step = max(1, min(nV, int(chunk), int(safe_width)))
         starts = list(range(0, nV, step))
 
         # Each vertex chunk is an INDEPENDENT block CG solve (its own convergence /
@@ -988,7 +992,7 @@ def compute_sparse_phi(rex, cheap, chunk=1024, backend=None, device=None):
 def _rl_resolvent_apply(rex, B, tol=1e-10):
     """Apply RL4⁺ to the columns of B via a single Jacobi preconditioned block CG
     solve. RL4 is full rank SPD (``build_green_cache_spd``), so RL4⁺ = RL4⁻¹ and one
-    solve RL4 X = B gives X = RL4⁻¹ B exactly - the matrix free resolvent seam behind
+    solve RL4 X = B gives X = RL4⁻¹ B exactly: the matrix free resolvent seam behind
     every ``uᵀRL⁺v`` bilinear (spectral channel score, group scores), no eigendecomposition
     and no dense nE×nE inverse. B is (nE, m); returns X (nE, m)."""
     import numpy as _np
@@ -1004,18 +1008,28 @@ def _rl_resolvent_apply(rex, B, tol=1e-10):
 
 
 def pinv_quadratic_form(A, v, atol=1e-13, btol=1e-13, iter_lim=20000):
-    """``vᵀ A⁺ v`` for a symmetric PSD sparse ``A`` (possibly SINGULAR), matrix free
-    via LSQR: ``x = A⁺ v`` is the minimum norm least squares solution, so LSQR projects
-    off ``ker(A)`` exactly (unlike CG/MINRES, which diverge on a kernel component of v)
-    and ``vᵀ A⁺ v = vᵀ x``. Equals the dense eigenmode pseudoinverse
-    ``Σ_{λ_j>0} <u_j,v>²/λ_j`` to machine precision - no eigendecomposition, no explicit
-    kernel projection. This is the reusable seam behind every ``vᵀ hat⁺ v`` energy."""
-    import scipy.sparse as sp
-    import scipy.sparse.linalg as sla
-    v = np.ascontiguousarray(v, dtype=_f64).ravel()
-    A = A.tocsr() if sp.issparse(A) else sp.csr_matrix(np.asarray(A, dtype=_f64))
-    x = sla.lsqr(A, v, atol=atol, btol=btol, iter_lim=iter_lim)[0]
-    return float(v @ x)
+    """Numerical v.T A^+ v for a real symmetric PSD operator.
+
+    Native LSQR computes the minimum norm solution without a spectrum or an
+    explicit kernel projector. atol and btol set normal and relative residual
+    thresholds; iter_lim caps iterations. An unconverged solve raises.
+    Native, dense and supplied SciPy sparse matrices are accepted.
+    """
+    from rexgraph.core._hodge import least_squares
+    from rexgraph.linear_operator import _numeric_array
+    from rexgraph.native_sparse import as_native
+    v = _numeric_array(v, operation="pseudoinverse quadratic form").ravel()
+    if np.iscomplexobj(v):
+        raise TypeError("pseudoinverse quadratic form requires a real vector")
+    A = as_native(A)
+    if A.shape != (v.size, v.size):
+        raise ValueError("pseudoinverse quadratic form requires a matching square operator")
+    x = least_squares(A, v, atol=atol, btol=btol, maxiter=iter_lim)
+    with np.errstate(over='ignore', invalid='ignore'):
+        result = float(v @ x)
+    if not np.isfinite(result):
+        raise FloatingPointError("pseudoinverse quadratic form is outside float64")
+    return result
 
 
 def primal_signal_character_sparse(rex, psi):
@@ -1039,7 +1053,7 @@ def primal_signal_character_sparse(rex, psi):
 def spectral_channel_score_sparse(rex, source, target, tol=1e-10):
     """Scale free spectral channel score ``sourceᵀ RL4⁺ target`` via one block CG
     solve. Equals the dense eigenmode sum ``Σ_j <v_j,src><v_j,tgt>/λ_j`` (over λ_j>0)
-    to ~1e-9 because RL4 is full rank SPD (all λ_j>0, so RL4⁺=RL4⁻¹) - no eigendecomposition."""
+    to ~1e-9 because RL4 is full rank SPD (all λ_j>0, so RL4⁺=RL4⁻¹): no eigendecomposition."""
     src = np.ascontiguousarray(source, dtype=_f64).ravel()
     tgt = np.ascontiguousarray(target, dtype=_f64).ravel()
     x = _rl_resolvent_apply(rex, tgt, tol=tol)[:, 0]        # RL4⁻¹ target
@@ -1047,41 +1061,39 @@ def spectral_channel_score_sparse(rex, source, target, tol=1e-10):
 
 
 def _smallest_pos_small_kernel(M, tol=1e-9):
-    """Smallest strictly positive eigenvalue of a sparse symmetric PSD M with a SMALL,
-    known kernel (the vertex dual Laplacians here have kernel = beta_0 components).
-    Dense eigvalsh when affordable (exact); smallest algebraic Lanczos otherwise: fast
-    and exact precisely because only a few near zero modes sit below lambda_2."""
+    """Smallest positive mode of a vertex dual PSD operator.
+
+    Connected blocks of at most 512 vertices use their full native spectra.
+    Larger blocks use the numerical minimum norm inverse iteration.
+    """
     import numpy as _np
-    import scipy.sparse.linalg as sla
-    M = M.tocsr()
+    from rexgraph.native_sparse import as_native
+    from rexgraph.core import _sparse
+    M = as_native(M)
     n = M.shape[0]
-    if n == 0 or float(abs(M).sum()) < 1e-30:
+    if n == 0 or float(_np.max(_np.abs(M.data), initial=0.0)) < 1e-30:
         return 0.0
-    if n <= 512:
-        w = _np.linalg.eigvalsh(np.asarray(M.toarray(), dtype=_f64))
+    labels, count = _sparse.connected_components(M.dual.row_ptr, M.dual.col_idx, n)
+    largest = int(_np.max(_np.bincount(labels, minlength=count), initial=0))
+    from rexgraph.evaluator import eigen_dense_limit
+    if largest <= 2 or largest <= min(512, eigen_dense_limit()):
+        from rexgraph.core._linalg import symmetric_sparse_spectrum
+        w = symmetric_sparse_spectrum(M)
     else:
-        try:
-            w = sla.eigsh(M, k=min(n - 2, 16), which='SA', return_eigenvectors=False)
-        except Exception:
-            w = _np.linalg.eigvalsh(np.asarray(M.toarray(), dtype=_f64))
+        return _smallest_positive_eig(M, n, tol=tol)
     pos = _np.sort(_np.asarray(w, dtype=_f64))
     pos = pos[pos > tol]
     return float(pos.min()) if pos.size else 0.0
 
 
 def channel_spectral_gaps(rex):
-    """Exact where possible per channel spectral gap lambda_2 (smallest positive
-    eigenvalue of each trace normalized hat) - a METRIC, dict keyed by channel name.
+    """Smallest positive mode of each trace normalized channel, keyed by its name.
 
-    T (L1_down) and raw G (L_O) use the A^TA<->AA^T transpose duality: lambda_2 of the
-    huge edge space Gram equals lambda_2 of the tiny nV x nV VERTEX dual Laplacian
-    (kernel = beta_0), computed exactly and cheaply - the topological zeros collapse into
-    the small vertex space instead of a ~nE dimensional numerical cluster. C (L_C, the
-    line graph Laplacian) has a small line graph component kernel and F (L_SG, a
-    difference of Grams with no transpose dual) fall back to the kernel robust
-    _smallest_positive_eig. Normalized G (I - D^-1/2 K D^-1/2) is not a Gram, so it also
-    uses the general path. This is the exact spectral gap metric; it is NOT the
-    edge centric relaxation object (see the moment tower / relaxation accessors)."""
+    T and raw G use the nonzero spectral correspondence of B.T B and B B.T,
+    avoiding the kernel on relations. C, F and normalized G use their channel
+    operators directly. Small support components use full native spectra;
+    larger operators use an approximate minimum norm inverse iteration.
+    """
     chan = dict(build_sparse_channels(rex))
     B1 = _b1_csr(rex)
     nE = int(rex.nE)
@@ -1105,19 +1117,12 @@ def channel_spectral_gaps(rex):
 
 
 def per_channel_mixing_times_sparse(rex):
-    """Per channel mixing times mu_X = ln(nE) / lambda_2(hat_X), the spectral gap METRIC
-    per channel. lambda_2 comes from channel_spectral_gaps (T/G exact via the transpose
-    duality on the tiny vertex dual Laplacian; C/F kernel robust), so the mixing time is
-    exact for the topology/overlap channels and no longer the pathological huge kernel
-    inverse power on those. Returns f64[nhats] in hat_names order; inf where there is no
-    gap and nE<=1.
+    """mu_X = ln(nE) / lambda_2(hat_X), in hat_names order.
 
-    A channel carrying NO MASS reports 0, not inf. Its operator is the zero matrix,
-    so `e^{-tL} = I` and every state is already stationary at t = 0: there is nothing
-    to equilibrate, which is a mixing time of zero rather than a process that never
-    settles. Frustration does this on any uniformly oriented complex. Reporting inf
-    there would also poison anything derived across channels, the anisotropy first.
-    A channel that HAS mass but no gap is the other case and still reads inf."""
+    Gap estimates come from channel_spectral_gaps. For nE > 1 a channel with
+    zero mass reports 0; a channel with mass but no positive gap reports inf.
+    nE <= 1 reports inf. Gap approximations for large operators carry into these times.
+    """
     import numpy as _np
     cheap = build_sparse_character_cheap(rex)
     names = cheap['hat_names']
@@ -1139,34 +1144,34 @@ def per_channel_mixing_times_sparse(rex):
     return times
 
 
-# Dense eigvalsh is exact and cheap up to this hat size; above it the typed hats carry
-# a large near zero kernel (e.g. dim ker(B1^T B1) = nE - rank(B1) ~ nE), which defeats
-# both dense (O(nE^3)) and smallest algebraic Lanczos (cannot get past the kernel), so
-# lambda_2 comes from a kernel robust inverse power iteration instead.
+# Full component spectra below this bound; minimum norm inverse iteration above it.
 _MIXING_DENSE_MAX = 512
 
 
 def _smallest_positive_eig(H, nE, tol=1e-9):
-    """Smallest strictly positive eigenvalue (spectral gap lambda_2) of a sparse
-    symmetric PSD matrix H whose kernel may be LARGE and is not known here.
+    """Smallest positive mode of a sparse symmetric PSD operator.
 
-    - nE <= _MIXING_DENSE_MAX: exact dense eigvalsh (covers all realistic test / agent
-      graphs; parity with the dense hat_eigen path is exact).
-    - larger: INVERSE POWER iteration on the pseudoinverse. Each step applies H^+ via a
-      min norm LSQR solve, which projects off ker(H) exactly (unlike a sigma=0 shift-
-      invert, whose singular factorization is slow and fragile, or smallest algebraic
-      Lanczos, which cannot resolve past a huge kernel). x converges to the smallest
-      POSITIVE eigenvector and the closing Rayleigh quotient gives lambda_2. This is an
-      APPROXIMATE spectral gap at scale (a few % when lambda_2 / lambda_3 are close) -
-      the documented scale free surrogate for this diagnostic. Returns 0.0 if H is 0."""
+    Small operators use their full native component spectra. Larger operators
+    use inverse iteration with native minimum norm LSQR actions. LSQR checks
+    its residual; the outer iteration returns an approximate Rayleigh quotient
+    and can converge slowly when the lowest positive modes are close. A zero
+    operator returns 0.0. tol sets the cutoff for positive modes.
+    """
     import numpy as _np
-    import scipy.sparse.linalg as sla
-
-    if float(abs(H).sum()) < 1e-30:
+    from rexgraph.native_sparse import as_native
+    from rexgraph.core._hodge import least_squares
+    H = as_native(H)
+    if H.shape != (nE, nE):
+        raise ValueError("spectral gap requires a matching square operator")
+    if float(_np.max(_np.abs(H.data), initial=0.0)) < 1e-30:
         return 0.0
-    H = H.tocsr()
-    if nE <= _MIXING_DENSE_MAX:
-        w = _np.linalg.eigvalsh(np.asarray(H.toarray(), dtype=_f64))
+    from rexgraph.evaluator import eigen_dense_limit
+    if nE <= min(_MIXING_DENSE_MAX, eigen_dense_limit()):
+        from rexgraph.evaluator import require_small_dense_eigen
+        require_small_dense_eigen(
+            "channel spectral gap", nE, max_dimension=_MIXING_DENSE_MAX)
+        from rexgraph.core._linalg import symmetric_sparse_spectrum
+        w = symmetric_sparse_spectrum(H)
         pos = w[w > tol]
         return float(pos.min()) if pos.size else 0.0
 
@@ -1176,7 +1181,7 @@ def _smallest_positive_eig(H, nE, tol=1e-9):
     x /= _np.linalg.norm(x)
     lam_prev = 0.0
     for _ in range(80):
-        y = sla.lsqr(H, x, atol=1e-9, btol=1e-9, iter_lim=2000)[0]
+        y = least_squares(H, x, tol=1e-9, maxiter=2000)
         ny = float(_np.linalg.norm(y))
         if ny < 1e-300:
             return 0.0
@@ -1185,7 +1190,7 @@ def _smallest_positive_eig(H, nE, tol=1e-9):
         if abs(lam - lam_prev) < 1e-8 * max(lam, 1e-30):
             break
         lam_prev = lam
-    Hx = H @ x
+    Hx = H.apply(x)
     denom = float(x @ x)
     lam2 = float((x @ Hx) / denom) if denom > 0 else 0.0
     return lam2 if lam2 > tol else 0.0
@@ -1201,14 +1206,19 @@ def void_character_sparse(rex, Bvoid):
     cheap = build_sparse_character_cheap(rex)
     hats = cheap['hats']
     nhats = int(cheap['nhats'])
-    if hasattr(Bvoid, 'toarray'):
-        Bvoid = Bvoid.toarray()
-    Bvoid = _np.ascontiguousarray(Bvoid, dtype=_f64)
-    n_voids = Bvoid.shape[1] if Bvoid.ndim == 2 else 0
+    sparse_voids = hasattr(Bvoid, "getcol") and hasattr(Bvoid, "tocsr")
+    if sparse_voids:
+        Bvoid = Bvoid.tocsc()
+        n_voids = int(Bvoid.shape[1])
+    else:
+        Bvoid = _np.ascontiguousarray(Bvoid, dtype=_f64)
+        n_voids = Bvoid.shape[1] if Bvoid.ndim == 2 else 0
     out = _np.zeros((n_voids, nhats), dtype=_f64)
     uniform = 1.0 / nhats if nhats > 0 else 0.0
     for i in range(n_voids):
-        v = Bvoid[:, i]
+        # One void column is the signal being classified. There is no reason to
+        # materialize all nE x n_voids columns just to consume them one at a time.
+        v = (Bvoid.getcol(i).toarray().ravel() if sparse_voids else Bvoid[:, i])
         e = _np.array([pinv_quadratic_form(h, v) for h in hats], dtype=_f64)
         tot = float(e.sum())
         out[i] = (e / tot) if tot > 1e-30 else _np.full(nhats, uniform, dtype=_f64)
@@ -1219,7 +1229,7 @@ def spectral_propagate_sparse(rex, source, target, tol=1e-10):
     """Scale free spectral propagation, the eigen free twin of
     ``_query.spectral_propagate``. RL4 is full rank SPD, so RL4⁺ = RL4⁻¹ and one
     block CG solve gives ``prop = RL4⁻¹ source``; the score, per channel typed
-    scores, and energy are then sparse matvecs / inner products - no rl_eigen, no
+    scores, and energy are then sparse matvecs / inner products: no rl_eigen, no
     dense RL. Returns {score, typed_scores, energy, coverage}.
 
         score        = <RL4⁻¹ source, target> / (||source|| ||target||)
@@ -1254,7 +1264,7 @@ def spectral_propagate_sparse(rex, source, target, tol=1e-10):
 
 
 def compute_sparse_character(rex, chunk=1024):
-    """Full {chi, phi, chi_star, kappa, nhats, hat_names, RL, hats} - the cheap
+    """Full {chi, phi, chi_star, kappa, nhats, hat_names, RL, hats}: the cheap
     O(nnz) character plus the per vertex Green's phi/kappa. Kept for callers that
     want the complete bundle in one shot; the pipeline uses the split accessors
     (cheap by default, phi on demand) to stay O(nnz) at scale."""

@@ -48,8 +48,7 @@ async def add_text_json(
     out = {"doc_id": did, "n_documents": corpus.n_documents}
     if body.get("persist") is False:
         return out
-    # Build so the document HAS a complex: add_text records the text and defers
-    # construction, so persisting before this would write nothing.
+    # add_text defers construction. Build the complex before persistence.
     try:
         corpus.build(depth=body.get("depth", "quick"))
     except Exception as e:
@@ -78,7 +77,8 @@ async def add_document(
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False,
                                          dir=str(staging_dir(ws.name))) as tmp:
             content = await file.read(); tmp.write(content); source = tmp.name
-        did = corpus.add_document(source=source, doc_id=doc_id or file.filename, date=date)
+        did = corpus.add_document(source=source, doc_id=doc_id, date=date)
+        corpus.documents[-1].meta["source_label"] = file.filename
     elif text:
         did = corpus.add_text(text, doc_id=doc_id, date=date)
     elif path:

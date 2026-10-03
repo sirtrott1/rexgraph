@@ -80,7 +80,7 @@ class GradeTraces:
 
     @property
     def rank(self) -> int:
-        """rank L_k = size - beta_k, the number of modes that carry energy."""
+        """rank L_k = size: beta_k, the number of modes that carry energy."""
         return self.size - self.betti
 
     def harmonic_weight(self, weight: str = "unit") -> Fraction:

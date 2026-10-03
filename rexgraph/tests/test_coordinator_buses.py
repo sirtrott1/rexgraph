@@ -76,7 +76,7 @@ def test_a_lane_alone_on_its_bus_pays_nothing():
 
 
 def test_a_lane_on_two_buses_contends_on_both():
-    """The genuinely OVERLAPPING cover, which a partition could not express: thread draws
+    """The OVERLAPPING cover, which a partition could not express: thread draws
     from both pools, so it is at war with proc on one and igpu on the other."""
     C.set_bus_topology({"a": ("proc", "thread"), "b": ("thread", "igpu")})
     cap, t = C.capacity(), _t()

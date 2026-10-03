@@ -2950,8 +2950,7 @@ function Finding(p){
 function Toolbar(p){
   /* groups: [[a,b],[c]] renders a separator between groups. A flat array is one
      group and a single node is a group of one, so a caller passing one button does
-     not have to know the shape. A bare element has no .map, so the old normaliser
-     let it through and the screen threw on render. */
+     not have to supply an array. */
   var g=p.groups;
   if(g==null||g===false||g==="")g=[];
   else if(!Array.isArray(g))g=[[g]];

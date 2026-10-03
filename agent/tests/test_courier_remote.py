@@ -23,7 +23,7 @@ def _rex(n):
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("REXGRAPH_AUDIT_JOURNAL", str(tmp_path / "audit.jsonl"))
-    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"file://{tmp_path}/rcdb")
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"local://{tmp_path}/rcdb")
     monkeypatch.setenv("REXGRAPH_ACTIVITY_JOURNAL", str(tmp_path / "activity.jsonl"))
     from agent.rcdb import reset_default_store
     from agent.server import audit, auth
@@ -54,6 +54,8 @@ def _client(monkeypatch, *, signed: bool = False):
         url.replace("http://testserver", ""), **_strip(kw)))
     monkeypatch.setattr(httpx, "get", lambda url, **kw: transport.get(
         url.replace("http://testserver", ""), **_strip(kw)))
+    monkeypatch.setattr(httpx, "stream", lambda method, url, **kw: transport.stream(
+        method, url.replace("http://testserver", ""), **_strip(kw)))
     return rc
 
 
@@ -159,7 +161,7 @@ def test_a_record_past_the_peers_ceiling_never_leaves(isolated, monkeypatch, loc
     peer = Peer("gpu-box", _client(monkeypatch))
     trip = _courier(local_store, peer).deliver("alpha", "gpu-box")
 
-    assert trip["oversize"] == 1 and trip["carried"] == 1
+    assert trip["oversize"] == 1 and trip["carried"] == 1, trip
     over = next(s for s in trip["shipments"] if s["reason"] == "oversize")
     assert over["record_id"] == "alpha-work" and "4-cell limit" in over["detail"]
     assert over["remote_id"] is None, "nothing crossed the wire for it"

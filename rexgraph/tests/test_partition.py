@@ -78,7 +78,7 @@ def test_it_refuses_an_index_outside_the_complex():
 
 
 def test_the_coupling_sign_is_not_the_spread():
-    """Corollary 25.2: squaring the Gram destroys the compatibility distinction."""
+    """Squaring the Gram destroys the compatibility distinction."""
     rex = _complex(seed=5)
     parts = {"a": range(0, 20), "b": range(20, 40)}
     c = coupling_fraction(rex, parts)

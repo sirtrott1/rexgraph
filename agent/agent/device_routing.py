@@ -1,28 +1,8 @@
-"""Split a batch of work across device pinned bees, knowing that they contend.
+"""Allocate independent work across device pinned workers.
 
-A llama.cpp server binds its device at spawn and cannot be moved, so placing work
-"on the CPU" means ROUTING it to a bee that was spawned there. The scheduling question
-is therefore how to split N independent generations across bees whose devices share a
-bus, and the answer is not obvious: on unified memory the CPU and the iGPU draw on one
-pool, so running both costs each of them something.
-
-Measured on this laptop, Qwen2.5-Coder-7B Q4:
-
-    iGPU alone 47.29 tok/s, CPU alone 22.93
-    together   iGPU 39.78 (84% of solo), CPU 17.13 (75%), aggregate 56.90
-
-so using both is worth 1.20x over the best single device, against the 1.48x that perfect
-additivity would give. The 0.28 difference is the bandwidth war, and it is exactly what
-`rexgraph.coordinator` prices.
-
-Three policies are implemented because the naive two are what anyone would write first
-and it is worth being able to show what they cost:
-
-    fastest       everything to the quickest bee. Leaves the other device idle.
-    round_robin   alternate. Bounded by the SLOWEST bee, so the makespan is set by the
-                  worst device rather than the best.
-    contention    split in proportion to each bee's rate UNDER CONTENTION, so every bee
-                  finishes at the same moment and nothing waits on a straggler.
+DeviceRate supplies measured solo and contended throughput. fastest selects
+the highest solo rate, round_robin alternates, and contention allocates work
+in proportion to the supplied contended rates.
 """
 from __future__ import annotations
 
@@ -136,17 +116,10 @@ class Partition:
 
 
 def best_partition(samples, solo_best: float | None = None):
-    """The allocation with the highest AGGREGATE throughput, and whether it beats solo.
+    """Select the supplied partition with the highest aggregate throughput.
 
-    Returns (partition, beats_solo). The point is that there is an interior optimum and
-    it has to be searched for: measured on this laptop, giving the CPU worker 16 threads
-    produces MORE cpu throughput (10.50 tok/s against 9.43 at eight) and less total
-    (43.13 against 48.28), because the iGPU falls from 38.85 to 32.63. Maximising either
-    device alone minimises the machine.
-
-    An earlier version of this file concluded from the 16 thread point alone that
-    co scheduling never pays. It pays 1.09x at the right partition. A scheduler that
-    declines after one sample is measuring its own configuration, not the hardware.
+    Return (partition, beats_solo). Ignore partitions without rates. Empty input
+    returns (None, False); solo_best=None treats a selected partition as successful.
     """
     live = [p for p in samples if p.rates]
     if not live:

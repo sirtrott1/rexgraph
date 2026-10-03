@@ -37,7 +37,7 @@ def revised(request, tmp_path):
     if request.param == "memory":
         st = rcdb.MemoryStore()
     elif request.param == "file":
-        st = rcdb.FileStore(str(tmp_path / "store"))
+        st = rcdb.FileStore(str(tmp_path / "store"), read_only=False)
     else:
         st = rcdb.SQLStore(f"sqlite:///{tmp_path / 'rc.sqlite'}")
     _put(st, "doc", OLD)

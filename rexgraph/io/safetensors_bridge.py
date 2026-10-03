@@ -150,6 +150,8 @@ __all__ = [
     "safetensors_to_temporal_rex",
     "save_safetensors",
     "load_safetensors",
+    "state_from_safetensors_bytes",
+    "state_to_safetensors_bytes",
     "read_safetensor_tensor",
     "SafetensorQuerySession",
     "load_extra",
@@ -460,15 +462,7 @@ def read_safetensor_tensor(
 
 # Cache groups: bundle's, minus the one this format cannot write.
 #
-# The comment here used to say "mirrors bundle._CACHE_GROUPS exactly" while the two had
-# already diverged, so it now derives from bundle instead of restating it. That makes
-# the claim structural: they cannot drift apart again.
-#
-# `harmonic` is genuinely absent rather than forgotten. Its five entries are OUTPUTS
-# (harmonic_basis, harmonic_dim, frustration_per_edge, ...) that bundle computes in its
-# own writer, and this format's collector resolves names by getattr on the complex, so
-# it has nothing to read them from. Adding the group would advertise a capability that
-# would then silently write nothing, which is the failure this pass exists to remove.
+# Cache groups share the bundle cache inventory.
 _UNSUPPORTED_GROUPS = frozenset({"harmonic"})
 
 _CACHE_GROUPS: dict[str, list[str]] = {
@@ -556,7 +550,6 @@ def rex_to_safetensors(
     groups. Returns the resolved output path.
 
     Parameters
-    ----------
     rex : RexGraph
         Source graph. Accessed via its public properties and private
         `_boundary_ptr`/`_boundary_idx`/`_B2_*` storage.
@@ -582,7 +575,6 @@ def rex_to_safetensors(
         read back with :func:`load_extra`.
 
     Returns
-    -------
     pathlib.Path
         The file path that was written.
     """
@@ -592,10 +584,9 @@ def rex_to_safetensors(
     # bridge cannot drift from `.rcbd` (signs, w_boundary, g_channel, nested rexes all round-trip
     # the same way here as they do through bundle.py).
     from ._compat import dumps as _dumps
-    from .rex_state import to_state
+    from rexgraph.state import to_state
     st = to_state(rex)
-    # safetensors keys are arbitrary strings, so nested-rex names with '/' are stored verbatim: no
-    # char substitution (the old '/'->'__' was not invertible and collided with '__' metadata keys).
+    # Store nested graph tensor names verbatim, including slash characters.
     tensors: dict[str, NDArray] = {
         name: _as_storable(np.asarray(arr))
         for name, arr in st.tensors.items()
@@ -621,9 +612,19 @@ def rex_to_safetensors(
     # contract: safetensors_to_rex ignores them exactly as it ignores cache/* arrays.
     if extra_tensors:
         for k, arr in extra_tensors.items():
-            if k in tensors:
+            if k in tensors or k == "rex_container":
                 raise ValueError(f"extra_tensors key {k!r} collides with a complex tensor")
             tensors[k] = _as_storable(np.asarray(arr))
+
+    if st.header["format_version"] == 10:
+        from rexgraph.identity import tensor_digest
+        from rexgraph.value_codec import pack_value
+        auxiliary = {k: a for k, a in tensors.items() if k not in st.tensors}
+        envelope = {"version": 1, "state_digest": st.header["digest"],
+                    "tensor_names": sorted(auxiliary), "digest": tensor_digest(auxiliary),
+                    "cached_arrays": cached_arrays, "cache_scalars": scalar_cache,
+                    "extra_meta": extra_meta}
+        tensors["rex_container"] = np.frombuffer(pack_value(envelope), np.uint8).copy()
 
     # Safetensors metadata is strict Dict[str, str]; encode as JSON. `rex_state_header` is the
     # canonical payload; `rex_meta` is kept as a thin, backward compatible alias so callers that
@@ -678,15 +679,12 @@ def safetensors_to_rex(
     :func:`load_safetensors_full`.
 
     Parameters
-    ----------
     path : str or os.PathLike
         Input file.
 
     Returns
-    -------
     RexGraph
     """
-    from .rex_state import RexState, from_state
 
     p = _coerce_path(path)
     raw, raw_meta = _load_tensor_file(
@@ -706,7 +704,7 @@ def safetensors_to_rex(
             f"Safetensors file contains {hdr.get('object_type')!r}, "
             "not RexGraph."
         )
-    return from_state(RexState(dict(raw), hdr), verify=verify)
+    return _rex_from_loaded(raw, hdr, verify=verify)
 
 
 # Full load (returns both the rex and any cached arrays/scalars)
@@ -890,7 +888,7 @@ def temporal_rex_to_safetensors(
     encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> pathlib.Path:
     """Write the canonical temporal state, including its exact coefficient codec."""
-    from .temporal_state import to_temporal_state
+    from rexgraph.temporal_state import to_temporal_state
     out = _coerce_path(path)
     state = to_temporal_state(trex)
     _write_tensor_file(state.tensors, out, {"rex_meta": json.dumps(state.header)},
@@ -899,8 +897,7 @@ def temporal_rex_to_safetensors(
 
 
 def _restore_times(trex, meta):
-    """Reattach the step clock. A file written before it existed has none, and the
-    step index is the identity bridge, so those load exactly as they used to."""
+    """Restore stored step times; legacy files without times retain index clocks."""
     times = meta.get("times")
     if times:
         trex._times = [float(x) for x in times]
@@ -954,16 +951,130 @@ def safetensors_to_temporal_rex(
 
 def _rex_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any],
                      *, verify: bool = True):
+    from rexgraph.state import from_state
+    return from_state(_rex_state_from_loaded(tensors, meta, verify=verify), verify=verify)
+
+
+def _rex_state_from_loaded(tensors, meta, *, verify=True):
     # `meta` (the `rex_meta` alias) is the rex-state header for files written by the current
     # `rex_to_safetensors`, so this goes through the same canonical decoder as
     # `safetensors_to_rex` instead of keeping a second, hand-rolled reconstruction here.
-    from .rex_state import RexState, from_state
-    return from_state(RexState(dict(tensors), meta), verify=verify)
+    from rexgraph.state import RexState
+    if meta.get("format_version") != 10:
+        return RexState(dict(tensors), meta)
+    from rexgraph.identity import tensor_digest
+    from rexgraph.value_codec import pack_value, unpack_value
+    names = meta.get("digest_names")
+    if not isinstance(names, list) or len(set(names)) != len(names):
+        raise ValueError("invalid native state tensor names")
+    state_names = set(names)
+    if not state_names <= tensors.keys():
+        raise ValueError("missing native state tensors")
+    extras = set(tensors) - state_names
+    if extras:
+        if "rex_container" not in extras:
+            raise ValueError("unclaimed safetensors payloads")
+        raw = np.asarray(tensors["rex_container"])
+        if raw.dtype != np.uint8 or raw.ndim != 1:
+            raise ValueError("invalid safetensors auxiliary envelope")
+        envelope = unpack_value(raw.tobytes())
+        if (not isinstance(envelope, dict) or set(envelope) != {"version", "state_digest", "tensor_names", "digest", "cached_arrays", "cache_scalars", "extra_meta"}
+                or type(envelope["version"]) is not int or envelope["version"] != 1
+                or envelope["state_digest"] != meta.get("digest")
+                or envelope["tensor_names"] != sorted(extras - {"rex_container"})):
+            raise ValueError("unclaimed or mismatched auxiliary payloads")
+        auxiliary = {k: tensors[k] for k in envelope["tensor_names"]}
+        if verify and envelope["digest"] != tensor_digest(auxiliary):
+            raise ValueError("safetensors auxiliary payload digest mismatch")
+        for key in ("cached_arrays", "cache_scalars"):
+            if key in meta and pack_value(meta[key]) != pack_value(envelope[key]):
+                raise ValueError("cache metadata differs from its auxiliary envelope")
+    header = dict(meta)
+    header.pop("cached_arrays", None)
+    header.pop("cache_scalars", None)
+    return RexState({k: tensors[k] for k in names}, header)
+
+
+def state_to_safetensors_bytes(state):
+    """Encode verified static or temporal semantic state without temporary files.
+
+    Container caches are not carried by this native state path. State owns their
+    semantic tensor/header contract; this adapter only packs those tensors.
+    """
+    from rexgraph.state import RexState, verify_state
+    from rexgraph.temporal_state import TemporalState, verify_temporal_state
+    from safetensors.numpy import save
+    if isinstance(state, RexState):
+        valid = state.header.get("format_version") == 10 and verify_state(state)
+    elif isinstance(state, TemporalState):
+        valid = verify_temporal_state(state)
+    else:
+        raise TypeError("native safetensors bytes require declared semantic state")
+    if not valid:
+        raise ValueError("native safetensors bytes require verified semantic state")
+    raw = save({name: _as_storable(np.asarray(array)) for name, array in state.tensors.items()},
+               metadata={"rex_state_header": json.dumps(state.header), "rex_meta": json.dumps(state.header)})
+    if len(raw) > 256*1024*1024:
+        raise ValueError("native safetensors state exceeds its byte limit")
+    return raw
+
+
+def state_from_safetensors_bytes(raw: bytes):
+    """Read and verify canonical state without reconstructing a graph.
+
+    This supports prepared ingest and content identity. It accepts plaintext
+    safetensors bytes containing a static or temporal state; callers open any
+    encryption or compression frame first. Legacy unsealed temporal state is
+    refused rather than assigned an invented semantic identity.
+    """
+    from safetensors.numpy import load
+    from safetensors import SafetensorError
+    if type(raw) is not bytes or not 8 <= len(raw) <= 256*1024*1024:
+        raise ValueError("invalid or oversized safetensors state bytes")
+    length = int.from_bytes(raw[:8], "little")
+    if not 0 < length <= min(100_000_000, len(raw)-8):
+        raise ValueError("invalid safetensors state header length")
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate safetensors state declaration")
+            result[key] = value
+        return result
+
+    try:
+        header = json.loads(raw[8:8+length], object_pairs_hook=unique)
+        if type(header) is not dict:
+            raise ValueError("invalid safetensors state header")
+        metadata = header.get("__metadata__", {})
+        if (type(metadata) is not dict or any(type(k) is not str or type(v) is not str
+                                             for k, v in metadata.items())):
+            raise ValueError("invalid safetensors state metadata")
+        # The canonical header is authority; rex_meta may also contain cache views.
+        meta = json.loads(metadata["rex_state_header"] if "rex_state_header" in metadata
+                          else metadata["rex_meta"], object_pairs_hook=unique)
+        if type(meta) is not dict:
+            raise ValueError("invalid safetensors state declaration")
+        tensors = load(raw)
+    except (KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError, SafetensorError) as exc:
+        raise ValueError("invalid safetensors state declaration") from exc
+    if meta.get("object_type") == "RexGraph":
+        from rexgraph.state import verify_state
+        state = _rex_state_from_loaded(tensors, meta)
+        if verify_state(state):
+            return state
+    elif meta.get("object_type") == "TemporalRex":
+        from rexgraph.temporal_state import TemporalState, verify_temporal_state
+        state = TemporalState(tensors, meta)
+        if verify_temporal_state(state):
+            return state
+    raise ValueError("safetensors payload has no verified canonical state")
 
 
 def _temporal_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any]):
     if "temporal_state_version" in meta:
-        from .temporal_state import TemporalState, from_temporal_state
+        from rexgraph.temporal_state import TemporalState, from_temporal_state
         return from_temporal_state(TemporalState(tensors, meta))
     # Legacy files (written by an earlier encoder, or any file whose `encoding` is
     # missing) carry full per step snapshots under `snapshot/<t>/...`; that
@@ -997,9 +1108,8 @@ def _temporal_from_loaded(tensors: dict[str, NDArray], meta: dict[str, Any]):
         t = 0
         while f"face_snapshot/{t}/B2_col_ptr" in tensors:
             b2v = tensors.get(f"face_snapshot/{t}/B2_vals")
-            # a legacy file written before this bridge carried B2_vals for face
-            # snapshots has no signs at all, so the 2 tuple form (defaulting to
-            # ones downstream in TemporalRex.at) is the only honest fallback.
+            # Legacy face snapshots without B2_vals use the two array form,
+            # with positive coefficients supplied by TemporalRex.at.
             if b2v is not None:
                 face_snapshots.append((
                     tensors[f"face_snapshot/{t}/B2_col_ptr"],
@@ -1129,11 +1239,7 @@ def _load_meta(
 
 # Fingerprint corpus export
 #
-# Downstream consumers may produce collections of fingerprint rows. For
-# ML consumption we want a single flat feature matrix plus labels plus
-# per-column names, which matches exactly what safetensors was built
-# for. This function serves that use case without coupling to any
-# external dataclass; it just takes arrays.
+# Export fingerprint rows as a flat feature matrix, labels and column names.
 
 
 def fingerprints_to_safetensors(
@@ -1149,7 +1255,6 @@ def fingerprints_to_safetensors(
     """Write a fingerprint corpus to a `.safetensors` file.
 
     Parameters
-    ----------
     feature_matrix : ndarray, shape (n_spans, n_features)
         The stacked fingerprint vectors. Must be a numeric dtype.
     labels : ndarray or None
@@ -1170,7 +1275,6 @@ def fingerprints_to_safetensors(
         fingerprint schema version, etc.).
 
     Returns
-    -------
     pathlib.Path
         The file path that was written.
     """
@@ -1248,7 +1352,6 @@ def safetensors_to_fingerprints(
     """Load a fingerprint corpus from a `.safetensors` file.
 
     Returns
-    -------
     feature_matrix : ndarray (n_spans, n_features)
     labels : ndarray or None
         String-valued 1-D array if labels were stored as strings,

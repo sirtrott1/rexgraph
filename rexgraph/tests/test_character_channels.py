@@ -201,8 +201,7 @@ class TestFaceVoidDipole:
         assert 'dipole_ratio' in d
 
     def test_graph_method_with_voids(self):
-        # Regression: a complex WITH voids hands back a sparse Bvoid; face_void_dipole must densify
-        # it before the kernel (previously raised "setting an array element with a sequence").
+        # face_void_dipole converts the sparse void boundary for its dense kernel.
         g = RexGraph(sources=np.array([0, 1, 2]), targets=np.array([1, 2, 0]))  # triangle, no face
         assert g.void_complex.get('n_voids') == 1
         d = g.face_void_dipole(np.ones(g.nE, dtype=np.float64))

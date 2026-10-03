@@ -11,7 +11,7 @@ import numpy as np
 
 from .cells import Cell, CellSet, GradedCellPattern
 from .chain_map import CoordinateComplex, GradedMap
-from .io.partition_state import _downward_closure, partition_tower
+from .partition_state import _downward_closure, partition_tower
 from .type_accession import CoordinateSpace
 
 

@@ -100,10 +100,12 @@ def bench_backend(kind: str, n: int, root: str) -> dict[str, Any]:
         if kind == "memory":
             return rcdb.MemoryStore()
         if kind == "file":
-            return rcdb.FileStore(root)
+            return rcdb.FileStore(root, read_only=False)
         if kind == "sqlite":
             return rcdb.SQLStore(f"sqlite:///{root}/rc.sqlite")
-        return rcdb.open_store(f"rex://{root}")
+        if kind == "local":
+            return rcdb.LocalStore(root)
+        return rcdb.open_store(f"rex://{root}", read_only=False)
 
     payload = _payload(n, seed=2)
     store = _open()
@@ -174,7 +176,7 @@ def bench_analytics(n: int = 2000) -> dict[str, Any] | None:
     }
 
 
-def run(n: int = 2000, backends=("rex", "file", "sqlite", "memory")) -> dict[str, Any]:
+def run(n: int = 2000, backends=("local", "sqlite", "memory")) -> dict[str, Any]:
     from rexgraph import hardware
 
     report: dict[str, Any] = {

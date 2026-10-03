@@ -10,7 +10,7 @@ Boundary table: the general boundary operator d_1
 One row per (edge, boundary_vertex) pair, which handles
 standard, self loop, branching, and witness edges.
 
-Edge table - per edge data: source/target (for standard edges),
+Edge table: per edge data: source/target (for standard edges),
 edge type, weight, and optional Hodge components.
 
 Vertex table: per vertex data, layout from overlap correct
@@ -25,7 +25,7 @@ Persistence table: persistence pairs from column reduction over
 Z/2.  Columns: birth, death, dim, birth_cell,
 death_cell, lifetime.
 
-Filtration table - filtration values f: C_k -> R
+Filtration table: filtration values f: C_k -> R
 on the relational complex.
 
 Metrics table: generic per cell numeric metrics.
@@ -97,6 +97,7 @@ def _pq():
 import contextlib
 
 from ._compat import dumps as _dumps
+from .columnar import column_declarations, decoded_columns, physical_columns, projected_columns
 
 # Edge type names matching the EdgeType enum in types.py
 _EDGE_TYPE_NAMES = {0: "standard", 1: "self_loop", 2: "branching", 3: "witness"}
@@ -158,20 +159,7 @@ def write_parquet(
     """
     pa, pq = _pq()
 
-    columns: dict[str, Any] = {}
-    col_meta: dict[str, dict] = {}
-
-    for name, arr in data.items():
-        arr = np.asarray(arr)
-        if arr.ndim == 1:
-            columns[name] = pa.array(arr)
-        elif arr.ndim == 2:
-            col_meta[name] = {"shape": list(arr.shape), "split": True}
-            for j in range(arr.shape[1]):
-                columns[f"{name}_{j}"] = pa.array(arr[:, j])
-        else:
-            raise ValueError(f"Column '{name}': {arr.ndim}D not supported")
-
+    columns, col_meta = physical_columns(data)
     table = pa.table(columns)
 
     schema_meta: dict[bytes, bytes] = {}
@@ -214,58 +202,17 @@ def read_parquet(
         parquet_path,
         decryption_properties=decryption_properties,
     )
-    schema_meta = schema.metadata or {}
-    col_meta: dict[str, dict] = {}
-    if b"rex_col_meta" in schema_meta:
-        col_meta = json.loads(schema_meta[b"rex_col_meta"].decode("utf-8"))
+    col_meta = column_declarations(schema)
 
-    physical_columns: list[str] | None = None
-    if columns is not None:
-        available = set(schema.names)
-        physical_columns = []
-        seen: set[str] = set()
-        for name in columns:
-            info = col_meta.get(name)
-            if info is not None and info.get("split"):
-                candidates = (f"{name}_{j}" for j in range(info["shape"][1]))
-            else:
-                candidates = (name,)
-            for candidate in candidates:
-                if candidate in available and candidate not in seen:
-                    physical_columns.append(candidate)
-                    seen.add(candidate)
+    projection = projected_columns(schema, col_meta, columns)
 
     table = pq.read_table(
         parquet_path,
-        columns=physical_columns,
+        columns=projection,
         decryption_properties=decryption_properties,
     )
 
-    result: dict[str, np.ndarray] = {}
-    consumed: set = set()
-
-    for name, info in col_meta.items():
-        if columns is not None and name not in columns:
-            continue
-        if info.get("split"):
-            n_cols = info["shape"][1]
-            parts = []
-            for j in range(n_cols):
-                cn = f"{name}_{j}"
-                if cn in table.column_names:
-                    parts.append(table.column(cn).to_numpy())
-                    consumed.add(cn)
-            if parts:
-                result[name] = np.column_stack(parts)
-
-    for cn in table.column_names:
-        if cn in consumed:
-            continue
-        if columns is not None and cn not in columns:
-            continue
-        result[cn] = table.column(cn).to_numpy()
-
-    return result
+    return decoded_columns(table, col_meta, columns=columns)
 
 
 def _read_metadata(
@@ -394,10 +341,10 @@ def write_edge_table(
     One row per edge.  Columns:
 
     - `edge_idx`
-    - `source`, `target` - endpoints (`-1` for witness edges)
-    - `boundary_size` - |supp(d_1(e))|
-    - `edge_type` - code from EdgeType enum (Def 3.2)
-    - `weight` - if weighted
+    - `source`, `target`: endpoints (`-1` for witness edges)
+    - `boundary_size`: |supp(d_1(e))|
+    - `edge_type`: code from EdgeType enum
+    - `weight`: if weighted
 
     Parameters
 
@@ -502,7 +449,7 @@ def write_vertex_table(
     Default columns:
 
     - `vertex_idx`
-    - `degree` - from diag(L_0)
+    - `degree`: from diag(L_0)
     - `x`, `y` - spectral layout
 
     Parameters
@@ -879,11 +826,13 @@ def read_parquet_batches(
         os.fspath(path),
         decryption_properties=decryption_properties,
     )
+    declaration = column_declarations(pf.schema_arrow)
+    projection = projected_columns(pf.schema_arrow, declaration, columns)
     pending: list[dict[str, np.ndarray]] = []
     pending_rows = 0
 
-    for batch in pf.iter_batches(batch_size=batch_rows, columns=columns):
-        chunk = {col: batch.column(col).to_numpy() for col in batch.column_names}
+    for batch in pf.iter_batches(batch_size=batch_rows, columns=projection):
+        chunk = decoded_columns(batch, declaration, columns=columns)
         pending.append(chunk)
         pending_rows += batch.num_rows
 

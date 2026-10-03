@@ -184,8 +184,7 @@ class PipelineRunner:
 
         # Step 1: build one corpus from whatever inputs are present.
         # A mixed batch (OCR texts + direct CSV/JSON/text files) must
-        # include BOTH: the texts branch used to win and direct files
-        # were silently dropped.
+        # Include extracted text and directly readable source files.
         have_texts = texts is not None and doc_ids is not None
         have_files = bool(files)
         if not have_texts and not have_files:

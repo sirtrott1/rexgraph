@@ -122,7 +122,7 @@ def test_chunk_vertices_reads_the_stored_support_at_every_arity():
 
 
 def test_the_dense_oracle_still_has_no_tocsc():
-    """Pins the mistake itself, so the old call cannot be reintroduced as a fix."""
+    """The dense boundary oracle has no sparse tocsc accessor."""
     rex = RexGraph.from_cells([4, [[0, 1, 2], [2, 3]]])
 
     assert not hasattr(rex.B1, "tocsc"), "B1 is the dense oracle, not a sparse matrix"
@@ -147,12 +147,7 @@ def test_a_chunk_with_no_relations_reports_no_coherence():
 
 
 def test_token_metrics_on_no_tokens_is_json_serialisable():
-    """The undefined metrics are null, and n_tokens says why they are undefined.
-
-    These three reach a response body through chat_model, the metrics response helpers
-    and the model SSE route. They used to be float('nan'), which json.dumps writes as a
-    bare NaN token: valid for Python's own reader, rejected by every other one.
-    """
+    """Empty token metrics serialize undefined values as null and retain n_tokens."""
     from agent.metrics import token_metrics
 
     empty = token_metrics([])
@@ -168,7 +163,7 @@ def test_token_metrics_on_no_tokens_is_json_serialisable():
 
 
 def test_the_consumers_of_an_absent_perplexity_still_behave():
-    """None has to be safe where NaN used to flow, or this trades one bug for another."""
+    """Consumers accept None for an absent perplexity reading."""
     from agent.metrics import token_metrics
 
     ppl = token_metrics([])["perplexity"]

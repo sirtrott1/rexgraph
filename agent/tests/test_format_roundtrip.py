@@ -122,8 +122,10 @@ def test_a_complex_survives_every_serializer(samples, tmp_path, name):
     save_safetensors(stem + ".safetensors", rex)
     assert _shape(load_safetensors(stem + ".safetensors")["object"]) == want, "safetensors"
 
-    save_zarr(stem + ".zarr", rex)
-    assert _shape(load_zarr(stem + ".zarr")) == want, "zarr"
+    from rexgraph.io import HAS_ZARR
+    if HAS_ZARR:
+        save_zarr(stem + ".zarr", rex)
+        assert _shape(load_zarr(stem + ".zarr")) == want, "zarr"
 
     save_hdf5(stem + ".h5", rex)
     assert _shape(load_hdf5(stem + ".h5")) == want, "hdf5"
@@ -138,9 +140,10 @@ def test_a_complex_survives_every_serializer(samples, tmp_path, name):
 
 
 def test_json_edge_lists_accept_pairs_and_objects(tmp_path):
-    """`{"edges": [["a","b"]]}` is a common shape and used to raise AttributeError
-    from inside the key finder. Numeric lists of lists stay adjacency matrices,
-    because [[0,1],[1,0]] is a matrix and reading it as edges changes the file."""
+    """JSON edge lists accept pairs and objects.
+
+    Numeric square lists remain adjacency matrices.
+    """
     from rexgraph.io import load_json
     cases = {
         "wrapped_pairs.json": ('{"edges":[["a","b"],["b","c"],["c","a"]]}', 3, 3),
@@ -406,10 +409,7 @@ def test_reader_options_reach_the_reader(tmp_path):
 
 
 def test_a_face_is_a_filled_cycle_of_any_gon(tmp_path):
-    """Faces come from `rexgraph.faces`, which solves B1 c = 0 exactly and reads the
-    gon off the cycle basis. The agent path used to run a triangle only, type gated
-    rule instead, so a 4 gon could never close and a ring with a double bond in it
-    was rejected for having edges that disagreed."""
+    """Face selection reads arbitrary gons from the exact B1 cycle basis."""
     import numpy as np
     from rexgraph.graph import RexGraph
     from rexgraph.faces import autoface
@@ -489,16 +489,19 @@ def test_an_isolated_vertex_survives_a_save(tmp_path):
 
     stem = str(tmp_path / "iso")
     save_rcbd(stem + ".rcbd", rex)
-    save_zarr(stem + ".zarr", rex)
+    from rexgraph.io import HAS_ZARR
+    if HAS_ZARR:
+        save_zarr(stem + ".zarr", rex)
     save_hdf5(stem + ".h5", rex)
     save_safetensors(stem + ".st", rex)
     got = {
         ".rcbd": load_rcbd(stem + ".rcbd").nV,
-        ".zarr": load_zarr(stem + ".zarr").nV,
         ".h5": load_hdf5(stem + ".h5").nV,
         ".safetensors": load_safetensors(stem + ".st")["object"].nV,
         "rcdb": deserialize_complex(serialize_complex(rex)).nV,
     }
+    if HAS_ZARR:
+        got[".zarr"] = load_zarr(stem + ".zarr").nV
     assert all(v == 6 for v in got.values()), got
 
 
@@ -518,8 +521,7 @@ def test_a_bed_file_with_isolated_intervals_round_trips(tmp_path):
 
 
 def test_face_selection_rejects_a_value_it_cannot_honour():
-    """An unrecognised rule used to reach `autoface` and fail there with a TypeError
-    about comparing str and int."""
+    """An unknown face rule raises before autoface construction."""
     import pytest as _pytest
     from agent.auto import auto_rex
     txt = "Alpha connects beta. Beta connects gamma. Gamma connects alpha."

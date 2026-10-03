@@ -58,6 +58,28 @@ def test_a_repeat_trip_carries_nothing(pair):
     assert dst.get_record("alpha-schema").version == 1, "a held record gains no version"
 
 
+@pytest.mark.parametrize("scheme", ["file", "memory"])
+@pytest.mark.parametrize("direction", ["source", "destination"])
+def test_native_objects_share_courier_copy_and_exact_rcql_results(scheme, direction, tmp_path):
+    from contextlib import closing
+    from fractions import Fraction
+    from rcql import Executor, parse
+    pytest.importorskip("fsspec")
+    with closing(rcdb.NativeObjectStore(f"{scheme}://{tmp_path / 'objects'}")) as objects, \
+            closing(rcdb.LocalStore(tmp_path / "local")) as local:
+        src, dst = (objects, local) if direction == "source" else (local, objects)
+        src.put("exact", RexGraph.from_graph([0], [1], w_E=[Fraction(1, 7)]),
+                analytics=False, meta={"q": Fraction(2, 7)}, valid_from=1.0, valid_to=9.0)
+        courier = _courier(src, dst)
+        assert courier.deliver("alpha", "beta")["carried"] == 1
+        assert courier.deliver("alpha", "beta")["held"] == 1
+        assert dst.get("exact").edge_metric_exact == [Fraction(1, 7)]
+        assert dst.get_record("exact").meta["q"] == Fraction(2, 7)
+        result = Executor(sources={"db": dst}).execute(parse(
+            'FROM RCDB_VERSION(RCDB("db"), "exact", 1) RETURN RANK(1), 1 / 7'))
+        assert result.values == (1, Fraction(1, 7))
+
+
 def test_a_changed_record_is_carried_as_a_new_version(pair):
     src, dst = pair
     c = _courier(src, dst)
@@ -244,8 +266,8 @@ def test_dedup_survives_a_backend_boundary(tmp_path):
     (labels_sample, n_labels, n_voids) for the SAME complex. Comparing the whole
     signature minus provenance therefore called every record changed the moment it
     crossed backends, and a courier re carried everything on every trip."""
-    src = rcdb.open_store(f"file://{tmp_path}/a")
-    dst = rcdb.open_store(f"file://{tmp_path}/b")
+    src = rcdb.open_store(f"file://{tmp_path}/a", read_only=False)
+    dst = rcdb.open_store(f"file://{tmp_path}/b", read_only=False)
     src.put("schema", _rex(3), meta={"kind": "hive-schema"}, tags=["hive-schema"])
 
     c = Courier("mule")
@@ -258,8 +280,8 @@ def test_dedup_survives_a_backend_boundary(tmp_path):
 def test_a_changed_record_still_reads_as_changed_across_backends(tmp_path):
     """The half worth checking as hard as the false positive: a comparison narrow enough
     to stop re carrying could also stop noticing real change."""
-    src = rcdb.open_store(f"file://{tmp_path}/a")
-    dst = rcdb.open_store(f"file://{tmp_path}/b")
+    src = rcdb.open_store(f"file://{tmp_path}/a", read_only=False)
+    dst = rcdb.open_store(f"file://{tmp_path}/b", read_only=False)
     src.put("work", _rex(3), meta={"kind": "x"}, tags=["x"])
     c = Courier("mule")
     c.attach_store("alpha", src)

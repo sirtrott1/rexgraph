@@ -1,4 +1,4 @@
-"""Eigen free / sparse kernel correctness - the layer the sparse math refactor added.
+"""Eigen free / sparse kernel correctness: the layer the sparse math refactor added.
 
 Each test pins an in repo eigen free result against its dense oracle, so the
 matrix free path cannot silently drift from the exact linear algebra it replaces.
@@ -53,7 +53,7 @@ def _Kk(k):
 def test_attributed_curvature_matches_from_scratch_weighted_boundary(weights):
     """The sparse attributed curvature equals the definition computed from scratch:
     R = B1^w @ B2^w with B1^w[v,e]=a_v B1[v,e]sqrt(w_e), B2^w[e,f]=sqrt(w_e)B2[e,f], and
-    kappa_f=||R[:,f]|| - across unit, random, and extreme weights."""
+    kappa_f=||R[:,f]||: across unit, random, and extreme weights."""
     rng = np.random.default_rng(1)
     rex = _Kk(5)
     nV, nE = rex._nV, rex._nE
@@ -126,7 +126,7 @@ def test_heat_trajectory_shares_matvecs_and_matches_dense(edges):
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_heat_apply_block_matches_columnwise(edges):
     """A block of signals (n, m) propagates as an spmm and equals column by column
-    single signal propagation - the shape the multi-core/GPU path batches over."""
+    single signal propagation: the shape the multi-core/GPU path batches over."""
     from rexgraph import scale_propagator as spg
     rex = _rex(edges)
     L = rex.L1_sparse.tocsr()
@@ -149,7 +149,7 @@ def test_heat_t0_is_identity():
 #### eigen free Betti (union find + exact rational rank) == spectrum derived Betti
 @pytest.mark.parametrize("edges", _COMPLEXES)
 def test_betti_eigenfree_matches_spectral_bundle(edges):
-    """rex.betti (beta_0 union find, rank(B_k) exact rational column reduction - no
+    """rex.betti (beta_0 union find, rank(B_k) exact rational column reduction: no
     SVD, no eigendecomposition) equals the spectral bundle's spectrum derived betti."""
     rex = _rex(edges)
     sb = rex.spectral_bundle
@@ -216,7 +216,7 @@ def test_analyze_perturbation_field_diffusion_is_eigenfree():
 
 def test_analyze_perturbation_field_wave_is_eigenfree():
     """Wave mode field perturbation now evolves positions AND velocities via matrix free
-    Chebyshev (cos(t√M) / -√M sin(t√M)) on the SPARSE M - no dense eigendecomposition -
+    Chebyshev (cos(t√M) / -√M sin(t√M)) on the SPARSE M: no dense eigendecomposition -
     matching the dense wave_evolve_trajectory."""
     from rexgraph.core import _field
     g = _tetra_rex()
@@ -283,7 +283,7 @@ def test_schrodinger_apply_matches_dense_modesum(t):
 def test_evolve_field_wave_edge_and_face_are_eigenfree():
     """rex.evolve_field_wave / evolve_field_trajectory now evolve BOTH tiers matrix free
     (e^{-i RL1 t} psi_E, e^{-i L2 t} psi_F) against the exact eigh of the sparse
-    operators - the face tier is genuinely propagated (no longer frozen when the dense
+    operators: the face tier is propagated (no longer frozen when the dense
     L2 spectrum happens to be absent)."""
     import scipy.sparse as sp
 
@@ -368,8 +368,7 @@ def test_pinv_quadratic_form_matches_dense_pseudoinverse():
 
 
 def test_primal_signal_character_kernel_guards_arity():
-    """Regression: the _channels kernel is compiled boundscheck=False; if nhats disagrees with the
-    number of hat arrays it used to read past the list and segfault. It must raise instead."""
+    """The compiled character kernel raises when nhats disagrees with its hat arrays."""
     from rexgraph.core import _channels
     with pytest.raises(ValueError):
         _channels.primal_signal_character(np.zeros(4), [], [], 4, 4)   # nhats=4, zero hats
@@ -666,12 +665,9 @@ class TestRelaxationMomentTower:
 
 
 def test_c2_H_is_the_direction_that_closes_the_geometric_mean_identity():
-    """C.2: sqrt(c2_E * c2_H) = c0^2 = (k-2)/2 on K_k.
+    """Check sqrt(c2_E * c2_H) = c0^2 = (k-2)/2 on K_k for k >= 5.
 
-    Both directions of the entropy coupling are wanted and both are returned, but only
-    ONE satisfies the identity, so the pair has to be named rather than left to a bare
-    `c2`. K4 cannot discriminate ((k-2)/2 = 1 there and 1 is its own reciprocal) which
-    is why this runs at k >= 5.
+    Both entropy coupling directions are returned under their distinct names.
     """
     import itertools
 

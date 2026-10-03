@@ -90,8 +90,7 @@ def test_a_single_edge_has_an_infinite_mixing_time():
 
 @pytest.mark.parametrize("depth", DEPTHS)
 def test_the_analysis_route_can_send_an_empty_complex(depth, tmp_path, monkeypatch):
-    """The defect this file was opened for. An undefined measurement is not JSON, and
-    the whole response used to fail rather than one field reporting absent."""
+    """The analysis route serializes absent measurements in an empty complex."""
     monkeypatch.setenv("REXGRAPH_RCDB_URI", "sqlite:///" + str(tmp_path / "r.sqlite"))
     from agent.rcdb import reset_default_store
     reset_default_store()

@@ -298,7 +298,7 @@ def filtration_temporal(list snapshot_sources,
     Maps directly from _temporal.pyx snapshot data.
     Edges are identified by (src, tgt) pairs across snapshots.
     """
-    cdef Py_ssize_t T = len(snapshot_sources), t, e, j
+    cdef Py_ssize_t T = len(snapshot_sources), t, e, j, v, f
     cdef i32[::1] src = sources, tgt = targets
 
     edge_first = {}
@@ -370,7 +370,7 @@ def filtration_temporal_general(list snapshots,
 
     filt_v, filt_e, filt_f : f64 arrays
     """
-    cdef Py_ssize_t T = len(snapshots), t, e, j
+    cdef Py_ssize_t T = len(snapshots), t, e, j, v, f
     cdef i32[::1] bp = boundary_ptr, bi = boundary_idx
 
     edge_first = {}
@@ -690,25 +690,13 @@ def extract_persistence_pairs(dict pivot_to_col,
     essential : f64[n_ess, 3]
         Classes that never die: [birth_value, inf, dimension]
     """
-    destroyer_set = set(pivot_to_col.values())
-    creator_killed = set(pivot_to_col.keys())
-
     pairs_list = []
     essential_list = []
 
     cdef i32[::1] cdim = cell_dim
     cdef f64[::1] fvals = filt_vals
     cdef i32[::1] cidx = cell_idx
-    cdef Py_ssize_t j
-
-    for j in range(N):
-        if j in destroyer_set:
-            continue
-
-        if j in creator_killed:
-            continue
-
-        pass
+    cdef Py_ssize_t j, creator_pos, destroyer_pos
 
     for creator_pos, destroyer_pos in pivot_to_col.items():
         b_val = float(fvals[creator_pos])
@@ -748,7 +736,7 @@ def persistence_diagram(np.ndarray[f64, ndim=1] filt_v,
       'pairs'     : f64[n, 5] - [birth, death, dim, birth_cell, death_cell]
       'essential' : f64[n, 3] - [birth, inf, dim]
       'betti'     : (beta0, beta1, beta2) at the final filtration step
-      'order'     : i64[N] - filtration ordering
+      'order'     : i64[N]: filtration ordering
     """
     cdef Py_ssize_t nV = filt_v.shape[0]
     cdef Py_ssize_t nE = filt_e.shape[0]

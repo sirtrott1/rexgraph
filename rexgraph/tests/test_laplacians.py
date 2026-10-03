@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._laplacians - Hodge Laplacians and spectral decomposition.
+Tests for rexgraph.core._laplacians: Hodge Laplacians and spectral decomposition.
 
 Verifies:
     - L0, L1_down, L1_up, L1_full, L2 shapes and symmetry

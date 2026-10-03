@@ -1,18 +1,7 @@
-"""Phase 0 characterization of the storage, catalog and metadata operators.
+"""Check direct storage, catalog, metadata and RCDB operator behavior.
 
-These record what the current adapters DO, not what the native contract will require.
-That is the point of a characterization suite: an operator cannot be moved behind a static
-signature safely unless its present behaviour is pinned first, so a Phase 1 change is
-visible as a diff rather than as a silent shift in meaning.
-
-Scope is deliberately the 19 operators that are not Rex mathematics: REX, the file catalog
-and metadata readings, and the RCDB readings. The 19 Rex math adapters are excluded on
-purpose. Their exactness and grade contracts are being corrected in the same phase, so
-pinning today's floating and grade 1 only behaviour would produce tests written to fail.
-
-Where an operator's current behaviour is wrong against the native contract, the test says
-so and pins the wrong behaviour anyway, naming what Phase 1 owes. A characterization test
-that quietly asserts the target contract is not characterizing anything.
+These cases call registered adapters directly, including catalog entry errors
+and cached content hashes.
 """
 
 from __future__ import annotations
@@ -55,7 +44,7 @@ def catalog(tmp_path):
 
 @pytest.fixture
 def store(tmp_path, rex):
-    s = rcdb.open_store(f"rex://{tmp_path / 'store'}")
+    s = rcdb.open_store(f"rex://{tmp_path / 'store'}", read_only=False)
     s.put("r1", rex, meta={"note": "first"}, tags=["t"])
     yield s
     s.close()
@@ -85,11 +74,7 @@ def test_the_catalog_indexes_loadable_kinds_only(catalog):
 
 
 def test_file_info_and_hash_raise_for_an_unindexed_path_that_exists(catalog):
-    """KeyError, not an empty result, and the file is genuinely on disk.
-
-    Phase 1 owes this a signature precondition so an unknown entry is refused during
-    binding rather than surfacing as a runtime KeyError from inside the adapter.
-    """
+    """Direct catalog adapters raise KeyError for existing but unindexed paths."""
     for name in ("FILE_INFO", "FILE_HASH", "TENSORS"):
         with pytest.raises(KeyError):
             _op(name)(catalog, "notes.txt")
@@ -98,7 +83,7 @@ def test_file_info_and_hash_raise_for_an_unindexed_path_that_exists(catalog):
 def test_catalog_readings_are_bounded_and_structural(catalog):
     entry = _op("FILES")(catalog)[0]
     # FILE_INFO returns a CatalogEntry dataclass rather than a mapping, so a caller
-    # rendering it as JSON has to convert. Phase 1 owes it a declared result type.
+    # rendering it as JSON converts that dataclass.
     info = _op("FILE_INFO")(catalog, entry.name)
     assert info.kind == "safetensors"
     assert _op("HASH_FILES")(catalog) == 1
@@ -108,19 +93,7 @@ def test_catalog_readings_are_bounded_and_structural(catalog):
 
 
 def test_file_info_is_not_idempotent_and_depends_on_what_ran_before_it(catalog):
-    """The same reading answers differently depending on call history.
-
-    A catalog refreshed without hashing carries sha256 = None. FILE_HASH computes the
-    digest and writes it back into the cached entry, so a FILE_INFO issued afterwards
-    reports a digest that the identical call reported as None a moment earlier.
-
-    This matters more for RCQL than for the catalog. The contract requires provenance to
-    travel with a result and forbids EXPLAIN implying a field came from a state other than
-    the one read, and common subplan elimination assumes identical inputs give identical
-    results. A reading whose field appears only after an unrelated operator has run
-    satisfies neither. Phase 1 should either make the digest an explicit request that
-    always computes, or declare it absent and leave FILE_HASH as the only way to get it.
-    """
+    """FILE_HASH populates a cached entry's digest for subsequent FILE_INFO calls."""
     name = _op("FILES")(catalog)[0].name
 
     assert _op("FILE_INFO")(catalog, name).sha256 is None
@@ -186,11 +159,18 @@ def test_rcdb_search_matches_nothing_without_an_index(store):
     assert _op("RCDB_SEARCH")(store, "r1") == []
 
 
-def test_rcdb_state_hash_uses_the_framework_logical_manifest(store):
+def test_rcdb_state_hash_uses_the_provider_logical_identity_and_reports_its_version(store):
     """The once refused name now has a real RCDB owned contract, not an adapter hash."""
-    from rexgraph.io.manifest import manifest_digest
-
-    assert _op("RCDB_STATE_HASH")(store) == manifest_digest(store.state_manifest())
+    from fractions import Fraction
+    from rcql.execution_trace import capture_methods
+    store.put("exact", store.get("r1"), meta={"rational": Fraction(1, 7), "tuple": (1, 2)},
+              analytics=False)
+    with capture_methods() as methods:
+        actual = _op("RCDB_STATE_HASH")(store)
+    assert actual == store.state_digest()
+    assert methods == [{"method": "rcdb-logical-state-digest",
+                        "manifest_version": store.logical_state_version, "state_digest": actual}]
+    assert store.logical_state_version == store.state_manifest()["version"] == 2
 
 
 # catalogue shape

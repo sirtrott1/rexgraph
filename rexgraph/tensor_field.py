@@ -30,8 +30,8 @@ class FieldSource:
             raise ValueError("record version must be a nonnegative integer")
         digest = self.state_digest
         if self.source is not None:
-            from rexgraph.io.rex_state import to_state
-            from rexgraph.io.catalog import state_object_digest
+            from rexgraph.state import to_state
+            from rexgraph.object_identity import state_object_digest
             current = state_object_digest(to_state(self.source))
             if digest is not None and digest != current:
                 raise ValueError("source does not match the declared native state identity")
@@ -53,8 +53,8 @@ class FieldSource:
     def check(self):
         if self.source is None:
             return
-        from rexgraph.io.rex_state import to_state
-        from rexgraph.io.catalog import state_object_digest
+        from rexgraph.state import to_state
+        from rexgraph.object_identity import state_object_digest
         if state_object_digest(to_state(self.source)) != self.state_digest:
             raise ValueError("native source changed; select a fresh state")
 

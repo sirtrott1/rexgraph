@@ -47,18 +47,12 @@ def test_route_encoders_are_the_shared_one(module):
     out = fn(dict(PAYLOAD))
     assert out["kappa"] is None and out["ratio"] is None
     assert out["arr"] == [1.0, None]
-    # and it is genuinely the shared implementation, not another near copy
+    # and it is the shared implementation, not another near copy
     assert json_sanitize(dict(PAYLOAD), nan="null") == out
 
 
 def test_a_payload_survives_a_nonfinite_metric():
-    """allow_nan=False turned a float64 NaN into a ValueError that killed a whole
-    render rather than one metric.
-
-    Aimed at the encoder rather than at a caller of it. This used to go through
-    `viz.dashboard._inject_data`, which is retired: the subject was always the shared
-    non finite policy, and the dashboard was one way of reaching it.
-    """
+    """The shared JSON encoder replaces a nonfinite metric without losing the payload."""
     from rexgraph.io._compat import dumps
 
     payload = dumps({"kappa": np.float64("nan"), "gap": np.float64("inf"),

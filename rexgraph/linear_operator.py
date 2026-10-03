@@ -76,6 +76,42 @@ class RexOperator:
         object.__setattr__(self, "domain_grade", domain_grade)
         object.__setattr__(self, "codomain_grade", codomain_grade)
 
+    @property
+    def carrier_arithmetic(self) -> str:
+        """Arithmetic carried by the operator's declared structure.
+
+        This is deliberately separate from the default numerical evaluator.  A boundary
+        may carry exact rational coefficients while its fast ``matvec`` executes in
+        float64; calling that evaluator does not make the carrier approximate.
+        """
+        if self.arithmetic == "structural":
+            return "structural"
+        if self.exact_matvec is not None:
+            return "rational"
+        return "approximate" if self.arithmetic in {"float", "approximate"} else self.arithmetic
+
+    @property
+    def evaluator_arithmetic(self) -> str:
+        """Arithmetic of the default ``apply(..., exact=False)`` evaluator."""
+        return "approximate"
+
+    def arithmetic_contract(self, *, exact: bool = False) -> dict[str, object]:
+        """Return carrier/evaluator arithmetic without conflating the two.
+
+        ``exact=True`` describes the certified exact evaluator and refuses when none is
+        present, matching :meth:`apply`.  The compatibility ``arithmetic`` field remains
+        unchanged for callers that still consume the older single label contract.
+        """
+        if not isinstance(exact, (bool, np.bool_)):
+            raise TypeError("exact must be a boolean")
+        if exact and self.exact_matvec is None:
+            raise TypeError(f"{self.name} has no certified exact action")
+        return {
+            "carrier": self.carrier_arithmetic,
+            "evaluator": "rational" if exact else self.evaluator_arithmetic,
+            "certified_exact_evaluator": self.exact_matvec is not None,
+        }
+
     def apply(self, values, *, exact=False):
         """Apply the operator to a vector or a block whose first axis is its domain."""
         shape = getattr(values, "shape", None)
@@ -152,7 +188,7 @@ class RexOperator:
         """Materialize the operator as a coalesced torch sparse tensor."""
         try:
             import torch
-        except Exception as exc:  # pragma: no cover - depends on optional torch
+        except Exception as exc:  # pragma: no cover: depends on optional torch
             raise ImportError("as_torch requires PyTorch") from exc
         matrix = self.as_scipy().tocoo()
         index = torch.as_tensor(
@@ -196,9 +232,20 @@ def _grade_sizes(boundaries: list[NativeSparse]) -> list[int]:
 
 
 def _exact_array(values):
-    from rexgraph.graded_metric import _fraction
+    from rexgraph.exact_value import exact_fraction
     array = np.asarray(values)
-    return np.asarray([_fraction(v) for v in array.flat], dtype=object).reshape(array.shape)
+    converted = []
+    for value in array.flat:
+        try:
+            converted.append(exact_fraction(value, context="exact coefficients"))
+        except ValueError as exc:
+            raise FloatingPointError(str(exc)) from exc
+        except TypeError as exc:
+            raise TypeError(
+                "exact coefficients must be integers or Fractions "
+                "(or another declared exact scalar carrier)"
+            ) from exc
+    return np.asarray(converted, dtype=object).reshape(array.shape)
 
 
 def _numeric_array(values, *, operation):

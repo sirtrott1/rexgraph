@@ -1,25 +1,9 @@
-"""
-agent.connectors: the "adapt to any system" layer.
+"""Read relational structure from SQL, document, semantic and generic sources.
 
-A **connector** turns a source (a live DB, a dump, a stream, an in memory graph,
-an ontology) into a relational complex: the signed incidence ``B₁`` topology,
-optional ``B₂`` faces, and a ``meta`` dict of labels/edges/weights/modality. The
-contract is defined by :class:`agent.interfaces.Connector` and is deliberately
-tiny, stable, and **read only** - it is the one thing a customer or the services
-team implements to teach the engine a new system.
-
-This package ships:
-
-  * :class:`BaseConnector` - a fill in the blanks base that supplies a default
-    :meth:`~agent.interfaces.Connector.capabilities` and a ``result`` helper that
-    assembles and length-checks the standard ``meta`` dict, so every connector
-    emits the same shape.
-  * the standards family adapters (SQL / document / semantic / generic …), each
-    covering a *shape* of system rather than a single vendor.
-
-Customer/proprietary connectors live *outside* the core, depending only on the
-seam - never editing the engine. That isolation is what keeps every adapter
-auditable on its own and every paid integration a known, testable quantity.
+Connector defines a read only source capability. BaseConnector supplies default
+capabilities and a result helper that validates metadata lengths. The returned
+complex carries signed boundaries, optional faces, labels, weights and modality.
+Custom connectors implement the same interface.
 """
 
 from __future__ import annotations
@@ -95,7 +79,7 @@ class BaseConnector:
     in one place.
 
     ``BaseConnector`` writes nothing, reads nothing on its own, and holds no
-    state - it only shapes and checks a connector's output.
+    state: it only shapes and checks a connector's output.
     """
 
     #: Subclasses override to advertise weights/modality/faces and URI schemes.

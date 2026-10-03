@@ -9,7 +9,7 @@ maps to a specific part of the algebraic/topological framework:
 Boundary table: the general boundary operator d_1
 One row per (edge, boundary_vertex) pair.
 
-Edge table - per edge data: source/target, boundary size, edge type
+Edge table: per edge data: source/target, boundary size, edge type
 weight, and optional Hodge components.
 
 Vertex table: per vertex data, degree from L_0, spectral
@@ -21,7 +21,7 @@ per nonzero: (face_idx, edge_idx, orientation).
 Persistence table: persistence pairs from column reduction over
 Z/2.
 
-Filtration table - filtration values f: C_k -> R.
+Filtration table: filtration values f: C_k -> R.
 
 Temporal table: per timestep Betti numbers and cell counts from a
 TemporalRex.
@@ -47,6 +47,9 @@ Usage:
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from functools import wraps
+from inspect import signature
 from collections.abc import Iterator
 from typing import Any
 
@@ -140,11 +143,7 @@ def get_engine(conn_str: str):
             )
         return _ENGINE_CACHE[mapped]
 
-    # Cached like the in memory branch above. This used to build a NEW engine on every
-    # call, and an engine owns a connection pool: a caller that asks per operation, as
-    # the workspace persistence layer does, opened one pool per save and left every one
-    # of them for the collector. An engine is meant to be long lived and shared by
-    # conn_str, which is what the cache this function already keeps is for.
+    # Cache one engine and connection pool per connection string.
     if conn_str not in _ENGINE_CACHE:
         _ENGINE_CACHE[conn_str] = create_engine(conn_str)
     return _ENGINE_CACHE[conn_str]
@@ -173,8 +172,55 @@ def _ensure_engine(conn):
     if isinstance(conn, str):
         return get_engine(conn)
     if isinstance(conn, sa.engine.Connection):
-        return conn.engine
+        return conn
     return conn
+
+
+@contextmanager
+def _connection(engine):
+    import sqlalchemy as sa
+    if isinstance(engine, sa.engine.Connection):
+        yield engine
+    else:
+        with engine.connect() as connection:
+            yield connection
+
+
+def _sqlite_transaction(connection):
+    if (connection.dialect.name == "sqlite"
+            and not connection.connection.driver_connection.in_transaction):
+        # SQLite's legacy driver leaves DDL outside SQLAlchemy's autobegin.
+        # Start its physical transaction so replacement can roll back too.
+        connection.exec_driver_sql("BEGIN")
+
+
+@contextmanager
+def _transaction(engine):
+    import sqlalchemy as sa
+    if isinstance(engine, sa.engine.Connection):
+        if engine.in_transaction():
+            _sqlite_transaction(engine)
+            yield engine
+        else:
+            with engine.begin():
+                _sqlite_transaction(engine)
+                yield engine
+    else:
+        with engine.begin() as connection:
+            _sqlite_transaction(connection)
+            yield connection
+
+
+def _atomic_sql_writer(writer):
+    parameters = signature(writer)
+    @wraps(writer)
+    def write(*args, **kwargs):
+        bound = parameters.bind(*args, **kwargs)
+        bound.apply_defaults()
+        with _transaction(_ensure_engine(bound.arguments["conn"])) as connection:
+            bound.arguments["conn"] = connection
+            return writer(*bound.args, **bound.kwargs)
+    return write
 
 
 def _sa_type(np_dtype):
@@ -224,9 +270,10 @@ def _write_df(data: dict[str, NDArray], engine, table: str,
     _sa()
     import sqlalchemy as sa
 
-    dtype = dtype or {}
-    names = list(data.keys())
-    arrays = {name: np.asarray(arr) for name, arr in data.items()}
+    from .sql_columns import encode_columns
+    arrays, exact_types, declarations = encode_columns(data)
+    dtype = dict(dtype or {}, **exact_types)
+    names = list(arrays)
     n = len(arrays[names[0]]) if names else 0
     dtypes = {name: str(arrays[name].dtype) for name in names}
 
@@ -234,17 +281,27 @@ def _write_df(data: dict[str, NDArray], engine, table: str,
     cols = [sa.Column(name, dtype.get(name) or _sa_type(arrays[name].dtype)) for name in names]
     tbl = sa.Table(table, md, *cols)
 
-    with engine.begin() as conn:
+    if if_exists not in {"replace", "append", "fail"}:
+        raise ValueError("if_exists must be replace, append or fail")
+    with _transaction(engine) as conn:
         if if_exists == "replace":
             tbl.drop(conn, checkfirst=True)
-        tbl.create(conn, checkfirst=True)
+        if if_exists == "append" and _table_exists(conn, table):
+            previous = _read_meta(conn, table)
+            if previous.get("dtypes") != dtypes or previous.get("logical_columns", {}) != declarations:
+                # Row counts differ on append; only the declared width matters.
+                old = previous.get("logical_columns", {})
+                old_shapes = {k: dict(v, shape=v["shape"][1:]) for k, v in old.items()}
+                new_shapes = {k: dict(v, shape=v["shape"][1:]) for k, v in declarations.items()}
+                if previous.get("dtypes") != dtypes or old_shapes != new_shapes:
+                    raise ValueError("SQL append schema disagrees with the existing logical columns")
+        tbl.create(conn, checkfirst=if_exists != "fail")
         if n:
             rows = [{name: _py(arrays[name][i]) for name in names} for i in range(n)]
             conn.execute(tbl.insert(), rows)
 
-    # Fresh baseline on replace (so a table reused for a different schema does
-    # not carry stale dtype keys forward); merged on append.
-    _write_meta(engine, table, {"dtypes": dtypes}, merge=(if_exists != "replace"))
+        # Refresh the physical and logical schema in the same transaction.
+        _write_meta(conn, table, {"dtypes": dtypes, "logical_columns": declarations}, merge=(if_exists != "replace"))
 
 
 def _read_table(engine, table: str, *, where: str = "", where_params: dict | None = None,
@@ -261,22 +318,27 @@ def _read_table(engine, table: str, *, where: str = "", where_params: dict | Non
 
     md = sa.MetaData()
     tbl = sa.Table(table, md, autoload_with=engine)
-    keys = columns or list(tbl.c.keys())
+    from .sql_columns import project_columns, decode_columns
+    meta = _read_meta(engine, table)
+    declarations = meta.get("logical_columns", {})
+    keys = project_columns(columns, declarations) if columns is not None else list(tbl.c.keys())
     sel = sa.select(*[tbl.c[k] for k in keys])
     if where:
         sel = sel.where(sa.text(where))
     if order_by:
         sel = sel.order_by(sa.text(order_by))
 
-    with engine.connect() as conn:
+    with _connection(engine) as conn:
         rows = conn.execute(sel, where_params or {}).fetchall()
 
-    dtypes = (_read_meta(engine, table) or {}).get("dtypes", {})
+    dtypes = meta.get("dtypes", {})
+    exact_fields = set(project_columns([k for k, v in declarations.items() if v.get("codec") == "exact-array-v1"], declarations))
     out: dict[str, np.ndarray] = {}
     for j, k in enumerate(keys):
         col = [r[j] for r in rows]
-        out[k] = np.asarray(col, dtype=dtypes[k]) if k in dtypes else np.asarray(col)
-    return out
+        out[k] = (np.asarray(col, dtype=object) if k in exact_fields else
+                  np.asarray(col, dtype=dtypes[k]) if k in dtypes else np.asarray(col))
+    return decode_columns(out, declarations)
 
 
 def _write_meta(engine, table: str, meta: dict, *, merge: bool = True) -> None:
@@ -300,7 +362,7 @@ def _write_meta(engine, table: str, meta: dict, *, merge: bool = True) -> None:
     meta_table = f"{table}_meta"
     md = sa.MetaData()
     tbl = sa.Table(meta_table, md, sa.Column("meta_json", sa.Text()))
-    with engine.begin() as conn:
+    with _transaction(engine) as conn:
         tbl.drop(conn, checkfirst=True)
         tbl.create(conn, checkfirst=True)
         conn.execute(tbl.insert(), [{"meta_json": _dumps(payload)}])
@@ -316,7 +378,7 @@ def _read_meta(engine, table: str) -> dict:
         return {}
     md = sa.MetaData()
     tbl = sa.Table(meta_table, md, autoload_with=engine)
-    with engine.connect() as conn:
+    with _connection(engine) as conn:
         row = conn.execute(sa.select(tbl.c.meta_json)).first()
     if row is None:
         return {}
@@ -330,6 +392,33 @@ from ._compat import dumps as _dumps
 # Boundary table
 
 
+def _boundary_columns(rex):
+    from rexgraph.column import declaration_of, exact_slot_coefficients
+    from rexgraph.exact_array import ExactArray
+    from rexgraph.value_codec import pack_value
+    rex._ensure_clean()
+    relations = rex.relations
+    counts = np.diff(relations.support_ptr)
+    edges = np.repeat(np.arange(rex.nE, dtype=np.int32), counts)
+    positions = np.concatenate([np.arange(n, dtype=np.int32) for n in counts]) if rex.nE else np.empty(0, np.int32)
+    return {"edge_idx": edges, "vertex_idx": relations.support_idx.astype(np.int32), "position": positions,
+            "head": positions == relations.head_slot[edges],
+            "coefficient": ExactArray.from_values(exact_slot_coefficients(relations.support_ptr, relations.support_idx, declaration_of(rex))),
+            "weight": ExactArray.from_values(relations.weight.values()[edges]),
+            "sign": relations.sign[edges],
+            "relation_id": np.asarray([pack_value(relations.relation_id[e]) for e in edges], dtype=object)}
+
+
+def _write_sql_state(connection, table, payload):
+    import sqlalchemy as sa
+    state = sa.Table(table+"_rex_state", sa.MetaData(), sa.Column("position", sa.Integer(), primary_key=True),
+                     sa.Column("payload", sa.LargeBinary(), nullable=False))
+    state.drop(connection, checkfirst=True)
+    state.create(connection)
+    connection.execute(state.insert(), [{"position": 0, "payload": payload}])
+
+
+@_atomic_sql_writer
 def write_boundary_sql(
     rex,
     conn: Any,
@@ -346,23 +435,12 @@ def write_boundary_sql(
     """
     _, _, _, _, sat = _sa()
     engine = _ensure_engine(conn)
-
-    bp = rex._boundary_ptr
-    bi = rex._boundary_idx
-    n_entries = int(bp[-1])
-
-    edge_idx = np.empty(n_entries, dtype=np.int32)
-    position = np.empty(n_entries, dtype=np.int32)
-    for e in range(rex.nE):
-        lo, hi = int(bp[e]), int(bp[e + 1])
-        edge_idx[lo:hi] = e
-        position[lo:hi] = np.arange(hi - lo, dtype=np.int32)
-
-    data = {
-        "edge_idx": edge_idx,
-        "vertex_idx": bi[:n_entries].astype(np.int32),
-        "position": position,
-    }
+    if if_exists == "append":
+        raise ValueError("a sealed boundary export replaces one declared basis; append is not defined")
+    from rexgraph.protocol import encode
+    payload = encode(rex)
+    data = _boundary_columns(rex)
+    n_entries = len(data["edge_idx"])
     dtype = {
         "edge_idx": sat.Integer(),
         "vertex_idx": sat.Integer(),
@@ -374,9 +452,12 @@ def write_boundary_sql(
         "nV": int(rex.nV), "nE": int(rex.nE),
         "n_entries": n_entries,
         "directed": bool(rex._directed),
+        "state_table": table+"_rex_state", "state_codec": "rex-wire-v1",
     })
+    _write_sql_state(engine, table, payload)
 
 
+@_atomic_sql_writer
 def read_boundary_sql(
     conn: Any,
     table: str = "boundary",
@@ -386,7 +467,7 @@ def read_boundary_sql(
     raw = _read_table(engine, table, order_by="edge_idx, position")
     meta = _read_meta(engine, table)
 
-    nE = meta.get("nE", int(raw["edge_idx"].max()) + 1)
+    nE = meta["nE"] if "nE" in meta else int(raw["edge_idx"].max())+1 if raw["edge_idx"].size else 0
 
     boundary_ptr = np.zeros(nE + 1, dtype=np.int32)
     for e in raw["edge_idx"]:
@@ -406,6 +487,7 @@ def read_boundary_sql(
 # Edge table
 
 
+@_atomic_sql_writer
 def write_edge_sql(
     rex,
     conn: Any,
@@ -519,6 +601,7 @@ def write_edge_sql(
     })
 
 
+@_atomic_sql_writer
 def read_edge_sql(
     conn: Any,
     table: str = "edges",
@@ -531,6 +614,7 @@ def read_edge_sql(
 # Vertex table
 
 
+@_atomic_sql_writer
 def write_vertex_sql(
     rex,
     conn: Any,
@@ -595,6 +679,7 @@ def write_vertex_sql(
     })
 
 
+@_atomic_sql_writer
 def read_vertex_sql(
     conn: Any,
     table: str = "vertices",
@@ -607,6 +692,7 @@ def read_vertex_sql(
 # Face table (B2)
 
 
+@_atomic_sql_writer
 def write_face_sql(
     rex,
     conn: Any,
@@ -662,6 +748,7 @@ def write_face_sql(
     })
 
 
+@_atomic_sql_writer
 def read_face_sql(
     conn: Any,
     table: str = "faces",
@@ -699,6 +786,7 @@ def read_face_sql(
 # Persistence table (column reduction over Z/2)
 
 
+@_atomic_sql_writer
 def write_persistence_sql(
     result: Any,
     conn: Any,
@@ -764,6 +852,7 @@ def write_persistence_sql(
     _write_meta(engine, table, meta)
 
 
+@_atomic_sql_writer
 def read_persistence_sql(
     conn: Any,
     table: str = "persistence",
@@ -783,6 +872,7 @@ def read_persistence_sql(
 # Filtration table
 
 
+@_atomic_sql_writer
 def write_filtration_sql(
     rex,
     filt_v: NDArray,
@@ -835,6 +925,7 @@ def write_filtration_sql(
     })
 
 
+@_atomic_sql_writer
 def read_filtration_sql(
     conn: Any,
     table: str = "filtration",
@@ -858,6 +949,7 @@ def read_filtration_sql(
 # Temporal table (TemporalRex per timestep summaries)
 
 
+@_atomic_sql_writer
 def write_temporal_sql(
     trex,
     conn: Any,
@@ -915,6 +1007,7 @@ def write_temporal_sql(
     })
 
 
+@_atomic_sql_writer
 def read_temporal_sql(
     conn: Any,
     table: str = "temporal",
@@ -944,6 +1037,7 @@ def read_temporal_sql(
 # Metrics table (generic per cell numerics)
 
 
+@_atomic_sql_writer
 def write_metrics_sql(
     metrics: dict[str, NDArray],
     conn: Any,
@@ -968,7 +1062,7 @@ def write_metrics_sql(
 
     if not metrics:
         raise ValueError("metrics dict cannot be empty")
-    lengths = {len(np.asarray(v)) for v in metrics.values()}
+    lengths = {v.shape[0] if hasattr(v, "shape") else len(v) for v in metrics.values()}
     if len(lengths) > 1:
         raise ValueError(f"All arrays must have equal length, got {lengths}")
 
@@ -977,7 +1071,7 @@ def write_metrics_sql(
         "cell_idx": np.arange(n, dtype=np.int32),
         "cell_dim": np.full(n, cell_dim, dtype=np.int32),
     }
-    data.update({k: np.asarray(v) for k, v in metrics.items()})
+    data.update(metrics)
 
     dtype: dict[str, Any] = {
         "cell_idx": sat.Integer(),
@@ -985,10 +1079,7 @@ def write_metrics_sql(
     }
     for name, arr in metrics.items():
         arr = np.asarray(arr)
-        if np.issubdtype(arr.dtype, np.integer):
-            dtype[name] = sat.Integer()
-        else:
-            dtype[name] = sat.Float(precision=53)
+        dtype[name] = _sa_type(arr.dtype)
 
     _write_df(data, engine, table, dtype, if_exists=if_exists)
     _write_meta(engine, table, {
@@ -998,6 +1089,7 @@ def write_metrics_sql(
     })
 
 
+@_atomic_sql_writer
 def read_metrics_sql(
     conn: Any,
     table: str = "metrics",
@@ -1049,7 +1141,9 @@ def read_sql_batches(
 
     is_query = " " in table_or_query.strip()
 
-    with engine.connect() as connection:
+    if type(chunksize) is not int or chunksize <= 0:
+        raise ValueError("SQL batch size must be a positive integer")
+    with _connection(engine) as connection:
         if is_query:
             # Raw SQL escape hatch: the caller supplied a full query, not a bare
             # table name, so there is no table name here to parameterize.
@@ -1065,7 +1159,12 @@ def read_sql_batches(
             md = sa.MetaData()
             tbl = sa.Table(table, md, autoload_with=engine)     # reflect, no f-string
             keys = list(tbl.c.keys())
-            dtypes = (_read_meta(engine, table) or {}).get("dtypes", {})
+            from .sql_columns import decode_columns
+            meta = _read_meta(connection, table)
+            dtypes = meta.get("dtypes", {})
+            from .sql_columns import project_columns
+            declarations = meta.get("logical_columns", {})
+            exact_fields = set(project_columns([k for k, v in declarations.items() if v.get("codec") == "exact-array-v1"], declarations))
             offset = 0
             while True:
                 sel = sa.select(*[tbl.c[k] for k in keys]).limit(chunksize).offset(offset)
@@ -1075,8 +1174,9 @@ def read_sql_batches(
                 out = {}
                 for j, k in enumerate(keys):
                     col = [r[j] for r in rows]
-                    out[k] = np.asarray(col, dtype=dtypes[k]) if k in dtypes else np.asarray(col)
-                yield out
+                    out[k] = (np.asarray(col, dtype=object) if k in exact_fields else
+                              np.asarray(col, dtype=dtypes[k]) if k in dtypes else np.asarray(col))
+                yield decode_columns(out, meta.get("logical_columns", {}))
                 if len(rows) < chunksize:
                     return
                 offset += chunksize
@@ -1085,6 +1185,7 @@ def read_sql_batches(
 # RCF Character and Void SQL tables (new in v2)
 
 
+@_atomic_sql_writer
 def write_character_sql(
     rex,
     conn,
@@ -1113,12 +1214,14 @@ def write_character_sql(
     _write_df(data, engine, table, dtype, if_exists=if_exists)
 
 
+@_atomic_sql_writer
 def read_character_sql(conn, *, table: str = "character"):
     """Read per edge character from SQL."""
     engine = _ensure_engine(conn)
     return _read_table(engine, table)
 
 
+@_atomic_sql_writer
 def write_vertex_character_sql(
     rex,
     conn,
@@ -1147,12 +1250,14 @@ def write_vertex_character_sql(
     _write_df(data, engine, table, dtype, if_exists=if_exists)
 
 
+@_atomic_sql_writer
 def read_vertex_character_sql(conn, *, table: str = "vertex_character"):
     """Read per vertex character from SQL."""
     engine = _ensure_engine(conn)
     return _read_table(engine, table)
 
 
+@_atomic_sql_writer
 def write_void_sql(
     rex,
     conn,
@@ -1193,6 +1298,7 @@ def write_void_sql(
     _write_df(data, engine, table, dtype, if_exists=if_exists)
 
 
+@_atomic_sql_writer
 def read_void_sql(conn, *, table: str = "void"):
     """Read void complex data from SQL."""
     engine = _ensure_engine(conn)
@@ -1202,6 +1308,7 @@ def read_void_sql(conn, *, table: str = "void"):
 # Full reconstruct: boundary + optional face + optional edge -> RexGraph
 
 
+@_atomic_sql_writer
 def reconstruct_rex_sql(
     conn: Any,
     *,
@@ -1230,6 +1337,37 @@ def reconstruct_rex_sql(
     from rexgraph.graph import RexGraph
 
     b = read_boundary_sql(engine, boundary)
+    meta = _read_meta(engine, boundary)
+    if "state_codec" in meta:
+        import sqlalchemy as sa
+        from rexgraph.protocol import decode, to_complex
+        from rexgraph.exact_array import ExactArray
+        if meta["state_codec"] != "rex-wire-v1" or meta.get("state_table") != boundary+"_rex_state":
+            raise ValueError("unknown SQL native state declaration")
+        state = sa.Table(meta["state_table"], sa.MetaData(), autoload_with=engine)
+        with _connection(engine) as connection:
+            rows = connection.execute(sa.select(state.c.position, state.c.payload)).all()
+        if len(rows) != 1 or rows[0].position != 0:
+            raise ValueError("invalid SQL native state inventory")
+        rex = to_complex(decode(bytes(rows[0].payload)))
+        if not isinstance(rex, RexGraph):
+            raise ValueError("SQL boundary state must describe a RexGraph")
+        if meta.get("nV") != rex.nV or meta.get("nE") != rex.nE or meta.get("directed") != rex._directed:
+            raise ValueError("SQL boundary declaration disagrees with its native state")
+        expected = _boundary_columns(rex)
+        for name, values in expected.items():
+            values = values.values() if isinstance(values, ExactArray) else values
+            if name not in b or not np.array_equal(values, b[name]):
+                raise ValueError(f"SQL boundary projection disagrees with its native state at {name!r}")
+        if face is not None and _table_exists(engine, face):
+            f = read_face_sql(engine, face)
+            if any(not np.array_equal(f[name], getattr(rex, "_"+name)) for name in ("B2_col_ptr", "B2_row_idx", "B2_vals")):
+                raise ValueError("SQL face projection disagrees with its native state")
+        if edge is not None and _table_exists(engine, edge):
+            e = read_edge_sql(engine, edge)
+            if "weight" in e and not np.array_equal(e["weight"], rex.w_E):
+                raise ValueError("SQL edge projection disagrees with its native state")
+        return rex
     kw: dict[str, Any] = {
         "boundary_ptr": np.asarray(b["boundary_ptr"], dtype=np.int32),
         "boundary_idx": np.asarray(b["boundary_idx"], dtype=np.int32),

@@ -1,28 +1,8 @@
-"""
-agent.cell_view: one row per cell, carrying what that cell actually is.
+"""agent.cell_view: per cell tables with structural readings.
 
-The old dashboard's per cell table was the useful part of it: a vertex or an edge with
-its readings attached, so a question about one cell had one place to look. What it
-carried was partly wrong, and the shape assumed things a relational complex does not.
-
-Two changes of substance.
-
-An edge row named a `source` and a `target`. That is the arity 2 coordinate of a
-relation, not the relation, so a branching column of arity k had k-2 of its boundary
-vertices nowhere in the row. A row here carries its whole BOUNDARY and its arity, so a
-4 ary relation reads as one relation over four cells rather than as a pair with
-something missing.
-
-Channels are named, not positional. `L1_down` and `L_O` share a diagonal on an
-unweighted complex, so reading "channel 0" and "channel 1" off a chi row gives two
-numbers that are equal for a structural reason and look like a coincidence. Every share
-here is keyed by the channel it belongs to.
-
-What is deliberately absent: the Fiedler entry and the partitions derived from it, which
-report where a linear cut fell rather than what a cell is, and the standard baselines
-(PageRank, betweenness, clustering, community), which are the comparison column and not
-a reading of this structure. `analyze(..., standard_metrics=True)` still produces them
-where the point IS the comparison.
+Vertex rows carry degree, channel character and coherence. Relation rows carry
+their complete boundary and arity. Channel shares are keyed by channel name.
+An optional edge signal adds its gradient, curl and harmonic components.
 """
 
 from __future__ import annotations
@@ -129,7 +109,7 @@ def edge_rows(rex, *, labels=None, signal=None, limit: int = 0,
                if getattr(rex, "w_E", None) is not None else None)
     try:
         curvature = np.asarray(rex.rcfe_curvature, dtype=float).ravel()
-    except Exception:                            # noqa: BLE001 - no faces, no curvature
+    except Exception:                            # noqa: BLE001  # no faces, no curvature
         curvature = np.zeros(nE, dtype=float)
 
     at = None

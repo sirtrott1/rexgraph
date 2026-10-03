@@ -102,7 +102,7 @@ def load_wordnet(path, *, with_examples=False):
                         sense_of[s.get("id")] = (eid, s.get("synset"))
                         # `subcat` is a space separated list of frame ids: the frames
                         # this sense admits. Several is not ambiguity to resolve here,
-                        # it is the sense genuinely taking more than one argument shape.
+                        # it is the sense taking more than one argument shape.
                         sub = (s.get("subcat") or "").split()
                         if sub:
                             frames_of[s.get("id")] = sub

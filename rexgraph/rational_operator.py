@@ -11,7 +11,7 @@ import numpy as np
 from rexgraph.cells import cell_count
 from rexgraph.graded_metric import _fraction
 from rexgraph.green import GreenOperator
-from rexgraph.io.catalog import object_digest
+from rexgraph.object_identity import object_digest
 from rexgraph.linear_operator import RexOperator, _exact_array, _numeric_array
 from rexgraph.operator_bracket import OperatorBracket
 

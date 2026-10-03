@@ -5,7 +5,7 @@ readable, and they need no reader of their own: the core identifies a directory
 bundle by the ``MANIFEST.json`` magic and never by its suffix, so the only thing
 a legacy bundle needs from the agent is that these suffix checks keep accepting
 it.  That is why this module states the read set and the write default
-separately -- they are different questions, and only the write default moved.
+separately: they are different questions, and only the write default moved.
 
 The export *format key* (``"rex"``, in the HTTP and frontend surface) is a
 different thing again and deliberately unchanged: it names the export contract,

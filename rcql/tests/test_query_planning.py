@@ -143,7 +143,7 @@ def test_explain_runs_the_whole_static_phrase_plan_without_running_an_adapter():
         nV = 3
         betti = (1, 0)
 
-        def relation_supports(self):  # pragma: no cover - reaching this is the failure
+        def relation_supports(self):  # pragma: no cover: reaching this is the failure
             raise AssertionError("EXPLAIN ran the composite adapter")
 
     phrase = query(source("exploding"), call("COMPOSITE", call("CELL", 1, 0)), explain=True)
@@ -159,7 +159,7 @@ def test_normal_execution_preflights_the_same_invalid_whole_phrase():
         nV = 3
         betti = (1, 0)
 
-        def relation_supports(self):  # pragma: no cover - reaching this is the failure
+        def relation_supports(self):  # pragma: no cover: reaching this is the failure
             raise AssertionError("execution reached the composite adapter")
 
     phrase = query(source("exploding"), call("COMPOSITE", call("CELL", 0, 0)))

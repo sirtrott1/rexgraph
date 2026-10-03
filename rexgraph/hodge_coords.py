@@ -83,8 +83,8 @@ def _exact_frame_or_none(rex, frame, exact):
     exact=None takes the exact path within `exact_field_limit` and when the frame is
     integral; exact=True requires both of it by refusing a frame that is not integral.
     """
-    from rexgraph.exact_green import exact_path_available
-    if exact is False or (exact is None and not exact_path_available(rex, 1)):
+    from rexgraph.exact_green import exact_evaluator_available
+    if exact is False or (exact is None and not exact_evaluator_available(rex, 1)):
         return None
     H = harmonic_frame(rex, native=True) if frame is None else frame
     try:
@@ -124,11 +124,8 @@ def harmonic_coords(rex, flow, *, frame=None, exact=None):
 def harmonic_metric(rex, *, frame=None):
     """The harmonic plane's metric: the frame Gram `HᵀH`, sparse dim_H x dim_H.
 
-    The frame's axes are cycles and cycles share edges, so the axes are not
-    orthogonal and the coordinates are not an isometric embedding. Lengths and
-    angles in the plane are taken through this form, never as plain dot products.
-    Measured on K6, reading the coordinates as Euclidean puts the angle off by up
-    to 0.36 in spread and moves half of 200 random pairs by more than 0.05.
+    Cycle axes can share edges and need not be orthogonal. Lengths and angles
+    use this Gram form rather than Euclidean products of the coordinates.
     """
     import scipy.sparse as sp
 
@@ -259,7 +256,7 @@ def coordinate_dims(rex, *, frame=None):
     dim_h = int(H.shape[1])
     nV, nE = int(rex.nV), int(rex.nE)
     n_faces = int(rex._B2_hodge_dual.ncol) if rex._B2_hodge_dual is not None else 0
-    # rank(B1) = nV - b0 is exact: b0 is the dimension of ker(B1^T).
+    # rank(B1) = nV: b0 is exact: b0 is the dimension of ker(B1^T).
     # It counts support components only in the pairwise case. rank(B2) follows
     # from the Hodge dimension identity
     # rather than a second rank computation.
@@ -397,14 +394,7 @@ def harmonic_closure(rex, *, frame=None, exact=False):
     and never the nE x nE projector, and never an eigendecomposition. Under
     `exact` it is a ratio of integers over det(G).
 
-    Measured on complete graphs, whose fundamental cycle basis is all triangles:
-    the diagonal is 1 - 8/(3n) and an overlapping pair is 1 - 2/n, exactly, for
-    n = 4 through 9. Both approach 1, so the plane is closed only in the limit.
-    Closure is read against a chosen frame, so those numbers belong to the
-    triangle basis and not to K_n on its own.
-
-    `exact` runs a rational Gram solve per column and costs orders of magnitude
-    more as dim_H grows (measured 158x float at dim_H 58, 20000x at 398).
+    exact runs a rational Gram solve for each column.
     """
     if exact:
         from fractions import Fraction
@@ -468,11 +458,8 @@ def harmonic_gram_det(rex, *, frame=None):
     disconnected complexes (two and three triangles, triangle plus K4, triangle
     plus C4). Multigraphs are fine: a doubled relation reads 8 on the triangle.
 
-    Outside that scope it is still the exact Gram determinant but it is NOT a tree
-    count, and the earlier wording implied otherwise. Measured counterexamples: a
-    disconnected pair of triangles reads 9 against 0 spanning trees, K4 with one
-    face reads 432 against 16, and Matrix Tree does not apply at all once a
-    relation is 1 ary or branching (witness reads 3 against 2).
+    Outside that scope, the value remains an exact Gram determinant; it is
+    not a spanning tree count.
 
     It is where the harmonic readings get their denominators. A reading is
     `q^T G^-1 q` shaped, which is `q^T adj(G) q / det(G)`, so a coordinate's

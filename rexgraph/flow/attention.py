@@ -162,7 +162,7 @@ class CoParticipationAttention:
         if obs_mask is not None:
             obs = np.asarray(obs_mask, dtype=bool)
         else:
-            # sentinel inference: a genuinely observed edge whose signal is exactly
+            # sentinel inference: a observed edge whose signal is exactly
             # 0.0 would be misread as unobserved, so warn (pass obs_mask to be safe).
             import warnings
             warnings.warn(

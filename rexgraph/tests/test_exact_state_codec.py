@@ -43,7 +43,7 @@ def test_independent_objects_share_identity_and_coefficient_change_moves_it():
     assert first._w_E[0] is not second._w_E[0]
     assert object_digest(first) == object_digest(second)
     state = to_state(first)
-    assert state.header["format_version"] == 3
+    assert state.header["format_version"] == 10
     assert verify_state(state)
     assert all(not a.dtype.hasobject for a in state.tensors.values())
     restored = from_state(state)
@@ -55,8 +55,8 @@ def test_independent_objects_share_identity_and_coefficient_change_moves_it():
     assert not verify_state(state)
 
 
-def test_numeric_states_keep_version_two_and_no_new_codec_payload():
-    state = to_state(RexGraph.from_graph([0, 1], [1, 2]))
+def test_legacy_numeric_states_remain_readable_with_their_original_codec():
+    state = to_state(RexGraph.from_graph([0, 1], [1, 2]), _native=False)
     assert state.header["format_version"] == 2
     assert b'"exact"' not in state.tensors[CODEC_TENSOR].tobytes()
 

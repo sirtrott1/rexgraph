@@ -34,7 +34,7 @@ def _seed(store):
 @pytest.fixture
 def protected(tmp_path):
     policy, keys = _keyed()
-    store = RexStore(str(tmp_path / "s"), search_policy=policy, search_keys=keys)
+    store = RexStore(str(tmp_path / "s"), search_policy=policy, search_keys=keys, read_only=False)
     _seed(store)
     return store, tmp_path / "s", policy, keys
 
@@ -56,7 +56,8 @@ def test_the_log_carries_tokens_so_replay_does_not_need_the_key(protected):
     re adds terms it could not itself compute."""
     store, root, _p, _k = protected
     raw = (root / "records.log").read_bytes()
-    assert raw.startswith(b"REXLOG")
+    from rcdb.journal import JOURNAL_MAGIC
+    assert raw.startswith(JOURNAL_MAGIC)
     assert store._search_tail, "no tokens were admitted"
     for refs in store._search_tail.values():
         assert all(isinstance(v, int) for _rid, v in refs)
@@ -89,7 +90,7 @@ def test_a_reopened_store_still_answers(protected):
     """Replay has to reconstruct the tail from the tokens the log carries."""
     store, root, policy, keys = protected
     store.write_index()
-    again = RexStore(str(root), search_policy=policy, search_keys=keys)
+    again = RexStore(str(root), search_policy=policy, search_keys=keys, read_only=False)
     assert _ids(again, "oncology") == ["r1"]
     assert _ids(again, "shared") == ["r1", "r2"]
 
@@ -99,7 +100,7 @@ def test_compaction_carries_the_tokens_forward(protected):
     store.write_index()
     store.compact()
     assert _ids(store, "oncology") == ["r1"]
-    again = RexStore(str(root), search_policy=policy, search_keys=keys)
+    again = RexStore(str(root), search_policy=policy, search_keys=keys, read_only=False)
     assert _ids(again, "shared") == ["r1", "r2"]
 
 
@@ -109,13 +110,13 @@ def test_a_store_opened_without_the_key_cannot_read_the_vocabulary(protected):
     store, root, policy, _keys = protected
     store.write_index()
     wrong = StaticIndexKeyProvider({"search": b"w" * 32})
-    blind = RexStore(str(root), search_policy=policy, search_keys=wrong)
+    blind = RexStore(str(root), search_policy=policy, search_keys=wrong, read_only=False)
     assert _ids(blind, "oncology") == []
 
 
 def test_a_store_with_no_policy_is_unchanged(tmp_path):
     """The default path keeps plaintext labels and the behaviour it always had."""
-    store = RexStore(str(tmp_path / "plain"))
+    store = RexStore(str(tmp_path / "plain"), read_only=False)
     _seed(store)
     assert _ids(store, "oncology") == ["r1"]
     assert store._labels.get("oncology") == {"r1"}
@@ -134,7 +135,7 @@ def test_a_protected_index_and_a_minimal_signature_compose(tmp_path):
 
     policy, keys = _keyed()
     root = tmp_path / "both"
-    store = RexStore(str(root), search_policy=policy, search_keys=keys)
+    store = RexStore(str(root), search_policy=policy, search_keys=keys, read_only=False)
     store.configure_security(
         key_id="records", keys=StaticKeyProvider({"records": b"r" * 32}),
         signature_mode="minimal")

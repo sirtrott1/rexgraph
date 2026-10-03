@@ -282,6 +282,8 @@ def raw_boundary_carriers(rex):
         first = higher[0]
         n = first.nrow if isinstance(first, _sparse.CSRMatrix) else first.shape[0]
         bounds.append(empty_native((int(rex.nE), int(n))))
+    elif getattr(rex, "_face_grade", False):
+        bounds.append(empty_native((int(rex.nE), 0)))
     bounds.extend(higher)
     return bounds
 
@@ -302,6 +304,8 @@ def boundary_carriers(rex):
         first = higher[0]
         n = first.nrow if isinstance(first, (_sparse.DualCSR, _sparse.CSRMatrix)) else first.shape[0]
         bounds.append(empty_native((int(rex.nE), int(n))))
+    elif int(rex.nF) == 0 and getattr(rex, "_face_grade", False):
+        bounds.append(empty_native((int(rex.nE), 0)))
     if higher:
         bounds.extend(NativeSparse(b) if isinstance(b, _sparse.DualCSR) else b for b in higher)
     return bounds

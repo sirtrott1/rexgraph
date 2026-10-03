@@ -96,8 +96,8 @@ def test_arity_survives_in_the_boundary_norm(k, expected):
 
 
 def test_the_orientation_channel_is_not_zeroed():
-    """F on the 5 ary case is [1/2, 0, 1/2]: the middle leg genuinely carries nothing and
-    the two ends genuinely do. Rounding flattened all three to zero while leaving the
+    """F on the 5 ary case is [1/2, 0, 1/2]: the middle leg carries nothing and
+    the two ends do. Rounding flattened all three to zero while leaving the
     trace nonzero, so every cell read 0/1 and the channel silently died."""
     diagonals, _names = exact_channel_diagonals(_rex(*CASES["5-ary + legs"]))
     assert diagonals["L_SG"] == [Fraction(1, 2), Fraction(0), Fraction(1, 2)]

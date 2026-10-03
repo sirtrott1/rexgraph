@@ -84,7 +84,7 @@ def method_dispatch_report() -> dict[str, bool]:
         "structural_character": lambda: rex.structural_character,
         "coherence": lambda: rex.coherence,
         "to_dict": lambda: rex.to_dict(),
-        # demand driven agentic reading kernels - the higher level health/context
+        # demand driven agentic reading kernels: the higher level health/context
         # layers depend on these; smoke test them so a missing kernel is reported
         # rather than silently degrading the reading.
         "coherence_response": lambda: rex.coherence_response([0]),

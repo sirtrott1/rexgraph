@@ -174,7 +174,7 @@ def test_rate_limiter_tiers_and_exemptions(monkeypatch):
 def test_appjsx_served_as_executable_javascript():
     """Regression: app.jsx is loaded via <script src>. Under our
     X-Content Type Options: nosniff header the browser refuses to execute a script
-    unless its MIME type is JavaScript - so StaticFiles must NOT serve it as
+    unless its MIME type is JavaScript: so StaticFiles must NOT serve it as
     application/octet-stream, or the whole UI silently fails to render."""
     from agent.server.app import app
     c = TestClient(app)

@@ -1,4 +1,4 @@
-"""The hive network (agent.hive_network): hives as cells one grade up - inter hive routing,
+"""The hive network (agent.hive_network): hives as cells one grade up: inter hive routing,
 cross hive capability dispatch, and the network grade RCFE field."""
 import pytest
 

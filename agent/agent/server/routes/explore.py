@@ -109,7 +109,7 @@ def _edge_label(rex, e: int, labels):
 @router.post("/explore/{session_id}/context")
 async def local_context(session_id: str, body: dict = Body(...)):
     """The forged contextual picture around query ENTITIES (vertices) and RELATIONS
-    (edges) - per seed diagnostics plus the bounded relevant sub complex reached by one
+    (edges): per seed diagnostics plus the bounded relevant sub complex reached by one
     heat diffusion seeded across both grades, so the LLM acts on the relevant structure
     instead of enumerating the whole graph.
 
@@ -124,7 +124,7 @@ async def local_context(session_id: str, body: dict = Body(...)):
 
     Returns {seed_vertices:[explain_vertex...], seed_edges:[explain_edge...],
     neighborhood:{vertices, vertex_labels, vertex_coherence, edges, edge_labels,
-    edge_character, ...}} - computed only where the signal lands.
+    edge_character, ...}}: computed only where the signal lands.
     """
     rex, _ = _get_rex(session_id)
     meta = getattr(rex, "_agent_meta", {}) or {}

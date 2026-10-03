@@ -54,6 +54,11 @@ def rcdb(name) -> Call:
     return call("RCDB", name)
 
 
+def dataset(name) -> Call:
+    """Resolve an explicitly registered, pinned declared dataset by name."""
+    return source_call("DATASET", name)
+
+
 def rcdb_version(source_expr, record_id, version: int) -> Call:
     """Bind one exact persisted RCDB version as the source for a structural phrase."""
     return call("RCDB_VERSION", source_expr, record_id, version)

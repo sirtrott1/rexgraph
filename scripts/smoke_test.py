@@ -40,7 +40,7 @@ for name in ("_boundary", "_channels", "_character", "_cycles", "_dirac", "_face
              "_persistence", "_query", "_sparse", "_spectral", "_state"):
     try:
         __import__(f"rexgraph.core.{name}")
-    except Exception as exc:                      # noqa: BLE001 - reporting, not handling
+    except Exception as exc:                      # noqa: BLE001  # reporting, not handling
         missing.append(f"{name}: {type(exc).__name__}: {exc}")
 if missing:
     print("  compiled modules that failed to import:")
@@ -48,6 +48,12 @@ if missing:
         print(f"    {line}")
     raise SystemExit(1)
 print("  all 18 probed kernels import")
+
+# Least squares with the LAPACK machine precision cutoff.
+_linalg = sys.modules["rexgraph.core._linalg"]
+solution, rank = _linalg.lstsq(np.diag([1., 1e-18]), np.ones(2), rcond=-1.)
+assert rank == 1, rank
+np.testing.assert_allclose(solution, [1., 0.])
 
 # topology
 r = RexGraph(sources=np.array([0, 1, 2, 3], np.int32),

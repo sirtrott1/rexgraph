@@ -1,36 +1,20 @@
-"""
-rcdb.rexstore: an embedded store for relational complexes. Files, no server.
+"""Read only adapter for the historical packed RCDB layout.
 
-FileStore reserialized its whole index on every put, so per put cost grew with the
-store: 4 ms at a hundred records, 41 ms at sixteen hundred, which is O(n^2) ingest
-and about 33 hours for 100k records. It also wrote one file per record, and on a
-network filesystem (EFS, Azure Files, a GCS mount, which is what a cloud VM
-actually has) per file overhead dominates everything else.
+The layout uses MANIFEST.json, records.log and blobs.pack, with optional tensor
+and protected search indexes. Readers support strict legacy JSON/binary logs and
+checked RGJL1 framing without rewriting source bytes. Corrupt or incomplete
+published frames require explicit recovery.
 
-This is the same data laid out for how it is used:
-
-    <root>/MANIFEST.json    format version
-    <root>/records.log      append-only, [u32 length][json record] per entry
-    <root>/blobs.pack       append-only, safetensors blobs end to end
-
-Three files, whatever the record count. A put is two appends and costs the same at
-record one and record one million. Opening scans the log once, sequentially, which
-is the access pattern every filesystem is fastest at, and builds the indexes in
-memory, so a vocabulary query is a dict lookup rather than a scan.
-
-Append only earns two things beyond speed. A crash can only ever tear the tail,
-which the length prefix detects, so recovery is truncation rather than repair. And
-history is not a feature bolted on: every version is simply still there, which is
-what the bitemporal model wanted from the start.
-
-    store = rcdb.open_store("rex:///data/complexes")
+RexStore does not implement the native engine's retained tombstones or version
+high water rules. Migrate its available inventory into LocalStore or another
+native provider using plan_legacy_migration/migrate_legacy_batch. Historical
+writing remains an explicit read_only=False compatibility option during the
+transition; production defaults use the canonical local engine.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import struct
 from typing import Any
 
 from rexgraph.io._compat import dumps
@@ -39,13 +23,10 @@ from .core import (
     ComplexRecord,
     RCStore,
     _matches,
+    _owned_records,
     _record_labels,
     _serialized,
 )
-
-#: length prefix for a log entry. 4 bytes little endian, so a record header is
-#: capped at 4 GiB. Signatures are KB scale, so the cap is theoretical.
-_LEN = struct.Struct("<I")
 
 MANIFEST = "MANIFEST.json"
 INDEX = "index.safetensors"
@@ -69,22 +50,8 @@ INDEX_MIN_TAIL = int(os.environ.get("REXGRAPH_INDEX_MIN_TAIL", "1000"))
 
 
 
-#### the index, as tensors
-#
-# Replaying the log builds two things: a label -> records mapping, and a
-# ComplexRecord per entry. Profiling an 8000 record open puts ~33% in the label
-# dictionary and ~26% in per entry JSON, and both are avoidable, because both are
-# already shapes the library has a format for.
-#
-# The label mapping IS a bipartite complex (labels on one side, records on the
-# other, incidence between them) so it stores as a CSR pair of tensors and loads
-# at memory map speed instead of being rebuilt: 96.8 ms of dictionary building
-# becomes ~0.5 ms of tensor read. The documents are concatenated once with an
-# offset tensor addressing them, so a record's signature and meta are parsed when
-# something actually asks for that record rather than for all of them at open.
-#
-# Measured on a synthetic 200k-record index: mmap open plus the whole incidence is
-# 62 ms against 3.54 s to build the equivalent dictionary, 57x.
+# Persist the label incidence as CSR tensors. Concatenated record bytes and
+# offsets allow signatures and metadata to decode when requested.
 
 
 class _LazyVersions:
@@ -130,6 +97,7 @@ class RexIndex:
         self.ids: list[str] = []
         self.vocab: list[str] = []
         self.log_bytes = 0
+        self.log_anchor = None
         self._rows: dict[str, range] = {}
         self._vocab_pos: dict[str, int] = {}
         self._label_ptr = None
@@ -138,7 +106,7 @@ class RexIndex:
     #### write
     @staticmethod
     def write(path: str, recs: dict[str, list[ComplexRecord]],
-              blob_at: dict[tuple, tuple], log_bytes: int) -> None:
+              blob_at: dict[tuple, tuple], log_bytes: int, *, log_anchor=None) -> None:
         import numpy as np
 
         from . import index as _ix
@@ -152,9 +120,13 @@ class RexIndex:
             o, n = blob_at.get((rid, rec.version), (0, 0))
             off[i], ln[i] = int(o), int(n)
         tmp = path + ".tmp"
-        _ix.write(tmp, index, extra={
+        extra = {
             "blob_off": off, "blob_len": ln,
-            "log_bytes": np.asarray([int(log_bytes)], np.int64)})
+            "log_bytes": np.asarray([int(log_bytes)], np.int64)}
+        if log_anchor is not None:
+            from rexgraph.value_codec import pack_value
+            extra["log_anchor"] = np.frombuffer(pack_value(log_anchor.as_record()), np.uint8).copy()
+        _ix.write(tmp, index, extra=extra)
         os.replace(tmp, path)
 
     #### read
@@ -184,6 +156,13 @@ class RexIndex:
         extra = self._ix.get("extra") or {}
         lb = extra.get("log_bytes")
         self.log_bytes = int(lb[0]) if lb is not None and len(lb) else 0
+        self.log_anchor = None
+        if "log_anchor" in extra:
+            from rexgraph.value_codec import unpack_value
+            from .journal import JournalAnchor
+            self.log_anchor = JournalAnchor.from_record(unpack_value(extra["log_anchor"].tobytes()))
+            if self.log_anchor.byte_offset != self.log_bytes:
+                raise ValueError("snapshot anchor differs from its legacy cursor projection")
         # the transpose is built on the first label lookup, not here: a caller that
         # only reads records by id never pays for it
         self._label_ptr = self._label_rec = None
@@ -283,18 +262,29 @@ def _rel_owner(index):
 #: Marks the protected search tokens riding a log frame's `extra` row. `extra` is a
 #: variable length int64 row, so an older reader that takes only the first two words
 #: still reads the blob address and simply does not see the tokens.
-_SEARCH_EXTRA_MAGIC = 0x52585331
-_SEARCH_TOKEN_WORDS = 4
+from .legacy import SEARCH_EXTRA_MAGIC as _SEARCH_EXTRA_MAGIC, SEARCH_TOKEN_WORDS as _SEARCH_TOKEN_WORDS
 
 
 class RexStore(RCStore):
-    """Append only local store: two logs, an in memory index, no server."""
+    """Legacy packed layout reader; explicit ``read_only=False`` enables compatibility writes."""
+
+    def _load_store_identity(self):
+        from .store_identity import bound_identity, local_identity
+        from .journal import journal_identity
+        path = os.path.join(self.root, ".rcdb-identity")
+        known = journal_identity(self._records_path)
+        if known is None and not os.path.exists(path):
+            known = bound_identity(record for versions in self._recs.values() for record in versions)
+        return local_identity(path, backend="rex", existing_id=known, read_only=self.read_only)
 
     backend = "rex"
     _cache_corpus = True
 
     def __init__(self, root: str, *, auto_index: bool = True,
-                 search_policy=None, search_keys=None):
+                 search_policy=None, search_keys=None, read_only=True):
+        if type(read_only) is not bool:
+            raise TypeError("read_only must be a bool")
+        self.read_only = read_only
         self.auto_index = auto_index
         self.search_policy = search_policy
         self.search_keys = search_keys
@@ -305,7 +295,15 @@ class RexStore(RCStore):
         self._tail_count = 0
         self.root = str(root)
         self.uri = f"rex://{self.root}"
-        os.makedirs(self.root, exist_ok=True)
+        from .core import _existing_backend
+        if _existing_backend(self.root) not in {None, "rex"}:
+            raise ValueError("RexStore cannot adopt another store layout")
+        if read_only:
+            from .legacy import check_source_root, source_fingerprint
+            check_source_root(self.root, "rex")
+            self._legacy_source_fingerprint = source_fingerprint(self.root)
+        else:
+            os.makedirs(self.root, exist_ok=True)
         self._manifest_path = os.path.join(self.root, MANIFEST)
         self._records_path = os.path.join(self.root, RECORDS)
         self._blobs_path = os.path.join(self.root, BLOBS)
@@ -313,15 +311,21 @@ class RexStore(RCStore):
         self._search_path = os.path.join(self.root, SEARCH)
         self._commits_path = os.path.join(self.root, "commits")
         self._index: RexIndex | None = None
-        if not os.path.exists(self._manifest_path):
+        if not read_only and not os.path.exists(self._manifest_path):
             with open(self._manifest_path, "w", encoding="utf-8") as fh:
                 fh.write(dumps({"format": "rexstore", "version": FORMAT_VERSION}))
         self._recs: dict[str, list[ComplexRecord]] = {}
         self._blob_at: dict[tuple, tuple] = {}       # (id, version) -> (offset, len)
         self._labels: dict[str, set] = {}            # label -> {id}, public mode only
         self._load()
+        if not os.path.exists(os.path.join(self.root, ".rcdb-identity")):
+            from .store_identity import bound_identity
+            if bound_identity(record for versions in self._recs.values() for record in versions) is not None:
+                self._load_store_identity()
         self._load_search_index()
         self._rebuild_search_records()
+        if read_only and source_fingerprint(self.root) != self._legacy_source_fingerprint:
+            raise ValueError("legacy source changed while opening its read-only snapshot")
 
     #### protected search
     def _protected_labels(self) -> bool:
@@ -362,13 +366,15 @@ class RexStore(RCStore):
     def _tokens_from_extra(extra):
         """Unpack them, or None when this frame carries none."""
         import numpy as np
-        if extra is None or len(extra) < 4 or int(extra[2]) != _SEARCH_EXTRA_MAGIC:
+        if extra is None or len(extra) == 2:
             return None
+        if len(extra) < 4 or int(extra[2]) != _SEARCH_EXTRA_MAGIC:
+            raise ValueError("unknown Rex journal backend coordinates")
         count = int(extra[3])
         start = 4
         end = start + count * _SEARCH_TOKEN_WORDS
-        if count < 0 or end != len(extra):
-            return None
+        if count <= 0 or end != len(extra):
+            raise ValueError("invalid Rex journal search token count")
         out = []
         for at in range(start, end, _SEARCH_TOKEN_WORDS):
             words = np.asarray(extra[at:at + _SEARCH_TOKEN_WORDS], dtype="<i8")
@@ -388,7 +394,7 @@ class RexStore(RCStore):
             rel = load_search_relation(self._search_path)
             if rel.policy_digest == self.search_policy.digest:
                 self._search = rel
-        except Exception:                            # noqa: BLE001 - derived, not fatal
+        except Exception:                            # noqa: BLE001  # derived, not fatal
             self._search = None
 
     def _rebuild_search_records(self) -> None:
@@ -430,12 +436,30 @@ class RexStore(RCStore):
 
     #### log
     def _load(self, *, use_index=True) -> None:
-        """Load the index if there is one, then replay whatever the log holds beyond
-        it. A torn tail is where the process died, so scanning stops there rather
-        than trying to interpret a partial record."""
+        """Use a sealed snapshot only at its validated journal anchor, then replay."""
+        from . import index as _ix
+        from .journal import JOURNAL_MAGIC, LocalJournal, journal_identity
+        head, owner = b"", None
+        if os.path.exists(self._records_path):
+            with open(self._records_path, "rb") as fh:
+                head = fh.read(len(_ix.LOG_MAGIC))
+            if journal_identity(self._records_path) is not None:
+                owner = self.store_id
         start_at = 0
         idx = RexIndex(self._index_path)
-        if use_index and idx.open():
+        usable = use_index and idx.open()
+        if usable and head.startswith(JOURNAL_MAGIC):
+            usable = idx.log_anchor is not None
+            if usable:
+                try:
+                    LocalJournal(self._records_path, store_id=owner).check_anchor(idx.log_anchor)
+                except ValueError:
+                    # The full record journal is authoritative; a stale derived
+                    # snapshot can be discarded and rebuilt after format migration.
+                    usable = False
+        elif usable and idx.log_anchor is not None:
+            usable = False
+        if usable:
             self._index = idx
             start_at = idx.log_bytes
             self._indexed_count = len(idx.ids)
@@ -444,19 +468,19 @@ class RexStore(RCStore):
                 # record, not for every record at open.
                 self._recs[rid] = _LazyVersions(idx, rid)
         if not os.path.exists(self._records_path):
+            if idx.ids:
+                raise ValueError("record journal is missing beneath a nonempty derived snapshot")
             return
-        from . import index as _ix
-        with open(self._records_path, "rb") as fh:
-            head = fh.read(len(_ix.LOG_MAGIC))
-        if head == _ix.LOG_MAGIC:
-            for op, rid, rec, extra in _ix.log_read(self._records_path, start_at):
+        if head == _ix.LOG_MAGIC or head.startswith(JOURNAL_MAGIC):
+            blob_size = os.path.getsize(self._blobs_path) if os.path.exists(self._blobs_path) else 0
+            for op, rid, rec, extra in _ix.log_read(self._records_path, start_at, store_id=owner):
                 if op == "delete" or rec is None:
                     self._forget(rid)
                 else:
-                    ok = extra is not None and len(extra) >= 2
-                    self._admit(rid, rec, int(extra[0]) if ok else 0,
-                                int(extra[1]) if ok else 0,
-                                self._tokens_from_extra(extra) if ok else None)
+                    if (extra is None or len(extra) < 2 or extra[0] < 0 or extra[1] <= 0
+                            or int(extra[0])+int(extra[1]) > blob_size):
+                        raise ValueError("Rex journal blob coordinates exceed the published pack")
+                    self._admit(rid, rec, int(extra[0]), int(extra[1]), self._tokens_from_extra(extra))
                 self._tail_count += 1
             return
         self._load_json_log(start_at)
@@ -464,36 +488,25 @@ class RexStore(RCStore):
     def _load_json_log(self, start_at: int) -> None:
         """The `[u32 length][json record]` log, read only, so a store written by
         an older version still opens."""
-        with open(self._records_path, "rb") as fh:
-            fh.seek(start_at)
-            data = fh.read()
-        pos, size = 0, len(data)
-        while pos + _LEN.size <= size:
-            (n,) = _LEN.unpack_from(data, pos)
-            start = pos + _LEN.size
-            if start + n > size:
-                break                                 # torn tail: stop here
-            try:
-                entry = json.loads(data[start:start + n].decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                break
-            self._apply(entry)
+        from .legacy import rex_json_entries
+        blob_size = os.path.getsize(self._blobs_path) if os.path.exists(self._blobs_path) else 0
+        for operation, rid, record, extra in rex_json_entries(self._records_path, start_at):
+            if operation == "delete":
+                self._forget(rid)
+            else:
+                if extra[0]+extra[1] > blob_size:
+                    raise ValueError("legacy Rex journal blob coordinates exceed the published pack")
+                self._admit(rid, record, extra[0], extra[1], self._tokens_from_extra(extra))
             self._tail_count += 1
-            pos = start + n
 
     def _apply(self, entry: dict[str, Any]) -> None:
         """Apply one change given as a dict. The json log path and `put` use this."""
-        rid = entry["id"]
-        if entry.get("op") == "delete":
+        from .legacy import rex_change
+        operation, rid, rec, extra = rex_change(entry)
+        if operation == "delete":
             self._forget(rid)
             return
-        rec = ComplexRecord(
-            id=rid, signature=entry.get("signature", {}), created=entry.get("created", 0.0),
-            meta=entry.get("meta", {}), version=int(entry.get("version", 1)),
-            tx_from=entry.get("tx_from", 0.0), tx_to=None,
-            valid_from=entry.get("valid_from"), valid_to=entry.get("valid_to"))
-        tokens = tuple(bytes.fromhex(x) for x in entry.get("search_tokens", ())) or None
-        self._admit(rid, rec, int(entry["blob_off"]), int(entry["blob_len"]), tokens)
+        self._admit(rid, rec, extra[0], extra[1], self._tokens_from_extra(extra))
 
     def _forget(self, rid: str) -> None:
         for rec in self._recs.pop(rid, []):
@@ -548,57 +561,28 @@ class RexStore(RCStore):
         its `extra` row.
         """
         from . import index as _ix
-
-        # Preserve an existing legacy log's framing until explicit compaction.
+        from .journal import JOURNAL_MAGIC
+        from .legacy import rex_change
+        operation, rid, record, extra = rex_change(entry)
+        # Publish a whole file migration before the first checked append. Never
+        # add a different grammar after an old JSON prefix.
         if os.path.exists(self._records_path):
             with open(self._records_path, "rb") as fh:
                 head = fh.read(len(_ix.LOG_MAGIC))
-            if head and head != _ix.LOG_MAGIC:
-                payload = dumps(entry).encode("utf-8")
-                frame = _LEN.pack(len(payload)) + payload
-                with open(self._records_path, "a+b") as fh:
-                    start = fh.tell()
-                    try:
-                        if fh.write(frame) != len(frame):
-                            raise OSError("short legacy RCDB log write")
-                        fh.flush()
-                        os.fsync(fh.fileno())
-                    except BaseException:
-                        try:
-                            fh.seek(start)
-                            fh.truncate()
-                            fh.flush()
-                            os.fsync(fh.fileno())
-                        except BaseException as rollback:
-                            from .core import PublicationUncertainError
-                            raise PublicationUncertainError(
-                                "legacy RCDB append rollback failed") from rollback
-                        raise
-                return
-        rid = entry["id"]
-        if entry.get("op") == "delete":
-            _ix.log_append(self._records_path, "delete", rid, None)
-            return
-        rec = ComplexRecord(
-            id=rid, signature=entry.get("signature", {}), meta=entry.get("meta", {}),
-            created=entry.get("created", 0.0), version=int(entry.get("version", 1)),
-            tx_from=entry.get("tx_from", 0.0), tx_to=None,
-            valid_from=entry.get("valid_from"), valid_to=entry.get("valid_to"))
-        extra = [int(entry["blob_off"]), int(entry["blob_len"])]
-        tokens = tuple(bytes.fromhex(x) for x in entry.get("search_tokens", ()))
-        if tokens:
-            extra.extend(self._tokens_extra(tokens))
-        _ix.log_append(self._records_path, "put", rid, rec, extra=extra)
+            if head and head != _ix.LOG_MAGIC and not head.startswith(JOURNAL_MAGIC):
+                _ix.migrate_legacy_log(self._records_path, store_id=self.store_id, legacy_format="rex-json")
+        _ix.log_append(self._records_path, operation, rid, record, extra=extra, store_id=self.store_id)
 
     #### mutation artifacts
     def _commit_path(self, id, version) -> str:
-        from rexgraph.io.rex_state import RESERVED_PATH, encode_name
-        os.makedirs(self._commits_path, exist_ok=True)
+        from rexgraph.state import RESERVED_PATH, encode_name
         name = encode_name(str(id), RESERVED_PATH)
         return os.path.join(self._commits_path, f"{name}@{int(version)}.rexpkg")
 
     def _store_commit_bytes(self, id, version, blob):
+        self._check_writable()
         path = self._commit_path(id, version)
+        os.makedirs(self._commits_path, exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "wb") as fh:
             fh.write(bytes(blob))
@@ -626,7 +610,10 @@ class RexStore(RCStore):
                   search_terms=None, tx_time=None):
         from .core import _now
         now = _now() if tx_time is None else float(tx_time)
-        blob = self._serialize_payload(rex)
+        version = self.next_version(id)
+        rec = ComplexRecord(id, sig, now, meta or {}, version, now, None,
+                            valid_from if valid_from is not None else now, valid_to)
+        rec, blob = self._record_payload(rec, rex)
         with open(self._blobs_path, "ab") as fh:
             offset = fh.tell()
             fh.write(blob)
@@ -636,13 +623,14 @@ class RexStore(RCStore):
         if self._protected_labels() and search_terms:
             protected_tokens = tuple(self._label_token(label) for label in search_terms)
         entry = {
-            "op": "put", "id": id, "version": self.next_version(id),
+            "op": "put", "id": id, "version": version,
             "signature": sig, "meta": meta or {}, "created": now,
             "tx_from": now,
             "valid_from": valid_from if valid_from is not None else now,
             "valid_to": valid_to,
             "blob_off": offset, "blob_len": len(blob),
             "search_tokens": [token.hex() for token in protected_tokens],
+            "envelope": rec.envelope.as_record(),
         }
         # blob first, then the entry that points at it: a crash between the two
         # leaves unreferenced bytes in the pack, which is inert, rather than an
@@ -666,16 +654,20 @@ class RexStore(RCStore):
         return True
 
     #### reads
+    @_owned_records
     def history(self, id):
         return list(self._recs.get(id, []))
 
     def _versions(self, id):
         return list(self._recs.get(id, []))
 
+    @_owned_records
     def get_record(self, id, *, as_of=None, valid_at=None):
         return self._select_version(self._versions(id), as_of, valid_at)
 
     def _read_blob(self, id, version):
+        if not any(int(r.version) == int(version) for r in self._versions(id)):
+            return None
         at = self._blob_at.get((id, version))
         if at is None and self._index is not None:
             at = self._index.blob_at(id, int(version))
@@ -686,22 +678,29 @@ class RexStore(RCStore):
             fh.seek(offset)
             return fh.read(length)
 
-    def get(self, id, *, as_of=None, valid_at=None):
-        # "base@3" pins a version; anything else is a plain id
-        split = self._split_versioned_id(id)
-        if split is not None:
-            return self.get_version(split[0], split[1])
+    def get(self, id, *, as_of=None, valid_at=None, verify=True):
+        if id not in self._recs:
+            split = self._split_versioned_id(id)
+            if split is not None:
+                return self._get_version(split[0], split[1], verify=verify)
         rid = id
         rec = self.get_record(rid, as_of=as_of, valid_at=valid_at)
         if rec is None:
             return None
         blob = self._read_blob(rid, rec.version)
-        return None if blob is None else self._deserialize_payload(blob)
+        return None if blob is None else self._read_record_payload(rec, blob, verify=verify)
 
     def get_version(self, id, version):
-        blob = self._read_blob(id, int(version))
-        return None if blob is None else self._deserialize_payload(blob)
+        return self._get_version(id, version)
 
+    def _get_version(self, id, version, *, verify=True):
+        rec = next((r for r in self._versions(id) if r.version == version), None)
+        if rec is None:
+            return None
+        blob = self._read_blob(id, int(version))
+        return None if blob is None else self._read_record_payload(rec, blob, verify=verify)
+
+    @_owned_records
     def list(self, limit=100, offset=0, *, as_of=None, valid_at=None,
              include_history=False):
         if include_history:
@@ -713,6 +712,7 @@ class RexStore(RCStore):
         recs.sort(key=lambda r: -r.tx_from)
         return recs[offset:offset + limit]
 
+    @_owned_records
     def query(self, limit=100, *, as_of=None, valid_at=None, **predicate):
         wanted = predicate.get("labels_any")
         if wanted:
@@ -762,14 +762,14 @@ class RexStore(RCStore):
                 return os.path.getsize(path)
             except OSError:
                 return 0
-        return {
+        value = super().stats()
+        value.update({
             "backend": self.backend, "root": self.root,
-            "n_records": len(self._recs),
-            "n_versions": sum(len(v) for v in self._recs.values()),
             "log_bytes": _size(self._records_path),
             "blob_bytes": _size(self._blobs_path),
             "n_labels": len(self._labels),
-        }
+        })
+        return value
 
     @_serialized
     def compact(self) -> dict[str, Any]:
@@ -779,6 +779,7 @@ class RexStore(RCStore):
         the deliberate, occasional cost that buys the O(1) put, not something the
         write path pays on every call.
         """
+        self._check_writable()
         tmp_log = self._records_path + ".compact"
         tmp_pack = self._blobs_path + ".compact"
         # Read before the logs are replaced, because compaction clears the tail it would
@@ -787,14 +788,15 @@ class RexStore(RCStore):
                             if self._protected_labels() else None)
         before = self.stats()
         from . import index as _ix
+        from .journal import _header
         with open(tmp_log, "wb") as lf:
-            lf.write(_ix.LOG_MAGIC)
+            lf.write(_header(self.store_id))
         with open(tmp_pack, "wb") as pf:
             for rid in sorted(self._recs):
                 for rec in self._recs[rid]:
                     blob = self._read_blob(rid, rec.version)
                     if blob is None:
-                        continue
+                        raise ValueError("cannot compact a record with missing blob bytes")
                     offset = pf.tell()
                     pf.write(blob)
                     extra = [offset, len(blob)]
@@ -802,7 +804,7 @@ class RexStore(RCStore):
                               protected_tokens.get((rid, int(rec.version)), ()))
                     if tokens:
                         extra.extend(self._tokens_extra(tokens))
-                    _ix.log_append(tmp_log, "put", rid, rec, extra=extra)
+                    _ix.log_append(tmp_log, "put", rid, rec, extra=extra, store_id=self.store_id)
         os.replace(tmp_log, self._records_path)
         os.replace(tmp_pack, self._blobs_path)
         self._recs, self._blob_at, self._labels = {}, {}, {}
@@ -861,6 +863,7 @@ class RexStore(RCStore):
     def write_index(self, *, protected_tokens=None) -> str:
         """Snapshot the current state as tensors, so the next open memory maps it
         instead of replaying the log."""
+        self._check_writable()
         materialized = {rid: self._versions(rid) for rid in self._recs}
         blob_at = dict(self._blob_at)
         for rid, versions in materialized.items():
@@ -871,7 +874,10 @@ class RexStore(RCStore):
                         blob_at[(rid, rec.version)] = at
         log_bytes = os.path.getsize(self._records_path) \
             if os.path.exists(self._records_path) else 0
-        RexIndex.write(self._index_path, materialized, blob_at, log_bytes)
+        from .journal import LocalJournal, journal_identity
+        log_anchor = (LocalJournal(self._records_path, store_id=self.store_id).anchor()
+                      if journal_identity(self._records_path) is not None else None)
+        RexIndex.write(self._index_path, materialized, blob_at, log_bytes, log_anchor=log_anchor)
         if self.search_policy is not None:
             from .protected_index import (
                 build_search_relation,

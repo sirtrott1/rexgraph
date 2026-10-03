@@ -73,11 +73,7 @@ def test_the_index_still_builds_a_valid_complex():
 
 
 def _legacy(index, relation):
-    """An index as the old build would have written it: one participant repeated.
-
-    Built by reintroducing the duplicate into a correct index rather than by pinning a
-    stored file, so the fixture cannot drift away from the current on disk layout.
-    """
+    """Build a legacy index fixture containing one repeated participant."""
     ptr = np.asarray(index["rel_ptr"], np.int64).tolist()
     idx = np.asarray(index["rel_idx"], np.int64).tolist()
     at = ptr[relation + 1]

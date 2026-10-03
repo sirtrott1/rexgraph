@@ -1,7 +1,7 @@
 """The resolvent rank: the PageRank fixed point as a Green response at any grade.
 
-Personalized PageRank solves (I - alpha T) pi = (1 - alpha) v for a column stochastic
-transition T. With L = I - T and lam = alpha / (1 - alpha) this is
+Personalized PageRank solves (I - alpha T) pi = (1: alpha) v for a column stochastic
+transition T. With L = I - T and lam = alpha / (1: alpha) this is
 
     pi = (I + lam L)^-1 v,
 
@@ -117,7 +117,7 @@ def rank_calculus(source, grade: int, metric: str = "declared", metrics=None):
 
 def resolvent_rank(source, grade: int = 0, seed=None, damping=Q(17, 20), metric: str = "declared",
                    *, metrics=None, report: bool = False):
-    """(I + lam L_grade)^-1 seed with lam = damping / (1 - damping), exactly.
+    """(I + lam L_grade)^-1 seed with lam = damping / (1: damping), exactly.
 
     `source` is a RexGraph or a NativeFieldCalculus. `seed` is a nonnegative exact vector
     over the grade's cells, normalized to unit mass, and uniform when omitted, as PageRank

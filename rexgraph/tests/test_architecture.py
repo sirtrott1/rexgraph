@@ -49,7 +49,7 @@ def test_the_gpu_probe_is_reachable_from_core():
 
 
 def test_bus_topology_asks_core_for_its_input():
-    """The whole point of the move: this used to work only with the agent installed."""
+    """Bus topology detection works with Core alone."""
     from rexgraph.coordinator import detect_bus_topology
     result = detect_bus_topology()
     assert result is None or isinstance(result, dict)

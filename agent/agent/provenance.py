@@ -1,34 +1,8 @@
-"""What an answer rests on, exactly.
+"""Structural provenance for retrieved relations.
 
-A retrieval currently reports how MANY records it opened. That is a count, and it cannot
-say whether the answer would survive losing any one of them. The tower already answers
-that: the leverage is the diagonal of the projector onto the row space of `B1`, so a
-relation is irreplaceable to the degree that nothing else reaches where it reaches, and
-the degree is exact.
-
-This is semantic significance in the sense the term is used when asking whether a finding
-may be ACTED ON. Statistical significance normalises against an assumed distribution;
-this normalises against `rank(B1)` and the cycle space, which the structure fixes itself.
-So there is no threshold here and no null model, and none should be added: the readings
-are magnitudes, and the policy over them belongs to the caller.
-
-A query is a SECTION of the corpus complex, so its provenance is the section reading:
-
-    irreplaceable   relations at R_eff = 1: nothing else reaches there. Losing one
-                    loses what it carried, with no alternative route.
-    corroborated    R_eff < 1, and 1 - R_eff is how much of the cycle space it shares
-    gap             what the REST of the corpus closes for this section. Zero means the
-                    answer stands on the retrieved relations alone.
-    coupling        how strongly the supporting relations couple through the complex.
-                    Measured to track functional relatedness with overlap held fixed;
-                    it is NOT a conflict or disagreement reading. OPT-IN: it is the only
-                    reading here that costs a solve, at 1.33s of a 1.35s query
-    unaccounted     the harmonic share of the response: what no higher-order structure
-                    in the corpus explains
-
-The last one is the honest part of an answer. A response whose harmonic share is large is
-one the corpus has no structure to account for, and reporting it is the difference
-between a retrieval and a claim.
+Read leverage, cycle share and the section gap over the supporting corpus cells.
+Optional field coupling adds a Green reading. An optional response field supplies
+its Hodge decomposition. The returned magnitudes carry no decision threshold.
 """
 from __future__ import annotations
 
@@ -91,10 +65,8 @@ def query_provenance(rex, retrieved, *, response=None, leverage=None, labels=Non
     1 cochain over the relations (the field the answer was read from), which adds the
     Hodge split; without it the structural readings are still returned.
 
-    `coupling` is OFF by default because it is the only reading here that costs a solve.
-    Measured on a real store: 1.33s of a 1.35s query, while every structural reading
-    together came to 0.02s, so computing it unasked made every retrieval pay for a
-    coordinate most callers never read. Pass `field` to reuse a solve across queries.
+    coupling defaults to False and requires a field solve when enabled.
+    Pass field to reuse an existing solve across queries.
 
     `corpus_rank` is a property of the store rather than of the query, so a caller
     holding it passes it in instead of having it recomputed per retrieval.

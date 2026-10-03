@@ -90,7 +90,7 @@ def test_store_versions_conditions_and_source_history(tmp_path,backend):
         # The SQLStore reader uses a SQLAlchemy URL after its scheme.
         url='sqlite:///'+str(tmp_path/'molecules.sqlite')
     else:url=backend+(str(tmp_path/'db') if backend!='memory://' else '')
-    db=open_store(url)
+    db=open_store(url, **({"read_only": False} if "://" not in url or url.startswith(("file://", "rex://")) else {}))
     p=tmp_path/'molecule.smi';p.write_text(SMILES+' chain\n')
     try:
         conditions={'chain':{'temperature':{'value':'298.15','unit':'K','origin':'synthetic','source':'fixture'},
@@ -114,7 +114,7 @@ def test_store_versions_conditions_and_source_history(tmp_path,backend):
         assert db.verify_commits(rid)
     finally:db.close()
     if backend!='memory://':
-        db=open_store(url)
+        db=open_store(url, **({"read_only": False} if "://" not in url or url.startswith(("file://", "rex://")) else {}))
         try:
             f=Executor(sources={'db':db}).execute(parse('FROM RCDB_VERSION($db,"molecules",2) RETURN MOLECULAR_CONFORMER("chain","frame")')).values[0]
             assert f.values[3,2]==1

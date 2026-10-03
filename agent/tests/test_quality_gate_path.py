@@ -1,10 +1,4 @@
-"""The context quality gate reads the library's interfacing bundle.
-
-It used to hand assemble that bundle from the dense Cython kernel, which meant it
-needed a full L0 eigenbasis and reported "unavailable" on exactly the large complexes
-worth gating, and it passed a different G operator from the one the library's own
-interfacing path uses, so its score was not the platform's score.
-"""
+"""Check that the context quality gate reads Core's interfacing bundle."""
 from __future__ import annotations
 
 import numpy as np
@@ -50,8 +44,7 @@ def test_the_score_is_the_librarys_own_interfacing_score():
 
 
 def test_the_gate_still_scores_when_no_dense_eigenbasis_exists():
-    """The old path required evecs_L0 with full width and bailed out otherwise. The
-    dispatch is eigen free, so a complex big enough to lack one still gets a score."""
+    """Sparse dispatch returns a quality score without a full dense L0 eigenbasis."""
     rex = _complex(n_edges=900, n_vertices=400, seed=9)
     out = _context_quality_gate(rex, [f"term{i}" for i in range(400)],
                                 "term0 term11 term250")

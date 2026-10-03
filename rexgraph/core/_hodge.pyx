@@ -48,7 +48,8 @@ from rexgraph.core._common cimport (
     get_EPSILON_NORM,
 )
 
-from libc.math cimport fabs, sqrt
+from libc.math cimport fabs, sqrt, hypot
+from rexgraph.core._linalg cimport bl_nrm2
 
 np.import_array()
 
@@ -252,19 +253,17 @@ def compute_energy_percentages(np.ndarray[f64, ndim=1] grad,
 def check_orthogonality(np.ndarray[f64, ndim=1] grad,
                         np.ndarray[f64, ndim=1] curl,
                         np.ndarray[f64, ndim=1] harm):
-    """Inner products between Hodge components.
+    """Return numerical inner product magnitudes between Hodge components.
 
-    When B_1 B_2 = 0, all three inner products should be near machine
-    precision. Large values indicate that the chain condition
-    is violated, likely because self loop faces were not filtered
-    from B_2.
+    Chain validity is checked separately on the boundary operators. These arrays
+    provide residual readings, not a structural orthogonality verdict.
 
     Returns
 
     dict
-        grad_curl, grad_harm, curl_harm: absolute inner products.
-        max_inner: largest of the three.
-        orthogonal: True if max_inner < 1e-6.
+        grad_curl, grad_harm, curl_harm: absolute pairwise inner products.
+        max_inner: the largest absolute inner product.
+        max_relative: max_inner divided by total component energy.
     """
     cdef Py_ssize_t nE = grad.shape[0]
     cdef f64[::1] gv = grad, cv = curl, hv = harm
@@ -286,12 +285,25 @@ def check_orthogonality(np.ndarray[f64, ndim=1] grad,
     if ch > mx:
         mx = ch
 
+    # Normalise by the flow's own energy, not by the component norms. The sectors are
+    # orthogonal, so |flow|^2 = |grad|^2 + |curl|^2 + |harm|^2, which makes this scale
+    # free AND well conditioned. Dividing by the component norms instead is a cosine,
+    # and a cosine against a near zero component is ill conditioned: it reads near one
+    # for a decomposition that is numerically perfect.
+    cdef double energy = 0.0
+    for j in range(nE):
+        energy += gv[j] * gv[j] + cv[j] * cv[j] + hv[j] * hv[j]
+
+    cdef double rel = 0.0
+    if energy > 0.0:
+        rel = mx / energy
+
     return {
         'grad_curl': gc,
         'grad_harm': gh,
         'curl_harm': ch,
         'max_inner': mx,
-        'orthogonal': mx < 1e-6,
+        'max_relative': rel,
     }
 
 
@@ -323,8 +335,8 @@ def _hodge_dense(B1, B2, np.ndarray[f64, ndim=1] flow, L0_mat, L2_mat):
 
     cdef Py_ssize_t nE = flow.shape[0]
 
-    # phi = L_0^+ B_1 g, grad = B_1^T phi. L_0 is singular -- its kernel is the component
-    # indicators -- so this is the harmonic complement inverse, (L + Pi_h)^-1 - Pi_h,
+    # phi = L_0^+ B_1 g, grad = B_1^T phi. L_0 is singular: its kernel is the component
+    # indicators: so this is the harmonic complement inverse, (L + Pi_h)^-1 - Pi_h,
     # rather than a least squares that has to rediscover that null space numerically.
     rhs_grad = matvec(B1, flow)
     phi = _dense_psd_pinv_apply(np.asarray(L0_mat, dtype=np.float64),
@@ -360,12 +372,23 @@ def _hodge_sparse(B1, B2, np.ndarray[f64, ndim=1] flow, L0_sp, L2_sp):
 
 
 def _stable_norm(values):
-    scale = float(np.max(np.abs(values), initial=0.0))
-    return 0.0 if scale == 0 else scale * float(np.linalg.norm(values / scale))
+    """Euclidean norm through native BLAS, split at its integer length limit."""
+    cdef np.ndarray[f64, ndim=1] array = np.ascontiguousarray(
+        np.asarray(values, dtype=np.float64).ravel())
+    cdef Py_ssize_t size = array.shape[0], start = 0, remaining
+    cdef int width
+    cdef double result = 0.0
+    with nogil:
+        while start < size:
+            remaining = size - start
+            width = <int>remaining if remaining <= 2147483647 else 2147483647
+            result = hypot(result, bl_nrm2(&array[start], width))
+            start += width
+    return result
 
 
 def least_squares(B, values, *, transpose=False, tol=1e-12, maxiter=2000,
-                  return_info=False):
+                  return_info=False, atol=None, btol=None):
     """Minimum norm numerical least squares using native boundary actions.
 
     LSQR uses Golub Kahan bidiagonalization, starting at zero without damping
@@ -374,16 +397,25 @@ def least_squares(B, values, *, transpose=False, tol=1e-12, maxiter=2000,
     Both residual tests are recomputed from the returned iterate. Failure to
     meet either test raises; no unconverged coefficients are returned.
 
-    Algorithm: LSQR, as published by Paige and Saunders in 1982.
-    https://web.stanford.edu/group/SOL/software/lsqr/
+    tol sets both residual thresholds. atol overrides the normal residual
+    threshold; btol overrides the relative residual threshold. Overrides must
+    lie in [0, 1); zero requires that residual test to vanish numerically.
     """
     from numbers import Integral
     from rexgraph.native_sparse import as_native
     from rexgraph.linear_operator import _numeric_array
+    from rexgraph.core._sparse import matvec, rmatvec
     if isinstance(tol, (bool, np.bool_)) or not np.isfinite(tol) or not 0 < tol < 1:
         raise ValueError("least squares tolerance must lie strictly between zero and one")
     if isinstance(maxiter, (bool, np.bool_)) or not isinstance(maxiter, Integral) or maxiter < 1:
         raise ValueError("least squares maxiter must be a positive integer")
+    normal_tol = tol if atol is None else atol
+    relative_tol = tol if btol is None else btol
+    for threshold in (normal_tol, relative_tol):
+        if (isinstance(threshold, (bool, np.bool_)) or not np.isscalar(threshold)
+                or not np.isrealobj(threshold) or not np.isfinite(threshold)
+                or not 0 <= threshold < 1):
+            raise ValueError("least squares residual tolerances must lie in [0, 1)")
     A = as_native(B)
     if transpose:
         A = A.T
@@ -395,9 +427,22 @@ def least_squares(B, values, *, transpose=False, tol=1e-12, maxiter=2000,
         block = block[:, None]
     if block.ndim != 2 or block.shape[0] != A.shape[0]:
         raise ValueError("least squares RHS must match the matrix row axis")
+    if not np.all(np.isfinite(A.data)):
+        raise FloatingPointError("least squares coefficients are outside numerical range")
     scale = float(np.max(np.abs(A.data), initial=0.0))
-    A = A.with_data(A.data / scale) if scale else A
+    A = A.with_data(A.data / scale if scale else A.data.copy())
+    apply = lambda vector: matvec(A.dual, vector)
+    apply_transpose = lambda vector: rmatvec(A.dual, vector)
     bound = _stable_norm(A.data)
+
+    def residual_tests(x, rhs, bnorm):
+        residual = apply(x) - rhs
+        rnorm = _stable_norm(residual)
+        relative = rnorm / bnorm if bnorm else 0.0
+        normal = (_stable_norm(apply_transpose(residual)) / bound / rnorm
+                  if rnorm and bound else 0.0)
+        return relative, normal
+
     out = np.zeros((A.shape[1], block.shape[1]))
     observations = []
     for column in range(block.shape[1]):
@@ -410,23 +455,23 @@ def least_squares(B, values, *, transpose=False, tol=1e-12, maxiter=2000,
         beta = bnorm
         if beta:
             u /= beta
-        v = A.transpose_apply(u)
+        v = apply_transpose(u)
         alpha = _stable_norm(v)
         if alpha:
             v /= alpha
         w = v.copy()
         phi_bar, rho_bar = beta, alpha
-        converged = bnorm == 0 or bound == 0 or alpha <= tol * bound
+        converged = bnorm == 0 or bound == 0 or alpha <= normal_tol * bound
         relative, normal = (0.0 if bnorm == 0 else 1.0), (alpha / bound if bound else 0.0)
         iterations = 0
         for iteration in range(int(maxiter)):
             if converged:
                 break
-            u = A.apply(v) - alpha * u
+            u = apply(v) - alpha * u
             beta = _stable_norm(u)
             if beta:
                 u /= beta
-            v = A.transpose_apply(u) - beta * v
+            v = apply_transpose(u) - beta * v
             alpha = _stable_norm(v)
             if alpha:
                 v /= alpha
@@ -438,13 +483,15 @@ def least_squares(B, values, *, transpose=False, tol=1e-12, maxiter=2000,
             phi, phi_bar = cosine * phi_bar, sine * phi_bar
             x += (phi / rho) * w
             w = v - (theta / rho) * w
-            residual = A.apply(x) - rhs
-            rnorm = _stable_norm(residual)
-            relative = rnorm / bnorm
-            normal = (_stable_norm(A.transpose_apply(residual)) / bound / rnorm
-                      if rnorm and bound else 0.0)
             iterations = iteration + 1
-            converged = relative <= tol or normal <= tol
+            estimated_relative = abs(phi_bar) / bnorm
+            estimated_normal = (alpha * abs(sine * phi) / bound / abs(phi_bar)
+                                if phi_bar and bound else 0.0)
+            if estimated_relative <= relative_tol or estimated_normal <= normal_tol:
+                relative, normal = residual_tests(x, rhs, bnorm)
+                converged = relative <= relative_tol or normal <= normal_tol
+        relative, normal = residual_tests(x, rhs, bnorm)
+        converged = relative <= relative_tol or normal <= normal_tol
         if not converged or not np.all(np.isfinite(x)):
             raise ArithmeticError("native LSQR did not converge to the requested residual tolerance")
         # Divide and multiply in this order only when both remain representable.
@@ -459,6 +506,7 @@ def least_squares(B, values, *, transpose=False, tol=1e-12, maxiter=2000,
                              "normal_residual": normal})
     result = out[:, 0] if one else out
     info = {"kernel": "native-lsqr", "tol": float(tol), "maxiter": int(maxiter),
+            "atol": float(normal_tol), "btol": float(relative_tol),
             "columns": observations, "status": "observed"}
     return (result, info) if return_info else result
 
@@ -470,12 +518,12 @@ cdef _dense_psd_pinv_apply(A, b):
 
     Three readings in order, each exact for the case it claims:
 
-    1. `A` positive definite -- `A^+ = A^-1`, and one Cholesky both proves it and solves.
-    2. `A` a Laplacian -- its kernel is the component indicators, so the harmonic-
+    1. `A` positive definite: `A^+ = A^-1`, and one Cholesky both proves it and solves.
+    2. `A` a Laplacian: its kernel is the component indicators, so the harmonic-
        complement inverse `(A + Pi_h)^-1 - Pi_h` applies. The frame is VERIFIED against
        `A` first: a component frame that is not actually in the kernel would deflate the
        wrong subspace, which is a wrong answer rather than a slow one.
-    3. Anything else -- SVD least squares, which is the minimum norm solution and so the
+    3. Anything else: SVD least squares, which is the minimum norm solution and so the
        pseudoinverse action for a singular operator whose kernel is not known.
     """
     import scipy.sparse as _sp

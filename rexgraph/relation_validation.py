@@ -6,7 +6,7 @@ import numpy as np
 
 from rexgraph.chain_map import _columns, _exact_entries
 from rexgraph.graded_boundary import _exact_compose_columns
-from rexgraph.io.partition_state import partition_tower
+from rexgraph.partition_state import partition_tower
 
 __all__ = ["validate_relations"]
 

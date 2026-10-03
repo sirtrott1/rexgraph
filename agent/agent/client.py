@@ -59,29 +59,65 @@ class RexClient:
     # that contract and belongs with the caller; picking the key up from the same
     # environment variable the server reads means a local operator gets it for free.
 
-    def _rex_headers(self, body: bytes | None = None) -> dict:
+    def _rex_headers(self, body: bytes | None = None, *, content_type=None) -> dict:
         from rexgraph.protocol import CONTENT_TYPE, sign
         h = self._headers()
         if body is not None:
-            h["Content-Type"] = CONTENT_TYPE
+            h["Content-Type"] = content_type or CONTENT_TYPE
             if self.frame_key is not None:
                 h["X-Rex-Signature"] = sign(body, self.frame_key)
         return h
 
-    def _check_reply(self, response) -> bytes:
+    def _check_reply(self, response, body=None) -> bytes:
         """The body of a binary reply, refused unless it is signed as expected.
 
         Both directions or neither: a client that authenticates what it sends and
         accepts anything back is still talking to whoever is in the path.
         """
         from rexgraph.protocol import verify_signature
-        body = response.content
+        body = response.content if body is None else body
         if self.frame_key is not None and not verify_signature(
                 body, response.headers.get("X-Rex-Signature", ""), self.frame_key):
             raise ValueError(
                 "the server's reply is unsigned or its signature does not match; "
                 "the response was altered in transit or the keys differ")
         return body
+
+    def _record_reply(self, method, path, *, limit, content_type, **kwargs):
+        """Bound an actual response stream before authenticating and decoding it."""
+        import httpx
+        with httpx.stream(method, self.url+path, timeout=300, **kwargs) as response:
+            if not response.is_success:
+                # Keep useful per record refusal details without buffering an
+                # unbounded error page or leaving an unread streaming response.
+                detail = bytearray()
+                for chunk in response.iter_bytes():
+                    detail.extend(chunk[:max(0, 64*1024-len(detail))])
+                    if len(detail) == 64*1024:
+                        break
+                error_headers = {k: v for k, v in response.headers.items()
+                                 if k.lower() not in {"content-encoding", "content-length"}}
+                httpx.Response(response.status_code, headers=error_headers, content=bytes(detail),
+                               request=response.request).raise_for_status()
+            response.raise_for_status()
+            if response.headers.get("content-type", "").split(";", 1)[0] != content_type:
+                raise ValueError("server returned an unexpected record content type")
+            declared = response.headers.get("content-length")
+            if declared is not None:
+                if not declared.isascii() or not declared.isdecimal():
+                    raise ValueError("server returned an invalid content length")
+                if len(declared) > 20 or int(declared) > limit:
+                    raise ValueError("server record response exceeds its byte limit")
+            body = bytearray()
+            for chunk in response.iter_bytes():
+                if len(body)+len(chunk) > limit:
+                    raise ValueError("server record response exceeds its byte limit")
+                body.extend(chunk)
+            # HTTPX yields decoded bytes; `Content-Length` names encoded bytes.
+            encoded = response.headers.get("content-encoding", "identity").lower() != "identity"
+            if declared is not None and not encoded and int(declared) != len(body):
+                raise ValueError("server response length differs from its content length")
+            return self._check_reply(response, bytes(body))
 
     def rex_hello(self) -> dict:
         """What the server speaks and what it will not exceed. Read this first."""
@@ -118,6 +154,50 @@ class RexClient:
                       headers=self._headers(), timeout=300)
         r.raise_for_status()
         return to_complex(decode(self._check_reply(r)))
+
+    def rex_store_record(self, packet, *, source=None, courier=None):
+        """Publish a RecordPacket; verify the receipt's source and payload identity."""
+        from rcdb import CopyReceipt, RecordPacket
+        from rcdb.packet import PACKET_CONTENT_TYPE, RECEIPT_CONTENT_TYPE
+        from rcdb.transfer import RECEIPT_LIMIT
+        from urllib.parse import quote
+        if not isinstance(packet, RecordPacket):
+            raise TypeError("rex_store_record requires a RecordPacket")
+        body = packet.to_bytes()
+        headers = self._rex_headers(body, content_type=PACKET_CONTENT_TYPE)
+        for name, value in (("X-Rex-Source-Hive", source), ("X-Rex-Courier", courier)):
+            if value is not None:
+                if type(value) is not str or len(value.encode("utf-8")) > 256:
+                    raise ValueError("courier header requires bounded text")
+                headers[name] = quote(value, safe="")
+        raw = self._record_reply("POST", "/rex/v1/records/store", limit=RECEIPT_LIMIT,
+                                 content_type=RECEIPT_CONTENT_TYPE, content=body, headers=headers)
+        receipt = CopyReceipt.from_bytes(raw)
+        record = packet.record
+        if ((receipt.source_store_id, receipt.source_record_id, receipt.source_version, receipt.source_digest)
+                != (packet.source_store_id, record.id, record.version, packet.state_digest)
+                or receipt.destination_digest != packet.state_digest):
+            raise ValueError("server receipt differs from the submitted record packet")
+        return receipt
+
+    def rex_fetch_record(self, record_id: str, *, version=None, as_of=None, valid_at=None):
+        """Fetch a portable selected version; materialize with packet.snapshot()."""
+        from rcdb import RecordPacket
+        from rcdb.core import _read_selector
+        from rcdb.packet import PACKET_CONTENT_TYPE, PACKET_LIMIT
+        _read_selector(record_id, version, as_of, valid_at)
+        params = {"record_id": record_id, **{k: v for k, v in (("version", version), ("as_of", as_of), ("valid_at", valid_at)) if v is not None}}
+        raw = self._record_reply("GET", "/rex/v1/records/fetch", limit=PACKET_LIMIT,
+                                 content_type=PACKET_CONTENT_TYPE, params=params, headers=self._headers())
+        packet = RecordPacket.from_bytes(raw)
+        record = packet.record
+        if record.id != record_id or (version is not None and record.version != version):
+            raise ValueError("server returned a different record address")
+        if (as_of is not None and (record.tx_from > as_of or (record.tx_to is not None and as_of >= record.tx_to))
+                or valid_at is not None and (record.valid_from is not None and valid_at < record.valid_from
+                    or record.valid_to is not None and valid_at >= record.valid_to)):
+            raise ValueError("server returned a record outside the requested interval")
+        return packet
 
     def rex_upload(self, filepath: str) -> dict:
         """Put a file in this workspace and get the handle that names it."""

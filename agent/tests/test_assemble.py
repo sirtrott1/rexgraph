@@ -1,4 +1,5 @@
 import numpy as np
+from pathlib import Path
 from agent.rcdb import FileStore
 from agent.warehouse.assemble import assemble
 import pytest
@@ -15,29 +16,38 @@ def _fixture(tmp_path):
 
 
 def test_assemble_runs_end_to_end(tmp_path):
-    store = FileStore(str(tmp_path / "rcdb"))
+    store = FileStore(str(tmp_path / "rcdb"), read_only=False)
     sweep = [{"archetype": "hgnn", "params": {"d_hid": 8, "n_layers": 1}, "seed": 0},
              {"archetype": "hgnn", "params": {"d_hid": 16, "n_layers": 1}, "seed": 1}]
     rep = assemble(_fixture(tmp_path), store=store, source="src", target="dst", weight="w",
-                   n_tiers=2, sweep=sweep, steps=30)
+                   n_tiers=2, sweep=sweep, steps=30, save_dir=tmp_path / "models")
     assert len(rep["tiers"]) >= 1
     for t in rep["tiers"]:
         assert t["best"] is not None and np.isfinite(t["best"]["metric"])
         assert t["rcdb_id"] in [r.id for r in store.list(limit=100)]     # persisted
         assert t["best"]["bee"] is not None                              # deployed as a bee
+    winners = {Path(t["best"]["saved"]) for t in rep["tiers"]}
+    run_dirs = {path.parent for path in winners}
+    assert len(run_dirs) == 1
+    assert set(next(iter(run_dirs)).iterdir()) == winners
+    assert all((path / "config.json").is_file() and (path / "weights.safetensors").is_file()
+               for path in winners)
 
 
 def test_assemble_survives_a_failing_config(tmp_path):
-    store = FileStore(str(tmp_path / "rcdb"))
+    store = FileStore(str(tmp_path / "rcdb"), read_only=False)
     sweep = [{"archetype": "hgnn", "params": {"d_hid": 8, "n_layers": 1}, "seed": 0},
              {"archetype": "hgnn", "params": {"d_hid": -1}, "seed": 1}]   # invalid -> training fails
     rep = assemble(_fixture(tmp_path), store=store, source="src", target="dst", weight="w",
                    n_tiers=1, sweep=sweep, steps=20)
     assert rep["tiers"][0]["best"] is not None    # the good config still wins; wave not sunk
+    sweep_meta = store.get_record(rep["tiers"][0]["rcdb_id"]).meta["sweep"]
+    failed = [entry for entry in sweep_meta if entry["error"]]
+    assert len(failed) == 1 and failed[0]["metric"] is None
 
 
 def test_rcdb_record_carries_complex_and_types(tmp_path):
-    store = FileStore(str(tmp_path / "rcdb"))
+    store = FileStore(str(tmp_path / "rcdb"), read_only=False)
     rep = assemble(_fixture(tmp_path), store=store, source="src", target="dst", weight="w",
                    n_tiers=1,
                    sweep=[{"archetype": "hgnn", "params": {"d_hid": 8, "n_layers": 1}, "seed": 0}],
@@ -52,8 +62,6 @@ def test_live_path_imports_no_pandas():
     # A fresh interpreter importing the warehouse live path must not drag in pandas. Running in a
     # subprocess makes this a real assertion (an in process check would be a no op cache hit, since
     # the modules are already imported by the tests above).
-    import subprocess
-    import sys
     import textwrap
     code = textwrap.dedent("""
         import sys
@@ -63,5 +71,8 @@ def test_live_path_imports_no_pandas():
         assert "pandas" not in sys.modules, "warehouse live path imported pandas"
         print("OK")
     """)
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    from pathlib import Path
+    from runpy import run_path
+    run_isolated = run_path(str(Path(__file__).resolve().parents[2] / "scripts/test_subprocess.py"))["run_isolated"]
+    r = run_isolated(code, packages=("agent", "rexgraph", "rcdb"), capture_output=True, text=True)
     assert r.returncode == 0, f"live-path import pulled in pandas or failed:\n{r.stdout}\n{r.stderr}"

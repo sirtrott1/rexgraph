@@ -37,7 +37,7 @@ def chain_residual(rex):
 def test_the_fan_opens_a_hole_and_the_hyperface_closes_it(k):
     """For every k: H alone cycles=0 dim_H=0; + legs cycles=1 dim_H=1;
     + hyperface nF=1 cycles=1 dim_H=0 curl=1. The cycle SURVIVES: it stops
-    being a hole and starts bounding, which is curl_dim = cycles - dim_H."""
+    being a hole and starts bounding, which is curl_dim = cycles: dim_H."""
     lone = fan(k, legs=False)
     lone._ensure_clean()
     assert len(lone.cycle_basis) == 0 and int(lone.betti[1]) == 0

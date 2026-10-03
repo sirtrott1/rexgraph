@@ -94,7 +94,7 @@ async def agents_activity(scope: str = None, entity: str = None, action: str = N
 @router.get("/agents/events")
 async def agents_events(request: Request):
     """Live event stream (SSE). Pushes each activity event the instant it happens: worker
-    deploy/remove, model use.open/use.close, hive create/remove - so the UI reflects CLI/API actions
+    deploy/remove, model use.open/use.close, hive create/remove: so the UI reflects CLI/API actions
     with no polling. One way and read only (the same auth middleware gates it); 15s heartbeat;
     concurrent streams are capped so a client cannot exhaust connections."""
     import asyncio
@@ -158,7 +158,7 @@ async def agents_dashboard():
 async def agents_command(body: dict = Body(...), caller: TokenEntry = Depends(require_auth),
                          ws: WorkspaceState = Depends(require_workspace)):
     """Command the hive from the console. body: {command, scope?, confirm?}. Read/inspect verbs run
-    freely; CONSEQUENTIAL verbs (kill) return a proposal unless confirm=true - the caller is the
+    freely; CONSEQUENTIAL verbs (kill) return a proposal unless confirm=true: the caller is the
     governor, nothing destructive happens without an explicit confirm. Executing a consequential verb
     (confirm=true) additionally requires admin of the current workspace; a user may propose it but not
     carry it out."""
@@ -169,7 +169,7 @@ async def agents_command(body: dict = Body(...), caller: TokenEntry = Depends(re
     if verb in _CONSEQUENTIAL and bool(body.get("confirm", False)) and not is_admin(caller, ws.name):
         raise HTTPException(403, f"Only an admin of workspace '{ws.name}' may execute '{verb}'. Ask an admin, or "
                                  "omit confirm to get a proposal.")
-    # audit: who ran what, in which workspace, with what role - stamped into the live feed + journal
+    # audit: who ran what, in which workspace, with what role: stamped into the live feed + journal
     from agent import activity as _activity
     _activity.record("user:" + (caller.user_id or "local"), "command",
                      detail={"verb": verb, "workspace": ws.name, "role": caller.role_in(ws.name) or "-",

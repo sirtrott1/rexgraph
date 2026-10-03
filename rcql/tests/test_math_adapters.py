@@ -1,9 +1,5 @@
-"""Direct contracts for RCQL's current relational complex math adapters.
-
-These tests intentionally call the operator functions rather than going through
-the parser/executor.  They fix the behaviour the Phase 1 signature catalogue
-must describe: source bound variance, exact rational geometry, total upper
-co boundary, and unapplied Green actions.
+"""Check direct math adapters for source bound variance, exact rational metrics,
+total upper coboundaries and unapplied Green actions.
 """
 from __future__ import annotations
 

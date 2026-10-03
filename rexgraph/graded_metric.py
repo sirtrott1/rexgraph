@@ -13,17 +13,18 @@ from numbers import Integral, Real
 import numpy as np
 
 from rexgraph.cells import cell_count
+from rexgraph.exact_value import exact_fraction
 from rexgraph.cochain import Chain, Cochain, Field
 
 
 def _fraction(value):
-    if isinstance(value, (bool, np.bool_)):
-        raise TypeError("exact coefficients must be integers or Fractions, not booleans")
-    if isinstance(value, Fraction):
-        return value
-    if isinstance(value, Integral):
-        return Fraction(int(value))
-    raise TypeError("exact coefficients must be integers or Fractions")
+    try:
+        return exact_fraction(value, context="exact coefficients")
+    except TypeError as exc:
+        raise TypeError(
+            "exact coefficients must be integers or Fractions, "
+            "or another declared exact scalar carrier"
+        ) from exc
 
 
 def positive_diagonal(values):

@@ -27,7 +27,7 @@ def _blob(path, header=b"", size_bytes=1024):
 
 def _ollama_manifest(path, digest):
     """A minimal ollama manifest: schemaVersion + a single model weight layer pointing at
-    `digest` (the ollama registry manifest format - see docs.ollama.com/api - trimmed to
+    `digest` (the ollama registry manifest format: see docs.ollama.com/api: trimmed to
     the fields discover_local_models actually needs)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     manifest = {"schemaVersion": 2,
@@ -40,7 +40,7 @@ def _ollama_manifest(path, digest):
 def test_discover_finds_gguf_and_skips_vocab_fixtures(tmp_path, monkeypatch):
     d = tmp_path / "models"
     _touch(str(d / "qwen3-8b-q4_k_m.gguf"), 5_000_000)
-    _touch(str(d / "ggml-vocab-qwen2.gguf"), 2048)          # llama.cpp test fixture - must be skipped
+    _touch(str(d / "ggml-vocab-qwen2.gguf"), 2048)          # llama.cpp test fixture: must be skipped
     monkeypatch.setenv("REXGRAPH_MODEL_DIRS", str(d))
 
     models = local_runtime.discover_local_models()
@@ -78,7 +78,7 @@ def test_discover_reports_hf_transformers_snapshot(tmp_path, monkeypatch):
 
 
 def test_discover_finds_ollama_gguf_model_via_manifest(tmp_path, monkeypatch):
-    # ollama stores models as content addressed, EXTENSION LESS blobs under blobs/ - the
+    # ollama stores models as content addressed, EXTENSION LESS blobs under blobs/: the
     # real name only exists in the manifest, which we must parse to recover it.
     root = tmp_path / ".ollama" / "models"
     digest_hex = "a" * 64
@@ -98,7 +98,7 @@ def test_discover_finds_ollama_gguf_model_via_manifest(tmp_path, monkeypatch):
 
 def test_discover_reports_non_gguf_ollama_model_as_not_loadable(tmp_path, monkeypatch):
     # ollama can also store non GGUF (e.g. MLX) models. llama.cpp cannot load those, so we
-    # must not lie and call them "gguf"/"llama.cpp" just because they came from ollama - sniff
+    # must not lie and call them "gguf"/"llama.cpp" just because they came from ollama: sniff
     # the actual blob bytes rather than trusting the tag name.
     root = tmp_path / ".ollama" / "models"
     digest_hex = "b" * 64
@@ -118,7 +118,7 @@ def test_discover_reports_non_gguf_ollama_model_as_not_loadable(tmp_path, monkey
 
 def test_discover_reports_tensor_sharded_ollama_model_as_not_loadable(tmp_path, monkeypatch):
     # Real world shape (verified against an actual installed `ollama pull` of an MLX model):
-    # some ollama models have NO single "*.model" layer at all - they are split into many
+    # some ollama models have NO single "*.model" layer at all: they are split into many
     # per tensor "*.tensor" layer blobs instead. There is no one file to hand llama server, so
     # this can never be format=="gguf"/loadable=="llama.cpp" no matter what the tag says.
     root = tmp_path / ".ollama" / "models"

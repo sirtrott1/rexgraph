@@ -246,6 +246,47 @@ class GreenOperator:
                    parameters=(("alpha", coefficient), ("tol", tol), ("maxiter", int(maxiter))))
 
 
+def _declared_c1_metric(rex):
+    """The complex's declared positive C1 metric, or ``None`` for identity.
+
+    ``DiagonalMetric`` stays explicit everywhere else: a generic Hodge constructor must
+    not guess that a relation attribution is its contraction metric.  ``vertex_green``
+    and relation leverage, however, are semantic readings of *this complex*, so the
+    complex's own ``edge_metric_exact`` is their declared C1 metric.
+    """
+    weights = getattr(rex, "edge_metric_exact", None)
+    if weights is None:
+        return None
+    from rexgraph.graded_metric import DiagonalMetric
+    return DiagonalMetric(rex, 1, tuple(weights))
+
+
+def _metric_boundary_factor(rex, boundary=None):
+    """Return ``A = B1 M1^-1/2`` whose Gram is the metric grade 0 Hodge.
+
+    The square root is an execution factor for the numerical pseudoinverse only; the
+    metric itself remains exact/rational where declared.  No Gram matrix is formed.
+    """
+    from rexgraph.native_sparse import NativeSparse
+    boundary = NativeSparse(rex._B1_dual) if boundary is None else boundary
+    metric = _declared_c1_metric(rex)
+    if metric is None:
+        return boundary, None
+    try:
+        weights = np.asarray([float(value) for value in metric.weights], dtype=np.float64)
+    except (OverflowError, ValueError) as exc:
+        raise FloatingPointError("edge metric is outside numerical Green range") from exc
+    if (weights.shape != (boundary.shape[1],) or np.any(weights <= 0)
+            or not np.all(np.isfinite(weights))):
+        raise ValueError("vertex Green requires one finite strictly positive metric weight per C1 relation")
+    with np.errstate(over="ignore", under="ignore", divide="ignore", invalid="ignore"):
+        scale = 1.0 / np.sqrt(weights)
+    if not np.all(np.isfinite(scale)) or np.any(scale == 0):
+        raise FloatingPointError("edge metric cannot be represented by the numerical Green factor")
+    columns = np.asarray(boundary.dual.col_idx, dtype=np.int64)
+    return boundary.with_data(boundary.data * scale[columns]), metric
+
+
 def _least_norm_l0_solve(boundary, block, *, tol: float, maxiter: int):
     """Apply ``(B B^T)^+`` one RHS at a time without forming ``B B^T``."""
     from rexgraph.fiedler import minimum_norm_gram_solve
@@ -253,11 +294,12 @@ def _least_norm_l0_solve(boundary, block, *, tol: float, maxiter: int):
 
 
 def vertex_green(rex, *, tol=1e-12, maxiter=500) -> GreenOperator:
-    """Return the grade 0 Moore Penrose Green action ``(B1 B1^T)^+``.
+    """Return the grade 0 Moore Penrose Green action of the complex's Hodge metric.
 
-    Pairwise complexes use the core's factored, deflated block CG path.  General
-    branching boundaries use a minimum norm LSQR action because connected component
-    indicators need not span their larger kernel.
+    With no declared C1 metric this is ``(B1 B1^T)^+``.  With positive relation metric
+    ``M1`` it is ``(B1 M1^-1 B1^T)^+``.  Both are solved from their sparse boundary
+    factors; neither path forms a Gram matrix.  Pairwise complexes use deflated block CG
+    and general branching boundaries use the minimum norm factor solve.
     """
     from rexgraph.native_sparse import NativeSparse
     from rexgraph.fiedler import deflated_operator
@@ -269,9 +311,14 @@ def vertex_green(rex, *, tol=1e-12, maxiter=500) -> GreenOperator:
     if isinstance(maxiter, (bool, np.bool_)) or not isinstance(maxiter, Integral) or maxiter < 1:
         raise ValueError("Green maxiter must be a positive integer")
     boundary = NativeSparse(rex._B1_dual)
-    laplacian = hodge_operator(rex, 0)
+    factor, edge_metric = _metric_boundary_factor(rex, boundary)
+    if edge_metric is None:
+        laplacian = hodge_operator(rex, 0)
+    else:
+        from rexgraph.weighted_hodge import weighted_hodge
+        laplacian = weighted_hodge(rex, 0, sector="up", upper_metric=edge_metric)
     try:
-        apply_deflated, diagonal_inverse, kernel, n_kernel = deflated_operator(boundary, native=True)
+        apply_deflated, diagonal_inverse, kernel, n_kernel = deflated_operator(factor, native=True)
         pairwise = True
     except ValueError:
         pairwise = False
@@ -304,14 +351,14 @@ def vertex_green(rex, *, tol=1e-12, maxiter=500) -> GreenOperator:
                 cg_failed = True
             if n_kernel:
                 out = out - kernel.apply(kernel.transpose_apply(out))
-            residual = boundary.apply(boundary.transpose_apply(out)) - normalized
+            residual = factor.apply(factor.transpose_apply(out)) - normalized
             residual = residual - kernel.apply(kernel.transpose_apply(residual)) if n_kernel else residual
             scale = np.maximum(np.linalg.norm(normalized, axis=0), 1e-300)
             relative = np.linalg.norm(residual, axis=0) / scale
             if cg_failed or not np.all(np.isfinite(relative)) or np.any(relative > max(10.0 * tol, 1e-10)):
                 kernel_name, fallback = "native-factor-lsqr", True
                 out = _least_norm_l0_solve(
-                    boundary, block, tol=tol, maxiter=maxiter
+                    factor, block, tol=tol, maxiter=maxiter
                 )
             else:
                 with np.errstate(over="ignore", invalid="ignore"):
@@ -320,10 +367,15 @@ def vertex_green(rex, *, tol=1e-12, maxiter=500) -> GreenOperator:
                     raise FloatingPointError("Green solution is outside float64")
         else:
             kernel_name = "native-factor-lsqr"
-            out = _least_norm_l0_solve(boundary, block, tol=tol, maxiter=maxiter)
+            out = _least_norm_l0_solve(factor, block, tol=tol, maxiter=maxiter)
         result = out[:, 0] if one else out
+        if edge_metric is not None:
+            kernel_name = "metric-" + kernel_name
         return (result, {"kernel": kernel_name, "status": "observed", "fallback": fallback,
-                         "tol": tol, "maxiter": maxiter}) if report else result
+                         "tol": tol, "maxiter": maxiter,
+                         "metric_digest": (None if edge_metric is None
+                                           else edge_metric.coefficient_digest)}) if report else result
 
-    return GreenOperator(laplacian, solve, kind="pseudoinverse",
+    return GreenOperator(laplacian, solve,
+                         kind="metric-pseudoinverse" if edge_metric is not None else "pseudoinverse",
                          observed_solver=lambda values: solve(values, report=True))

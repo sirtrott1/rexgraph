@@ -25,7 +25,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     from agent.corpus.ingest import ingest_corpus
-    from agent.rcdb import FileStore
+    from agent.rcdb import open_store
     from rexgraph.corpus_profile import ENGLISH_GUTENBERG
 
     paths = sorted(glob.glob(os.path.join(args.texts, "*", "*.txt")))
@@ -34,7 +34,7 @@ def main(argv=None):
     print(f"{len(paths):,} source files under {args.texts}", flush=True)
 
     os.makedirs(args.store, exist_ok=True)
-    store = FileStore(args.store)
+    store = open_store("auto://" + args.store)
 
     t0 = time.time()
     state = {"last": 0.0, "bytes": 0}

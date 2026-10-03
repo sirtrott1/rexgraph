@@ -4,7 +4,7 @@ agent.connectors.build: turn a connector's ``(rex, meta)`` into a storable
 harness) agrees on how topology, faces, and labels become a complex.
 
 This mirrors the engine's own construction path (``RexGraph(sources, targets,
-B2_col_ptr, B2_row_idx, B2_vals)`` with ``_agent_meta`` attached) - a connector
+B2_col_ptr, B2_row_idx, B2_vals)`` with ``_agent_meta`` attached): a connector
 never has to know the CSC face encoding; it may emit faces as a dense
 ``B₂ ∈ {-1,0,+1}^{nE×nF}`` and this module converts.
 """
@@ -19,7 +19,7 @@ import numpy as np
 def faces_to_csc(b2_dense: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Convert a dense face boundary ``B₂`` (shape ``nE × nF``) to the CSC
     ``(col_ptr, row_idx, vals)`` triple the engine expects (one column per
-    face, nonzero rows = the edges bounding it). No validity check here - the
+    face, nonzero rows = the edges bounding it). No validity check here: the
     harness verifies ``∂²=0`` after construction via ``chain_valid``."""
     b2 = np.asarray(b2_dense)
     if b2.ndim != 2:

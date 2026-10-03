@@ -191,7 +191,9 @@ def get_https_config() -> dict:
     cert = os.environ.get("REXGRAPH_TLS_CERT", "")
     key = os.environ.get("REXGRAPH_TLS_KEY", "")
 
-    if cert and key and os.path.exists(cert) and os.path.exists(key):
+    if cert or key:
+        if not cert or not key or not os.path.isfile(cert) or not os.path.isfile(key):
+            raise ValueError("configured TLS requires existing certificate and private key files")
         return {"ssl_certfile": cert, "ssl_keyfile": key}
 
     config_dir = os.environ.get("REXGRAPH_CONFIG_DIR",
@@ -199,6 +201,8 @@ def get_https_config() -> dict:
     cert_path = os.path.join(config_dir, "tls", "cert.pem")
     key_path = os.path.join(config_dir, "tls", "key.pem")
 
+    if os.path.exists(cert_path) != os.path.exists(key_path):
+        raise ValueError("saved TLS configuration is incomplete; explicit recovery required")
     if os.path.exists(cert_path) and os.path.exists(key_path):
         return {"ssl_certfile": cert_path, "ssl_keyfile": key_path}
 
@@ -237,7 +241,7 @@ def add_auth_enforcement(app) -> None:
     Individual routers only sometimes declare ``Depends(require_auth)``. This
     middleware guarantees that once an operator enables auth, every ``/api``
     endpoint (except the small public allow list above) requires a valid bearer
-    token - closing the gap where compute/DB routes were reachable unauthenticated.
+    token: closing the gap where compute/DB routes were reachable unauthenticated.
 
     When auth is disabled, this is a pure pass through, so open local/dev use
     and the test suite are unaffected.
@@ -360,7 +364,7 @@ def _rate_client_ip(request) -> str:
 def setup_rate_limiter(app):
     """Install a tiered per client IP rate limit on every route.
 
-    Three buckets, chosen by path (health + static are exempt - probes/UI assets):
+    Three buckets, chosen by path (health + static are exempt: probes/UI assets):
       * ``auth``    - token/auth/recovery admin routes (``RCF_RATE_LIMIT_AUTH``,  default 10/minute)
       * ``heavy``   - upload/analysis/pipeline/connectors/dbmanager/ocr (``RCF_RATE_LIMIT_HEAVY``, default 30/minute)
       * ``general`` - everything else (``RCF_RATE_LIMIT``, default 240/minute)

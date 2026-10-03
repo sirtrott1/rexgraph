@@ -70,10 +70,10 @@ def test_reopened_rcdb_timeline_alignment(tmp_path):
     from rexgraph.io.catalog import object_digest
     source = fixture()
     path = f"rex://{tmp_path / 'db'}"
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     store.put("t", source)
     store.close()
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     try:
         before = object_digest(store.get("t"))
         values = [[Q(3, 7), 0], [2**80+1]]

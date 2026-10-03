@@ -82,12 +82,12 @@ def test_critical_queries_on_a_reopened_rcdb_store_match_the_source(rex, tmp_pat
     from rcdb import open_store
     from rexgraph.sigma_operator import sigma_operator
     uri = f"rex://{tmp_path / 'critical'}"
-    store = open_store(uri)
+    store = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         store.put("family", rex, analytics=False)
     finally:
         store.close()
-    store = open_store(uri)
+    store = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         expression = parse('FROM RCDB_GET($db,"family") LET x=INDICATOR(CELL(1,0)) '
             'RETURN APPLY(SIGMA_OPERATOR(0.6,[1,2,4,3],[-2,-1,0,1],["T","G","F","C"],"share"),x), '

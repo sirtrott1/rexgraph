@@ -28,21 +28,18 @@ over the levels above it, so the tower reads what each level actually bought. It
 where the reading repeats, the rule `tower.semantic_closure` uses: more levels stopped
 being more field. Two ternary levels cost 4 bits an entry.
 
-WHY PACK IT. The product that matters is the pairing with a +-1 query, which is the
-packed product
+A packed product pairs the field with a {-1, +1} query:
+
+    score[e] = k[e] - 2 * popcount(P[e] & (S[e] ^ q))
 
     score[e] = k[e] - 2 * popcount( P[e] & (S[e] ^ q) )
 
-an integer, with nothing rounded and no vector of floats to read. The float path needs a
-dense query vector, which is the embedding a relational model exists to avoid, and it
-measured 121.7 Gentry/s against the packed path's 854.6 on the same machine.
+The packed query product returns integer scores.
 
-WHERE PACKING APPLIES. A field dense in (cells x classes). NOT the co participation
-adjacency, which is weighted rather than ternary, and NOT the boundary, which
-`boundary_ptr`/`boundary_idx` already stores without values. Density decides the rest:
-planes cost 2 bits an entry whatever the fill, a CSR form about 12 bytes a nonzero, so
-packing wins above a fill of 2/(8*12) and branching is what carries an operator across
-it. Measured on a 400 edge ring: 0.7% fill at arity 2, 3.7% at arity 8, 31.8% at 64.
+Packing applies to dense ternary fields. Weighted co participation operators
+and sparse boundary incidence retain their existing formats. Two planes cost
+2 bits per entry before row padding; packing_pays compares the padded size
+with a CSR estimate for the supplied shape and nonzero count.
 """
 from __future__ import annotations
 

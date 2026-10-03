@@ -74,9 +74,9 @@ def test_rcdb_reopen_group_does_not_publish(tmp_path):
     from rexgraph.io.catalog import object_digest
     r = fixture()
     path = f"rex://{tmp_path / 'db'}"
-    with closing(rcdb.open_store(path)) as db:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as db:
         db.put("r", r)
-    with closing(rcdb.open_store(path)) as db:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as db:
         out = Executor(sources={"db": db}).execute(parse(
             f'FROM RCDB_GET($db,"r") LET g={GROUP} LET x=INDICATOR(CELL(1,0)) '
             'RETURN APPLY(g.inverse,APPLY(g,x,true),true),STATE_HASH()'))

@@ -1,6 +1,4 @@
-"""Tests for file I/O integration: rexgraph.io format round trips through
-the app (safetensors upload/export), training data export (the fixed
-safetensors bugs), downloadable exports, and custom model registration."""
+"""Check format uploads, exports, training data and downloadable complexes through Agent."""
 
 import os
 import tempfile

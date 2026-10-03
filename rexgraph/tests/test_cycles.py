@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._cycles - deterministic fundamental cycle basis.
+Tests for rexgraph.core._cycles: deterministic fundamental cycle basis.
 
 Verifies:
     - Symmetric adjacency has correct structure

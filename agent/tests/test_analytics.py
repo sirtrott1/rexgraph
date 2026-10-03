@@ -32,11 +32,11 @@ def store(request, tmp_path):
     if kind == "memory":
         st = rcdb.MemoryStore()
     elif kind == "file":
-        st = rcdb.FileStore(str(tmp_path / "fs"))
+        st = rcdb.FileStore(str(tmp_path / "fs"), read_only=False)
     elif kind == "sql":
         st = rcdb.SQLStore(f"sqlite:///{tmp_path / 'rc.sqlite'}")
     else:
-        st = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+        st = rcdb.open_store(f"rex://{tmp_path / 'rx'}", read_only=False)
     for k in range(12):
         labels = [f"l{k}_{i}" for i in range(4)]
         st.put(f"r{k:02d}", _rex(labels, 3 + k),
@@ -126,7 +126,7 @@ def test_polars_can_read_the_arrow_export(store):
 
 
 def test_history_is_available_when_asked_for(tmp_path):
-    st = rcdb.open_store(f"rex://{tmp_path / 'rx'}")
+    st = rcdb.open_store(f"rex://{tmp_path / 'rx'}", read_only=False)
     labels = ["a", "b", "c", "d"]
     st.put("x", _rex(labels, 3), meta={"vertex_labels": labels})
     st.put("x", _rex(labels, 9), meta={"vertex_labels": labels})

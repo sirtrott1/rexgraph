@@ -504,7 +504,7 @@ def test_policy_rejects_unknown_overlap_and_unauthenticated_property(tmp_path):
         authenticated_encryption = False
         configuration = ContainerEncryptionConfig("footer", {})
 
-        def seal(self, key_id, plaintext, aad):  # pragma: no cover - must not run
+        def seal(self, key_id, plaintext, aad):  # pragma: no cover: must not run
             return plaintext
 
     with pytest.raises(TypeError, match="authenticated_encryption"):

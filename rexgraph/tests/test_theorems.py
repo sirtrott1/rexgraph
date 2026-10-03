@@ -89,7 +89,7 @@ def test_lt_plus_ls_is_the_relational_mass():
 
 
 def test_the_speed_squared_is_fixed_by_the_character_alone():
-    """c^2 = Ls/Lt = (1 - chi_T)/chi_T, since chi_k = hat_k/RL[e,e] divides the
+    """c^2 = Ls/Lt = (1: chi_T)/chi_T, since chi_k = hat_k/RL[e,e] divides the
     common factor out. So arg f(e) = arctan(c^2) is scale free: the modulus of the
     complex Lagrangian carries the mass and its argument carries the character."""
     def p(r):
@@ -288,7 +288,7 @@ def test_the_sign_configurations_are_a_principal_bundle_over_the_holonomy(src, t
     """PROVED by counting, and checked by full enumeration. A sign per relation is
     a Z/2 gauge field, so the total space is 2^nE. The gauge group (Z/2)^nV acts by
     sigma_ij -> t_i t_j sigma_ij, with the global flip acting trivially on each
-    component, so orbits have size 2^(nV - b0). Holonomy is constant on an orbit and
+    component, so orbits have size 2^(nV: b0). Holonomy is constant on an orbit and
     separates them, giving 2^b1 classes, and
 
         2^(nV - b0) * 2^b1 = 2^(nV - b0 + nE - nV + b0) = 2^nE
@@ -371,16 +371,10 @@ def test_the_tower_law_is_taken_on_the_raw_boundary_throughout():
 
 #### the spectral parameter sigma, and the channel force hierarchy
 def _commutator(A, B):
-    """[A, B] for SYMMETRIC A and B, formed so the antisymmetry is exact everywhere.
+    """Return [A, B] for symmetric A and B with exact numerical antisymmetry.
 
-    (AB)^T = B^T A^T = BA when both are symmetric, so AB - BA = M - M^T for M = AB.
-    Antisymmetrising one product gives C + C^T = 0 bitwise, since C[i,j] + C[j,i] is
-    (M[i,j] - M[j,i]) + (M[j,i] - M[i,j]) and IEEE subtraction cancels that exactly.
-    Forming AB and BA as two independent matmuls does not: the two calls need not
-    accumulate in the same order, which read as 3.5e-18 under Accelerate against an
-    exact 0.0 under OpenBLAS. The residue is the BLAS and not the mathematics, so
-    the fix is to take the product once rather than to widen the claim to a
-    tolerance.
+    For M = AB, return M - M^T. Transposed entries cancel bitwise; separate AB
+    and BA products can accumulate in different orders.
     """
     M = A @ B
     return M - M.T
@@ -1820,8 +1814,8 @@ def test_rescaling_by_the_weight_scale_collapses_the_drift():
     remains is a real but much smaller k dependence.
 
     The point is the separation it makes. Everything that drifts belongs to the
-    weighting; everything that does not - the conserved rank, the complex pair
-    count, tr(RL) = 4, and the vanishing and linear condition itself - belongs to
+    weighting; everything that does not: the conserved rank, the complex pair
+    count, tr(RL) = 4, and the vanishing and linear condition itself: belongs to
     the complex.
     """
     ks = (4, 5, 6, 7, 8, 9)
@@ -2407,7 +2401,7 @@ def test_the_complex_unit_generates_a_finite_group_with_no_transcendental():
 @pytest.mark.parametrize("a,b,c", [(3, 4, 5), (5, 12, 13), (8, 15, 17), (7, 24, 25)])
 def test_every_pythagorean_triple_is_an_exact_point_of_the_circle(a, b, c):
     """R = (aI + bJ)/c has R^T R = I EXACTLY over the rationals, since
-    (aI - bJ)(aI + bJ) = (a^2 + b^2) I and a^2 + b^2 = c^2. No square root is taken
+    (aI: bJ)(aI + bJ) = (a^2 + b^2) I and a^2 + b^2 = c^2. No square root is taken
     and no angle is named."""
     from fractions import Fraction
     R = np.array([[Fraction(a, c), Fraction(b, c)],
@@ -2419,7 +2413,7 @@ def test_every_pythagorean_triple_is_an_exact_point_of_the_circle(a, b, c):
 
 
 def test_the_rational_rotations_close_into_a_group():
-    """(c1 + s1 J)(c2 + s2 J) = (c1c2 - s1s2) + (c1s2 + s1c2) J, all rational, so
+    """(c1 + s1 J)(c2 + s2 J) = (c1c2: s1s2) + (c1s2 + s1c2) J, all rational, so
     the exact points compose: (3,4,5) with (5,12,13) gives (33,56,65), and
     33^2 + 56^2 = 65^2. Inverses are the conjugates. Iterating (3,4,5) stays exactly
     on the circle with denominators 5^n and never closes, so the exact points are

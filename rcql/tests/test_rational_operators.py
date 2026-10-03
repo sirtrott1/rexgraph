@@ -79,12 +79,12 @@ def test_rcdb_reopening_recomputes_native_certified_actions(tmp_path):
     rcdb = pytest.importorskip("rcdb")
     path = f"rex://{tmp_path / 'store'}"
     r = fixture()
-    with closing(rcdb.open_store(path)) as db:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as db:
         db.put("r", r)
     query = parse(f'FROM RCDB_GET($db,"r") LET x=INDICATOR(CELL(1,0)) '
                   f'RETURN APPLY(CAYLEY({G},1/2),x,true),'
                   f'APPLY(RATIONAL_ROTATION(COMPLEX_STRUCTURE({G}),3,4,5),x,true)')
-    with closing(rcdb.open_store(path)) as db:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as db:
         out = Executor(sources={"db": db}).execute(query)
         assert all(all(isinstance(v, Q) for v in value.values) for value in out.values)
         assert all(sum(v*v for v in value.values) == 1 for value in out.values)

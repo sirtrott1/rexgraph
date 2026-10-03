@@ -55,7 +55,7 @@ def main(argv: list | None = None) -> int:
 
     pi = sub.add_parser("ingest", help="Build + persist structure into an RCStore")
     pi.add_argument("source", help="connection URI or saved-connection name")
-    pi.add_argument("--store", required=True, help="RCStore URI (memory://, file://…, sqlite:///…)")
+    pi.add_argument("--store", required=True, help="RCStore URI (local://…, memory://, sqlite:///…)")
     pi.add_argument("--id", required=True, dest="record_id", help="record id to store as")
     pi.add_argument("--tags", default="", help="comma-separated tags")
     pi.add_argument("--weights", action="store_true")

@@ -77,7 +77,7 @@ def test_foreign_selection_is_not_reinterpreted(explain):
 
 def test_rcdb_source_roundtrip_keeps_relative_shares(tmp_path):
     from rcdb import RexStore
-    store = RexStore(str(tmp_path / "db"))
+    store = RexStore(str(tmp_path / "db"), read_only=False)
     try:
         source = fixture()
         store.put("r", source)

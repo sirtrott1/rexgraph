@@ -16,7 +16,7 @@ import math
 import numpy as np
 import pytest
 from agent.auto import FACE_RULE, auto_rex, build_rex_from_edges
-from agent.pipeline import AnalysisPipeline
+from agent.pipeline import AnalysisPipeline, _sparse_L0
 
 from rexgraph.graph import RexGraph
 
@@ -129,6 +129,23 @@ def test_an_empty_complex_does_not_crash_any_depth():
     for depth in DEPTHS:
         out = AnalysisPipeline(empty).run(depth=depth)
         assert isinstance(out, dict), f"{depth} on an empty complex returned {out!r}"
+
+
+def test_sparse_l0_does_not_touch_the_dense_descriptor_on_an_empty_complex():
+    """The empty complex continuum helper reads sparse L0 without a dense allocation."""
+    class EmptyWithDenseTrap:
+        nV = 3
+        sources = np.array([], np.int32)
+        targets = np.array([], np.int32)
+
+        @property
+        def L0(self):
+            raise AssertionError("dense L0 descriptor must not be evaluated")
+
+    L0 = _sparse_L0(EmptyWithDenseTrap())
+    assert L0 is not None
+    assert L0.shape == (3, 3)
+    assert L0.nnz == 0
 
 
 def test_a_single_edge_does_not_crash_any_depth():

@@ -8,11 +8,11 @@ inert defaults so that, out of the box, the engine is silent and self contained.
 
 Seams:
   * Logger / Metrics: observability. Default: no op (no telemetry, ever).
-  * Identity        - who/what is acting. Default: a local single tenant identity.
-  * Connector       - read a relational complex from a source. Default: none
+  * Identity       : who/what is acting. Default: a local single tenant identity.
+  * Connector      : read a relational complex from a source. Default: none
                       (the host registers the sources it wants).
-  * SecretStore     - connection secrets (see agent.secrets). Default: none held.
-  * Store           - the RCDB backend (see agent.rcdb.RCStore).
+  * SecretStore    : connection secrets (see agent.secrets). Default: none held.
+  * Store          : the RCDB backend (see agent.rcdb.RCStore).
 
 Nothing here reaches the network, writes a file, or records a metric on its own.
 """
@@ -115,7 +115,7 @@ class Connector(Protocol):
 
     where
 
-      * ``rex``  - the topology: either a built ``RexGraph`` or the
+      * ``rex``: the topology: either a built ``RexGraph`` or the
         ``(sources, targets)`` edge arrays an adapter builds one from
         (optionally with a ``B₂`` face selection). Signed incidence B₁ is the
         sole required datum; vertices are derived from it.

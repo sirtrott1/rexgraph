@@ -68,9 +68,7 @@ def is_scriptio_continua(ch: str) -> bool:
     return any(lo <= cp <= hi for lo, hi in _CONTINUA)
 
 
-#: a word in a space separated script: letters and marks of ANY script, plus the
-#: joiners that sit inside words. `\\w` is Unicode aware in Python 3, which is the whole
-#: fix: the old `[a-z']+` was ASCII only and silently produced nothing elsewhere.
+# A word contains Unicode letters and marks, plus internal joiners.
 _WORD = re.compile(r"[^\W\d_][\w'’­-]*", re.UNICODE)
 #: characters that sit INSIDE a word without being letters: the apostrophes English
 #: needs, the hyphen, and the joiners Indic and Arabic shaping use.

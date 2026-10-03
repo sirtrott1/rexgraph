@@ -6,7 +6,7 @@ Start the RexGraph Agent (developer launcher).
     python run.py --https                           # HTTPS with auto-generated cert
     python run.py --ssl-cert c.pem --ssl-key k.pem  # HTTPS with your cert
 
-A thin wrapper that maps flags onto agent.server.launch.serve - the single
+A thin wrapper that maps flags onto agent.server.launch.serve: the single
 launch path also used by the `rcf-server` console script.
 """
 

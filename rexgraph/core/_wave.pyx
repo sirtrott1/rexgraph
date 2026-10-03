@@ -7,17 +7,17 @@ Complex valued counterpart to _state.pyx and _transition.pyx. Operates on
 complex amplitudes psi_k in C^n under exp(-i L t) evolution, where L is
 any Laplacian (L_0, L_1, L_2, L_O, or the Relational Laplacian RL_1).
 
-Complex state operations - normalization, inner products, Born probabilities,
+Complex state operations: normalization, inner products, Born probabilities,
     fidelity, phase extraction.
-Information theory - Shannon, von Neumann, Renyi entropy; participation ratio;
+Information theory: Shannon, von Neumann, Renyi entropy; participation ratio;
     KL divergence.
-Wave evolution - Schrodinger propagation (spectral, RK4, Trotter Suzuki).
+Wave evolution: Schrodinger propagation (spectral, RK4, Trotter Suzuki).
     Includes field_schrodinger_evolve for coupled (V+E+F) evolution.
-Interference - superposition, fringe visibility, coherence measures.
-Entanglement - tensor product, partial trace, Schmidt decomposition, PPT.
-Decoherence - dephasing, amplitude damping, depolarizing, Lindblad.
-Measurement - Born sampling, projective collapse, eigenbasis measurement.
-Density matrices - pure to density, mixed state, purity, von Neumann entropy.
+Interference: superposition, fringe visibility, coherence measures.
+Entanglement: tensor product, partial trace, Schmidt decomposition, PPT.
+Decoherence: dephasing, amplitude damping, depolarizing, Lindblad.
+Measurement: Born sampling, projective collapse, eigenbasis measurement.
+Density matrices: pure to density, mixed state, purity, von Neumann entropy.
 """
 
 from __future__ import annotations
@@ -38,6 +38,16 @@ from rexgraph.core._common cimport (
 np.import_array()
 
 ctypedef double complex c128
+
+
+cdef bint _has_imaginary(const c128[:, :] values) noexcept nogil:
+    """Whether a complex matrix has a nonzero imaginary coefficient."""
+    cdef Py_ssize_t i, j
+    for i in range(values.shape[0]):
+        for j in range(values.shape[1]):
+            if values[i, j].imag != 0.0:
+                return True
+    return False
 
 
 # Complex state operations
@@ -161,7 +171,7 @@ def shannon_entropy(np.ndarray[np.complex128_t, ndim=1] psi):
 
 
 def renyi_entropy(np.ndarray[f64, ndim=1] probs, double alpha):
-    """Renyi entropy H_alpha = log2(sum p_i^alpha) / (1 - alpha)."""
+    """Renyi entropy H_alpha = log2(sum p_i^alpha) / (1: alpha)."""
     cdef f64[::1] p = probs
     cdef Py_ssize_t n = probs.shape[0], i
     cdef f64 s = 0.0, pi
@@ -685,12 +695,8 @@ def entanglement_entropy(np.ndarray[np.complex128_t, ndim=1] psi,
 
     """
     cdef np.ndarray[np.complex128_t, ndim=2] M = psi.reshape(dim_A, dim_B)
-    # Use numpy SVD for complex inputs; _linalg.svd only handles real f64
-    if np.any(np.imag(M) != 0):
-        _U, s_vals, _Vt = np.linalg.svd(np.asarray(M), full_matrices=False)
-    else:
-        from rexgraph.core._linalg import svd as _lp_svd
-        _U, s_vals, _Vt = _lp_svd(np.asarray(M, dtype=np.float64))
+    from rexgraph.core._linalg import svd as _lp_svd
+    s_vals = _lp_svd(M if _has_imaginary(M) else M.real, compute_uv=False)
 
     cdef np.ndarray[f64, ndim=1] sv = np.asarray(s_vals, dtype=np.float64)
     cdef f64[::1] svv = sv
@@ -715,12 +721,8 @@ def schmidt_decomposition(np.ndarray[np.complex128_t, ndim=1] psi,
     vectors_B : complex128[r, dim_B]
     """
     M = psi.reshape(dim_A, dim_B)
-    # Use numpy SVD for complex inputs; _linalg.svd only handles real f64
-    if np.any(np.imag(M) != 0):
-        U, s, Vh = np.linalg.svd(np.asarray(M), full_matrices=True)
-    else:
-        from rexgraph.core._linalg import svd as _lp_svd
-        U, s, Vh = _lp_svd(np.asarray(M, dtype=np.float64))
+    from rexgraph.core._linalg import svd as _lp_svd
+    U, s, Vh = _lp_svd(M if _has_imaginary(M) else M.real)
     return np.asarray(s, dtype=np.float64), U, Vh
 
 
@@ -876,7 +878,7 @@ def measure_in_eigenbasis(np.ndarray[np.complex128_t, ndim=1] psi,
         probs_n = probs / total
     else:
         probs_n = np.ones(k, dtype=np.float64) / <f64>k
-    outcome = np.random.choice(k, p=probs_n)
+    cdef Py_ssize_t outcome = <Py_ssize_t>np.random.choice(k, p=probs_n)
 
     cdef np.ndarray[np.complex128_t, ndim=1] collapsed = np.empty(n, dtype=np.complex128)
     cdef c128[::1] cv = collapsed
@@ -941,12 +943,8 @@ def von_neumann_entropy(np.ndarray[np.complex128_t, ndim=2] rho):
     Von Neumann entropy S = -Tr(rho log2 rho).
     Computed via eigenvalues of the density matrix.
     """
-    # Use numpy eigh for complex (Hermitian) inputs; _linalg.eigh only handles real f64
-    if np.any(np.imag(rho) != 0):
-        evals = np.linalg.eigvalsh(np.asarray(rho))
-    else:
-        from rexgraph.core._linalg import eigh as _lp_eigh
-        evals = _lp_eigh(np.asarray(rho, dtype=np.float64))[0]
+    from rexgraph.core._linalg import eigvalsh as _lp_eigvalsh
+    evals = _lp_eigvalsh(rho if _has_imaginary(rho) else rho.real)
     cdef np.ndarray[f64, ndim=1] ev = np.real(evals).astype(np.float64)
     cdef f64[::1] evv = ev
     cdef Py_ssize_t n = ev.shape[0], i
@@ -976,7 +974,7 @@ def amplitude_graded_projection(B1, B2,
                                  int nV, int nE, int nF):
     """Amplitude based graded projection onto the relational complex.
 
-    Unlike the standard delta vertex projection (Def 4.5), this uses continuous
+    Unlike the standard delta vertex projection, this uses continuous
     vertex amplitudes with geometric mean edge coupling over the edge's ACTUAL
     endpoints (any arity):
 
@@ -985,7 +983,7 @@ def amplitude_graded_projection(B1, B2,
         psi_0(nV+nE+f) = (B2^T psi_E)_f
 
     Endpoints are read from B1's signed column support, so witness edges (deg 1) and
-    branching edges (deg > 2, first class hyperedges) are handled correctly - the
+    branching edges (deg > 2, first class hyperedges) are handled correctly: the
     previous version scanned for only the first TWO nonzeros and silently dropped the
     3rd+ endpoint (and produced 0 for witness edges). For a standard 2 arity edge this
     reduces to sqrt(|a_i a_j|) * sign(B1[i,e]) exactly. B1/B2 may be dense or sparse.

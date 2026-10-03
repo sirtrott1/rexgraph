@@ -497,24 +497,11 @@ class AuthManager:
             self._save_config()
 
     def disable_auth(self, *, persist: bool = True, confirm: bool = False):
-        """Turn auth off.
+        """Disable authentication.
 
-        Disabling is the UNSAFE direction and this used to persist unconditionally, so
-        any in process caller wrote `enabled: false` into the host's own auth.json. Six
-        test fixtures did exactly that, which is how a test suite turned auth off on a
-        live install and left it off. Two guards now, and they are separate on purpose:
-
-            persist=False   flip the flag for this process only and never touch disk.
-                            What a test wants: it needs the server object open, not the
-                            host reconfigured.
-            confirm=True    required before a disable is written to a config that HAS
-                            TOKENS, because that is someone's live install. Missing it
-                            raises rather than writing, so an accidental call is loud
-                            instead of silent.
-
-        The network path is stricter still and unchanged: POST
-        /api/v1/admin/auth/disable additionally requires the request to originate from
-        the server host, an admin token, and the disable passphrase.
+        persist=False changes only this process. Persisting a disabled configuration
+        that contains tokens requires confirm=True. The HTTP admin route additionally
+        requires a host local request, an admin token and the disable passphrase.
         """
         self._auth_enabled = False
         if not persist:
@@ -774,7 +761,7 @@ def identity_and_workspace(request) -> tuple[str, str]:
             # makes every store scoped off this value scope to the wrong tenant.
             ws = granted
         return entry.user_id, ws
-    except Exception:                            # noqa: BLE001 - never break a request
+    except Exception:                            # noqa: BLE001  # never break a request
         return "", (ws or "default")
 
 
@@ -808,7 +795,7 @@ async def require_auth(
 async def require_admin(token: TokenEntry = Depends(require_auth)) -> TokenEntry:
     """FastAPI dependency: require INSTANCE admin (admin of the root workspace 'default').
 
-    Instance level operations - enabling/disabling auth, recovery keys, the legacy token routes -
+    Instance level operations: enabling/disabling auth, recovery keys, the legacy token routes -
     are gated here. Per workspace member management uses :func:`require_workspace_admin` instead.
     When auth is disabled, ``require_auth`` returns the local admin identity, so solo/local use is
     unaffected.

@@ -42,7 +42,7 @@ def store():
     # at one version: nothing about it is in dispute.
     _put(st, "settled", SETTLED)
     _put(st, "settled", SETTLED)
-    # "churning": three genuinely different structures under one id.
+    # "churning": three different structures under one id.
     _put(st, "churning", SETTLED)
     _put(st, "churning", CHURN_1)
     _put(st, "churning", CHURN_2)

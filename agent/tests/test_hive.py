@@ -47,7 +47,7 @@ def test_invalid_role_rejected():
 
 def test_route_by_specialty_cold_hive():
     h = _beehive()
-    # no messages yet - routing must fall back to declared specialty
+    # no messages yet: routing must fall back to declared specialty
     r = h.route("refactor this python function")
     assert r[0]["bee"] == "coder"
     r2 = h.route("analyze the protein receptor binding site")
@@ -137,7 +137,7 @@ def test_plan_infers_specialties_and_names():
 
 
 def test_plan_no_spawnable_models():
-    # only a transformers snapshot on disk - nothing llama.cpp can launch
+    # only a transformers snapshot on disk: nothing llama.cpp can launch
     models = [{"name": "Qwen/Qwen2.5-7B", "path": "/hf/x", "size_gb": 15.0,
                "format": "transformers", "loadable": "vllm/transformers", "source": "hf-cache"}]
     plan = hive.plan_hive(models, budget_gb=96.0)
@@ -345,7 +345,7 @@ def test_consensus_all_agree_no_flags(monkeypatch):
 
 def test_consensus_uses_an_attached_embedder(monkeypatch):
     """consensus(embed=True) separates a hallucination from a topically distinct specialist only
-    on the semantic signal, so it must reach an ATTACHED embedder bee - not just a locally managed
+    on the semantic signal, so it must reach an ATTACHED embedder bee: not just a locally managed
     server. Same wiring gap as monitor(embed=True)."""
     import numpy as np
     from agent import model_introspect

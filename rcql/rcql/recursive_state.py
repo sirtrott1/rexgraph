@@ -8,9 +8,9 @@ from .program_codec import dumps, loads
 
 def result_record(result):
     from rexgraph.graph import RexGraph
-    from rexgraph.io.field_state import FIELD_VALUES
-    from rexgraph.io.section_state import SECTION_VALUES
-    from rexgraph.io.model_state import MODEL_VALUES
+    from rexgraph.field_codec import FIELD_VALUES
+    from rexgraph.section_codec import SECTION_VALUES
+    from rexgraph.model_codec import MODEL_VALUES
     from .name_relation import NameRelation
     from .program import Program
     from .program_transformation import ProgramTransformation
@@ -52,9 +52,9 @@ def result_record(result):
 
 def restore_result(record, references=()):
     from rexgraph.tensor_field import FieldSource
-    from rexgraph.io.field_state import FIELD_VALUES
-    from rexgraph.io.section_state import SECTION_VALUES
-    from rexgraph.io.model_state import MODEL_VALUES
+    from rexgraph.field_codec import FIELD_VALUES
+    from rexgraph.section_codec import SECTION_VALUES
+    from rexgraph.model_codec import MODEL_VALUES
     from .recursive_program import RecursionResult
     from .name_relation import NameRelation
     from .program_transformation import ProgramTransformation
@@ -163,7 +163,7 @@ def restore_feedback(record, references):
     from rexgraph.coordinate_map import CoordinateMap
     from rexgraph.type_accession import CoordinateSpace
     from rexgraph.tensor_field import FieldSource, TensorField
-    from rexgraph.io.catalog import object_digest
+    from rexgraph.object_identity import object_digest
     raw = getattr(record, "_agent_meta", {}).get("rcql_feedback")
     if not isinstance(raw, str):
         raise ValueError("record has no affine feedback declaration")

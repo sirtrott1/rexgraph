@@ -320,7 +320,7 @@ def detect_compute_backends() -> list[dict[str, Any]]:
                 if n:
                     cuda_devs, via = n, "nvidia-smi"
         if cuda_devs == 0 and (_has_module("cupy") or _has_module("torch")):
-            # library present but no device enumerated - report as a *capable* path, unproven device
+            # library present but no device enumerated: report as a *capable* path, unproven device
             via = via or ("cupy" if _has_module("cupy") else "torch")
         if cuda_devs > 0:
             backends.append({"name": "cuda", "kind": "gpu", "available": True, "integrated": False,
@@ -331,75 +331,27 @@ def detect_compute_backends() -> list[dict[str, Any]]:
 
     #### ROCm (AMD, discrete or APU)
     try:
-        rocm_devs = 0
-        integrated = False
-        via = None
-        rinfo = _have("rocminfo")
-        if rinfo:
-            out = _run([rinfo])
-            if out:
-                # count agents whose Device Type is GPU
-                gpu_agents = 0
-                block_is_gpu = False
-                for ln in out.splitlines():
-                    s = ln.strip()
-                    if s.startswith("Device Type:"):
-                        block_is_gpu = "GPU" in s
-                        if block_is_gpu:
-                            gpu_agents += 1
-                if gpu_agents:
-                    rocm_devs, via = gpu_agents, "rocminfo"
-                    # APU hint: rocminfo mentions APU / integrated memory pools
-                    low = out.lower()
-                    integrated = ("apu" in low) or ("integrated" in low)
-        if rocm_devs == 0 and (os.environ.get("ROCR_VISIBLE_DEVICES") is not None
-                               or _has_module("torch")):
-            via = via or "env/torch"
-        if rocm_devs > 0:
+        from rexgraph.gpu_access import probe_hip
+        hip = probe_hip()
+        if hip["available"]:
+            integrated = any(g.get("integrated") for g in _detect_amd_igpus())
             backends.append({"name": "rocm", "kind": "gpu", "available": True,
-                             "integrated": integrated, "vendor": "amd", "via": via,
-                             "devices": rocm_devs,
-                             "detail": f"{rocm_devs} AMD GPU(s) via {via}"
-                             + (" (integrated/APU)" if integrated else "")})
-    except Exception:
-        pass
-
-    #### Integrated/APU AMD GPUs not surfaced by rocminfo (no ROCm stack installed)
-    try:
-        have_rocm = any(b["name"] == "rocm" for b in backends)
-        if not have_rocm:
-            igpus = _detect_amd_igpus()
-            if igpus:
-                integrated = any(g.get("integrated") for g in igpus)
-                names = "; ".join(g.get("name", "AMD GPU") for g in igpus[:2])
-                backends.append({"name": "rocm", "kind": "gpu", "available": True,
-                                 "integrated": integrated, "vendor": "amd",
-                                 "via": igpus[0].get("via", "sysfs"), "devices": len(igpus),
-                                 "detail": f"AMD GPU present without ROCm runtime: {names}"
-                                 + (" (integrated/APU)" if integrated else "")
-                                 + " - needs a ROCm/Vulkan stack to compute"})
+                             "integrated": integrated, "vendor": "amd", "via": "libamdhip64",
+                             "devices": len(hip["devices"]),
+                             "detail": "; ".join(d["name"] for d in hip["devices"])})
     except Exception:
         pass
 
     #### Vulkan
     try:
-        vk = None
-        vinfo = _have("vulkaninfo")
-        if vinfo:
-            out = _run([vinfo, "--summary"]) or _run([vinfo])
-            if out and ("GPU" in out or "deviceName" in out or "apiVersion" in out):
-                vk = "vulkaninfo"
-        if vk is None:
-            try:
-                import ctypes.util
-                if ctypes.util.find_library("vulkan"):
-                    vk = "libvulkan"
-            except Exception:
-                pass
-        if vk:
+        from rexgraph.gpu_access import probe_vulkan
+        vk = probe_vulkan()
+        devices = [d for d in vk["devices"] if d["hardware_gpu"] and d["compute"]]
+        if vk["available"]:
             backends.append({"name": "vulkan", "kind": "gpu", "available": True,
-                             "integrated": False, "vendor": "any", "via": vk, "devices": 0,
-                             "detail": f"Vulkan runtime present via {vk}"})
+                             "integrated": any(d["integrated"] for d in devices),
+                             "vendor": "any", "via": "libvulkan", "devices": len(devices),
+                             "detail": "; ".join(d["name"] for d in devices)})
     except Exception:
         pass
 
@@ -473,7 +425,7 @@ def summary() -> str:
     lines: list[str] = []
     try:
         env = detect_python_env()
-    except Exception as e:  # pragma: no cover - defensive
+    except Exception as e:  # pragma: no cover: defensive
         env = {"manager": "unknown", "warnings": [f"env detection failed: {e}"]}
     lines.append("RexGraph environment")
     lines.append("=" * 60)
@@ -501,7 +453,7 @@ def summary() -> str:
     lines.append("=" * 60)
     try:
         backends = detect_compute_backends()
-    except Exception as e:  # pragma: no cover - defensive
+    except Exception as e:  # pragma: no cover: defensive
         backends = []
         lines.append(f"  backend detection failed: {e}")
     for b in backends:

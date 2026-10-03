@@ -88,7 +88,7 @@ def specialty_rules_path() -> Path:
 def load_specialty_rules() -> list[SpecialtyRule]:
     """User rules if a readable, well formed file exists, else the builtins.
 
-    A broken rules file must not take the hive down - auto composition still has to work - so a
+    A broken rules file must not take the hive down: auto composition still has to work: so a
     parse failure logs nothing and quietly yields the builtins."""
     path = specialty_rules_path()
     try:
@@ -114,7 +114,7 @@ class BeeSpec:
     url: str = ""                    # endpoint (source=attach)
     specialties: list[str] = field(default_factory=list)
     # secret REFERENCE (env var / secret store name) for an authenticated endpoint. A profile is
-    # written to disk as JSON, so only the reference may live here - never the credential.
+    # written to disk as JSON, so only the reference may live here: never the credential.
     api_key_ref: str = ""
 
 

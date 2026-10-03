@@ -21,12 +21,7 @@ def _index(n=8, shared=3):
 
 
 def test_rel_owner_is_derived_not_stored():
-    """A built index and a read one are the same object.
-
-    `rel_owner` used to be written by `read` and omitted by `build`, so a freshly built
-    index could not answer `relations_of` at all. It is a read of position 0 of each
-    span, so it is derived in one place and both paths agree by construction.
-    """
+    """Built and loaded provenance indexes derive the same relation owners from spans."""
     index = _index()
     own = ix.rel_owner(index)
     assert own.shape == (len(index["rel_ptr"]) - 1,)

@@ -51,8 +51,8 @@ def _rex_from_body(body: dict):
     text = body.get("text", "")
     if text and text.strip():
         try:
-            from agent.auto import auto_rex
-            return auto_rex(text), "text"
+            from agent.auto import auto_rex_text
+            return auto_rex_text(text), "text"
         except Exception as e:
             return None, f"build failed: {e}"
     return None, "no session_id or text provided"
@@ -313,7 +313,7 @@ async def langchain_tools(body: dict = Body({})):
 async def langgraph_state(body: dict = Body({})):
     """Analyze an agent state machine as a relational complex.
 
-    Works standalone (no langgraph needed) - nodes are states, edges are
+    Works standalone (no langgraph needed): nodes are states, edges are
     transitions. Reports whether the agent is making progress (gradient),
     circulating (curl), or structurally stuck (harmonic), plus cycles and
     channel character.
@@ -341,20 +341,25 @@ async def langgraph_state(body: dict = Body({})):
 
         a = rsg.analyze()
         topo = a.get("topology", {}) or {}
+        construction = a.get("construction", {}) or {}
         hodge = a.get("hodge", {}) or {}
+        betti = a.get("betti", topo.get("betti"))
+        if betti is None:
+            betti = [topo.get("b0"), topo.get("b1_filled"), topo.get("b2")]
         decision = rsg.should_continue(
             harmonic_threshold=body.get("harmonic_threshold", 0.4))
 
         result = {
             "nV": len(states),
             "nE": len(transitions),
-            "betti": [topo.get("b0"), topo.get("b1_filled"), topo.get("b2")],
-            "euler": topo.get("euler"),
-            "chain_valid": topo.get("chainOk"),
+            "betti": list(betti),
+            "euler": a.get("euler", topo.get("euler_characteristic", topo.get("euler"))),
+            "chain_valid": a.get("chain_valid", construction.get(
+                "chain_valid", a.get("chainOk", topo.get("chainOk")))),
             "hodge": {
-                "gradient": round(float(hodge.get("gradPct", 0)) / 100.0, 4),
-                "curl": round(float(hodge.get("curlPct", 0)) / 100.0, 4),
-                "harmonic": round(float(hodge.get("harmPct", 0)) / 100.0, 4),
+                "gradient": round(float(hodge.get("pct_gradient", hodge.get("gradPct", 0) / 100.0)), 4),
+                "curl": round(float(hodge.get("pct_curl", hodge.get("curlPct", 0) / 100.0)), 4),
+                "harmonic": round(float(hodge.get("pct_harmonic", hodge.get("harmPct", 0) / 100.0)), 4),
             },
             "recommendation": decision.get("recommendation", "continue"),
             "reason": decision.get("reason", ""),
@@ -554,7 +559,7 @@ async def langchain_confidence(body: dict = Body(...)):
     """Run RexConfidenceTool against a session document or text.
 
     Gives an agent an exact structural confidence signal (void affinity,
-    dipole ratio, coherence, chain condition) - a theorem, not a guess.
+    dipole ratio, coherence, chain condition): a theorem, not a guess.
     No langchain install required to call it.
     """
     rex, source = _rex_from_body(body)

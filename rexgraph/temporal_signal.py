@@ -36,6 +36,7 @@ from typing import Any, Literal
 import numpy as np
 
 from rexgraph.cochain import Chain, Cochain
+from rexgraph.column import declaration_of, exact_slot_coefficients
 
 __all__ = [
     "RelationKey",
@@ -415,19 +416,23 @@ class _SnapshotCell:
 def _snapshot_cells(rex: Any) -> dict[RelationKey, _SnapshotCell]:
     """Index a snapshot by exact persisted ID or exact support when anonymous.
 
-    The columns below are read from the support with the head at slot zero, and a delta
-    record carries no share, so a declared column is refused rather than flattened.
+    Boundary coefficients come from the one primary column reader, so unequal declared
+    shares and moved heads survive into temporal source fields instead of being silently
+    reconstructed from arity.  Stable relation identity is still independent of those
+    coefficients: anonymous histories key by support, identified histories by relation ID.
     """
-    rex._require_canonical_columns("a temporal signal snapshot")
     rex._ensure_clean()
     ptr = np.asarray(rex._boundary_ptr)
     idx = np.asarray(rex._boundary_idx)
+    exact = exact_slot_coefficients(ptr, idx, declaration_of(rex))
     signs = getattr(rex, "_signs", None)
     amplitudes = getattr(rex, "_w_E", None)
     identities = getattr(rex, "relation_ids", None)
     out: dict[RelationKey, _SnapshotCell] = {}
     for index in range(int(ptr.size - 1)):
-        support = tuple(int(vertex) for vertex in idx[int(ptr[index]):int(ptr[index + 1])])
+        lo, hi = int(ptr[index]), int(ptr[index + 1])
+        support = tuple(int(vertex) for vertex in idx[lo:hi])
+        coefficients = exact[lo:hi]
         key = int(identities[index]) if identities is not None else _canonical_key(support)
         if key in out:
             if identities is None:
@@ -442,7 +447,8 @@ def _snapshot_cells(rex: Any) -> dict[RelationKey, _SnapshotCell]:
             )
         if not support:
             raise ValueError("temporal signal cannot form a C1 boundary for an empty relation")
-        head = support[0]
+        negative = [slot for slot, value in enumerate(coefficients) if value == -1]
+        head = support[negative[0]] if negative else support[0]  # witness has no -1
         base = min(support)
         sign = 1 if signs is None else int(np.asarray(signs).ravel()[index])
         amplitude = None if amplitudes is None else np.asarray(amplitudes).ravel()[index]
@@ -451,25 +457,28 @@ def _snapshot_cells(rex: Any) -> dict[RelationKey, _SnapshotCell]:
             polarity=1 if head == base else -1,
             sign=sign,
             amplitude=amplitude,
-            column=_column(support),
+            column=_column(support, coefficients),
         )
     return out
 
 
-def _column(support: tuple[int, ...]) -> _BoundaryColumn:
-    """Construct one exact C1 boundary directly from declared incidence."""
-    coefficients: dict[int, Fraction] = {}
-    arity = len(support)
-    if arity == 1:
-        coefficients[support[0]] = Fraction(1)
-    else:
-        coefficients[support[0]] = Fraction(-1)
-        share = Fraction(1, arity - 1)
-        for vertex in support[1:]:
-            coefficients[vertex] = coefficients.get(vertex, Fraction(0)) + share
+def _column(
+    support: tuple[int, ...], coefficients: list[Fraction]
+) -> _BoundaryColumn:
+    """Compatibility named constructor for one exact sparse C1 boundary column."""
+    return _column_from_entries(support, coefficients)
+
+
+def _column_from_entries(
+    support: tuple[int, ...], coefficients: list[Fraction]
+) -> _BoundaryColumn:
+    """Coalesce one exact C1 column without changing its declared coefficients."""
+    column: dict[int, Fraction] = {}
+    for vertex, coefficient in zip(support, coefficients, strict=True):
+        column[vertex] = column.get(vertex, Fraction(0)) + coefficient
     return _BoundaryColumn(tuple(
         (vertex, coefficient)
-        for vertex, coefficient in sorted(coefficients.items())
+        for vertex, coefficient in sorted(column.items())
         if coefficient
     ))
 

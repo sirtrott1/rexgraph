@@ -1,5 +1,4 @@
-"""
-rexgraph.nn.optim: Hodge structured optimization, gradient descent on the Helmholtz Hodge
+"""rexgraph.nn.optim: Hodge structured optimization, gradient descent on the Helmholtz Hodge
 structure of the gradient field, not the coordinate wise view of SGD/Adam.
 
 A gradient on a weight matrix W (out × in) is a flow on the complete bipartite parameter
@@ -19,18 +18,13 @@ and equals the Hodge grad projection the compiled ``rex.hodge`` kernel computes 
 (see tests).
 
 Two layers:
-  * framework agnostic numpy core (``hodge_matrix_*``, ``hodge_flow_*``): usable directly,
-    and where the math is verified against rexgraph's kernels. The structured/general path
-    (arbitrary parameter graph, real harmonic component) goes through
-    ``hodge_flow_precondition`` and the compiled core.
-  * ``torch.optim.Optimizer`` bindings (guarded; torch is optional). ``GreensCochain`` is the
-    live one: Green's-function preconditioning for models whose parameters are cochains on a
-    complex. ``HodgeAdam`` / ``HodgeSGD`` moved to ``rexgraph.nn._experimental`` (back-compat;
-    they tie plain Adam on standard feature-space models) and are re-exported here.
+  * NumPy Hodge matrix and flow functions, including the compiled general flow path.
+  * Optional Torch optimizers. GreensCochain preconditions cell indexed parameters;
+    HodgeAdam and HodgeSGD are experimental compatibility exports.
 
 The numpy core is pure BLAS; the torch binding runs on whatever backend torch is built for
 (CUDA/ROCm/CPU/MPS). Training dynamics can be logged as a vector corpus via
-``save_hodge_trajectory`` (the same ``rexgraph.io`` path used for embeddings), so a run's
+``save_hodge_trajectory`` (through the neutral artifact port used for embeddings), so a run's
 grad/rotational balance is a trackable timeline.
 """
 from __future__ import annotations
@@ -39,9 +33,8 @@ from typing import Any
 
 import numpy as np
 
-# back compat re export: HodgeAdam / HodgeSGD were demoted to _experimental, but build_optimizer
-# and factory.make_optimizer reach them by name here, as do external callers. _experimental
-# carries its own torch guard and its own no torch stubs, so this covers both branches below.
+# Compatibility exports used by build_optimizer and factory.make_optimizer.
+# The experimental module supplies its own optional Torch guard.
 from rexgraph.nn._experimental import HodgeAdam, HodgeSGD  # noqa: F401
 
 # framework agnostic core
@@ -105,9 +98,9 @@ def hodge_flow_precondition(rex, flow, gamma_grad: float = 1.0, gamma_curl: floa
 def save_hodge_trajectory(report: dict[str, list[float]], path: str, *,
                           optimizer: str = "HodgeSGD", **meta) -> str:
     """Persist a per step Hodge trajectory (pct_grad / pct_rot / ...) as a labeled vector
-    corpus through the same ``rexgraph.io`` path used for embeddings, so a run's
+    corpus through the neutral artifact port used for embeddings, so a run's
     coordinated vs rotational gradient balance is a trackable timeline. Returns the path."""
-    from rexgraph.io import save_vectors  # direct import: the substrate never imports upward
+    from rexgraph.artifacts import save_vectors
     keys = [k for k, v in report.items() if isinstance(v, list) and v]
     if not keys:
         raise ValueError("empty trajectory report")
@@ -132,28 +125,18 @@ except Exception:                                    # torch is an optional dep
 if _HAS_TORCH:
 
     class GreensCochain(_torch.optim.Optimizer):
-        """Adam whose gradient is preconditioned by the Green's function of a relational complex,
-        for models whose parameters are COCHAINS on that complex (a value per cell).
+        """Adam with a Green preconditioner for parameters indexed by cells.
 
-        For a param group carrying a complex operator (`green_adj`, a sparse normalized adjacency
-        of shape [n_cells, n_cells]), each parameter's gradient (first dim = n_cells) is whitened in
-        the complex geometry: solve (I + t L) x = g with L = I - A_hat by matrix free CG, returning
-        the low pass component x (Green's-smoothed, for a homophilous complex) or the high pass
-        residual g - x, then Adam moments are applied to the result. Groups without `green_adj`, or
-        params whose first dim does not match, get plain Adam.
+        For a group with sparse green_adj A_hat, solve `(I + t L) x = g`, with
+        `L = I - A_hat**k`, by the configured number of conjugate gradient iterations.
+        Apply Adam moments to x for low, twohop and threehop, or to `g - x` for high.
+        Parameters without an adjacency or with a different first dimension use Adam
+        without the Green solve.
 
-        `green_channel` selects the k-hop operator (A_hat**k, cached; the 0s keep it sparse):
-        "low"/"high" walk one hop; "twohop"/"threehop" walk the sparse 2/3-hop operator, which
-        carries the structure a heterophilous complex needs (2 hop neighbours agree where 1 hop
-        neighbours disagree). Use `generate_khop_channel` to auto select the channel per task from a
-        cheap self supervised score rather than fixing it.
-
-        This is the native optimizer for relational native models where the complex IS the model and
-        the parameters are cochains: the Green's preconditioning does the relational propagation a
-        structure blind optimizer cannot (empirically a bare cochain node model goes from chance to
-        strong generalization, because the optimizer itself carries the training signal across the
-        complex). On STANDARD feature space models it offers nothing over Adam: the structure is
-        already in the forward pass, so use plain Adam there. Requires torch."""
+        green_channel selects k=1 for low/high, k=2 for twohop, and k=3 for threehop.
+        Adjacency powers are cached per group. generate_khop_channel selects a channel
+        using a caller supplied score. Requires PyTorch.
+        """
 
         def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0,
                      green_lam=1.0, green_iters=12, green_channel="low"):
@@ -195,7 +178,10 @@ if _HAS_TORCH:
 
         @_torch.no_grad()
         def step(self, closure=None):
-            loss = closure() if closure is not None else None
+            loss = None
+            if closure is not None:
+                with _torch.enable_grad():
+                    loss = closure()
             for group in self.param_groups:
                 lr, (b1, b2), eps = group["lr"], group["betas"], group["eps"]
                 wd = group["weight_decay"]; adj = group.get("green_adj")
@@ -220,23 +206,11 @@ if _HAS_TORCH:
             return loss
 
     class GreensFlow(GreensCochain):
-        """GreensCochain over the operator that reads BOTH grades.
+        """GreensCochain using the relation operator from both boundary grades.
 
-        Same preconditioning, different complex operator. `coparticipation_adjacency` is
-        built from |B1| alone and never touches B2, so a model trained through it is blind
-        to every face: attaching hyperfaces leaves its operator bit identical, and an
-        ablation over open against closed complexes reports the same number for a reason
-        that has nothing to do with the data. The curl tier exists and the optimizer
-        cannot see it.
-
-        `flow_adjacency` is L1_down + alpha * L1_up, so the gradient tier and the curl
-        tier both carry signal. `alpha` is the exchange rate between them and defaults to
-        `rex.c0_squared`, the exact rational geometry<->topology coupling, rather than to
-        a number chosen for the run.
-
-        This is ADDITIVE. GreensCochain is unchanged and stays the right choice for a
-        cochain over a face free complex, where there is no curl tier to miss. Use this
-        one where the complex is closed and the faces are supposed to matter.
+        flow_adjacency combines the signed down operator with alpha times the up operator.
+        alpha defaults to rex.c0_squared. Groups with an existing green_adj retain it;
+        other groups receive the constructed adjacency in their parameter dtype.
         """
 
         def __init__(self, params, *, rex=None, alpha=None, lr=1e-3, betas=(0.9, 0.999),
@@ -278,18 +252,11 @@ if _HAS_TORCH:
             return self._rex is not None and int(self._rex.nF_hodge) > 0
 
     def generate_khop_channel(score_fn, channels=("low", "twohop", "threehop")):
-        """Context aware k-hop GENERATOR: pick the propagation channel that fits the task, cheaply.
+        """Score candidate Green channels and return the highest scoring one.
 
-        Standard optimizers cannot do this because they have no cheap structural signal to detect
-        which operator fits; a relational native model does. `score_fn(channel)` is that signal: a
-        callback returning a higher is better score for a candidate channel (e.g. a self supervised
-        inner val reconstruction accuracy: fit the cochain on an inner train split with that channel
-        and score the held out inner val). This returns ``(best_channel, {channel: score})``; the
-        caller then builds/sets GreensCochain with the selected channel. Empirically the generator
-        auto picks 2 hop for a heterophilous complex and low/3-hop for a homophilous one, with no
-        task specific hardcoding: the detection nobody wires into an optimizer because the cheap
-        structural math is missing. A deeper (run nothing) detector reads the channel straight off
-        the complex's spectral moments; this self supervised version is the first working form."""
+        score_fn(channel) supplies a scalar score where higher is better.
+        Return (best_channel, scores). The caller configures GreensCochain with the result.
+        """
         scores = {ch: float(score_fn(ch)) for ch in channels}
         best = max(scores, key=scores.get)
         return best, scores

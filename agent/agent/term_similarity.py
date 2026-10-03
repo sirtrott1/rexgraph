@@ -32,7 +32,7 @@ The "carries weight" qualifier is not a technicality. Under information content 
 ancestor annotated by everything has `IC = -log(1) = 0`, so it enters neither the
 maximum nor the sum, and a pair sharing three ancestors two of which are the universal
 ones loses nothing by keeping one. The gap opens where the shared ancestors are
-genuinely informative, which is where it matters.
+informative, which is where it matters.
 
 The weight is a parameter, and that matters. Information content is defined from
 annotation frequency, so a Resnik or Lin score between two terms changes when a

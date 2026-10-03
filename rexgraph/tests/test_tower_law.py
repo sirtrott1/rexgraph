@@ -371,14 +371,7 @@ def test_branching_moves_the_mean_off_three():
 
 
 def test_zero_frustration_is_read_rather_than_returning_nothing():
-    """A consistently oriented star has zero frustration. This used to drop the F
-    channel, leaving three, and these accessors returned None rather than risk the
-    remaining three being read as if they were T,G,F,C.
-
-    F is carried at zero now, so the position of every channel is fixed and that
-    misreading cannot happen. The accessors answer instead of declining, which is
-    the point: orientation conflict measuring zero is a measurement about the
-    complex, not a reason to stop reporting."""
+    """Zero frustration remains a present channel and yields zero valued readings."""
     star = RexGraph(sources=np.array([0, 0, 0], dtype=np.int32),
                     targets=np.array([1, 2, 3], dtype=np.int32))
     fields = star.lagrangian_fields()

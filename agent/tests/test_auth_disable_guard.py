@@ -1,19 +1,8 @@
-"""Turning auth OFF is the unsafe direction, and it used to be the easy one.
+"""Check authentication disable guards.
 
-`disable_auth()` persisted unconditionally, so any in process caller wrote
-`enabled: false` into the host's own `~/.config/rexgraph/auth.json`. Six test fixtures
-did exactly that, which is how a test suite turned auth off on a live install and left it
-off. Enabling needs no ceremony: the worst an accidental enable does is ask for a token
-the caller already has. Disabling needs two, and they are separate on purpose:
-
-    persist=False   flip the flag for this process only, never touch disk. What a test
-                    wants, because it needs the server object open rather than the host
-                    reconfigured.
-    confirm=True    required before a disable is WRITTEN to a config that has tokens,
-                    because that is someone's live install. Missing it raises rather
-                    than writing, so an accident is loud instead of silent.
-
-The network path is stricter and unchanged: host local, admin token, disable passphrase.
+persist=False leaves configuration bytes unchanged. Persistent disabling with
+tokens requires confirm=True. HTTP disabling also requires host local origin,
+an admin token and the disable passphrase.
 """
 from __future__ import annotations
 
@@ -114,7 +103,7 @@ def test_enable_can_also_be_process_only(manager):
     assert _written(path) is False
 
 
-#### nothing in the tree disables auth the old way
+# Authentication disable call sites
 
 
 def test_no_call_site_disables_without_saying_which_it_means():

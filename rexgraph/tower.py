@@ -33,6 +33,8 @@ from fractions import Fraction
 
 import numpy as np
 
+from rexgraph.exact_value import binary_fraction
+
 __all__ = ["boundary_mass", "mass_tower", "trace_tower", "moments",
            "tower_law", "incidence_degrees", "closure_at", "manifold_state",
            "surface_identity", "apd", "semantic_closure",
@@ -52,10 +54,10 @@ def boundary_mass(rex, grade: int, *, exact: bool = True):
     the stored value would give the exact mass of a set of doubles. It equals
     `sum_e Q(e)`, the total quadrance.
 
-    Higher grades read the stored coefficients. A face solved by
-    `faces.solve_face_column` has its denominators cleared, so those are integers and a
-    double holds them exactly; a hand supplied non integer coefficient is taken at face
-    value and `exact` should be read as False by the caller in that case.
+    Higher grades read the stored coefficients under the stored binary source contract.
+    A face solved by `faces.solve_face_column` has its denominators cleared, so those are
+    integers. A hand supplied noninteger double is therefore exact only as the binary
+    value actually stored, never silently reinterpreted as a nearby decimal/rational.
     """
     grade = int(grade)
     if grade < 1:
@@ -71,7 +73,8 @@ def boundary_mass(rex, grade: int, *, exact: bool = True):
     B = bounds[grade - 1]
     if not exact:
         return float(B.multiply(B).sum())
-    return sum((Fraction(float(v)) ** 2 for v in B.data), Fraction(0))
+    return sum((binary_fraction(v, context="stored boundary coefficient") ** 2
+                for v in B.data), Fraction(0))
 
 
 def mass_tower(rex, *, exact: bool = True) -> list:
@@ -419,7 +422,7 @@ def apd(rex, grade: int = 1, *, view: str = "local"):
 def validate_closure(rex, seed, max_depth=8, grade=0):
     """Validate a C0 seed and the complete raw source chain before expansion."""
     from numbers import Integral
-    from rexgraph.io.partition_state import partition_tower
+    from rexgraph.partition_state import partition_tower
     from rexgraph.graph import RexGraph
     if not isinstance(rex, RexGraph):
         raise TypeError("closure requires a native RexGraph")
@@ -448,7 +451,7 @@ def semantic_closure(rex, seed: int, *, max_depth: int = 8, grade: int = 0) -> d
     not a semantic sufficiency certificate. max_depth bounds the search;
     a result that reaches it without repetition is explicitly unconverged.
     """
-    from rexgraph.io.partition_state import build_rex_partition
+    from rexgraph.partition_state import build_rex_partition
     _, columns = validate_closure(rex, seed, max_depth, grade)
     supports = [set(map(int, s)) for s in rex.relation_supports()]
     vertices = {int(seed)}
@@ -496,8 +499,8 @@ def graded_delta(rex) -> list:
     signature across its pairs.
     """
     from rexgraph.core._l_gb import l_gb_tower
-    return l_gb_tower([np.asarray(b.todense(), dtype=np.float64)
-                       for b in _boundaries(rex)])
+    from rexgraph.native_sparse import native_boundaries
+    return l_gb_tower(native_boundaries(rex))
 
 
 def channel_delta(rex):

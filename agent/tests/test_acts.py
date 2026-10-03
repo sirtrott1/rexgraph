@@ -160,7 +160,7 @@ def test_direction_is_positional_because_a_column_and_its_negation_are_one_cell(
     negated write silently produces the write."""
     same = RexGraph(boundary_ptr=np.array([0, 2, 4], np.int32),
                     boundary_idx=np.array([0, 1, 0, 1], np.int32),
-                    signs=np.array([-1.0, 1.0, 1.0, -1.0]))
+                    signs=np.array([-1.0, 1.0]))
     B = np.asarray(same.B1.todense() if hasattr(same.B1, "todense") else same.B1)
     assert np.allclose(B[:, 0], B[:, 1]), "opposite signs, one cell"
 

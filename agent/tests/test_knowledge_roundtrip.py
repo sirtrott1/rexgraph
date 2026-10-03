@@ -406,7 +406,7 @@ def test_a_file_with_no_relations_says_so(tmp_path):
 
 
 def test_features_from_two_files_stack(tmp_path):
-    """The batching case the fixed layout exists for."""
+    """Feature matrices from two files stack with aligned columns."""
     a = join(_write(tmp_path, "go.obo", BRCA_OBO)).features()[0]
     b = join(_write(tmp_path, "m.sdf", SDF)).features()[0]
     stacked = np.vstack([a, b])
@@ -683,16 +683,7 @@ def test_the_route_carries_the_recommendations(client):
 
 
 def test_the_join_is_not_quadratic():
-    """A regression guard with a lot of headroom.
-
-    The join was O(groups x identifier sets): it scanned every identifier set once
-    per group. At 20k terms that was 322 seconds, and at real GO scale it did not
-    finish. Attributing each set to its group in one pass makes it near linear, and
-    45k terms with 400k annotations now joins in under three seconds.
-
-    The bound below is ~30x the linear time and ~1/10th the quadratic time, so it
-    fails on a return of the old shape without being sensitive to the machine.
-    """
+    """Bound annotation join time on a synthetic term and identifier fixture."""
     import random
     import time
 

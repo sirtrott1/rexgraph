@@ -2048,9 +2048,6 @@ class TrustGraphAdapter(DomainAdapter):
         # consumes, so taking it here keeps the door open to composing these selections
         # rather than rebuilding them.
         #
-        # This previously materialised the dense B1 and scanned every column per entity,
-        # which costs nV*nE to recover incidence the complex already holds, and reads a
-        # signed boundary purely for whether an entry is nonzero.
         per_entity = {}
         for name, idx in zip(found, indices, strict=False):
             _, edge_mask, _ = rex.star_of_vertex(int(idx))

@@ -515,7 +515,7 @@ def test_rex_state_roundtrip_preserves_coparticipation_channel():
     assert from_state(state).c_channel == "count"
 
 
-def test_object_digest_binds_header_semantics_omitted_by_tensor_digest():
+def test_native_tensor_seal_binds_all_header_semantics():
     undirected = _two_edge_rex(directed=False, c_channel="share")
     directed = _two_edge_rex(directed=True, c_channel="share")
     counted = _two_edge_rex(directed=False, c_channel="count")
@@ -523,7 +523,7 @@ def test_object_digest_binds_header_semantics_omitted_by_tensor_digest():
     metadata._agent_meta = {"source": "different"}
 
     states = [to_state(value) for value in (undirected, directed, counted, metadata)]
-    assert len({state.header["digest"] for state in states}) == 1
+    assert len({state.header["digest"] for state in states}) == 4
     assert len({object_digest(value) for value in (undirected, directed, counted, metadata)}) == 4
     assert object_digest(undirected) == object_digest(_two_edge_rex())
 
@@ -706,7 +706,7 @@ def test_mutation_rejects_semantic_header_delta_and_endpoint_substitution():
         dict(package.resulting_state.tensors), deepcopy(package.resulting_state.header)
     )
     changed_result.header["c_channel"] = "share"
-    assert verify_state(changed_result)
+    assert not verify_state(changed_result)
     assert not verify_mutation(
         replace(package, resulting_state=changed_result),
         previous=previous,

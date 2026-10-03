@@ -1,72 +1,12 @@
-"""rexgraph.ternary: a {-1, 0, +1} operator as two bitplanes, dispatched per backend.
+"""Ternary operators stored as presence and sign bitplanes.
 
-A ternary entry carries two bits. Held as float32 it costs 32, so an operator large
-enough to leave cache spends 16x the bandwidth to move the same content, and every unit
-here runs out of bandwidth long before it runs out of instructions. Packing it is not a
-storage decision, it is the arithmetic decision.
+Each row carries its nonzero count. Pairing with a {-1, +1} query returns
+`k - 2 * disagree`, using the packed presence and sign planes. Float products
+use their corresponding registered kernels.
 
-The planes are the trichotomy this library already names:
-
-    presence   nonzero      EXISTENCE of the incidence
-    sign       negative     its ORIENTATION
-    (absent)                SHARE, which is 1/(k-1) and derives from the arity
-
-Arity is the popcount of the presence plane, so a boundary column survives packing with
-nothing lost. It is also carried on the operator rather than recomputed, because the
-product needs it: since the two popcounts sum to the arity,
-
-    agree - disagree = k - 2*disagree
-
-so one AND and one popcount suffice where the naive form uses two of each.
-
-MEASURED, 8192x65536 = 537M entries, every path checked exact against the dense float
-product BEFORE being timed, medians of 9:
-
-    CPU float32 BLAS, all cores        26.2 Gentry/s
-    CPU ternary kernel, 32 threads    280.0            10.7x the float path
-    iGPU float32 matmul                54.5
-    iGPU ternary, eager torch          52.9
-    iGPU ternary, FUSED, resident     599.1            11.0x the float path
-    iGPU ternary, FUSED, per-call transfer     96.0    the planes are the operator
-    iGPU ternary, native HIP kernel   854.6            213.6 GB/s, 98% of the ceiling
-
-The FLOAT product is bound by something else and it is worth saying which. Every row
-reads all of v, so v traffic exceeds plane traffic by the word width, and rows are
-blocked four deep on both units so one read of v serves four accumulators:
-
-    BLAS dgemv, dense float64          12.6 Gentry/s
-    CPU blocked AVX-512, 16 threads   121.7            9.7x dgemv
-    iGPU HIP kernel, resident          97.6            195 GB/s of v traffic
-
-Deeper blocking does not follow. At eight rows the device v traffic falls to 106 GB/s
-and throughput falls with it, because eight accumulators and a larger reduction cost
-more occupancy than the halved traffic buys. Four is measured, not reasoned.
-
-Two things separate 52.9 from 599.1 and neither is the hardware. Fusion is the first. Written as separate torch expressions the
-product launches about ten elementwise kernels, each round tripping the full 134 MB of
-planes, and it lands at 52.9. Compiled into one pass it reaches 616.2 at 154 GB/s
-against a 217.9 GB/s streaming ceiling, so it is finally bandwidth bound on data that
-is 16x denser. The device lane therefore compiles, and a lane that cannot compile is
-worth about a ninth of one that can.
-
-Residency is the second. The planes ARE the operator, so a lane that re sends 134 MB
-per product spends its time on the bus: 96.0 against 599.1 for the same arithmetic.
-`TernaryOperator.to(device)` returns a `DeviceTernary` that holds them, and only the
-vector crosses per product. `matvec(op, x, prefer="cuda")` does not do this, because it
-cannot know whether a second product is coming.
-
-Backends register through `rexgraph.compute`, unchanged:
-
-    compute.register_op("ternary_matvec_pm1", "<backend>", fn)
-
-and no call site moves. `cpu` and `openmp` are the compiled kernel; `cuda` covers
-NVIDIA and ROCm alike, which is how compute.py already names that lane. A new
-architecture needs a register_op call and nothing here.
-
-WHERE THIS APPLIES. Dense ternary operators: composite binary model weights, and small
-dense blocks. A SPARSE boundary is already stored without values by
-boundary_ptr/boundary_idx, which derives share from span width, so packing one of those
-wins nothing. Pack what is dense and ternary; leave the sparse boundary alone.
+CPU, OpenMP and Torch device implementations register through rexgraph.compute.
+TernaryOperator.to returns a resident DeviceTernary; matvec performs one product
+with the selected backend. Sparse boundary incidence retains its own CSR format.
 """
 from __future__ import annotations
 
@@ -132,13 +72,21 @@ class DeviceTernary:
     def matvec(self, x):
         """Product against a +-1 vector, with only the vector crossing the bus."""
         import torch
-        v = np.asarray(x)
-        if v.ndim != 1 or v.shape[0] != self.shape[1]:
-            raise ValueError(f"vector of length {self.shape[1]} required, got {v.shape}")
+        v = _pm1_vector(x, self.shape[1])
         X = torch.from_numpy(
             _ternary.pack_vector(v.astype(np.int8)).view(np.int64)).to(self.device)
         out = _compiled(self.device)(self.P, self.S, X, self.K, *_masks(self.device))
         return out.to(torch.int64).cpu().numpy()
+
+
+def _pm1_vector(x, length):
+    """Validate before int8 conversion, which can otherwise round or wrap values."""
+    v = np.asarray(x)
+    if v.ndim != 1 or v.shape[0] != length:
+        raise ValueError(f"vector of length {length} required, got {v.shape}")
+    if v.dtype.kind not in "iuf" or not np.isin(v, (-1, 1)).all():
+        raise ValueError("the packed integer product requires a vector in {-1,+1}")
+    return v
 
 
 def pack(arr) -> TernaryOperator:
@@ -188,6 +136,7 @@ def backends_for(name: str = "ternary_matvec_pm1") -> list[str]:
 
 #### the compiled CPU kernel, serial and threaded
 def _pm1_cpu(op: TernaryOperator, v, threads: int = 1):
+    v = _pm1_vector(v, op.shape[1])
     return _ternary.matvec_pm1(op.P, op.S, _ternary.pack_vector(v.astype(np.int8)),
                                op.arity(), threads)
 
@@ -252,6 +201,7 @@ def _compiled(dev):
 
 def _pm1_cuda(op: TernaryOperator, v):
     import torch
+    v = _pm1_vector(v, op.shape[1])
     dev = "cuda"
     P = torch.from_numpy(op.P.view(np.int64)).to(dev)
     S = torch.from_numpy(op.S.view(np.int64)).to(dev)
@@ -266,8 +216,8 @@ def _f64_cuda(op: TernaryOperator, v):
     and transfer rather than on the multiply."""
     import torch
     dev = "cuda"
-    dense = torch.from_numpy(op.dense().astype(np.float32)).to(dev)
-    vv = torch.from_numpy(np.ascontiguousarray(v, dtype=np.float32)).to(dev)
+    dense = torch.from_numpy(op.dense().astype(np.float64)).to(dev)
+    vv = torch.from_numpy(np.ascontiguousarray(v, dtype=np.float64)).to(dev)
     return (dense @ vv).cpu().numpy().astype(np.float64)
 
 

@@ -1,15 +1,4 @@
-"""One row per cell, carrying what that cell actually is.
-
-The per cell table was the useful half of the old dashboard: a cell with its readings
-attached, so a question about one cell has one place to look. Two things about its shape
-were wrong.
-
-An edge row named a `source` and a `target`, which is the arity 2 coordinate of a
-relation rather than the relation. A branching column of arity k had k-2 of its boundary
-nowhere in the row. And channels were positional, so `L1_down` and `L_O` came back as
-"channel 0" and "channel 1", two numbers that are equal on an unweighted complex for a
-structural reason and read as a coincidence.
-"""
+"""Check complete relation boundaries and named channels in per cell tables."""
 from __future__ import annotations
 
 import numpy as np

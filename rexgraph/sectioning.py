@@ -277,7 +277,7 @@ def pack_sectionings(rex, t, h):
     Mirrors how nested states are packed, including the per layer digest: each sectioning
     is digested over its OWN tensors so a caller can check one layer without the rest.
     """
-    from rexgraph.io.rex_state import DIGEST_ALGO, _pack_strings, state_digest
+    from rexgraph.state import DIGEST_ALGO, _pack_strings, state_digest
 
     entries = []
     for s in sectionings_of(rex).values():
@@ -319,7 +319,7 @@ def pack_sectionings(rex, t, h):
 
 def unpack_sectionings(rex, t, h):
     """Restore sectionings from the tensor dict, verifying each layer's own digest."""
-    from rexgraph.io.rex_state import _unpack_strings, state_digest
+    from rexgraph.state import _unpack_strings, state_digest
 
     out = {}
     for e in h.get("sectionings", []) or []:

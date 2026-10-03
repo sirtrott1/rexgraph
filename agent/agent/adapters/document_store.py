@@ -1,21 +1,8 @@
-"""Documents into an RCDB, one record per document, prose left on disk.
+"""Store one relational complex per document, retaining source prose on disk.
 
-The split is the one the storage layer already makes everywhere else, and the reason it
-matters here is scale: 61,354 Gutenberg texts are 24.35 GB of prose, and a record that
-carries its own text doubles that for bytes nothing reads until someone asks for one
-section.
-
-    the record    the field, its layers, their digests and the Merkle root. Tensors, and
-                  1.86x the raw size measured across 24 books.
-    the heap      the file on disk, untouched. Every section carries a byte span into it,
-                  so recovering prose is one seek: `rexgraph.document.section_text`.
-
-`source_text` is deliberately NOT written. It is the thing that made retrieval read prose
-out of a blob instead of seeking, and putting it back here would undo the point of having
-spans at all.
-
-Resumable in the same sense the fetcher is: a document whose content digest already
-matches the stored one is skipped, so a re run costs a hash and not a rebuild.
+Records carry the field, document layers, digests and Merkle root. Section spans
+address the heap file through rexgraph.document.section_text. source_text is not
+stored. Ingestion skips a document whose content digest matches its record.
 """
 from __future__ import annotations
 
@@ -42,7 +29,7 @@ def document_meta(rex, info, *, doc_id, source, heap, content_digest):
     reader has to be able to tell a chapter layer that matched real headings from a
     document that simply has none, and that is a query, not an inspection.
     """
-    from rexgraph.io.rex_state import to_state
+    from rexgraph.state import to_state
     from rexgraph.merkle import build_merkle
 
     st = to_state(rex)
@@ -75,12 +62,8 @@ def ingest_document(store, source, *, doc_id=None, raw=None, heap=None,
     that is a real file, because the span pointers are only meaningful against the file
     they were computed from.
 
-    `analytics` is OFF here, unlike the signature's own default. Measured per book:
-    building the document is 0.39 s and the analytics columns (`kappa_mean` and the
-    information metrics) are 2.17 s, so they are 85% of a corpus ingest (37 of its 44
-    hours) and nothing on the retrieval path reads them. With them off the corpus lands
-    in 6.7 h on one thread or ~34 min on twelve, and `backfill_analytics` fills them in
-    for whatever subset earns it.
+    analytics defaults to False. backfill_analytics computes those columns later
+    for a selected record subset.
     """
     from rexgraph.document import build_document, read_document
 
@@ -147,7 +130,7 @@ def ingest_directory(store, root, *, recursive=True, extensions=TEXT_EXT, limit=
                 n_skip += 1
             else:
                 n_new += 1
-        except Exception as exc:                       # noqa: BLE001 - corpus scale
+        except Exception as exc:                       # noqa: BLE001  # corpus scale
             n_fail += 1
             if len(failures) < 10:
                 failures.append((rid, f"{type(exc).__name__}: {exc}"))
@@ -191,7 +174,7 @@ def backfill_analytics(store, ids=None, *, voids=False, log=print):
                       voids=voids)
             del sig
             n_ok += 1
-        except Exception:                              # noqa: BLE001 - corpus scale
+        except Exception:                              # noqa: BLE001  # corpus scale
             n_fail += 1
         if log and i % 200 == 0:
             log(f"  {i:,}/{len(rows):,}  ok {n_ok:,}  fail {n_fail:,}")

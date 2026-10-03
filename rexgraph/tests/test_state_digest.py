@@ -67,9 +67,8 @@ def test_a_fresh_state_stamps_the_framing_it_used(rex):
 
 
 def test_a_bundle_written_before_the_fix_still_verifies(rex):
-    """An unstamped header means algo 1. Checking it under the new rule would report
-    every previously stored object as corrupt, which turns a fix into data loss."""
-    st = to_state(rex)
+    """An unstamped legacy state header selects digest algorithm 1."""
+    st = to_state(rex, _native=False)
     legacy = RexState(dict(st.tensors),
                       {k: v for k, v in st.header.items() if k != "digest_algo"})
     legacy.header["digest"] = state_digest(
@@ -94,7 +93,7 @@ def test_an_unsealed_state_is_not_successful_verification(rex):
 def test_a_precanonical_bundle_reports_age_before_the_absent_seal(rex):
     """The unsealed migration flag cannot decode the old array naming scheme, so the
     reader must not recommend it for a bundle that predates canonical RexState."""
-    st = to_state(rex)
+    st = to_state(rex, _native=False)
     legacy_header = {
         k: v for k, v in st.header.items()
         if k not in {"format_version", "digest", "digest_names", "digest_algo"}
@@ -127,7 +126,7 @@ def test_malformed_digest_metadata_is_not_a_legacy_state(rex, field, value):
 
 
 def test_tampering_is_still_caught_under_the_legacy_rule(rex):
-    st = to_state(rex)
+    st = to_state(rex, _native=False)
     legacy = RexState(dict(st.tensors),
                       {k: v for k, v in st.header.items() if k != "digest_algo"})
     legacy.header["digest"] = state_digest(
@@ -168,7 +167,8 @@ def test_a_rex_bundle_cannot_downgrade_integrity_by_deleting_the_seal(rex, tmp_p
 
     with pytest.raises(ValueError, match="no content digest"):
         load_rcbd(str(path))
-    assert load_rcbd(str(path), allow_unsealed=True).nE == rex.nE
+    with pytest.raises(ValueError, match="no content digest"):
+        load_rcbd(str(path), allow_unsealed=True)
 
     boundary_path = path / "boundary_idx.npy"
     boundary = np.load(boundary_path)

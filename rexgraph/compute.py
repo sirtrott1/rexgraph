@@ -6,11 +6,11 @@ rexgraph.nn.factory.
 
   backends   cpu (serial/BLAS, always) | openmp (parallel CPU kernels, tuned by the thread count) |
              cuda (NVIDIA/ROCm) | mps (Apple Metal) - each with an availability probe
-  threads    set_threads(n) / get_threads() - the CPU parallel width for the OpenMP kernels
+  threads    set_threads(n) / get_threads(): the CPU parallel width for the OpenMP kernels
   ops        register_op(name, backend, fn); dispatch(name, ...) routes to the best available
              implementation, preferring a requested backend, falling back to cpu
 
-Registering a GPU implementation later is register_op(name, 'cuda', fn) - no call site change.
+Registering a GPU implementation later is register_op(name, 'cuda', fn): no call site change.
 
 The preferred backend is not hardcoded: when a call names none and no default/config is set, dispatch
 resolves the best backend for THIS host lazily via rexgraph._env (auto detected per machine), still
@@ -96,9 +96,7 @@ def set_threads(n: int | None) -> None:
 
 
 def effective_threads() -> int:
-    """The thread width to actually use: an explicit set_threads if one was given,
-    else what the allocation permits. os.cpu_count() was the old fallback, which on
-    a cluster is the node's core count rather than the job's."""
+    """Return an explicit thread width, or the width permitted by the allocation."""
     explicit = get_threads()
     if explicit:
         return int(explicit)
@@ -132,7 +130,7 @@ def get_default_backend() -> str | None:
 # instead of assuming one machine's GPU. The _env recommendation (cuda/rocm/vulkan/metal/cpu) is
 # mapped onto a registered backend name; ROCm reuses the 'cuda' backend (torch/cupy share the
 # namespace), Metal maps to 'mps'. A recommendation is used ONLY if that backend is registered AND
-# available AND the op implements it - otherwise dispatch falls through to best_backend()/cpu, so
+# available AND the op implements it: otherwise dispatch falls through to best_backend()/cpu, so
 # a recommended GPU without a working runtime never breaks a call. The REXGRAPH_BACKEND env var
 # (honored inside recommend_backend) wins over auto detection; an explicit set_default_backend /
 # apply_config wins over both.
@@ -239,7 +237,7 @@ def parallel_map(fn, items, *, threads=None, inner_threads=None):
     BUDGET is `effective_threads()`: the configured width if set, else what the
     allocation permits (SLURM/affinity/cgroup), NOT the node's core count. The number of WORKERS
     is `min(threads or budget, len(items))`, and while they run the inner native threadpools are
-    held to `inner_threads`, defaulting to the BUDGET ARITHMETIC `max(1, budget // workers)` - so
+    held to `inner_threads`, defaulting to the BUDGET ARITHMETIC `max(1, budget // workers)`: so
     workers * inner tracks the budget: no oversubscription when a task calls multi threaded BLAS,
     and no under utilization when there are few large tasks (e.g. 4 workers -> inner = cores/4, all
     cores used). Pass `inner_threads=0` to leave the inner pools uncapped, or an explicit int to
@@ -266,7 +264,7 @@ def parallel_map(fn, items, *, threads=None, inner_threads=None):
 # concatenate the tiles back. These helpers expose how many GPUs are usable and their indices
 # (capped by REXGRAPH_MAX_GPUS), plus the (larger) work gate at which replicating the operator across
 # devices actually pays off. On a 0- or 1 GPU host gpu_count() < 2, so the caller keeps the existing
-# single-GPU/CPU path unchanged - multi GPU is a pure, size gated extension, never a new default.
+# single-GPU/CPU path unchanged: multi GPU is a pure, size gated extension, never a new default.
 
 def gpu_count() -> int:
     """Number of GPUs usable for on device column tiling: ``torch.cuda.device_count()`` (CUDA or
@@ -353,10 +351,17 @@ def dispatch(name: str, *args, prefer: str | None = None, **kw):
     order.append(best_backend(pref))
     order.extend(available_backends())
     order.append("cpu")
+    seen = set()
     for be in order:
-        if be in impls:
+        be = _BACKEND_ALIAS.get(be, be)
+        if be in seen:
+            continue
+        seen.add(be)
+        # Explicitly selected extension ops can predate backend registration. A
+        # registered backend, however, must pass its availability probe.
+        if be in impls and (be not in _BACKENDS or _ok(_BACKENDS.get(be))):
             return impls[be](*args, **kw)
-    return next(iter(impls.values()))(*args, **kw)           # last resort: any registered impl
+    raise RuntimeError(f"no available backend implements {name!r}: {', '.join(impls)}")
 
 
 def inventory() -> dict:
@@ -459,7 +464,7 @@ for _be in ("cpu", "openmp", "cuda"):
                 lambda *a, _b=_be, **kw: _solve_block(*a, backend=_b, **kw))
 
 
-register_backend("openmp", available=lambda: effective_threads() > 1, kind="cpu",
+register_backend("openmp", available=lambda: True, kind="cpu",
                  description="Parallel CPU: the compiled OpenMP kernels, tuned by the thread width.")
 register_backend("cuda", available=_cuda_available, kind="gpu",
                  description="NVIDIA / ROCm GPU (via torch or cupy).")

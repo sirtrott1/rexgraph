@@ -124,7 +124,7 @@ def test_health_ratio_crosses_at_one_and_the_text_already_said_so():
         # the branch the engine takes now
         exact = "unstable" if frust > copart else ("stable" if frust < copart
                                                    else "balanced")
-        # what the old band would have said
+        # comparison with a fixed ratio band
         band = "unstable" if health > 1.1 else ("stable" if health < 0.9 else "balanced")
         if frust == 1.05 and copart == 1.0:
             assert exact == "unstable" and band == "balanced"   # the band mislabels it
@@ -132,8 +132,7 @@ def test_health_ratio_crosses_at_one_and_the_text_already_said_so():
 
 def test_the_varentropy_gap_is_an_exactness_test_not_a_band():
     """Measured, the gap is machine zero where H2 is exact and O(1e-2) where it is not
-    13 orders apart with nothing between. The old `< 0.05` sat ABOVE the inexact
-    case and certified it."""
+    13 orders apart with nothing between. The reliability predicate must distinguish these cases."""
     exact_gaps = [5.5511e-16, 1.1102e-15]
     inexact_gap = 4.3010e-02
     def reliable(gap, H2):
@@ -195,7 +194,7 @@ def test_confidence_rests_on_exact_invariants_not_on_summaries():
         return "low_confidence" if (chain_valid is False or va > 0.0) else "supported"
 
     assert verdict(False, -0.9) == "low_confidence"   # malformed complex, regardless
-    assert verdict(True, 0.2) == "low_confidence"     # positive affinity the old 0.5 missed
+    assert verdict(True, 0.2) == "low_confidence"     # positive void affinity
     assert verdict(True, -0.2) == "supported"
     assert verdict(True, 0.0) == "supported"          # the crossing is the sign
 

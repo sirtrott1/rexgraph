@@ -857,7 +857,6 @@ def typed_face_selection(np.ndarray[i32, ndim=1] edge_types,
     # For each u, iterate neighbors v > u; for each such v, intersect
     # N(u) ∩ N(v) for w > v (merge of two sorted rows). Each triangle is
     # found exactly once. Pass 1 counts; pass 2 fills preallocated arrays
-    # (the previous version accumulated into Python lists of boxed ints).
     for u in range(nV):
         lo_v = ap[u]
         hi_v = ap[u + 1]

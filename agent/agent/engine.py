@@ -715,9 +715,9 @@ class DecisionEngine:
 
         if kappa and labels:
             # Entities needing review = low coherence OUTLIERS, flagged by a
-            # data adaptive lower Tukey fence (q1 - 1.5·IQR), not a fixed magic
+            # data adaptive lower Tukey fence (q1: 1.5·IQR), not a fixed magic
             # cutoff. Coherence κ is continuous (no integer invariant applies), so
-            # the threshold is derived from the κ distribution itself - matching the
+            # the threshold is derived from the κ distribution itself: matching the
             # project's outlier detection convention (schema_complex relation_lint).
             n = min(len(kappa), len(labels))
             k_arr = np.asarray(kappa[:n], dtype=np.float64)
@@ -733,7 +733,7 @@ class DecisionEngine:
 
             # What's LOAD BEARING around the flagged entities: seed the incoherent
             # entities, diffuse (demand driven), and read which reached relations are
-            # BRIDGES - critical links with no backup path - plus how far the flagged
+            # BRIDGES: critical links with no backup path: plus how far the flagged
             # incoherence reaches (blast radius). The "what's load bearing / what's
             # frustrated" verdict the narrative otherwise lacks.
             try:
@@ -816,12 +816,8 @@ class DecisionEngine:
             health = hodge.get("health_ratio")
 
             if health is not None:
-                # health_ratio = frustration_total / coparticipation_total, so the
-                # structural crossing is at 1 and mesh_health says so outright:
-                # "health_ratio > 1 => the stuck load is...". The branch text below
-                # already describes `>1` and `<1`; the old 1.1/0.9 invented a dead
-                # band around a point the structure gives exactly. Compare the two
-                # quantities themselves and let equality be equality.
+                # Compare frustration_total and coparticipation_total directly.
+                # Their ratio crosses at 1; equality yields balanced.
                 if frust > copart:
                     result["stability_assessment"] = (
                         f"Unstable: frustration ({frust:.2f}) "

@@ -573,6 +573,7 @@ def read_result_dict(
 from ..registry import Registry
 
 _TYPE_REGISTRY = Registry("result type")
+_BUILTIN_TYPES_LOADED = False
 
 
 def _resolve_type(type_name: str) -> type | None:
@@ -581,13 +582,14 @@ def _resolve_type(type_name: str) -> type | None:
     Lazily populates the registry on first call by importing
     rexgraph.types.
     """
-    if not _TYPE_REGISTRY:
+    if not _BUILTIN_TYPES_LOADED:
         _populate_registry()
     return _TYPE_REGISTRY.get(type_name)
 
 
 def _populate_registry() -> None:
     """Import all NamedTuple types from rexgraph.types."""
+    global _BUILTIN_TYPES_LOADED
     try:
         import inspect
 
@@ -596,20 +598,24 @@ def _populate_registry() -> None:
             if (isinstance(obj, type)
                     and issubclass(obj, tuple)
                     and hasattr(obj, "_fields")):
-                _TYPE_REGISTRY.register(name, obj)
+                if name not in _TYPE_REGISTRY:
+                    _TYPE_REGISTRY.register(name, obj)
+        _BUILTIN_TYPES_LOADED = True
     except ImportError:
         pass
 
 
 def available_types() -> list:
     """Every registered result type."""
-    if not _TYPE_REGISTRY:
+    if not _BUILTIN_TYPES_LOADED:
         _populate_registry()
     return _TYPE_REGISTRY.available()
 
 
 def unregister_type(name: str):
     """Remove a registered result type."""
+    if not _BUILTIN_TYPES_LOADED:
+        _populate_registry()
     return _TYPE_REGISTRY.unregister(name)
 
 

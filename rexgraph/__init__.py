@@ -105,10 +105,16 @@ from .tower import channel_delta, graded_delta
 # package root import acyclic while making the primary public class available
 # from the documented package surface.
 from .graph import RexGraph, TemporalRex
+from .relations import Relations, RelationSpec, VertexTable
+from .value import Absent, Approx, NumberRule, ValueRules, ExactTime, TimeRange
+from .exact_array import ExactArray
+from .selection import Selection, CellMaps, Lineage, restrict, glue
 
-__version__ = "1.2.2"
+__version__ = "1.3.0"
 
 __all__ = [
+    "Relations", "RelationSpec", "VertexTable", "Absent", "Approx", "NumberRule", "ValueRules", "ExactTime", "TimeRange", "ExactArray",
+    "Selection", "CellMaps", "Lineage", "restrict", "glue",
     "core",
     "io",
     "compute",

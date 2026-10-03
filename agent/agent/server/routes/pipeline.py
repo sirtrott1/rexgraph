@@ -490,20 +490,8 @@ async def stream_pipeline(
                 yield 'event: done\ndata: {"documents":[]}\n\n'
                 return
 
-            # Phase 2, analysis: always in an isolated subprocess.
-            #
-            # The compiled core runs with bounds checks off, so a pathological or
-            # oversized input can segfault or OOM. Running it in process would take
-            # the whole server down with it (a crash we actually hit on a 100k-node
-            # graph). Isolating it means such a failure kills only the child; the
-            # server survives and returns an error for that one request.
-            #
-            # To avoid paying a fresh interpreter re import tax (~0.3-0.5s) on every
-            # request, we use a `forkserver`: a clean, single threaded helper that
-            # imports numpy/scipy/the analysis stack ONCE, then each request forks
-            # from it: warm AND isolated. Forking from that helper (not the
-            # multithreaded server, and before any OCR/torch is loaded) also avoids
-            # fork with threads hazards and never inherits a CUDA context.
+            # Phase 2: run compiled analysis in an isolated subprocess. The selected
+            # context uses forkserver with preloaded analysis modules where available.
             ctx = _analysis_ctx()
             analysis_queue = ctx.Queue()
             proc = ctx.Process(

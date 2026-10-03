@@ -1,57 +1,13 @@
-"""A document as one field with its layers attached.
+"""Build a document field with sentence, paragraph and chapter layers.
 
-The sequence this runs is not new: it is the one the layer design settled on, written
-down once instead of being rebuilt at each call site:
+    raw text -> document_layers -> from_text -> add_sectioning -> add_coarsening
 
-    raw text  ->  document_layers        spans per layer, and the method each matched
-              ->  from_text              ONE field, branching sentence relations
-              ->  add_sectioning         the sentence PARTITION, carrying byte spans
-              ->  add_coarsening         paragraph, as a parent map over sentences
-              ->  add_coarsening         chapter, as a parent map over paragraphs
+Sentences use pair_mode="none" and one branching relation over their terms.
+The sentence partition carries byte spans. Paragraph and chapter coarsenings
+store parent maps. No owner vertex is added per sentence.
 
-Three choices are made here rather than left to the caller, because measurement settled
-them and leaving them open would let a caller build something that does not close:
-
-    the PARTITION, not the cover     a pair recurring in two sentences belongs to both,
-                                     but only the partition closes exactly (total mass
-                                     2150.0000 against rank 2150, where the cover reads
-                                     2824.98) and it is 2.4x smaller. The Merkle tree
-                                     also REQUIRES it: a leaf needs exactly one parent.
-    pair_mode="none"                 a sentence IS one relation over its words. Nothing
-                                     is enumerated from it, because the pairs are not in
-                                     the text: measured on one book, 1,469 sentences give
-                                     1,469 relations at rank 1,437, and adding spanning
-                                     pairs gives 12,890 at rank 2,566: 11,421 invented
-                                     columns manufacturing 1,129 dimensions of rank and
-                                     10,292 of the 10,324 cycles. Nor is it a forest of
-                                     stars: shared vocabulary leaves 32 real cycles.
-                                     Connectivity and scale come from the field and its
-                                     layers, not from pairwise enumeration.
-    coarsenings as parent maps       a paragraph owns SENTENCES, not cells. Re-listing
-                                     the memberships stored the same 121,877 entries the
-                                     sentence layer already had, and could disagree
-                                     with it.
-    NO owner vertex per sentence     `owner_vertex=True` gives each group a vertex of its
-                                     own, which is a hub the text does not contain: star
-                                     expansion, and the one thing the model is built not
-                                     to need. The sentence's identity is already the
-                                     sectioning's label and span, so the vertex names it
-                                     twice. It also costs: an owner appears in no pair,
-                                     so it is isolated in the pairwise part, the spanned
-                                     -branching rank REFUSES, and betti falls back to the
-                                     exact reduction: 44.0s a document against 0.0s,
-                                     with 1,469 extra vertices and 1,470 components.
-
-`min_terms=1` keeps the WITNESS, which is a cell class and not a failure. A span of one
-term has column `(+1)`, sums to one rather than zero, and satisfies `L0 u = u`: it
-exists and bounds nothing, which is exactly what a vocative is. "Take away your mother,
-Jerry." and "Take away your mother Jerry." differ precisely in whether Jerry is a witness
-or the fifth member of a branching relation, so filtering arity 1 turns the first
-sentence silently into the second. Two was a filter standing where a class belongs, and
-three before it was arbitrary.
-
-Spans address the ORIGINAL bytes throughout, so the text stays an addressable heap and a
-section is recovered by one seek rather than a re parse.
+min_terms=1 retains witness columns (+1). Spans address the original encoded
+bytes, so section_text can seek a section without parsing the whole document.
 """
 from __future__ import annotations
 
@@ -63,18 +19,10 @@ __all__ = ["build_document", "document_sections", "section_text", "read_document
 
 
 def read_document(path, encoding="utf-8"):
-    """A file's text exactly as its BYTES decode, and whether spans can address it.
+    """Decode file bytes without translating line endings.
 
-    Never use text mode `open` for this. Python translates CRLF to LF on read, so the
-    decoded string is shorter than the file and every byte offset past the first line
-    ending is wrong. Measured on one book: 3,762 CRLF pairs, 174,311 bytes decoding to
-    163,950 characters, and the first bad offset at byte 63. Every span after that point
-    addressed another sentence, which no ASCII test fixture can catch because it has no
-    line endings to translate.
-
-    Returns `(text, exact)`. `exact` is True when the text re encodes to the file
-    byte for byte, which is exactly the condition under which a span computed from the
-    text addresses the file. A caller that gets False must not publish a heap pointer.
+    Return (text, exact). exact is True when reencoding the text produces the original
+    bytes. Only that case permits section byte spans to address the source file.
     """
     with open(path, "rb") as fh:
         b = fh.read()
@@ -251,7 +199,7 @@ def build_document(raw, *, profile=None, encoding=None, min_terms=1, grammar=Non
 
     part, orphans = _partition_of(cinfo["sections"], int(rex.nE))
     order = sorted(part)
-    # the layer is named for what it DOES: `span` when it genuinely divides a
+    # the layer is named for what it DOES: `span` when it divides a
     # sentence, `sentence` when it does not. Testing whether an explicit gate exists was
     # the wrong question: punctuation gates with no profile gate at all, so a document
     # divided 3 ways from 1 sentence was still being called the sentence layer.

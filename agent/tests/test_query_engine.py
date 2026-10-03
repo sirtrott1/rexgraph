@@ -73,8 +73,7 @@ class TestQueryComplex:
     def test_single_word_query_is_a_witness(self):
         rex, ec = qe.build_query_rex("receptors")
         # a single token is a WITNESS (column `(+1)`, sum one, `L0 u = u`) which is a
-        # cell class, not an absence. It used to come back as None on the belief that one
-        # token is "no relation"; it is a relation that exists and bounds nothing.
+        # A witness is a present cell class.
         assert ec is not None and "receptors" in ec.vertex_labels
         assert rex is not None and int(rex.nE) == 1
         assert int(rex.edge_types[0]) == 3, "EdgeType.WITNESS"

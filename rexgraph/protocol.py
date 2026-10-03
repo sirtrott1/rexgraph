@@ -42,6 +42,7 @@ import hashlib
 import hmac
 import io
 import json
+from math import prod
 import struct
 import zlib
 from dataclasses import dataclass
@@ -103,7 +104,7 @@ def encode(rex, *, meta: dict | None = None, compress: bool = True) -> bytes:
     The payload is the canonical layered state, so what crosses the wire and what the
     store holds are the same bytes rather than two encodings that can drift.
     """
-    from rexgraph.io.rex_state import to_state
+    from rexgraph.state import to_state
 
     state = to_state(rex)
     header = dict(state.header)
@@ -159,6 +160,8 @@ def decode(data: bytes, *, max_frame: int = DEFAULT_MAX_FRAME,
         raise ProtocolError("not a rexgraph frame")
 
     version, flags, head_len, body_len = struct.unpack("<HHII", data[4:16])
+    if flags not in (0, 1):
+        raise ProtocolError("unsupported wire flags")
     if version != WIRE_VERSION:
         raise ProtocolError(
             f"wire version {version} is not {WIRE_VERSION}; the sender and this "
@@ -178,14 +181,19 @@ def decode(data: bytes, *, max_frame: int = DEFAULT_MAX_FRAME,
 
     for grade in ("nV", "nE", "nF"):
         n = header.get(grade)
-        if n is not None and int(n) > max_cells:
+        if type(n) is not int or n < 0 or n > max_cells:
             raise ProtocolError(
                 f"{grade}={n} is over the {max_cells}-cell limit for one frame")
 
     payload = data[16 + head_len:]
-    if flags & 1:
+    if flags == 1:
         try:
-            payload = zlib.decompress(payload)
+            stream = zlib.decompressobj()
+            payload = stream.decompress(payload, max_frame+1)
+            if len(payload) > max_frame or stream.unconsumed_tail:
+                raise ProtocolError("decompressed payload exceeds the frame limit")
+            if not stream.eof or stream.unused_data:
+                raise ProtocolError("compressed payload is incomplete or has trailing bytes")
         except zlib.error as e:
             raise ProtocolError("payload does not decompress") from e
 
@@ -201,24 +209,34 @@ def decode(data: bytes, *, max_frame: int = DEFAULT_MAX_FRAME,
     index = header.get("tensors")
     if not isinstance(index, list):
         raise ProtocolError("header declares no tensor index")
-    tensors = {}
+    tensors, position, prior = {}, 0, None
     for entry in index:
         try:
-            name = str(entry["name"])
-            dtype = _DTYPES[entry["dtype"]]
-            shape = tuple(int(x) for x in entry["shape"])
-            offset, nbytes = int(entry["offset"]), int(entry["nbytes"])
+            if not isinstance(entry, dict) or set(entry) != {"name", "dtype", "shape", "offset", "nbytes"}:
+                raise ValueError("invalid tensor index fields")
+            name = entry["name"]
+            if type(name) is not str or not name or name in tensors or (prior is not None and name <= prior):
+                raise ValueError("invalid or duplicate tensor name")
+            dtype = np.dtype(_DTYPES[entry["dtype"]]).newbyteorder("<")
+            if (not isinstance(entry["shape"], list) or len(entry["shape"]) > 32
+                    or any(type(n) is not int or n < 0 for n in entry["shape"])
+                    or type(entry["offset"]) is not int or type(entry["nbytes"]) is not int):
+                raise ValueError("invalid tensor shape or offset")
+            shape = tuple(entry["shape"])
+            offset, nbytes = entry["offset"], entry["nbytes"]
         except (KeyError, TypeError, ValueError) as e:
             raise ProtocolError("a tensor entry is malformed") from e
-        if offset < 0 or nbytes < 0 or offset + nbytes > len(payload):
+        if offset != position or nbytes < 0 or offset + nbytes > len(payload):
             raise ProtocolError(f"tensor {name!r} points outside the payload")
-        expected = int(np.prod(shape)) * np.dtype(dtype).itemsize if shape else \
-            np.dtype(dtype).itemsize
+        expected = prod(shape) * dtype.itemsize
         if nbytes != expected:
             raise ProtocolError(
                 f"tensor {name!r} declares {nbytes} bytes for shape {shape}")
         tensors[name] = np.frombuffer(
             payload[offset:offset + nbytes], dtype=dtype).reshape(shape).copy()
+        position, prior = offset+nbytes, name
+    if position != len(payload):
+        raise ProtocolError("payload contains unclaimed bytes")
 
     header.pop("tensors", None)
     frame = Frame(header=header, tensors=tensors, n_bytes=len(data))
@@ -226,7 +244,7 @@ def decode(data: bytes, *, max_frame: int = DEFAULT_MAX_FRAME,
     # the content digest `to_state` recorded, checked on the unpacked tensors. This is
     # the same value an `.rcbd`, hdf5, zarr or safetensors reader checks, so a payload
     # that survived the wire and a payload that survived a disk are held to one rule.
-    from rexgraph.io.rex_state import RexState, verify_state
+    from rexgraph.state import RexState, verify_state
     if not verify_state(RexState(tensors=tensors, header=header)):
         raise ProtocolError(
             "the tensors do not match the content digest recorded with them")
@@ -241,12 +259,12 @@ def to_complex(frame: Frame, *, verify: bool = True):
     sparse matmul over stored nonzeros and it is what makes a frame trustworthy at
     all.
     """
-    from rexgraph.io.rex_state import RexState, from_state
+    from rexgraph.state import RexState, from_state
 
     try:
         rex = from_state(RexState(tensors=frame.tensors, header=frame.header),
                          verify=verify)
-    except Exception as e:                       # noqa: BLE001 - any failure is refusal
+    except Exception as e:                       # noqa: BLE001  # any failure is refusal
         raise ProtocolError(f"frame does not rebuild a complex: {e}") from e
     if verify:
         report = chain_report(rex)
@@ -280,7 +298,7 @@ def chain_report(rex) -> dict:
         return out
     try:
         bounds = np.asarray(rex._chain_col_bounds, dtype=bool)
-    except Exception:                            # noqa: BLE001 - unreadable is invalid
+    except Exception:                            # noqa: BLE001  # unreadable is invalid
         return {"n_faces": n_faces, "n_unbounded": n_faces,
                 "unbounded": list(range(n_faces)), "valid": False}
     bad = [int(f) for f in np.nonzero(~bounds)[0]]
@@ -339,7 +357,7 @@ def fingerprint(rex) -> dict:
     """A structural summary, not a complete identity or an isomorphism test.
 
     Betti and the cell counts survive relabeling, so two frames carrying the same
-    complex under different vertex numbering can agree here. Genuinely different
+    complex under different vertex numbering can agree here. different
     boundaries and weights can also agree. Use io.catalog.object_digest for native
     stored state identity; this compatibility summary is not a signature or proof
     that a fetched object equals the one that was sent.

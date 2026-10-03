@@ -58,7 +58,11 @@ def test_apply_rejects_invalid_state_and_options(failure):
     elif failure in {"parent", "root"}:
         kwargs["parent_digest"] = "other" if failure == "parent" else None
     elif failure == "result":
-        package.resulting_state.header["agent_meta"]["nested"]["version"] = 99
+        from rexgraph.sealed_state import SEMANTICS_TENSOR
+        from rexgraph.value_codec import pack_value, unpack_value
+        record = unpack_value(package.resulting_state.tensors[SEMANTICS_TENSOR].tobytes())
+        record["header"]["agent_meta"]["nested"]["version"] = 99
+        package.resulting_state.tensors[SEMANTICS_TENSOR] = np.frombuffer(pack_value(record), np.uint8)
     elif failure == "version":
         package = replace(package, version=1)
     elif failure == "type":

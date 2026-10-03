@@ -362,23 +362,7 @@ def _sections_by_field(doc, rec, qec, k, *, channels=False):
     if not resp.size:
         return None
 
-    # THE CHANNEL PROFILE, carried rather than summed away. `resp` is the profile summed
-    # over (topology, geometry, frustration, coparticipation), and those channels move in
-    # OPPOSITE directions between a section that answers and one that merely shares
-    # vocabulary: measured, topology 0.2379 against 0.2161 and coparticipation 0.2053
-    # against 0.2570, so the sum annihilates the difference exactly. A section that
-    # answers responds through the document's own topology; one that only shares words
-    # responds through co participation. The scalar cannot say which.
-    #
-    # Held out, the direction classifies answerable from foreign at 54.0% against 50.6%
-    # chance: it recovers signal the scalar destroyed without being a reliable typing.
-    # It is reported, not acted on.
-    #
-    # Computed only when ASKED, because `rex.structural_character` is 0.37 s a document
-    # and a retrieval scores 24 candidates to keep 3. That is the same split
-    # `score_document(reading=False)` documents: diagnostics on what survives, not on
-    # what is about to be discarded. Measured, doing it for every candidate took a
-    # whole corpus query from 5 s to 32 s.
+    # Return named channel profiles only when diagnostics are requested.
     prof, chan = None, []
     if channels:
         try:
@@ -388,20 +372,8 @@ def _sections_by_field(doc, rec, qec, k, *, channels=False):
             # per channel axes, never the ranking, which is `resp` above.
             prof, chan = None, []
 
-    # TWO READINGS, because which one is right is a property of the QUERY and a caller
-    # cannot know in advance which it has. Measured at n=149, top 1 on the section a
-    # query was lifted from: magnitude 94.6% / 71.8% / 33.6% as the query goes from the
-    # whole section to a half to a quarter, coverage 38.3% / 53.0% / 51.0%. They cross
-    # over, and a real question is at the short end.
-    #
-    # This is ADDITIVE and deliberately so. Magnitude still orders the result, which
-    # keeps the full query case exactly as it was: there, taking magnitude's own top 2
-    # beats consulting coverage (97.3% against 94.6%), so coverage must not displace
-    # anything. It is appended as one extra candidate when it disagrees.
-    #
-    # Agreement between the two is a confidence signal with no threshold in it: when they
-    # name the same section, magnitude is right 100% of the time on half- and
-    # quarter length queries, against 57.0% and 16.1% when they disagree.
+    # Order by response magnitude and append the coverage candidate when it differs.
+    # Report agreement between those two readings.
     try:
         cov, _n2 = section_coverage(rex, sect, seeds)
     except Exception:
@@ -464,20 +436,8 @@ def _field_candidates(store, q_tokens: set, limit: int, prefix: str = ""):
     try:
         from agent import rcdb_index as ix
         prof, ids, chan = ix.record_response(snap, q_tokens, channels=True)
-        # THE SECOND TOWER. The share reading divides each term's contribution by the
-        # record's width, so it answers "what fraction of this record is the query",
-        # a DENSITY. Measured on the documents that all hold `221b baker street`, its
-        # order agrees with the ordering by accession width at rank correlation +1.000:
-        # a 3,206 term pamphlet holding a page number beat the Adventures of Sherlock
-        # Holmes, which sat at 38. The existence tower reads the {0,1} incidence and so
-        # answers the MASS question, which puts Holmes at 4.
-        #
-        # NEITHER IS THE DEFAULT, because measured on 12 queries with known answers they
-        # trade: share takes top 1 6/12 to existence's 5/12, and existence takes Alice
-        # from 5 to 941. Read together they recover what either alone drops: recall@20
-        # 10/12 against 9/12 each. This is the same both readings pattern
-        # `_sections_by_field` already uses one grade down, where it is magnitude vs
-        # coverage.
+        # Read both accession towers: share divides by relation width, while
+        # existence uses the binary incidence pattern.
         mass, _ids2 = ix.record_response(snap, q_tokens, reading="existence")
     except Exception:
         # A silent None here means the caller falls back to the scan, 88 s against
@@ -562,26 +522,8 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
         return [], {"mode": "store", "n_ranked": 0}
     q_tokens = {w.lower() for w in qec.vertex_labels}
 
-    # THE PREFILTER IS A FIELD READING, not a scan.
-    #
-    # The store's index IS a complex: records and one shared vocabulary are its vertices,
-    # and a record's accession is a single branching relation with the record at position
-    # 0 carrying the -1. `record_response` seeds the query's TERM vertices and applies
-    # `L0 x = B1 (B1^T x)` matrix free, so "which records answer these terms" is a matvec
-    # over the operator the store already holds.
-    #
-    # What this replaces: `store.query(labels_any=...)`, which materialised every
-    # record's meta (around 8,000 label strings each) and set intersected in Python.
-    # Measured on the 61,353 document Gutenberg store, 88 s for the prefilter alone, and
-    # then `_signature_affinity` ordered the survivors off `labels_sample`, twelve
-    # entries, scoring 0.0000 against every candidate, so the ordering was arbitrary and
-    # the first two records opened were the corpus's two largest documents. A single
-    # query did not finish in 23 minutes. The field reading is 1.2 s and ranks the right
-    # book 1st, 1st, 2nd, 3rd and 7th on five title queries.
-    #
-    # as_of/valid_at still go to the per candidate read. A bitemporal PREFILTER over the
-    # index complex needs the index to be as of too, which it is not, so a time travelling
-    # query falls back to the scan rather than silently reading today's vocabulary.
+    # Prefilter current records through the index response over query terms.
+    # Time selectors use the metadata scan because the index is not a historical snapshot.
     n_cand = max(1, int(candidates if candidates is not None else STORE_CANDIDATES))
     n_sent_pre = (SECTION_SENTENCES if section_sentences is None
                   else max(1, int(section_sentences)))
@@ -698,14 +640,8 @@ def retrieve_from_store(query: str, top_k: int, *, store, prefix: str = "",
     relation = {"mode": "store", "n_ranked": len(scored),
                 "n_records": len(records), "n_opened": len(scored)}
     if provenance:
-        # WHICH records, not how many. The index is the corpus complex, so the returned
-        # sections are a section of it and the readings say what the answer rests on and
-        # whether it would survive losing any one of them. Opt in because the first call
-        # solves for the leverage; it is then cached against the index digest.
-        #
-        # `provenance="full"` adds the coupling reading, which is the only one that costs
-        # a solve per query: measured at 1.33s of a 1.35s retrieval against 0.02s for
-        # every structural reading together. A plain True stays cheap.
+        # Optional provenance reads the selected corpus section. Cache leverage
+        # against the index digest; full provenance also computes field coupling.
         snap = getattr(getattr(store, "_idx", None), "_snap", None)
         if snap is None:
             # a Memory or SQL store need not hold a snapshot, and that is not an error

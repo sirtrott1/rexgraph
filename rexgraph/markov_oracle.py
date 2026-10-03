@@ -4,7 +4,7 @@ from fractions import Fraction as Q
 import numpy as np
 
 from rexgraph.core import _standard, _sparse
-from rexgraph.io.catalog import object_digest
+from rexgraph.object_identity import object_digest
 from rexgraph.linear_operator import RexOperator, _exact_array, _numeric_array
 from rexgraph.native_sparse import NativeSparse
 from rexgraph.markov import validate_markov_source

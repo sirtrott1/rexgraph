@@ -51,7 +51,7 @@ def fingerprint(value):
         import numpy as np
         array = np.asarray(value.numpy())
         if array.dtype.hasobject:
-            from rexgraph.io.rex_state import _encode_exact
+            from rexgraph.state import _encode_exact
             payload = _encode_exact(array).tobytes()
         elif array.dtype.kind in "biufc":
             payload = np.ascontiguousarray(array).tobytes()

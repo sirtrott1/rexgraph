@@ -7,16 +7,9 @@ from rexgraph.model_state import ModelState, ModelOutput, ModelBatch
 from rexgraph.tensor_field import FieldSource, TensorField, apply_tensor
 from rexgraph.type_accession import CoordinateSpace
 from rexgraph.coordinate_map import CoordinateMetric
+from rexgraph.model_contract import model_coordinates
 
 __all__ = ["native_model", "infer_model", "train_model", "transport_model", "model_coordinates", "certify_native_response"]
-
-
-def model_coordinates(source, grade=1):
-    from rexgraph.chain_map import CoordinateComplex
-    complex_ = CoordinateComplex.from_rex(source)
-    if isinstance(grade, bool) or not isinstance(grade, int) or not 0 <= grade < len(complex_.spaces):
-        raise ValueError("model grade is outside the native tower")
-    return complex_.spaces[grade]
 
 
 def native_model(source, *, grade=1, operation="green", parameter=Fraction(1), metrics=None, reference=None):

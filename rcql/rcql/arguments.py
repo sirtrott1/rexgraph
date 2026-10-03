@@ -186,6 +186,7 @@ for _name, _arguments in _TEMPORAL_ARGUMENTS.items():
     insert_unique(EXPRESSION_ARGUMENTS, _name, _arguments)
 
 SOURCE_ARGUMENTS = {
+    "DATASET": (("name",), ()),
     "REX": (("name",), ()),
     "RCDB": (("name",), ()),
     "CATALOG": (("name",), ()),

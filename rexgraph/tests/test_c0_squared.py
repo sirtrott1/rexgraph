@@ -84,7 +84,7 @@ def test_c0_squared_is_exact_rational_not_float():
 @pytest.mark.parametrize("fixture,want", [(_p4_tri, Fraction(3, 8)),
                                           (_bowtie, Fraction(3, 5))])
 def test_c0_squared_on_non_regular_complexes(fixture, want):
-    """Where the two sides genuinely differ, the invariant is still a clean rational."""
+    """Where the two sides differ, the invariant is still a clean rational."""
     assert fixture().c0_squared == want
 
 

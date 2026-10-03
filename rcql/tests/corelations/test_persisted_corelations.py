@@ -126,7 +126,7 @@ def test_exact_operation_tower_survives_rcdb_roundtrip(tmp_path):
     from contextlib import closing
     from rcdb import open_store
     topology = add(4).then(double(), 'x', name='stored').topology()
-    with closing(open_store('rex://' + str(tmp_path / 'db'))) as store:
+    with closing(open_store('rex://' + str(tmp_path / 'db'), read_only=False)) as store:
         store.commit_mutation('operation_topology', topology.to_record(), expected_version=0, tx_time=1)
         loaded = store.read_record('operation_topology').value
     restored = RelationTopology.from_record(loaded)

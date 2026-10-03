@@ -4,7 +4,7 @@ The four channel operators (T, G, F, C) and the relational Laplacian RL_4.
 Pure NumPy reference implementation matching the corrected definitions
 from `rexgraph.core` (the compiled Cython modules). This module lives
 in `rexgraph/tests/reference/` as the algebraic correctness oracle for
-the compiled kernels - every compiled kernel has a pure numpy reference
+the compiled kernels: every compiled kernel has a pure numpy reference
 here that the math correctness tests compare against.
 
 CRITICAL: every channel must be trace normalized BEFORE summing into RL.
@@ -257,7 +257,7 @@ def build_channels(
     L_F = build_L_SG(B_1, frustration_weights)
     L_C = build_L_C(B_1, B_2)
 
-    # Trace normalize each - this is non negotiable
+    # Trace normalize each: this is non negotiable
     hat_T = trace_normalize(L_T)
     hat_G = trace_normalize(L_G)
     hat_F = trace_normalize(L_F)

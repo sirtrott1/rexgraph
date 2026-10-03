@@ -40,7 +40,7 @@ _HANDLE_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 #: neither asked for. There is exactly one rule and it lives here, because the
 #: reason it exists is that these names become paths.
 WORKSPACE_RE = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
-_WORKSPACE_RE = WORKSPACE_RE          # the old private name, kept for callers
+_WORKSPACE_RE = WORKSPACE_RE          # compatibility alias
 
 
 def config_dir() -> Path:

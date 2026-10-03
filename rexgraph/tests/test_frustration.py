@@ -51,7 +51,7 @@ def _manual_L_SG(nV, nE, src, tgt, signs, vertex_weights):
     Then L_SG = D_{|K_off|} - K_off.
 
     NOTE: the off diagonal sign depends on the boundary *orientation* at the
-    shared vertex, not just the edge frustration signs - so K_off has mixed
+    shared vertex, not just the edge frustration signs: so K_off has mixed
     signs even when all edge signs are +1.
     """
     v2e = [[] for _ in range(nV)]

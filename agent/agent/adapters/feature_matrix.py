@@ -53,19 +53,13 @@ def _auto_threshold(R: NDArray, target_density: float = 0.08) -> float:
 
 
 def _spectral_cluster_features(R: NDArray, n_clusters: str | int = "auto") -> NDArray:
-    """Cluster features by correlation structure using the Fiedler partition.
-
-    Uses the eigenvectors of the correlation Laplacian to find natural
-    feature groupings. This is itself a relational complex computation -
-    we use a simple spectral decomposition to configure the full rex.
+    """Cluster features using eigenvectors of the absolute correlation Laplacian.
 
     Parameters
-
     R : (n, n) absolute correlation matrix
-    n_clusters : 'auto' or int. If 'auto', uses eigengap heuristic.
+    n_clusters : 'auto' or int. 'auto' uses the eigengap heuristic.
 
     Returns
-
     labels : int32 array of cluster assignments
     """
     # Rex native LAPACK wrapper. Same dsyev_ call as scipy.linalg.eigh,
@@ -259,7 +253,7 @@ class FeatureMatrixAdapter(DomainAdapter):
         threshold_val = _auto_threshold(R) if threshold == "auto" else float(threshold)
 
         # Build edges from thresholded correlations. Vectorized over the upper
-        # triangle (was an O(n_features²) Python double loop) - identical result,
+        # triangle (was an O(n_features²) Python double loop): identical result,
         # but the edge test is a single boolean mask over the triu entries.
         iu, ju = np.triu_indices(n_features, k=1)
         r_upper = R[iu, ju]

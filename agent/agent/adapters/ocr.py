@@ -289,7 +289,7 @@ class OCRAdapter(DomainAdapter):
                     ec = self._build_from_table(frames, face_selection)
                     if ec is not None and ec.nE > 0:
                         return ec
-            except Exception as e:  # pragma: no cover - defensive
+            except Exception as e:  # pragma: no cover: defensive
                 logger.debug("OCR table detection skipped: %s", e)
 
         if strategy == "layout":

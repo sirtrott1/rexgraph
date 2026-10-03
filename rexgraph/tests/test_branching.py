@@ -2,8 +2,8 @@
 
 The audit found NO test exercised the character / moment channels on branching
 hyperedges (arity != 2 columns of B1, from_hypergraph). This closes that gap: it
-pins the whole edge centric stack - the four channels, RL4, character chi/phi/kappa,
-the moment operators, Green's, and curvature - against a dense from-B1 reference on
+pins the whole edge centric stack: the four channels, RL4, character chi/phi/kappa,
+the moment operators, Green's, and curvature: against a dense from-B1 reference on
 branching complexes (where two edges can share >1 vertex). Regression home for the
 L_C weighted line graph fix and everything it un broke.
 """

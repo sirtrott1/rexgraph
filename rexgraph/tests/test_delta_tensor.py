@@ -1,19 +1,7 @@
-"""The temporal delta tensor: existence, orientation and signing apart.
+"""Check independent changes in boundary existence, distinguished head and gauge.
 
-A cell can persist while what it carries changes, and the things it carries vary
-independently, so each is differenced on its own rather than folded into one churn
-count.
-
-Two of them were previously one. The channel called orientation read `_signs`,
-which is the gauge, while orientation proper is position 0 of the boundary column,
-the vertex carrying the opposite sign to the arguments. The project measures the
-two apart: reversing a cell moves chi_F, re signing one moves the cycle
-frustration. The delta compared only w_E and sign for a persisting cell, so a
-reversal changed the boundary and was stored as nothing at all.
-
-The canonical key is built from the support, so a reversal keeps one identity.
-The head rides alongside it, and support plus head fix the column, because the
-remaining entries all carry 1/(k-1) and their order does not reach B1.
+Support keys retain cell identity through reversal. The head travels beside the
+support; relation signs retain their separate gauge reading.
 """
 
 import numpy as np
@@ -38,8 +26,7 @@ def _store(sign_history, nE=4):
 
 #### the churn counter
 def test_signing_churn_counts_toward_checkpoints():
-    """200 reversals used to produce a single checkpoint (the seed), so the delta
-    chain grew without bound and reconstruct_at replayed all of it."""
+    """Orientation reversals contribute to temporal checkpoint thresholds."""
     rng = np.random.default_rng(0)
     nE = 60
     src = rng.integers(0, 30, nE).astype(np.int32)

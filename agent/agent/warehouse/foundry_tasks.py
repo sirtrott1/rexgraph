@@ -25,10 +25,12 @@ def train_one(spec: dict) -> dict:
                          device=spec.get("device", "cpu"), save_to=spec.get("save_path"),
                          seed=int(spec.get("seed", 0)))
         metric = _final_metric(res)
+        if not np.isfinite(metric):
+            raise ValueError("training did not produce a finite metric")
     except Exception as ex:
         return {"tier": spec["tier"], "config_id": spec["config_id"],
                 "archetype": spec["archetype"], "device": spec.get("device"),
-                "metric": float("nan"), "saved": None, "error": repr(ex)}
+                "metric": None, "saved": None, "error": repr(ex)}
     return {"tier": spec["tier"], "config_id": spec["config_id"], "archetype": spec["archetype"],
             "device": spec.get("device"), "metric": metric, "saved": res.get("saved")}
 

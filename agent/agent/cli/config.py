@@ -261,7 +261,7 @@ def _detect_gpu():
             except Exception:
                 pass
 
-        # Method 5: 7900 XT is 24GB - if we detect it by name
+        # Method 5: 7900 XT is 24GB: if we detect it by name
         if vram_mb == 0 and "7900" in gpu_name:
             vram_mb = 24576  # 24GB
 
@@ -269,7 +269,7 @@ def _detect_gpu():
     elif platform.system() == "Darwin" and platform.machine() == "arm64":
         gpu_type = "apple"
         gpu_name = "Apple Silicon (MPS)"
-        # Unified memory - estimate 75% of total RAM available for GPU
+        # Unified memory: estimate 75% of total RAM available for GPU
         try:
             r = subprocess.run(
                 ["sysctl", "-n", "hw.memsize"],

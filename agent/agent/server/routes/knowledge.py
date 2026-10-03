@@ -87,7 +87,7 @@ async def join_files(
                 parts.append(as_part(path, name))
                 kept_paths.append(path)
                 kept_origins.append(name)
-            except Exception as e:                   # noqa: BLE001 - reported below
+            except Exception as e:                   # noqa: BLE001  # reported below
                 failures.append({"file": name, "error": str(e)[:300]})
 
         if not parts:

@@ -1,16 +1,7 @@
-"""
-Tests for rexgraph.core._l_gb (graded boundary Laplacian).
+"""Check the compiled graded boundary Laplacian against the NumPy reference.
 
-Verifies:
-    1. Compiled kernel produces identical output to pure-numpy reference
-       (to within BLAS reordering noise, ~1e-13 relative)
-    2. Reference values from the post-paper findings (test14.py) match
-       to 3 decimal places on canonical graph families
-    3. Self-tensor is symmetric: T[i, j] == T[j, i]
-
-These are the regression tests for the L_gb operator. If this passes,
-the operator's algebraic identities hold and the compiled kernel is
-correct.
+Cases compare canonical graph signatures to three decimal places and assert
+self tensor symmetry, allowing BLAS reordering noise in kernel comparisons.
 """
 
 from __future__ import annotations
@@ -108,7 +99,7 @@ def test_l_gb_channel_tensor_matches_reference(n):
         f"L_gb tensor mismatch for K_{n}"
 
 
-# Reference values from post paper test14.py (3 decimals)
+# Canonical graph reference values to three decimal places.
 
 
 def _self_tensor_for_K_n(n):

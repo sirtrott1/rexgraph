@@ -86,7 +86,7 @@ class BoundaryDifference:
 
     def __post_init__(self):
         from rexgraph.graph import RexGraph
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         reference, other = self.reference, self.other
         if not isinstance(reference, RexGraph) or not isinstance(other, RexGraph):
             raise TypeError("boundary difference requires two native RexGraph endpoints")
@@ -122,7 +122,7 @@ class BoundaryDifference:
         return len(self.entries)
 
     def check_state(self):
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         if self.source_digests != (object_digest(self.reference), object_digest(self.other)):
             raise ValueError("difference endpoint changed after capture")
 

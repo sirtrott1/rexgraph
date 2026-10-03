@@ -183,7 +183,7 @@ def test_parse_sections():
     assert len(sections) >= 4
     print(f"  ✓ Parsed {len(sections)} sections")
 
-    # Check heading detection - h2 sections should be found
+    # Check heading detection: h2 sections should be found
     labels = [s["label"] for s in sections]
     assert any("Billing" in l for l in labels), f"Expected 'Billing' heading, got {labels}"
     assert any("Items" in l for l in labels), f"Expected 'Items' heading, got {labels}"
@@ -530,7 +530,7 @@ def test_edge_construction_invariants():
             assert np.all(edges.targets >= 0)
             assert np.all(edges.targets < edges.nV)
 
-        # No self loops (layout strategy only - text strategy may
+        # No self loops (layout strategy only: text strategy may
         # produce them from repeated words in the same sentence)
         if strategy == "layout" and edges.nE > 0:
             assert np.all(edges.sources != edges.targets)

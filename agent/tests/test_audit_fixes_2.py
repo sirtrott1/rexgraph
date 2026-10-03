@@ -79,7 +79,7 @@ def test_edge_and_feature_adapters_ignore_extra_kwargs(tmp_path):
     except TypeError as e:
         pytest.fail(f"max_vocab leaked as a TypeError: {e}")
     except ModuleNotFoundError:
-        pass  # compiled kernel absent in a source checkout - not our concern
+        pass  # compiled kernel absent in a source checkout: not our concern
 
 
 # B1: builder collects documents / chunks / query_results

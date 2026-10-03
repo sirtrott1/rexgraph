@@ -1,16 +1,7 @@
-"""Solving grade 2 signs from the chain condition, and reading the sign context.
+"""Check grade 2 sign solutions and exact face validity.
 
-A face column is solved, not declared: `B1 c = 0` over the rationals. Two things follow
-that were not being said.
-
-`solve_face_column` answers with a column or with None, and None covers two different
-situations. Relations that are independent bound nothing and attaching a face would invent
-a cell; relations carrying several cycles are not one face but a space of them. Those need
-different responses and used to get the same one.
-
-A wrong orientation is invisible. `_B2_hodge_dual` filters chain invalid faces silently,
-so nF_hodge stays 0, the cycle stays open, and nothing says why. `face_reading` with a
-column reports validity and the exact residual instead.
+Cases distinguish independent supports from multiple cycle supports and report
+the residual of an explicitly supplied face column.
 """
 from __future__ import annotations
 

@@ -111,13 +111,8 @@ _INTERNAL_ATTRS = frozenset({
 
 # Shared type conversion
 #
-# One encoder, one NaN policy. This used to be nine near copies across bundle,
-# parquet, arrow, sql, the dashboard and three server routes, with four different
-# answers for a non finite float, and none of them worked, because np.float64
-# subclasses Python float and so is serialized directly without ever reaching
-# JSONEncoder.default. A NaN metric therefore wrote a bare `NaN` token into an .rcbd
-# MANIFEST.json, which is not JSON and JSON.parse rejects. The policy has to be
-# applied to the object BEFORE dumps, which is what json_sanitize does.
+# json_sanitize applies the selected nonfinite policy before JSON encoding,
+# including NumPy floats that bypass JSONEncoder.default.
 
 #: what a non finite float becomes. "zero" is the historical io behaviour; "null"
 #: is what a JSON consumer expects for a missing number; "raise" refuses to guess.
@@ -188,8 +183,8 @@ def dumps(o: Any, nan: str = "zero", **kwargs: Any) -> str:
     """json.dumps with the numpy and non finite policies already applied.
 
     `allow_nan=False` is a backstop, not the mechanism: json_sanitize has already
-    removed every non finite value, so a NaN reaching here means the walk missed a
-    container type and we want the loud failure rather than invalid JSON on disk.
+    removed nonfinite values. Any remaining nonfinite value raises instead of
+    producing invalid JSON.
     """
     kwargs.setdefault("default", json_default)
     kwargs["allow_nan"] = False

@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._linalg - LAPACK/BLAS wrappers and RL pipeline.
+Tests for rexgraph.core._linalg: LAPACK/BLAS wrappers and RL pipeline.
 
 Verifies:
     - eigh: eigenvalues ascending, nonneg for PSD, reconstruction A = V D V^T

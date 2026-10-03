@@ -233,15 +233,12 @@ def _exact_coefficients(values) -> tuple[Fraction, ...] | None:
     array = np.asarray(values)
     if array.ndim != 1:
         return None
+    from rexgraph.exact_value import exact_fraction
     exact: list[Fraction] = []
     for value in array:
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, Fraction):
-            exact.append(value)
-        elif isinstance(value, Integral):
-            exact.append(Fraction(int(value)))
-        else:
+        try:
+            exact.append(exact_fraction(value, context="RCQL exact coefficient"))
+        except (TypeError, ValueError):
             return None
     return tuple(exact)
 
@@ -1389,7 +1386,7 @@ def search_tensors(source, name, text, limit=100):
 @register("STATE_HASH")
 def state_hash(source):
     """Return the canonical tensor state digest of a Rex source."""
-    from rexgraph.io.catalog import object_digest
+    from rexgraph.object_identity import object_digest
     return object_digest(source)
 
 
@@ -1435,7 +1432,8 @@ def rcdb_state_hash(source):
     if not hasattr(source, "state_digest"):
         raise TypeError("RCDB_STATE_HASH expects an RCDB store")
     digest = source.state_digest()
-    record_method("rcdb-logical-state-digest", manifest_version=1, state_digest=digest)
+    record_method("rcdb-logical-state-digest",
+                  manifest_version=getattr(source, "logical_state_version", None), state_digest=digest)
     return digest
 
 

@@ -302,7 +302,7 @@ def test_primary_staging_uses_the_same_exact_c1_contract():
 
 
 def test_declared_import_closes_every_chain_pair_and_refuses_empty_c2_cells():
-    # Pairwise C1 used to skip the B1B2 import check; a declared complex cannot.
+    # Declared pairwise C1 also validates B1 B2 on import.
     with pytest.raises(ValueError, match="exact B1 B2 = 0 chain condition"):
         RexGraph.from_cells([3, [[0, 1], [1, 2]], [[0, 1]]])
     with pytest.raises(ValueError, match="empty boundary support"):

@@ -1,9 +1,4 @@
-"""Text enters the system the way every other document does: as a complex.
-
-`add-text` used to be a JSON convenience that only touched the corpus, so text was
-the one input with no .rcbd behind it. It now builds the complex and writes the
-bundle, and the bundle carries the source text, so a text document is one file.
-"""
+"""Check that add text builds an RCBD complex carrying the source text."""
 from __future__ import annotations
 
 import pathlib

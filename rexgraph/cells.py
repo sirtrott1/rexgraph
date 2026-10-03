@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from fractions import Fraction
 from math import lcm
+from numbers import Integral
 from typing import Any
 
 import numpy as np
@@ -46,6 +47,12 @@ def _grade_sizes(rex) -> tuple[int, ...]:
     return tuple([int(boundaries[0].shape[0])] + [int(B.shape[1]) for B in boundaries])
 
 
+def _integer_coordinate(value, name):
+    if not isinstance(value, Integral) or isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be an integer, not a coerced value")
+    return int(value)
+
+
 def cell_count(rex, grade: int, *, allow_empty_upper: bool = False) -> int:
     """Return the carried cell count at one grade.
 
@@ -53,7 +60,7 @@ def cell_count(rex, grade: int, *, allow_empty_upper: bool = False) -> int:
     top.  It names the codomain of the top co boundary, never an invented cell
     population.
     """
-    grade = int(grade)
+    grade = _integer_coordinate(grade, "cell grade")
     sizes = _grade_sizes(rex)
     if 0 <= grade < len(sizes):
         return sizes[grade]
@@ -71,9 +78,8 @@ class Cell:
     index: int
 
     def __post_init__(self) -> None:
-        if isinstance(self.grade, (bool, np.bool_)) or isinstance(self.index, (bool, np.bool_)):
-            raise TypeError("cell grade and index must be integers, not booleans")
-        grade, index = int(self.grade), int(self.index)
+        grade = _integer_coordinate(self.grade, "cell grade")
+        index = _integer_coordinate(self.index, "cell index")
         count = cell_count(self.source, grade)
         if index < 0 or index >= count:
             raise ValueError(f"cell index {index} is not present at grade {grade}")
@@ -90,11 +96,8 @@ class CellSet:
     indices: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
-        grade = int(self.grade)
-        raw = tuple(self.indices)
-        if any(isinstance(index, (bool, np.bool_)) for index in raw):
-            raise TypeError("cell indices must be integers, not booleans")
-        indices = tuple(sorted({int(index) for index in raw}))
+        grade = _integer_coordinate(self.grade, "cell grade")
+        indices = tuple(sorted({_integer_coordinate(index, "cell index") for index in self.indices}))
         count = cell_count(self.source, grade, allow_empty_upper=not indices)
         if any(index < 0 or index >= count for index in indices):
             raise ValueError(f"cell set contains an index absent at grade {grade}")
@@ -127,6 +130,8 @@ class GradedCellPattern:
                 raise TypeError("graded patterns contain CellSet values")
             if cell_set.source is not self.source:
                 raise ValueError("all pattern cells must be bound to one source Rex")
+            if cell_set.grade in ordered:
+                raise ValueError("graded patterns require one declared selection per grade")
             ordered[cell_set.grade] = cell_set
         object.__setattr__(self, "cell_sets", tuple(ordered[g] for g in sorted(ordered)))
 
@@ -135,7 +140,7 @@ class GradedCellPattern:
         return tuple(cell_set.grade for cell_set in self.cell_sets)
 
     def at(self, grade: int) -> CellSet:
-        grade = int(grade)
+        grade = _integer_coordinate(grade, "cell grade")
         for cell_set in self.cell_sets:
             if cell_set.grade == grade:
                 return cell_set

@@ -309,7 +309,7 @@ def test_the_api_property_without_a_url_fails_with_a_message(adapter):
     raise an AttributeError from somewhere inside a client library."""
     try:
         _ = adapter.api
-    except Exception as e:                       # noqa: BLE001 - that is the check
+    except Exception as e:                       # noqa: BLE001  # that is the check
         assert str(e).strip(), "the API failure carries no message"
 
 

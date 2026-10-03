@@ -84,7 +84,7 @@ class Event:
     action: str
     detail: dict[str, Any] = field(default_factory=dict)
     #: WHAT was acted on, and WHICH WAY. Both empty is an unoriented event, which is
-    #: every event recorded before this and every one where the pair is not known.
+    #: any event whose target and direction are unspecified.
     #: `on` is one name, or SEVERAL: an act over k participants is one k-ary relation
     #: and not k acts, so a carrier writing to three destinations says so in one event.
     on: str | list = ""
@@ -119,7 +119,7 @@ class ActivityLog:
         self._uses: dict[Any, dict] = {}          # int handle (own live uses) | (src, handle) (folded)
         self._lock = threading.Lock()
         self._counter = itertools.count(1)
-        self._subscribers: list = []              # callables(event_public_dict) - the live push channel
+        self._subscribers: list = []              # callables(event_public_dict): the live push channel
         # journal / tailer
         self._journal: Path | None = None
         self._jfd: int | None = None
@@ -396,7 +396,7 @@ class ActivityLog:
                             obj = json.loads(ln)
                         except Exception:
                             continue
-                        if obj.get("src") == _SRC:  # our own write - already in memory + already pushed
+                        if obj.get("src") == _SRC:  # our own write: already in memory + already pushed
                             continue
                         self._fold(obj)
                     continue                       # keep draining until read() returns empty

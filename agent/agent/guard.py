@@ -5,7 +5,7 @@ tokens (or a finished reply) against a set of rules, flags violations the instan
 the offending text completes, and can auto fix or trigger a re generation. It is
 the deterministic counterpart to hive.consensus(): consensus catches statistical
 hallucination by agreement across workers; a guard catches specific, known
-violations by rule - a forbidden term, a required invariant, a schema constraint.
+violations by rule: a forbidden term, a required invariant, a schema constraint.
 
 The canonical example: if a model forgets the owner's definition and falls back
 to "chain complex" instead of "relational complex", the guard flags it mid stream
@@ -89,7 +89,7 @@ class OutputGuard:
 
     def scan_stream(self, chunks: Iterable[str]):
         """Feed generated chunks as they arrive. Yields (accumulated, new_violations) after each
-        chunk, so a violation is caught the instant the offending text completes - not after the
+        chunk, so a violation is caught the instant the offending text completes: not after the
         whole generation finishes. A phrase split across chunks ('chain ' + 'complex') is caught
         when the second chunk lands."""
         acc = ""

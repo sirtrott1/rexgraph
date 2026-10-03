@@ -1,12 +1,7 @@
-"""The client's side of the native contract, including the half it could not do.
+"""Check native client frame authentication in both directions.
 
-A server with `REXGRAPH_FRAME_KEY` set refuses an unsigned frame, so before this the
-client could not talk to a signing deployment at all: the server enforced a signature
-nothing helped a caller produce. Signing belongs with the caller, so it lives here.
-
-Both directions or neither. A client that authenticates what it sends and accepts
-anything back is still talking to whoever is in the path, so a reply whose signature
-does not match is refused rather than returned.
+Configured HMAC keys sign requests and verify responses. Invalid response
+signatures refuse before returning decoded values.
 """
 from __future__ import annotations
 
@@ -29,7 +24,7 @@ def rex():
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("REXGRAPH_AUDIT_JOURNAL", str(tmp_path / "audit.jsonl"))
-    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"file://{tmp_path}/rcdb")
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"local://{tmp_path}/rcdb")
     from agent.rcdb import reset_default_store
     from agent.server import audit, auth
     auth.reset_auth_manager()

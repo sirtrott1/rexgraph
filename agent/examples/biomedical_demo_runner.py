@@ -43,7 +43,7 @@ def persist(case: dict[str, Any], output_dir: str | Path) -> dict[str, Any]:
     from rcdb import open_store
 
     root = Path(output_dir) / "rcdb"
-    store = open_store(f"rex://{root}")
+    store = open_store(f"local://{root}")
     try:
         primary = case["primary"]
         panel = case["affinity_panel"]
@@ -91,7 +91,7 @@ def persist(case: dict[str, Any], output_dir: str | Path) -> dict[str, Any]:
 
         chain = [int(entry.version) for entry in store.history(PANEL_ID)]
         return {
-            "store_uri": f"rex://{root}",
+            "store_uri": f"local://{root}",
             "records": {
                 PRIMARY_ID: {"versions": [int(e.version) for e in store.history(PRIMARY_ID)]},
                 PANEL_ID: {"versions": chain, "committed_version": int(committed.version)},

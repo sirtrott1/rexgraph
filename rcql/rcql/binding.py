@@ -56,27 +56,17 @@ class SourceSchema:
         return name in self.surface
 
 
-def classify(value: object) -> ValueKind:
+def classify(value: object, *, registry=None) -> ValueKind:
     """Name the kind of a live source object without importing the layer that defines it.
 
     Order matters: a store answers ``list`` too, so the store test has to come first or a
     store would classify as a catalog.
     """
-    def has(name):
-        return getattr_static(value, name, None) is not None
-
-    if any((cls.__module__, cls.__name__) == ("rexgraph.flow.turn_field", "TurnField")
-           for cls in type(value).__mro__):
-        return ValueKind.TURN_FIELD
-    if has("get") and has("history"):
-        return ValueKind.RCDB_STORE
-    if has("hash_all") and has("list"):
-        return ValueKind.CATALOG_ENTRY_SET
-    if has("reconstruct_at") and has("T"):
-        return ValueKind.TEMPORAL_REX
-    if has("betti") and has("nV"):
-        return ValueKind.REX
-    return ValueKind.UNKNOWN
+    from .source_signatures import SOURCES, SourceRegistry
+    registry = SOURCES if registry is None else registry
+    if not isinstance(registry, SourceRegistry):
+        raise TypeError("source classification requires a SourceRegistry")
+    return registry.classify(value)
 
 
 @dataclass(frozen=True)
@@ -121,7 +111,7 @@ def bind(name: str, value: object, policy: SourcePolicy, *,
     if (ref.state_digest is None and policy.permits("read")
             and any((cls.__module__, cls.__name__) == ("rexgraph.graph", "RexGraph")
                     for cls in type(value).__mro__)):
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         ref = replace(ref, state_digest=object_digest(value))
     return Binding(
         name=name, source=bound, schema=schema,

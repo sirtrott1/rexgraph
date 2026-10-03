@@ -1,7 +1,7 @@
 # rexgraph/core
 
 py.install_sources(
-    ['__init__.py', '_common.pxd', '_linalg.pxd', '_temporal_entity_py.py'],
+    ['__init__.py', '_common.pxd', '_linalg.pxd'],
     subdir: 'rexgraph/core',
 )
 
@@ -35,8 +35,9 @@ elif blas_provider == 'scipy-openblas'
         dirs: blas_dir == '' ? [] : [blas_dir], required: true)
     renames = []
     foreach symbol : ['cblas_daxpy', 'cblas_dcopy', 'cblas_ddot', 'cblas_dgemm', 'cblas_dgemv',
-                      'cblas_dnrm2', 'cblas_dscal', 'cblas_dsymv', 'dgelsd_', 'dgesvd_',
-                      'dpotrf_', 'dpotrs_', 'dsyev_']
+                      'cblas_dnrm2', 'cblas_dscal', 'cblas_dsymv', 'dgelsd_', 'dgesvd_', 'dlamch_',
+                      'dpotrf_', 'dpotrs_', 'dsyev_', 'dsyevr_', 'zgesvd_', 'zheev_',
+                      'dgeqrf_', 'dorgqr_', 'dgesv_']
         renames += ['-D' + symbol + '=scipy_' + symbol]
     endforeach
     core_deps += [declare_dependency(compile_args: renames, dependencies: [scipy_openblas])]
@@ -95,6 +96,7 @@ endif
 # (PyDataType_*, _PyUFuncObject_GET_ITEM_DATA, the datetime metadata macro, ...)
 # are declared. Without this the build compiles against NumPy's baseline API and
 # those symbols are implicitly-declared -> build failure on NumPy >= 2.x.
+# Build and runtime requirements therefore both declare numpy>=2.0.
 #
 # The warning flag is GCC and Clang only; MSVC rejects it outright, so it is kept only
 # where the compiler accepts it.
@@ -147,7 +149,6 @@ _cython_modules = [
     '_cross_complex',
     '_l_gb',
     '_holomorphic',
-    '_color',
     '_harmonic',
     '_temporal_entity',
     '_curvature',

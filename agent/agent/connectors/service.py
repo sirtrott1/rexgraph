@@ -1,22 +1,9 @@
-"""
-agent.connectors.service: the one place a source becomes a (validated,
-optionally stored) complex.
+"""Shared connector operations for CLI and HTTP callers.
 
-The CLI (`rexgraph-connect`), the HTTP route (`/api/v1/connectors`), and any
-future desktop/exe build all call *these* functions - never the registry or the
-harness directly - so there is exactly one implementation of "onboard a source"
-to build on. Pure Python: no argparse, no FastAPI, no printing.
-
-    list_connectors()                      -> what can I connect, and is the driver here?
-    driver_status(scheme)                  -> is scheme's driver importable? hint if not
-    read(uri, source=None)                 -> build the complex read-only, return a summary
-    validate(uri, source=None)             -> run the harness, return the report
-    ingest(uri, store_uri, record_id, …)   -> build + persist structure into an RCStore
-
-For URI addressed live sources (SQL, warehouses, Mongo) the connection URI *is*
-the source, so ``source`` defaults to ``uri``. For in memory shapes (ontologies,
-edge lists, graph/stream stand ins) pass a scheme as ``uri`` and the structure as
-``source``.
+list_connectors and driver_status report available schemes and drivers.
+read builds a complex; validate checks a connector; ingest publishes the result
+to an RCStore. Live URIs supply their source by default. In memory schemes
+require an explicit source value.
 """
 
 from __future__ import annotations
@@ -150,7 +137,7 @@ def ingest(uri: str, record_id: str, *, store: Any = None,
            store_uri: str | None = None, source: Any = None,
            tags: list[str] | None = None, **kwargs) -> dict[str, Any]:
     """Build the complex and persist its *structure* into an RCStore. The only
-    writing operation, and it writes solely to the host's own store - either a
+    writing operation, and it writes solely to the host's own store: either a
     pre opened ``store`` (e.g. the app's singleton) or one opened from
     ``store_uri``."""
     from agent.rcdb import open_store

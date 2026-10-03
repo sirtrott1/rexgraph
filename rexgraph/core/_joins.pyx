@@ -161,7 +161,7 @@ def inner_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssiz
                 B2j[e_map[e], j] = B2R[e, f]
 
     # Betti
-    # Betti from EXACT integer rank (rational column reduction, eigen free - no SVD)
+    # Betti from EXACT integer rank (rational column reduction, eigen free: no SVD)
     import scipy.sparse as _sp
     from rexgraph.graded_boundary import _sparse_rank
     r1 = _sparse_rank(_sp.csc_matrix(B1j)) if min(nVj, nEj) > 0 else 0
@@ -217,7 +217,7 @@ def outer_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssiz
     B2j[:nE_R, :nF_R] = B2R
     B2j[nE_R:nE_R+nE_S, nF_R:nF_R+nF_S] = B2S
 
-    # Betti from EXACT integer rank (rational column reduction, eigen free - no SVD)
+    # Betti from EXACT integer rank (rational column reduction, eigen free: no SVD)
     import scipy.sparse as _sp
     from rexgraph.graded_boundary import _sparse_rank
     r1 = _sparse_rank(_sp.csc_matrix(B1j)) if min(nVj, nEj) > 0 else 0
@@ -286,7 +286,7 @@ def left_join(B1_R_dense, B2_R_dense, Py_ssize_t nV_R, Py_ssize_t nE_R, Py_ssize
     B2j = np.zeros((nEj, nF_R), dtype=np.float64)
     B2j[:nE_R, :] = B2R
 
-    # Betti from EXACT integer rank (rational column reduction, eigen free - no SVD)
+    # Betti from EXACT integer rank (rational column reduction, eigen free: no SVD)
     import scipy.sparse as _sp
     from rexgraph.graded_boundary import _sparse_rank
     r1 = _sparse_rank(_sp.csc_matrix(B1j)) if min(nV_R, nEj) > 0 else 0

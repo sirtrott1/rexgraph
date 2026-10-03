@@ -8,7 +8,7 @@ schema in response, versioning each change with its cause. This closes the loop:
 Everything here runs on the same tensor: the signed boundary B, the composite
 binary {0,1} (incidence) with {+,-} (orientation), whose entries are {0,+1,-1}.
 The detection signals are field quantities read off B with no eigensolve and no
-dense solve - the Hodge decomposition (gradient/curl/harmonic of the interaction
+dense solve: the Hodge decomposition (gradient/curl/harmonic of the interaction
 flow), the first Betti number (harmonic dimension = coordination deadlocks), and
 the effective resistance / RCFE curvature fields that localize which worker is
 load bearing or divergent. Because the coordination complex, the database schema,
@@ -127,7 +127,7 @@ class ReactiveHive:
         actions: list[dict[str, Any]] = []
 
         # rule 1: coordination deadlock -> deploy a mediator. EXACT trigger: beta_1 (harmonic
-        # dimension) is an integer invariant; > 0 means a cycle exists. No magnitude threshold - the
+        # dimension) is an integer invariant; > 0 means a cycle exists. No magnitude threshold: the
         # harmonic fraction/character ride in the cause as reported severity, not a gate.
         if obs["deadlock_cycles"] > 0:
             hr = obs.get("health_ratio")

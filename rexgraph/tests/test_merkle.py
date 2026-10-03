@@ -5,6 +5,7 @@ each fanout rather than all of it, that the interior nodes ARE the layer digests
 that the whole thing rests on the base layer being a partition.
 """
 from __future__ import annotations
+from rexgraph.state import semantic_header
 
 import numpy as np
 import pytest
@@ -108,10 +109,10 @@ def test_a_complex_with_no_sectionings_has_no_tree():
 
 def test_the_root_survives_the_state_round_trip_and_rebuilds(doc):
     st = to_state(doc)
-    assert st.header["merkle"]["chain"] == ["sentence", "paragraph", "chapter"]
-    assert st.header["merkle"]["n_leaves"] == 4
+    assert semantic_header(st)["merkle"]["chain"] == ["sentence", "paragraph", "chapter"]
+    assert semantic_header(st)["merkle"]["n_leaves"] == 4
     back = from_state(st, verify=True)
-    assert build_merkle(back).root.hex() == st.header["merkle"]["root"]
+    assert build_merkle(back).root.hex() == semantic_header(st)["merkle"]["root"]
     assert [bytes(x) for x in back._merkle_leaves] == build_merkle(doc).leaves
 
 
@@ -122,7 +123,7 @@ def test_no_digest_is_stored_because_every_one_of_them_is_derived(doc):
     full entropy, so they survive compression whole and dominate the compressed size."""
     st = to_state(doc)
     assert not [k for k in st.tensors if "merkle" in k], sorted(st.tensors)
-    assert set(st.header["merkle"]) == {"chain", "root", "n_leaves"}
+    assert set(semantic_header(st)["merkle"]) == {"chain", "root", "n_leaves"}
 
 
 def test_a_proof_still_travels_carrying_its_own_leaf(doc):
@@ -130,7 +131,7 @@ def test_a_proof_still_travels_carrying_its_own_leaf(doc):
     has always been. What changed is that the leaf is derived from the bundle rather
     than read out of it; verification does not involve the source text either way."""
     m = build_merkle(doc)
-    root = bytes.fromhex(to_state(doc).header["merkle"]["root"])
+    root = bytes.fromhex(semantic_header(to_state(doc))["merkle"]["root"])
     assert verify_proof(m.leaves[2], m.proof(2), root)
     assert not verify_proof(m.leaves[1], m.proof(2), root)
 
@@ -185,7 +186,11 @@ def test_a_rewritten_span_is_caught_by_the_closer_guard(doc):
 def test_a_rewritten_root_is_caught_at_load(doc):
     from rexgraph.io.rex_state import state_digest
     st = to_state(doc)
-    st.header["merkle"] = {**st.header["merkle"], "root": "00" * 32}
+    from rexgraph.sealed_state import SEMANTICS_TENSOR
+    from rexgraph.value_codec import pack_value, unpack_value
+    record = unpack_value(st.tensors[SEMANTICS_TENSOR].tobytes())
+    record["header"]["merkle"]["root"] = "00" * 32
+    st.tensors[SEMANTICS_TENSOR] = np.frombuffer(pack_value(record), np.uint8)
     st.header["digest"] = state_digest(st.tensors, st.header["digest_names"])
     with pytest.raises(ValueError, match="does not hash to the stored Merkle root"):
         from_state(st, verify=True)
@@ -216,11 +221,7 @@ def _layered_rex(n_base=64):
 # the header carries structure, not digests
 
 def test_interior_nodes_are_not_written_into_the_json_header():
-    """`pack_merkle` says it stores the leaves and the root because the interior is a
-    pure function of them. It also used to write every coarser layer's roots as hex
-    strings into the header, which is the same interior it says it omits, at two hex
-    characters per byte and then serialised twice. On a large document that alone
-    exceeded safetensors' 100 MB header limit and the document could not be stored."""
+    """Merkle packing stores leaves and root without redundant interior nodes."""
     import json
 
     from rexgraph.io.rex_state import to_state

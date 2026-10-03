@@ -13,7 +13,7 @@ from agent.interfaces import Capabilities, Connector, apply_label_privacy, confi
 
 class TriangleConnector(BaseConnector):
     """Trivial in memory connector: a 3 cycle A->B->C->A. Runs immediately, needs
-    no live service - the smallest thing that exercises the whole contract."""
+    no live service: the smallest thing that exercises the whole contract."""
 
     CAPABILITIES = Capabilities(weights=True, schemes=("memory",))
 
@@ -78,7 +78,7 @@ def test_output_builds_a_complex_in_the_engine():
 
 
 def test_labels_are_the_privacy_surface():
-    """meta['vertex_labels'] is what label privacy tokenizes - same names must
+    """meta['vertex_labels'] is what label privacy tokenizes: same names must
     survive the round trip as stable tokens (structure preserving)."""
     reset()
     try:

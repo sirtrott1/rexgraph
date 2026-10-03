@@ -72,19 +72,17 @@ def test_text_calls_validate_before_uppercase_normalization():
 ])
 def test_new_modules_can_be_imported_independently(tmp_path, imports):
     import pathlib
-    import subprocess
-    import sys
-    import rcql
-    root = str(pathlib.Path(rcql.__file__).resolve().parent.parent)
     code = (
-        f"import sys; sys.path.insert(0, {root!r}); {imports}; "
+        f"import sys; {imports}; "
         "from rcql.value_operators import rate; from fractions import Fraction; "
         "assert rate(None, 1, 3) == Fraction(1, 3); "
         "from rcql.operators import _REGISTRY; from rcql import catalogued; "
         "assert set(_REGISTRY) == catalogued() | {'REX'}"
     )
-    result = subprocess.run([sys.executable, "-I", "-c", code], cwd=tmp_path,
-                            capture_output=True, text=True, timeout=30)
+    from runpy import run_path
+    run_isolated = run_path(str(pathlib.Path(__file__).resolve().parents[2] / "scripts/test_subprocess.py"))["run_isolated"]
+    result = run_isolated(code, packages=("rcql", "rexgraph"), cwd=tmp_path,
+                          capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
 
 
@@ -269,7 +267,7 @@ def test_green_parameters_and_spaces_are_checked_before_execution(rex, explain):
 def test_new_readings_execute_on_rcdb_records(rex, tmp_path, backend):
     rcdb = pytest.importorskip("rcdb")
     from rcql import parse
-    store = rcdb.MemoryStore() if backend == "memory" else rcdb.open_store(f"rex://{tmp_path / 'store'}")
+    store = rcdb.MemoryStore() if backend == "memory" else rcdb.open_store(f"rex://{tmp_path / 'store'}", read_only=False)
     try:
         store.put("branching", rex, analytics=False)
         result = Executor(sources={"db": store}).execute(parse(

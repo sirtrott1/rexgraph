@@ -440,7 +440,11 @@ def _integer_columns(B: sp.spmatrix):
     integer, never an inferred pre rounding value or a reconstructed rational.
     """
     from rexgraph.core import _sparse
+    from rexgraph.harmonic_sparse import ExactCycleFrame
     from rexgraph.native_sparse import NativeSparse
+    if isinstance(B, ExactCycleFrame):
+        # already exact Python integers, one dict per column; nothing to coalesce
+        return [dict(column) for column in B.columns]
     if isinstance(B, np.ndarray):
         if B.ndim != 2:
             raise ValueError("integer boundary requires a matrix")
@@ -638,7 +642,7 @@ def verify_chain(boundaries: Sequence[sp.spmatrix], tol: float = 1e-9) -> tuple[
 
     A canonical C1 plus integral higher tower takes the exact Fraction/sparse-column
     route: C1 shares are reconstructed from declared arity, never from a decimal, and
-    every composition must vanish at literal zero. Genuinely non exact matrices retain
+    every composition must vanish at literal zero. non exact matrices retain
     the numerical sparse fallback, whose ``tol`` is therefore an explicit oracle
     contract rather than the ordinary relational complex path. Neither route densifies.
 
@@ -720,7 +724,7 @@ def _rational_data(M: sp.spmatrix):
 # reduced more than once per step (e.g. the pairwise interaction complex and the faced
 # coordination complex share an identical B1). The key is the matrix's exact canonical
 # content (shape + canonical column addresses and exact integers), so a hit returns a value that is
-# byte for byte the same matrix - zero collision/staleness risk (dict compares keys
+# byte for byte the same matrix: zero collision/staleness risk (dict compares keys
 # exactly). Bounded so it never grows without limit; a race only ever costs a redundant
 # (correct) recompute, so it is safe under the coordinator's thread lane too.
 _RANK_MEMO: _OrderedDict[tuple, int] = _OrderedDict()
@@ -743,13 +747,8 @@ def _exact_rank_reduction(M: sp.spmatrix, *, with_pivots: bool = False):
     rank is untouched. The Fraction form was calling `math.gcd` twice per elementary
     operation to normalise denominators that the integrality check guarantees are 1.
 
-    **Columns are reduced sparsest first.** Rank does not depend on the order columns
-    are presented in, but fill very much does: a wide column reduced early becomes a
-    dense pivot that every later column must then reduce against. Persistence needs the
-    input order because it is pairing births with deaths; this routine returns one
-    integer and is free to choose. Measured over three Gutenberg documents (nE 7,899 to
-    12,500), against the Fraction path: 14.5x, 30.1x and 45.3x for the same rank, the
-    ratio growing with size because the fill it avoids is superlinear.
+    Reduce columns in order of sparsity. This changes elimination fill while
+    preserving rank; it does not supply persistence birth/death pairings.
 
     `with_pivots` also returns the pivot ROW indices, which are a maximal independent
     set of rows: each reduced column has its highest nonzero at its own pivot row, so the
@@ -758,7 +757,8 @@ def _exact_rank_reduction(M: sp.spmatrix, *, with_pivots: bool = False):
     built here, so asking for it costs nothing. The memo carries the rank only, so a
     request for pivots reduces rather than reading it back.
 
-    Memoized on exact matrix content (see :data:`_RANK_MEMO`)."""
+    Memoized on exact matrix content (see :data:`_RANK_MEMO`).
+    """
     columns = _integer_columns(M)
     if columns is None:
         return (None, None) if with_pivots else None   # caller falls back to the float path
@@ -1004,7 +1004,7 @@ def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9, *, exact: bool = False) -> i
 
     For INTEGER boundary maps (the unweighted topology) rank is computed EXACTLY and
     EIGEN FREE by rational column reduction (:func:`_exact_rank_reduction`), the
-    canon's Z/Q-elimination path - no SVD, no dense operator. Only genuinely
+    canon's Z/Q-elimination path: no SVD, no dense operator. Only genuinely
     non integer (float weighted) matrices fall back to the dense/truncated SVD.
 
     A pairwise boundary map takes the combinatorial identity first
@@ -1053,11 +1053,21 @@ def _sparse_rank(M: sp.spmatrix, tol: float = 1e-9, *, exact: bool = False) -> i
     # Densify only when the matrix is small enough to be harmless; boundary maps of
     # the complexes this module builds are far below this bound.
     if min(m, n) <= 1500:
-        s = np.linalg.svd(M.toarray(), compute_uv=False)
-        if s.size == 0:
-            return 0
-        thresh = tol * s[0] * max(m, n)
-        return int(np.sum(s > max(thresh, tol)))
+        # A short side does not imply a small dense matrix: 1,500 x 5,000,000 is
+        # still ~60 GB. Use the exact dense SVD only when the configured allocation
+        # ceiling says the whole rectangle is actually affordable.
+        from rexgraph.core._common import CoreMemoryLimitError
+        from rexgraph.evaluator import check_dense_allocation
+        try:
+            check_dense_allocation("graded boundary rank SVD", m, n)
+        except CoreMemoryLimitError:
+            pass
+        else:
+            s = np.linalg.svd(M.toarray(), compute_uv=False)
+            if s.size == 0:
+                return 0
+            thresh = tol * s[0] * max(m, n)
+            return int(np.sum(s > max(thresh, tol)))
     # Large, and neither exact path applied. A truncated SVD can only CONFIRM a rank
     # below its own k; if every computed singular value clears the threshold the rank is
     # at least k and this routine does not know it. Returning k there reports a cap as a
@@ -1171,7 +1181,7 @@ def graded_boundaries_from_rex(rex) -> list[sp.csr_matrix]:
       * ``B_1`` always, from the rex's own signed vertex edge incidence;
       * ``B_2`` when ``nF > 0``, from the chain consistent Hodge slice
         (``_B2_hodge_dual``), so whatever face arity the complex carries is kept;
-        an explicitly empty B2 is retained when higher grades exist;
+        an explicitly empty B2 is retained when declared or when higher grades exist;
       * ``B_3, B_4, ...`` when the rex additionally stores higher boundaries in the
         optional ``_graded_duals`` attribute (populated by ``RexGraph.from_cells``).
 
@@ -1228,7 +1238,7 @@ def _polyhedron_3rex(points: np.ndarray, face_vertex_sets: Sequence[Sequence[int
     ``points`` are the vertex coordinates; ``face_vertex_sets`` lists, per face, the
     (unordered) vertex indices bounding it. Faces are oriented outward, edges are
     derived from the oriented face loops, and a single volume (grade 3) cell is added
-    bounded by all faces with ``+1`` signs - which closes as ``B_2 B_3 = 0`` because
+    bounded by all faces with ``+1`` signs: which closes as ``B_2 B_3 = 0`` because
     the outward orientation makes every edge cancel between its two faces.
 
     Returns ``cells_by_grade = [nV, edges, faces_signed, [volume]]``.

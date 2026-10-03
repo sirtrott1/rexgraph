@@ -80,7 +80,10 @@ if _HAS_TORCH:
 
         @_torch.no_grad()
         def step(self, closure=None):
-            loss = closure() if closure is not None else None
+            loss = None
+            if closure is not None:
+                with _torch.enable_grad():
+                    loss = closure()
             for group in self.param_groups:
                 lr = group["lr"]; gg = group["gamma_grad"]; gc = group["gamma_curl"]
                 mom = group["momentum"]; cmom = group["curl_momentum"]
@@ -140,17 +143,15 @@ if _HAS_TORCH:
         step, then recombine with ``gamma_grad`` / ``gamma_curl`` gains. The grad/rotational
         split is a trackable, verified structure.
 
-        Empirically this ties plain Adam on standard weight matrices (the coordinated component
-        engages only a few percent of the gradient in the weight neuron geometry, not the model's
-        data complex); for relational native models whose parameters are cochains, use
-        ``optim.GreensCochain``, which preconditions in the complex's own geometry. Kept for
-        back compat; not a recommended default.
+        Experimental optimizer exposed for compatibility. GreensCochain supplies
+        the separate preconditioner for parameters indexed by a data complex.
 
         Every rank is decomposed relationally: 2 tensors via the weighted bipartite Hodge flow,
         any other rank (1 tensor biases, 3/4-tensor conv kernels, k-rex) via the general
         functional ANOVA / higher order Hodge split (`_decompose`); only scalars fall back to plain
         Adam. At ``gamma_grad == gamma_curl == 1`` the recombination carries the full gradient; it
-        is not identical to Adam because the √v normalization is per component, not global."""
+        is not identical to Adam because the √v normalization is per component, not global.
+        """
 
         def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999), eps: float = 1e-8,
                      gamma_grad: float = 1.0, gamma_curl: float = 1.0, weight_decay: float = 0.0,
@@ -191,7 +192,7 @@ if _HAS_TORCH:
 
         @staticmethod
         def _cg(matvec, b, iters=12, tol=1e-7):
-            """Matrix free conjugate gradient solve of L φ = b (no autograd needed - this runs
+            """Matrix free conjugate gradient solve of L φ = b (no autograd needed: this runs
             inside the no_grad optimizer step)."""
             x = _torch.zeros_like(b); r = b - matvec(x); pdir = r.clone()
             rs = (r * r).sum()
@@ -295,7 +296,10 @@ if _HAS_TORCH:
 
         @_torch.no_grad()
         def step(self, closure=None):
-            loss = closure() if closure is not None else None
+            loss = None
+            if closure is not None:
+                with _torch.enable_grad():
+                    loss = closure()
             for group in self.param_groups:
                 lr = group["lr"]; b1, b2 = group["betas"]; eps = group["eps"]
                 gg = group["gamma_grad"]; gc = group["gamma_curl"]

@@ -1,4 +1,4 @@
-"""Scale free moments and the varentropy self diagnostic - the eigen free scale engine.
+"""Scale free moments and the varentropy self diagnostic: the eigen free scale engine.
 
 The scale profile is closed-k-walk moments; the varentropy gap is the Renyi 2 minus
 Renyi 3 harmonic log. These guard the scale/character self diagnostics behaviorally
@@ -36,7 +36,7 @@ def test_harmonic_entropy_is_renyi2_of_rl4():
 
 
 def test_character_varentropy_gap_ties_to_harmonic_entropy():
-    """varentropy gap = H2 - H3 >= 0, and H2 is the harmonic (Renyi 2) entropy."""
+    """varentropy gap = H2: H3 >= 0, and H2 is the harmonic (Renyi 2) entropy."""
     rex = _rex([(0, 1), (1, 2), (2, 3), (0, 3), (1, 4), (4, 5), (2, 5)])
     v = rex.character_varentropy
     assert v["gap"] == pytest.approx(v["H2"] - v["H3"], abs=1e-9)

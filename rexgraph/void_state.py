@@ -6,7 +6,7 @@ from functools import cached_property
 import numpy as np
 
 from .cells import CellSet
-from .io.partition_state import partition_tower
+from .partition_state import partition_tower
 
 
 def validate_region(region):
@@ -37,7 +37,7 @@ class VoidState:
     _n_cells: int = field(repr=False)
 
     def check_state(self):
-        from .io.catalog import object_digest
+        from .object_identity import object_digest
         if object_digest(self.source) != self.source_state:
             raise ValueError("void source changed; bind a fresh region")
 
@@ -83,7 +83,7 @@ def void_state(region):
     """
     from .core import _cycles, _void
     from .faces import solve_face_column
-    from .io.catalog import object_digest
+    from .object_identity import object_digest
     carriers, tower = validate_region(region)
     vertices, sources, targets = {}, [], []
     for i in region.indices:

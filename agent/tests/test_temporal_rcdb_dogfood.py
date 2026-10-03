@@ -22,7 +22,7 @@ def test_dogfood_temporal_store_through_rcdb(tmp_path):
     back = safetensors_to_temporal_rex(str(p))
 
     # store the reconstructed snapshots in a REAL FileStore RCDB and read them back
-    store = open_store(f"file://{tmp_path}/rcdb")
+    store = open_store(f"file://{tmp_path}/rcdb", read_only=False)
     try:
         for t in range(back._T):
             r = back.reconstruct_at(t) if not back._snapshots_materialized else back.at(t)

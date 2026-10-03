@@ -106,7 +106,7 @@ def test_it_searches_a_protected_vocabulary_too(tmp_path):
 
     keys = StaticIndexKeyProvider({"search": b"s" * 32})
     policy = IndexPolicy({"vertex_labels": "keyed"}, "search")
-    store = RexStore(str(tmp_path / "s"), search_policy=policy, search_keys=keys)
+    store = RexStore(str(tmp_path / "s"), search_policy=policy, search_keys=keys, read_only=False)
     store.put("alpha", _rex(2), meta={"vertex_labels": ["oncology"]})
     store.put("beta", _rex(3), meta={"vertex_labels": ["cardiology"]})
     runtime = RCQLRuntime()

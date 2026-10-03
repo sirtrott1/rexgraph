@@ -11,8 +11,14 @@ rather than reaching into a submodule, and the submodules stay importable for an
 this list does not carry.
 """
 from . import analytics, core, index, objectstore, protected_index, rexstore
+from .packet import RecordPacket, record_packet
+from .codecs import (COPY_RECEIPT_CODEC, DECLARATION_CODEC, MIGRATION_PLAN_CODEC,
+                     MIGRATION_PROGRESS_CODEC, MIGRATION_STEP_CODEC, PROVENANCE_CODEC,
+                     QUERY_RESULT_CODEC, VALUE_CODEC, RecordCodec, available_record_codecs,
+                     register_record_codec, unregister_record_codec)
 from .core import (
     ComplexRecord,
+    StoredRecord,
     FileStore,
     MemoryStore,
     PublicationUncertainError,
@@ -48,7 +54,11 @@ from .core import (
 )
 from .objectstore import (
     ObjectStore,
+    NativeObjectStore,
+    open_object_store,
 )
+from .object_publication import (ObjectPublication, PublishedObject, LocalObjectPublication,
+                                 MemoryObjectPublication)
 from .protected_index import (
     IndexKeyProvider,
     IndexPolicy,
@@ -67,12 +77,44 @@ from .rexstore import (
     RexStore,
 )
 from .corpus import CorpusSnapshot
+from .legacy_migration import (LEGACY_MIGRATION_LIMITATIONS, LegacyMigrationBatch, LegacyMigrationPlan,
+                               LegacyRecordClaim, migrate_legacy_batch, plan_legacy_migration)
+from .envelope import RecordEnvelope
+from .store_identity import StoreIdentity
+from .header import BlobCodecSpec, CodecRef, StoreHeader
+from .engine import ChangeCursor, RecordChange, StoreState
+from .checkpoint import ReplayCheckpoint, ReplaySegment, ReplaySegmentRef
+from .retention import OrphanObject, RetentionPlan, RetentionPolicy
+from .localstore import LocalStore
+from .transfer import CopyReceipt
+from .migration import MigrationBatch, MigrationPlan, MigrationProgress, MigrationStepReceipt, migrate_batch, plan_migration
 
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.2.2"
+__version__ = "1.3.0"
 
 __all__ = [
+    "OrphanObject", "RetentionPlan", "RetentionPolicy",
+    "ReplayCheckpoint", "ReplaySegment", "ReplaySegmentRef",
+    "LEGACY_MIGRATION_LIMITATIONS", "LegacyMigrationBatch", "LegacyMigrationPlan", "LegacyRecordClaim",
+    "migrate_legacy_batch", "plan_legacy_migration",
+    "StoredRecord", "RecordCodec", "available_record_codecs", "register_record_codec", "unregister_record_codec",
+    "VALUE_CODEC", "PROVENANCE_CODEC", "DECLARATION_CODEC", "COPY_RECEIPT_CODEC",
+    "MIGRATION_PLAN_CODEC", "MIGRATION_PROGRESS_CODEC", "MIGRATION_STEP_CODEC", "QUERY_RESULT_CODEC",
+    "BlobCodecSpec",
+    "CodecRef",
+    "ChangeCursor",
+    "RecordChange",
+    "StoreHeader",
+    "StoreState",
+    "LocalStore",
+    "CopyReceipt",
+    "MigrationBatch",
+    "MigrationPlan",
+    "MigrationProgress",
+    "MigrationStepReceipt",
+    "migrate_batch",
+    "plan_migration",
     "CorpusSnapshot",
     "ComplexRecord",
     "FileStore",
@@ -81,8 +123,18 @@ __all__ = [
     "MemoryStore",
     "PublicationUncertainError",
     "ObjectStore",
+    "NativeObjectStore",
+    "open_object_store",
+    "ObjectPublication",
+    "PublishedObject",
+    "LocalObjectPublication",
+    "MemoryObjectPublication",
     "RCStore",
     "RecordSnapshot",
+    "RecordPacket",
+    "record_packet",
+    "RecordEnvelope",
+    "StoreIdentity",
     "VersionConflictError",
     "RexIndex",
     "RexStore",

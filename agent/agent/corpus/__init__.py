@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -60,8 +61,29 @@ from agent.metrics import coherence_mean
 
 
 # Data classes
-@dataclass
+def _document_identity(source: str, text: str | None = None) -> str:
+    import hashlib
+    from pathlib import Path
+    digest = hashlib.sha256(b"rexgraph-corpus-content-v1\0")
+    try:
+        file_source = text is None and Path(source).is_file()
+    except OSError:
+        file_source = False
+    if text is not None:
+        digest.update(b"text\0")
+        digest.update(text.encode("utf-8"))
+    elif file_source:
+        digest.update(b"file\0")
+        with open(source, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+    else:
+        digest.update(b"source\0")
+        digest.update(str(source).encode("utf-8"))
+    return "doc_" + digest.hexdigest()[:24]
 
+
+@dataclass
 class DocumentRecord:
     """A single document in the corpus."""
 
@@ -121,24 +143,15 @@ def _extract_entities(text: str, min_len: int = 3) -> list[str]:
 # Corpus builder
 # Ranking
 #
-# One mechanism, in agent.scoring: the interfacing vector (Poisson lift -> typed
-# channel operators -> bilinear score). What used to be here was a label Jaccard
-# plus a cosine between MEAN structural characters plus a hand rolled spectral term,
-# blended under fixed 0.3/0.35/0.35 weights: three approximations of the thing the
-# library already computes exactly. Lexical overlap is now a candidate prefilter
-# only; it decides what to look at, not what is relevant.
+# Ranking uses agent.scoring: Poisson lift, typed channel operators and
+# a bilinear score. Lexical overlap supplies candidate filtering.
 
 
 def score_document(doc, query_ec, query_chi=None, mode="hybrid") -> float:
-    """Score a document against a query. `query_chi`/`mode` are accepted and ignored:
-    they selected between the old blends, and there is one mechanism now.
+    """Score a document against a query through the shared interfacing score.
 
-    `reading=False` is what `interfacing_score` documents for "callers ranking a large
-    candidate set who want the diagnostics only on what survives", and ranking is exactly
-    this. Taking the default ran `agentic_reading` on every candidate: measured on one
-    1,469 relation document, 81.26 s a call against 0.52 s, so a ten candidate retrieval
-    spent thirteen minutes producing diagnostics for nine documents it was about to
-    discard. `score_document_full` keeps the reading, for the ones that survive.
+    query_chi and mode are accepted and ignored. Diagnostics are disabled during
+    ranking; score_document_full includes the full reading.
     """
     from agent.scoring import interfacing_score
     return interfacing_score(getattr(doc, "rex", None),
@@ -224,7 +237,7 @@ class CorpusBuilder:
         str : the doc_id assigned
         """
         if doc_id is None:
-            doc_id = f"doc_{len(self.documents):04d}"
+            doc_id = _document_identity(source, text)
 
         self.documents.append(DocumentRecord(
             doc_id=doc_id,
@@ -232,6 +245,7 @@ class CorpusBuilder:
             date=date,
             text=text or "",
             edge_construction=edge_construction,
+            meta={"source_label": os.path.basename(str(source))},
         ))
         self._built = False
         return doc_id
@@ -277,14 +291,14 @@ class CorpusBuilder:
             with open(source, encoding="utf-8", errors="replace") as fh:
                 raw = fh.read()
         if doc_id is None:
-            base = os.path.splitext(os.path.basename(str(source)))[0]
-            doc_id = base or f"doc_{len(self.documents):04d}"
+            doc_id = _document_identity(source, text)
 
         rex, info = build_document(raw, **build_kw)
         rec = DocumentRecord(
             doc_id=doc_id, source=str(source), date=date, text=raw,
             rex=rex, vertex_labels=list(info["vocab"]),
             meta={
+                "source_label": os.path.basename(str(source)),
                 "input_type": "document", "layers": list(info["layers"]),
                 "methods": dict(info["methods"]),
                 "n_sentences": int(info["n_sentences"]),
@@ -358,22 +372,20 @@ class CorpusBuilder:
                 if ext not in allowed:
                     continue
                 filepath = os.path.join(root, name)
-                rel = os.path.relpath(filepath, directory)
-                doc_id = rel.replace(os.sep, "/").rsplit(".", 1)[0]
+                source_label = os.path.relpath(filepath, directory).replace(os.sep, "/")
 
                 # Text files: read content directly
                 if ext in (".txt", ".md"):
                     try:
                         with open(filepath, errors="replace") as f:
                             text = f.read()
-                        did = self.add_text(text, doc_id=doc_id, date=date)
+                        did = self.add_document(source=filepath, text=text, date=date)
                     except Exception as e:
                         logger.warning("Skipping %s: %s", filepath, e)
                         continue
                 else:
-                    did = self.add_document(
-                        source=filepath, doc_id=doc_id, date=date,
-                    )
+                    did = self.add_document(source=filepath, date=date)
+                self.documents[-1].meta["source_label"] = source_label
                 doc_ids.append(did)
 
         return doc_ids
@@ -406,7 +418,7 @@ class CorpusBuilder:
             raise ValueError("No documents in corpus")
 
         from agent import cache as _cache
-        from agent.auto import auto_rex, build_rex_from_edges
+        from agent.auto import auto_rex, auto_rex_text, build_rex_from_edges
         from agent.pipeline import AnalysisPipeline
 
         for doc in self.documents:
@@ -422,20 +434,22 @@ class CorpusBuilder:
             if getattr(doc, "rex", None) is None \
                     and getattr(doc, "edge_construction", None) is None:
                 try:
-                    content = doc.text or doc.source or doc.doc_id
+                    content = (doc.text.encode("utf-8") if doc.text
+                               else doc.source or doc.doc_id)
                     # The face rule is part of what the complex IS, so it belongs in
                     # the key. It lives in the effective kwargs rather than in
                     # adapter_kwargs, so keying on adapter_kwargs alone served a
                     # complex built under a different rule as a hit.
                     eff = dict(self.adapter_kwargs)
                     eff.setdefault("face_selection", DOC_FACE_RULE)
-                    extra = repr(sorted(eff.items()))
+                    input_kind = "literal_text" if doc.text else "source"
+                    extra = repr((input_kind, sorted(eff.items())))
                     cache_key = _cache.content_key(content, depth=depth, extra=extra)
                     c_rex, c_analysis, c_meta = _cache.get_rex_and_analysis(cache_key)
                     if c_rex is not None and c_analysis is not None:
                         doc.rex = c_rex
                         doc.analysis = c_analysis
-                        doc.meta = c_meta or getattr(c_rex, "_agent_meta", {})
+                        doc.meta = {**(c_meta or getattr(c_rex, "_agent_meta", {})), **doc.meta}
                         doc.vertex_labels = list(doc.meta.get("vertex_labels", []))
                         if not doc.text:
                             st = doc.meta.get("source_text", "")
@@ -478,7 +492,7 @@ class CorpusBuilder:
                     kw = dict(self.adapter_kwargs)
                     kw.setdefault("face_selection", DOC_FACE_RULE)   # keyed above
                     if doc.text:
-                        rex = auto_rex(doc.text, **kw)
+                        rex = auto_rex_text(doc.text, **kw)
                     elif doc.source and doc.source != "<text>":
                         rex = auto_rex(doc.source, **kw)
                     else:
@@ -847,13 +861,8 @@ class CorpusBuilder:
                     o=t.o,
                 ))
 
-        # Cross document consistency triples. Only document PAIRS that share ≥1
-        # entity can emit a triple (the n_shared > 0 gate), so build an inverted
-        # index (entity label -> docs containing it) once and bridge only the
-        # co occurring pairs - instead of the old all pairs O(D²) scan that ran a
-        # full alignment for every pair, including the (usually many) that share
-        # nothing. Output is identical; a corpus with a hub entity in every doc
-        # still bridges those pairs (they genuinely share), only faster to reach.
+        # Cross document triples require at least one shared entity. Build an
+        # entity label posting index and bridge only pairs sharing a label.
         from agent.integrations.trustgraph_adapter import SimpleTriple
         posting: dict[str, list[int]] = {}
         for i, doc in enumerate(self.documents):
@@ -894,8 +903,7 @@ class CorpusBuilder:
         Generates enrichment triples for every document (KEGG / GO /
         CellPhoneDB style ontology mappings via the TrustGraph adapter),
         then runs the standalone TrustGraph engine over them and returns
-        a JSON safe summary.  This is the pipeline hook the manual
-        workflow used to produce its enrichment triples.
+        a JSON safe summary.
 
         Returns a dict with ``available`` False and a ``reason`` when the
         TrustGraph integration cannot run, so callers can treat it as an

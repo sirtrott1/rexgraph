@@ -1,35 +1,8 @@
-"""A Merkle tree whose shape is the document's own layer hierarchy.
+"""Document Merkle trees with binary sibling proofs at each layer.
 
-Two trees were available and each gave up something the other kept. A balanced binary
-tree over every sentence proves inclusion in ceil(log2 n) hashes but its interior nodes
-mean nothing: the path from a sentence to the root passes through nodes that are not
-paragraphs, not chapters, not anything a reader could name. A tree shaped like the
-document proves through nodes that ARE the paragraph and the chapter, but combining a
-chapter's 31 paragraphs flat costs all 31 sibling hashes.
-
-Neither trade is necessary. The layer hierarchy supplies the LEVELS and a binary tree
-runs INSIDE each sibling set, so a proof carries log2 of each fanout instead of all of
-it while the path still reads sentence -> paragraph -> chapter -> document. Measured on
-a 314 KB book (2,802 sentences, 1,122 paragraphs, 36 chapters): 14 hashes at the median
-against 70 for the flat sibling form and 12 for the binary tree that names nothing. 448
-bytes to keep the semantics, against 384 to throw them away.
-
-Two consequences fall out rather than being built:
-
-    layer digests are free    the paragraph and chapter digests ARE this tree's interior
-                              nodes. Nothing hashes them separately, and nothing stores
-                              a 2 kB homomorphic digest per section to make a coarsening
-                              composable, because composition is what a tree already is.
-    the partition is required a leaf must have exactly ONE parent, so this works because
-                              the stored sectioning is a partition. Under a cover a
-                              relation belongs to several sentences at once and the tree
-                              is not well defined. The choice of the partition as the
-                              canonical form and the availability of this tree are the
-                              same decision, not two.
-
-What it buys over the flat digest, which stays as the container seal: an inclusion proof
-that travels without the document, and a single sentence update that rehashes a path
-instead of the book (10.5 us against 3.0 ms, 281x).
+The document hierarchy supplies sentence, paragraph, chapter and root levels.
+Binary trees within sibling sets retain those named levels while bounding each
+level's proof by its fanout. Native state retains the data needed to derive leaves.
 """
 from __future__ import annotations
 
@@ -271,14 +244,10 @@ def pack_merkle(rex, t, h, *, base=None):
 
 
 def unpack_merkle(rex, t, h, *, verify=True):
-    """Rebuild the tree from state and, when asked, CHECK it makes the stored root.
+    """Rebuild a Merkle tree from state and optionally verify its stored root.
 
-    This asks "does THIS COMPLEX make this root", which is the whole tree derived from
-    the boundary columns, the labels and the spans as loaded. A rewritten column, a moved
-    span or a rewritten root all fail it. The previous form compared stored leaves to a
-    stored root and so could only catch the last two.
-
-    Cost is one `_leaf_digests` pass, measured at 2.3 us a section.
+    Derive leaves from the loaded boundary columns, labels and spans. Verification
+    compares the resulting root with the stored root.
     """
     meta = h.get("merkle")
     if not meta:

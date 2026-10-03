@@ -1,22 +1,4 @@
-"""The edge signature must read channels by NAME, not by position.
-
-`edge_signature` did `(chi[0], chi[1] + chi[3], chi[2])`, which assumes the character
-always has four components in the order T, G, F, C. It does not. The character is
-(nE, nhats) with nhats = 3 or 4: a channel whose trace vanishes is DROPPED, and then the
-remaining columns close up.
-
-Both failure modes follow, and both are silent or crash rather than approximate:
-
-  * IndexError on chi[3] whenever nhats == 3. That is not exotic. Any consistently
-    oriented complex has no head-to-tail disagreement, so trace(F) = 0 and F drops.
-    A bipartite measurement complex is exactly that, and it is the shape most of this
-    library's data takes.
-  * worse when it does not crash: with F dropped the columns are (T, G, C), so chi[2] is
-    C and the signature silently reads the co-participation channel where it means the
-    frustration one.
-
-`hat_names` says which channels are live, so the fix is to look them up.
-"""
+"""Check relation signatures with named channels, including zero trace channels."""
 
 import numpy as np
 

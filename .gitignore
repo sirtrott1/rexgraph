@@ -57,8 +57,7 @@ CLAUDE.md
 # Generated stress/perf fixtures (not committed; regenerate as needed)
 test_data/
 
-# Vendored UI libraries (fetched at install/first-run, not committed)
-agent/frontend/react*.min.js
+# Agent's licensed UI runtime ships in source and wheel distributions.
 
 # Local demos / scratch (not shipped)
 playground/

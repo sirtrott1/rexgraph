@@ -1,15 +1,7 @@
-"""
-Test suite for the L_gb (graded boundary Laplacian) operator.
+"""Check graded boundary Laplacian reference signatures.
 
-Verifies behavior against known signatures from the L_gb source paper:
-    - Universal identities: TF = FC = 1 on every graph
-    - Diagonal entries are 0
-    - Symmetric tensor (when self-tensor)
-    - Cycle signature: TC = 0 uniquely
-    - K_n signatures: K_4, K_5, K_6 reference values
-    - Sphere tower: S^4 has middle-grade degeneracy
-
-Run with: python3 test_l_gb.py
+Cases cover diagonal zeros, self tensor symmetry, cycle and complete graph
+signatures, and the sphere tower's middle grade degeneracy.
 """
 
 from __future__ import annotations
@@ -72,7 +64,7 @@ def _build_cycle(n):
 
 
 def _reference_channels(B1, B2):
-    """Reference channel definitions from test14.py for L_gb fingerprinting."""
+    """Build reference channels for the graded boundary Laplacian fingerprint."""
     T = B1.T @ B1
     G = B2 @ B2.T if B2.shape[1] > 0 else np.zeros_like(T)
     AB = np.abs(B1)

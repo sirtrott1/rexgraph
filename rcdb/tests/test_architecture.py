@@ -85,7 +85,7 @@ def test_a_store_works_with_no_hooks_configured():
 def test_the_agent_installs_its_policy():
     """And with the agent present, all four arrive."""
     pytest.importorskip("agent.rcdb")
-    import agent  # noqa: F401  - importing is what installs them
+    import agent  # noqa: F401 : importing is what installs them
 
     from rcdb import core
     assert core._ACTIVITY_HOOK is not None

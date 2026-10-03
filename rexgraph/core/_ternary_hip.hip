@@ -68,9 +68,12 @@ extern "C" int ternary_pm1_launch(const void* P, const void* S, const void* X,
                                   const void* K, void* out, int nrows, int nw,
                                   int threads)
 {
-    // 256 is the launch bound the kernel is compiled for, and it is also the fastest
-    // block measured here, so a larger request is clamped rather than refused.
-    if (threads <= 0 || threads > 256) threads = 256;
+    // The halving reduction needs a power of two. Never silently drop lanes or
+    // reinterpret a caller's launch configuration. Four also covers the f64 row block.
+    if (threads < 4 || threads > 256 || (threads & (threads - 1)) ||
+        nrows < 0 || nw < 0) return (int)hipErrorInvalidValue;
+    if (nrows == 0) return (int)hipSuccess;
+    if (!P || !S || !X || !K || !out) return (int)hipErrorInvalidValue;
 
     // LDS is finite. Hold the vector there when it fits inside a conservative 48 KiB
     // of the workgroup's share, and read it from global when it does not.
@@ -115,25 +118,30 @@ extern "C" int ternary_free(void* ptr) { return (int)hipFree(ptr); }
 // halved traffic buys. The constraint moves from bandwidth to residency in between.
 #define TERNARY_F64_BLK 4
 
-extern "C" __global__ void __launch_bounds__(256)
-ternary_f64_kernel(const uint64_t* __restrict__ P,
+template <typename Scalar>
+__global__ void __launch_bounds__(256)
+ternary_float_kernel(const uint64_t* __restrict__ P,
                    const uint64_t* __restrict__ S,
-                   const double*   __restrict__ V,
-                   double* __restrict__ out,
+                   const Scalar*   __restrict__ V,
+                   Scalar* __restrict__ out,
                    int nrows, int nw)
 {
-    extern __shared__ double red[];              // blockDim * BLK partial sums
+    extern __shared__ double red_storage[];     // aligned for either scalar type
+    Scalar* red = reinterpret_cast<Scalar*>(red_storage);
     const int tid = threadIdx.x;
     const int nth = blockDim.x;
     const size_t r0 = (size_t)blockIdx.x * TERNARY_F64_BLK;
     const int nrow = (int)min((size_t)TERNARY_F64_BLK, (size_t)nrows - r0);
 
-    double acc[TERNARY_F64_BLK];
+    const size_t vector = blockIdx.y;
+    V += vector * (size_t)nw * 64;
+    out += vector * (size_t)nrows;
+    Scalar acc[TERNARY_F64_BLK];
     #pragma unroll
     for (int r = 0; r < TERNARY_F64_BLK; ++r) acc[r] = 0.0;
 
     for (int w = tid; w < nw; w += nth) {
-        const double* base = V + ((size_t)w << 6);
+        const Scalar* base = V + ((size_t)w << 6);
         for (int r = 0; r < nrow; ++r) {
             const size_t off = (r0 + r) * (size_t)nw + w;
             uint64_t pres = P[off];
@@ -159,19 +167,47 @@ ternary_f64_kernel(const uint64_t* __restrict__ P,
     if (tid < nrow) out[r0 + tid] = red[tid * nth];
 }
 
-extern "C" int ternary_f64_launch(const void* P, const void* S, const void* V,
-                                  void* out, int nrows, int nw, int threads)
+template <typename Scalar>
+static int ternary_float_batch_async(const void* P, const void* S, const void* V,
+                                    void* out, int nrows, int nw, int nvec,
+                                    int threads, void* stream)
 {
-    if (threads <= 0 || threads > 256) threads = 256;
-    int nblocks = (nrows + TERNARY_F64_BLK - 1) / TERNARY_F64_BLK;
-    size_t shared = (size_t)threads * TERNARY_F64_BLK * sizeof(double);
-    hipLaunchKernelGGL(ternary_f64_kernel, dim3(nblocks), dim3(threads), shared, 0,
-                       (const uint64_t*)P, (const uint64_t*)S, (const double*)V,
-                       (double*)out, nrows, nw);
-    hipError_t e = hipGetLastError();
-    if (e != hipSuccess) return (int)e;
-    return (int)hipDeviceSynchronize();
+    if (threads < 4 || threads > 256 || (threads & (threads - 1)) ||
+        nrows < 0 || nw < 0 || nvec < 0 || nvec > 65535)
+        return (int)hipErrorInvalidValue;
+    if (nrows == 0 || nvec == 0) return (int)hipSuccess;
+    if (!P || !S || !V || !out) return (int)hipErrorInvalidValue;
+    int nblocks = nrows / TERNARY_F64_BLK + (nrows % TERNARY_F64_BLK != 0);
+    size_t shared = (size_t)threads * TERNARY_F64_BLK * sizeof(Scalar);
+    hipLaunchKernelGGL((ternary_float_kernel<Scalar>), dim3(nblocks, nvec),
+                       dim3(threads), shared, (hipStream_t)stream,
+                       (const uint64_t*)P, (const uint64_t*)S, (const Scalar*)V,
+                       (Scalar*)out, nrows, nw);
+    return (int)hipGetLastError();
 }
+
+// Tensor callers own device buffers and stream ordering. No global/device sync,
+// host transfer or allocator is hidden in these entry points. Keep the synchronous
+// legacy ABI for NumPy clients and old installed wrappers.
+extern "C" int ternary_f32_batch_async(const void* P, const void* S, const void* V,
+                                      void* out, int nrows, int nw, int nvec,
+                                      int threads, void* stream) {
+    return ternary_float_batch_async<float>(P, S, V, out, nrows, nw, nvec, threads, stream);
+}
+extern "C" int ternary_f64_batch_async(const void* P, const void* S, const void* V,
+                                      void* out, int nrows, int nw, int nvec,
+                                      int threads, void* stream) {
+    return ternary_float_batch_async<double>(P, S, V, out, nrows, nw, nvec, threads, stream);
+}
+extern "C" int ternary_f64_launch(const void* P, const void* S, const void* V,
+                                  void* out, int nrows, int nw, int threads) {
+    int rc = ternary_f64_batch_async(P, S, V, out, nrows, nw, 1, threads, nullptr);
+    if (rc != 0 || nrows == 0) return rc;
+    return (int)hipStreamSynchronize(nullptr);
+}
+
+extern "C" int ternary_get_device(int* device) { return (int)hipGetDevice(device); }
+extern "C" int ternary_set_device(int device) { return (int)hipSetDevice(device); }
 
 // The channel tower.
 // The four diagonals at any arity. Same shape as the CPU kernel and for the same
@@ -188,17 +224,17 @@ extern "C" __global__ void tower_vertex_mass(
     const int*     __restrict__ owner,   // relation owning each transposed entry
     const unsigned char* __restrict__ is_head,
     const double*  __restrict__ w,       // per-relation weight
-    const long*    __restrict__ vptr,    // vertex offsets into the transpose
+    const int64_t* __restrict__ vptr,    // vertex offsets into the transpose
     const double*  __restrict__ coef,    // column entry per incidence, or null
-    const long*    __restrict__ src,     // which incidence each entry came from
+    const int64_t* __restrict__ src,     // which incidence each entry came from
     double* __restrict__ negw, double* __restrict__ posw,
     double* __restrict__ negu, double* __restrict__ posu,
     int nV)
 {
-    int v = blockIdx.x * blockDim.x + threadIdx.x;
-    if (v >= nV) return;
+    size_t v = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (v >= (size_t)nV) return;
     double nw = 0.0, pw = 0.0, nu = 0.0, pu = 0.0;
-    for (long q = vptr[v]; q < vptr[v + 1]; ++q) {
+    for (int64_t q = vptr[v]; q < vptr[v + 1]; ++q) {
         int f = owner[q];
         // A DECLARED head or share arrives through coef, and then the SIGN of the entry
         // splits the mass rather than the head bit. Null is the canonical column, which
@@ -228,8 +264,8 @@ extern "C" __global__ void tower_read(
     double* __restrict__ F, double* __restrict__ C,
     int nE)
 {
-    int e = blockIdx.x * blockDim.x + threadIdx.x;
-    if (e >= nE) return;
+    size_t e = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (e >= (size_t)nE) return;
     int s = bp[e], t = bp[e + 1], k = t - s;
     if (k == 0) { T[e] = G[e] = F[e] = C[e] = 0.0; return; }
     double we = w[e], c = 0.0, f = 0.0;
@@ -268,11 +304,8 @@ extern "C" __global__ void tower_read(
     C[e] = c; F[e] = 2.0 * f;
 }
 
-/* The canonical entry point, unchanged in name and signature so a library built before
- * declared columns keeps working with a caller that only needs the canonical reading.
- * `tower_launch_coef` is the one that takes the column, and its ABSENCE is how a wrapper
- * tells an older build apart from this one: a missing symbol is a clear refusal, where a
- * new caller against the old signature would be a corrupted stack. */
+/* Canonical column entry point. Its ABI remains compatible with canonical callers.
+ * tower_launch_coef accepts declared column coefficients through a separate ABI. */
 extern "C" int tower_launch(const void* bp, const void* bi, const void* owner,
                             const void* is_head, const void* w, const void* vptr,
                             void* negw, void* posw, void* negu, void* posu,
@@ -286,17 +319,24 @@ extern "C" int tower_launch_coef(const void* bp, const void* bi, const void* own
                             void* T, void* G, void* F, void* C,
                             int nV, int nE, int threads)
 {
-    if (threads <= 0 || threads > 256) threads = 256;
-    hipLaunchKernelGGL(tower_vertex_mass, dim3((nV + threads - 1) / threads),
+    if (threads < 1 || threads > 256 || nV < 0 || nE < 0 ||
+        ((coef == nullptr) != (src == nullptr))) return (int)hipErrorInvalidValue;
+    if (nE == 0) return (int)hipSuccess;
+    if (!bp || !bi || !owner || !is_head || !w || !vptr ||
+        !negw || !posw || !negu || !posu || !T || !G || !F || !C)
+        return (int)hipErrorInvalidValue;
+    if (nV > 0) {
+        hipLaunchKernelGGL(tower_vertex_mass, dim3(nV / threads + (nV % threads != 0)),
                        dim3(threads), 0, 0,
                        (const int*)bp, (const int*)owner,
                        (const unsigned char*)is_head, (const double*)w,
-                       (const long*)vptr, (const double*)coef, (const long*)src,
+                       (const int64_t*)vptr, (const double*)coef, (const int64_t*)src,
                        (double*)negw, (double*)posw,
                        (double*)negu, (double*)posu, nV);
-    hipError_t e1 = hipGetLastError();
-    if (e1 != hipSuccess) return (int)e1;
-    hipLaunchKernelGGL(tower_read, dim3((nE + threads - 1) / threads), dim3(threads),
+        hipError_t e1 = hipGetLastError();
+        if (e1 != hipSuccess) return (int)e1;
+    }
+    hipLaunchKernelGGL(tower_read, dim3(nE / threads + (nE % threads != 0)), dim3(threads),
                        0, 0, (const int*)bp, (const int*)bi, (const double*)w,
                        (const double*)negw, (const double*)posw,
                        (const double*)negu, (const double*)posu, (const double*)coef,

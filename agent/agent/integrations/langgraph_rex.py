@@ -1,5 +1,5 @@
 """
-LangGraph + RexGraph - agent state machines as relational complexes.
+LangGraph + RexGraph: agent state machines as relational complexes.
 
 The insight: a LangGraph graph IS a relational complex. Nodes are states,
 edges are transitions, and the math tells you everything about the agent's
@@ -153,8 +153,8 @@ class RexStateGraph:
 
     def analyze(self) -> dict:
         """Full structural analysis of the state graph."""
-        from rexgraph.analysis import analyze
-        return analyze(self.rex, vertex_labels=self._state_order)
+        from agent.analysis import analyze
+        return analyze(self.rex, depth="standard", labels=self._state_order)
 
     def transition_confidence(self, src: str, tgt: str) -> dict:
         """Confidence assessment for a specific transition.
@@ -276,22 +276,8 @@ class RexStateGraph:
         }
 
         if betti[1] > 0:
-            # Which edges carry the independent cycles is structural, so it is read from
-            # the harmonic basis rather than from the harmonic part of some chosen flow.
-            #
-            # This previously projected the all ones flow and kept edges where
-            # |harm| > 1e-6. That answers a different question, the harmonic content of
-            # that one flow, and it fails outright whenever the chosen flow happens to be
-            # orthogonal to the harmonic space. A plain 4 cycle with two edges reversed is
-            # enough: beta_1 is 1, the all ones harmonic part is 2.22e-16, and the
-            # threshold returns no edges at all while the method still reports
-            # has_cycles True. The magnitude is also frame dependent, so no threshold on
-            # it is the structural answer.
-            #
-            # harmonic_basis spans ker(B1) cap ker(B2^T), which is exactly what beta_1
-            # counts, so its support is the edge set this method claims to return. The
-            # cycle basis would be wrong here: it spans ker(B1) alone, so a filled cycle
-            # would still appear even though it is no longer a hole.
+            # Read cycle support from the harmonic basis, spanning
+            # ker(B1) intersect ker(B2^T), independently of a chosen edge flow.
             try:
                 from rexgraph.harmonic_sparse import harmonic_basis
 

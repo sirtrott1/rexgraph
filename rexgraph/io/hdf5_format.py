@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from ..graph import TemporalRex
 
 import contextlib
+from .publication import atomic_writer
+from .container_integrity import FORMAT_VERSION, seal_container, verify_container
 
 from ._compat import (
     HAS_HDF5,
@@ -51,7 +53,7 @@ __all__ = [
     "load_hdf5_array",
 ]
 
-_FORMAT_VERSION = "2.0.0"
+_FORMAT_VERSION = FORMAT_VERSION
 
 # Cache group definitions (same as zarr_format.py)
 
@@ -68,6 +70,17 @@ def _ensure_h5(path: str) -> str:
 
 # Simple array save/load
 
+def _seal_hdf5(path):
+    with h5py.File(path, "a") as root:
+        seal_container(root)
+
+
+def _verify_hdf5(path):
+    with h5py.File(path, "r") as root:
+        verify_container(root)
+
+
+@atomic_writer(normalize=_ensure_h5, finalize=_seal_hdf5)
 def save_hdf5_array(arr: NDArray, path: str) -> None:
     """Save a NumPy array into an .h5 file."""
     with h5py.File(_ensure_h5(path), "w") as f:
@@ -79,6 +92,7 @@ def save_hdf5_array(arr: NDArray, path: str) -> None:
 def load_hdf5_array(path: str) -> np.ndarray:
     """Load a NumPy array from an .h5 file."""
     with h5py.File(_ensure_h5(path), "r") as f:
+        verify_container(f)
         return h5_load_complex(f, "data")
 
 
@@ -188,6 +202,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
     # Public API
 
+    @atomic_writer(normalize=_ensure_h5, finalize=_seal_hdf5)
     def write(
         self,
         path: str,
@@ -228,6 +243,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
+            verify_container(f)
             obj_type = as_str(f.attrs.get("object_type"))
 
             if obj_type == "RexGraph":
@@ -240,6 +256,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
     # Container API
 
+    @atomic_writer(normalize=_ensure_h5, update=True, finalize=_seal_hdf5, prepare=_verify_hdf5)
     def write_to_group(self, path: str, name: str, obj: Any, **kw) -> None:
         """Write an object into /objects/<n> inside path."""
         from ..graph import RexGraph, TemporalRex
@@ -273,6 +290,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
+            verify_container(f)
             g = f["objects"][name]
             t = as_str(g.attrs.get("object_type"))
             if t == "RexGraph":
@@ -289,6 +307,7 @@ class RexHDF5Format(CacheLayoutMixin):
         if not os.path.exists(path):
             return []
         with h5py.File(path, "r") as f:
+            verify_container(f)
             if "objects" not in f:
                 return []
             return list(f["objects"].keys())
@@ -513,7 +532,8 @@ class RexHDF5Format(CacheLayoutMixin):
 
         if "mode_classification" in names or "field" in names:
             try:
-                modes = rex.classify_modes()
+                # a NamedTuple has no .items(); store its declared fields
+                modes = rex.classify_modes()._asdict()
                 h5_store_dict(fg, "modes", modes,
                               compression=self.compression or "",
                               chunks=self.chunks)
@@ -564,10 +584,11 @@ class RexHDF5Format(CacheLayoutMixin):
 
     # Cache reading
 
-    def read_cache(self, path: str) -> dict:
-        """Read cached properties without full RexGraph reconstruction."""
+    def read_cache(self, path: str, *, allow_unsealed: bool = False) -> dict:
+        """Read cached properties after verifying container integrity. Legacy caches require allow_unsealed=True."""
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
+            verify_container(f, required=not allow_unsealed)
             return self._read_cache_groups(f)
 
     def _read_cache_groups(self, g) -> dict:
@@ -718,6 +739,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
     # NamedTuple serialization
 
+    @atomic_writer(normalize=_ensure_h5, finalize=_seal_hdf5)
     def write_typed(self, path: str, obj: Any) -> None:
         """Write a types.py NamedTuple to an .h5 file."""
         from ._serialization import HDF5Adapter, write_namedtuple
@@ -737,6 +759,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
+            verify_container(f)
             type_name = as_str(f.attrs.get("object_type"))
             adapter = HDF5Adapter(f, compression=self.compression or "",
                                   chunks=self.chunks)
@@ -745,6 +768,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
     # Direct result write/read methods
 
+    @atomic_writer(normalize=_ensure_h5, update=True, finalize=_seal_hdf5, prepare=_verify_hdf5)
     def write_signal_result(self, path: str, result, *, group_name: str = "signal") -> None:
         """Write a PerturbationResult or FieldPerturbationResult."""
         from ._serialization import HDF5Adapter, write_namedtuple
@@ -763,11 +787,13 @@ class RexHDF5Format(CacheLayoutMixin):
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
+            verify_container(f)
             sg = f[group_name]
             adapter = HDF5Adapter(sg, compression=self.compression or "",
                                   chunks=self.chunks)
             return read_namedtuple(adapter, type_name, _resolve_type(type_name))
 
+    @atomic_writer(normalize=_ensure_h5, update=True, finalize=_seal_hdf5, prepare=_verify_hdf5)
     def write_persistence_result(self, path: str, diagram, enrichment=None) -> None:
         """Write persistence diagram and optional enrichment."""
         from ._serialization import HDF5Adapter, write_namedtuple
@@ -787,6 +813,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
+            verify_container(f)
             pg = f["persistence"]
             adapter = HDF5Adapter(pg, compression=self.compression or "",
                                   chunks=self.chunks)
@@ -797,6 +824,7 @@ class RexHDF5Format(CacheLayoutMixin):
                 result["enrichment"] = read_namedtuple(adapter, "enrichment")
             return result
 
+    @atomic_writer(normalize=_ensure_h5, update=True, finalize=_seal_hdf5, prepare=_verify_hdf5)
     def write_quotient_result(self, path: str, masks, quotient_result) -> None:
         """Write subcomplex masks and quotient result."""
         from ._serialization import HDF5Adapter, write_namedtuple
@@ -821,6 +849,7 @@ class RexHDF5Format(CacheLayoutMixin):
 
         path = _ensure_h5(path)
         with h5py.File(path, "r") as f:
+            verify_container(f)
             qg = f["quotient"]
             result = {}
             if self._has(qg, "masks"):

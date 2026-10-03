@@ -54,8 +54,7 @@ def test_the_expansion_also_invents_relations(k):
 
 @pytest.mark.parametrize("k", [3, 4, 5, 6])
 def test_the_cycle_basis_of_a_lone_relation_is_empty(k):
-    """It used to raise IndexError here: the expansion's cycles came back indexed
-    against C(k,2) edges and were written into an array of length nE."""
+    """A lone branching relation has no B1 kernel cycles."""
     assert _lone(k).cycle_basis == []
 
 

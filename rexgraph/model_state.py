@@ -13,6 +13,7 @@ import numpy as np
 
 from rexgraph.tensor_field import FieldSource, TensorField
 from rexgraph.type_accession import CoordinateSpace
+from rexgraph.exact_value import validate_exact_array
 
 __all__ = ["ModelInput", "model_input", "ModelState", "ModelOutput", "ModelBatch", "ModelTimeline", "freeze_tree", "thaw_tree"]
 
@@ -31,8 +32,7 @@ def freeze_tree(value):
     if isinstance(value, np.ndarray):
         result = np.array(value, copy=True, order="C")
         if result.dtype.hasobject:
-            from rexgraph.io.rex_state import _encode_exact
-            _encode_exact(result)
+            validate_exact_array(result, context="model exact object tensors")
         elif result.dtype.kind not in "biuf" or not result.dtype.isnative or result.dtype.itemsize not in {1, 2, 4, 8}:
             raise TypeError("unsupported model tensor dtype")
         elif result.dtype.kind == "f" and not np.isfinite(result).all():
@@ -80,8 +80,8 @@ def _sha(value, optional=False):
 
 
 def _digest(value):
-    from rexgraph.io.model_state import model_payload
-    from rexgraph.io.rex_state import state_digest, encode_tensors
+    from rexgraph.model_codec import model_payload
+    from rexgraph.state import state_digest, encode_tensors
     tensors = model_payload(value)
     codecs = encode_tensors(tensors)
     tensors["codec"] = np.frombuffer(json.dumps(codecs, sort_keys=True).encode(), dtype=np.uint8)
@@ -362,7 +362,7 @@ class ModelTimeline:
 
     def __post_init__(self):
         from rexgraph.graded_metric import _fraction
-        from rexgraph.io.temporal_state import TemporalState, verify_temporal_state
+        from rexgraph.temporal_state import TemporalState, verify_temporal_state
         if any(not isinstance(v, str) or not v for v in (self.time_axis, self.time_unit)):
             raise ValueError("model history requires a named time axis and unit")
         times = tuple(_fraction(v) for v in self.times)
@@ -402,7 +402,7 @@ class ModelTimeline:
         return index
 
     def temporal_state(self):
-        from rexgraph.io.temporal_state import TemporalState
+        from rexgraph.temporal_state import TemporalState
         self.check_state()
         # TemporalState uses JSON lists while immutable model declarations use tuples.
         def lists(v):

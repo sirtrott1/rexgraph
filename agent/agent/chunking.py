@@ -22,17 +22,10 @@ from agent.metrics import coherence_kappa
 
 
 def _chunk_vertices(rex, edge_indices, nV: int) -> list[int]:
-    """The vertices a chunk's relations touch, read off each relation's boundary
-    column so a k-ary relation contributes all k, not its first two.
+    """Return the vertices touched by a chunk's relations.
 
-    Read from the stored support directly. This previously called `rex.B1.tocsc()`, but
-    B1 is the DENSE oracle and carries no `tocsc`, so every call raised AttributeError
-    into the bare except below and returned an empty list. The k-ary reading this
-    docstring describes had therefore never run, and the empty result made every chunk's
-    coherence the mean of nothing, which is NaN.
-
-    boundary_ptr and boundary_idx ARE the column structure, so there is nothing to convert
-    and no arity assumption to make.
+    Read every participant from boundary_ptr and boundary_idx, including branching
+    relations. No dense boundary matrix is constructed.
     """
     ptr, idx = rex.boundary_ptr, rex.boundary_idx
     if ptr is None or idx is None:
@@ -159,7 +152,7 @@ def _gradient_energy_per_sentence(rex, edge_spans, n_sents):
 
     # Add diffusion dissipation as a second boundary signal. EIGEN FREE / GPU capable:
     # e^{-t·RL} flow via matrix free Chebyshev on the SPARSE relational Laplacian (no
-    # dense eigendecomposition of RL through spectral_bundle) - a per chunk hot loop.
+    # dense eigendecomposition of RL through spectral_bundle): a per chunk hot loop.
     try:
         from rexgraph import scale_propagator as _spg
         RL = rex.relational_laplacian_sparse

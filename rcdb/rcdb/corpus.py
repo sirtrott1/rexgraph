@@ -52,8 +52,9 @@ def capture(store, *, as_of=None, valid_at=None, signature_fields=None):
     """Select and copy one version per id while holding the store handle's lock.
 
     Bounded signature fields exclude metadata vertex labels. SQL and custom
-    backends capture anew; only handles with an owned local index reuse a cache.
-    This is not a transaction spanning independent handles or processes.
+    backends capture anew. Handles with an owned state index may reuse a cache
+    after their provider refresh invalidates it on an observed change. The
+    returned accession image remains fixed across subsequent publications.
     """
     from .core import ComplexRecord, PublicationUncertainError
     from rexgraph.io.manifest import manifest_digest

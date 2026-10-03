@@ -180,7 +180,7 @@ def test_the_boundary_column_is_zero_sum_at_every_arity():
 
 
 def test_beta0_is_the_rank_convention_not_the_component_count():
-    """Two disjoint 3 ary relations: two components, but beta_0 = n0 - rank = 4."""
+    """Two disjoint 3 ary relations: two components, but beta_0 = n0: rank = 4."""
     rex = _hyper([[0, 1, 2], [3, 4, 5]])
     rex._ensure_clean()
     B1 = np.asarray(rex.B1)
@@ -312,7 +312,7 @@ def _tetra(nfaces):
 
 
 def test_the_binary_reading_exists_above_grade_one():
-    """Corollary 21.2: the walk is grade 1 only, the READING is not."""
+    """The walk stays on grade 1 while the reading includes upper structure."""
     full = _leverage(np.asarray(_tetra(4).B2_hodge))
     assert np.allclose(full, 0.75)
     assert int((full > 1 - 1e-9).sum()) == 0            # every face corroborated

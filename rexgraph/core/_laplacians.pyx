@@ -33,7 +33,7 @@ from rexgraph.core._common cimport (
 )
 
 from rexgraph.core._linalg cimport (
-    lp_eigh,
+    lp_eigh, check_lapack_info,
     bl_gemm_nn, bl_gemm_nt, bl_gemm_tn,
     bl_dot, bl_nrm2,
     mat_trace, mat_diag,
@@ -70,7 +70,7 @@ cdef inline f64 _safe_fiedler(f64[::1] evals, int n) noexcept nogil:
     return 0.0
 
 
-# Laplacian construction - all via BLAS
+# Laplacian construction: all via BLAS
 
 def build_L0(B1_in):
     """L_0 = B_1 B_1^T (vertex Laplacian).
@@ -183,7 +183,7 @@ def build_L2(B2_in):
 
 # Sparse Laplacian builders (integer/exact tower -
 # Part II/X). L0 = B1 B1^T = D - A (nnz ~ 2*nE), L1_down = B1^T B1, L1_up = B2 B2^T,
-# L2 = B2^T B2 - assembled as SPARSE matmuls, never densifying B1/B2 (the nV x nE
+# L2 = B2^T B2: assembled as SPARSE matmuls, never densifying B1/B2 (the nV x nE
 # / nE x nE dense allocation was the crash). Return scipy CSR. The dense builders
 # above are the verified opt in fallback; on small graphs the sparse .toarray()
 # reproduces them exactly (they compute the same B B^T).
@@ -247,7 +247,7 @@ def eigen_symmetric(np.ndarray[f64, ndim=2] L_in):
     cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(L_in.copy())
     cdef np.ndarray[f64, ndim=1] evals = np.empty(n, dtype=np.float64)
 
-    lp_eigh(&A_F[0, 0], &evals[0], n)
+    check_lapack_info(lp_eigh(&A_F[0, 0], &evals[0], n))
 
     # Clean near zero eigenvalues
     cdef int i
@@ -305,7 +305,7 @@ def extract_diag_L1(B1_in, B2_in):
     (diag_down, diag_up) : tuple of ndarray
     """
     # diag(B1^T B1)[e] = column-e sum of squares of B1; diag(B2 B2^T)[e] = row-e sum of
-    # squares of B2 - both O(nnz) off the SPARSE operators, never densifying B1/B2.
+    # squares of B2: both O(nnz) off the SPARSE operators, never densifying B1/B2.
     import scipy.sparse as _sp
 
     def _tocsr(A):
@@ -726,7 +726,7 @@ def _sparse_betti(B1_in, B2_in, int nV, int nE, int nF):
         rank(B_1) = n_0 - c is a graph identity, and an arity-k relation touches k
         vertices while contributing rank one, so a lone arity-4 relation is one
         component with beta_0 = 3. Taking components there breaks Euler.
-    beta_g = n_g - rank(B_g) - rank(B_{g+1}), ranks via exact integer column reduction
+    beta_g = n_g - rank(B_g): rank(B_{g+1}), ranks via exact integer column reduction
         (:func:`_sparse_rank`): beta_1 = nE - rank(B1) - rank(B2); beta_2 = nF - rank(B2).
     No dense eigendecomposition, no Euler shortcut, no float threshold.
     """

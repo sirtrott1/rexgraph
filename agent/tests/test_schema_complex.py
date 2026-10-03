@@ -1,4 +1,4 @@
-"""Tests for agent.schema_complex - schemas/ontologies as relational
+"""Tests for agent.schema_complex: schemas/ontologies as relational
 complexes and their topological diagnosis."""
 
 import pytest
@@ -239,7 +239,7 @@ class TestCoparticipation:
         assert "enrollment" in r["associative_entities"]
 
     def test_bill_of_materials_bigon(self):
-        # self-M:N: 'assembly' binds component to itself via two FKs - a bigon
+        # self-M:N: 'assembly' binds component to itself via two FKs: a bigon
         # k-gon face (impossible with triangles) fills the false harmonic hole
         spec = {"tables": [
             {"name": "component", "primary_key": ["id"]},
@@ -299,7 +299,7 @@ class TestStrain:
 
     def test_lagrangian_curvature_closes_span_gap(self):
         # a heavy junction (span) has zero face curvature but high Lagrangian
-        # curvature - the towers are imbalanced (topology overwhelms geometry)
+        # curvature: the towers are imbalanced (topology overwhelms geometry)
         spec = {"tables": [{"name": "hub", "primary_key": ["id"]}] + [
             {"name": f"t{i}", "foreign_keys": [{"columns": ["h"], "references": "hub"}]}
             for i in range(4)]}

@@ -10,7 +10,7 @@ from rcql import BoundSource, Executor, SourcePolicy, parse, query, source, sour
 @pytest.fixture
 def store(tmp_path):
     import rcdb
-    value = rcdb.open_store(f"rex://{tmp_path / 'db'}")
+    value = rcdb.open_store(f"rex://{tmp_path / 'db'}", read_only=False)
     value.put("r", RexGraph.from_cells([3, [[0, 1], [1, 2], [0, 2]]]), valid_from=10, valid_to=20)
     value.put("r", RexGraph.from_cells([3, [[0, 1]]]), valid_from=20)
     yield value

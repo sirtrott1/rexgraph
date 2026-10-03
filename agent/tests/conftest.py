@@ -1,8 +1,8 @@
-"""Suite wide test isolation - never read or mutate real user state.
+"""Suite wide test isolation: never read or mutate real user state.
 
 ``agent.server.auth`` resolves ``REXGRAPH_CONFIG_DIR`` at IMPORT time (module level
 ``_CONFIG_DIR``), so a test that triggers a token/recovery/TLS write without first
-overriding it would land in the real ``~/.config/rexgraph/`` - leaking or clobbering
+overriding it would land in the real ``~/.config/rexgraph/``: leaking or clobbering
 a developer's actual tokens. This conftest runs before any test module imports the
 agent package, so pointing the config dir at a throwaway temp dir here guarantees
 the whole suite stays hermetic. Individual tests may still ``monkeypatch`` it to
@@ -50,6 +50,8 @@ def _ensure_sibling(name: str) -> None:
 
 
 _ensure_sibling("rcdb")
+_ensure_sibling("rcql")
+_ensure_sibling("system")
 
 # Source runs can resolve the sibling package. Installed runs must never fall
 # back to that source tree. Test fixtures use a separate namespace because a
@@ -70,11 +72,12 @@ if _fixtures.__path__[0] not in sys.path:
 # it; a correctly imported agent is left alone.
 _bound = sys.modules.get("agent")
 if _bound is not None and getattr(_bound, "__file__", None) is None:
-    for _name in [n for n in sys.modules if n == "agent" or n.startswith("agent.")]:
+    for _name in [n for n in sys.modules if (n == "agent" or n.startswith("agent."))
+                  and n != "agent.tests" and not n.startswith("agent.tests.")]:
         del sys.modules[_name]
 
 # Set at module import time (before agent.* is imported by any test module) so the
-# import time config dir binding picks up the temp location. Force it - the whole
+# import time config dir binding picks up the temp location. Force it: the whole
 # point is that a stray REXGRAPH_CONFIG_DIR pointing at real config can't leak in.
 _TEST_HOME = tempfile.mkdtemp(prefix="rexgraph_test_config_")
 os.environ["REXGRAPH_CONFIG_DIR"] = _TEST_HOME

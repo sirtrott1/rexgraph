@@ -59,7 +59,7 @@ def test_portable_roundtrip(tmp_path,kind,value):
 def test_program_as_stored_rcdb_record(tmp_path):
     from rcdb import open_store
     p=counter()
-    with closing(open_store('rex://'+str(tmp_path/'db'))) as db:
+    with closing(open_store('rex://'+str(tmp_path/'db'), read_only=False)) as db:
         db.commit_mutation('source',source(),expected_version=0,tx_time=1)
         db.commit_mutation('definition',p.to_record(),expected_version=0,tx_time=2)
         definition=db.read_record('definition').value
@@ -69,7 +69,7 @@ def test_program_as_stored_rcdb_record(tmp_path):
         assert out.values[0]==6
         db.commit_mutation('answer',out.values[1],expected_version=0,tx_time=3)
         assert db.verify_commits('answer')
-    with closing(open_store('rex://'+str(tmp_path/'db'))) as db:
+    with closing(open_store('rex://'+str(tmp_path/'db'), read_only=False)) as db:
         record=db.read_record('answer').value
         got=Executor(sources={'db':db},params={'record':record}).execute(parse('FROM RCDB_VERSION($db,"source",1) RETURN RECURSIVE_VALUE(RECURSIVE_RESULT_READ($record))'))
         assert got.values==(6,)
@@ -79,7 +79,7 @@ def test_cached_completed_recursion(tmp_path):
     from rcdb import open_store
     r=source();p=counter();e=Executor(sources={'r':r},params={'p':p})
     q=parse('FROM $r RETURN RECURSIVE_RUN($p,"count",[5])')
-    with closing(open_store('rex://'+str(tmp_path/'cache'))) as store:
+    with closing(open_store('rex://'+str(tmp_path/'cache'), read_only=False)) as store:
         cache=QueryCache(store)
         first=e.execute_cached(q,cache);second=e.execute_cached(q,cache)
         assert first.values[0].value==second.values[0].value==5
@@ -91,7 +91,7 @@ def test_incomplete_recursion_not_published(tmp_path):
     from rcdb import open_store
     from rcql import RecursionLimitError
     r=source();e=Executor(sources={'r':r},params={'p':counter(),'limits':{'calls':2}})
-    with closing(open_store('rex://'+str(tmp_path/'cache'))) as store:
+    with closing(open_store('rex://'+str(tmp_path/'cache'), read_only=False)) as store:
         cache=QueryCache(store)
         with pytest.raises(RecursionLimitError):e.execute_cached(parse('FROM $r RETURN RECURSIVE_RUN($p,"count",[5],$limits)'),cache)
         assert not store.list()

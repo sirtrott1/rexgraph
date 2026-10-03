@@ -138,6 +138,22 @@ register_type(SimpleResult)
 
 class TestNamedTupleRoundtrip:
 
+    def test_custom_registration_does_not_hide_builtin_result_types(self, tmp_path, monkeypatch):
+        from rexgraph.io import _serialization as codec
+        from rexgraph.registry import Registry
+        from rexgraph.rextypes import PersistenceDiagram
+        monkeypatch.setattr(codec, "_TYPE_REGISTRY", Registry("result type"))
+        monkeypatch.setattr(codec, "_BUILTIN_TYPES_LOADED", False)
+        codec.register_type(SimpleResult)
+        adapter = NpyAdapter(str(tmp_path))
+        diagram = PersistenceDiagram(np.empty((0, 5)), np.empty((0, 3)),
+                                     (1, 0, 0), np.arange(2, dtype=np.int64))
+        codec.write_namedtuple(adapter, "diagram", diagram)
+        restored = codec.read_namedtuple(adapter, "diagram")
+        assert isinstance(restored, PersistenceDiagram)
+        assert codec._resolve_type("SimpleResult") is SimpleResult
+        np.testing.assert_array_equal(restored.order, diagram.order)
+
     def test_simple_roundtrip(self):
         with tempfile.TemporaryDirectory() as d:
             adapter = NpyAdapter(d)

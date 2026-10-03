@@ -90,17 +90,17 @@ def build_field_operator(object RL1,
 
     Parameters
 
-    RL1 : (nE, nE) - Relational Laplacian on edges
-    L2 : (nF, nF) - face Laplacian
-    B2 : (nE, nF) - edge face boundary operator
-    g : float - coupling strength. If negative, auto computed as
+    RL1 : (nE, nE): Relational Laplacian on edges
+    L2 : (nF, nF): face Laplacian
+    B2 : (nE, nF): edge face boundary operator
+    g : float: coupling strength. If negative, auto computed as
         1 / max(||B_2||_F, 1), without a PSD guarantee.
 
     Returns
 
-    M : f64[nE+nF, nE+nF] - field operator (dense)
-    g_used : float - coupling strength actually used
-    is_psd : bool - True if minimum eigenvalue >= -epsilon
+    M : f64[nE+nF, nE+nF]: field operator (dense)
+    g_used : float: coupling strength actually used
+    is_psd : bool: True if minimum eigenvalue >= -epsilon
     """
     cdef Py_ssize_t nE, nF, n, i, j
 
@@ -155,9 +155,8 @@ def build_field_operator(object RL1,
     elif spd_solve(np.asarray(M, dtype=np.float64), np.zeros(n, dtype=np.float64)) is not None:
         is_psd = True
     else:
-        from rexgraph.core._linalg import eigh as _lp_eigh
-        evals_check = _lp_eigh(np.asarray(M, dtype=np.float64),
-                               clip_negative_roundoff=False)[0]
+        from rexgraph.core._linalg import eigvalsh as _lp_eigvalsh
+        evals_check = _lp_eigvalsh(M)
         is_psd = evals_check[0] >= -get_EPSILON_NORM()
 
     return M, g_used, is_psd
@@ -177,7 +176,7 @@ def field_operator_matvec(np.ndarray[f64, ndim=1] F,
 
     Parameters
 
-    F : f64[nE + nF] - field state vector
+    F : f64[nE + nF]: field state vector
     RL1, L2, B2 : operators (dense or sparse)
     g : coupling strength
     nE, nF : dimensions
@@ -189,7 +188,7 @@ def field_operator_matvec(np.ndarray[f64, ndim=1] F,
     cdef np.ndarray[f64, ndim=1] f_E = F[:nE]
     cdef np.ndarray[f64, ndim=1] f_F = F[nE:]
 
-    # Edge block: RL_1 f_E - g B_2 f_F
+    # Edge block: ``RL_1 f_E - g B_2 f_F``
     cdef np.ndarray[f64, ndim=1] MF_E = _safe_dot(RL1, f_E)
     if nF > 0:
         MF_E = MF_E - g * _safe_dot(B2, f_F)
@@ -213,12 +212,12 @@ def field_eigendecomposition(np.ndarray[f64, ndim=2] M):
 
     Parameters
 
-    M : f64[n, n] - field operator (symmetric, possibly indefinite)
+    M : f64[n, n]: field operator (symmetric, possibly indefinite)
 
     Returns
 
-    evals : f64[n] - eigenvalues (sorted ascending)
-    evecs : f64[n, n] - eigenvectors as columns
+    evals : f64[n]: eigenvalues (sorted ascending)
+    evecs : f64[n, n]: eigenvectors as columns
     freqs : f64[n] - positive branch frequencies sqrt(max(lambda_k, 0));
         retained for compatibility, not a classification of negative modes.
         Wave evolution reads signed evals directly; negative rates are sqrt(-evals).
@@ -250,8 +249,8 @@ def field_spectral_coefficients(np.ndarray[f64, ndim=1] F,
 
     Parameters
 
-    F : f64[n] - field state
-    evecs : f64[n, n] - eigenvectors as columns
+    F : f64[n]: field state
+    evecs : f64[n, n]: eigenvectors as columns
 
     Returns
 
@@ -291,16 +290,16 @@ def wave_evolve(np.ndarray[f64, ndim=1] F0,
 
     Parameters
 
-    F0 : f64[n] - initial field state (E+F packed)
-    evals : f64[n] - eigenvalues of M
-    evecs : f64[n, n] - eigenvectors
-    freqs : f64[n] - legacy positive branch frequency descriptor; evolution uses evals
-    t : float - time
+    F0 : f64[n]: initial field state (E+F packed)
+    evals : f64[n]: eigenvalues of M
+    evecs : f64[n, n]: eigenvectors
+    freqs : f64[n]: legacy positive branch frequency descriptor; evolution uses evals
+    t : float: time
 
     Returns
 
-    Ft : f64[n] - field state at time t
-    dFdt : f64[n] - field velocity at time t
+    Ft : f64[n]: field state at time t
+    dFdt : f64[n]: field velocity at time t
     """
     cdef Py_ssize_t n = F0.shape[0], k, j
     if evals.shape[0] != n or evecs.shape[0] != n or evecs.shape[1] != n or freqs.shape[0] != n:
@@ -363,8 +362,8 @@ def wave_evolve_trajectory(np.ndarray[f64, ndim=1] F0,
 
     Returns
 
-    traj : f64[T, n] - field state trajectory
-    vel : f64[T, n] - velocity trajectory
+    traj : f64[T, n]: field state trajectory
+    vel : f64[T, n]: velocity trajectory
     """
     cdef Py_ssize_t n = F0.shape[0], T = times.shape[0]
     if evals.shape[0] != n or evecs.shape[0] != n or evecs.shape[1] != n or freqs.shape[0] != n:
@@ -432,9 +431,9 @@ def wave_energy(np.ndarray[f64, ndim=1] F,
 
     Parameters
 
-    F : f64[n] - field state (E+F packed)
-    dFdt : f64[n] - field velocity
-    M : f64[n, n] - field operator
+    F : f64[n]: field state (E+F packed)
+    dFdt : f64[n]: field velocity
+    M : f64[n, n]: field operator
     W : optional positive diagonal vector or SPD form, already validated by caller
 
     Returns
@@ -489,16 +488,16 @@ def field_energy_kin_pot(np.ndarray[f64, ndim=1] F,
 
     Parameters
 
-    F : f64[nE + nF] - packed field state
-    L1 : (nE, nE) - Hodge Laplacian on edges
-    LO : (nE, nE) - overlap Laplacian on edges
-    nE : int - number of edges (to slice F)
+    F : f64[nE + nF]: packed field state
+    L1 : (nE, nE): Hodge Laplacian on edges
+    LO : (nE, nE): overlap Laplacian on edges
+    nE : int: number of edges (to slice F)
 
     Returns
 
-    E_kin : float - <f_E | L_1 | f_E>
-    E_pot : float - <f_E | L_O | f_E>
-    ratio : float - E_kin / E_pot (inf if E_pot ~ 0)
+    E_kin : float: <f_E | L_1 | f_E>
+    E_pot : float: <f_E | L_O | f_E>
+    ratio : float: E_kin / E_pot (inf if E_pot ~ 0)
     """
     cdef np.ndarray[f64, ndim=1] f_E = F[:nE].copy()
     cdef np.ndarray[f64, ndim=1] L1f = _safe_dot(L1, f_E)
@@ -536,8 +535,8 @@ def wave_dimensional_energy(np.ndarray[f64, ndim=1] F,
 
     Parameters
 
-    F : f64[nE + nF] - field state
-    dFdt : f64[nE + nF] - velocity
+    F : f64[nE + nF]: field state
+    dFdt : f64[nE + nF]: velocity
     nE, nF : dimensions
 
     Returns
@@ -595,8 +594,8 @@ def classify_modes(np.ndarray[f64, ndim=1] evals,
     Returns
 
     labels : i32[n] - 0=edge, 1=face, 2=EF resonant
-    weights_E : f64[n] - edge weight fraction per mode
-    weights_F : f64[n] - face weight fraction per mode
+    weights_E : f64[n]: edge weight fraction per mode
+    weights_F : f64[n]: face weight fraction per mode
     n_resonant : int
     """
     cdef Py_ssize_t n = evals.shape[0], k, j
@@ -690,14 +689,14 @@ def field_diffusion_spectral(np.ndarray[f64, ndim=1] F0,
 
     Parameters
 
-    F0 : f64[n] - initial field state
-    evals : f64[n] - eigenvalues of M
-    evecs : f64[n, n] - eigenvectors
+    F0 : f64[n]: initial field state
+    evals : f64[n]: eigenvalues of M
+    evecs : f64[n, n]: eigenvectors
     t : float
 
     Returns
 
-    Ft : f64[n] - diffused field state
+    Ft : f64[n]: diffused field state
     """
     cdef Py_ssize_t n = F0.shape[0], k, j
     if evals.shape[0] != n or evecs.shape[0] != n or evecs.shape[1] != n:
@@ -748,7 +747,7 @@ def field_diffusion_trajectory(np.ndarray[f64, ndim=1] F0,
 
     Returns
 
-    traj : f64[T, n] - diffused field trajectory
+    traj : f64[T, n]: diffused field trajectory
     """
     cdef Py_ssize_t n = F0.shape[0], T = times.shape[0]
     if evals.shape[0] != n or evecs.shape[0] != n or evecs.shape[1] != n:
@@ -805,8 +804,8 @@ def derive_vertex_trajectory(np.ndarray[f64, ndim=2] traj_EF,
 
     Parameters
 
-    traj_EF : f64[T, nE+nF] - field trajectory
-    B1 : (nV, nE) - boundary operator
+    traj_EF : f64[T, nE+nF]: field trajectory
+    B1 : (nV, nE): boundary operator
     nE : int
 
     Returns

@@ -293,3 +293,82 @@ class TestTemporalRexIntegration:
         result = trex.bioes_energy(E_kin, E_pot)
         tags = result[0]
         assert tags.shape == (3,)
+
+
+def _identity_snapshots(steps, nV=4):
+    """A TemporalRex of branching snapshots, each relation carrying a stable id."""
+    from fractions import Fraction
+    store = TemporalRex([])
+    for present in steps:
+        arity, index, ids = [], [], []
+        for identity, support in present:
+            arity.append(len(support))
+            index.extend(support)
+            ids.append(identity)
+        pointer = np.zeros(len(arity) + 1, dtype=np.int64)
+        np.cumsum(np.asarray(arity, dtype=np.int64), out=pointer[1:])
+        rex = RexGraph.from_hypergraph(
+            pointer, np.asarray(index, dtype=np.int32),
+            w_E=np.asarray([Fraction(1)] * len(arity), dtype=object),
+            relation_ids=np.asarray(ids, dtype=np.int64))
+        rex._nV = nV
+        store.append_snapshot(rex)
+    return store
+
+
+def test_relation_bioes_separates_a_gap_from_a_lifespan_at_any_arity():
+    """A relation that ceases and is asserted again is two spans, not one lifespan.
+
+    `edge_lifecycle` carries one birth and one death, so it reads the gap as filled.
+    The pairwise kernel cannot answer instead, because a relation of arity other than
+    two has no (src, tgt) to key on and would read as absent at every step.
+    """
+    branching = (0, [0, 1, 2])            # arity 3, no pairwise key exists
+    witness = (1, [3])                    # arity 1 witness
+    store = _identity_snapshots([
+        [branching, witness],
+        [branching],                      # the witness ceases
+        [branching, witness],             # and is asserted again
+        [branching],
+    ])
+    ids, tags, n_spans = store.relation_bioes()
+    row = {int(identity): j for j, identity in enumerate(ids)}
+    labels = "".join("BIOES"[t] for t in tags[row[1]])
+    assert labels == "SOSO", f"the witness reads {labels}, so its gap was filled"
+    assert int(n_spans[row[1]]) == 2
+    assert "".join("BIOES"[t] for t in tags[row[0]]) == "BIIE"
+    assert int(n_spans[row[0]]) == 1
+
+    # the contiguous reading is exactly what this exists to correct
+    _identities, birth, death = store.edge_lifecycle
+    assert int(birth[row[1]]) == 0 and int(death[row[1]]) == 3, (
+        "edge_lifecycle should still report the outer span; relation_bioes is the "
+        "reading that keeps the gap")
+
+
+def test_relation_bioes_and_its_pure_python_twin_agree():
+    """The compiled kernel and the fallback are one definition, not two."""
+    from rexgraph.core import _temporal_entity
+    from rexgraph.reference import temporal_entity as _temporal_entity_py
+    steps = [np.asarray(step, dtype=np.int64) for step in ([7, 9], [9], [7, 9], [9])]
+    ids = np.asarray([7, 9], dtype=np.int64)
+    compiled = _temporal_entity.entity_bioes_gapped(steps, ids, general=True)
+    fallback = _temporal_entity_py.entity_bioes_gapped(steps, ids, general=True)
+    assert np.array_equal(compiled[0], fallback[0])
+    assert np.array_equal(compiled[1], fallback[1])
+
+    pairs = [(np.asarray([0], dtype=np.int32), np.asarray([1], dtype=np.int32))] * 3
+    key = np.asarray([1], dtype=np.int64)
+    assert np.array_equal(_temporal_entity.entity_bioes_gapped(pairs, key)[0],
+                          _temporal_entity_py.entity_bioes_gapped(pairs, key)[0])
+
+
+def test_relation_bioes_refuses_anonymous_snapshots():
+    """Without identities there is nothing to track, and it says so."""
+    import pytest
+    store = TemporalRex([])
+    for _ in range(2):
+        store.append_snapshot(RexGraph(sources=np.asarray([0], dtype=np.int32),
+                                       targets=np.asarray([1], dtype=np.int32)))
+    with pytest.raises(ValueError, match="relation identities"):
+        store.relation_bioes()

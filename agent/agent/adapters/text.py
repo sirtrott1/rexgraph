@@ -138,30 +138,10 @@ def _build_cooccurrence(
 class TextAdapter(DomainAdapter):
     """Convert raw text to a typed relational complex.
 
-    Two constructions, and they are different objects rather than two settings of one:
-
-        relation_mode="pairwise"    windowed co-occurrence. Every sentence becomes
-                                    C(k,2) or windowed word PAIRS, which is what
-                                    `sources`/`targets` can hold. This is what the
-                                    adapter has always produced and it stays the
-                                    default, because `exchange`, `training` and the
-                                    corpus builder read those arrays directly.
-        relation_mode="branching"   a sentence is ONE k-ary relation over its words,
-                                    carried in `branching` and built as a single
-                                    boundary column. No pairs are enumerated, because
-                                    they are not in the text: measured on one book,
-                                    1,469 sentences give 1,469 relations against 12,890
-                                    under spanning pairs, and the extra 11,421 columns
-                                    manufacture 1,129 dimensions of rank and 10,292 of
-                                    the 10,324 cycles.
-
-    "branching" is what `rexgraph.document.build_document` produces, so it is the mode a
-    QUERY must use: `interfacing_score` compares a query complex against a document one,
-    and scoring a pairwise object against a branching object compares two different
-    things however good the score function is.
-
-    Both modes share one tokenizer (`rexgraph.construct.from_text`) so the vocabulary
-    a query and a document align on is produced by the same code.
+    relation_mode="pairwise" is the default windowed co occurrence construction,
+    returned through sources and targets. relation_mode="branching" emits one
+    k-ary relation per sentence through branching and its complete boundary.
+    The caller chooses the construction used by its downstream reader.
     """
 
     name = "text"

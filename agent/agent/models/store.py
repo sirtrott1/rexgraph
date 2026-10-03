@@ -1,18 +1,9 @@
-"""
-store: bridge the model framework to the rexgraph IO layer.
+"""Bridge Agent models to rexgraph.io and RCDB.
 
-All flows go through `rexgraph.io` (plus RCDB where a complex is involved):
-
-  load_bundle(src)    reads parquet / vector corpus(safetensors) / .rcbd / SQL / csv/jsonl/npz/txt
-                      into a DataBundle.
-  save_checkpoint()   writes weights to safetensors, config+meta to json, and the training
-                      trajectory through save_vectors (the labeled-vector format used for embeddings
-                      and hodge trajectories, so it lands in the RCDB vector store).
-  save_complex_rex()  writes a hypergraph's relational complex as a .rcbd bundle.
-  to_rcdb()           catalogues that complex in the RCDB (queryable by Betti/coherence).
-
-A saved model is safetensors weights, a rexgraph.io vector trajectory, and (for hgnn) a .rcbd/RCDB
-complex, all on one IO stack. Changing the URI moves it from a laptop file store to Postgres.
+load_bundle reads supported tables, vector corpora, RCBD graphs and text into a
+DataBundle. save_checkpoint writes weights.safetensors, config.json and a vector
+trajectory to a local directory. save_complex_rex writes the bundle's graph to
+RCBD. to_rcdb publishes that graph through the selected RCDB backend.
 """
 from __future__ import annotations
 
@@ -30,7 +21,8 @@ from . import data as D
 
 # load: any rexgraph.io source -> a DataBundle
 
-def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None) -> D.DataBundle:
+def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None,
+                task="classification") -> D.DataBundle:
     """Load training data from any rexgraph.io-supported source into a DataBundle.
       .parquet          -> vector bundle (feature columns + `y_col`)
       .safetensors      -> vector corpus written by save_vectors, or an embedding corpus
@@ -41,15 +33,13 @@ def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None) -
     s = str(source)
     if s.endswith(".parquet"):
         cols = rio.read_parquet(s, columns=(list(x_cols) + [y_col]) if x_cols else None)
-        y = cols.pop(y_col).astype("int64")
+        y = cols.pop(y_col)
         keys = x_cols or list(cols)
         X = np.stack([np.asarray(cols[k], "float32") for k in keys], axis=1)
-        return D._vector_bundle(X, y)
+        return D._vector_bundle(X, y, task=task)
     if s.endswith(".safetensors"):
         X, labels, feat_names, meta = rio.load_vectors(s)
-        y = (labels.astype("int64") if labels is not None
-             else np.zeros(len(X), "int64"))
-        return D._vector_bundle(np.asarray(X, "float32"), y)
+        return D._vector_bundle(np.asarray(X, "float32"), labels, task=task)
     if s.endswith(BUNDLE_SUFFIXES):
         return _bundle_from_rex(rio.load_rcbd(s))
     if table is not None:                                   # a database URI + table
@@ -57,33 +47,30 @@ def load_bundle(source, *, y_col="label", x_cols=None, table=None, limit=None) -
         # The ENGINE is cached for the life of the process, which is what makes asking
         # for one per load correct. A checked out CONNECTION is not: it has to go back
         # to the pool when this read is done, or every load holds one open.
+        def read(conn):
+            batches = list(rio.read_sql_batches(conn, table))
+            if not batches:
+                raise ValueError("model training table is empty")
+            return {key: np.concatenate([batch[key] for batch in batches]) for key in batches[0]}
         if hasattr(eng, "connect"):
             with eng.connect() as conn:
-                rows = next(rio.read_sql_batches(conn, table))
+                rows = read(conn)
         else:
-            rows = next(rio.read_sql_batches(eng, table))
-        y = np.asarray(rows.pop(y_col), "int64")
+            rows = read(eng)
+        y = rows.pop(y_col)
         keys = x_cols or list(rows)
         X = np.stack([np.asarray(rows[k], "float32") for k in keys], axis=1)
-        return D._vector_bundle(X, y)
+        return D._vector_bundle(X, y, task=task)
     if s.endswith(".txt"):
         return D.load_text(s, limit=limit)
-    return D.load_table(s, x_cols=x_cols, y_col=y_col, limit=limit)
+    return D.load_table(s, x_cols=x_cols, y_col=y_col, limit=limit, task=task)
 
 
 def _bundle_from_rex(rex):
-    """Convert a loaded rex complex into a hypergraph DataBundle using its stored support.
+    """Convert a RexGraph to a hypergraph DataBundle.
 
-    The complex already holds the CSR this needs, in ``boundary_ptr`` and
-    ``boundary_idx``, and that is the only place the relation's participant order lives.
-
-    This previously densified B1 and rebuilt the CSR with ``np.nonzero`` per column, which
-    is wrong twice. It costs nV*nE to recover what is already stored in nnz, and
-    ``np.nonzero`` returns rows in ascending order, so a relation declared ``[3, 0]`` came
-    back as ``[0, 3]``. The head is the participant carrying the -1 coefficient, and the
-    composite binary puts it first in the stored support; sort order is not where the head
-    lives. Rebuilding that way reduces a signed relation to unsigned membership and then
-    invents an orientation from the vertex numbering.
+    Read boundary_ptr and boundary_idx directly to preserve participant order and
+    declared vertex count, including isolated vertices.
     """
     ptr = np.asarray(rex.boundary_ptr, dtype=np.int64)
     idx = np.asarray(rex.boundary_idx, dtype=np.int64)
@@ -149,11 +136,26 @@ def load_checkpoint(path, *, device=None):
 
 # complex: a hypergraph's relational complex -> .rcbd / RCDB
 
+def _bundle_node_count(bundle):
+    n_nodes = bundle.meta.get("n_nodes")
+    if bundle.X is not None and n_nodes is None:
+        n_nodes = int(bundle.X.shape[0])
+    if (n_nodes is not None and type(n_nodes) is not int
+            or bundle.X is not None and n_nodes != bundle.X.shape[0]):
+        raise ValueError("HGNN declared node count must match its feature rows")
+    return n_nodes
+
+
+def _complex_from_bundle(bundle):
+    from rexgraph.graph import RexGraph
+    from rexgraph.relations import Relations
+    return RexGraph.from_relations(Relations.from_arrays(
+        bundle.extra["he_ptr"], bundle.extra["he_idx"], n_vertices=_bundle_node_count(bundle)))
+
+
 def save_complex_rex(bundle, path) -> str:
     """Serialize a hypergraph bundle's relational complex as a .rcbd bundle (rexgraph.io)."""
-    from rexgraph.graph import RexGraph
-    g = RexGraph.from_hypergraph(np.asarray(bundle.extra["he_ptr"], "int32"),
-                                 np.asarray(bundle.extra["he_idx"], "int32"))
+    g = _complex_from_bundle(bundle)
     rio.save_rcbd(str(os.path.expanduser(path)), g)
     return str(path)
 
@@ -163,9 +165,7 @@ def to_rcdb(bundle, uri="memory://", *, name="hypergraph", tags=None):
     signature (Betti/coherence) with the blob via rexgraph.io. Requires the agent installed.
     Returns the id."""
     from agent.rcdb import open_store
-    from rexgraph.graph import RexGraph
-    g = RexGraph.from_hypergraph(np.asarray(bundle.extra["he_ptr"], "int32"),
-                                 np.asarray(bundle.extra["he_idx"], "int32"))
+    g = _complex_from_bundle(bundle)
     store = open_store(uri)
     store.put(name, g, meta={"source": "model-complex"}, tags=tags or ["model-complex"])
     return name

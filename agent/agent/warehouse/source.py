@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from numbers import Real
 
 import numpy as np
 
@@ -97,7 +98,14 @@ def edge_data_from_knowledge(knowledge, *, weight_by: str = "uniform") -> EdgeDa
 def edge_complex(ed: EdgeData):
     """The PRIMARY source destination complex: one edge per record (source node -> destination node)."""
     from rexgraph.graph import RexGraph
-    return RexGraph(sources=ed.src_idx.astype(np.int32), targets=ed.dst_idx.astype(np.int32))
+    from rexgraph.relations import Relations
+    if (type(ed.n_src) is not int or type(ed.n_dst) is not int or ed.n_src < 0 or ed.n_dst < 0
+            or np.asarray(ed.src_idx).ndim != 1 or np.asarray(ed.dst_idx).shape != np.asarray(ed.src_idx).shape):
+        raise ValueError("warehouse edge data requires aligned indices and declared vertex counts")
+    support = np.column_stack((ed.src_idx, ed.dst_idx)).reshape(-1)
+    relations = Relations.from_arrays(np.arange(0, len(support)+1, 2, dtype=np.int64), support,
+                                     n_vertices=ed.n_src+ed.n_dst, weights=ed.weight)
+    return RexGraph.from_relations(relations)
 
 
 def tier_split(ed: EdgeData, n_tiers: int = 3):
@@ -115,49 +123,92 @@ def tier_split(ed: EdgeData, n_tiers: int = 3):
 
 
 def labels(ed: EdgeData, mask: np.ndarray) -> np.ndarray:
-    pk = ed.weight[mask]
+    mask = _tier_indices(mask, len(ed.src_idx))
+    pk = _numeric_signal(ed.weight, len(ed.src_idx))[mask]
+    if not len(pk):
+        return np.empty(0, dtype=np.int64)
     return (pk >= np.median(pk)).astype(np.int64)
 
 
-def _hodge_energies(rex, flow):
-    """Per edge gradient / curl / harmonic ENERGY (abs value) of an edge flow via rex.hodge."""
-    grad, curl, harm = None, None, None
+def _numeric_signal(flow, n_edges):
+    """Approximate ML signal; this never replaces the exact primary relation state."""
+    if np.ma.isMaskedArray(flow) and np.any(np.ma.getmaskarray(flow)):
+        raise ValueError("warehouse signal cannot contain masked values")
+    raw = np.asarray(flow)
+    if raw.shape != (n_edges,) or raw.dtype.kind not in "iufO":
+        raise ValueError("warehouse signal requires one real numeric value per edge")
+    if raw.dtype.kind == "O" and any(isinstance(v, (bool, np.bool_)) or not isinstance(v, Real) for v in raw):
+        raise ValueError("warehouse signal requires explicit real numeric values without absence")
     try:
-        parts = rex.hodge(np.asarray(flow, dtype=np.float64))
-        arrs = [np.asarray(p, dtype=np.float64) for p in parts]
-        edge_parts = [a for a in arrs if a.shape[0] == rex.nE]
-        # rex.hodge returns (gradient, curl, harmonic) each length nE
-        while len(edge_parts) < 3:
-            edge_parts.append(np.zeros(rex.nE))
-        grad, curl, harm = edge_parts[0], edge_parts[1], edge_parts[2]
-    except Exception:
-        z = np.zeros(rex.nE)
-        grad, curl, harm = z, z, z
-    return np.abs(grad), np.abs(curl), np.abs(harm)
+        values = np.asarray(raw, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("warehouse signal requires finite binary64 values") from exc
+    if not np.all(np.isfinite(values)):
+        raise ValueError("warehouse signal requires finite binary64 values")
+    return values
+
+
+def _tier_indices(mask, n_edges):
+    if np.ma.isMaskedArray(mask) and np.any(np.ma.getmaskarray(mask)):
+        raise ValueError("warehouse tier indices cannot contain masked addresses")
+    indices = np.asarray(mask)
+    if (indices.ndim != 1 or indices.dtype.kind not in "iu"
+            or indices.size and (int(indices[0]) < 0 or int(indices[-1]) >= n_edges
+                                 or np.any(indices[1:] <= indices[:-1]))):
+        raise ValueError("warehouse tier indices must be unique, ascending and within the source")
+    return indices.astype(np.intp, copy=False)
+
+
+def _hodge_amplitudes(rex, flow):
+    """Absolute gradient/curl/harmonic amplitudes, using Core's declared Hodge split."""
+    signal = _numeric_signal(flow, rex.nE)
+    parts = tuple(rex.hodge(signal))
+    if len(parts) != 3:
+        raise ValueError("warehouse Hodge split requires exactly three edge signals")
+    return tuple(np.abs(_numeric_signal(part, rex.nE)) for part in parts)
 
 
 def _diffused(rex, flow, t_scales):
-    """Signal diffusion in the tensor field: heat_apply on L1 at each t, plus the graded Dirac heat
-    (cross grade). Returns a (nE, len(t_scales)+1) array of per edge diffused values, plus names."""
-    from rexgraph.core._sparse import to_scipy_csr
+    """Down sector heat at each scale, plus full in grade Dirac squared heat.
 
+    Heat does not cross grades. The Dirac seed covers every declared grade;
+    an edge seed's returned feature is its grade one slice.
+    """
+    from rexgraph.native_sparse import as_native
     import rexgraph.scale_propagator as spg
-    B1 = to_scipy_csr(rex.B1_sparse).astype(np.float64)
-    L1 = (B1.T @ B1).tocsr()
-    f = np.asarray(flow, dtype=np.float64).reshape(-1, 1)
-    cols, names = [], []
-    for t in t_scales:
-        hv = np.asarray(spg.heat_apply(L1, f, float(t))).reshape(-1)
-        cols.append(hv); names.append(f"heat_diffus_t{t}")
-    # graded Dirac cross grade heat on a graded state seeded on the edge grade
+    signal = _numeric_signal(flow, rex.nE)
     try:
-        psi0 = np.zeros(rex.nV + rex.nE + rex.nF, dtype=np.float64)
-        psi0[rex.nV:rex.nV + rex.nE] = np.asarray(flow, dtype=np.float64)
-        dh = np.asarray(rex.dirac_heat(float(max(t_scales)), psi0))
-        cols.append(dh[rex.nV:rex.nV + rex.nE]); names.append("dirac_diffus")
-    except Exception:
-        cols.append(np.zeros(rex.nE)); names.append("dirac_diffus")
-    return np.stack(cols, axis=1), names
+        scales = tuple(t_scales)
+    except TypeError as exc:
+        raise ValueError("warehouse heat scales require a nonempty sequence") from exc
+    if (not scales or any(isinstance(t, (bool, np.bool_)) or not isinstance(t, Real) for t in scales)):
+        raise ValueError("warehouse heat scales require a nonempty real numeric sequence")
+    try:
+        times = np.asarray(scales, dtype=np.float64)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("warehouse heat scales must be finite and nonnegative") from exc
+    if not np.all(np.isfinite(times)) or np.any(times < 0):
+        raise ValueError("warehouse heat scales must be finite and nonnegative")
+    B1 = as_native(rex.B1_sparse)
+    L1_down = B1.T.product(B1)
+    # Core shares the Chebyshev vectors across all scales rather than repeating
+    # the sparse polynomial walk independently for every feature column.
+    # The current Core heat API accepts SciPy carriers. Use its explicit sparse
+    # bridge after native product construction; no dense array or local solver.
+    down = np.asarray(spg.heat_trajectory(L1_down.as_scipy(), signal, times), dtype=np.float64)
+    if down.shape != (len(times), rex.nE) or not np.all(np.isfinite(down)):
+        raise ValueError("warehouse down-sector heat returned an invalid signal")
+    propagator = rex.sparse_dirac()
+    if propagator.sizes[1] != rex.nE:
+        raise ValueError("warehouse Dirac grade-one basis differs from the primary edges")
+    edge_slice = propagator.grade_slice(1)
+    psi0 = np.zeros(propagator.N, dtype=np.float64)
+    psi0[edge_slice] = signal
+    heat = np.asarray(propagator.heat_squared(psi0, float(times.max())), dtype=np.float64)
+    if heat.shape != (propagator.N,) or not np.all(np.isfinite(heat)):
+        raise ValueError("warehouse Dirac heat returned an invalid graded signal")
+    names = [f"heat_diffus_t{t}" for t in times] + ["dirac_diffus"]
+    return np.column_stack((down.T, heat[edge_slice])), names
 
 
 #: the relational Laplacian's channels, in their canonical order
@@ -185,7 +236,7 @@ def _chi_canonical(rex):
 
 def edge_features(rex, ed, mask: np.ndarray, t_scales=(0.5, 2.0)):
     """Per edge tensor field feature matrix for the edges in `mask`, with channel names. The
-    complex is PRIMARY; each edge reads its slice of the tensor fields, Hodge energies, and the
+    complex is PRIMARY; each edge reads its slice of the tensor fields, absolute Hodge amplitudes, and the
     diffused edge weight signal.
 
     `ed` is an `EdgeData` or the edge signal itself. Any complex has a signal on its
@@ -193,29 +244,59 @@ def edge_features(rex, ed, mask: np.ndarray, t_scales=(0.5, 2.0)):
     EdgeData (an ontology, a joined knowledge complex) reads the same features rather
     than a second implementation of them.
     """
+    mask = _tier_indices(mask, rex.nE)
+    flow = _numeric_signal(getattr(ed, "weight", ed), rex.nE)
     chi = _chi_canonical(rex)                                          # (nE, 4), fixed slots
     curv = np.asarray(rex.rcfe_curvature, dtype=np.float64).reshape(-1, 1)   # (nE, 1)
-    flow = getattr(ed, "weight", ed)                     # EdgeData, or the signal itself
-    g, c, h = _hodge_energies(rex, flow)
+    g, c, h = _hodge_amplitudes(rex, flow)
     hodge = np.stack([g, c, h], axis=1)                                 # (nE, 3)
     diff, dnames = _diffused(rex, flow, t_scales)                       # (nE, k)
     feats = np.concatenate([chi, curv, hodge, diff], axis=1)           # (nE, F)
     char_names = [f"char_{n}" for n in CHANNELS]
-    names = (char_names + ["rcfe_curv", "hodge_grad_E", "hodge_curl_E", "hodge_harm_E"] + dnames)
-    X = feats[mask].astype(np.float32)
+    names = (char_names + ["rcfe_curv", "hodge_grad_abs", "hodge_curl_abs", "hodge_harm_abs"] + dnames)
+    if not np.all(np.isfinite(feats)):
+        raise ValueError("warehouse features contain nonfinite values")
+    try:
+        with np.errstate(over="raise", invalid="raise"):
+            X = feats[mask].astype(np.float32)
+    except FloatingPointError as exc:
+        raise ValueError("warehouse features exceed finite float32 training values") from exc
     return X, names
 
 
-def hypergraph_bundle(ed: EdgeData, mask: np.ndarray, X, y):
+def hypergraph_bundle(ed: EdgeData, mask: np.ndarray, X, y, *, n_classes=2):
     """Co participation hypergraph over the edges in `mask`: each edge is a NODE; a hyperedge
-    groups edges that share a source node, and another groups edges that share a destination node.
-    This is the HGNN specific edge primal view; the original complex remains primary elsewhere."""
+    groups edges that share a declared vertex. Bipartite source/target domains are already
+    disjoint in EdgeData; a knowledge entity has one identity on both sides. Feature and label
+    rows follow the unique ascending tier indices. `n_classes` declares the output domain even
+    when some classes are unobserved. The original complex remains primary elsewhere."""
+    mask = _tier_indices(mask, len(ed.src_idx))
+    if type(n_classes) is not int or not 0 < n_classes < 2**31:
+        raise ValueError("warehouse class count must be a positive native integer")
+    if any(np.ma.isMaskedArray(a) and np.any(np.ma.getmaskarray(a)) for a in (X, y)):
+        raise ValueError("warehouse training rows cannot contain masked values")
+    features, targets = np.asarray(X), np.asarray(y)
+    if features.ndim != 2 or features.shape[0] != len(mask) or features.dtype.kind not in "iufO":
+        raise ValueError("warehouse features require one real numeric row per tier edge")
+    if features.dtype.kind == "O":
+        features = _numeric_signal(features.reshape(-1), features.size).reshape(features.shape)
+    try:
+        with np.errstate(over="raise", invalid="raise"):
+            features = features.astype(np.float32)
+    except (TypeError, ValueError, OverflowError, FloatingPointError) as exc:
+        raise ValueError("warehouse features require finite float32 training values") from exc
+    if not np.all(np.isfinite(features)):
+        raise ValueError("warehouse features require finite float32 training values")
+    if (targets.shape != (len(mask),) or targets.dtype.kind not in "iu"
+            or targets.size and (int(targets.min()) < 0 or int(targets.max()) >= n_classes)):
+        raise ValueError("warehouse labels require one integer class in the declared domain per tier edge")
     from ..models.data import DataBundle
-    local = {int(b): i for i, b in enumerate(mask)}         # edge index -> node id
     groups = defaultdict(list)
-    for b in mask:
-        groups[("s", int(ed.src_idx[b]))].append(local[int(b)])
-        groups[("d", int(ed.dst_idx[b]))].append(local[int(b)])
+    for local, b in enumerate(mask):
+        src, dst = int(ed.src_idx[b]), int(ed.dst_idx[b])
+        groups[src].append(local)
+        if dst != src:
+            groups[dst].append(local)
     he = [nodes for nodes in groups.values() if len(nodes) >= 2]        # non trivial hyperedges only
     he_ptr = np.zeros(len(he) + 1, dtype=np.int32)
     idx = []
@@ -225,9 +306,9 @@ def hypergraph_bundle(ed: EdgeData, mask: np.ndarray, X, y):
     he_idx = np.asarray(idx, dtype=np.int32)
     import torch
     b = DataBundle("hypergraph",
-                   torch.as_tensor(np.asarray(X, np.float32)),
-                   torch.as_tensor(np.asarray(y, np.int64)),
-                   meta={"feat_dim": int(X.shape[1]), "n_classes": 2, "n_nodes": int(mask.shape[0])})
+                   torch.as_tensor(features),
+                   torch.as_tensor(targets.astype(np.int64)),
+                   meta={"feat_dim": int(features.shape[1]), "n_classes": n_classes, "n_nodes": len(mask)})
     b.extra = {"he_ptr": he_ptr, "he_idx": he_idx}
     return b
 
@@ -265,9 +346,8 @@ def knowledge_bundle(knowledge, *, weight_by: str = "degree", target: str = "rel
     else:
         raise ValueError(f"unknown target {target!r}. Available: relation, weight")
 
-    bundle = hypergraph_bundle(ed, mask, X, y)
+    bundle = hypergraph_bundle(ed, mask, X, y, n_classes=len(classes))
     bundle.meta.update({
-        "feat_dim": int(X.shape[1]), "n_classes": len(set(y.tolist())),
         "feature_names": names, "classes": classes,
         "n_entities": knowledge.nV, "n_relations": knowledge.nE,
     })

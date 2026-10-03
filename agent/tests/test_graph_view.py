@@ -1,15 +1,7 @@
-"""Structural coordinates, and reach that is not a hop count.
+"""Check character simplex coordinates and diffusion reach.
 
-The old dashboard positioned vertices by the eigenvectors of L0. That is a linear
-grouping: the coordinate says where a cut fell, not what the cell is, and producing it
-costs a dense eigendecomposition. Nothing here has a spectral embedding mode, and that
-is the point rather than an omission.
-
-The character already IS a position. phi(v) lives in the simplex over the channel hats,
-so the coordinates are the cell's shares of topology, geometry, frustration and
-co participation. These tests hold the embedding to being a change of coordinates: a
-cell that is purely one channel lands on that channel's corner, and equal shares land
-at the centre. Nothing is fitted, so there is nothing to converge.
+Pure channel characters land at simplex corners; equal shares land at the center.
+Lower dimensional projections report the lost dimensions.
 """
 from __future__ import annotations
 

@@ -1,39 +1,13 @@
-"""rexgraph.dirac_propagator: the graded Dirac operator as a SPARSE, matrix free
-operator, and propagation of graded TENSOR STATES through it.
+"""rexgraph.dirac_propagator: sparse graded Dirac operators and tensor propagation.
 
-The Dirac operator ``D = d + d*`` acts on the whole graded space
-``C_0 ⊕ C_1 ⊕ ... ⊕ C_G`` with the boundary maps ``B_d : C_d -> C_{d-1}`` sitting
-in its OFF diagonal blocks:
+D = d + d* acts on C_0 ⊕ C_1 ⊕ ... ⊕ C_G. Its off diagonal blocks contain
+B_d and B_d^T. D is real symmetric; when adjacent boundaries satisfy the chain
+condition, D^2 is block diagonal with the grade Hodge Laplacians.
 
-    D = [[ 0,      B_1,    0,    ... ],
-         [ B_1^T,  0,      B_2,  ... ],
-         [ 0,      B_2^T,  0,    ... ],
-         [ ...                      ]]
-
-``D`` is real symmetric and ``D^2 = blkdiag(L_0, L_1, ..., L_G)`` (the off diagonal
-blocks of ``D^2`` vanish because ``B_d B_{d+1} = 0``).
-
-Why this module exists (the fix for the quarantined heat propagator): the old path
-chased ``diag(e^{-tL})`` on the EDGE space alone - a diagonal of a general matrix
-function, which has no exact O(nnz) form and is blind to inter grade transport. The
-information actually lives in the OFF diagonal blocks of ``D``: applying a function
-of ``D`` to a graded state VECTOR propagates amplitude ACROSS grades
-(vertex<->edge<->face), and that is a sparse matvec Chebyshev evaluation - O(nnz.K),
-any parameter, no eigendecomposition.
-
-Odd/even structure (why the light propagator is the grade mixing one): odd powers of
-``D`` (``D, D^3, ...``) are the off diagonal / grade CROSSING terms; even powers
-(``D^2, D^4, ...``) are block diagonal / in grade. ``D`` is indefinite, so ``e^{-tD}``
-is unbounded on the negative branch; the BOUNDED grade crossing operator is
-``sin(tD)`` - the imaginary part of the light/wave propagator ``e^{-itD}``::
-
-    e^{-itD} = cos(tD)  -  i sin(tD)
-               ^in-grade    ^grade-crossing (curl)   [gradient]^
-
-This supersedes ``core._dirac.schrodinger_evolve`` (dense eigendecomposition) and the
-edge space ``_experimental.heat_propagator_diag``. Grade general: it consumes a list
-of sparse boundary maps, so it works for a 2 rex today and an N-rex the moment the
-higher boundaries exist.
+Chebyshev evaluation applies functions of D to graded vectors in O(nnz * order)
+work. Odd powers transport across grades; even powers act within grades.
+The bounded wave operator is exp(-itD) = cos(tD) - i sin(tD).
+The operator accepts a list of sparse boundary maps at every supplied grade.
 """
 from __future__ import annotations
 
@@ -64,9 +38,7 @@ def _boundaries_from_rex(rex):
     whatever arity/sign convention the complex was built with (witness / pairwise /
     branching edges; triangle / n-gon faces) is carried through unchanged.
 
-    Grade general first: if the rex exposes ``graded_boundaries`` (a property another
-    workstream provides that returns the full ``[B_1, B_2, B_3, ...]`` sparse list),
-    use it verbatim so an N-rex propagates the moment its higher boundaries exist.
+    If the rex exposes ``graded_boundaries``, use its full sparse boundary list.
     Otherwise fall back to the vertex/edge (+ face) construction from the rex's own
     signed incidence."""
     graded = getattr(rex, "graded_boundaries", None)
@@ -124,7 +96,7 @@ class SparseDirac:
         return slice(int(self.offsets[d]), int(self.offsets[d + 1]))
 
     def _matvec_serial(self, psi):
-        """Serial core of :meth:`matvec` - one pass of the graded sparse mat vecs.
+        """Serial core of :meth:`matvec`: one pass of the graded sparse mat vecs.
 
         ``(D psi)_d = B_{d+1} psi_{d+1} + B_d^T psi_{d-1}`` - the down map from the
         grade above plus the up map from the grade below."""
@@ -212,7 +184,7 @@ class SparseDirac:
     #### propagation of tensor states
     def _cheb_apply(self, func, psi, lam_max, order):
         """Apply ``func(D)`` to a state block ``psi`` (n x k) by a Chebyshev
-        polynomial of ``D`` on ``[-lam_max, lam_max]`` - sparse mat vecs only, no
+        polynomial of ``D`` on ``[-lam_max, lam_max]``: sparse mat vecs only, no
         eigendecomposition."""
         if not np.isfinite(lam_max) or lam_max <= 0:
             raise ValueError("lam_max must be finite and positive")
@@ -244,7 +216,7 @@ class SparseDirac:
         """The light / wave propagator ``e^{-itD} psi0`` on a graded tensor state.
 
         Returns ``(re, im)`` where ``re = cos(tD) psi0`` is the in grade (gradient)
-        part and ``im = -sin(tD) psi0`` is the grade CROSSING (curl) part - the
+        part and ``im = -sin(tD) psi0`` is the grade CROSSING (curl) part: the
         amplitude that the off diagonal boundary blocks transport between grades. All
         sparse mat vecs, arbitrary ``t``, no eigendecomposition.
         """
@@ -260,7 +232,7 @@ class SparseDirac:
     def heat_squared(self, psi0, t, order=None, lam_max=None):
         """The (stable, per grade) heat propagator ``e^{-tD^2} psi0 = e^{-tL} psi0``.
 
-        ``D^2`` is block diagonal, so this diffuses WITHIN each grade - it does not
+        ``D^2`` is block diagonal, so this diffuses WITHIN each grade: it does not
         cross grades. Provided as the diffusive companion to :meth:`light` (whose
         imaginary part is the grade crossing transport). Uses ``func(l)=e^{-t l^2}``
         applied through ``D``, so it stays matrix free on the same operator.
@@ -273,7 +245,7 @@ class SparseDirac:
         return self._cheb_apply(lambda l: np.exp(-t * l * l), psi0, lam_max, order)
 
     def grade_energy(self, psi):
-        """Per grade energy ``||psi_d||^2`` of a (real or stacked re/im) state - the
+        """Per grade energy ``||psi_d||^2`` of a (real or stacked re/im) state: the
         readout that shows amplitude crossing grades under :meth:`light`."""
         psi = np.asarray(psi, dtype=_f64)
         return np.array([float(np.sum(psi[self.grade_slice(d)] ** 2))
@@ -281,7 +253,7 @@ class SparseDirac:
 
     def trajectory(self, psi0, times, order=None, lam_max=None):
         """Propagate the light state ``e^{-itD} psi0`` at multiple ``times`` and read
-        off the per grade Born energy at each - the sparse/matvec companion to
+        off the per grade Born energy at each: the sparse/matvec companion to
         ``core._dirac.schrodinger_trajectory`` (no eigendecomposition).
 
         Returns a dict with:
@@ -328,7 +300,7 @@ def _default_seed(sd):
 
 def dirac_light(rex, t, psi0=None, order=None):
     """Light / wave propagator ``e^{-itD} psi0`` on a rex, built from its own signed
-    boundaries. Returns ``(re, im)`` = ``(cos(tD) psi0, -sin(tD) psi0)`` - the in grade
+    boundaries. Returns ``(re, im)`` = ``(cos(tD) psi0, -sin(tD) psi0)``: the in grade
     (gradient) and grade crossing (curl) parts. ``psi0`` defaults to unit amplitude on
     grade 0 (see :func:`_default_seed`). Matrix free, arbitrary ``t``, no
     eigendecomposition."""

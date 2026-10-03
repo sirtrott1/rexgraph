@@ -105,7 +105,7 @@ def build_vertex_perturbation(Py_ssize_t vertex_idx,
     Parameters
 
     vertex_idx : vertex to perturb
-    B1_T : (nE, nV) - transpose of boundary operator
+    B1_T : (nE, nV): transpose of boundary operator
     nE, nF : dimensions
 
     Returns
@@ -133,8 +133,8 @@ def build_multi_edge_perturbation(Py_ssize_t nE, Py_ssize_t nF,
     Parameters
 
     nE, nF : dimensions
-    edge_indices : i32[k] - edges to perturb
-    amplitudes : f64[k] - signal magnitudes
+    edge_indices : i32[k]: edges to perturb
+    amplitudes : f64[k]: signal magnitudes
 
     Returns
 
@@ -167,7 +167,7 @@ def build_spectral_perturbation(Py_ssize_t nE, Py_ssize_t nF,
     Parameters
 
     nE, nF : dimensions
-    evecs_RL1 : f64[nE, nE] - eigenvectors of RL_1 (columns)
+    evecs_RL1 : f64[nE, nE]: eigenvectors of RL_1 (columns)
     mode_idx : which eigenmode to excite (0 = lowest)
     amplitude : scale factor
 
@@ -196,11 +196,11 @@ def propagate_diffusion(np.ndarray[f64, ndim=1] f_E,
 
     Parameters
 
-    f_E : f64[nE] - initial edge signal
-    L_operator : (nE, nE) - Laplacian (not used directly, included for API)
-    evals : f64[nE] - eigenvalues of L_operator
-    evecs : f64[nE, nE] - eigenvectors
-    times : f64[T] - timepoints
+    f_E : f64[nE]: initial edge signal
+    L_operator : (nE, nE): Laplacian (not used directly, included for API)
+    evals : f64[nE]: eigenvalues of L_operator
+    evecs : f64[nE, nE]: eigenvectors
+    times : f64[T]: timepoints
 
     Returns
 
@@ -278,8 +278,8 @@ def energy_trajectory(np.ndarray[f64, ndim=2] trajectory,
     Parameters
 
     trajectory : f64[T, nE]
-    L1 : (nE, nE) - Hodge Laplacian
-    LO : (nE, nE) - overlap Laplacian
+    L1 : (nE, nE): Hodge Laplacian
+    LO : (nE, nE): overlap Laplacian
 
     Returns
 
@@ -354,7 +354,7 @@ def hodge_energy_decomposition(np.ndarray[f64, ndim=1] f_E,
     E_grad : float
     E_curl : float
     E_harm : float
-    pct_grad : float - fraction of ||f||^2 in gradient subspace
+    pct_grad : float: fraction of ||f||^2 in gradient subspace
     pct_curl : float
     pct_harm : float
     """
@@ -433,14 +433,14 @@ def cascade_from_edge(np.ndarray[f64, ndim=2] trajectory,
 
     Parameters
 
-    trajectory : f64[T, nE] - edge signal trajectory (from propagation)
-    threshold : float - activation threshold. If negative, auto computed
+    trajectory : f64[T, nE]: edge signal trajectory (from propagation)
+    threshold : float: activation threshold. If negative, auto computed
         as 0.5% of peak signal magnitude across all timesteps.
 
     Returns
 
-    activation_time : i32[nE] - first timestep each edge exceeds threshold (-1 = never)
-    activation_order : i32[n_activated] - edges sorted by activation time
+    activation_time : i32[nE]: first timestep each edge exceeds threshold (-1 = never)
+    activation_order : i32[n_activated]: edges sorted by activation time
     activation_rank : i32[nE] - rank in activation order (-1 = never)
     threshold_used : float
     """
@@ -472,24 +472,28 @@ def face_emergence(np.ndarray[f64, ndim=2] trajectory,
     Parameters
 
     trajectory : f64[T, nE]
-    B2 : (nE, nF) - edge face boundary (dense or sparse)
-    threshold : float - auto if negative
+    B2 : (nE, nF): edge face boundary (dense or sparse)
+    threshold : float: auto if negative
 
     Returns
 
-    face_activation_time : i32[nF] - first timestep face activates (-1 = never)
-    face_order : i32[n_activated] - faces sorted by activation time
+    face_activation_time : i32[nF]: first timestep face activates (-1 = never)
+    face_order : i32[n_activated]: faces sorted by activation time
     """
     import scipy.sparse as sp
     cdef Py_ssize_t T = trajectory.shape[0]
     # Keep B2 SPARSE (CSC): face f's boundary edges are exactly its column's stored
-    # rows, read in O(nnz) total - no nE x nF densification and no O(nF*nE) scan.
+    # rows, read in O(nnz) total: no nE x nF densification and no O(nF*nE) scan.
     B2c = B2.tocsc() if sp.issparse(B2) else sp.csc_matrix(np.asarray(B2, dtype=np.float64))
-    cdef Py_ssize_t nE = B2c.shape[0], nF = B2c.shape[1]
-    cdef Py_ssize_t t, f, k
-    cdef np.ndarray[long, ndim=1] indptr = np.asarray(B2c.indptr, dtype=np.int64)
-    cdef np.ndarray[long, ndim=1] indices = np.asarray(B2c.indices, dtype=np.int64)
+    cdef Py_ssize_t nF = B2c.shape[1]
+    cdef Py_ssize_t t, f, k, start, end
+    cdef i64 e_idx
+    cdef bint has_boundary, all_active
+    cdef np.ndarray[i64, ndim=1] indptr = np.asarray(B2c.indptr, dtype=np.int64)
+    cdef np.ndarray[i64, ndim=1] indices = np.asarray(B2c.indices, dtype=np.int64)
     cdef np.ndarray[f64, ndim=1] data = np.asarray(B2c.data, dtype=np.float64)
+    cdef i64[::1] ipv = indptr, ixv = indices
+    cdef f64[::1] dv = data
 
     cdef double thresh = threshold
     if thresh < 0:
@@ -505,17 +509,26 @@ def face_emergence(np.ndarray[f64, ndim=2] trajectory,
     cdef f64[:, ::1] atv = abs_traj
 
     for f in range(nF):
-        # Collect boundary edges of face f (stored rows of column f)
-        boundary_edges = [int(indices[k]) for k in range(indptr[f], indptr[f + 1])
-                          if fabs(data[k]) > 1e-15]
+        start = <Py_ssize_t>ipv[f]
+        end = <Py_ssize_t>ipv[f + 1]
 
-        if len(boundary_edges) == 0:
+        # Stay in the CSC buffers. The previous path built a Python list of edge
+        # objects for every face, then iterated that list at every timestep.
+        has_boundary = False
+        for k in range(start, end):
+            if fabs(dv[k]) > 1e-15:
+                has_boundary = True
+                break
+        if not has_boundary:
             continue
 
-        # Find first time all boundary edges exceed threshold
+        # Find first time all nonzero boundary edges exceed threshold.
         for t in range(T):
             all_active = True
-            for e_idx in boundary_edges:
+            for k in range(start, end):
+                if fabs(dv[k]) <= 1e-15:
+                    continue
+                e_idx = ixv[k]
                 if atv[t, e_idx] < thresh:
                     all_active = False
                     break
@@ -523,11 +536,20 @@ def face_emergence(np.ndarray[f64, ndim=2] trajectory,
                 fav[f] = <i32>t
                 break
 
-    # Build activation order
-    activated = [(face_act[f], f) for f in range(nF) if face_act[f] >= 0]
-    activated.sort()
-    cdef np.ndarray[i32, ndim=1] face_order = np.array(
-        [f for _, f in activated], dtype=np.int32)
+    # np.where returns faces in ascending index order; a stable time sort therefore
+    # preserves the historical tuple ordering (activation_time, face_index) without
+    # allocating and sorting Python tuples.
+    cdef np.ndarray[i32, ndim=1] activated_faces = np.where(
+        face_act >= 0)[0].astype(np.int32)
+    cdef np.ndarray[i32, ndim=1] face_order
+    cdef np.ndarray[i32, ndim=1] activation_times
+    cdef np.ndarray[np.intp_t, ndim=1] sort_idx
+    if activated_faces.shape[0] == 0:
+        face_order = np.empty(0, dtype=np.int32)
+    else:
+        activation_times = face_act[activated_faces]
+        sort_idx = np.argsort(activation_times, kind='mergesort')
+        face_order = activated_faces[sort_idx]
 
     return face_act, face_order
 
@@ -547,13 +569,13 @@ def cascade_depth(np.ndarray[i32, ndim=1] activation_order,
 
     Parameters
 
-    activation_order : i32[n_activated] - edges sorted by activation time
-    edge_src, edge_tgt : i32[nE] - edge endpoints
+    activation_order : i32[n_activated]: edges sorted by activation time
+    edge_src, edge_tgt : i32[nE]: edge endpoints
     nE : number of edges
 
     Returns
 
-    depth : i32[nE] - topological depth from source (-1 if unreached)
+    depth : i32[nE]: topological depth from source (-1 if unreached)
     """
     if activation_order.shape[0] == 0:
         return np.full(nE, -1, dtype=np.int32)
@@ -614,15 +636,15 @@ def tag_energy_phases(np.ndarray[f64, ndim=1] E_kin,
 
     Parameters
 
-    E_kin : f64[T] - topological energy per timestep
-    E_pot : f64[T] - geometric energy per timestep
+    E_kin : f64[T]: topological energy per timestep
+    E_pot : f64[T]: geometric energy per timestep
     ratio_tol : log ratio threshold for crossover band
     min_phase_len : minimum phase length for BIOES assignment
     floor : minimum energy value
 
     Returns
 
-    tags : i32[T] - BIOES tags (0=B, 1=I, 2=O, 3=E, 4=S)
+    tags : i32[T]: BIOES tags (0=B, 1=I, 2=O, 3=E, 4=S)
     phase_start : i32[n_phases]
     phase_end : i32[n_phases]
     phase_regime : i32[n_phases] (0=kinetic, 1=crossover, 2=potential)
@@ -644,7 +666,7 @@ def tag_cascade_phases(np.ndarray[i32, ndim=1] activation_time,
 
     Parameters
 
-    activation_time : i32[nE] - per edge activation timestep (-1 = never)
+    activation_time : i32[nE]: per edge activation timestep (-1 = never)
     T : number of timesteps
 
     Returns
@@ -712,18 +734,18 @@ def analyze_perturbation(np.ndarray[f64, ndim=1] f_E,
 
     Parameters
 
-    f_E : f64[nE] - initial edge signal
-    f_F : f64[nF] - initial face signal (usually zeros)
-    L1 : (nE, nE) - Hodge Laplacian
-    LO : (nE, nE) - overlap Laplacian
+    f_E : f64[nE]: initial edge signal
+    f_F : f64[nF]: initial face signal (usually zeros)
+    L1 : (nE, nE): Hodge Laplacian
+    LO : (nE, nE): overlap Laplacian
     evals_RL1, evecs_RL1 : eigendecomposition of RL_1
-    B1 : (nV, nE) - vertex edge boundary
-    B2 : (nE, nF) - edge face boundary (B2_hodge preferred)
-    times : f64[T] - timepoints
+    B1 : (nV, nE): vertex edge boundary
+    B2 : (nE, nF): edge face boundary (B2_hodge preferred)
+    times : f64[T]: timepoints
     L0 : vertex Laplacian (optional, for Hodge)
     L2_op : face Laplacian (optional, for Hodge)
-    RL1 : (nE, nE) - Relational Laplacian matrix (optional, built if needed)
-    edge_src, edge_tgt : i32[nE] - edge endpoints (for cascade depth)
+    RL1 : (nE, nE): Relational Laplacian matrix (optional, built if needed)
+    edge_src, edge_tgt : i32[nE]: edge endpoints (for cascade depth)
     alpha_G : coupling constant
 
     Returns
@@ -861,7 +883,7 @@ def analyze_perturbation_field(np.ndarray[f64, ndim=1] f_E,
 
     f_E : f64[nE]
     f_F : f64[nF]
-    M_field : f64[nE+nF, nE+nF] - field operator
+    M_field : f64[nE+nF, nE+nF]: field operator
     evals_M, evecs_M, freqs_M : eigendecomposition of M
     L1, LO : edge Laplacians (for E_kin/E_pot decomposition)
     B1 : boundary operator (for vertex derivation)

@@ -10,7 +10,7 @@ __all__ = ["model_record", "read_model_record", "model_history", "read_model_his
 
 
 def _copy(source):
-    from rexgraph.io.rex_state import to_state, from_state
+    from rexgraph.state import to_state, from_state
     return from_state(to_state(source))
 
 
@@ -37,7 +37,7 @@ def read_model_record(record, index=0):
 def model_history(states, sources, times, *, time_axis="model_observation", time_unit="step"):
     """Store complete snapshots beside an ordinal TemporalState acceleration index."""
     from rexgraph.graph import RexGraph, TemporalRex
-    from rexgraph.io.temporal_state import to_temporal_state
+    from rexgraph.temporal_state import to_temporal_state
     states, sources, times = tuple(states), tuple(sources), tuple(times)
     if not states or not len(states) == len(sources) == len(times):
         raise ValueError("model history requires aligned states, sources and exact times")
@@ -61,7 +61,7 @@ def model_history(states, sources, times, *, time_axis="model_observation", time
 
 def _index_projection(source):
     import json
-    from rexgraph.io.rex_state import to_state, decode_tensors, CODEC_TENSOR
+    from rexgraph.state import to_state, decode_tensors, CODEC_TENSOR
     state = to_state(source)
     tensors = dict(state.tensors)
     if CODEC_TENSOR in tensors:
@@ -72,7 +72,7 @@ def _index_projection(source):
 
 
 def _verify_index(timeline, snapshots):
-    from rexgraph.io.temporal_state import from_temporal_state
+    from rexgraph.temporal_state import from_temporal_state
     indexed = from_temporal_state(timeline.temporal_state())
     for i, (_, source) in enumerate(snapshots):
         actual, header = _index_projection(indexed.reconstruct_at(i))

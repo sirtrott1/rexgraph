@@ -260,8 +260,9 @@ class Knowledge:
         """
         from .adapters.formats import _ec
 
-        idx: dict[str, int] = {}
-        labels: list[str] = []
+        canonical = list(self.entities)
+        idx = {c: i for i, c in enumerate(canonical)}
+        labels = [self.display(c) for c in canonical]
 
         def vid(c):
             if c not in idx:
@@ -293,18 +294,20 @@ class Knowledge:
     def rex(self, face_selection: str | None = None):
         """The complex. Faces are asked for, not assumed."""
         from .auto import FACE_RULE, build_rex_from_edges
+        construction = self.edge_construction()
         rex = build_rex_from_edges(
-            self.edge_construction(),
+            construction,
             face_selection=FACE_RULE if face_selection is None else face_selection)
-        rex._agent_meta = self.meta()
+        rex._agent_meta = self.meta(vertex_labels=construction.vertex_labels)
         return rex
 
-    def meta(self) -> dict:
+    def meta(self, *, vertex_labels=None) -> dict:
         return {
             "input_type": "knowledge",
             "source": "+".join(p.kind for p in self.parts),
             "origins": [p.origin for p in self.parts],
-            "vertex_labels": [self.display(c) for c in self.entities],
+            "vertex_labels": (list(vertex_labels) if vertex_labels is not None
+                              else [self.display(c) for c in self.entities]),
             "n_entities": self.nV,
             "n_relations": self.nE,
             "join": self.report,

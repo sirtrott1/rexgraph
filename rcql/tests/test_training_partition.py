@@ -75,14 +75,14 @@ def test_rcdb_source_and_owned_child_roundtrip(tmp_path):
     from contextlib import closing
     rex, policy, _, _ = setup()
     path = f"rex://{tmp_path / 'db'}"
-    with closing(rcdb.open_store(path).configure_security(require_commits=True)) as store:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {})).configure_security(require_commits=True)) as store:
         engine = Executor(sources={"db": store}, params={"r": rex, "p": policy})
         engine.execute(parse('FROM $db MUTATE "r" SET state=$r,actor="Art" COMMIT'))
         result = engine.execute(parse('FROM RCDB_GET($db,"r") RETURN TRAINING_PARTITION($p)')).values[0]
         engine.params["child"] = result.rex
         engine.execute(parse('FROM $db MUTATE "training" SET state=$child,actor="Art" COMMIT'))
         assert store.read_record("r").record.version == 1 and store.verify_commits("training")
-    with closing(rcdb.open_store(path)) as store:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as store:
         assert object_digest(store.get("training")) == result.state.result_state
         assert object_digest(store.get("r")) == policy["source_state"]
         assert store.get("training").relation_ids.tolist() == [17]

@@ -1,18 +1,6 @@
-"""APD and hyperslice are one operator read at two levels.
+"""Check APD measures against hyperslice neighborhood sets.
 
-`hyperslice(1, e)` returns three SETS around a relation: below (its boundary), above (the
-faces containing it), lateral (the relations it shares a vertex with). `apd` returns the
-MEASURES of the same neighborhood: arity is |below|, degree is |above|, and the third set
-is the C channel, `sum(deg(v) - 1)` over the support, which is the line graph degree.
-
-So hyperslice answers WHICH and apd answers HOW MANY, and the composition is the obvious
-one: apd in the global view finds the cells worth looking at, hyperslice says what is
-around them, apd in the local view reads the neighborhood. Parity is the one reading with
-no hyperslice counterpart, because a set has no sign.
-
-These also pin the arity generality both directions inherit from the boundary CSR. The
-pairwise `(sources, targets)` path holds two vertices per relation, so a branching
-relation used to report its first two and every vertex past them read as isolated.
+Cases cover boundary, coface and lateral incidence at pairwise and higher arities.
 """
 from __future__ import annotations
 

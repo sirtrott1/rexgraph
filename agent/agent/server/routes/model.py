@@ -521,7 +521,7 @@ async def attention_capture_available():
 @router.post("/model/introspect/attention", dependencies=_admin)
 async def model_introspect_attention(body: dict = Body(...)):
     """Tier 2: capture the running model's OWN per layer attention (llama.cpp cb_eval, no ggml
-    patch) and run the RCF analysis on each layer - Hodge grad/curl/harmonic, the four channels,
+    patch) and run the RCF analysis on each layer: Hodge grad/curl/harmonic, the four channels,
     Betti, coherence. The model reading its own attention through the relational complex math.
     body: {prompt: str, layers?: [int], model_path?}."""
     from agent import attn_introspect

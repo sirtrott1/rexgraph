@@ -1,14 +1,14 @@
 """agent.query_manager: a query is a living relational complex.
 
 Each query is built into its own relational complex (agent.query_engine), but a
-real interaction is not one query - it is a *trajectory*: the user (or an agent)
+real interaction is not one query: it is a *trajectory*: the user (or an agent)
 refines, follows up, narrows. This module gives that trajectory a lifecycle:
 
-  * QueryState   - one snapshot: the query complex + its signature + how it maps
+  * QueryState  : one snapshot: the query complex + its signature + how it maps
                    onto a schema (which tables it touches, whether they can join).
-  * QuerySession - the evolving trajectory, with convergence dynamics (is it
+  * QuerySession: the evolving trajectory, with convergence dynamics (is it
                    approaching an end state, or drifting?).
-  * QueryManager - owns sessions, links them to a schema complex, and persists
+  * QueryManager: owns sessions, links them to a schema complex, and persists
                    resolved queries to the RCDB (the agentic memory cache), so a
                    structurally similar past query can be recalled.
 

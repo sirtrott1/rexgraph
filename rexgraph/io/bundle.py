@@ -1,6 +1,6 @@
 # rexgraph/io/bundle.py
 """
-Relational Complex Binary Directory (.rcbd) - portable RexGraph package.
+Relational Complex Binary Directory (.rcbd): portable RexGraph package.
 
 A bundle is a self contained directory that stores a RexGraph or
 TemporalRex with all data needed for exact reconstruction, plus
@@ -80,17 +80,13 @@ import pathlib
 import secrets
 import shutil
 import tempfile
-import threading
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
 
-try:
-    import fcntl
-except ImportError:  # pragma: no cover, non POSIX publication is thread safe only
-    fcntl = None
+from .publication import publication_lock as _bundle_publish_lock
 
 if TYPE_CHECKING:
     from ..graph import RexGraph, TemporalRex
@@ -112,7 +108,7 @@ from ._container_crypto import (
     read_protected_tensor,
     validate_storage_inventory,
 )
-from .rex_state import fname_encode as _fname_encode
+from rexgraph.state import fname_encode as _fname_encode
 
 __all__ = [
     "RCBDBundle",
@@ -127,10 +123,8 @@ _FORMAT_VERSION = 2
 _MAGIC = "rcbd-bundle"
 _LEGACY_MAGIC = "rex-bundle"
 _ENCRYPTED_STORAGE = "__rex_encrypted_storage__"
-_PUBLISH_LOCK = threading.Lock()
-_PUBLISH_LOCK_PID = os.getpid()
 
-# Cache groups - same definitions as zarr_format / hdf5_format.
+# Cache groups: same definitions as zarr_format / hdf5_format.
 _CACHE_GROUPS: dict[str, list[str]] = {
     "algebra": [
         "B1", "B2", "L0", "L1", "L2",
@@ -240,27 +234,6 @@ def _load_npy(
         raise FileNotFoundError(f"Array not found: {fpath}")
     mode = "r" if mmap else None
     return np.load(fpath, mmap_mode=mode)
-
-
-@contextlib.contextmanager
-def _bundle_publish_lock(parent: pathlib.Path):
-    """Serialize the short directory replacement across threads/processes."""
-    global _PUBLISH_LOCK, _PUBLISH_LOCK_PID
-    pid = os.getpid()
-    if pid != _PUBLISH_LOCK_PID:
-        # A child must not inherit a lock another thread held across fork.
-        _PUBLISH_LOCK = threading.Lock()
-        _PUBLISH_LOCK_PID = pid
-    with _PUBLISH_LOCK:
-        if fcntl is None:
-            yield
-            return
-        fd = os.open(parent, os.O_RDONLY)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            yield
-        finally:
-            os.close(fd)
 
 
 def _bundle_staging_directory(root: pathlib.Path) -> pathlib.Path:
@@ -542,7 +515,7 @@ class RCBDBundle:
     ) -> RCBDBundle:
         """Create an in memory bundle spec from a RexGraph.
 
-        Does not write to disk - call `.save()` to persist.  The
+        Does not write to disk: call `.save()` to persist.  The
         returned bundle stores references to the graph's arrays (not
         copies) until `save()` is called.
         """
@@ -721,7 +694,7 @@ class RCBDBundle:
                 f"Bundle contains {self.object_type}, not RexGraph"
             )
         if self._encrypted_manifest is not None:
-            from .rex_state import RexState, from_state
+            from rexgraph.state import RexState, from_state
 
             tensors = {
                 name: self._read_encrypted_tensor(name)
@@ -1028,7 +1001,7 @@ def _write_rex_bundle(
     encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Write a RexGraph to an RCBD directory."""
-    from .rex_state import to_state
+    from rexgraph.state import to_state
     st = to_state(rex)
     names = list(st.tensors.keys())
     manifest = dict(st.header)
@@ -1098,8 +1071,17 @@ def _read_rex_graph(
     allow_unsealed: bool = False,
 ) -> RexGraph:
     """Reconstruct a RexGraph from an RCBD directory."""
-    from .rex_state import RexState, from_state
+    from rexgraph.state import RexState, from_state
     manifest = json.loads((root / "MANIFEST.json").read_text())
+    if manifest.get("format_version") == 10:
+        if "digest" not in manifest:
+            raise ValueError("the stored state carries no content digest; native state cannot be downgraded")
+        names = manifest.get("tensor_names")
+        if not isinstance(names, list) or len(set(names)) != len(names) or sorted(names) != manifest.get("digest_names"):
+            raise ValueError("bundle tensor list disagrees with the semantic seal")
+        expected = {f"{_fname_encode(name)}.npy" for name in names}
+        if {p.name for p in root.glob("*.npy")} != expected:
+            raise ValueError("unclaimed or missing bundle state tensors")
     tensors = {}
     for name in manifest.get("tensor_names", []):
         tensors[name] = np.load(root / f"{_fname_encode(name)}.npy")
@@ -1119,7 +1101,7 @@ def _write_temporal_bundle(
     encryption_properties: ContainerEncryptionProperties | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Write a TemporalRex to an RCBD directory."""
-    from .temporal_state import to_temporal_state
+    from rexgraph.temporal_state import to_temporal_state
     state = to_temporal_state(trex)
     manifest = _build_temporal_manifest(trex)
     manifest["temporal_state"] = state.header
@@ -1146,7 +1128,7 @@ def _read_temporal_rex(
     if manifest is None:
         manifest = json.loads((root / "MANIFEST.json").read_text())
     if "temporal_state" in manifest:
-        from .temporal_state import TemporalState, from_temporal_state
+        from rexgraph.temporal_state import TemporalState, from_temporal_state
         tensors = {name: (tensor_reader(name) if tensor_reader else
                           _load_npy(root, _fname_encode(name))) for name in manifest["tensor_names"]}
         return from_temporal_state(TemporalState(tensors, manifest["temporal_state"]))
@@ -1352,9 +1334,7 @@ def _write_cache(
                 w = rex.w_E if rex.w_E is not None else np.ones(rex.nE)
                 harm_sig = np.asarray(harmonic_projection(H, w), dtype=np.float64)
 
-                # channel diagonals from the boundary structure. The old path
-                # rebuilt each hat as evec @ diag(ev) @ evec.T, an nE x nE per
-                # channel, to read nE numbers off the diagonal.
+                # Read channel diagonals directly from the boundary structure.
                 chi = _channel_diagonals(rex)
 
                 # chi columns are (topology, geometry, frustration,

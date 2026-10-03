@@ -8,23 +8,25 @@ import pytest
 from rexgraph.graph import RexGraph, TemporalRex
 from rexgraph.io.catalog import object_digest
 
-from rcdb import FileStore, MemoryStore, ObjectStore, RecordSnapshot, RexStore, SQLStore
+from rcdb import FileStore, LocalStore, MemoryStore, ObjectStore, RecordSnapshot, RexStore, SQLStore
 
 
-@pytest.fixture(params=["memory", "file", "rex", "sql", "object"])
+@pytest.fixture(params=["memory", "file", "rex", "sql", "object", "local"])
 def store(request, tmp_path):
     if request.param == "memory":
         result = MemoryStore()
+    elif request.param == "local":
+        result = LocalStore(tmp_path / "local")
     elif request.param == "file":
-        result = FileStore(str(tmp_path / "file"))
+        result = FileStore(str(tmp_path / "file"), read_only=False)
     elif request.param == "rex":
-        result = RexStore(str(tmp_path / "rex"))
+        result = RexStore(str(tmp_path / "rex"), read_only=False)
     elif request.param == "sql":
         pytest.importorskip("sqlalchemy")
         result = SQLStore(f"sqlite:///{tmp_path / 'sql.db'}")
     else:
         pytest.importorskip("fsspec")
-        result = ObjectStore(f"file://{tmp_path / 'object'}")
+        result = ObjectStore(f"file://{tmp_path / 'object'}", read_only=False)
     yield result
     result.close()
 
@@ -218,9 +220,10 @@ def test_rectangular_phrase_check_keeps_both_selected_native_versions(store):
 
 
 def test_logical_manifest_and_digest_match_independent_memory_reference(store):
-    from rexgraph.io.manifest import manifest_digest
+    import hashlib
+    from rexgraph.value_codec import pack_value
     reference = MemoryStore()
-    assert store.state_manifest() == {"object_type": "RCDBLogicalState", "version": 1, "records": []}
+    assert store.state_manifest() == {"object_type": "RCDBLogicalState", "version": 2, "records": []}
     for target in (store, reference):
         # Deliberately out of order IDs and tag order; analytics are derived, not identity.
         target.put("z", rex(2), _tx_time=100.0, valid_from=10.0, tags=["b", "a"],
@@ -228,7 +231,8 @@ def test_logical_manifest_and_digest_match_independent_memory_reference(store):
         target.put("a", rex(3), _tx_time=120.0, analytics=False)
         target.put("z", rex(4), _tx_time=200.0, valid_from=20.0, analytics=False)
     assert store.state_manifest() == reference.state_manifest()
-    assert store.state_digest() == manifest_digest(reference.state_manifest())
+    assert store.state_digest() == hashlib.sha256(
+        b"rexgraph-rcdb-logical-state\x00\x02"+pack_value(reference.state_manifest())).hexdigest()
     manifest = store.state_manifest()
     assert [(r["id"], r["version"]) for r in manifest["records"]] == [("a", 1), ("z", 1), ("z", 2)]
     before = store.state_digest()

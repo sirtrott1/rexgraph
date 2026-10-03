@@ -21,10 +21,11 @@ BETA_URI = "postgresql://bob:bobpw@beta.example.com:5432/app"
 
 @pytest.fixture
 def tenants(tmp_path, monkeypatch):
+    pytest.importorskip("bcrypt", reason="authentication requires the server extra")
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("REXGRAPH_SECRETS_URI", f"file://{tmp_path}/connections.json")
     monkeypatch.setenv("REXGRAPH_AUDIT_JOURNAL", str(tmp_path / "audit.jsonl"))
-    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"file://{tmp_path}/rcdb")
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"local://{tmp_path}/rcdb")
     from agent.server import audit, auth, scope
     scope.reset_secret_store()
     auth.reset_auth_manager(); audit.reset_cache()

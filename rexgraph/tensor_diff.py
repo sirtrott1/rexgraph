@@ -22,15 +22,9 @@ without changing a single cell. Above grade 1 the invariant is the holonomy, and
 `grade2_diff` reads that instead. Asking for an entry wise diff above grade 1 raises rather
 than returning a number that would be about the arithmetic.
 
-The merge preview is the other half, and it is JOINT rather than a sum of parts. Every
-novel relation on its own either lies outside `range(B_1)` of the reference, so absorbing
-it raises the rank, or lies inside it, so exactly one cycle appears. Those
-marginals are each exact and they DO NOT ADD UP, because absorbing one relation changes
-the span the next is judged against: measured on 120 Complex Portal relations the
-marginals totalled 120 while the actual merge moved the rank by 108 and opened 12 cycles.
-So `rank_delta` and `cycle_delta` are computed on the augmented operator in one rank, the
-marginals are reported beside them under their own names, and `marginals_sum_to_joint`
-says whether the two happened to agree.
+The merge preview computes joint rank_delta and cycle_delta on the augmented
+operator. Individual relation marginals use the original reference span and can
+differ from that joint result. marginals_sum_to_joint reports their agreement.
 """
 from __future__ import annotations
 

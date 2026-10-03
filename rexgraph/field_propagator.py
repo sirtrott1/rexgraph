@@ -57,7 +57,7 @@ def field_coupling(rex):
 
 
 def _field_blocks(rex, g=None):
-    """(RL1, L2, B2, g, nE, nF) as scipy CSR - the sparse pieces of M. RL1 is the
+    """(RL1, L2, B2, g, nE, nF) as scipy CSR: the sparse pieces of M. RL1 is the
     relational Laplacian if built, else L1 (same fallback as graph.field_coupling_psd)."""
     from rexgraph.core._sparse import to_scipy_csr
     nE = int(rex.nE)
@@ -78,7 +78,7 @@ def _field_blocks(rex, g=None):
 
 
 def assemble_field_operator(rex, g=None):
-    """The field operator M as a SPARSE (nE+nF) x (nE+nF) CSR block matrix - O(nnz),
+    """The field operator M as a SPARSE (nE+nF) x (nE+nF) CSR block matrix: O(nnz),
     never the dense form. Symmetric, but not necessarily PSD. The defined coupling is not clipped."""
     RL1, L2, B2, g, nE, nF = _field_blocks(rex, g)
     if nF == 0:

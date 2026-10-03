@@ -28,7 +28,7 @@ from rexgraph.core._common cimport (
 )
 
 from rexgraph.core._linalg cimport (
-    lp_eigh,
+    lp_eigh, check_lapack_info,
     bl_gemm_nn, bl_gemm_nt, bl_gemm_tn,
 )
 
@@ -47,8 +47,8 @@ def build_dirac_operator(np.ndarray[f64, ndim=2] B1,
 
     Parameters
 
-    B1 : f64[nV, nE] - vertex edge boundary operator
-    B2 : f64[nE, nF] - edge face boundary operator
+    B1 : f64[nV, nE]: vertex edge boundary operator
+    B2 : f64[nE, nF]: edge face boundary operator
 
     Returns
 
@@ -89,7 +89,7 @@ def dirac_eigen(np.ndarray[f64, ndim=2] D):
     cdef int N = D.shape[0]
     cdef np.ndarray[f64, ndim=2] D_F = np.asfortranarray(D.copy())
     cdef np.ndarray[f64, ndim=1] evals = np.empty(N, dtype=np.float64)
-    lp_eigh(&D_F[0, 0], &evals[0], N)
+    check_lapack_info(lp_eigh(&D_F[0, 0], &evals[0], N))
     cdef np.ndarray[f64, ndim=2] evecs = np.ascontiguousarray(D_F)
     return evals, evecs
 
@@ -136,15 +136,15 @@ def schrodinger_evolve(np.ndarray[f64, ndim=1] evals,
 
     Parameters
 
-    evals : f64[N] - Dirac eigenvalues
-    evecs : f64[N, N] - Dirac eigenvectors (columns)
-    psi0 : f64[N] - initial graded state
-    t : float - time
+    evals : f64[N]: Dirac eigenvalues
+    evecs : f64[N, N]: Dirac eigenvectors (columns)
+    psi0 : f64[N]: initial graded state
+    t : float: time
 
     Returns
 
     psi_re : f64[N] - real part of Psi(t)
-    psi_im : f64[N] - imaginary part of Psi(t)
+    psi_im : f64[N]: imaginary part of Psi(t)
     """
     cdef int N = evals.shape[0]
     cdef np.ndarray[f64, ndim=1] psi_re = np.zeros(N, dtype=np.float64)
@@ -184,8 +184,8 @@ def schrodinger_trajectory(np.ndarray[f64, ndim=1] evals,
     Returns
 
     traj_re : f64[T, N] - real parts
-    traj_im : f64[T, N] - imaginary parts
-    born : f64[T, N] - Born probability |Psi_k(t)|^2 per cell
+    traj_im : f64[T, N]: imaginary parts
+    born : f64[T, N]: Born probability |Psi_k(t)|^2 per cell
     """
     cdef int N = evals.shape[0]
     cdef int T = times.shape[0]
@@ -242,7 +242,7 @@ def canonical_collapse(np.ndarray[f64, ndim=2] B1,
 
     Returns
 
-    psi_collapsed : f64[N] - normalized graded state
+    psi_collapsed : f64[N]: normalized graded state
     """
     cdef int N = nV + nE + nF
     cdef np.ndarray[f64, ndim=1] psi = np.zeros(N, dtype=np.float64)

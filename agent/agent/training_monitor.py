@@ -1,12 +1,8 @@
-"""agent.training_monitor: watch model training live and diagnose/fix what's wrong, structurally.
+"""agent.training_monitor: loss monitoring, diagnoses and optional training retries.
 
-Training is a signal on a complex: the per step loss is a 1-D trajectory whose SHAPE says what is
-happening. A healthy run descends (the loss "drains"); a broken one shows a structural signature:
-it never moves (no learning signal), it climbs or goes non finite (diverging), or the validation
-turns up while training falls (overfitting). `diagnose()` reads those signatures with exact/relative
-signals (finiteness, sign of the trend, a numerical zero flatness test), never a tuned cutoff, and
-names the likely CAUSE and a FIX. `train_watched()` runs a training with the live loss hook, applies
-the fix, and retries: the reactive layer aimed at the training loop instead of the swarm.
+diagnose reads finiteness, trend, numerical flatness and validation divergence
+from loss trajectories. train_watched collects live loss updates and retries
+with a selected correction only when autofix is enabled.
 """
 from __future__ import annotations
 
@@ -45,7 +41,7 @@ def diagnose(losses, val=None) -> dict[str, Any]:
         return {"status": "diverging", "issue": "loss is climbing",
                 "cause": "the optimizer is diverging - learning rate too high, or a bad target setup",
                 "fix": "lower_lr"}
-    if frac > -0.5:                                      # movement cancels out - no net progress
+    if frac > -0.5:                                      # movement cancels out: no net progress
         return {"status": "not_learning", "issue": "loss wanders without net progress",
                 "cause": "no consistent learning signal - likely the wrong archetype for this data, "
                          "a learning rate near zero, or mis-encoded inputs",

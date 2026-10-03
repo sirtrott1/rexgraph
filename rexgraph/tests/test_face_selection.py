@@ -7,6 +7,10 @@ import pytest
 
 from rexgraph.core import _faces
 from rexgraph.graph import RexGraph
+from rexgraph import Absent, Relations, VertexTable
+from rexgraph.native_rank import primary_columns
+from rexgraph.state import to_state
+from fractions import Fraction as Q
 
 
 @pytest.fixture
@@ -150,6 +154,70 @@ class TestContextFaceSelection:
 
 
 # void_type_composition
+
+
+@pytest.mark.parametrize("selection", ["context", "typed"])
+@pytest.mark.parametrize("heads", [[0, 0, 0], [1, 0, 1], [1, 1, 1]])
+def test_selection_preserves_declared_state_and_orients_selected_faces(selection, heads):
+    rex = RexGraph.from_relations(Relations.from_supports(
+        [[1, 0], [0, 2], [2, 1]], heads=heads,
+        vertices=VertexTable(("a", "b", "c", "isolated")),
+        weights=[Absent, Q(2, 7), Absent], relation_ids=[17, 18, 19],
+        attributes={1: {0: {"note": [Q(1, 7), np.array([1, 2])]}}}),
+        g_channel="normalized", c_channel="count")
+    rex.set_provenance({"source": "selection", "exact": Q(1, 7)})
+    before = to_state(rex).header["digest"]
+    selected = (rex.context_face_selection(np.ones((1, rex.nV), np.uint8)) if selection == "context"
+                else rex.typed_face_selection(np.zeros(rex.nE, np.int32)))
+    assert (selected.nV, selected.nE, selected.nF, selected.nF_hodge) == (4, 3, 1, 1)
+    assert selected.chain_valid
+    assert np.array_equal(selected.B1 @ selected.B2, np.zeros((4, 1)))
+    assert primary_columns(selected) == primary_columns(rex)
+    assert selected.relation_keys == (17, 18, 19)
+    assert selected.relations.weight.values().tolist() == [Absent, Q(2, 7), Absent]
+    assert selected.g_channel == "normalized" and selected.c_channel == "count"
+    assert selected.relations.vertices.ids == ("a", "b", "c", "isolated")
+    assert selected.provenance == rex.provenance
+    assert selected.get_metadata(1, 0, "note")[0] == Q(1, 7)
+    selected.get_metadata(1, 0, "note")[1][0] = 99
+    assert rex.get_metadata(1, 0, "note")[1][0] == 1
+    assert to_state(rex).header["digest"] == before
+
+
+@pytest.mark.parametrize("selection", ["context", "typed"])
+def test_void_diagnostics_use_declared_orientation(selection):
+    rex = RexGraph.from_relations(Relations.from_supports([[1, 0], [0, 2], [2, 1]], heads=[1, 0, 1]))
+    if selection == "context":
+        selected = rex.context_face_selection(np.zeros((1, rex.nV), np.uint8))
+        result = selected._context_face_result
+    else:
+        selected = rex.typed_face_selection(np.arange(rex.nE, dtype=np.int32))
+        result = selected._typed_face_result
+    edges = result["void_edges"].reshape(-1, 3)
+    signs = result["void_signs"].reshape(-1, 3)
+    assert selected.nF == 0 and len(edges) == 1
+    assert np.array_equal(rex.B1[:, edges[0]] @ signs[0], np.zeros(rex.nV))
+
+
+@pytest.mark.parametrize("bad", [np.ones(3), np.ones((1, 2)), [[0, 256, 0]],
+                                  [[0, -1, 0]], [[0, .5, 0]], [[0, np.nan, 0]],
+                                  [["0", "1", "0"]]])
+def test_invalid_context_is_rejected_before_native_selection(triangle, bad):
+    with pytest.raises(ValueError, match="context matrix must be binary"):
+        triangle.context_face_selection(bad)
+
+
+def test_replacing_faces_preserves_isolates_and_removes_face_metadata(k4):
+    k4._ensure_vertex_count(5)
+    k4.attach_metadata(2, 0, "old", "face")
+    selected = k4.context_face_selection(np.ones((1, 5), np.uint8))
+    assert selected.nV == 5 and selected.nF == 4 and selected.chain_valid
+    assert selected.get_metadata(2, 0, "old") is None
+
+
+def test_empty_context_family_is_valid(triangle):
+    selected = triangle.context_face_selection(np.empty((0, triangle.nV), np.uint8))
+    assert selected.nF == 0 and selected._context_face_result["nF_void"] == 1
 
 class TestVoidTypeComposition:
 

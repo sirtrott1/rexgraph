@@ -1,20 +1,20 @@
 """
-model_io - agent side IO for MODEL artifacts (GGUF / safetensors weights) and the shared
+model_io: agent side IO for MODEL artifacts (GGUF / safetensors weights) and the shared
 embedding corpus persistence path.
 
 This is the agent's counterpart to ``rexgraph.io``: rexgraph.io serializes *relational
 complexes* and *vector corpora* (format level, self sufficient, no runtime deps); this
-module reads *model files* - which is inference layer concern and must NOT live in the
+module reads *model files*: which is inference layer concern and must NOT live in the
 self sufficient core (it would drag GGUF/transformers deps into a BLAS only package and
 make a public core path depend on a runtime). Everything here that produces vectors
 EMITS into ``rexgraph.io`` via the one container (``save_vectors``/``load_vectors``), so
 there is a single on disk format for embeddings across the whole stack.
 
 Two jobs:
-  1. Inspect a model file WITHOUT loading weights - GGUF/safetensors header, tensor
+  1. Inspect a model file WITHOUT loading weights: GGUF/safetensors header, tensor
      inventory, arch/params/embedding-dim/quant. Feeds ``local_runtime`` (real size for
      offload decisions) and the UI.
-  2. ``save_embedding_corpus`` / ``load_embedding_corpus`` - the ONE embedding corpus
+  2. ``save_embedding_corpus`` / ``load_embedding_corpus``: the ONE embedding corpus
      round-trip, wrapping ``rexgraph.io`` and stamping model provenance. ``model_introspect``
      and any weight-extraction path both go through here (no duplicated persistence).
 """
@@ -66,7 +66,7 @@ def _gguf_value(f, vtype: int):
         (elem_type,) = struct.unpack("<I", f.read(4))
         (n,) = struct.unpack("<Q", f.read(8))
         # Consume every element (to keep the cursor aligned for later KVs / tensor infos)
-        # but only KEEP a small sample - token/merge arrays can be 100k+ entries.
+        # but only KEEP a small sample: token/merge arrays can be 100k+ entries.
         sample: list[Any] = []
         for i in range(n):
             v = _gguf_value(f, elem_type)
@@ -81,7 +81,7 @@ def _gguf_value(f, vtype: int):
 
 def read_gguf_metadata(path: str) -> dict[str, Any]:
     """Parse a GGUF header (magic, version, metadata KVs, tensor inventory) WITHOUT reading
-    tensor data. Native parser - no llama.cpp / gguf package needed. Returns
+    tensor data. Native parser: no llama.cpp / gguf package needed. Returns
     {version, n_tensors, kv, tensors:[{name, shape, ggml_type, type}]}."""
     p = os.path.expanduser(path)
     with open(p, "rb") as f:
@@ -102,7 +102,7 @@ def read_gguf_metadata(path: str) -> dict[str, Any]:
             (ndim,) = struct.unpack("<I", f.read(4))
             dims = list(struct.unpack("<%dQ" % ndim, f.read(8 * ndim)))
             (ttype,) = struct.unpack("<I", f.read(4))
-            struct.unpack("<Q", f.read(8))            # offset - not needed for a summary
+            struct.unpack("<Q", f.read(8))            # offset: not needed for a summary
             tensors.append({"name": name, "shape": dims, "ggml_type": int(ttype),
                             "type": _GGML_TYPE.get(int(ttype), "type%d" % ttype)})
     return {"version": int(version), "n_tensors": int(tensor_count),
@@ -208,7 +208,7 @@ def save_embedding_corpus(matrix, labels, path: str, *, model: str | None = None
                           block_offsets: dict[str, Any] | None = None,
                           **meta) -> str:
     """Persist an embedding corpus (matrix + labels + provenance) through the ONE
-    ``rexgraph.io`` vector container. The single home for embedding round trips - both
+    ``rexgraph.io`` vector container. The single home for embedding round trips: both
     ``model_introspect`` and weight extraction call this, so there is no duplicated format
     code. Returns the written path."""
     from rexgraph.io import save_vectors
@@ -227,6 +227,6 @@ def save_embedding_corpus(matrix, labels, path: str, *, model: str | None = None
 
 def load_embedding_corpus(path: str):
     """Load an embedding corpus written by ``save_embedding_corpus``. Returns
-    ``(matrix, labels, feature_names, metadata)`` - the ``rexgraph.io`` vector tuple."""
+    ``(matrix, labels, feature_names, metadata)``: the ``rexgraph.io`` vector tuple."""
     from rexgraph.io import load_vectors
     return load_vectors(path)

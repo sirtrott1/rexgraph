@@ -7,15 +7,15 @@ between adjacent grades, or between channel pairs at the same grade.
 
 Three variants:
 
-1. l_gb_scalar(spec_d, spec_d1) - between adjacent grades d and d+1.
+1. l_gb_scalar(spec_d, spec_d1): between adjacent grades d and d+1.
    Rank 2 by construction (difference of two rank 1 projections).
    One positive eigenvalue (dominant side), one negative (subdominant).
 
-2. l_gb_channel_tensor(hats_A, hats_B) - 4×4 within a single rex.
+2. l_gb_channel_tensor(hats_A, hats_B): 4×4 within a single rex.
    Entry [i,j] is the Frobenius norm of L_gb between channel i and channel j.
    Acts as a structural fingerprint distinguishing graph families.
 
-3. l_gb_tower(B_list) - sweep across all adjacent grade pairs.
+3. l_gb_tower(B_list): sweep across all adjacent grade pairs.
    Used for sphere fingerprinting: S^n has a distinctive tower signature.
 
 Reference: the published L_gb construction.
@@ -240,7 +240,7 @@ def l_gb_channel_tensor(
             L = max(len(sA), len(sB))
             a = np.pad(sA, (0, L - len(sA)))
             b = np.pad(sB, (0, L - len(sB)))
-            # Use the test14.py convention: max(norm, 1e-12) as denominator
+            # Normalize with max(norm, 1e-12) as denominator.
             # so degenerate channels produce the universal identity (norm = 1)
             na = max(float(np.linalg.norm(a)), 1e-12)
             nb = max(float(np.linalg.norm(b)), 1e-12)

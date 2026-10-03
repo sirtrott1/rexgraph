@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._hodge - Hodge decomposition of edge signals.
+Tests for rexgraph.core._hodge: Hodge decomposition of edge signals.
 
 Verifies:
     - g = grad + curl + harm (reconstruction)
@@ -81,12 +81,28 @@ class TestOrthogonality:
         assert abs(curl @ harm) < 1e-10
 
     def test_k4_orthogonality(self, k4):
+        """Orthogonality residuals scale with component energy.
+
+        The complex supplies chain validity; the numeric helper returns absolute inner
+        products and max_relative normalized by total component energy.
+        """
         rng = np.random.RandomState(42)
         flow = rng.randn(k4.nE)
-        h = k4.hodge_full(flow)
-        orth = h['orthogonality']
-        assert orth['orthogonal']
-        assert orth['max_inner'] < 1e-6
+        orth = k4.hodge_full(flow)['orthogonality']
+        assert 'orthogonal' not in orth, (
+            "the kernel sees three arrays, not the complex, so it cannot decide this")
+        assert k4.chain_valid, "the structural verdict is the chain condition"
+
+        # the absolute inner product tracks the flow's scale; the relative one does not
+        absolute, relative = [], []
+        for scale in (1e0, 1e3, 1e6, 1e9):
+            reading = k4.hodge_full(flow * scale)['orthogonality']
+            absolute.append(reading['max_inner'])
+            relative.append(reading['max_relative'])
+        assert max(absolute) / max(min(absolute), 1e-300) > 1e6, (
+            "the fixture must span enough scale to show the difference")
+        assert all(value < 1e-12 for value in relative), (
+            f"the scale free residual must stay at machine precision, got {relative}")
 
 
 # Energy
@@ -208,7 +224,7 @@ class TestSignalConstruction:
 
 def _three_part_complex():
     """Two triangles bridged, one of them filled. The filled cycle carries curl, the
-    open one carries harmonic, so all three parts are genuinely present."""
+    open one carries harmonic, so all three parts are present."""
     import numpy as np
 
     from rexgraph.graph import RexGraph
@@ -221,7 +237,7 @@ def _three_part_complex():
 
 def _branching_with_a_cycle():
     """Every 3 subset of 4 vertices: four arity 3 columns over four vertices, so the
-    rank cannot exceed 3 and beta_1 is 1. Branching, and genuinely cyclic."""
+    rank cannot exceed 3 and beta_1 is 1. Branching, and cyclic."""
     import numpy as np
 
     from rexgraph.graph import RexGraph

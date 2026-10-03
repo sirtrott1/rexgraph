@@ -144,7 +144,7 @@ def test_divergent_worker_deploys_guard(monkeypatch):
 
 
 def _embedder_hive(monkeypatch):
-    """A hive whose embedder is ATTACHED (a live server this process does not own) - the
+    """A hive whose embedder is ATTACHED (a live server this process does not own): the
     normal case when llama server is started outside the agent."""
     import numpy as np
     from agent import model_introspect
@@ -204,7 +204,7 @@ def _profile_hive(monkeypatch, tmp_path, monitor_embed, *, active=True):
 
 
 def test_profile_monitor_embed_turns_the_semantic_signal_on(monkeypatch, tmp_path):
-    """A profile that asks for the semantic monitor must actually get it - the field was
+    """A profile that asks for the semantic monitor must actually get it: the field was
     declared, defaulted, set across every builtin, serialized by apply(), and read by nothing."""
     h = _profile_hive(monkeypatch, tmp_path, monitor_embed=True)
     assert h.monitor()["alignment_mode"] == "embedding"

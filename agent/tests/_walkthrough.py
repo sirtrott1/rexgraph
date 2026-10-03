@@ -179,7 +179,7 @@ class Walk:
                 r = self.c.request(method, path, **kw)
                 status = r.status_code
                 body = r.text
-        except BaseException as e:  # noqa: BLE001 - a raise IS the finding
+        except BaseException as e:  # noqa: BLE001  # a raise IS the finding
             exc = f"{type(e).__name__}: {e}"
             body = traceback.format_exc()
         return self._record(method, path, status, body, exc, note, time.time() - t0)
@@ -236,7 +236,7 @@ def walk(tmp_path, monkeypatch):
     cap = _ErrCapture()
     log = logging.getLogger("agent.server.errors")
     log.addHandler(cap)
-    # loopback peer, so the host local admin routes are genuinely exercised
+    # loopback peer, so the host local admin routes are exercised
     client = TestClient(app, client=("127.0.0.1", 40000))
     server, port = _live_server(app)
     try:

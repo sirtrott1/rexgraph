@@ -41,7 +41,7 @@ class MyConnector(BaseConnector):
 
     def read(self, source: Any) -> tuple[Any, dict[str, Any]]:
         # TODO 1: READ YOUR SOURCE (read only)
-        # Pull the *structure* only - the entities and how they relate. Never
+        # Pull the *structure* only: the entities and how they relate. Never
         # read cell/row values; the engine persists structure, not data.
         # Produce, from your source:
         #   labels : list[str]                 one per entity (vertex)
@@ -52,8 +52,8 @@ class MyConnector(BaseConnector):
         # TODO 2: EMIT EDGES
         # Map each relationship to an edge between two vertices. B₁ is built for
         # you from these index pairs (source = -1, target = +1). Optionally:
-        #   weights  : list[float]   per edge - cardinality/magnitude -> strain
-        #   modality : list[dict]    per edge - {"nullable":..,"identifying":..}
+        #   weights  : list[float]   per edge: cardinality/magnitude -> strain
+        #   modality : list[dict]    per edge: {"nullable":..,"identifying":..}
         #   faces    : np.ndarray    dense B₂ (nE×nF) if some edges co close
         idx = {name: i for i, name in enumerate(labels)}
         sources = [idx[a] for a, _ in links]

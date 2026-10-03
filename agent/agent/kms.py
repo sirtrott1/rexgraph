@@ -95,7 +95,7 @@ class WorkspaceKeyring:
             found = secret_store().get(key_id)
             if found:
                 return found
-        except Exception:                            # noqa: BLE001 - not stored here
+        except Exception:                            # noqa: BLE001  # not stored here
             pass
         return resolve_ref(key_id)
 
@@ -127,7 +127,7 @@ class WorkspaceKeyring:
         for key in self._candidates():
             try:
                 return _aesgcm()(key).decrypt(nonce, sealed, aad)
-            except Exception as exc:                 # noqa: BLE001 - try the next key
+            except Exception as exc:                 # noqa: BLE001  # try the next key
                 last = exc
         raise PermissionError("no key in this workspace opens this envelope") from last
 
@@ -144,7 +144,7 @@ class WorkspaceKeyring:
             return _aesgcm()(self._material(key_id)).decrypt(nonce, sealed, aad)
         except PermissionError:
             raise
-        except Exception as exc:                     # noqa: BLE001 - wrong key or tamper
+        except Exception as exc:                     # noqa: BLE001  # wrong key or tamper
             raise PermissionError(
                 f"{key_id!r} does not open this envelope") from exc
 

@@ -245,10 +245,7 @@ _D = {"the", "a", "and", "on", "of", "to", "in"}
 
 
 def test_a_delimiter_gates_the_span_without_joining_it():
-    """Existence and orientation are separate operators and a gate is blind to the
-    second, so the delimiter is not in the support and does not head anything. It used to
-    be kept at the front and called the distinguished vertex, which made a comma carry
-    the -1 of a semantic relation."""
+    """A delimiter gates a span without joining its support or selecting its head."""
     from rexgraph.construct import spans_of
     assert spans_of(["the", "cat", "sat", "on", "the", "mat"], _D) == [
         ["cat", "sat"], ["mat"]]
@@ -313,8 +310,7 @@ def test_sentence_sections_are_the_grade_two_candidate():
 
 
 def test_a_one_token_span_builds_a_witness_rather_than_being_refused():
-    """It used to raise, on the belief that a one token span "is not a relation". It is:
-    a witness, `(+1)`, which exists and bounds nothing."""
+    """One token spans produce witness columns (+1)."""
     from rexgraph.construct import from_spans
     rex, info = from_spans([["solo"], ["x"], ["y", "y"]], verify=False)
     assert int(rex.nE) == 3

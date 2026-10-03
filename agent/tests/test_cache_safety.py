@@ -43,12 +43,8 @@ def test_nothing_on_disk_is_a_pickle(cache, tmp_path):
             continue
         assert p.suffix != ".pkl", f"{p.name} is a pickle"
         if p.suffix == ".rexblob":
-            # A rex blob is framed and compressed, so it cannot be sniffed by prefix any
-            # more than a bare safetensors file could: that format opens with an 8 byte
-            # little endian header length, and a header of exactly 1152 or 1408 bytes
-            # reads as b"\x80\x04" / b"\x80\x05", which a two byte sniff calls a pickle
-            # (measured: a real 1152 byte header did exactly that, and it parsed fine).
-            # Ask the format instead of guessing.
+            # A safetensors header length can begin with pickle protocol bytes.
+            # Validate the declared format rather than identifying it from those bytes.
             from agent.rcdb import deserialize_complex
             assert deserialize_complex(p.read_bytes()) is not None
             continue

@@ -1,13 +1,6 @@
-"""What a vertex past the second in a branching relation used to look like.
+"""Check neighborhoods for every participant of a branching relation.
 
-Every neighborhood reading went through `_v2e`, which was built from
-`_ensure_src_tgt`: two vertices per relation whatever the arity. So in a k-ary relation
-the vertices past the second had no incident relations at all, and each of these readings
-returned the value for an isolated vertex rather than a wrong ish one: zero energy, a
-never entry time in the filtration, an empty star.
-
-These are the values that changed, held to the correct ones. The pairwise cases are in
-`test_apd_hyperslice.py`, which pins that none of this moved for a 2 ary complex.
+Cases cover incident relations, energy, filtration entry and vertex stars.
 """
 from __future__ import annotations
 

@@ -134,8 +134,7 @@ def test_a_vertex_weighting_is_refused_rather_than_approximated():
 
 
 def test_it_answers_exactly_where_the_pairwise_derivation_refuses():
-    """The point of the kernel. `closed_form_applies` is False on every branching or
-    witness carrying complex, and those used to fall through to assembling."""
+    """The channel kernel handles branching and witness columns without pairwise formulas."""
     refused = [n for n in CASES if not closed_form_applies(_rex(CASES[n]))]
     assert refused, "some case must exercise the branching path"
     for name in refused:
@@ -243,13 +242,14 @@ def test_the_transpose_caps_its_threads_by_the_scratch_it_would_need():
             assert np.array_equal(a, b)
 
 
-def test_the_default_width_is_physical_cores_not_logical():
+def test_the_default_width_is_physical_cores_not_logical(monkeypatch):
     """The tower is memory bound, so SMT siblings add contention and not parallelism.
     An explicit set_threads still wins, since that is where a measured per host optimum
     goes."""
     from rexgraph import compute
     from rexgraph.hardware import cpu_count, physical_cores
     from rexgraph.sparse_character import _tower_width
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
     assert compute.get_threads() is None, "this test assumes no explicit width is set"
     assert _tower_width() == physical_cores()
     assert physical_cores() <= cpu_count()
@@ -312,3 +312,26 @@ def test_an_unrepresentable_scale_says_so_rather_than_rounding():
     p = channel_tower_precision(r._boundary_ptr, r._boundary_idx, int64_max=4)
     assert p["tower"] == "float" and p["scale"] is None
     assert "int64" in p["reason"]
+
+
+def test_live_character_retains_channel_carrier_vs_evaluator_precision():
+    from rexgraph.sparse_character import build_sparse_character_cheap
+
+    pairwise = _rex(CASES["pairwise triangle"])
+    reading = build_sparse_character_cheap(pairwise)["channel_arithmetic"]
+    assert reading["carrier"] == "integer"
+    assert reading["evaluator"] == "approximate-float64"
+    assert reading["integer_scale"] == 1
+
+    branching = _rex(CASES["one wide relation"])
+    reading = build_sparse_character_cheap(branching)["channel_arithmetic"]
+    assert reading["carrier"] == "rational"
+    assert reading["evaluator"] == "approximate-float64"
+    assert reading["integer_scale"] and reading["integer_scale"] > 1
+
+    normalized = _rex(CASES["pairwise triangle"])
+    normalized._g_channel = "normalized"
+    reading = build_sparse_character_cheap(normalized)["channel_arithmetic"]
+    assert reading["carrier"] == "mixed-rational-algebraic"
+    assert reading["evaluator"] == "approximate-float64"
+    assert reading["integer_scale"] is None

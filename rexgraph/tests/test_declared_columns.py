@@ -48,6 +48,19 @@ def test_declared_share_is_the_column_every_exact_reader_returns():
     assert _exact_b1_block(rex, [0]) == [column]
     # the quadrance is 1 + sum s_i^2 = 11/8, not the equal share's k/(k-1) = 4/3
     assert sum(c * c for c in column.values()) == Fraction(11, 8)
+    assert rex._exact_column_norms_B1() == [Fraction(11, 8)]
+    assert rex.trace_T == Fraction(11, 8)
+
+
+def test_declared_column_drives_the_full_exact_coupling_tower():
+    """The coupling invariants consume the declared column, never an arity template."""
+    rex = RexGraph.from_cells([4, [DECLARED, DECLARED], [[0, 1]]])
+    assert rex.trace_T == Fraction(11, 4)
+    assert rex.trace_L1 == Fraction(2)
+    assert rex.c0_squared == Fraction(8, 11)
+    assert rex.c2_E == Fraction(64, 121)
+    assert rex.c2_H == Fraction(1)
+    assert rex.c2_E * rex.c2_H == rex.c0_squared * rex.c0_squared
 
 
 def test_the_geometry_and_the_composite_read_the_declared_column():
@@ -75,15 +88,71 @@ def test_declared_share_changes_the_cycle_space():
 def test_declared_column_round_trips_through_the_state():
     rex = declared_rex()
     state = to_state(rex)
-    assert state.header["format_version"] == 9
+    assert state.header["format_version"] == 10
     assert {"column_head", "column_share_num", "column_share_den"} <= set(state.tensors)
     back = from_state(state)
     assert back.declares_columns
     assert primary_columns(back) == primary_columns(rex)
-    # a complex that declares nothing writes no such tensor and keeps its version
+    # Absence is explicit in the same native version; no column is invented.
     plain = to_state(RexGraph.from_cells([4, [[0, 1, 2, 3]]]))
     assert "column_head" not in plain.tensors
-    assert plain.header["format_version"] < 9
+    assert plain.header["format_version"] == 10
+
+
+def test_declared_column_round_trips_through_temporal_state_and_signal():
+    from rexgraph.graph import TemporalRex
+    from rexgraph.io.temporal_state import from_temporal_state, to_temporal_state
+    from rexgraph.temporal_signal import temporal_signal
+
+    first = declared_rex()
+    second = RexGraph.from_cells([4, [[
+        (0, -1),
+        (1, Fraction(1, 2)),
+        (2, Fraction(1, 4)),
+        (3, Fraction(1, 4)),
+    ]]])
+    history = TemporalRex([])
+    history.append_snapshot(first, at=1.0)
+    history.append_snapshot(second, at=2.0)
+
+    # A delta does not yet carry unequal rational shares, so declaration bearing
+    # transitions are exact full checkpoints rather than lossy arity reconstructions.
+    assert history._index_cp_times.tolist() == [0, 1]
+    assert history._index_deltas == [None, None]
+    assert primary_columns(history.at(0)) == primary_columns(first)
+    assert primary_columns(history.reconstruct_at(1)) == primary_columns(second)
+
+    state = to_temporal_state(history)
+    assert state.header["temporal_state_version"] == 4
+    assert "checkpoint/0/column_share_num" in state.tensors
+    restored = from_temporal_state(state)
+    assert primary_columns(restored.reconstruct_at(0)) == primary_columns(first)
+    assert primary_columns(restored.reconstruct_at(1)) == primary_columns(second)
+
+    signal = temporal_signal(restored, 1)
+    assert signal.event((0, 1, 2, 3)).boundary_changed
+    assert signal.source_field("structural").values.tolist() == [
+        Fraction(0), Fraction(1, 4), Fraction(-1, 4), Fraction(0)
+    ]
+
+
+def test_temporal_append_bundle_preserves_unequal_declared_shares(tmp_path):
+    from rexgraph.graph import TemporalRex
+    from rexgraph.io import load, save
+    first = RexGraph.from_cells([4, [[
+        (0, -1), (1, Fraction(1, 2)), (2, Fraction(1, 4)), (3, Fraction(1, 4)),
+    ]]])
+    second = declared_rex()
+    history = TemporalRex([])
+    history.append_snapshot(first, at=1.0)
+    history.append_snapshot(second, at=2.0)
+    path = tmp_path / "declared.rcbd"
+    save(path, history)
+    restored = load(path)
+    assert primary_columns(restored.reconstruct_at(0)) == primary_columns(first)
+    result = restored.reconstruct_at(1)
+    assert primary_columns(result) == primary_columns(second)
+    assert result._exact_column_norms_B1() == [Fraction(11, 8)]
 
 
 def test_an_inadmissible_declaration_is_refused_by_its_own_constraint():
@@ -114,9 +183,6 @@ def test_carriers_that_hold_only_the_canonical_column_refuse():
         rex._require_canonical_columns("a probe")
     with pytest.raises(ValueError, match="canonical column"):
         assert rex.clique_expansion is None      # the read is what refuses
-    from rexgraph.graph import TemporalRex
-    with pytest.raises(ValueError, match="canonical column"):
-        TemporalRex([]).append_snapshot(rex, at=0.0)
     from rexgraph.joins import join
     with pytest.raises(ValueError, match="canonical column"):
         join(rex, rex, labels_r=["a", "b", "c", "d"], labels_s=["a", "b", "c", "d"])
@@ -162,3 +228,59 @@ def test_the_compiled_tower_agrees_with_the_exact_reading_and_leaves_canonical_a
     threaded = channel_diagonals_any_arity(bp, bi, int(plain.nV), None, 4)
     for a, b in zip(serial, threaded, strict=True):
         assert a.tobytes() == b.tobytes()
+
+
+def test_a_declared_share_follows_its_own_relation_through_an_edit():
+    """Removing a relation must drop its head slot AND its incidence slots.
+
+    `head_slot` is one entry per relation and `share_num`/`share_den` one per incidence
+    in CSR order, so both have to follow the renumbering the boundary takes. They did
+    not: the arrays kept their old length and offsets while the boundary was shortened,
+    so the surviving relation read the REMOVED relation's shares, silently, because the
+    only length check is at construction.
+    """
+    from fractions import Fraction as F
+
+    from rexgraph import native_rank
+    from rexgraph.graph import RexGraph
+
+    def build():
+        return RexGraph(
+            boundary_ptr=np.array([0, 3, 6], dtype=np.int64),
+            boundary_idx=np.array([0, 1, 2, 3, 4, 5], dtype=np.int32),
+            w_E=np.asarray([F(10), F(20)], dtype=object),
+            head_slot=np.asarray([0, 0], dtype=np.int32),
+            shares=[F(0), F(1, 4), F(3, 4), F(0), F(1, 2), F(1, 2)])
+
+    # the weight identifies which relation survived, and its own shares must follow it
+    own = {F(10): [F(1, 4), F(3, 4)], F(20): [F(1, 2), F(1, 2)]}
+    for mask in ([True, False], [False, True]):
+        rex = build()
+        rex.remove_edges(np.asarray(mask))
+        rex._ensure_clean()
+        weight = list(rex.edge_metric_exact)[0]
+        column = native_rank.primary_columns(rex)[0]
+        tails = sorted(value for value in column.values() if value > 0)
+        assert tails == sorted(own[weight]), (
+            f"survivor carries weight {weight} but shares {tails}, which belong to the "
+            "relation that was removed")
+        assert sorted(column.values())[0] == F(-1), "the head must still carry -1"
+
+
+def test_a_declared_complex_still_declares_after_an_edit():
+    """The declaration survives as a declaration, not as a silently canonical column."""
+    from fractions import Fraction as F
+
+    from rexgraph.graph import RexGraph
+    rex = RexGraph(
+        boundary_ptr=np.array([0, 3, 6], dtype=np.int64),
+        boundary_idx=np.array([0, 1, 2, 3, 4, 5], dtype=np.int32),
+        w_E=np.asarray([F(1), F(1)], dtype=object),
+        head_slot=np.asarray([0, 0], dtype=np.int32),
+        shares=[F(0), F(1, 4), F(3, 4), F(0), F(1, 2), F(1, 2)])
+    assert rex.declares_columns
+    rex.remove_edges(np.asarray([True, False]))
+    rex._ensure_clean()
+    assert rex.declares_columns, "the surviving declared relation still declares"
+    assert len(rex._declaration.head_slot) == rex.nE
+    assert len(rex._declaration.share_den) == len(np.asarray(rex._boundary_idx))

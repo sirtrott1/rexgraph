@@ -14,7 +14,6 @@ import logging
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,7 @@ def _enforce_bind_safety(host: str) -> None:
     authentication DISABLED.
 
     Binding to 0.0.0.0 (or any non loopback host) while auth is off exposes an
-    unauthenticated *admin* API to the network - anyone who can reach the port
+    unauthenticated *admin* API to the network: anyone who can reach the port
     gets a local admin token. The default bind (127.0.0.1) is unaffected. Set
     RCF_ALLOW_INSECURE=1 to override deliberately (e.g. auth is terminated at an
     upstream reverse proxy / the port is firewalled to a private network)."""
@@ -129,39 +128,10 @@ def _secure_by_default() -> None:
         print("  Prefer open local dev? start with RCF_ALLOW_INSECURE=1\n")
 
 
-_REACT_VERSION = "18.2.0"
-_UI_ASSETS = {
-    "react.production.min.js":
-        f"https://cdnjs.cloudflare.com/ajax/libs/react/{_REACT_VERSION}/umd/react.production.min.js",
-    "react-dom.production.min.js":
-        f"https://cdnjs.cloudflare.com/ajax/libs/react-dom/{_REACT_VERSION}/umd/react-dom.production.min.js",
-}
-
-
 def _ensure_ui_assets() -> None:
-    """Fetch the vendored UI libraries (React) into the frontend dir if absent.
-
-    React is a third party dependency, not repo source, so it is acquired at
-    install or first run rather than committed. install.sh also vendors it; this
-    covers the plain `pip install` + run path. Best effort: the API works either
-    way, and an offline host gets a clear message instead of a silently broken UI.
-    """
-    fe = Path(__file__).parent.parent.parent / "frontend"
-    missing = [(n, u) for n, u in _UI_ASSETS.items()
-               if not (fe / n).exists() or (fe / n).stat().st_size == 0]
-    if not missing:
-        return
-    try:
-        import urllib.request
-        for name, url in missing:
-            logger.info("Fetching UI asset %s", name)
-            with urllib.request.urlopen(url, timeout=15) as resp:
-                (fe / name).write_bytes(resp.read())
-    except Exception as e:
-        logger.warning(
-            "Could not fetch UI assets (%s). The API and CLI work; the browser UI "
-            "needs %s in %s - run install.sh on a networked host, or copy them there.",
-            e, ", ".join(n for n, _ in missing), fe)
+    """Validate packaged runtime code offline, without writing the installation."""
+    from agent.ui_assets import validate_ui_assets
+    validate_ui_assets()
 
 
 def _open_browser(url: str) -> None:
@@ -186,7 +156,7 @@ def resolve_tls(https: bool = False, ssl_cert: str | None = None,
 
     One precedence, shared by both launchers:
       1. explicit ``ssl_cert`` + ``ssl_key`` (flags / args)
-      2. configured certs - env ``REXGRAPH_TLS_CERT``/``KEY`` or the config dir
+      2. configured certs: env ``REXGRAPH_TLS_CERT``/``KEY`` or the config dir
          (``get_https_config``); when present, HTTPS is used automatically
       3. ``https=True`` with none of the above -> generate a self signed cert
       4. otherwise -> plain HTTP
@@ -195,6 +165,8 @@ def resolve_tls(https: bool = False, ssl_cert: str | None = None,
     """
     from .security import generate_self_signed_cert, get_https_config
 
+    if bool(ssl_cert) != bool(ssl_key):
+        raise ValueError("explicit TLS requires both a certificate and private key")
     if ssl_cert and ssl_key:
         return {"ssl_certfile": ssl_cert, "ssl_keyfile": ssl_key}, "https"
 
@@ -206,9 +178,7 @@ def resolve_tls(https: bool = False, ssl_cert: str | None = None,
         print("HTTPS requested but no TLS certs configured - generating a self-signed cert…")
         result = generate_self_signed_cert()
         if "error" in result:
-            print(f"  {result['error']}")
-            print("  Falling back to HTTP.")
-            return {}, "http"
+            raise RuntimeError(f"HTTPS certificate generation failed: {result['error']}")
         print(f"  Cert: {result['cert_path']}")
         print(f"  Key:  {result['key_path']}")
         if result.get("note"):

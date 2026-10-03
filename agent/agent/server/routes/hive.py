@@ -40,7 +40,7 @@ async def hive_attach(body: dict = Body(...)):
     """Attach an already running endpoint as a bee.
 
     body: {name, url, role?, model?, specialties?, api_key_ref?}. `api_key_ref` names an env var /
-    secret store entry holding the endpoint's credential - the API never accepts or returns a raw
+    secret store entry holding the endpoint's credential: the API never accepts or returns a raw
     key, so a credential cannot arrive over the wire or be echoed back.
 
     Admin, because this points the hive at a url the CALLER chose and can hand that url a

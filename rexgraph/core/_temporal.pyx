@@ -1319,10 +1319,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
                 continue
             prev_set = set(prev_faces[fp].tolist())
             inter_size = len(curr_set & prev_set)
-            # A shared boundary cell is an exact structural fact. The old test was
-            # |A n B| / |A u B| >= 0.5, a similarity score with an untunable cutoff
-            # that also cannot see orientation at all, and it re derived, badly,
-            # something B2 and the canonical cell keys already state exactly.
+            # Match faces by the exact shared boundary count and min_shared.
             if inter_size >= min_shared:
                 matched.append(fp)
             if <f64>inter_size > best_j:
@@ -1362,9 +1359,7 @@ def track_faces_i32(np.ndarray[i32, ndim=1] B2_cp_prev,
             # merge with anything, it changed into another structure.
             ecv[fc] = FACE_MUTATE
         for fp in fps:
-            # record the lineage BOTH ways. p2c used to be written only by the
-            # exact match pass, so every approximate correspondence left its
-            # predecessor reported dead and the ancestry unrecoverable.
+            # Record both directions of the face lineage.
             if p2cv[fp] < 0:
                 p2cv[fp] = <i32>fc
             if prev_match_count.get(fp, 0) > 1:
@@ -1900,10 +1895,10 @@ def detect_phases_energy_ratio(np.ndarray[f64, ndim=1] E_kin,
 
     Parameters
 
-    E_kin : f64[T] - topological energy <f|L_1|f> per timestep
-    E_pot : f64[T] - geometric energy <f|L_O|f> per timestep
-    ratio_tol : float - log ratio threshold for crossover band
-    floor : float - minimum energy to avoid division by zero
+    E_kin : f64[T]: topological energy <f|L_1|f> per timestep
+    E_pot : f64[T]: geometric energy <f|L_O|f> per timestep
+    ratio_tol : float: log ratio threshold for crossover band
+    floor : float: minimum energy to avoid division by zero
 
     Returns
 
@@ -1985,7 +1980,7 @@ def compute_bioes_energy(np.ndarray[f64, ndim=1] E_kin,
 
     Returns
 
-    tags : int32[T] - BIOES tags (0=B, 1=I, 2=O, 3=E, 4=S)
+    tags : int32[T]: BIOES tags (0=B, 1=I, 2=O, 3=E, 4=S)
     phase_start : int32[n_phases]
     phase_end : int32[n_phases]
     phase_regime : int32[n_phases]
@@ -2159,7 +2154,8 @@ def cascade_edge_activation(np.ndarray[f64, ndim=2] edge_signals,
     cdef Py_ssize_t T = edge_signals.shape[0]
     cdef Py_ssize_t nE = edge_signals.shape[1]
     cdef f64[:, ::1] sv = edge_signals
-    cdef Py_ssize_t t, e
+    cdef Py_ssize_t t, e, r
+    cdef i32 e_idx
 
     cdef np.ndarray[i32, ndim=1] act_time = np.full(nE, -1, dtype=np.int32)
     cdef i32[::1] atv = act_time
@@ -2170,8 +2166,7 @@ def cascade_edge_activation(np.ndarray[f64, ndim=2] edge_signals,
                 atv[e] = <i32>t
                 break
 
-    # Build activation order using numpy argsort (avoids Python list sort)
-    cdef np.ndarray[i32, ndim=1] mask_act = np.where(act_time >= 0, 1, 0).astype(np.int32)
+    # Build activation order using numpy argsort (avoids Python list sort).
     cdef Py_ssize_t n_act = 0
     for e in range(nE):
         if atv[e] >= 0:
@@ -2180,17 +2175,21 @@ def cascade_edge_activation(np.ndarray[f64, ndim=2] edge_signals,
     cdef np.ndarray[i32, ndim=1] order = np.empty(n_act, dtype=np.int32)
     cdef np.ndarray[i32, ndim=1] rank = np.full(nE, -1, dtype=np.int32)
     cdef i32[::1] ov = order, rkv = rank
+    cdef np.ndarray[i32, ndim=1] act_edges, act_times_sub, sorted_edges
+    cdef np.ndarray[np.intp_t, ndim=1] sort_idx
+    cdef i32[::1] sev
 
     if n_act > 0:
-        # Extract activated edge indices, sort by activation time
+        # Keep the sort stable, but make the write back loop entirely C-level.
         act_edges = np.where(act_time >= 0)[0].astype(np.int32)
         act_times_sub = act_time[act_edges]
         sort_idx = np.argsort(act_times_sub, kind='mergesort')
         sorted_edges = act_edges[sort_idx]
+        sev = sorted_edges
 
         for r in range(n_act):
-            e_idx = sorted_edges[r]
-            ov[r] = <i32>e_idx
+            e_idx = sev[r]
+            ov[r] = e_idx
             rkv[e_idx] = <i32>r
 
     return act_time, order, rank
@@ -2209,7 +2208,7 @@ def cascade_wavefront(np.ndarray[f64, ndim=2] edge_signals,
     Parameters
 
     edge_signals : f64[T, nE]
-    edge_src, edge_tgt : int32[nE] - edge endpoints for vertex projection
+    edge_src, edge_tgt : int32[nE]: edge endpoints for vertex projection
     activation_threshold : float
 
     Returns

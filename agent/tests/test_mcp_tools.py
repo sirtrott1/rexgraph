@@ -1,12 +1,4 @@
-"""The tool registry, and the drift it exists to prevent.
-
-A tool definition is a promise that a name resolves to something that runs. Kept in a
-list parallel to the handlers, the two drift: a handler gets renamed, the definition
-still advertises the old name, and the failure surfaces only when a model calls it.
-That happened once already in this tree.
-
-So the first test here is the structural one: every advertised name dispatches.
-"""
+"""Check that every advertised tool name dispatches through the tool registry."""
 from __future__ import annotations
 
 import pytest

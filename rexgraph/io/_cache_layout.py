@@ -5,7 +5,7 @@ thirteen cache groups and the same thirteen methods for writing them, 76 stateme
 duplicated across two files. Two copies of one rule is how a fix lands in one of them,
 which is the whole reason this is one file now.
 
-What is genuinely per backend stays per backend. These methods decide WHAT is written
+What is per backend stays per backend. These methods decide WHAT is written
 and in what shape; the subclass decides HOW bytes reach the store, through the seam:
 
     _store(group, name, arr)          write one array
@@ -100,6 +100,11 @@ class CacheLayoutMixin:
         """Expand cache spec into individual property names."""
         if cache is None:
             return set()
+        values = [cache] if isinstance(cache, str) else list(cache)
+        valid = _ALL_CACHEABLE | set(_CACHE_GROUPS) | {"all"}
+        if any(not isinstance(name, str) or name not in valid for name in values):
+            raise ValueError("unknown cache property or group")
+        cache = values[0] if isinstance(cache, str) else values
         if isinstance(cache, str):
             if cache == "all":
                 return set(_ALL_CACHEABLE)
@@ -124,7 +129,7 @@ class CacheLayoutMixin:
         are `fname_encode`d because h5py treats '/' as a group separator, and nested rex tensor
         names legitimately contain '/'.
         """
-        from .rex_state import fname_encode, to_state
+        from rexgraph.state import fname_encode, to_state
 
         large = self._is_large(rex)
         st = to_state(rex)
@@ -136,20 +141,40 @@ class CacheLayoutMixin:
 
         if cache:
             self._write_cache(g, rex, cache, large)
+        if st.header["format_version"] == 10:
+            expected = {fname_encode(name) for name in st.tensors}
+            g.attrs["rex_cache_groups"] = json.dumps(sorted(set(g.keys()) - expected))
 
     def _read_rex_graph(self, g) -> RexGraph:
         """Reconstruct a RexGraph from an HDF5 group via the canonical rex state."""
-        from .rex_state import RexState, fname_encode, from_state
+        from rexgraph.state import RexState, fname_encode, from_state
 
         hdr = json.loads(as_str(g.attrs["rex_state_header"]))
         names = json.loads(as_str(g.attrs["tensor_names"]))
+        if hdr.get("format_version") == 10:
+            if not isinstance(names, list) or names != list(dict.fromkeys(names)) or sorted(names) != hdr.get("digest_names"):
+                raise ValueError("container tensor list disagrees with the semantic seal")
+            expected = {fname_encode(name) for name in names}
+            groups = json.loads(as_str(g.attrs.get("rex_cache_groups", "[]")))
+            if not isinstance(groups, list) or groups != sorted(set(groups)) or set(groups) - set(_CACHE_GROUPS):
+                raise ValueError("invalid derived cache group declaration")
+            if any(name not in g or not hasattr(g[name], "keys") for name in groups):
+                raise ValueError("missing or invalid derived cache group")
+            auxiliary = json.loads(as_str(g.attrs.get("rex_auxiliary_groups", "[]")))
+            if (not isinstance(auxiliary, list) or any(type(name) is not str for name in auxiliary)
+                    or auxiliary != sorted(set(auxiliary)) or set(auxiliary) & (expected | set(groups))
+                    or any(name not in g or not hasattr(g[name], "keys") for name in auxiliary)):
+                raise ValueError("invalid auxiliary group declaration")
+            unknown = set(g.keys()) - expected - set(groups) - set(auxiliary)
+            if unknown:
+                raise ValueError(f"unclaimed container state entries: {sorted(unknown)!r}")
         tensors = {name: self._load(g, fname_encode(name)) for name in names}
         return from_state(RexState(tensors, hdr))
 
     def _write_temporal_rex(self, g, trex, *, cache=None) -> None:
         """Write the canonical lazy checkpoint/delta state, not a snapshot shadow."""
-        from .rex_state import fname_encode
-        from .temporal_state import to_temporal_state
+        from rexgraph.state import fname_encode
+        from rexgraph.temporal_state import to_temporal_state
         state = to_temporal_state(trex)
         for name, arr in state.tensors.items():
             self._store(g, fname_encode(name), arr)
@@ -161,8 +186,8 @@ class CacheLayoutMixin:
             self._write_temporal_cache(g, trex, cache)
 
     def _read_temporal_state(self, g):
-        from .rex_state import fname_encode
-        from .temporal_state import TemporalState, from_temporal_state
+        from rexgraph.state import fname_encode
+        from rexgraph.temporal_state import TemporalState, from_temporal_state
         header = json.loads(as_str(g.attrs["temporal_state_header"]))
         names = json.loads(as_str(g.attrs["tensor_names"]))
         tensors = {name: self._load(g, fname_encode(name)) for name in names}

@@ -3,8 +3,8 @@ Tests for the audit driven agent fixes.
 
 These exercise the parts that run without the compiled Cython core, so
 they pass in a source checkout.  Paths that require compiled kernels
-(full Hodge/spectral/persistence) are covered structurally - we assert
-the wiring is correct and degrades gracefully - and run fully once the
+(full Hodge/spectral/persistence) are covered structurally: we assert
+the wiring is correct and degrades gracefully: and run fully once the
 extensions are built.
 """
 

@@ -21,15 +21,11 @@ __all__ = ["fiedler_L0", "kernel_basis", "kernel_from_boundary", "deflated_opera
            "leverage_sketch"]
 
 _TOL = 1e-10
-_DENSE_MAX = 2000          # below this an exact dense eigh is simply cheaper
+_DENSE_MAX = 2000          # hard ceiling; configured eigen_dense_limit may lower it
 
-# For a symmetric eigenproblem the residual bounds the error outright:
-#   |lambda_computed - lambda_true| <= ||r||
-# so ||r||/lambda is a genuine RELATIVE accuracy statement and the only scale free way
-# to ask whether a Fiedler value is resolved. An absolute test cannot do it: 1.6e-02 is
-# a converged answer for lambda = 5.54 and a meaningless one for lambda = 1.6e-06.
-# Measured, the two regimes sit four orders apart on this ratio (2.8e-03 against
-# 5.4e+01), so this is the discriminator and not a tuned constant.
+# For a symmetric eigenproblem, distance to the nearest exact eigenvalue
+# is bounded by the residual norm. Compare that norm with the computed
+# eigenvalue magnitude to report relative accuracy.
 _REL_RESID_OK = 1e-2       # the value is resolved to better than a percent
 
 
@@ -73,6 +69,8 @@ def kernel_basis(L0):
 
 
 def _dense(L0, nV, k):
+    from rexgraph.evaluator import require_bounded_full_eigen
+    require_bounded_full_eigen("L0 Fiedler dense evaluator", nV)
     evals, evecs = np.linalg.eigh(np.asarray(L0.todense(), dtype=np.float64))
     evals[np.abs(evals) < 1e-10] = 0.0
     evals[evals < 0] = 0.0
@@ -109,7 +107,8 @@ def fiedler_L0(L0, k: int = 6):
     if nV <= 1:
         return (0.0, np.zeros(nV, dtype=np.float64),
                 np.zeros(nV, dtype=np.float64), np.eye(nV, dtype=np.float64))
-    if nV <= _DENSE_MAX:
+    from rexgraph.evaluator import eigen_dense_limit
+    if nV <= min(_DENSE_MAX, eigen_dense_limit()):
         return _dense(L0, nV, k)
 
     U, ncomp = kernel_basis(L0)

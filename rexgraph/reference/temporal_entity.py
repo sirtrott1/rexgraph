@@ -1,13 +1,9 @@
 """
-rexgraph.core._temporal_entity_py: Pure Python fallback for entity level
-BIOES tagging. Same API as _temporal_entity.pyx, uses numpy vectorization.
+rexgraph.reference.temporal_entity: Pure Python parity oracle for entity level
+BIOES tagging. It mirrors ``core._temporal_entity`` for tests and benchmarks only.
 
-Import order: try Cython first, fall back to this.
-
-    try:
-        from rexgraph.core._temporal_entity import entity_bioes_matrix
-    except ImportError:
-        from rexgraph.core._temporal_entity_py import entity_bioes_matrix
+Production code uses the compiled kernel directly; this module is never an automatic
+fallback.
 """
 
 import numpy as np
@@ -41,8 +37,13 @@ def entity_bioes_matrix(birth, death, T):
     return tags
 
 
-def entity_bioes_gapped(snapshots, edge_ids, directed=False):
-    """Gap aware per entity BIOES. Pure Python."""
+def entity_bioes_gapped(snapshots, edge_ids, directed=False, general=False):
+    """Gap aware per entity BIOES. Pure Python.
+
+    With `general`, a snapshot is one i64 relation id array rather than an
+    (src, tgt) pair: a relation of arity other than two has no pairwise key, so
+    encoding one would read every branching relation as absent at every step.
+    """
 
     T = len(snapshots)
     N = len(edge_ids)
@@ -52,6 +53,12 @@ def entity_bioes_gapped(snapshots, edge_ids, directed=False):
     presence = np.zeros((N, T), dtype=np.uint8)
 
     for t in range(T):
+        if general:
+            for identity in np.asarray(snapshots[t], dtype=np.int64):
+                idx = eid_to_idx.get(int(identity))
+                if idx is not None:
+                    presence[idx, t] = 1
+            continue
         src, tgt = snapshots[t]
         for j in range(len(src)):
             s, tg = int(src[j]), int(tgt[j])

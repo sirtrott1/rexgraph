@@ -88,7 +88,7 @@ def test_an_unknown_subcommand_is_rejected_cleanly(name):
     fn = getattr(importlib.import_module(mod_name), fn_name)
     try:
         rc, out = _run(fn, [name, "definitely-not-a-real-subcommand"])
-    except Exception as e:                       # noqa: BLE001 - that is the finding
+    except Exception as e:                       # noqa: BLE001  # that is the finding
         pytest.fail(f"{name} raised {type(e).__name__} on a bad subcommand: {e}")
     assert rc != 0 or "usage" in out.lower() or "unknown" in out.lower(), (
         f"{name} accepted a nonsense subcommand (rc={rc})")

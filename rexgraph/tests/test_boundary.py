@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._boundary - chain complex construction.
+Tests for rexgraph.core._boundary: chain complex construction.
 
 Verifies:
     - B1 shape, column sums zero, signed incidence

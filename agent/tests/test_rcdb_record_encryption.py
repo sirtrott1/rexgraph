@@ -25,7 +25,7 @@ def _rex():
 
 
 def _sealed(uri):
-    return open_store(uri).configure_security(key_id="records", keys=KEYS)
+    return open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {})).configure_security(key_id="records", keys=KEYS)
 
 
 @pytest.mark.parametrize("backend", ["memory", "file", "rex"])
@@ -48,7 +48,7 @@ def test_the_object_backend_seals_too():
     """
     pytest.importorskip("fsspec")
     from agent.objectstore import ObjectStore
-    store = ObjectStore("memory://sealed-objtest")
+    store = ObjectStore("memory://sealed-objtest", read_only=False)
     store.configure_security(key_id="records", keys=KEYS)
     store.put("r1", _rex())
     back = store.get("r1")
@@ -68,7 +68,7 @@ def test_an_unconfigured_store_refuses_a_sealed_payload(tmp_path):
     """A refusal, not a plaintext read of ciphertext."""
     root = tmp_path / "f"
     _sealed(f"file://{root}").put("r1", _rex())
-    blind = open_store(f"file://{root}")
+    blind = open_store(f"file://{root}", read_only=False)
     with pytest.raises(PermissionError):
         blind.get("r1")
 
@@ -76,7 +76,7 @@ def test_an_unconfigured_store_refuses_a_sealed_payload(tmp_path):
 def test_a_wrong_key_does_not_open_it(tmp_path):
     root = tmp_path / "f"
     _sealed(f"file://{root}").put("r1", _rex())
-    other = open_store(f"file://{root}").configure_security(
+    other = open_store(f"file://{root}", read_only=False).configure_security(
         key_id="records", keys=StaticKeyProvider({"records": b"w" * 32}))
     # A refusal, not cryptography's InvalidTag: a caller must not have to import the
     # crypto library to catch what the store did.
@@ -87,7 +87,7 @@ def test_a_wrong_key_does_not_open_it(tmp_path):
 def test_plaintext_written_before_a_key_still_opens_after_one(tmp_path):
     """The decision is made by the envelope, so both live side by side."""
     root = tmp_path / "f"
-    plain = open_store(f"file://{root}")
+    plain = open_store(f"file://{root}", read_only=False)
     plain.put("old", _rex())
     later = _sealed(f"file://{root}")
     later.put("new", _rex())
@@ -95,9 +95,9 @@ def test_plaintext_written_before_a_key_still_opens_after_one(tmp_path):
     assert later.get("new") is not None
 
 
-def test_a_store_with_no_key_is_byte_identical_to_before(tmp_path):
-    """Additive: a store that never configures security writes what it always wrote."""
-    a = open_store(f"file://{tmp_path / 'a'}")
+def test_a_store_with_no_key_writes_plaintext_record_envelopes(tmp_path):
+    """Optional encryption leaves the native ownership frame in plaintext."""
+    a = open_store(f"file://{tmp_path / 'a'}", read_only=False)
     a.put("r1", _rex())
     written = [p for p in (tmp_path / "a").rglob("*") if p.is_file()]
     assert not any(p.read_bytes().startswith(ENVELOPE_MAGIC) for p in written)

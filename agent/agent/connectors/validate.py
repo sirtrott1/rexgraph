@@ -62,7 +62,7 @@ class ValidationReport:
 def validate_connector(connector: Any, source: Any = None,
                        store_uri: str = "memory://") -> ValidationReport:
     """Validate one connector against one source. Never raises for a check
-    failure - every failure is recorded and reported, so a partial connector
+    failure: every failure is recorded and reported, so a partial connector
     still yields an actionable report."""
     rep = ValidationReport(connector=type(connector).__name__)
 
@@ -141,7 +141,7 @@ def validate_connector(connector: Any, source: Any = None,
 
     # 6. read only probe
     # Concrete, in sandbox checks: the connector is deterministic (reading
-    # twice yields the same structure - a writing connector that mutated the
+    # twice yields the same structure: a writing connector that mutated the
     # source would drift) and exposes no write surface. Proving read only
     # against a *live* source is a per integration review item in the host env.
     try:

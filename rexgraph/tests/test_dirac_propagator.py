@@ -39,7 +39,7 @@ def _tetra_2rex():
 
 
 def _cycle_complex(nv):
-    """A 1 rex cycle of ``nv`` vertices with pairwise edges - large enough (N = 2*nv)
+    """A 1 rex cycle of ``nv`` vertices with pairwise edges: large enough (N = 2*nv)
     to push a wide state block onto the parallel column tiling path of matvec."""
     src = np.arange(nv, dtype=np.int64)
     tgt = (np.arange(nv, dtype=np.int64) + 1) % nv
@@ -140,13 +140,10 @@ def test_light_imaginary_part_crosses_grades():
     re, im = sd.light(psi0, t=0.7, order=200)
     e_re = sd.grade_energy(re)
     e_im = sd.grade_energy(im)
-    # the imaginary (curl) part must put energy on grade 1 (edges) - crossed a grade
+    # the imaginary (curl) part must put energy on grade 1 (edges): crossed a grade
     assert e_im[1] > 1e-6, f"no grade-1 transport in curl part: {e_im}"
-    # and the real part must NOT, which is the other half of the same statement and was
-    # computed here without being checked. cos(tD) is EVEN in D, so it can only reach
-    # grades an even number of boundary steps away; sin(tD) is odd and always crosses.
-    # Measured on this complex: real [0.0725, 0.0], imaginary [0.0, 1.9275], so the
-    # split is not approximate, it is total.
+    # cos(tD) reaches grades an even number of boundary steps away;
+    # sin(tD) reaches grades an odd number of steps away.
     assert e_re[0] > 1e-6, f"the even part lost its own grade: {e_re}"
     assert e_re[1] < 1e-9, f"cos(tD) is even and must not cross a grade: {e_re}"
 
@@ -203,8 +200,8 @@ def test_full_2rex_with_faces_matches_dense():
 
 
 def test_face_sector_receives_grade2_transport():
-    """Amplitude seeded on edges reaches the FACE sector under the curl part - a
-    two hop V/E/F Dirac genuinely couples grade 1 to grade 2 through B2."""
+    """Amplitude seeded on edges reaches the FACE sector under the curl part: a
+    two hop V/E/F Dirac couples grade 1 to grade 2 through B2."""
     g = _tetra_2rex()
     sd = dirac_from_rex(g)
     psi0 = np.zeros(sd.N)
@@ -234,7 +231,7 @@ def test_grade_general_witness_edge_only():
 def test_block_matvec_parallel_equals_serial():
     """A wide state block takes the parallel column tiling path of matvec; its result
     must be bit for bit (<=1e-12) the serial core. Sized past the parallel gate so the
-    threaded branch is genuinely exercised."""
+    threaded branch is exercised."""
     from rexgraph import dirac_propagator as dp
 
     g = _cycle_complex(200)
@@ -328,7 +325,7 @@ def test_graded_boundaries_property_is_used_when_present():
     fallback = _boundaries_from_rex(g)              # no graded_boundaries -> fallback path
 
     class _Wrap:
-        graded_boundaries = fallback                # simulate the other workstream's property
+        graded_boundaries = fallback                # Supply graded boundaries through the public property.
 
     used = _boundaries_from_rex(_Wrap())
     assert len(used) == len(fallback)
@@ -363,7 +360,7 @@ def test_deprecated_heat_diag_warns_but_still_correct():
 
 def test_from_cells_3rex_dirac_is_grade_general():
     """A from_cells 3 rex (solid octahedron: V/E/F/Volume) propagates through ALL
-    four grades - RexGraph.sparse_dirac reads graded_boundaries() so B3 participates
+    four grades: RexGraph.sparse_dirac reads graded_boundaries() so B3 participates
     (the pre integration seam silently truncated to V/E). A uniform face seed lies in
     ker(B2), so its curl transport lands purely on the volume via B3^T."""
     from rexgraph.graded_boundary import solid_octahedron_3rex, verify_chain

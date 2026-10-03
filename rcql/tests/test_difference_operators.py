@@ -134,12 +134,12 @@ def test_reopened_rcdb_states_feed_native_diff_and_correspondence(tmp_path):
     path = f"rex://{tmp_path / 'db'}"
     before = RexGraph.from_cells([2, [[0, 1]]], relation_ids=[17])
     after = RexGraph.from_cells([2, [[1, 0], [0]]], relation_ids=[17, 19])
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     for name, value in (("before", before), ("after", after)):
         Executor(sources={"db": store}, params={"x": value}).execute(parse(
             f'FROM $db MUTATE "{name}" SET state=$x, actor="Art" COMMIT'))
     store.close()
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     try:
         e = Executor(sources={"db": store}, params={"after": store.get("after")})
         d = e.execute(parse('FROM RCDB_GET($db,"before") RETURN DIFF($after)')).values[0]

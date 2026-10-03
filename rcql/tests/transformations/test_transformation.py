@@ -153,10 +153,10 @@ def test_portable(tmp_path, format):
         else:
             from rcdb import open_store
             uri = 'file://'+str(tmp_path/'store')
-            db = open_store(uri)
+            db = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
             db.commit_mutation('t', record, expected_version=0, analytics=False)
             db.close()
-            db = open_store(uri)
+            db = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
             try:
                 record = db.read_record('t', version=1).value
                 assert db.verify_commits('t')

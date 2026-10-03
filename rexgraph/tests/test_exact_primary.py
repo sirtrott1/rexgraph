@@ -57,7 +57,7 @@ class TestPaperGreenFixtures:
 
     def test_multiplicity_is_a_real_harmonic_mode(self):
         """Two primary relations may share a boundary column. (1,-1) is then a nonzero
-        field with zero boundary -- not a duplicate to collapse."""
+        field with zero boundary: not a duplicate to collapse."""
         both = RexGraph(boundary_ptr=np.asarray([0, 2, 4], np.int64),
                         boundary_idx=np.asarray([0, 1, 0, 1], np.int64))
         assert both.green(frac([1, 0]), exact=True) == frac(["3/5", "-2/5"])

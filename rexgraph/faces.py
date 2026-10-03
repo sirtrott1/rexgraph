@@ -28,6 +28,8 @@ from fractions import Fraction
 
 import numpy as np
 
+from rexgraph.exact_value import binary_fraction
+
 __all__ = ["solve_face_column", "solve_face_basis", "face_reading",
            "orientation_holonomy", "face_support", "cycle_basis", "cycle_supports",
            "cycle_gons",
@@ -38,7 +40,7 @@ __all__ = ["solve_face_column", "solve_face_basis", "face_reading",
 def filling_column(rex, values):
     """Validate one stored integral attaching column against the original Q map."""
     from numbers import Integral, Real
-    from rexgraph.io.partition_state import partition_tower
+    from rexgraph.partition_state import partition_tower
     _, columns = partition_tower(rex)
     values = np.asarray(values, dtype=object)
     if values.shape != (int(rex.nE),):
@@ -48,7 +50,8 @@ def filling_column(rex, values):
         if isinstance(raw, (bool, np.bool_)) or not isinstance(raw, (Integral, Real, Fraction)):
             raise TypeError("filling coefficients must be real integers")
         value = (Fraction(int(raw)) if isinstance(raw, Integral) else
-                 raw if isinstance(raw, Fraction) else Fraction(float(raw)))
+                 raw if isinstance(raw, Fraction) else
+                 binary_fraction(raw, context="filling coefficient"))
         if value.denominator != 1:
             raise ValueError("filling coefficients must be integral; no rescaling is inferred")
         if not value:
@@ -69,19 +72,12 @@ def filling_column(rex, values):
 def fill_cycle(rex, values):
     """Attach one declared cycle through native state and face append operations."""
     from copy import deepcopy
-    from rexgraph.io.partition_state import partition_tower
-    from rexgraph.io.rex_state import from_state, to_state
-    from rexgraph.native_sparse import csr_carrier, sparse_arrays
+    from rexgraph.partition_state import partition_tower
+    from rexgraph.state import from_state, to_state
     column = filling_column(rex, values)
     result = from_state(deepcopy(to_state(rex)))
     result.add_faces([list(column)], [list(column.values())])
     result._ensure_clean()
-    if result._graded_duals:
-        # B3 gets a zero row for the appended C2 cell. All old coefficients,
-        # C3 identities and maps above B3 remain unchanged.
-        ptr, indices, data, shape = sparse_arrays(result._graded_duals[0])
-        result._graded_duals[0] = csr_carrier(
-            np.append(ptr, ptr[-1]), indices, data, (shape[0] + 1, shape[1]))
     partition_tower(result)
     return result
 
@@ -131,6 +127,28 @@ def solve_face_column(rex, edge_ids):
         return None
     vector = _primitive_kernel_vector(vector)
     return [Fraction(vector.get(i, 0)) for i in range(len(edge_ids))]
+
+
+def orient_triangle_selection(rex, result, families):
+    """Read native triangle supports in the declared primary boundary basis.
+
+    The endpoint kernel orders vertices and emits [1, -1, 1]. A declared
+    pair may run in either direction. Read each participating exact column
+    once, then transport all candidate signs without a solve per triangle.
+    """
+    supports = [np.asarray(result[edges]).reshape(-1, 3) for edges, _ in families]
+    used = np.unique(np.concatenate([edges.ravel() for edges in supports]))
+    columns = _exact_b1_block(rex, used)
+    orientation = np.ones(rex.nE, dtype=np.int8)
+    for edge, column in zip(used, columns, strict=True):
+        if len(column) != 2 or sorted(column.values()) != [Fraction(-1), Fraction(1)]:
+            raise ValueError("triangle selection requires unit pairwise boundary columns")
+        orientation[edge] = -int(column[min(column)])
+    for edges, (_, signs) in zip(supports, families, strict=True):
+        values = np.tile([1., -1., 1.], (len(edges), 1)) * orientation[edges]
+        values *= values[:, :1]
+        result[signs] = values.ravel()
+    return result
 
 
 def solve_face_basis(rex, edge_ids) -> list:
@@ -588,7 +606,7 @@ def cycle_basis(rex, *, traversal="bfs"):
     forest, not a tree: one root per component, or every edge of every other component
     reads as a back edge.
 
-    ANY ARITY ABOVE TWO -> the kernel outright. rank(B1) = n0 - c is a GRAPH identity,
+    ANY ARITY ABOVE TWO -> the kernel outright. rank(B1) = n0: c is a GRAPH identity,
     and an arity-k relation touches k vertices while contributing rank one, so reaching a
     new VERTEX stops meaning reaching a new DIRECTION. Only the second is what a cycle is
     the absence of, and a traversal cannot see it: the double-T has no cycle, but a walk

@@ -40,6 +40,7 @@ from collections.abc import Sequence
 import numpy as np
 import scipy.sparse as sp
 
+from rexgraph.dense_matrix import ensure_dense as _ensure_dense
 from rexgraph.faces import auto_hyperface
 from rexgraph.graph import RexGraph
 
@@ -47,7 +48,7 @@ __all__ = ["FlowComplex", "build_flow_complex"]
 
 
 def _dense(M):
-    return M.toarray() if sp.issparse(M) else np.asarray(M, dtype=float)
+    return _ensure_dense(M, operation="flow complex dense boundary")
 
 
 def _b1_csr(rex):
@@ -188,21 +189,10 @@ class FlowComplex:
 
     @property
     def chain_residual(self) -> float:
-        """max |B1 B2|, which the chain condition requires to be 0. Adjudicated exactly.
+        """Return zero when the exact chain condition holds, otherwise the float residual.
 
-        This was a float max over the densified operators, which is what core refuses in
-        its own docstring, and it returned 0.0 for every arity it was tried at for a
-        reason that is not the mathematics: a column is (-1, 1/(k-1), ..., 1/(k-1)) and
-        `(k-1) * fl(1/(k-1))` happens to round back to exactly 1 for k = 3..12. It does
-        not in general. Scanning k = 3..4000, 483 arities leave a nonzero float column sum
-        (the first is k = 50), so a structurally perfect complex would have reported a
-        failure there, and a genuinely broken one can report success anywhere the error
-        lands under the noise.
-
-        `rex.chain_valid` is the same predicate over the rationals, so this defers to it
-        and returns 0.0 exactly when the condition holds. The float magnitude stays
-        available as `chain_residual_float` for anyone who wants the numerical size rather
-        than the answer.
+        Without faces, return zero. rex.chain_valid supplies the exact verdict;
+        chain_residual_float separately reports the numerical magnitude of B1 B2.
         """
         if not self.n_faces:
             return 0.0
@@ -293,7 +283,7 @@ class FlowComplex:
 
         D is supported only between consecutive grades, so this always MOVES the signal
         across a grade and never leaves it where it was. That is equiweight
-        (Gamma D + D Gamma = 0) as an operation rather than an identity on paper.
+        (Gamma D + D Gamma = 0) on the graded state.
         """
         from rexgraph.dirac_propagator import dirac_from_rex
 
@@ -322,12 +312,8 @@ class FlowComplex:
 def flow_adjacency(rex, *, alpha=1.0):
     """The propagation operator that READS BOTH GRADES: L1_down + alpha * L1_up.
 
-    `coparticipation_adjacency` is built from abs(B1) alone and never touches B2, so a
-    learner using it is blind to every face in the complex: attaching hyperfaces leaves
-    its operator bit identical. Measured on a three group fixture, the co participation
-    block over the measurement relations is unchanged by closing the complex, which is
-    why an ablation over that learner reports the same accuracy for an open and a closed
-    complex. The curl tier exists and the model cannot see it.
+    coparticipation_adjacency reads B1 only. This operator also reads B2,
+    so attaching faces can change the relation adjacency.
 
     This is the operator a flow model needs: the down Laplacian carries the gradient tier
     and the up Laplacian carries the curl tier, so signal propagates through both. alpha

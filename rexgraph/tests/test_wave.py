@@ -346,9 +346,7 @@ class TestRexGraphIntegration:
 
 
 class TestAmplitudeGradedProjectionArity:
-    """amplitude_graded_projection reads edge endpoints from B1's signed columns,
-    so it handles arbitrary arity (witness deg 1, branching deg>2) - the old code
-    kept only the first two nonzeros."""
+    """Graded amplitude projection reads every signed boundary occurrence at any arity."""
 
     def test_two_arity_geometric_mean(self):
         from rexgraph.graph import RexGraph

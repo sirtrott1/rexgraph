@@ -62,7 +62,7 @@ def test_catalog_reopen_and_native_rcdb_export(tmp_path):
     from rexgraph import RexGraph
     from rexgraph.io import save
     r = RexGraph.from_cells([4, [[0, 1, 2], [2, 3]]])
-    with closing(rcdb.open_store(f"rex://{tmp_path / 'db'}")) as db:
+    with closing(rcdb.open_store(f"rex://{tmp_path / 'db'}", read_only=False)) as db:
         db.put("r", r)
         save(str(tmp_path / "state.safetensors"), db.get("r"))
     first = FileCatalog([tmp_path])

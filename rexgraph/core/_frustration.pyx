@@ -87,42 +87,6 @@ def build_vertex_weights_i64(Py_ssize_t nV, Py_ssize_t nE,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef int _build_v2e_csr_i32(
-    const i32[::1] sources,
-    const i32[::1] targets,
-    Py_ssize_t nV, Py_ssize_t nE,
-    i32* vptr, i32* vidx
-) noexcept nogil:
-    """Build vertex to edge CSR. Caller allocates vptr[nV+1], vidx[2*nE]."""
-    cdef Py_ssize_t e
-    cdef i32 u, v
-
-    memset(vptr, 0, (nV + 1) * sizeof(i32))
-    for e in range(nE):
-        vptr[sources[e] + 1] += 1
-        vptr[targets[e] + 1] += 1
-
-    cdef Py_ssize_t i
-    for i in range(1, nV + 1):
-        vptr[i] += vptr[i - 1]
-
-    cdef i32* pos = <i32*>malloc(nV * sizeof(i32))
-    if pos == NULL:
-        return -1
-    for i in range(nV):
-        pos[i] = vptr[i]
-
-    for e in range(nE):
-        u = sources[e]
-        vidx[pos[u]] = <i32>e
-        pos[u] += 1
-        v = targets[e]
-        vidx[pos[v]] = <i32>e
-        pos[v] += 1
-
-    free(pos)
-    return 0
-
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -131,7 +95,7 @@ def build_signed_gramian_dense(Py_ssize_t nV, Py_ssize_t nE,
                                 np.ndarray[i32, ndim=1] targets,
                                 np.ndarray[f64, ndim=1] signs,
                                 np.ndarray[f64, ndim=1] vertex_weights):
-    """K_s = B1^T diag(w) B1 - signed boundary Gramian.
+    """K_s = B1^T diag(w) B1: signed boundary Gramian.
 
     K_s[i,j] = sum_{v in boundary(i) & boundary(j)} w(v) * B1[v,i] * B1[v,j]
 
@@ -251,7 +215,7 @@ def build_L_SG_dense(Py_ssize_t nV, Py_ssize_t nE,
 
 
 def build_L_SG_sparse(Py_ssize_t nV, Py_ssize_t nE, sources, targets, signs, vertex_weights):
-    """REAL sparse frustration Laplacian - K_s = Bs^T W Bs assembled as a SPARSE matmul
+    """REAL sparse frustration Laplacian: K_s = Bs^T W Bs assembled as a SPARSE matmul
     (Bs the sign scaled signed incidence: Bs[v,e] = B1[v,e]·sign(e) = -sign(e) at the
     source, +sign(e) at the target), so K_s has the O(Σ deg²) line graph sparsity and is
     never the dense nE×nE Gramian. Then L_SG = D_{|K_off|} − K_off with K_off = K_s

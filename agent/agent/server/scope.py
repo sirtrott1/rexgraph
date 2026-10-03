@@ -1,25 +1,11 @@
-"""
-agent.server.scope: which workspace the request in hand belongs to, and a store that
-cannot see past it.
+"""agent.server.scope: request workspace context and filtered store views.
 
-Authentication is settled globally by `security.add_auth_enforcement`: with auth on,
-every route needs a valid token. That answers whether a caller is someone. It does not
-answer which records are theirs, and the record store is one namespace shared by every
-workspace, so a valid token was enough to list and read what another tenant put there.
+With authentication enabled, default_store() returns a view restricted to the
+request's workspace. The context travels through a context variable. Unset
+context and authentication disabled select unrestricted in process access.
 
-Fixing that route by route means remembering it on each of them, including the next one
-someone writes. Instead the restriction goes where the records are reached: the
-workspace travels with the request in a context variable, and the store accessor hands
-back a view filtered by it. A route keeps calling `default_store()` and gets a store
-that does not contain other people's records, so there is no check to forget.
-
-Unset context means unrestricted, which is what the CLI, the test suite and any
-in process caller want: they are not serving a request and are not being scoped. The
-filter also only engages when auth is on, so single operator local use is untouched.
-
-A record with no workspace recorded is treated as belonging to everyone. Those are the
-ones written before this existed, and hiding them would make an upgrade look like data
-loss. New records get stamped on the way in.
+Records without a workspace stamp are visible to every workspace for compatibility.
+New request publications receive a workspace stamp.
 """
 
 from __future__ import annotations
@@ -72,7 +58,7 @@ def scoping_active() -> bool:
     try:
         from agent.server.auth import get_auth_manager
         return bool(get_auth_manager().auth_enabled)
-    except Exception:                            # noqa: BLE001 - no auth, no scoping
+    except Exception:                            # noqa: BLE001  # no auth, no scoping
         return False
 
 
@@ -103,6 +89,24 @@ class ScopedStore:
     def __getattr__(self, name):
         return getattr(self._inner, name)
 
+    def _write_guard(self):
+        from rcdb.header import StoreHeader
+        if isinstance(getattr(self._inner, "header", None), StoreHeader):
+            return self._inner.write_scope()
+        return getattr(self._inner, "_transaction_lock", nullcontext())
+
+    def changes(self, *args, **kwargs):
+        raise PermissionError("the whole-store change journal requires an unscoped operator")
+
+    def checkpoint(self, *args, **kwargs):
+        raise PermissionError("whole-store replay maintenance requires an unscoped operator")
+
+    def plan_retention(self, *args, **kwargs):
+        raise PermissionError("whole-store retention requires an unscoped operator")
+
+    def apply_retention(self, *args, **kwargs):
+        raise PermissionError("whole-store retention requires an unscoped operator")
+
     def _visible(self, record) -> bool:
         return record is not None and owns(getattr(record, "meta", None),
                                            self._workspace)
@@ -115,7 +119,7 @@ class ScopedStore:
         # asked through get_record first, so a record belonging to someone else reads
         # as absent rather than as a permission error that confirms it exists
         selectors = {k: v for k, v in kw.items() if k in {"as_of", "valid_at"}}
-        with getattr(self._inner, "_transaction_lock", nullcontext()):
+        with self._inner.read_transaction():
             if self.get_record(id, **selectors) is None:
                 return None
             return self._inner.get(id, **kw)
@@ -124,16 +128,24 @@ class ScopedStore:
         return [r for r in self._inner.history(id) if self._visible(r)]
 
     def get_version(self, id, version):
-        with self._inner._transaction_lock:
-            if not any(r.version == version for r in self.history(id)):
+        with self._inner.read_transaction():
+            if self._record_at_version(id, version) is None:
                 return None
             return self._inner.get_version(id, version)
 
+    def _record_at_version(self, id, version):
+        # The RCStore algorithm binds this hook to the view, never through
+        # __getattr__: hidden metadata must be absent before payload decoding.
+        with self._inner.read_transaction():
+            record = self._inner._record_at_version(id, version)
+            return record if self._visible(record) else None
+
     def read_record(self, id, **kw):
-        # Reuse the RCDB algorithm, but bind it to THIS view's history/get_version.
+        # Bind metadata selection and payload reads to THIS workspace view.
         # Delegating the bound inner method would skip the workspace filter.
         from rcdb.core import RCStore
-        return RCStore.read_record(self, id, **kw)
+        with self._inner.read_transaction():
+            return RCStore.read_record(self, id, **kw)
 
     def _read_published_record(self, record):
         from rcdb.core import RCStore
@@ -141,7 +153,8 @@ class ScopedStore:
 
     def state_manifest(self):
         from rcdb.core import RCStore
-        return RCStore.state_manifest(self)
+        with self._inner.read_transaction():
+            return RCStore.state_manifest(self)
 
     def state_digest(self):
         from rcdb.core import RCStore
@@ -214,7 +227,7 @@ class ScopedStore:
                      target=str(target), outcome=outcome, detail=detail)
 
     def delete(self, id, **kw):
-        with getattr(self._inner, "_transaction_lock", nullcontext()):
+        with self._write_guard():
             if self.get_record(id) is None:
                 self._record("db.delete", id, outcome="not_found")
                 return False
@@ -233,11 +246,11 @@ class ScopedStore:
         letting a route that knows better keep it, but inside a request the value does
         not come from the route: /api/v1/db/record-work took the workspace from the
         request BODY and work_recorder stamped a literal "default", and either one beat
-        the scope and landed the record in another tenant. A route that genuinely knows
+        the scope and landed the record in another tenant. A route that knows
         better is one running outside a request, and outside a request this wrapper does
         not exist.
         """
-        with getattr(self._inner, "_transaction_lock", nullcontext()):
+        with self._write_guard():
             self._refuse_if_owned_elsewhere(id)
             meta = self._stamp(meta)
             out = self._inner.put(id, rex, meta=meta, tags=tags, **kw)
@@ -249,21 +262,31 @@ class ScopedStore:
         meta["workspace"] = self._workspace
         if self._caller:
             meta["stored_by"] = self._caller
+        projection = getattr(self._inner, "_stored_meta", lambda value: value)(meta)
+        if self._workspace is not None and projection.get("workspace") != self._workspace:
+            raise PermissionError("store metadata policy would discard workspace ownership")
         return meta
 
     def put_prepared(self, id, blob, sig, meta=None, tags=None, **kw):
-        with self._inner._transaction_lock:
+        with self._write_guard():
             self._refuse_if_owned_elsewhere(id)
             out = self._inner.put_prepared(id, blob, sig, meta=self._stamp(meta), tags=tags, **kw)
         self._record("db.put", id, prepared=True)
         return out
 
     def commit_mutation(self, id, rex, meta=None, tags=None, **kw):
-        with self._inner._transaction_lock:
+        with self._write_guard():
             self._refuse_if_owned_elsewhere(id)
             kw["actor"] = self._caller or kw.get("actor", "")
             out = self._inner.commit_mutation(id, rex, meta=self._stamp(meta), tags=tags, **kw)
         self._record("db.commit", id, version=out.version)
+        return out
+
+    def put_record(self, id, value, *, meta=None, tags=None, **kw):
+        with self._write_guard():
+            self._refuse_if_owned_elsewhere(id)
+            out = self._inner.put_record(id, value, meta=self._stamp(meta), tags=tags, **kw)
+        self._record("db.put", id, version=out.version, record_type=out.object_type)
         return out
 
 

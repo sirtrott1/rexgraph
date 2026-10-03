@@ -8,6 +8,7 @@ type and sign columns.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import numpy as np
@@ -57,15 +58,7 @@ class EdgeListAdapter(DomainAdapter):
 
         if p.suffix.lower() in (".csv", ".tsv", ".txt"):
             gd = load_edge_csv(str(p), roles=roles)
-            sources = gd.src_idx
-            targets = gd.tgt_idx
-            vertex_labels = gd.vertices
-            weights = np.abs(gd.w_E)
-            signs = np.sign(gd.w_E)
-            signs[signs == 0] = 1.0
-
-            # Extract type labels from the classified columns
-            type_labels, type_names = self._extract_types(gd)
+            return self._from_graph_data(gd)
 
         elif p.suffix.lower() == ".json":
             # Use rexgraph's auto detecting JSON loader
@@ -91,6 +84,24 @@ class EdgeListAdapter(DomainAdapter):
             vertex_labels=vertex_labels,
             n_types=len(type_names),
             type_names=type_names,
+        )
+
+    def build_dataframe(self, data, roles=None, **kwargs) -> EdgeConstruction:
+        from rexgraph.io.csv_loader import load_edge_csv
+        buf = io.StringIO()
+        data.to_csv(buf, index=False)
+        buf.seek(0)
+        return self._from_graph_data(load_edge_csv(buf, roles=roles))
+
+    def _from_graph_data(self, gd) -> EdgeConstruction:
+        type_labels, type_names = self._extract_types(gd)
+        signs = np.sign(gd.w_E)
+        signs[signs == 0] = 1.0
+        return EdgeConstruction(
+            sources=gd.src_idx, targets=gd.tgt_idx,
+            weights=np.abs(gd.w_E), signs=signs,
+            type_labels=type_labels, type_names=type_names,
+            vertex_labels=gd.vertices, n_types=len(type_names),
         )
 
     def _extract_types(self, gd) -> tuple:

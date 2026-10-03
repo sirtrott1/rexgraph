@@ -112,11 +112,8 @@ def load_10x(path) -> tuple[scipy.sparse.csr_matrix, list[str], list[str]]:
             "features/genes.tsv[.gz])."
         )
 
-    # scipy 1.15 added mmread's `spmatrix` keyword and warns when it is not given,
-    # because the default flips to False in 1.20 and the return becomes a sparse ARRAY.
-    # Declaring the choice is the fix; the declared floor is scipy>=1.10, where the
-    # keyword does not exist, so which call is correct depends on the installed version.
-    # Verified against the wheels: absent in 1.12.0 and 1.14.1, present from 1.15.0.
+    # Request a sparse array when mmread exposes spmatrix, then normalize either
+    # supported return type to csr_matrix.
     import inspect
     takes_spmatrix = "spmatrix" in inspect.signature(mmread).parameters
     kwargs = {"spmatrix": False} if takes_spmatrix else {}
@@ -220,9 +217,9 @@ def _kmeans_types(cxg, k: int = 6):
     # Top-k PCA embedding U[:, :k]·S[:k] = X_centered · V[:, :k], computed WITHOUT
     # densifying the n_cells×m matrix or running a full SVD. The right singular
     # vectors V and S² come from the tiny m×m Gram matrix of the CENTERED data:
-    #   G = X_centeredᵀ X_centered = Xsᵀ Xs - n_cells·μμᵀ   (m×m ≤ 200², exact).
-    # Same result as the old dense SVD (identical up to per component sign, to which
-    # Euclidean k-means is invariant); cost is O(nnz + m²), scaling in nnz not cells.
+    #   G = X_centeredᵀ X_centered = Xsᵀ Xs: n_cells·μμᵀ   (m×m ≤ 200², exact).
+    # The right singular vectors are determined up to component sign.
+    # Euclidean k-means is sign invariant; Gram assembly costs O(nnz + m²).
     try:
         G = np.asarray((Xs.T @ Xs).todense()) - n_cells * np.outer(mu, mu)
         G = 0.5 * (G + G.T)

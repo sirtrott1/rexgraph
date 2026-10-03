@@ -39,6 +39,102 @@ class DataBundle:
             self.y = self.y.to(device)
         return self
 
+    def fetch(self, indices):
+        """Return one feature/target batch on this bundle's selected device."""
+        return self.X[indices], None if self.y is None else self.y[indices]
+
+
+class MappedDataBundle(DataBundle):
+    """Read only .npy tables with bounded feature transfers and stable class IDs.
+
+    Splits are ordered ranges; only sampling within the training split is random.
+    Shuffle the files beforehand when a random split is appropriate. Values are
+    validated when read, so corrupt rows outside a fetched batch are not scanned.
+    """
+    def to(self, device):
+        if not _HAS_TORCH:
+            raise ImportError("mapped training requires torch")
+        self.device = _t.device(device)
+        return self
+
+    def fetch(self, indices):
+        if isinstance(indices, range):
+            indices = slice(indices.start, indices.stop, indices.step)
+        elif _HAS_TORCH and isinstance(indices, _t.Tensor):
+            indices = indices.detach().cpu().numpy()
+        with np.errstate(over="ignore", invalid="ignore"):
+            X = np.array(self.X[indices], dtype=np.float32, copy=True)
+        if X.ndim != 2 or not np.isfinite(X).all():
+            raise ValueError("mapped features must be finite and representable in float32")
+        y = None
+        if self.y is not None:
+            raw = self.y[indices]
+            if self.meta["task"] == "classification":
+                if np.any(raw < 0) or np.any(raw >= self.meta["n_classes"]):
+                    raise ValueError("mapped class IDs must be within the declared n_classes")
+                y = np.array(raw, dtype=np.int64, copy=True)
+            else:
+                with np.errstate(over="ignore", invalid="ignore"):
+                    y = np.array(raw, dtype=np.float32, copy=True)
+                if not np.isfinite(y).all():
+                    raise ValueError("mapped regression targets must be finite float32 values")
+        def move(a):
+            t = _t.from_numpy(a)
+            if self.device.type == "cuda" and self.pin_memory:
+                t = t.pin_memory()
+            return t.to(self.device, non_blocking=self.pin_memory)
+        return move(X), None if y is None else move(y)
+
+
+def load_mapped_table(features, targets=None, *, task="classification", n_classes=None,
+                      ratios=(0.6, 0.2, 0.2), eval_batch_size=1024, pin_memory=True):
+    """Map separate feature/target .npy files without loading the whole dataset.
+
+    Classification requires an explicit class count and integer target storage;
+    class IDs are never inferred or remapped per batch. Regression uses one scalar
+    target per row. Evaluation/fusion read at most ``eval_batch_size`` rows at once.
+    ``to(device)`` selects the batch destination; the full files remain on disk.
+    Pinning enables nonblocking CUDA/ROCm copies on Torch's current stream; it does
+    not implement prefetch or promise overlap with the next CPU batch.
+    """
+    if not _HAS_TORCH:
+        raise ImportError("mapped training requires torch")
+    if task not in ("classification", "regression"):
+        raise ValueError("vector task must be classification or regression")
+    if (isinstance(eval_batch_size, (bool, np.bool_)) or
+            not isinstance(eval_batch_size, (int, np.integer)) or eval_batch_size < 1):
+        raise ValueError("eval_batch_size must be a positive integer")
+    ratios = np.asarray(ratios, dtype=float)
+    if (ratios.shape != (3,) or not np.isfinite(ratios).all() or
+            np.any(ratios < 0) or not np.isclose(ratios.sum(), 1.0, rtol=0, atol=1e-12)):
+        raise ValueError("split ratios must be three nonnegative values summing to one")
+    def mapped(path):
+        p = os.path.expanduser(os.fspath(path))
+        if not p.endswith(".npy"):
+            raise ValueError("mapped tables require separate .npy files")
+        return np.load(p, mmap_mode="r", allow_pickle=False)
+    X = mapped(features)
+    if X.ndim != 2 or not X.shape[0] or not X.shape[1] or X.dtype.kind not in "iuf":
+        raise ValueError("mapped features must be a nonempty real matrix")
+    y = None if targets is None else mapped(targets)
+    meta = {"feat_dim": X.shape[1], "task": task}
+    if y is not None:
+        if y.shape != (len(X),) or y.dtype.kind not in "iuf":
+            raise ValueError("mapped targets need one real value per row")
+        if task == "classification" and y.dtype.kind not in "iu":
+            raise ValueError("mapped classification targets require integer storage")
+    if task == "classification":
+        if (isinstance(n_classes, (bool, np.bool_)) or
+                not isinstance(n_classes, (int, np.integer)) or not 1 <= n_classes < 2**63):
+            raise ValueError("mapped classification requires a positive integer n_classes")
+        meta["n_classes"] = int(n_classes)
+    a, b = int(ratios[0] * len(X)), int((ratios[0] + ratios[1]) * len(X))
+    bundle = MappedDataBundle("vector", X, y, meta,
+                              {"train": range(a), "val": range(a, b), "test": range(b, len(X))})
+    bundle.eval_batch_size = int(eval_batch_size)
+    bundle.pin_memory = bool(pin_memory)
+    return bundle.to("cpu")
+
 
 def make_splits(n: int, ratios=(0.6, 0.2, 0.2), seed: int = 0) -> dict:
     rng = np.random.default_rng(seed)
@@ -50,7 +146,7 @@ def make_splits(n: int, ratios=(0.6, 0.2, 0.2), seed: int = 0) -> dict:
 
 # file loaders (files / HF) -> vectors or text
 
-def load_table(source, *, x_cols=None, y_col="label", limit=None):
+def load_table(source, *, x_cols=None, y_col="label", limit=None, task="classification"):
     """Load a numeric table (.csv/.jsonl/.npz) into a vector DataBundle. `x_cols` selects feature
     columns (default: all numeric except `y_col`); `y_col` is the label."""
     p = os.path.expanduser(str(source))
@@ -62,17 +158,19 @@ def load_table(source, *, x_cols=None, y_col="label", limit=None):
         with open(p, newline="") as f:
             rows = [dict(r) for r in csv.DictReader(f)]
     elif p.endswith(".npz"):
-        d = np.load(p)
-        X, y = d["X"].astype("float32"), d["y"].astype("int64")
-        return _vector_bundle(X, y)
+        with np.load(p, allow_pickle=False) as d:
+            X, y = d["X"], d["y"]
+        if limit:
+            X, y = X[:int(limit)], y[:int(limit)]
+        return _vector_bundle(X, y, task=task)
     else:
         raise ValueError(f"unsupported table format: {source}")
     if limit:
         rows = rows[:int(limit)]
     keys = x_cols or [k for k in rows[0] if k != y_col]
     X = np.array([[float(r[k]) for k in keys] for r in rows], dtype="float32")
-    y = np.array([int(float(r[y_col])) for r in rows], dtype="int64")
-    return _vector_bundle(X, y)
+    y = np.array([float(r[y_col]) for r in rows], dtype="float64")
+    return _vector_bundle(X, y, task=task)
 
 
 def load_text(source, *, vocab_size=256, seq_len=64, limit=None):
@@ -95,18 +193,49 @@ def _as(a):
     return _t.as_tensor(np.ascontiguousarray(a)) if _HAS_TORCH else a
 
 
-def _vector_bundle(X, y):
+def _vector_bundle(X, y, *, task="classification"):
+    if task not in ("classification", "regression"):
+        raise ValueError("vector task must be classification or regression")
+    if any(np.ma.isMaskedArray(a) and np.ma.getmaskarray(a).any() for a in (X, y)):
+        raise ValueError("model data requires explicit unmasked values")
+    X = np.asarray(X)
+    if X.ndim != 2 or not X.shape[0] or not X.shape[1] or X.dtype.kind not in "iuf":
+        raise ValueError("model features must be a nonempty real matrix")
+    if y is not None:
+        y = np.asarray(y)
+        if y.dtype.kind in "US" or (y.dtype.kind == "O" and
+                all(isinstance(v, (str, bytes)) for v in y.flat)):
+            y = y.astype("float64")
+        if y.shape != (len(X),) or y.dtype.kind not in "iuf" or not np.isfinite(y).all():
+            raise ValueError("model targets must be one finite real value per feature row")
+        if task == "classification":
+            if np.any(y < 0) or np.any(y >= 2**63) or np.any(y != np.floor(y)):
+                raise ValueError("classification targets must be nonnegative integer class indices")
+            y = y.astype("int64")
+        else:
+            y = y.astype("float64")
+    with np.errstate(over="ignore", invalid="ignore"):
+        X = X.astype("float32")
+    if not np.isfinite(X).all():
+        raise ValueError("model features must be finite and representable in float32")
     n = len(X)
-    b = DataBundle("vector", _as(X), _as(y),
-                   meta={"feat_dim": X.shape[1], "n_classes": int(y.max()) + 1})
+    meta = {"feat_dim": X.shape[1], "task": task}
+    if task == "classification" and y is not None:
+        meta["n_classes"] = int(y.max()) + 1
+    b = DataBundle("vector", _as(X), None if y is None else _as(y),
+                   meta=meta)
     b.splits = make_splits(n)
     return b
 
 
 # synthetic generators (one per archetype; run without external data)
 
-def synth_vectors(n=800, feat_dim=16, n_classes=4, sep=1.5, seed=0):
+def synth_vectors(n=800, feat_dim=16, n_classes=4, sep=1.5, seed=0, task="classification"):
     rng = np.random.default_rng(seed)
+    if task == "regression":
+        X = rng.normal(size=(n, feat_dim)).astype("float32")
+        y = X @ rng.normal(size=feat_dim) + rng.normal(0, .1, n)
+        return _vector_bundle(X, y, task=task)
     y = rng.integers(0, n_classes, n)
     centers = rng.normal(0, sep, (n_classes, feat_dim))
     X = (centers[y] + rng.normal(0, 1, (n, feat_dim))).astype("float32")

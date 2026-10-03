@@ -201,8 +201,8 @@ def field_state_vertex_observable(np.ndarray[f64, ndim=1] f_E, object B1):
 
     Parameters
 
-    f_E : f64[nE] - edge signal
-    B1 : (nV, nE) matrix (dense or sparse) - boundary operator
+    f_E : f64[nE]: edge signal
+    B1 : (nV, nE) matrix (dense or sparse): boundary operator
 
     Returns
 
@@ -244,9 +244,9 @@ def energy_kin_pot(np.ndarray[f64, ndim=1] f_E, object L1, object LO):
 
     Parameters
 
-    f_E : f64[nE] - edge signal
-    L1 : (nE, nE) - Hodge Laplacian (dense or sparse)
-    LO : (nE, nE) - overlap Laplacian (dense or sparse)
+    f_E : f64[nE]: edge signal
+    L1 : (nE, nE): Hodge Laplacian (dense or sparse)
+    LO : (nE, nE): overlap Laplacian (dense or sparse)
 
     Returns
 
@@ -327,14 +327,14 @@ def vertex_perturbation_to_edges(Py_ssize_t vertex_idx, object B1_T,
 
     Parameters
 
-    vertex_idx : int - vertex to perturb
-    B1_T : (nE, nV) matrix - transpose of boundary operator
+    vertex_idx : int: vertex to perturb
+    B1_T : (nE, nV) matrix: transpose of boundary operator
     nE, nF : dimensions
 
     Returns
 
-    f_E : f64[nE] - edge signal (B_1^T delta_v)
-    f_F : f64[nF] - zero face signal
+    f_E : f64[nE]: edge signal (B_1^T delta_v)
+    f_F : f64[nF]: zero face signal
     """
     cdef Py_ssize_t nV = B1_T.shape[1]
     cdef np.ndarray[f64, ndim=1] delta_v = np.zeros(nV, dtype=np.float64)

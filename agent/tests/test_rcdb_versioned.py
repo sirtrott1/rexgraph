@@ -56,26 +56,27 @@ def test_memorystore_append_only_and_time_travel():
 
 
 def test_filestore_versions_and_legacy_read(tmp_path):
-    from agent.rcdb import FileStore
-    st = FileStore(str(tmp_path / "db"))
+    from agent.rcdb import FileStore, serialize_complex
+    st = FileStore(str(tmp_path / "db"), read_only=False)
     st.put("g", _rex(3)); st.put("g", _rex(4))
     assert [r.version for r in st.history("g")] == [1, 2]
     # reopen from disk (index.json persisted) and time travel
-    st2 = FileStore(str(tmp_path / "db"))
+    st2 = FileStore(str(tmp_path / "db"), read_only=False)
     assert st2.get("g").nE == 4
     v1 = st2.history("g")[0]
     assert st2.get("g", as_of=v1.tx_from + 1e-9).nE == 3
     # a legacy index.json {id -> record} reads as version 1 (write one by hand)
     import json
     legacy_dir = tmp_path / "legacy"; (legacy_dir / "blobs").mkdir(parents=True)
-    # reuse a real blob by copying g@1
-    import shutil
-    shutil.copy(tmp_path / "db" / "blobs" / "g@1.safetensors", legacy_dir / "blobs" / "old.safetensors")
+    # A genuine legacy payload has no store/address envelope. A newly bound
+    # record cannot be transplanted to another store or renamed as legacy data.
+    (legacy_dir / "blobs" / "old.safetensors").write_bytes(serialize_complex(_rex(3)))
     rec = st2.history("g")[0].to_dict(); rec["id"] = "old"
+    rec.pop("envelope")
     rec.pop("version"); rec.pop("tx_from"); rec.pop("tx_to"); rec.pop("valid_from"); rec.pop("valid_to")
     (legacy_dir / "index.json").write_text(json.dumps({"old": rec}))
     # but the blob path for a legacy record is blobs/old.safetensors (no @version)
-    st3 = FileStore(str(legacy_dir))
+    st3 = FileStore(str(legacy_dir), read_only=False)
     assert st3.history("old")[0].version == 1
     assert st3.get("old") is not None
     assert st3.get("old").nE == 3
@@ -84,7 +85,7 @@ def test_filestore_versions_and_legacy_read(tmp_path):
 def test_sqlstore_append_only_and_migration(tmp_path):
     from agent.rcdb import open_store
     uri = f"sqlite:///{tmp_path}/rc.db"
-    st = open_store(uri)
+    st = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     st.put("g", _rex(3)); st.put("g", _rex(6))
     assert [r.version for r in st.history("g")] == [1, 2]
     assert st.get("g").nE == 6
@@ -92,7 +93,7 @@ def test_sqlstore_append_only_and_migration(tmp_path):
     assert st.get("g", as_of=v1.tx_from + 1e-9).nE == 3
     st.close()
     # reopen: migration is idempotent, data intact
-    st2 = open_store(uri)
+    st2 = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     assert st2.get("g").nE == 6
     st2.close()
 
@@ -110,7 +111,7 @@ def test_change_feed_emitted(tmp_path, uri_factory):
     uri = {"memory": "memory://", "file": f"file://{tmp_path}/db",
            "sql": f"sqlite:///{tmp_path}/rc.db"}[uri_factory]
     log = activity.get_log()
-    st = open_store(uri)
+    st = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     st.put(id_, _rex(3))
     evs = [e for e in log.events(limit=50) if e.get("action") == "rcdb.put"
            and e.get("detail", {}).get("id") == id_]
@@ -166,14 +167,14 @@ def test_sqlstore_legacy_idonly_pk_upgrades_and_versions(tmp_path):
                           "VALUES ('leg', '{}', '{}', 100.0, :b, 4, 3)", {"b": blob})
     eng.dispose()
     # open through SQLStore: migration must repair the PK to composite (id, version)
-    st = open_store(uri)
+    st = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     assert st.get("leg").nE == 3                          # legacy row reads as version 1
     st.put("leg", _rex(6))                                # UPDATE the existing id, version 2 (was crashing)
     assert [r.version for r in st.history("leg")] == [1, 2]
     assert st.get("leg").nE == 6
     st.close()
     # reopen: PK already composite, migration is a no op, data intact
-    st2 = open_store(uri)
+    st2 = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     assert st2.get("leg").nE == 6
     assert [r.version for r in st2.history("leg")] == [1, 2]
     st2.close()
@@ -220,7 +221,7 @@ def _open(backend, tmp_path, name="db"):
     if backend == "memory":
         return open_store("memory://")
     if backend == "file":
-        return open_store(f"file://{tmp_path}/{name}")
+        return open_store(f"file://{tmp_path}/{name}", read_only=False)
     if backend == "sql":
         return open_store(f"sqlite:///{tmp_path}/{name}.db")
     raise ValueError(backend)
@@ -297,7 +298,7 @@ def test_legacy_read_backfills_to_version_1_all_backends(backend, tmp_path):
         legacy = {"id": "old", "signature": legacy_sig, "created": 50.0, "meta": {}}
         with open(os.path.join(root, "index.json"), "w") as f:
             json.dump({"old": legacy}, f)
-        st = FileStore(root)
+        st = FileStore(root, read_only=False)
     else:
         import sqlalchemy as sa
         dbfile = tmp_path / "legacy.db"
@@ -313,7 +314,7 @@ def test_legacy_read_backfills_to_version_1_all_backends(backend, tmp_path):
                 "INSERT INTO rc_complexes (id, signature, meta, created, blob, nV, nE) "
                 "VALUES ('old', '{}', '{}', 50.0, :b, 4, 3)", {"b": blob})
         eng.dispose()
-        st = open_store(uri)
+        st = open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     hist = st.history("old")
     assert len(hist) == 1 and hist[0].version == 1
     assert hist[0].tx_to is None
@@ -464,7 +465,7 @@ def test_dogfood_versioned_store_timetravel_and_trend(tmp_path):
     from agent.rcdb import open_store, trajectory
 
     from agent import activity
-    st = open_store(f"file://{tmp_path}/db")
+    st = open_store(f"file://{tmp_path}/db", read_only=False)
     times = []
     for k in (2, 3, 4, 5, 4):
         rec = st.put("dev", _rex(k))

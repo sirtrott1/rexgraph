@@ -152,9 +152,9 @@ def test_portable_family_and_compilation(format,tmp_path):
         path=tmp_path/'family.safetensors';rex_to_safetensors(record,path);record=safetensors_to_rex(path)
     else:
         from rcdb import open_store
-        uri='file://'+str(tmp_path/'store');db=open_store(uri)
+        uri='file://'+str(tmp_path/'store');db=open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
         db.commit_mutation('family',record,expected_version=0,analytics=False);db.close()
-        db=open_store(uri);record=db.read_record('family',version=1).value;assert db.verify_commits('family');db.close()
+        db=open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}));record=db.read_record('family',version=1).value;assert db.verify_commits('family');db.close()
     detached=ProgramFamily.from_record(record)
     assert detached.coefficient_digest==f.coefficient_digest
     e=Executor(sources={'r':r},params={'record':record,'sources':b,'params':{'x':Q(1)}})

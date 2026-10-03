@@ -1,7 +1,7 @@
 """rexgraph.harmonic_sparse: the harmonic plane, combinatorial and low rank.
 
 Per the math reference Part V: the harmonic space
-`ker(L1) = ker(B1) ∩ ker(B2ᵀ)` is a **combinatorial** object - a basis of the cycle
+`ker(L1) = ker(B1) ∩ ker(B2ᵀ)` is a **combinatorial** object: a basis of the cycle
 space `ker(B1)` is the set of spanning tree fundamental cycles (integer ±1 vectors),
 projected onto `ker(B2ᵀ)` to remove the face (curl) directions. The harmonic
 projector is applied **low rank**:
@@ -13,7 +13,7 @@ before removing face directions has dimension nE - rank(B1).
 
 so it never forms the dense nE×nE projector and never calls an eigensolver: the
 correct, scale free replacement for `_harmonic.harmonic_projectors` (which builds
-`hb@hbᵀ`, `B1ᵀ pinv(B1B1ᵀ) B1`, and `eye(nE)` - three dense nE×nE matrices) whenever
+`hb@hbᵀ`, `B1ᵀ pinv(B1B1ᵀ) B1`, and `eye(nE)`: three dense nE×nE matrices) whenever
 only the harmonic component of a flow is needed.
 """
 from __future__ import annotations
@@ -96,6 +96,49 @@ def _cycle_basis_from_edges(nV, nE, src, tgt, *, native=False):
     return result if native else result.as_scipy().tocsc()
 
 
+class ExactCycleFrame:
+    """Exact cycle columns carried as Python integers.
+
+    Cleared rational coefficients can exceed fixed width carriers. The frame exposes
+    shape and columns for readers that coalesce over integers, without matrix arithmetic.
+    """
+
+    __slots__ = ("columns", "n_rows")
+
+    def __init__(self, columns, n_rows):
+        self.columns = tuple({int(row): int(value) for row, value in column.items()}
+                             for column in columns)
+        self.n_rows = int(n_rows)
+
+    @property
+    def shape(self):
+        return (self.n_rows, len(self.columns))
+
+    @property
+    def dtype(self):
+        return object
+
+    @property
+    def nnz(self):
+        return sum(len(column) for column in self.columns)
+
+    def __repr__(self):
+        return f"ExactCycleFrame(shape={self.shape}, nnz={self.nnz})"
+
+
+def as_csc(frame):
+    """A cycle frame in whatever carrier holds it exactly.
+
+    A native frame converts to scipy and a scipy one only needs its format. An
+    `ExactCycleFrame` is returned unchanged, because converting it is the one thing
+    that would lose what it exists to keep: no scipy dtype holds a 76 bit integer.
+    A caller that must have scipy should check `dtype` first.
+    """
+    if isinstance(frame, ExactCycleFrame):
+        return frame
+    return frame.as_scipy().tocsc() if hasattr(frame, "as_scipy") else frame.tocsc()
+
+
 def _rational_nullspace(rex, nE, *, native=False):
     """ker(B1) over the rationals, via the complex's own exact cycle basis.
 
@@ -105,22 +148,38 @@ def _rational_nullspace(rex, nE, *, native=False):
     breaks. Reaching for it here means the branching path is exact rather than a second
     answer to the same question.
 
-    Returned as a sparse float matrix: the basis vectors have their denominators cleared
-    to integers, so the conversion is lossless.
+    Clear rational denominators to integer basis coefficients. Use the native
+    carrier where coefficients are exactly representable and int64 where it preserves
+    the cleared coefficients. Larger coefficients require the exact dictionary carrier.
+
+    Native stays the default because it is smaller and faster, and int64 is used only
+    where float64 would round. `_integer_columns` and `harmonic_winding` both coalesce
+    in Python Z, so the winding is exact under either carrier. Past int64 the exact
+    dictionary kernel is still available through `faces.cycle_basis`, and this says so
+    rather than rounding.
     """
+    import scipy.sparse as sp
     from rexgraph.native_sparse import native_coo
 
     from rexgraph.faces import _cycle_kernel_sparse
     cols = _cycle_kernel_sparse(rex)
-    rows, indices, data = [], [], []
+    rows, indices, data, widen = [], [], [], False
     for j, column in enumerate(cols):
         for e, value in column.items():
-            if int(float(value)) != value:
-                raise OverflowError("exact cycle coefficient exceeds the float carrier; use faces.cycle_basis")
             rows.append(e)
             indices.append(j)
-            data.append(float(value))
-    result = native_coo(rows, indices, data, (nE, len(cols)))
+            data.append(int(value))
+            if not widen and int(float(value)) != value:
+                widen = True
+    if widen:
+        limit = np.iinfo(np.int64)
+        if all(limit.min <= value <= limit.max for value in data):
+            return sp.coo_matrix(
+                (np.asarray(data, dtype=np.int64),
+                 (np.asarray(rows, dtype=np.int64), np.asarray(indices, dtype=np.int64))),
+                shape=(nE, len(cols))).tocsc()
+        return ExactCycleFrame(cols, nE)
+    result = native_coo(rows, indices, [float(v) for v in data], (nE, len(cols)))
     return result if native else result.as_scipy().tocsc()
 
 
@@ -216,7 +275,7 @@ def cycle_basis(rex, *, native=False):
     columns = _integer_columns(result)
     if _exact_composition_residual(_exact_b1_block(rex, range(nE)), columns):
         result = _rational_nullspace(rex, nE, native=True)
-    return result if native else result.as_scipy().tocsc()
+    return result if native else as_csc(result)
 
 
 def _endpoints_from_b1(B1):
@@ -388,16 +447,16 @@ def harmonic_basis(rex, *, native=False):
     `RexGraph.harmonic_winding(flow, cycles=...)` and pay one matvec against those
     alone (1 to 4 ms for 16 to 256 cycles at that same size).
 
-    Note also that most of β₁ on such a complex is repetition rather than shape:
-    `multiplicity_dimension` measured 37% to 85% across the Gutenberg store, and
-    `simple_cycle_dimension` is the part that is not."""
+    multiplicity_dimension counts repeated columns; simple_cycle_dimension
+    reports the remaining cycle dimension.
+    """
     from rexgraph.native_sparse import NativeSparse
     C = cycle_basis(rex, native=True)
     if C.shape[1] == 0:
-        return C if native else C.as_scipy().tocsc()
+        return C if native else as_csc(C)
     B2 = rex._B2_hodge_dual
     if B2 is None or B2.ncol == 0:
-        return C if native else C.as_scipy().tocsc()
+        return C if native else as_csc(C)
     # Form the face flux over primary integers, before any float sparse product.
     return _face_reduced_frame(C, B2=NativeSparse(B2), native=native)
 
@@ -491,7 +550,7 @@ def _identical_runs(idx, dat):
 
 def multiplicity_dimension(rex, groups=None):
     """How much of the cycle space is multiplicity rather than topology: the exact
-    integer sum of (group size - 1).
+    integer sum of (group size: 1).
 
     Within a group of m identical columns the differences span {x on the group with
     sum(x) = 0}, dimension m - 1; groups have disjoint support, so they are
@@ -501,16 +560,10 @@ def multiplicity_dimension(rex, groups=None):
     fill part of it: put a face on a bigon and W still has dimension 1 while beta_1
     is 0, so subtracting this from `rex.betti[1]` is only valid with no faces. For
     the split of H1 itself use `simple_cycle_dimension`, which is exact either way.
-
-    MEASURED on the Gutenberg store, where this is not a rounding effect: 39 to 85
-    percent of beta_1 across five documents, the largest single group holding
-    157,674 identical relations. Any shortest cycle method returns these first,
-    every one of them 2 sparse, so a cycle reading that does not separate them is
-    reading occurrence counts and calling them topology.
     """
     if groups is not None:
         return int(sum(int(idx.size) - 1 for idx, _ in groups))
-    # sum over groups of (size - 1) is exactly (columns - runs), so the dimension
+    # sum over groups of (size - 1) is exactly (columns: runs), so the dimension
     # never needs the groups materialised: no Python loop over the 193,422 buckets
     # a full book produces.
     B1 = _b1_csc(rex)
@@ -629,22 +682,10 @@ def multiplicity_cycles(rex, groups=None, limit=None):
 
 
 def as_edge_signal(values, nE, *, what="signal"):
-    """An edge signal as f64[nE], from an array, a list, or a torch tensor.
+    """Convert an array, list or Torch tensor to a float64 edge signal of length nE.
 
-    Two things a caller building a layer or an agent hits immediately, neither of
-    which said anything useful before:
-
-    A TORCH TENSOR is accepted and DETACHED. The harmonic readings are exact
-    integer/rational counts, not differentiable functions of the signal, so there is
-    no gradient to carry through a winding and detaching is the honest behaviour
-    rather than a limitation to work around. Passing one with requires_grad used to
-    surface torch's own "Can't call numpy() on Tensor that requires grad", which
-    reads as a bug in the caller's code. Use these to build FEATURES; do not expect
-    to backpropagate through them.
-
-    A WRONG LENGTH is refused by naming what was expected, in the same shape as
-    `RexGraph.signal`, instead of surfacing a scipy matmul dimension mismatch that
-    mentions neither nE nor which reading was being taken.
+    Torch tensors are detached before conversion. Harmonic readings do not propagate
+    autograd gradients. Incorrect lengths raise with the expected edge count.
     """
     if hasattr(values, "detach"):                 # torch, jax like, anything tracing
         values = values.detach()

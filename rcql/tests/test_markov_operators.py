@@ -80,9 +80,9 @@ def test_store_reopening_rebuilds_the_same_view_and_scores(tmp_path):
     rcdb = pytest.importorskip("rcdb")
     r = fixture()
     path = f"rex://{tmp_path / 'store'}"
-    with closing(rcdb.open_store(path)) as store:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as store:
         store.put("r", r)
-    with closing(rcdb.open_store(path)) as store:
+    with closing(rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))) as store:
         out = Executor(sources={"db": store}).execute(parse(
             'FROM RCDB_GET($db,"r") RETURN PAGERANK_ITERATION(PARTICIPATION_WALK()),'
             'APPLY(PARTICIPATION_WALK(),INDICATOR(CELL(0,0)),true)'))
@@ -99,9 +99,9 @@ def test_tensor_query_preserves_policy_and_exact_action(tmp_path, stored):
     if stored:
         rcdb = pytest.importorskip("rcdb")
         uri = f"rex://{tmp_path / 'tensor'}"
-        with closing(rcdb.open_store(uri)) as store:
+        with closing(rcdb.open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))) as store:
             store.put("r", r)
-        with closing(rcdb.open_store(uri)) as store:
+        with closing(rcdb.open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))) as store:
             # Bind the parameter to the reopened object as required by identity.
             reopened = store.get("r")
             out = Executor(sources={"r": reopened}, params={"p": ParticipationWalk(reopened)}).execute(

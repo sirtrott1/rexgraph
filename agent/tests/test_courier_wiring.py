@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from contextlib import closing
+from fractions import Fraction
 from fastapi.testclient import TestClient
 
 from agent import courier as couriermod
@@ -27,7 +29,7 @@ def tenants(tmp_path, monkeypatch):
     """An admin and a plain user, plus two stores on disk for the courier to work between."""
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("REXGRAPH_AUDIT_JOURNAL", str(tmp_path / "audit.jsonl"))
-    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"file://{tmp_path}/rcdb")
+    monkeypatch.setenv("REXGRAPH_RCDB_URI", f"local://{tmp_path}/rcdb")
     monkeypatch.setenv("REXGRAPH_ACTIVITY_JOURNAL", str(tmp_path / "activity.jsonl"))
     from agent.rcdb import open_store, reset_default_store
     from agent.server import audit, auth
@@ -42,8 +44,8 @@ def tenants(tmp_path, monkeypatch):
     admin = mgr.bootstrap_admin()
     bob = mgr.create_token("bob", ["default"], role="user")
 
-    a_uri, b_uri = f"file://{tmp_path}/a", f"file://{tmp_path}/b"
-    src = open_store(a_uri)
+    a_uri, b_uri = f"local://{tmp_path}/a", f"local://{tmp_path}/b"
+    src = open_store(a_uri, **({"read_only": False} if "://" not in a_uri or a_uri.startswith(("file://", "rex://")) else {}))
     src.put("schema", _rex(3), meta={"kind": "hive-schema"}, tags=["hive-schema"])
     src.put("work", _rex(5), meta={"kind": "interaction"}, tags=["interaction"])
 
@@ -77,6 +79,8 @@ def test_a_trip_is_admin_only(tenants):
     # else's view rather than the caller's.
     assert client.get("/api/v1/courier/status", headers=bh).status_code == 403
     assert client.get("/api/v1/courier/status", headers=ah).status_code == 200
+    assert client.post("/api/v1/courier/reconcile", headers=bh,
+                       json={"source": "alpha", "dest": "beta"}).status_code == 403
 
 
 def test_the_route_carries_and_then_holds(tenants):
@@ -91,7 +95,7 @@ def test_the_route_carries_and_then_holds(tenants):
     assert again["carried"] == 0 and again["held"] == 2
 
     from agent.rcdb import open_store
-    assert {r.id for r in open_store(b_uri).list()} == {"schema", "work"}
+    assert {r.id for r in open_store(b_uri, **({"read_only": False} if "://" not in b_uri or b_uri.startswith(("file://", "rex://")) else {})).list()} == {"schema", "work"}
 
 
 def test_a_destination_cannot_be_named_by_a_caller(tenants):
@@ -131,7 +135,7 @@ def test_survey_reports_without_carrying(tenants):
     assert [r["record_id"] for r in got["records"]] == ["schema"]
 
     from agent.rcdb import open_store
-    assert open_store(b_uri).list() == [], "a survey carried something"
+    assert open_store(b_uri, **({"read_only": False} if "://" not in b_uri or b_uri.startswith(("file://", "rex://")) else {})).list() == [], "a survey carried something"
 
 
 def test_an_unbound_store_is_a_404_not_a_crash(tenants):
@@ -171,12 +175,83 @@ def test_the_cli_carries_between_two_stores(tmp_path, monkeypatch, capsys):
     """A command that ends when it returns has no hive, so the CLI names stores by uri."""
     monkeypatch.setenv("REXGRAPH_ACTIVITY_JOURNAL", "off")
     from agent.rcdb import open_store
-    a, b = f"file://{tmp_path}/a", f"file://{tmp_path}/b"
-    open_store(a).put("one", _rex(4), meta={"kind": "x"}, tags=["x"])
+    a, b = f"local://{tmp_path}/a", f"local://{tmp_path}/b"
+    open_store(a, **({"read_only": False} if "://" not in a or a.startswith(("file://", "rex://")) else {})).put("one", _rex(4), meta={"kind": "x"}, tags=["x"])
 
     assert couriermod.main(["deliver", a, b]) == 0
     assert '"carried": 1' in capsys.readouterr().out
-    assert [r.id for r in open_store(b).list()] == ["one"]
+    assert [r.id for r in open_store(b, **({"read_only": False} if "://" not in b or b.startswith(("file://", "rex://")) else {})).list()] == ["one"]
 
     assert couriermod.main(["survey", a]) == 0
     assert "one" in capsys.readouterr().out
+
+
+def test_corrupt_ledger_registration_is_refused_and_not_attached(tenants, tmp_path):
+    client, ah, _, _, _ = tenants
+    path = tmp_path / "ledger.json"
+    path.write_bytes(b"{broken")
+    response = client.post("/api/v1/courier/peers", headers=ah,
+                           json={"name": "p", "url": "http://localhost:1", "ledger": str(path)})
+    assert response.status_code == 400 and "ledger" in response.json()["detail"]
+    assert couriermod.get_courier().peers() == [] and path.read_bytes() == b"{broken"
+
+
+@pytest.mark.parametrize("bad", ["unknown-source", "unknown-peer", "receipt", "missing-record",
+                                  "source-owner", "unreachable", "destination-owner"])
+def test_reconciliation_route_refuses_invalid_selection_or_destination(tenants, bad):
+    from agent.courier_remote import Peer
+    from rcdb import MemoryStore, copy_record, record_packet
+    import httpx
+    client, ah, _, _, _ = tenants
+    with closing(MemoryStore()) as source, closing(MemoryStore()) as dest:
+        source.put_record("r", Fraction(2, 7))
+        packet = record_packet(source, "r")
+        receipt = copy_record(source, dest, packet.record, return_receipt=True)
+        class Remote:
+            def rex_fetch_record(self, *args, **kwargs):
+                if bad == "unreachable": raise httpx.ConnectError("unreachable")
+                if bad == "destination-owner": return packet
+                return record_packet(dest, receipt.destination_record_id, version=receipt.destination_version)
+        peer = Peer("p", Remote())
+        courier = couriermod.get_courier()
+        courier.attach_store("source", source); courier.attach_peer(peer)
+        body = {"source": "source", "dest": "p", "record_id": "r", "receipt": receipt.as_record()}
+        if bad == "unknown-source": body["source"] = "unknown"
+        elif bad == "unknown-peer": body["dest"] = "http://arbitrary"
+        elif bad == "receipt": body["receipt"] = {"invalid": 1}
+        elif bad == "missing-record": body["record_id"] = "missing"
+        elif bad == "source-owner": body["receipt"]["source_store_id"] = "e"*32
+        response = client.post("/api/v1/courier/reconcile", headers=ah, json=body)
+        assert response.status_code == (404 if bad.startswith("unknown-") else 400), response.text
+        assert peer.ledger.entries() == [] and len(dest.list()) == 1
+
+
+def test_reconciliation_route_verifies_without_posting_and_audits_caller(tenants, monkeypatch):
+    from agent.courier_remote import Peer
+    from agent.server import audit
+    from rcdb import MemoryStore, copy_record, record_packet
+    client, ah, _, _, _ = tenants
+    with closing(MemoryStore()) as source, closing(MemoryStore()) as dest:
+        source.put_record("r", None, meta={"q": Fraction(1, 7)})
+        packet = record_packet(source, "r")
+        receipt = copy_record(source, dest, packet.record, return_receipt=True)
+        fetched, audited = [], []
+        class Remote:
+            def rex_fetch_record(self, record_id, *, version):
+                fetched.append((record_id, version))
+                return record_packet(dest, record_id, version=version)
+            def rex_store_record(self, *args, **kwargs): raise AssertionError("reconciliation posted")
+        peer = Peer("p", Remote())
+        courier = couriermod.get_courier()
+        courier.attach_store("source", source); courier.attach_peer(peer)
+        monkeypatch.setattr(audit, "record", lambda action, **kwargs: audited.append((action, kwargs)))
+        response = client.post("/api/v1/courier/reconcile", headers=ah,
+                               json={"source": "source", "dest": "p", "record_id": "r",
+                                     "receipt": receipt.as_record()})
+        assert response.status_code == 200, response.text
+        assert response.json()["reason"] == "held" and not response.json()["shipped"]
+        assert fetched == [(receipt.destination_record_id, receipt.destination_version)]
+        assert len(dest.list()) == 1 and peer.ledger.remote_id("p", "r") == receipt.destination_record_id
+        entry = next(options for action, options in audited if action == "courier.reconcile")
+        assert entry["user"] and entry["workspace"] == "default"
+        assert entry["detail"] == {"source": "source", "dest": "p", "record_id": "r"}

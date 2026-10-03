@@ -342,3 +342,25 @@ class TestRexGraphIntegration:
 
     def test_tree_strain_zero(self, tree):
         assert tree.rcfe_strain == 0.0
+
+
+def test_a_valid_complex_does_not_report_a_conservation_violation():
+    """A valid chain may have nonzero B1 @ diag(C) @ B2 weight induced strain."""
+    from rexgraph.analysis import analyze
+    from rexgraph.graph import RexGraph
+
+    rex = RexGraph.from_cells([6, [[0, 1], [1, 2], [2, 0], [0, 4], [4, 5], [5, 1]]])
+    rex.add_faces([[0, 1, 2], [0, 3, 4, 5]])
+    rex._ensure_clean()
+    assert rex.chain_valid, "the fixture must satisfy the chain condition"
+
+    curvature = list(rex.rcfe_curvature)
+    assert len(set(round(float(c), 6) for c in curvature)) > 1, (
+        "the fixture must carry a non constant curvature, or it tests nothing")
+
+    reading = analyze(rex)["rcfe"]
+    assert reading["bianchi_ok"] is True, "the law holds, so the law must report holding"
+    assert reading["bianchi_residual"] == 0.0
+    assert reading["curvature_is_constant"] is False
+    assert reading["curvature_strain"] > 0.1, (
+        "the strain is the real measurement and must still be reported")

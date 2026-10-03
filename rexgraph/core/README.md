@@ -1,11 +1,9 @@
 # rexgraph/core/
 
-**Live topology computation is eigen free / sparse.** The dense eigensolve and
-dense matrix paths in these Cython kernels have been superseded on the LIVE
-`RexGraph` computation paths by matrix free / sparse implementations in the
-top level Python layer, and the kernels here are RETAINED as the dense parity
-ORACLES those eigen free paths are checked against (typically to ~1e-9/1e-10).
-The Python layer they route to:
+**Live topology computation is eigen free / sparse.** Native construction,
+sparse actions, exact rank and channel kernels run in Cython. Full decompositions
+remain for APIs that return spectra or bases and for parity checks. The Python
+layer routes matrix free operations through:
 
 - `rexgraph.scale_propagator`: Chebyshev matrix functions (heat / wave /
   schrodinger, matrix free e^{-Lt} and e^{-iLt}) plus block CG Green's functions.
@@ -94,7 +92,7 @@ import time and reconfigurable at runtime:
   scratch for parallel loops
 - `max_total_allocation_bytes` (default: 75% of system RAM): global allocation
   ceiling
-- `max_dense_allocation_bytes` (default: 25% of RAM, clamped to 100 MB - 4 GB)
+- `max_dense_allocation_bytes` (default: 25% of RAM, clamped to 100 MB: 4 GB)
   - single dense matrix ceiling, controls whether Laplacian construction uses
   dense BLAS (dgemm) or sparse scipy
 
@@ -314,44 +312,70 @@ provides the Python accessible configuration API and system detection logic.
 
 ## `_linalg`: LAPACK/BLAS Wrappers and RL Pipeline
 
-**File:** `_linalg.pyx` (324 lines)
+**File:** `_linalg.pyx`
 
 Provides Python callable wrappers around the LAPACK and BLAS routines used
 throughout rexgraph. Also contains the `rl_pipeline` function, which runs the
-entire trace normalize -> sum -> eigendecompose -> chi -> phi -> kappa
-computation in a single C-level call with zero Python overhead in the hot path.
+trace normalize -> sum -> eigendecompose -> chi -> phi -> kappa
+computation through compiled loops and BLAS/LAPACK calls.
 
-A static workspace buffer (`WORK_SIZE` doubles) is allocated once at module load
-for dsyev_ calls, avoiding per call allocation.
+Each LAPACK call uses a private workspace. Allocation failures and driver errors
+raise exceptions. Inputs are retained, including arrays marked readonly and strided arrays.
 
 
 
 ### Eigendecomposition
 
-- `eigh(A)` -> (evals, evecs)
+- `eigh(A, clip_negative_roundoff=True)` -> (evals, evecs)
 
-  Symmetric eigendecomposition via LAPACK dsyev_. Input must be square
-  symmetric. Returns eigenvalues sorted ascending and eigenvectors as columns of
-  a row major array. Near zero negative eigenvalues (|val| < 1e-10) are cleaned
-  to 0.0.
+  Real symmetric or complex Hermitian eigendecomposition, reading the upper
+  triangle. Returns ascending eigenvalues and eigenvectors as columns of a row
+  major array. Set clip_negative_roundoff=False to disable the cleanup of
+  negative values with magnitude below 1e-10.
+
+- `eigvalsh(A)` -> evals
+
+  Ascending eigenvalues without eigenvectors, reading the lower triangle.
+
+- `symmetric_sparse_spectrum(A)` -> evals
+
+  Full spectrum of (A + A.T)/2 for native or SciPy sparse input. Connected
+  support blocks are evaluated separately. Larger blocks must fit the configured
+  dense allocation budget; the whole sparse matrix is not densified.
+
+- `largest_eigenpair(A)` -> (value, vector)
+
+  Largest eigenvalue and one unit eigenvector of a real symmetric matrix.
 
 
 
 ### SVD
 
-- `svd(A)` -> (U, S, Vt)
+- `svd(A, full_matrices=True, compute_uv=True)` -> (U, S, Vh)
 
-  General SVD via LAPACK dgesvd_. Returns U (m x m), S (min(m,n),), Vt (n x n)
-  such that A = U @ diag(S) @ Vt.
+  Real or complex SVD. Full vectors are returned by default. Pass
+  full_matrices=False for reduced vectors, or compute_uv=False to return only
+  singular values without allocating vector matrices.
 
 
 
 ### Least Squares
 
-- `lstsq(A, b)` -> (x, rank)
+- `lstsq(A, b, rcond=None)` -> (x, rank)
 
   Least squares min ||A @ x - b||_2 via LAPACK dgelsd_. Returns the solution
-  vector x and the numerical rank.
+  vector or block x and the numerical rank. Rectangular and singular systems
+  return the minimum norm solution. The default relative rank cutoff is float64
+  precision times max(m, n). Pass a ratio in (0, 1) to choose the cutoff;
+  other values use LAPACK machine precision.
+
+- `solve(A, b)` -> x
+
+  Real square solve for a vector or block. Singular systems raise an error.
+
+- `qr_basis(A)` -> Q
+
+  Reduced orthonormal QR basis of a real matrix.
 
 
 
@@ -1051,7 +1075,7 @@ O(nV^2) Fruchterman Reingold refinement. Each iteration computes:
 - Coulomb repulsion between all vertex pairs: force proportional to
   1/distance^2, pushing apart
 - Hooke attraction along edges: spring force proportional to
-  (distance - ideal_length), pulling connected vertices together
+  (distance: ideal_length), pulling connected vertices together
 - Centering force: pulls all vertices toward the canvas center
 
 The step size decays linearly from 0.6 to 0 over the iteration count, providing
@@ -1213,7 +1237,7 @@ Laplacian eigenvalues, avoiding any matrix factorization:
 
   Computes all Betti numbers from Laplacian spectra in one call. Returns a dict
   with beta0, beta1, beta2, rank_B1, rank_B2, euler_char, and euler_check (True
-  if beta_0 - beta_1 + beta_2 = nV - nE + nF).
+  if beta_0: beta_1 + beta_2 = nV - nE + nF).
 
   Also computes beta1_rank_check: whether beta_1 from eigenvalue nullity matches
   beta_1 = nE - rank(B1) - rank(B2) from operator ranks.
@@ -1238,7 +1262,7 @@ Laplacian eigenvalues, avoiding any matrix factorization:
   an EXACT eigen free fast path: rational column reduction via
   `graded_boundary._exact_rank_reduction` (guarded by
   `graded_boundary._is_integer_matrix`), with no SVD, no densification, and no
-  silent `svds` cap. Genuinely non integer (weighted) matrices keep the SVD
+  silent `svds` cap. non integer (weighted) matrices keep the SVD
   dispatch: the "auto" method then selects dense SVD (via `_linalg`) when the
   matrix is small enough, or scipy sparse `svds` otherwise. Prefer
   `betti_from_eigenvalues` when Laplacian eigenvalues are available.
@@ -1265,6 +1289,12 @@ Potentials are recovered via the numerical pseudoinverse: phi = (B1^T)^+ g
 and psi = B2^+ g. Native LSQR acts on the boundary factors through the compiled
 sparse kernels. It returns only after a recomputed residual test passes.
 The dense routine is a separate reference oracle, never selected by size.
+
+`least_squares(B, values, transpose=False, tol=1e-12, maxiter=2000)` accepts
+native or dense boundaries, supplied SciPy sparse matrices, and vectors or column
+blocks. `atol` and `btol` optionally override the normal and relative residual
+thresholds. `return_info=True` returns the solution with observed residuals and
+iteration counts. If neither threshold is met, the solver raises `ArithmeticError`.
 
 
 
@@ -1768,7 +1798,7 @@ degenerate channels).
   Projects an edge signal onto the realized face basis (B2 columns) and
   the void basis (Bvoid columns). face_affinity = sum of squared
   projections onto B2 columns, normalized by ||psi||^2. void_affinity
-  is the same for Bvoid. dipole_ratio = (face - void) / (face + void),
+  is the same for Bvoid. dipole_ratio = (face: void) / (face + void),
   in [-1, 1]. Returns dict with face_affinity (>= 0), void_affinity
   (>= 0), dipole_ratio, total_projection.
 
@@ -2004,7 +2034,7 @@ The construction the character actually uses (`sparse_character.build_sparse_cha
 is F = T - G:
 
     T     = W B1^T B1 W                  signed Gram, per-relation metric
-    G     = |B1|^T W |B1|                its unsigned twin, same metric
+    G     = W |B1|^T |B1| W              its unsigned twin, same metric
     F_off = (T - G) with diagonal zeroed
     L_SG  = D_{|F_off|} + F_off          diagonal from the absolute row sum
 
@@ -2012,9 +2042,10 @@ diag(T) = diag(G) identically, because the diagonal squares each incidence entry
 and squaring kills the sign. So ALL of B1's sign content lives off diagonal, at
 relations sharing a vertex, and F is the device that lifts that residue onto a
 diagonal the character can read. Off diagonal F is 0 where two relations agree on
-a shared vertex and -2 where they oppose.
+a shared vertex. For canonical unweighted pairwise columns, an opposite
+signed shared occurrence contributes -2. Declared coefficients retain their magnitudes.
 
-The inverse log degree form documented here previously
+The legacy inverse log degree form is
 
     w(v) = 1 / log(deg(v) + e)
     K_s  = B1^T diag(w) B1
@@ -2071,7 +2102,7 @@ reads is which vertex each relation distinguishes, not a separate sign array.
   from the sign scaled signed incidence Bs (Bs[v,e] = B1[v,e] * sign(e): -sign(e)
   at the source, +sign(e) at the target), so K_s carries the O(sum deg^2)
   line graph sparsity and the dense nE x nE Gramian is never formed. Then
-  L_SG = D_{|K_off|} - K_off with K_off = K_s off diagonal. Returns scipy CSR and
+  L_SG = D_{|K_off|}: K_off with K_off = K_s off diagonal. Returns scipy CSR and
   equals `build_L_SG_dense` exactly.
 
 - `build_L_SG(nV, nE, sources, targets, signs=None, method="auto")` -> f64[nE, nE]
@@ -2308,7 +2339,7 @@ all three dimensional sectors (vertices, edges, faces) simultaneously.
 
   Checks that D^2 = blkdiag(L0, L1, L2). The off diagonal blocks of D^2
   vanish because B1 @ B2 = 0. Returns True if the maximum absolute entry
-  in (D^2 - expected) is below tol.
+  in (D^2: expected) is below tol.
 
 
 
@@ -2671,7 +2702,7 @@ when higher dimensional cells are added.
   Constructs the filtered family of truncated complexes:
 
   M1 (1 rex): vertices + edges only. Betti numbers are beta_0 from L0 and
-  beta_1(1) = nE - rank(B1) = nE - (nV - beta_0). No Bianchi identity at
+  beta_1(1) = nE - rank(B1) = nE - (nV: beta_0). No Bianchi identity at
   this level.
 
   M2 (2 rex): vertices + edges + faces. Betti numbers are beta_0, beta_1
@@ -2758,7 +2789,7 @@ RETAINED AS PARITY ORACLES. The live `RexGraph.field_diffuse` and
 `field_wave_full`: matrix free Chebyshev on the sparse, tensor metric aware
 field operator, never forming the dense (nE+nF) x (nE+nF) matrix or its
 eigenbasis. `classify_modes` / `resonance_frequencies` and the energy measures
-are genuinely spectral and are kept as the live path.
+are spectral and are kept as the live path.
 
 
 
@@ -2952,7 +2983,7 @@ channels, measurement, and density matrix operations.
 
 - `renyi_entropy(probs, alpha)` -> float
 
-  H_alpha = log2(sum p_i^alpha) / (1 - alpha). Reduces to Shannon at alpha=1.
+  H_alpha = log2(sum p_i^alpha) / (1: alpha). Reduces to Shannon at alpha=1.
 
 - `participation_ratio(psi)` -> float
 
@@ -2971,7 +3002,7 @@ channels, measurement, and density matrix operations.
 
 - `linear_entropy(psi)` -> float
 
-  S_L = 1 - sum |psi_i|^4 = 1 - purity.
+  S_L = 1 - sum |psi_i|^4 = 1: purity.
 
 
 
@@ -3319,7 +3350,7 @@ mutation.
 
 - `build_lazy_transition_matrix(W, lazy=0.5)` -> f64[nV, nV]
 
-  Lazy random walk: W_lazy = lazy * I + (1 - lazy) * W. Ensures
+  Lazy random walk: W_lazy = lazy * I + (1: lazy) * W. Ensures
   aperiodicity.
 
 
@@ -3352,7 +3383,7 @@ mutation.
 - `apply_dephasing(state, B2, gamma, dt)` -> f64[nV+nE+nF]
 
   Lindblad dephasing on the edge block using B2 columns as jump operators:
-  psi_E -> psi_E - (gamma*dt/2) * (sum_f L_f L_f^T) psi_E. The channel sum
+  `psi_E -> psi_E - (gamma*dt/2) * (sum_f L_f L_f^T) psi_E`. The channel sum
   Σ_f L_f L_f^T = B2 (B2^T psi_E) is applied as two matvecs (O(nnz)), so the
   dense nE x nE product B2 B2^T is never formed.
 
@@ -3577,7 +3608,7 @@ L_up + Lvoid = Bfull @ Bfull^T where Bfull = [B2 | Bvoid].
   `Lvoid` is stored SPARSE (scipy CSR, `Bvoid @ Bvoid^T`) rather than as a dense
   nE x nE array: no consumer needs it dense (void nullity reads Bvoid, void
   strain reads tr(Lvoid) directly), and `VoidComplex.Lvoid` is typed `object`
-  so `.toarray()` reproduces the old dense array bit for bit. Harmonic content
+  so `.toarray()` materializes the corresponding dense array. Harmonic content
   eta prefers the dense `harmonic_content_all` when the L1 eigenbasis is supplied
   (`evals_L1`/`evecs_L1`, the small graph oracle) and falls back to the
   eigen free `harmonic_content_all_sparse` otherwise.
@@ -4427,7 +4458,7 @@ residual defaults to 0.0.
 - `attribute_merge(nV_R, nE_R, ew_R, amps_R, ew_S, amps_S, shared_vertices, alpha=0.5)` -> dict
 
   Blends vertex amplitudes at shared vertices:
-  merged = (1 - alpha) * R + alpha * S. Returns dict with: merged_ew,
+  merged = (1: alpha) * R + alpha * S. Returns dict with: merged_ew,
   merged_amps, n_enriched.
 
 
@@ -4449,7 +4480,7 @@ live `RexGraph.interfacing_vector` routes to
 `rexgraph.sparse_interfacing.build_interfacing_bundle_sparse`, which is
 matrix free: L0^+ is applied by LSQR on the sparse graph Laplacian L0 = B1 B1^T,
 channel scores are bilinears target^T S_X psi = (B1 target)^T L0^+ (B1 psi) with
-S_T never formed, and the genuinely spectral schrodinger / coverage terms use a
+S_T never formed, and the spectral schrodinger / coverage terms use a
 bounded `eigsh` on the sparse RL.
 
 
@@ -4549,7 +4580,7 @@ bounded `eigsh` on the sparse RL.
 - `confidence_flags(coverage_val, efficiency, phi_T)` -> dict
 
   Confidence diagnostics: CONFIDENT (coverage >= Poisson floor, no conflict),
-  LOW_SIGNAL (coverage < 1 - 1/e), CHANNEL_CONFLICT (efficiency < 0.5 and
+  LOW_SIGNAL (coverage < 1: 1/e), CHANNEL_CONFLICT (efficiency < 0.5 and
   topological fraction < 2/3).
 
 
@@ -4703,12 +4734,11 @@ import or depend on RexGraph.
 
 These modules cover advanced structure beyond the core tower and were not listed above:
 
-- `_color`: C-level color pipeline for K_7 spectral color.
-- `_harmonic`: the harmonic plane of numbers (harmonic analysis structure).
+- `_harmonic`: dense harmonic plane parity/oracle extension; production harmonic analysis lives in `rexgraph.harmonic_sparse`.
 - `_holomorphic`: holomorphic Lagrangian structure on RL_4. `relational_cr` /
   `cr_saddle_score` compute the per edge Cauchy Riemann violation from the
   DIAGONALS of the hat products: diag(hat_T hat_S) and diag(hat_S hat_T) via
   `np.einsum('ek,ke->e', ...)`, O(nE^2), never forming the dense nE x nE
   products (which would be O(nE^3)).
 - `_l_gb`: the graded boundary Laplacian L_gb (within grade channel mixing).
-- `_temporal_entity`: entity level BIOES tagging over a temporal complex.
+- `_temporal_entity`: entity level BIOES tagging over a temporal complex. The pure Python parity implementation lives in `rexgraph.reference.temporal_entity`.

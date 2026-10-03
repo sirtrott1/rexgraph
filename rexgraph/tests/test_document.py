@@ -6,6 +6,7 @@ misaddresses everything after the first drop: a section would then point at anot
 sentence's bytes and every proof and citation built on it would be confidently wrong.
 """
 from __future__ import annotations
+from rexgraph.state import semantic_header
 
 import pathlib
 import re
@@ -180,7 +181,7 @@ def test_it_round_trips_through_the_state_with_every_layer(doc):
     back = from_state(st, verify=True)
     got = sectionings_of(back)
     assert sorted(got) == sorted(info["layers"])
-    assert build_merkle(back).root.hex() == st.header["merkle"]["root"]
+    assert build_merkle(back).root.hex() == semantic_header(st)["merkle"]["root"]
     assert tuple(got["sentence"].spans[0]) == tuple(
         sectionings_of(rex)["sentence"].spans[0])
 
@@ -308,9 +309,7 @@ def test_every_column_is_a_zero_sum_relation_at_its_own_arity(doc):
     B = to_scipy_csr(rex._B1_dual).tocsc()
     sums = np.asarray(B.sum(axis=0)).ravel()
     arity = np.diff(B.indptr)
-    # The WITNESS is the one column that does not sum to zero: `(+1)`, sum 1, and
-    # `L0 u = u`. Asserting every column sums to zero asserted the witness out of
-    # existence, which is the same collapse `min_terms` used to perform.
+    # The witness column (+1) sums to one and satisfies L0 u = u.
     assert np.allclose(sums[arity >= 2], 0.0), "a k>=2 boundary column sums to zero"
     assert np.allclose(sums[arity == 1], 1.0), "a witness sums to one"
     for c in range(min(int(rex.nE), 40)):
@@ -415,7 +414,7 @@ def test_gating_makes_the_span_the_base_and_the_sentence_a_coarsening():
 
 def test_a_layer_that_divides_nothing_is_not_named():
     """A layer identical to the one above it is that layer under another name. So the
-    base is only called `span` when the gate genuinely splits a sentence."""
+    base is only called `span` when the gate splits a sentence."""
     never = CorpusProfile(name="no-gate", markers=ENGLISH_GUTENBERG.markers,
                           gate=frozenset({"\u00a7"}))
     _rex, info = build_document(_BOOK, profile=never)

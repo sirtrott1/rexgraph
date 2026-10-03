@@ -1,9 +1,7 @@
-"""Phase 1: a call is typed, checked and refused before anything executes.
+"""Check type inference and refusal before adapter execution.
 
-The Phase 1 exit gate is that an invalid grade, basis, capability or exactness request
-fails before an adapter is called. These tests assert the ordering itself, not only the
-outcome: a source that explodes when touched proves a refusal happened first, where an
-assertion on the exception type alone would pass even if the adapter had already run.
+Invalid grades, bases, capabilities and exactness requests fail before touching
+the source. Probe sources detect any premature materialization.
 """
 
 from __future__ import annotations
@@ -34,7 +32,7 @@ class Exploding:
     hasattr is not a call, which is the distinction this class turns into a test.
     """
 
-    def _boom(self, *args, **kwargs):  # pragma: no cover - reaching this is the failure
+    def _boom(self, *args, **kwargs):  # pragma: no cover: reaching this is the failure
         raise AssertionError("an adapter ran before the call was refused")
 
     get = history = stats = list = search = _boom
@@ -51,7 +49,7 @@ def rex():
 
 @pytest.fixture
 def store(tmp_path, rex):
-    s = rcdb.open_store(f"rex://{tmp_path / 'store'}")
+    s = rcdb.open_store(f"rex://{tmp_path / 'store'}", read_only=False)
     s.put("r1", rex)
     yield s
     s.close()
@@ -526,8 +524,6 @@ def test_typing_a_call_does_not_require_the_machinery_that_would_run_it():
     behind __getattr__. Run in a subprocess because the check is about what a fresh import
     pulls, and this suite has already imported everything.
     """
-    import subprocess
-    import sys
     import tempfile
 
     # The whole pre execution surface, not just the type layer: binding, signature lookup,
@@ -545,9 +541,12 @@ def test_typing_a_call_does_not_require_the_machinery_that_would_run_it():
     # the outer directory that shadows the package and fail on the first attribute. That
     # is the same shadowing this suite guards against elsewhere, and it reaches into a
     # child process precisely because the fix lives in the parent's interpreter state.
+    from pathlib import Path
+    from runpy import run_path
+    run_isolated = run_path(str(Path(__file__).resolve().parents[2] / "scripts/test_subprocess.py"))["run_isolated"]
     with tempfile.TemporaryDirectory() as neutral:
-        out = subprocess.run([sys.executable, "-c", program], capture_output=True,
-                             text=True, check=True, cwd=neutral).stdout.strip()
+        out = run_isolated(program, packages=("rcql",), capture_output=True,
+                           text=True, check=True, cwd=neutral).stdout.strip()
     assert out == "False False", f"typing pulled the numeric stack: {out}"
 
 

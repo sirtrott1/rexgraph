@@ -58,7 +58,7 @@ def test_a_stored_weighted_complex_keeps_its_metric(tmp_path):
     expected = tuple(get_operator("EFFECTIVE_MODES").fn(rex, 1, sector) for sector in ("completed", "up"))
     assert expected != tuple(get_operator("EFFECTIVE_MODES").fn(_k4_one_face(), 1, sector)
                              for sector in ("completed", "up"))
-    store = rcdb.open_store(f"rex://{tmp_path / 'store'}")
+    store = rcdb.open_store(f"rex://{tmp_path / 'store'}", read_only=False)
     try:
         store.put("r", rex, analytics=False)
         result = Executor(sources={"db": store}).execute(parse(

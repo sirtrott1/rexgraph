@@ -1,15 +1,6 @@
-"""Splitting a batch across device pinned bees, when the devices contend.
+"""Check batch allocation against fixed solo and contended worker rates.
 
-Measured on this laptop (Qwen2.5-Coder-7B Q4, unified memory), with the contended rates
-taken under SUSTAINED mutual load rather than one generation each:
-
-    igpu solo 46.98  contended 31.94 (68%)
-    cpu  solo 21.41  contended  8.23 (38%)
-
-so the pair makes 40.17 tok/s against 46.98 for the iGPU alone. On unified memory,
-co scheduling the CPU alongside the iGPU is a NET LOSS: the CPU bee takes more bandwidth
-than it contributes. A scheduler that assumes more devices is more throughput takes that
-trade every time.
+The unified and discrete fixtures cover contention losses and throughput gains.
 """
 import pytest
 from agent.device_routing import (
@@ -27,7 +18,7 @@ DISCRETE = [DeviceRate("gpu", "gpu:0", 60.0, 57.0),
 
 
 def test_co_scheduling_is_refused_when_it_loses():
-    """The measured unified case: together 40.17, best alone 46.98."""
+    """The fixed contended rates sum to 40.17, below the solo rate of 46.98."""
     worth, agg, best = co_scheduling_pays(UNIFIED)
     assert worth is False
     assert agg == pytest.approx(40.17, abs=0.01)
@@ -77,8 +68,7 @@ def test_the_makespan_is_piecewise_because_contention_ends():
 
 
 def test_the_makespan_matches_what_was_measured():
-    """fastest 39.40s and round_robin 61.01s were measured; the model has to land near
-    them or it cannot be used to choose between them."""
+    """Check the expected makespan for the fixed solo and contended rate fixtures."""
     assert expected_makespan(UNIFIED, {"igpu": 16, "cpu": 0}, 120) == pytest.approx(
         39.40, rel=0.10)
     assert expected_makespan(UNIFIED, {"igpu": 8, "cpu": 8}, 120) == pytest.approx(

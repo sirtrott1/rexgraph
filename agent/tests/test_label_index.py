@@ -41,7 +41,7 @@ def store(request, tmp_path):
     if request.param == "memory":
         st = rcdb.MemoryStore()
     elif request.param == "file":
-        st = rcdb.FileStore(str(tmp_path / "store"))
+        st = rcdb.FileStore(str(tmp_path / "store"), read_only=False)
     else:
         st = rcdb.SQLStore(f"sqlite:///{tmp_path / 'rc.sqlite'}")
     _corpus().persist(st)
@@ -90,11 +90,7 @@ def test_limit_is_honoured(store):
 
 
 def test_retrieval_delegates_the_prefilter_to_the_store(store):
-    """The point of the whole exercise. Retrieval used to pull every record with
-    store.list(limit=10**6) and filter in Python; it must now hand the store a
-    vocabulary predicate and a bounded limit, and let the store answer it. Whether a
-    given backend has an index for that is the backend's business: Memory and File
-    scan by nature, SQLStore pushes it into the database (tested separately)."""
+    """Retrieval sends a vocabulary predicate and a bounded limit to the store."""
     asked = []
     real_query = store.query
     store.query = lambda **kw: (asked.append(kw), real_query(**kw))[1]
@@ -110,7 +106,7 @@ def test_retrieval_delegates_the_prefilter_to_the_store(store):
     assert asked[0].get("limit") and asked[0]["limit"] < 10 ** 6, (
         f"unbounded prefilter: limit={asked[0].get('limit')}")
     # and it must not fall back to a full enumeration afterwards. Comments are
-    # stripped: the docstring explains the old store.list path on purpose.
+    # stripped before checking for full store enumeration.
     import inspect
 
     code = [ln.split("#", 1)[0] for ln in

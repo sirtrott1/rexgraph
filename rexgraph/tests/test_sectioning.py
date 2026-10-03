@@ -5,6 +5,7 @@ of the document's own field, several of them coexist over it, and each one survi
 serialisation with a digest a caller can check without opening the complex.
 """
 from __future__ import annotations
+from rexgraph.state import semantic_header
 
 import numpy as np
 import pytest
@@ -85,7 +86,7 @@ def test_sectionings_survive_the_state_round_trip_with_their_own_digests(rex):
                    method="agreement>=2")
     add_sectioning(rex, "paragraph", {"p0": [0, 1, 2, 3], "p1": [4, 5]})
     st = to_state(rex)
-    entries = {e["name"]: e for e in st.header["sectionings"]}
+    entries = {e["name"]: e for e in semantic_header(st)["sectionings"]}
     assert set(entries) == {"sentence", "paragraph"}
     assert all(e["digest"] for e in entries.values())
     assert entries["sentence"]["digest"] != entries["paragraph"]["digest"]
@@ -126,16 +127,17 @@ def test_a_rewritten_codec_spec_is_caught_too(rex):
     codec's start would otherwise hand the loader a different array with the container
     seal still checking out. The layer digest catches it in either case, which is the
     point of having both."""
-    import json
 
-    from rexgraph.io.rex_state import CODEC_TENSOR, state_digest
+    from rexgraph.io.rex_state import state_digest
     add_sectioning(rex, "sentence", {"s0": [0, 1], "s1": [2, 3], "s2": [4, 5]})
     st = to_state(rex)
-    spec = json.loads(bytes(np.asarray(st.tensors[CODEC_TENSOR]).tobytes()).decode())
+    from rexgraph.sealed_state import SEMANTICS_TENSOR
+    from rexgraph.value_codec import pack_value, unpack_value
+    record = unpack_value(st.tensors[SEMANTICS_TENSOR].tobytes())
+    spec = record["tensor_codecs"]
     assert spec["sections/sentence/indices"]["c"] == "arange"
     spec["sections/sentence/indices"]["start"] = 3          # shift every index
-    st.tensors[CODEC_TENSOR] = np.frombuffer(
-        json.dumps(spec, sort_keys=True).encode(), dtype=np.uint8).copy()
+    st.tensors[SEMANTICS_TENSOR] = np.frombuffer(pack_value(record), np.uint8).copy()
     st.header["digest"] = state_digest(st.tensors, st.header["digest_names"])
     with pytest.raises(ValueError, match="does not match its digest"):
         from_state(st, verify=True)
@@ -143,16 +145,16 @@ def test_a_rewritten_codec_spec_is_caught_too(rex):
 
 def test_the_codec_spec_is_sealed_by_the_container_digest(rex):
     """Without refreshing the outer digest, the same edit is caught one layer earlier."""
-    import json
 
-    from rexgraph.io.rex_state import CODEC_TENSOR
     add_sectioning(rex, "sentence", {"s0": [0, 1], "s1": [2, 3], "s2": [4, 5]})
     st = to_state(rex)
-    spec = json.loads(bytes(np.asarray(st.tensors[CODEC_TENSOR]).tobytes()).decode())
+    from rexgraph.sealed_state import SEMANTICS_TENSOR
+    from rexgraph.value_codec import pack_value, unpack_value
+    record = unpack_value(st.tensors[SEMANTICS_TENSOR].tobytes())
+    spec = record["tensor_codecs"]
     spec["sections/sentence/indices"]["start"] = 3
-    st.tensors[CODEC_TENSOR] = np.frombuffer(
-        json.dumps(spec, sort_keys=True).encode(), dtype=np.uint8).copy()
-    with pytest.raises(ValueError, match="do not match the digest"):
+    st.tensors[SEMANTICS_TENSOR] = np.frombuffer(pack_value(record), np.uint8).copy()
+    with pytest.raises(ValueError, match="do not match their semantic digest"):
         from_state(st, verify=True)
 
 

@@ -471,7 +471,7 @@ def model_embed_fn(url: str | None = None):
     back to the lexical signal. The embedding signal is what turns divergence detection into a
     hallucination vs specialist distinction.
 
-    `url` names the endpoint explicitly - an ATTACHED embedder bee, whose process this
+    `url` names the endpoint explicitly: an ATTACHED embedder bee, whose process this
     interpreter does not own. Without it only a locally MANAGED server (local_runtime.start /
     start_embedder) is discoverable, so an attached embedder would be invisible and the monitor
     would silently stay lexical."""

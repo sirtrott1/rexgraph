@@ -8,7 +8,7 @@ depending on whether it arrived as a file or as a scan (audit item 2.2).
 
 This module recovers tabular structure from OCR text and parses it back
 into a :class:`pandas.DataFrame`, so it can be routed through the same
-feature/edge adapters a native CSV would use - giving column headers
+feature/edge adapters a native CSV would use: giving column headers
 back their role as vertex labels.
 
 The detector is deliberately conservative: it only reports a table when
@@ -152,7 +152,7 @@ def detect_tables(text: str, min_rows: int = _MIN_ROWS) -> list[pd.DataFrame]:
         if best is not None:
             try:
                 frames.append(_rows_to_frame(best))
-            except Exception as e:  # pragma: no cover - defensive
+            except Exception as e:  # pragma: no cover: defensive
                 logger.debug("Table parse failed: %s", e)
 
     return frames

@@ -12,7 +12,7 @@ import numpy as np
 from rexgraph.model_state import ModelState, ModelOutput, ModelInput, thaw_tree
 from rexgraph.tensor_field import FieldSource
 from rexgraph.type_accession import CoordinateSpace
-from rexgraph.model_runtime import model_coordinates
+from rexgraph.model_contract import model_coordinates, register_checkpoint_capture
 
 __all__ = ["ModelAdapter", "register_model_adapter", "create_checkpoint", "capture_checkpoint",
            "infer_checkpoint", "train_checkpoint", "restore_checkpoint", "transport_checkpoint"]
@@ -193,7 +193,7 @@ def _environment():
 
 
 def _operator_digest(value):
-    from rexgraph.io.rex_state import state_digest
+    from rexgraph.identity import tensor_digest
     import torch
     if value is None: return None
     if not isinstance(value, torch.Tensor): raise TypeError("optimizer operator must be a tensor")
@@ -204,7 +204,7 @@ def _operator_digest(value):
     elif value.layout == torch.strided:
         tensors = {"values": value.detach().cpu().numpy()}
     else: raise TypeError("unsupported optimizer operator layout")
-    return state_digest(tensors)
+    return tensor_digest(tensors)
 
 
 def _optimizer(model, specification):
@@ -278,6 +278,11 @@ def capture_checkpoint(model, source, *, adapter="coparticipation", configuratio
         configuration["optimizer"]["resolved"] = type(optimizer).__module__ + "." + type(optimizer).__qualname__
     return ModelState(adapter, impl.version, reference, space, axes,
                       configuration, payload, "approximate", step, parent, tuple(dependencies))
+
+
+# Install the training implementation behind the neutral model contract.  Flow/model
+# code calls the contract and never imports this module directly.
+register_checkpoint_capture(capture_checkpoint)
 
 
 def create_checkpoint(source, *, adapter="coparticipation", configuration=None, axes=None,

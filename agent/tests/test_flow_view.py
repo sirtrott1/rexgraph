@@ -1,17 +1,4 @@
-"""Placing cells by a signal, for data that has no geometry of its own.
-
-Semantics and measurements do not come with an embedding, and they are often structurally
-degenerate besides. In a binding panel every ligand has one binding and one panel
-membership, so their stars are identical and a layout that reads structure collapses them
-onto one point. Measured on a real BindingDB panel: 37 vertices, 2 distinct positions,
-because there are 2 distinct star characters. That picture is true and useless.
-
-What such data does have is flow. The gradient part of a signal descends a potential,
-`phi = L0^+ B1 g`, solved by the library's own LSQR seam, which deflates L0's
-per component constant kernel exactly. `phi` is a coordinate derived FROM the data rather
-than invented for it, so two cells with the same structure and different measurements
-separate, and they separate by how much the measurement differs.
-"""
+"""Check signal potential/divergence positions and SVG rendering for flow views."""
 from __future__ import annotations
 
 import numpy as np

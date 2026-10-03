@@ -610,7 +610,7 @@ def _step_langchain_tools(files, state, params):
     during execution.
 
     The tools give the model:
-    - Mathematical confidence (not probability - void counts and kappa)
+    - Mathematical confidence (not probability: void counts and kappa)
     - Full structural analysis (betti, character, Hodge)
     - Signal decomposition (gradient/curl/harmonic on any flow)
     - Per-edge/vertex explanation (why this edge matters)

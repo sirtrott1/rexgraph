@@ -283,7 +283,7 @@ def test_edge_types_are_stored_as_codes_beside_a_name_table(tmp_path):
     groups = [["a", "b", "c"], ["b", "d"], ["e", "f"]]
     labels = [("synonyms", "a"), ("antonyms", "b"), ("synonyms", "e")]
     rex, info = from_groups(groups, pair_mode="none", verify=False)
-    store = FileStore(str(tmp_path))
+    store = FileStore(str(tmp_path), read_only=False)
     _put(store, "lex:test", rex, info, source="t", kind="linkage_graph",
          group_labels=labels, log=lambda *a: None)
 

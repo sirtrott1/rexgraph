@@ -52,7 +52,7 @@ def _call(fn, *a, **kw):
         return True, 200
     except httpx.HTTPStatusError as e:
         return False, e.response.status_code
-    except Exception:                            # noqa: BLE001 - not a routing fault
+    except Exception:                            # noqa: BLE001  # not a routing fault
         return True, 0
 
 

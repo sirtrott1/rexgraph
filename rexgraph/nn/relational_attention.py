@@ -8,8 +8,8 @@ weights = content affinity) and mixes values by a propagator f(L_W)·V computed 
 Chebyshev sparse matvec recurrence; the n×n mixing operator f(L_W) is never formed
 (O(nnz·K·d)). Two routing channels come from the light propagator's exact split:
 
-  * heat  e^{-tL}·V  - diffusive / gradient routing (multi hop reachability)
-  * curl  Im(e^{-itL})·V = -sin(tL)·V - rotational / directional routing, which softmax
+  * heat  e^{-tL}·V : diffusive / gradient routing (multi hop reachability)
+  * curl  Im(e^{-itL})·V = -sin(tL)·V: rotational / directional routing, which softmax
     cannot express in one hop ("complex rotation is curl")
 
 The token graph is content weighted, so the weighting's curvature (: weighted
@@ -95,27 +95,16 @@ class PropagatorAttention(_Base):
             gate = 1.0 + _F.softplus(self.imp_gain) * (imp - 1.0)   # gate≈1 at init, learns up
             v = v * gate.unsqueeze(-1)                         # important source tokens broadcast more
 
-        chans = []
-        need_wave = ("gradient" in self.channels) or ("curl" in self.channels)
-        wave_re = wave_im = None
-        if need_wave:
-            wave_re, wave_im = R.wave_apply(L, v, t, K=self.order, lam_max=lam_max)
-        for ch in self.channels:
-            if ch == "heat":
-                y = R.heat_apply(L, v, t, K=self.order, lam_max=lam_max)
-            elif ch == "gradient":
-                y = wave_re
-            elif ch == "curl":
-                y = wave_im
-            else:
-                raise ValueError(f"unknown channel {ch!r}")
-            chans.append(y.transpose(1, 2).reshape(B, T, d))    # [B,T,d] per channel
+        # All selected filters use the same L, V and polynomial order. Reuse
+        # their basis, and avoid computing a wave component nobody requested.
+        filtered = R.propagator_apply(L, v, t, self.channels, K=self.order, lam_max=lam_max)
+        chans = [y.transpose(1, 2).reshape(B, T, d) for y in filtered]
         out = self.proj(_t.cat(chans, dim=-1))
 
         if not return_diag:
             return out, None
         with _t.no_grad():
-            #: per head varentropy gap (collision vs diffusion) - routing structure
+            #: per head varentropy gap (collision vs diffusion): routing structure
             vg = R.varentropy_gap(L)
             #: weight concentration = participation ratio N_eff = (Σw)²/Σw² per head
             wsum = W.sum(dim=(-2, -1)); w2sum = (W * W).sum(dim=(-2, -1))
@@ -147,59 +136,17 @@ def _band_valid(T, w, device):
 
 
 class CausalPropagatorAttention(_Base):
-    """Causal relational attention: the decoder LM form, where causality, sparsity, and
-    multi hop propagation are one structural choice.
+    """Causal attention through a finite polynomial of a prior token adjacency.
 
-    A causal, windowed prior token neighborhood is simultaneously the causal mask and the
-    O(n·w) sparse graph. Because a causal token graph is a DAG, its (row stochastic) adjacency
-    A is nilpotent under truncation, so the propagator is a finite matvec series
+    The lower triangular row stochastic adjacency includes self loops and an optional
+    window. Softmax hop coefficients combine A**k @ V for k=0 through the configured
+    depth. The zero hop term retains each token's value.
 
-        Y = Σ_{k=0}^{K} c_k · Aᵏ · V            (A lower-triangular => Y[i] depends only on j≤i)
-
-    no complex spectrum and no convergence tower. Aᵏ routes information k hops back along
-    the causal graph; the hop weights c = softmax(·) are learnable (how far to reach),
-    and k=0 keeps the token's own value. This is the causal counterpart of the heat
-    propagator (real/gradient); a directional (curl) channel can be added later via a
-    signed hop combination.
-
-    TWO PATHS, and `sparse` chooses. The dense one forms [B,H,T,T] and masks it, so
-    `window` changes which entries are masked rather than how many are computed and
-    a full forward is strictly more work than standard attention. The banded one
-    addresses the window directly and never builds the T×T; it is selected by
-    default whenever a window is given.
-
-    The band is not an approximation. The window is a structural fact about which
-    tokens are reachable, not a threshold on scores, so the band drops exactly the
-    terms the dense path multiplies by zero. Outputs agree to 0.0e+00 and gradients
-    to 1e-5 across every shape tested, including T < w; see
-    rexgraph/tests/test_banded_attention.py, which is the reason to believe it.
-
-    COST, measured (agent.benchmarks.bench_attention_speed), 8060S, B=4 d=256 h=4,
-    hops=4, window=64, prefill, against torch's fused causal SDPA:
-
-        T              512    1024    2048    4096    8192
-        banded/fused  2.51x   1.50x   1.13x   1.00x   0.52x
-        banded/dense  1.75x   0.74x   0.63x   0.63x   0.33x
-        banded MB       185     335     635    1235    2435
-        dense MB         90     243     838    3186   12514
-
-    so the band overtakes the dense propagator around T = 1024 and torch's own
-    kernel around T = 4096, and by T = 8192 it is roughly twice as fast as fused
-    SDPA on a fifth of the memory. A wider window costs proportionally: w = 128 is
-    slower than fused at every length tested, since the einsum materialises the
-    [B,H,T,w,dk] window rather than streaming it, which is O(T·w·dk) and not the
-    O(T·dk) a fully streamed kernel would use.
-
-    Where the shape does pay is DECODE, one token against a KV cache, which is what
-    token/s measures: the window bounds the read and the hops buy back the reach it
-    gave up, at a cost proportional to K. Same benchmark, B=8 d=512 h=8, window 64,
-    against full history decode:
-
-        cache T    256    1024    4096    8192
-        K=4       0.18x   0.53x   2.13x   3.91x   (>1 is faster)
-
-    so it is a loss below roughly T = 2000 and a win above it. Prefill with this class
-    is a loss at every length tested."""
+    sparse selects the banded path when a window is supplied. That path addresses
+    the same allowed entries as the dense masked operator without allocating [T, T].
+    Its window intermediates scale with sequence length, window and feature width.
+    Decode attends to the permitted portion of the KV cache.
+    """
 
     def __init__(self, d: int, n_head: int, hops: int = 4, window: int = None,
                  learn_hops: bool = True, sparse: bool | None = None):
@@ -275,7 +222,7 @@ class CausalPropagatorAttention(_Base):
         causal = i[:, None] >= i[None, :]                     # j ≤ i (lower triangular)
         if self.window is not None:
             causal = causal & (i[:, None] - i[None, :] < self.window)
-        A = scores.masked_fill(~causal, float("-inf")).softmax(dim=-1)   # row stochastic DAG
+        A = scores.masked_fill(~causal, float("-inf")).softmax(dim=-1)   # lower triangular, self loops
         c = (self.log_c.softmax(0) if self.log_c is not None
              else _t.full((self.hops + 1,), 1.0 / (self.hops + 1), device=x.device))
         # finite causal propagator series Y = Σ_k c_k Aᵏ V (K matvecs, causality preserved)

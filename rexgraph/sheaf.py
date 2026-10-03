@@ -358,7 +358,7 @@ class Sheaf:
         Weaker than `bind_boundary` and worth saying why: an indicator is EXISTENCE
         alone (present or absent) with orientation and share discarded. The pillars
         are already at every incidence in `B1`, so a mask is an encoding invented beside
-        a tensor that already carried the answer. Kept because a caller may genuinely have
+        a tensor that already carried the answer. Kept because a caller may have
         exogenous labels to carry; not the way to read structure.
         """
         m = np.asarray(mask, dtype=np.float64).ravel()

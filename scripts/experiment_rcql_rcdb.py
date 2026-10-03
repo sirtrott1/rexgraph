@@ -32,7 +32,7 @@ import traceback
 import numpy as np
 
 from rcql import Executor, parse
-from rcdb import FileStore, MemoryStore, ObjectStore, RexStore, SQLStore, copy_record
+from rcdb import FileStore, MemoryStore, NativeObjectStore, RexStore, SQLStore, copy_record
 from rexgraph.graph import RexGraph, TemporalRex
 from rexgraph.io import load, save
 from rexgraph.io.catalog import FileCatalog, object_digest
@@ -71,13 +71,13 @@ def open_backend(kind, root):
     if kind == "memory":
         return MemoryStore()
     if kind == "file":
-        return FileStore(str(root / "file"))
+        return FileStore(str(root / "file"), read_only=False)
     if kind == "rex":
-        return RexStore(str(root / "rex"))
+        return RexStore(str(root / "rex"), read_only=False)
     if kind == "sql":
         return SQLStore(f"sqlite:///{root / 'sql.db'}")
     if kind == "object":
-        return ObjectStore(f"file://{root / 'object'}")
+        return NativeObjectStore(f"file://{root / 'object'}")
     raise ValueError(kind)
 
 
@@ -423,7 +423,7 @@ def navigation(exp, root, values, manifests):
     # injection; there is no core -> RCDB package dependency.
     handles = []
     def rcdb_loader(path):
-        store = RexStore(str(path)) if Path(path).name == "rex" else FileStore(str(path))
+        store = RexStore(str(path), read_only=False) if Path(path).name == "rex" else FileStore(str(path), read_only=False)
         handles.append(store)
         return store
     stores = FileCatalog([root / "stores"], loaders={"rcdb": rcdb_loader})

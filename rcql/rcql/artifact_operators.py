@@ -13,21 +13,24 @@ def _bytes(value):
 
 def _lineage(value):
     from rexgraph.io.commit import CommitLink
-    from rexgraph.io.partition_state import PartitionState, RexPartition
+    from rexgraph.partition_state import PartitionState, RexPartition
+    from rexgraph.selection import Lineage
     from rexgraph.io.transition import TransitionCommit
     if isinstance(value, RexPartition):
         value.check_state()
         value = value.state
-    if not isinstance(value, (PartitionState, CommitLink, TransitionCommit)):
+    if not isinstance(value, (PartitionState, CommitLink, TransitionCommit, Lineage)):
         raise TypeError("lineage requires a Core partition, commit link or transition")
     return value
 
 
 def lineage(source, value):
+    from rexgraph.selection import Lineage
     value = _lineage(value)
     record_method("core-lineage-manifest", object_type=type(value).__name__)
     return {"object_type": type(value).__name__, "digest": value.digest,
-            "manifest": value.manifest(), "signature_verified": False}
+            "manifest": value.as_record() if isinstance(value, Lineage) else value.manifest(),
+            "signature_verified": False}
 
 
 def manifest(source, artifact):
@@ -52,7 +55,7 @@ def manifest(source, artifact):
 
 
 def hash_value(source, value=None, kind="state"):
-    from rexgraph.io.catalog import object_digest
+    from rexgraph.object_identity import object_digest
     from rexgraph.io.manifest import manifest_digest
     if kind == "state":
         from rexgraph.graph import RexGraph, TemporalRex
@@ -111,7 +114,7 @@ def decrypt(source, artifact):
 def export_parquet(source, columns, partition):
     from dataclasses import asdict
     from rexgraph.io.export import export_parquet as core_export
-    from rexgraph.io.partition_state import RexPartition
+    from rexgraph.partition_state import RexPartition
     if not isinstance(partition, RexPartition):
         raise TypeError("EXPORT_PARQUET requires a RexPartition")
     partition.check_state()

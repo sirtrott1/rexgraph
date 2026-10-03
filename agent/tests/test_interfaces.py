@@ -13,7 +13,7 @@ def teardown_function():
 
 def test_no_telemetry_by_default():
     ifc.reset()
-    # a recording logger/metrics - but the engine uses the NULL defaults, so
+    # a recording logger/metrics: but the engine uses the NULL defaults, so
     # nothing is emitted unless the host explicitly configures.
     events = []
 
@@ -26,7 +26,7 @@ def test_no_telemetry_by_default():
     ifc.get_logger().log("info", "x", a=1)
     ifc.get_metrics().incr("m")
     ifc.get_metrics().observe("t", 0.5)
-    assert events == []                      # nothing recorded - engine is silent
+    assert events == []                      # nothing recorded: engine is silent
     # only after the host opts in does anything flow
     ifc.configure(logger=Rec(), metrics=Rec())
     ifc.get_logger().log("info", "y")
@@ -88,6 +88,6 @@ def test_structure_only_no_cell_data():
     blob = serialize_complex(rex)
     # only structure/labels are present; assert no fabricated cell values sneak in
     assert isinstance(blob, (bytes, bytearray)) and len(blob) > 0
-    # the meta carries labels (names) and edges - never rows
+    # the meta carries labels (names) and edges: never rows
     assert set(meta.keys()) >= {"vertex_labels", "edges"}
     assert "rows" not in meta and "data" not in meta and "values" not in meta

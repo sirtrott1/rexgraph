@@ -54,10 +54,7 @@ def test_a_decimal_point_is_not_a_terminator_at_all():
 
 
 def test_the_terminator_gates_even_when_nothing_else_agrees():
-    """Slang and dialect. The vote used to hold this whole because only one channel
-    fired; the gate cuts, because a terminator that is not part of a token IS where the
-    relation ends. Two utterances is the honest reading, and case is a consequence of a
-    boundary rather than evidence for one."""
+    """An untokenized terminator closes a relation without a second segmentation vote."""
     assert len(_texts("aint no way she done that fr fr. we out")) == 2
 
 

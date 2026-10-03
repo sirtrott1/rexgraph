@@ -64,7 +64,7 @@ def test_delete_clears_active(store):
 
 
 def test_apply_attach_profile_stands_up_hive(store, monkeypatch):
-    # 'attach' profile enrolls whatever is 'running' - stub the probe so no process is needed
+    # 'attach' profile enrolls whatever is 'running': stub the probe so no process is needed
     monkeypatch.setattr("agent.local_runtime.probe_endpoints", lambda timeout=0.4: [
         {"url": "http://127.0.0.1:8000", "kind": "openai", "models": ["Qwen2.5-7B"], "n_models": 1},
     ])

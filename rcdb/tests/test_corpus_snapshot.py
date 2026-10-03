@@ -6,7 +6,7 @@ from rcdb import open_store
 from rexgraph import RexGraph
 
 
-@pytest.fixture(params=["memory", "file", "rex", "sqlite", "object"])
+@pytest.fixture(params=["memory", "file", "rex", "sqlite", "object", "local"])
 def store(request, tmp_path):
     name = request.param
     if name == "sqlite":
@@ -18,9 +18,9 @@ def store(request, tmp_path):
            if name == "object" else f"{name}://{tmp_path / name}")
     if name == "object":
         from rcdb import ObjectStore
-        value = ObjectStore(f"file://{tmp_path / 'objects'}")
+        value = ObjectStore(f"file://{tmp_path / 'objects'}", read_only=False)
     else:
-        value = open_store(uri)
+        value = open_store(uri, **({"read_only": False} if name in {"file", "rex"} else {}))
     yield value
     value.close()
 
@@ -77,7 +77,7 @@ def test_cache_reuses_only_owned_local_index(store, monkeypatch):
 
 def test_rex_compaction_append_log_and_reopening(tmp_path):
     uri = f"rex://{tmp_path / 'corpus'}"
-    store = open_store(uri)
+    store = open_store(uri, read_only=False)
     put(store, "old", ["x"])
     store.compact()
     put(store, "tail", ["x"])
@@ -121,7 +121,7 @@ def test_failed_write_drops_cache_without_changing_retained_snapshot(monkeypatch
 
 
 def test_compaction_does_not_reuse_old_snapshot_offsets(tmp_path):
-    store = open_store(f"rex://{tmp_path / 'offsets'}")
+    store = open_store(f"rex://{tmp_path / 'offsets'}", read_only=False)
     put(store, "a", ["x"])
     put(store, "b", ["y"])
     store.write_index()
@@ -135,10 +135,10 @@ def test_compaction_does_not_reuse_old_snapshot_offsets(tmp_path):
 def test_legacy_log_append_and_compaction_keep_one_format(tmp_path):
     import json
     import struct
-    from rcdb.index import LOG_MAGIC
+    from rcdb.journal import JOURNAL_MAGIC
     root = tmp_path / "legacy"
     uri = f"rex://{root}"
-    store = open_store(uri)
+    store = open_store(uri, read_only=False)
     put(store, "old", ["x"])
     row = store.get_record("old")
     offset, length = store._blob_at[("old", 1)]
@@ -149,17 +149,17 @@ def test_legacy_log_append_and_compaction_keep_one_format(tmp_path):
     payload = json.dumps(entry).encode()
     path = root / "records.log"
     path.write_bytes(struct.pack("<I", len(payload)) + payload)
-    store = open_store(uri)
+    store = open_store(uri, read_only=False)
     put(store, "new", ["y"])
     store.delete("old")
     store.close()
-    store = open_store(uri)
+    store = open_store(uri, read_only=False)
     assert store.corpus_snapshot().ids == ("new",)
     store.compact()
-    assert path.read_bytes().startswith(LOG_MAGIC)
+    assert path.read_bytes().startswith(JOURNAL_MAGIC)
     put(store, "tail", ["z"])
     store.close()
-    store = open_store(uri)
+    store = open_store(uri, read_only=False)
     assert store.corpus_snapshot().ids == ("new", "tail")
     assert store.get("new").nE == store.get("tail").nE == 1
     store.close()

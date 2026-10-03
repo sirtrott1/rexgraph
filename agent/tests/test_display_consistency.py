@@ -100,11 +100,7 @@ def test_only_attach_faces_reaches_typed_face_selection():
     import pathlib
     import re
 
-    # Anchored on this file, not on the working directory. The glob used to be the
-    # relative "agent/**/*.py", which matches 593 files from the repo root and NOTHING
-    # from anywhere else, so a run with any other cwd found no offenders and passed
-    # without having scanned a line. A guard that reports success by finding nothing to
-    # check is worse than no guard, so the scan asserts its own reach below.
+    # Anchor the source scan to this file and assert that it finds source files.
     root = pathlib.Path(__file__).resolve().parents[1] / "agent"
     offenders = []
     scanned = 0

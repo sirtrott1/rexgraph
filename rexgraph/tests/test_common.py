@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._common - shared infrastructure layer.
+Tests for rexgraph.core._common: shared infrastructure layer.
 
 Verifies:
     - Runtime configuration (memory, parallelization, threads, algorithms)
@@ -96,8 +96,7 @@ class TestConfiguration:
 
     def test_configure_memory_explicit(self):
         """Setting explicit memory limits persists."""
-        # nothing is captured before the change: the finally below resets to auto detect
-        # rather than to a saved value, so reading the old configuration was never used.
+        # Reset configuration to automatic detection in the finally block.
         try:
             configure_memory(max_dense_allocation=500_000_000)
             cfg = get_configuration()
@@ -201,7 +200,7 @@ class TestThreadConfig:
         try:
             configure_threads(reserved_threads=1)
             eff = get_effective_threads(0)
-            # With 1 reserved, effective should be max_threads - 1 (minimum 1)
+            # With 1 reserved, effective should be ``max_threads - 1`` (minimum 1)
             assert eff >= 1
         finally:
             configure_threads(reserved_threads=0)
@@ -396,7 +395,7 @@ class TestMemoryEstimation:
 
     def test_estimate_dense_huge_does_not_fit(self):
         est = estimate_dense_matrix_bytes(100_000)
-        # 100K x 100K x 8 = 80 GB - should not fit
+        # 100K x 100K x 8 = 80 GB: should not fit
         assert est["fits_in_limit"] is False
 
 

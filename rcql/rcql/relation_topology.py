@@ -361,7 +361,7 @@ class RelationTopology:
 
     @classmethod
     def from_record(cls, record):
-        from rexgraph.io.catalog import object_digest
+        from rexgraph.object_identity import object_digest
         meta = getattr(record, "_agent_meta", {})
         schema = meta.get("rcql_relation_schema")
         if schema not in (1, 2):

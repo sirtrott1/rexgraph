@@ -1,8 +1,4 @@
-"""Sites that used to need a full spectrum or SVD to answer a solve.
-
-Each test pins the converted path against the spectral one it replaced. A failure here
-means the two disagree, which is a wrong answer and not a slower one.
-"""
+"""Compare sparse solve paths with their dense and spectral reference operators."""
 import numpy as np
 import pytest
 
@@ -69,7 +65,7 @@ class TestSpdSolve:
 
     def test_a_non_symmetric_matrix_raises_rather_than_solving_something_else(self):
         """`dpotrf_` reads one triangle. Symmetry is structural, so this is a caller
-        error and is tested exactly -- not inferred from a residual tolerance."""
+        error and is tested exactly: not inferred from a residual tolerance."""
         broken = self.A.copy()
         broken[0, 5] += 7.0                     # upper triangle only
         with pytest.raises(ValueError, match="symmetric"):
@@ -313,7 +309,7 @@ class TestSupportIsStructuralNotNoise:
         assert from_dense_f64(D).nnz == 2
 
     def test_an_explicit_threshold_is_still_honoured(self):
-        """`_boundary` converts a binary incidence with tol=0.5 -- that use is real."""
+        """`_boundary` converts a binary incidence with tol=0.5: that use is real."""
         from rexgraph.core._sparse import from_dense_f64
         D = np.array([[1.0, 0.3], [0.2, 1.0]])
         assert from_dense_f64(D, tol=0.5).nnz == 2

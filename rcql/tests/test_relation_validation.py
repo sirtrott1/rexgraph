@@ -61,10 +61,10 @@ def test_rcdb_reopen_validation_never_publishes(tmp_path):
     import rcdb
     path = f"rex://{tmp_path / 'db'}"
     rex = fixture()
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     store.put("r", rex)
     store.close()
-    store = rcdb.open_store(path)
+    store = rcdb.open_store(path, **({"read_only": False} if "://" not in path or path.startswith(("file://", "rex://")) else {}))
     try:
         engine = Executor(sources={"db": store}, params={"p": proposals()})
         query = parse('FROM RCDB_GET($db,"r") RETURN VALIDATE_RELATIONS($p), STATE_HASH()')

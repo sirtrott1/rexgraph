@@ -126,19 +126,10 @@ def cpu_count(*, with_source: bool = False):
 
 
 def physical_cores(*, with_source: bool = False):
-    """Cores that do not share a load/store path, capped by `cpu_count`.
+    """Count distinct physical cores available to this process, capped by cpu_count.
 
-    SMT siblings share L1 and the load/store units, so on a MEMORY BOUND kernel they add
-    contention without adding memory parallelism. The channel tower is exactly that shape
-    and measures it: on a 16c/32t machine the best width is 14 and 32 costs 10 to 15%
-    against it, while the curve is flat from 10 to 24. Physical cores lands inside that
-    flat region without anyone choosing a number.
-
-    Counted as distinct `(package, core)` pairs over the CPUs this process may actually
-    run on, so an affinity mask or a cgroup narrows it the same way `cpu_count` does.
-    Falls back to `cpu_count` wherever the topology is not readable, which is the honest
-    answer rather than a guess: without the topology there is no way to tell a sibling
-    from a core.
+    Read (package, core) pairs for CPUs allowed by affinity and quota. Fall back
+    to cpu_count when topology cannot be read. with_source also returns the probe source.
     """
     def _topology_id(path):
         # NOT `_read_int`: that treats 0 as absent, which is right for a quota and wrong
@@ -246,21 +237,9 @@ def gpus() -> list[dict[str, Any]]:
 
 
 
-#### this machine's GPUs, from sysfs rather than from a framework
-#
-# `gpus()` above asks torch, so it sees what CUDA exposes and nothing else. This
-# reads the DRM nodes directly, which is the only way to learn whether a device's
-# memory is UNIFIED with system RAM: that decides bus topology, and a framework
-# that reports total memory will not tell you.
-# GPU probes
-# One probe per driver family, registered rather than branched, so a vendor this has
-# never seen can be added from outside without editing anything here. A probe takes the
-# system RAM in bytes and returns a list of device dicts; it must never raise, and it
-# must return `unified=None` rather than a guess when its signals do not decide.
-#
-# CONFIDENCE is carried per probe and reported, because these were not all verified the
-# same way: amdgpu is measured on a Strix Halo 8060S, the rest are written from each
-# driver's documented sysfs/tool contract and have not been run on that hardware.
+# GPU memory probes register by driver family and inspect sysfs or tool output.
+# Each probe returns device dictionaries and its confidence label.
+# Inconclusive memory signals retain unified=None.
 
 
 _GPU_PROBES: dict = {}
@@ -303,18 +282,11 @@ def gpu_probes() -> dict:
     return {k: v["confidence"] for k, v in _GPU_PROBES.items()}
 
 def _unified_from_memory(vram, gtt, ram_bytes) -> tuple:
-    """(unified, evidence) from a device's pools, or (None, why) when they do not decide.
+    """Infer unified memory from the reported VRAM, GTT and system memory pools.
 
-    The PRIMARY signal is an identity, not a threshold: an integrated GPU's GTT covers
-    system memory exactly, because its "VRAM" is a carveout OF that memory and the driver
-    hands it the whole of what is left. Measured on a Strix Halo 8060S, gtt and MemTotal
-    are the same integer, 130452873216.
-
-    The fallback is a ratio and is named as one. A carveout is small relative to the RAM
-    it comes out of and a card's pool is sized independently of it, so the two are far
-    apart in practice (Strix Halo runs 0.03, and the cards nearby run 0.25 to 0.38),
-    but that is a gap observed, not a law, so it only decides when the identity does not
-    and it reports the magnitudes either way.
+    Return (unified, evidence), with unified=None when the pools do not decide.
+    Exact GTT/system memory equality and a bounded carveout select unified memory.
+    Otherwise use the configured pool ratio tests and report their values.
     """
     if not ram_bytes:
         return None, "system RAM unknown"
@@ -361,7 +333,7 @@ def _drm_cards(driver_match) -> list:
     return out
 
 def _probe_amdgpu(ram_bytes: int) -> list:
-    """amdgpu: reports both pools directly. MEASURED on a Strix Halo 8060S."""
+    """Read AMD memory pools from DRM sysfs nodes."""
     out = []
     for dev, drv, pci in _drm_cards(lambda d: d == "amdgpu"):
         vram = _read_int(os.path.join(dev, "mem_info_vram_total"))
@@ -375,8 +347,7 @@ def _probe_amdgpu(ram_bytes: int) -> list:
     return out
 
 def _probe_intel(ram_bytes: int) -> list:
-    """i915 / xe. An integrated Intel GPU has no dedicated pool at all, which is itself
-    the answer; Arc reports one through the same lmem files. REASONED, not measured."""
+    """Read i915 or xe dedicated memory pools from DRM sysfs nodes."""
     out = []
     for dev, drv, pci in _drm_cards(lambda d: d in ("i915", "xe")):
         lmem = (_read_int(os.path.join(dev, "lmem_total_bytes"))
@@ -391,12 +362,7 @@ def _probe_intel(ram_bytes: int) -> list:
     return out
 
 def _probe_nvidia(ram_bytes: int) -> list:
-    """The proprietary driver exposes no DRM memory manager, so this asks nvidia smi.
-
-    Every PCIe card has its own VRAM. Tegra and Grace are unified and would need their
-    own probe; this does not claim them, and says so rather than calling them discrete.
-    REASONED, not measured.
-    """
+    """Read supported NVIDIA device memory through nvidia smi."""
     if not shutil.which("nvidia-smi"):
         return []
     try:
@@ -425,7 +391,7 @@ def _probe_nvidia(ram_bytes: int) -> list:
     return devs
 
 def _probe_apple(ram_bytes: int) -> list:
-    """Apple silicon is unified by construction. REASONED, not measured."""
+    """Report Apple silicon unified memory where the host probe identifies it."""
     import platform
 
     if platform.system() != "Darwin" or platform.machine() != "arm64":

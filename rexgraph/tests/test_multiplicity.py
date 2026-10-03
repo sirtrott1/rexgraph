@@ -198,7 +198,7 @@ def test_the_grouping_is_arity_general_under_random_branching(seed):
 @pytest.mark.parametrize("seed", range(10))
 def test_the_dimension_shortcut_agrees_with_the_groups(seed):
     """multiplicity_dimension skips building the groups (sum of size 1 is exactly
-    columns - runs). It must still return what counting the groups would."""
+    columns: runs). It must still return what counting the groups would."""
     rng = np.random.default_rng(200 + seed)
     nV = int(rng.integers(4, 10))
     m = int(rng.integers(6, 24))

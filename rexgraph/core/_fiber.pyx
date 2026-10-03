@@ -148,7 +148,6 @@ def similarity_complex(np.ndarray[f64, ndim=2] similarity,
     if nF > 0:
         B2 = build_B2_from_cycles(n_edges, cycle_edges, cycle_signs, cycle_lengths)
 
-    from numpy.linalg import matrix_rank
     # Betti from Euler relation
     beta_0 = n_comp
     beta_1 = n_edges - nV + n_comp - nF  # from cycle basis
@@ -411,7 +410,7 @@ def linkage_complex(np.ndarray[f64, ndim=2] sfb_matrix,
     # Enumerate all triangles via sorted adjacency intersection.
     # For each u, for each neighbor v > u, intersect N(u) and N(v)
     # for w > v. Each triangle is found exactly once. Pass 1 counts,
-    # pass 2 fills the final arrays directly - the previous version
+    # pass 2 fills the final arrays directly: the previous version
     # built Python lists of int tuples and then copied them over.
     cdef Py_ssize_t u, v, w
     cdef Py_ssize_t j_v, lo_v, hi_v, lo_w, hi_w

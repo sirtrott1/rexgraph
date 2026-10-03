@@ -234,6 +234,33 @@ def test_vertex_green_matches_effective_resistance_on_pairwise_rex():
     )
 
 
+
+
+def test_vertex_green_and_leverage_honor_declared_relation_metric():
+    """The complex's C1 metric changes L0 and its Green action, while the
+    normalized relation leverage remains the metric projector diagonal."""
+    rex = RexGraph.from_graph(
+        np.asarray([0, 1, 2, 3], dtype=np.int32),
+        np.asarray([1, 2, 3, 0], dtype=np.int32),
+        w_E=np.asarray([1.0, 0.25, 0.5, 0.25]),
+    )
+    boundary = np.asarray(rex.B1, dtype=float)
+    weights = np.asarray(rex.w_E, dtype=float)
+    metric_l0 = boundary @ np.diag(1.0 / weights) @ boundary.T
+    source = np.asarray([1.0, -1.0, 0.0, 0.0])
+
+    weighted = vertex_green(rex)
+    expected = np.linalg.pinv(metric_l0) @ source
+    np.testing.assert_allclose(weighted.solve(source), expected, atol=1e-12)
+    assert weighted.kind == "metric-pseudoinverse"
+    assert not np.allclose(weighted.solve(source), np.linalg.pinv(boundary @ boundary.T) @ source)
+
+    sparse = rex._effective_resistance_batch(np.arange(rex.nE))
+    dense = rex._effective_resistance_batch(np.arange(rex.nE), method="dense_oracle")
+    np.testing.assert_allclose(sparse, dense, atol=1e-12)
+    np.testing.assert_allclose(sparse, [0.5, 0.875, 0.75, 0.875], atol=1e-12)
+    assert sparse.sum() == pytest.approx(3.0)  # rank(B1), the metric projector trace
+
 def test_vertex_green_uses_complete_kernel_on_branching_rex():
     rex = RexGraph.from_hypergraph(
         np.array([0, 3, 7], dtype=np.int32),
@@ -280,3 +307,67 @@ def test_green_observation_hook_checks_constructor_and_input_contracts():
         custom.solve_with_info(np.zeros(2))
     _, info = custom.solve_with_info(np.zeros(3))
     assert info == {"kernel": None, "status": "unreported"}
+
+
+def test_asymmetric_declared_c1_and_positive_metric_work_together_end_to_end():
+    from fractions import Fraction
+
+    declared = [
+        (0, -1),
+        (1, Fraction(1, 4)),
+        (2, Fraction(1, 2)),
+        (3, Fraction(1, 4)),
+    ]
+    weights = np.asarray([1.0, 0.25, 0.5, 0.25])
+    rex = RexGraph.from_cells(
+        [4, [declared, [0, 1], [1, 2], [2, 3]]],
+        w_E=weights,
+    )
+    np.testing.assert_allclose(rex.B1[:, 0], [-1.0, 0.25, 0.5, 0.25])
+    assert rex._exact_column_norms_B1()[0] == Fraction(11, 8)
+    assert rex.edge_metric_exact == [Fraction(1), Fraction(1, 4),
+                                     Fraction(1, 2), Fraction(1, 4)]
+
+    boundary = np.asarray(rex.B1, dtype=float)
+    metric_l0 = boundary @ np.diag(1.0 / weights) @ boundary.T
+    source = boundary[:, 0]
+    np.testing.assert_allclose(
+        vertex_green(rex).solve(source),
+        np.linalg.pinv(metric_l0) @ source,
+        atol=1e-11,
+    )
+    sparse = rex._effective_resistance_batch(np.arange(rex.nE))
+    oracle = rex._effective_resistance_batch(np.arange(rex.nE), method="dense_oracle")
+    np.testing.assert_allclose(sparse, oracle, atol=1e-11)
+    assert sparse.sum() == pytest.approx(np.linalg.matrix_rank(boundary), abs=1e-10)
+
+
+def test_green_refuses_nonpositive_relation_metric_instead_of_ignoring_it():
+    for weights in ([1.0, 0.0], [1.0, -2.0]):
+        rex = RexGraph.from_graph(
+            np.asarray([0, 1], dtype=np.int32),
+            np.asarray([1, 2], dtype=np.int32),
+            w_E=np.asarray(weights),
+        )
+        with pytest.raises(ValueError, match="strictly positive"):
+            vertex_green(rex)
+
+
+def test_operator_reports_carrier_and_evaluator_arithmetic_separately():
+    rex = _cycle()
+    boundary = boundary_operator(rex, 1)
+    assert boundary.carrier_arithmetic == "rational"
+    assert boundary.evaluator_arithmetic == "approximate"
+    assert boundary.arithmetic_contract() == {
+        "carrier": "rational",
+        "evaluator": "approximate",
+        "certified_exact_evaluator": True,
+    }
+    assert boundary.arithmetic_contract(exact=True)["evaluator"] == "rational"
+
+    # The top zero map is structurally exact, but its ordinary NumPy action remains the
+    # numerical evaluator unless the exact action is explicitly requested.
+    top = coboundary_operator(_filled_triangle(), 2)
+    assert top.carrier_arithmetic == "structural"
+    assert top.arithmetic_contract()["evaluator"] == "approximate"
+    assert top.arithmetic_contract(exact=True)["evaluator"] == "rational"

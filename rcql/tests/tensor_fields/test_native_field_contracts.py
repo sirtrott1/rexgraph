@@ -164,7 +164,7 @@ def test_new_state_integrity_and_bad_deterministic_source():
     from rexgraph.io.rex_state import verify_state
     r=RexGraph.from_cells([1,[[0]]]);f=TensorField(CoordinateSpace('x',('x',)),[Q(1,7)])
     r.attach_metadata(1,0,'field',f);state=to_state(r)
-    assert state.header['format_version']==5
+    assert state.header['format_version']==10
     key=next(k for k in state.tensors if k.startswith('field/') and k.endswith('/spec'))
     state.tensors[key][0]^=1
     assert not verify_state(state)

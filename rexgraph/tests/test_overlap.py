@@ -1,5 +1,5 @@
 """
-Tests for rexgraph.core._overlap - overlap Laplacian L_O.
+Tests for rexgraph.core._overlap: overlap Laplacian L_O.
 
 Verifies:
     - L_O shape, symmetry, PSD

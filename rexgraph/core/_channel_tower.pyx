@@ -1,68 +1,19 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
-"""
-rexgraph.core._channel_tower: the four channel diagonals at ANY arity, in O(nnz).
+"""rexgraph.core._channel_tower: four channel diagonals in O(nnz) at every arity.
 
-`sparse_character.channel_diagonals` already reads these in closed form, and says
-exactly where it stops: the derivation is exact "for a SIGNED PAIRWISE UNWEIGHTED
-complex and only there", because a branching column carries -1 and 1/(k-1), so an
-off diagonal T-G entry is not |s_e s_j - 1| and F is not a disagreement count. So
-`closed_form_applies` refuses anything non binary and the caller assembles instead,
-which is the case a relational complex is built for.
+For boundary coefficients c_e[v], unweighted vertex mass M[v] gives
+C[e] = sum_v |c_e[v]| (M[v] - |c_e[v]|). Frustration uses twice the
+opposite sign mass, weighted by relation metric magnitudes.
 
-What the disagreement count was standing in for is a MAGNITUDE, and accumulating the
-magnitude works at every arity. Both off diagonal channels are sums over pairs that
-share a vertex, and a pair contributes only there, so the sum reorders onto the vertex
-and the pairs never have to be formed:
+T and the G channel use squared boundary coefficients and squared relation
+metrics. C excludes the metric. Canonical branching columns have head -1 and
+shares 1/(k-1); witnesses (+1) contribute to positive mass. Declared columns
+use their supplied coefficients.
 
-    M[v] = SUM over relations f incident to v of |c_f[v]|
-    C[e] = SUM over v in supp(e) of |c_e[v]| * (M[v] - |c_e[v]|)
-    F[e] = 2 * SUM over v in supp(e) of |c_e[v]| * (opposite-sign mass at v)
-
-M is one pass over the incidence and the readings are a second, so the whole tower is
-O(nnz) rather than O(nE^2). F needs the mass split by SIGN rather than one total, since
-T-G vanishes where two relations agree at a shared vertex and doubles where they do
-not, so the accumulator is kept as (negative mass, positive mass) per vertex.
-
-THE COLUMN, AND THE WITNESS. At arity k >= 2 the head is -1 and the other k-1 entries
-share 1/(k-1), which is what makes the column sum to zero. A WITNESS is k = 1 and does
-NOT follow the head rule: the construction emits (+1), so its entry joins the POSITIVE
-mass. Reading it as a head puts it in the wrong accumulator and only F moves, which is
-the same failure the exact tower had before.
-
-T and G need no accumulator at all. Squaring kills the sign, so both diagonals are
-1 + 1/(k-1) at arity k >= 2 and 1 at a witness, and k is the support size.
-
-THE TRANSPOSE IS THE COST, AND IT IS REUSABLE. Measured on 12M nonzeros: the tower
-itself is 28 ms at 12 threads and building the transpose is 190 ms, so 87% of a cold
-call is the transpose. It is a counting sort with scattered writes and that is simply
-what it costs; a vectorised argsort form was measured at 1938 ms, ten times SLOWER.
-The incidence does not change between readings of the same complex, so `transposed`
-is an argument: build it once with `transpose_incidence` and hand it back. Nothing here
-caches it, because the complex carries __slots__ and an identity keyed cache would
-invalidate on the wrong thing.
-
-PARALLELISM NEEDS THE INCIDENCE TRANSPOSED. Accumulating straight into the vertex
-arrays has every relation writing wherever its support points, so threads collide and
-the fix would be an atomic per nonzero. Transposing first, one counting pass and one
-fill, makes the accumulation a loop OVER VERTICES instead, where each thread owns its
-own vertices and writes nothing another reads. The second pass is over relations and
-reads only. Measured single threaded the tower runs at ~116M nnz/s against a memory
-system that does far more, so it is latency on scattered access that is being paid,
-which is what the transpose removes.
-
-WEIGHTING IS NOT UNIFORM ACROSS THE CHANNELS, and following the tower matters more
-than being consistent. T and G diagonals scale by w_e^2 and F's diagonal by |w_e w_f|, because G is T's
-unsigned twin and has to carry the same per relation metric or diag(T) != diag(G) at
-any w != 1 and the identity F is defined by breaks. C stays UNWEIGHTED: co participation
-is a topological fact about which relations meet, not a geometric one. So the vertex
-mass is kept twice, weighted for F and unweighted for C.
-
-The weight magnitudes are read before accumulation. Orientation is still the sign of
-the B1 coefficient, not the scalar weight sign. For raw G and distinct participants,
-T[e,f]-G[e,f] = -2*w_e*w_f*sum_disagree |c_e[v] c_f[v]|, so its absolute value
-uses |w_e|*|w_f|. This does not replace signed weights in storage or in full T/G/F
-operators. The identity is rational on rational data; this kernel evaluates in float64.
+transpose_incidence groups occurrences by vertex for disjoint parallel writes.
+Pass a retained transpose through transposed to reuse it. The kernel evaluates
+rational identities in float64.
 """
 
 from __future__ import annotations
@@ -72,6 +23,7 @@ import numpy as np
 cimport numpy as np
 from cython.parallel cimport prange
 from libc.stdint cimport int32_t, int64_t
+from libc.math cimport fabs
 
 np.import_array()
 
@@ -81,46 +33,40 @@ cdef inline void _vertex_mass(const int32_t* bp, const int32_t* ow,
                              int64_t lo, int64_t hi,
                              const double* coef, const int64_t* src,
                              double* out) noexcept nogil:
-    """The four masses at one vertex. Kept in a helper so prange sees an assignment
-    and not an accumulator it would infer as a reduction.
+    """Write negative and positive masses at one vertex, weighted and unweighted.
 
-    `coef` is the column entry of every incidence, in CSR order, with `src` saying
-    which one each transposed entry came from. When it is NULL the entry is derived
-    from the arity and the head bit, which is the canonical column and the only case
-    the fast path allocates for. A DECLARED head or share arrives through `coef`, and
-    then the sign of the entry is what splits the mass rather than the head bit.
+    `coef` holds boundary entries in relation incidence order; `src` maps transposed
+    occurrences to their original slots. When `coef` is NULL, entries are derived
+    from arity and head flags. Supplied coefficients split mass by their sign.
     """
-    cdef double nw = 0.0, pw = 0.0, nu = 0.0, pu = 0.0, mg, c
+    cdef double nw = 0.0, pw = 0.0, nu = 0.0, pu = 0.0, mg, c, we
     cdef int64_t q
     cdef Py_ssize_t f, kf
     for q in range(lo, hi):
         f = ow[q]
+        we = fabs(wv[f])
         if coef != NULL:
             c = coef[src[q]]
             mg = c if c >= 0 else -c
             if c < 0:
-                nw += wv[f] * mg; nu += mg
+                nw += we * mg; nu += mg
             else:
-                pw += wv[f] * mg; pu += mg
+                pw += we * mg; pu += mg
             continue
         kf = bp[f + 1] - bp[f]
         if kf == 1:
-            pw += wv[f]; pu += 1.0                # the witness is (+1)
+            pw += we; pu += 1.0                  # the witness is (+1)
         elif ih[q]:
-            nw += wv[f]; nu += 1.0                # the head, magnitude 1
+            nw += we; nu += 1.0                  # the head, magnitude 1
         else:
             mg = 1.0 / (kf - 1)
-            pw += wv[f] * mg; pu += mg
+            pw += we * mg; pu += mg
     out[0] = nw; out[1] = pw; out[2] = nu; out[3] = pu
 
 
 cdef inline void _bucket_offsets(int64_t* h, Py_ssize_t v, Py_ssize_t nV,
                                 int nthr, int64_t start) noexcept nogil:
-    """Turn one bucket's per thread counts into per thread write cursors, in place.
-
-    In a helper for the same reason `_vertex_mass` is: prange sees an assignment here
-    rather than `run += c`, which it would otherwise infer as a reduction over the
-    parallel index and refuse to let the body read back."""
+    """Turn one vertex bucket's per thread counts into write cursors, in place."""
     cdef int64_t run = start, c
     cdef int ti
     for ti in range(nthr):
@@ -134,33 +80,17 @@ def transpose_incidence(np.ndarray boundary_ptr not None,
                         Py_ssize_t nV,
                         int threads=1,
                         bint positions=False):
-    """Vertex -> the entries that touch it, as CSR over nnz. One counting pass, one
-    fill. `owner` is the relation each entry belongs to and `is_head` whether it is
-    that relation's distinguished entry.
+    """Transpose relation incidence into vertex ordered CSR.
 
-    `positions=True` adds a fourth array: the CSR slot each entry came from, which is
-    what lets a per incidence coefficient be read in this order. It is off by default
-    because the canonical column needs only the arity and the head bit, and an extra
-    nnz array on the hot transpose is exactly the traffic this kernel exists to avoid.
+    Return pointers, relation owners and head flags. positions=True also returns
+    original incidence slots for coefficient lookup. Stable counting and filling
+    retain occurrence order within each vertex across thread counts.
 
-    This is a counting sort, and it dominates a cold call: 135.7 ms of a 162.4 ms
-    read at 10.5M nonzeros, where the accumulation it feeds is only ~36. It is not
-    slow code (measured against a numpy argsort route at 1836 ms and scipy at 236),
-    it is a serial scatter, so `threads` splits it.
-
-    The split is STABLE, which is not decoration: the accumulation sums float
-    magnitudes per vertex, so reordering a bucket changes the last bits. Each thread
-    takes a contiguous range of RELATIONS, hence a contiguous range of entries, so
-    thread t's entries all precede thread t+1's inside every bucket and the result is
-    byte identical to the serial fill.
-
-    Threads are capped so the per thread histogram never exceeds the array it is
-    permuting: `nthr <= nnz // nV`. That is a comparison between two sizes the caller
-    already has and not a memory budget someone picked, and it matters because the
-    histogram is `nthr x nV` while the data is `nnz`.
+    Threads are capped by nnz // nV so their histograms do not exceed the
+    incidence size. A retained transpose can serve repeated channel readings.
     """
-    cdef int32_t[::1] bp = np.ascontiguousarray(boundary_ptr, dtype=np.int32)
-    cdef int32_t[::1] bi = np.ascontiguousarray(boundary_idx, dtype=np.int32)
+    cdef const int32_t[::1] bp = np.ascontiguousarray(boundary_ptr, dtype=np.int32)
+    cdef const int32_t[::1] bi = np.ascontiguousarray(boundary_idx, dtype=np.int32)
     cdef Py_ssize_t nE = bp.shape[0] - 1
     cdef Py_ssize_t nnz = bp[nE] if nE >= 0 else 0
     cdef np.ndarray[int64_t, ndim=1] vptr = np.zeros(nV + 1, dtype=np.int64)
@@ -264,20 +194,21 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
     previously built `transpose_incidence` result, since the incidence does not change
     between readings of the same complex.
 
-    `coefficients` is the column entry of every incidence in CSR order, for a complex
-    that DECLARES a head or a share. Without it the column is derived from the arity and
-    the head bit, and that derivation is kept spelled exactly as it was: the canonical
-    reading is bit for bit what it has always been, because `we*we*(1.0 + share)` and a
-    summed `sum_p c_p^2` agree in mathematics and need not agree in the last bit.
+    `coefficients` holds the boundary entry of each incidence for a declared head or
+    share. Without it, columns are derived from arity and head flags. Canonical
+    weighted quadrance uses `we*we*(1.0 + share)` for arity greater than one;
+    declared quadrance sums squared supplied coefficients.
 
     Returns (T, G, F, C) as float64 arrays of length nE.
     """
-    cdef int32_t[::1] bp = np.ascontiguousarray(boundary_ptr, dtype=np.int32)
-    cdef int32_t[::1] bi = np.ascontiguousarray(boundary_idx, dtype=np.int32)
+    cdef const int32_t[::1] bp = np.ascontiguousarray(boundary_ptr, dtype=np.int32)
+    cdef const int32_t[::1] bi = np.ascontiguousarray(boundary_idx, dtype=np.int32)
     cdef Py_ssize_t nE = bp.shape[0] - 1
     cdef np.ndarray[double, ndim=1] w = (np.ones(nE, dtype=np.float64) if w_E is None
-                                      else np.abs(np.ascontiguousarray(w_E, dtype=np.float64)))
-    cdef double[::1] wv = w
+                                      else np.ascontiguousarray(w_E, dtype=np.float64))
+    if w.shape[0] != nE or not np.all(np.isfinite(w)):
+        raise ValueError("one finite weight per relation is required")
+    cdef const double[::1] wv = w
 
     cdef np.ndarray[double, ndim=1] T = np.zeros(nE, dtype=np.float64)
     cdef np.ndarray[double, ndim=1] G = np.zeros(nE, dtype=np.float64)
@@ -287,11 +218,8 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
 
     # the mass at each vertex, split by SIGN because F reads the opposite one, and
     # kept twice because C is unweighted where F is not
-    cdef np.ndarray[double, ndim=1] negw = np.zeros(nV, dtype=np.float64)
-    cdef np.ndarray[double, ndim=1] posw = np.zeros(nV, dtype=np.float64)
-    cdef np.ndarray[double, ndim=1] negu = np.zeros(nV, dtype=np.float64)
-    cdef np.ndarray[double, ndim=1] posu = np.zeros(nV, dtype=np.float64)
-    cdef double[::1] negwv = negw, poswv = posw, neguv = negu, posuv = posu
+    cdef np.ndarray[double, ndim=2] mass = np.empty((nV, 4), dtype=np.float64)
+    cdef double[:, ::1] mv = mass
 
     cdef Py_ssize_t e, p, s, t, k, v
     cdef double share, mag, we, a, m
@@ -300,17 +228,17 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
     if transposed is None or (declared and len(transposed) < 4):
         transposed = transpose_incidence(boundary_ptr, boundary_idx, nV, threads,
                                          positions=declared)
-    cdef int64_t[::1] vp = np.ascontiguousarray(transposed[0], dtype=np.int64)
-    cdef int32_t[::1] ow = np.ascontiguousarray(transposed[1], dtype=np.int32)
-    cdef np.uint8_t[::1] ih = np.ascontiguousarray(transposed[2], dtype=np.uint8)
+    cdef const int64_t[::1] vp = np.ascontiguousarray(transposed[0], dtype=np.int64)
+    cdef const int32_t[::1] ow = np.ascontiguousarray(transposed[1], dtype=np.int32)
+    cdef const np.uint8_t[::1] ih = np.ascontiguousarray(transposed[2], dtype=np.uint8)
     cdef np.ndarray[double, ndim=1] cf = (
         np.ascontiguousarray(coefficients, dtype=np.float64) if declared
         else np.zeros(0, dtype=np.float64))
     cdef np.ndarray[int64_t, ndim=1] sr = (
         np.ascontiguousarray(transposed[3], dtype=np.int64) if declared
         else np.zeros(0, dtype=np.int64))
-    cdef double[::1] cfv = cf
-    cdef int64_t[::1] srv = sr
+    cdef const double[::1] cfv = cf
+    cdef const int64_t[::1] srv = sr
     cdef const double* coef = &cfv[0] if declared else NULL
     cdef const int64_t* src = &srv[0] if declared else NULL
     if declared and cf.shape[0] != bi.shape[0]:
@@ -318,14 +246,10 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
     cdef int nthr = threads if threads > 0 else 1
 
     # pass 1: over VERTICES, so each thread owns what it writes
-    cdef np.ndarray[double, ndim=2] mass = np.empty((nV, 4), dtype=np.float64)
-    cdef double[:, ::1] mv = mass
     with nogil:
         for v in prange(nV, num_threads=nthr, schedule='static'):
             _vertex_mass(&bp[0], &ow[0], &ih[0], &wv[0], vp[v], vp[v + 1],
                          coef, src, &mv[v, 0])
-    negw[:] = mass[:, 0]; posw[:] = mass[:, 1]
-    negu[:] = mass[:, 2]; posu[:] = mass[:, 3]
     with nogil:
 
         # pass 2: the readings, one per relation
@@ -333,11 +257,11 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
             s = bp[e]; t = bp[e + 1]; k = t - s
             if k == 0:
                 continue
-            we = wv[e]
+            we = fabs(wv[e])
             if coef != NULL:
                 # The same four readings over the column as declared. Every case below
                 # is this loop specialised: T is the weighted quadrance, C the weighted
-                # line graph degree, and F twice the mass this entry disagrees with in
+                # unweighted line graph degree, and F twice the mass this entry disagrees with in
                 # sign at its own vertex. A witness carries (+1) and no head, which is
                 # why the split is by the SIGN of the entry and not by slot zero.
                 for p in range(s, t):
@@ -345,11 +269,11 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
                     m = coef[p]
                     a = m if m >= 0 else -m
                     Tv[e] += we * we * m * m
-                    Cv[e] += a * (neguv[v] + posuv[v] - a)
+                    Cv[e] += a * (mv[v, 2] + mv[v, 3] - a)
                     if m < 0:
-                        Fv[e] += we * a * poswv[v]
+                        Fv[e] += we * a * mv[v, 1]
                     else:
-                        Fv[e] += we * a * negwv[v]
+                        Fv[e] += we * a * mv[v, 0]
                 Gv[e] = Tv[e]
                 Fv[e] *= 2.0
                 continue
@@ -357,21 +281,21 @@ def channel_diagonals_any_arity(np.ndarray boundary_ptr not None,
                 Tv[e] = we * we
                 Gv[e] = Tv[e]
                 v = bi[s]
-                Cv[e] = 1.0 * (neguv[v] + posuv[v] - 1.0)      # unweighted
-                Fv[e] = 2.0 * we * negwv[v]                    # a witness is positive
+                Cv[e] = 1.0 * (mv[v, 2] + mv[v, 3] - 1.0)      # unweighted
+                Fv[e] = 2.0 * we * mv[v, 0]                    # a witness is positive
                 continue
             share = 1.0 / (k - 1)
             Tv[e] = we * we * (1.0 + share)
             Gv[e] = Tv[e]
             # the head: magnitude 1, negative
             v = bi[s]
-            Cv[e] += 1.0 * (neguv[v] + posuv[v] - 1.0)
-            Fv[e] += we * poswv[v]
+            Cv[e] += 1.0 * (mv[v, 2] + mv[v, 3] - 1.0)
+            Fv[e] += we * mv[v, 1]
             # the shared entries: magnitude 1/(k-1), positive
             mag = we * share
             for p in range(s + 1, t):
                 v = bi[p]
-                Cv[e] += share * (neguv[v] + posuv[v] - share)
-                Fv[e] += mag * negwv[v]
+                Cv[e] += share * (mv[v, 2] + mv[v, 3] - share)
+                Fv[e] += mag * mv[v, 0]
             Fv[e] *= 2.0
     return T, G, F, C

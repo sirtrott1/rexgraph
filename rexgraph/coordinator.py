@@ -7,20 +7,9 @@ import math as _math
 LANES = ("proc", "thread", "igpu")
 TYPES = ("cpu_coordination", "io_llm", "local_llm", "gpu_kernel")
 
-# (time_s prior, bandwidth_demand prior) per (type, lane), seeded from the 2026-07-25 benchmark:
-# cpu_coordination scales on the forkserver (proc), is GIL flat on threads; io_llm is I/O-bound
-# (cheap on threads, pointless elsewhere); gpu_kernel is cheap on the iGPU, dearer on the CPU.
-#
-# local_llm is NOT io_llm. io_llm is a REMOTE call: the caller blocks on a socket, so it is cheap
-# on a thread and draws no local bandwidth, which is what the 0.1 prior says. A model running on
-# THIS box is the opposite and is the heaviest bandwidth draw in the system: measured 2026-08-23 on
-# the 8060S, a 27B Q4 decodes at 12.5 tok/s x 16.5 GB = 224 GB/s against a ~256 GB/s bus, so ~87%
-# of it, and attention is only ~6% of that. Calling it 0.1 tells the actuator it can run a wave of
-# gpu_kernel work alongside generation for free, when in fact the two are competing for one bus.
-#
-# The bandwidth is drawn by the SERVER, not by the caller's lane, so it is high on all three: the
-# caller's thread blocking does not make the bus quieter. Time is cheap on a thread for the same
-# reason it is for io_llm: the caller is waiting, not working.
+# Default time and bandwidth demand estimates per task type and lane.
+# Remote I/O models draw little local bandwidth; local generation draws
+# shared memory bandwidth independently of the calling lane.
 _PRIORS = {
     "cpu_coordination": {"proc": (0.10, 0.6), "thread": (0.80, 0.6), "igpu": (1.00, 0.6)},
     "io_llm":           {"proc": (1.00, 0.1), "thread": (0.10, 0.1), "igpu": (1.00, 0.1)},
@@ -35,9 +24,8 @@ _PRIORS = {
     "gpu_kernel":       {"proc": (1.00, 0.9), "thread": (1.00, 0.9), "igpu": (0.10, 0.9)},
 }
 
-# Concurrent requests to ONE local server SHARE their weight reads, so N generations cost far less
-# than N times one. Measured on the 35B-A3B MoE, aggregate decode: 1 stream 53.4 tok/s, 2 concurrent
-# 74.1, 4 concurrent 81.2, 8 concurrent 120.8.
+# Concurrent generations on one local server share weight reads.
+# The gain curve maps concurrency to estimated aggregate throughput.
 LOCAL_LLM_BATCH_GAIN = {1: 1.00, 2: 1.39, 4: 1.52, 8: 2.26}
 
 # Types whose cost is SHARED rather than additive: the bus draw belongs to one server serving all of
@@ -400,27 +388,11 @@ def _lane_groups(assignment, units, cost):
 
 
 def _contention_from_sums(time: dict, bw: dict, cap: dict, buses: dict | None = None) -> float:
-    """Contention from precomputed per lane time/bw sums (the actuator hot path).
+    """Score lane wall time and shared bus contention.
 
-    The bandwidth term counts what is CO DRAWN, which is the circulating part: a lane
-    drawing while the others are idle has the bus to itself and is not at war with
-    anyone. That was written as `min(proc, igpu)`, which says it for two lanes but
-    silently excluded the third, so anything on the thread lane drew for free, and
-    since free is cheap, the actuator PREFERRED that lane, which is where a blocking
-    call into a local model lands. One local_llm plus one gpu_kernel scored 0.0680 on
-    proc, 0.1000 on igpu and 0.0500 on thread, and io_llm at 0.1 bandwidth tied
-    local_llm at 0.9 exactly, both at 0.1180.
-
-    The generalisation is `total - max`, because for two terms that IS the minimum:
-    min(a, b) = (a + b) - max(a, b). So every lane's draw is counted, the largest one
-    is credited with owning the bus, and the rest are the co drawn mass contending with
-    it. Whenever the thread lane draws nothing this returns the OLD value exactly, so
-    the correction is confined to the case that was wrong.
-
-    Measured, 8060S, 2026-08-23: a 27B Q4 decodes at 12.5 tok/s x 16.5 GB = 224 GB/s
-    against a ~256 GB/s bus, so a local model is ~87% of it and is the heaviest draw in
-    the system. Scoring a wave that mixes generation with gpu_kernel work as free was
-    not a small error.
+    The wall term is max(time[lane] / capacity[lane]). Each shared bus contributes
+    sum(draws) - max(draws), multiplied by _BW_LAMBDA. For two draws this is their
+    minimum; lanes on separate buses do not contend.
     """
     wall = max((time[ln] / cap[ln] for ln in LANES), default=0.0)
     bw_war = 0.0
@@ -431,7 +403,7 @@ def _contention_from_sums(time: dict, bw: dict, cap: dict, buses: dict | None = 
 
 
 def _priority_penalty(assignment: dict, units: list, cost: CostModel) -> float:
-    """Sum over tasks of (weight - 1) * (time on assigned lane - time on the task type's best lane).
+    """Sum over tasks of (weight - 1) * (time on assigned lane: time on the task type's best lane).
     Weight is centered on its own neutral value (1.0) so a wave with no weights contributes zero
     penalty regardless of placement (the objective reduces exactly to the unweighted wall clock
     term). Above neutral weight grows the penalty as the task is pushed off its best lane, so the
@@ -484,7 +456,7 @@ def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
     """Greedy marginal contention placement with O(1) delta scored moves. Same greedy/tie-break as a
     full recompute. Each unit may carry a `weight` (default 1.0, centered so the neutral value
     contributes no penalty); the priority penalty is separable per task, so a move's penalty delta
-    is (weight - 1)*(time_new - time_cur)."""
+    is (weight - 1)*(time_new: time_cur)."""
     by_id = {u["id"]: u for u in units}
     cap = cap or capacity()
     a = {u["id"]: cost.best_lane(u["type"]) for u in units}
@@ -539,14 +511,7 @@ def assign(units: list, cost: CostModel, cap: dict | None = None) -> dict:
 
 
 def detect_bus_topology() -> dict | None:
-    """This machine's topology, or None when it cannot be determined.
-
-    The probe used to live in the agent layer, on the reasoning that a host is not the
-    math. It is here now: whether a device's memory is unified with system RAM decides
-    bus topology, which this module needs, and reaching up into the application to learn
-    it made the core depend on the thing built on top of it. Any failure is still a None,
-    never an assertion.
-    """
+    """Return the host's detected bus topology, or None if detection fails."""
     from rexgraph.hardware import detect_gpus
     try:
         gpus = detect_gpus()

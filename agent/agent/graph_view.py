@@ -1,35 +1,12 @@
-"""
-agent.graph_view: structural coordinates and reachability, without a spectral slice.
+"""agent.graph_view: character coordinates, diffusion and graph layouts.
 
-The old dashboard positioned vertices by the eigenvectors of L0. That is a linear
-grouping: it cuts the complex along a direction that happens to minimise a quadratic
-form, and the position it gives a cell says where that cut fell, not what the cell IS.
-It also needs a dense eigendecomposition to say it.
+character_positions embeds phi(v) or chi(e) in the channel simplex. The embedding
+preserves all channel dimensions when dim >= nhats: 1; smaller outputs report
+exact=False. The G channel uses the unsigned down sector operator L_O.
 
-The character is already a position. `phi(v)` lives in the simplex over the channel
-hats, so a vertex's coordinates ARE its shares of topology, geometry, frustration and
-co participation, and two cells near each other are alike in what they participate in
-rather than merely close in a cut. It is exact, needs no eigensolve, and is available at
-every scale through the sparse character path.
-
-    character    phi(v) or chi(e) embedded in the regular simplex over the channels.
-                 Canonical and lossless whenever the target dimension is nhats - 1;
-                 below that it is a projection and says so.
-    propagator   where heat from a seed actually goes, e^{-tL} applied by Chebyshev
-                 matvec. Coordinates are reach from chosen anchors, so "far" means the
-                 complex does not carry signal there, not that a cut separated them.
-
-Reachability is the same operator rather than a hop count: a diffusion says how much
-arrives, which is the question a graph database answers with a hop limit and a guess.
-
-Those are the ANALYTIC coordinates and none of them is a graph drawing. Asked to draw a
-star, the character puts all nine cells on one point, correctly: they have the same star
-character and it is not hiding anything. So `structural_positions` is here too, and it is
-the spectral layout the paragraph above rejects, kept apart rather than mixed in. The
-rejection stands where it was aimed. A cut is the wrong answer to "what IS this cell",
-which is what `positions` is for; it is the right answer to "who is this cell NEAR",
-which is what a picture asks. Two questions, two functions, and each says which it
-answers.
+propagator_positions uses Chebyshev heat applications from selected anchors.
+reach reports transported amplitude. structural_positions supplies a separate
+spectral layout for drawing the graph.
 """
 
 from __future__ import annotations
@@ -216,58 +193,11 @@ def exact_positions(rex, *, grade: str = "vertex") -> dict:
 
 
 def structural_positions(rex, *, dim: int = 2) -> dict:
-    """Cells placed so ADJACENCY is readable: the graph drawing, not the analytic view.
+    """Return an adjacency layout for a pairwise complex.
 
-    The character views answer "which cells are structurally alike", and they answer it
-    exactly. They are a poor drawing of a graph, and on a lot of graphs they are a line.
-    That is not a defect in them. The character has `nhats` shares summing to one and
-    `chi_T = chi_G` identically, since the diagonal squares each incidence entry and
-    squaring kills the sign, so a complex where F is inactive has exactly one free
-    parameter and its honest character picture IS one dimensional. Measured: a 9 vertex
-    star puts all 9 cells on 1 point, because all 9 have star character `(1/3, 1/3, 1/3)`
-    and are genuinely indistinguishable to it.
-
-    A drawing wants the other question. `rex.layout` answers it and was already in core:
-    the low eigenvectors of `L0` as a seed, then force directed refinement, Barnes Hut
-    above the threshold. Measured against the character projection on the same complexes,
-    spread being how far the points are from collinear and distinct being how many
-    separate positions they occupy:
-
-        complex               character            rex.layout
-        star of 8             0.0000   1 of 9      0.9949  9 of 9
-        path of 6             0.0000   3 of 6      0.4862  6 of 6
-        6-cycle + 2 chords    0.7112   4 of 6      0.4578  6 of 6
-        branching, k <= 5     0.7225  11 of 12     0.7872  12 of 12
-        BindingDB panel       0.7507  98 of 1554   0.6877  26 of 1554
-
-    Two things that reading shows. The layout separates what the character cannot, which
-    is the point. And on the real panel NEITHER separates much, because 1554 ligands that
-    each bind one target are structurally identical and no layout can distinguish what the
-    structure does not: that is what the renderer's fan is for, and what a signal view is
-    for when there is a measurement to separate them by.
-
-    The force step is pairwise by construction, and that is enforced above rather than
-    tolerated: this function declines a complex carrying any relation of arity other than
-    two, so the springs never receive a support they cannot represent. `_ensure_src_tgt`
-    is exact on what remains, and raises rather than truncating if it is reached with a
-    branching C1 at all. Kept from when this WAS a live limitation: feeding the force step
-    every pair inside each support measured WORSE on relation cohesion (0.676 against
-    0.607, lower being tighter), so pair expansion was not the answer for branching
-    either, and declining is.
-
-    Not exact, and says so. Floats the whole way, and the force refinement is iterative.
-
-    Undefined for a branching or witness relation, and it now says that rather than
-    drawing something. The seed is the low L0 eigenvectors taken through the pairwise
-    component kernel, and that kernel is not the kernel of a complex whose relations carry
-    more than two participants: one k-ary relation is one component but rank one, so H0 has
-    k-1 dimensions and the component indicators span only one of them. The core declines
-    the mode for that reason.
-
-    The absence is reported rather than filled. Substituting the character or exact
-    embedding here and still calling the result structural would be the same substitution
-    in a different place: those answer who is LIKE whom and where a cell exactly IS, not
-    who is NEAR whom, and the payload carries them separately under their own names.
+    rex.layout seeds positions from low eigenvectors of L0 and applies force refinement.
+    Relations whose arity differs from two are refused. Return positions and layout
+    metadata with exact=False.
     """
     rex._ensure_clean()
     if not all(len(support) == 2 for support in rex.relation_supports()):
@@ -294,33 +224,11 @@ def structural_positions(rex, *, dim: int = 2) -> dict:
 
 
 def flow_positions(rex, signal, *, grade: int = 1) -> dict:
-    """Cells placed by where a SIGNAL puts them, for a complex with no geometry to show.
+    """Place vertices at the signal potential and divergence.
 
-    Semantics and measurements do not come with an embedding. Worse, they are often
-    structurally degenerate: in a binding panel every ligand has one binding and one panel
-    membership, so their stars are identical, and a layout that reads structure has
-    nothing to separate them by. Measured on a real BindingDB panel, 37 vertices occupied
-    2 distinct positions, because they have 2 distinct star characters. That picture is
-    true and useless.
-
-    What such data does have is FLOW. A signal on the relations decomposes into gradient,
-    curl and harmonic parts, and the gradient part descends a potential::
-
-        div = B1 g            how much the signal accumulates at each vertex
-        phi = L0^+ div        the potential it descends, by the library's own LSQR
-                              solve, which deflates L0's per-component constant kernel
-                              exactly rather than drifting into it
-
-    `phi` is a coordinate DERIVED from the data rather than invented for it, and `div`
-    says whether a vertex is a source or a sink. So a vertex sits at `(phi, div)`: the
-    flow's own ordering across, its source strength up. Two ligands with the same
-    structure and different measurements separate, which is the whole point, and they
-    separate by the amount the measurement differs.
-
-    The decomposition comes back with the positions, because it is the caption this
-    picture needs: `pct_grad = 1` says there is no cycle content here at all, so the
-    layout is the whole story, and a complex with curl in it is one where this view is
-    only part of it.
+    Compute divergence B1 @ signal and its L0 pseudoinverse potential. Return positions,
+    the two fields and, for grade 1, the signal's Hodge component fractions. These
+    coordinates are numerical and the result declares exact=False.
     """
     from rexgraph.core._sparse import to_scipy_csr
     from rexgraph.sparse_interfacing import _l0_pinv_matvec

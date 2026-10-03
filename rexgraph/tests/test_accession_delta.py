@@ -16,7 +16,8 @@ def fixture(grade=1, rectangular=False):
     right = RexGraph.from_cells([4, [[0, 1], [1, 2], [1, 3]], []])
     a, b = CoordinateComplex.from_rex(left), CoordinateComplex.from_rex(right)
     mapping = GradedMap(a, b, (((0, 0, 1), (1, 1, 2), (3, 2, 1)),
-                              ((0, 0, Q(1, 3)), (1, 1, 2), (2, 0, -1))))
+                              ((0, 0, Q(1, 3)), (1, 1, 2), (2, 0, -1)), ()))
+    assert a.sizes == (3, 2, 0) and b.sizes == (4, 3, 0)
     coordinates = CoordinateSpace("measurement", ("a", "b")) if rectangular else None
     def entries(n):
         rows = 2 if rectangular else n

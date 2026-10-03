@@ -5,9 +5,6 @@ load bearing question is the combinatorial bridge and needs no linear algebra. T
 graded value (how corroborated a non bridge is) still needs the solve; this decides
 which relations to spend it on.
 
-Measured against the solve on the same complexes: identical sets every time, 520/520
-and 1315/1315 on Gene Ontology slices, at 1513x and 19233x.
-
 The general statement is one grade up as well: R_eff_k(c) = 1 iff c is outside the
 support of ker(B_k). At grade 1 that support is reachable by a walk on the
 1 skeleton, which is what this module does. At grade 2 and above the boundary

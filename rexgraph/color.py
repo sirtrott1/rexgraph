@@ -181,11 +181,8 @@ def _spectrum(chi) -> np.ndarray:
 def exposure(chi_rows) -> dict:
     """The `dLT` that puts the most of THIS complex inside the visible band.
 
-    `dLT = 1` is the fixed default, but it is an exposure, not a
-    reading, and at a fixed one most complexes come out black. Measured on a real binding
-    panel: every one of eight relations returned `(0, 0, 0)` at `dLT = 1`, so the picture
-    was grey throughout and the grey was not saying anything about the characters. It was
-    saying the spectrum had fallen off the end of the band.
+    dLT=1 supplies a fixed exposure. The auto mode resolves an exposure from
+    the character values so the spectrum can be mapped into the visible band.
 
     Nothing has to be guessed to fix that, because the visibility condition is already an
     equation. A cell's colour comes from `wl = B / (lam * dLT)` kept where

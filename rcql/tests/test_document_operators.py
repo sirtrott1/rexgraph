@@ -85,11 +85,11 @@ def test_reopened_section_layers_and_rational_shares(tmp_path):
     import rcdb
     uri = f"rex://{tmp_path / 'store'}"
     r = fixture()
-    store = rcdb.open_store(uri)
+    store = rcdb.open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     Executor(sources={"db": store}, params={"r": r}).execute(parse(
         'FROM $db MUTATE "doc" SET state=$r,actor="Art" COMMIT'))
     store.close()
-    store = rcdb.open_store(uri)
+    store = rcdb.open_store(uri, **({"read_only": False} if "://" not in uri or uri.startswith(("file://", "rex://")) else {}))
     try:
         result = Executor(sources={"db": store}).execute(parse(
             'FROM RCDB_GET($db,"doc") RETURN DOCUMENT_FIELD([0]),SECTION_RESPONSE("chapter",[0])'))

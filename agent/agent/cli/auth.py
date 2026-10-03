@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-rexgraph auth - CLI authentication and server management.
+rexgraph auth: CLI authentication and server management.
 
 Enable auth (turns the API from open to token gated):
     rexgraph-auth create --name admin --role admin --save   # make a token first
@@ -470,7 +470,7 @@ def cmd_network_init(args):
 
     Creates the first admin, a recovery key, and turns auth on with a disable passphrase. Run it on
     the server host while auth is still off (a local caller is admin until then). Solo/local use needs
-    none of this - leaving auth off keeps the single local admin identity."""
+    none of this: leaving auth off keeps the single local admin identity."""
     url = args.url or _load_creds().get("url", "http://localhost:8000")
     token = args.admin_token or _load_creds().get("token", "")
     name = args.name or "admin"

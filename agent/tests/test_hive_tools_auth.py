@@ -5,7 +5,7 @@ The hive's only generation path is `hive._chat`. For a tool driving harness it m
 (b) authenticate to a remote provider without ever persisting the credential.
 
 Every test here stubs the HTTP layer (`httpx.Client`), so what is asserted is the *wire payload*
-and the *headers* actually sent - not a mock of our own function, which could not catch a
+and the *headers* actually sent: not a mock of our own function, which could not catch a
 credential that never leaves the process or a `tools` list that is silently dropped.
 """
 import json
@@ -107,7 +107,7 @@ def test_chat_full_forwards_tools_and_parses_tool_calls(monkeypatch):
     res = hive._chat_full("http://bee", "qwen-local", "Read /etc/hosts.",
                           tools=_TOOLS, tool_choice="auto")
 
-    # the tools genuinely reached the wire
+    # the tools reached the wire
     assert cap["json"]["tools"] == _TOOLS
     assert cap["json"]["tool_choice"] == "auto"
 

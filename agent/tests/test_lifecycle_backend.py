@@ -22,7 +22,7 @@ def test_pick_device_auto_consistent_with_compute_stack():
     kind = dev.split(":")[0]
     assert isinstance(dev, str) and kind in ("cpu", "cuda", "mps")
     # invariant: a non cpu device only when THAT backend is actually usable. gpu_count() is not
-    # the oracle for "a GPU exists" - it counts CUDA/ROCm devices for multi GPU column tiling, so
+    # the oracle for "a GPU exists": it counts CUDA/ROCm devices for multi GPU column tiling, so
     # it is 0 on Apple silicon by design while MPS is perfectly usable.
     if kind == "cuda":
         assert compute.gpu_count() > 0

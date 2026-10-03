@@ -82,6 +82,10 @@ def test_a_bundle_manifest_is_always_strict_json(tmp_path):
 
     g = _rex()
     g._agent_meta = {"score": np.float64("nan"), "ratio": float("inf")}
+    with pytest.raises(ValueError, match="finite"):
+        save_rcbd(str(tmp_path / "g.rcbd"), g)
+    from rexgraph import Absent
+    g._agent_meta = {"score": Absent, "ratio": Absent}
     save_rcbd(str(tmp_path / "g.rcbd"), g)
 
     seen = 0

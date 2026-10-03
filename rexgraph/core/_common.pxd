@@ -28,6 +28,7 @@ from libc.string cimport memset, memcpy, memmove
 from libc.stdint cimport (
     int8_t, int16_t, int32_t, int64_t,
     uint8_t, uint16_t, uint32_t, uint64_t,
+    INT64_MIN,
 )
 from libc.math cimport sqrt, fabs, log, log2, exp, pow, floor, ceil, isnan, isinf
 
@@ -101,7 +102,10 @@ cdef inline int64_t get_INT64_MAX() noexcept nogil:
     return 9223372036854775807
 
 cdef inline int64_t get_INT64_MIN() noexcept nogil:
-    return -9223372036854775807 - 1
+    # Use stdint's typed limit rather than a decimal literal. Cython otherwise
+    # folds ``-9223372036854775807 - 1`` into ``-9223372036854775808L`` in the
+    # generated C, which GCC/Clang diagnose as an unsigned oversized literal.
+    return INT64_MIN
 
 cdef inline uint64_t get_UINT64_MAX() noexcept nogil:
     return 18446744073709551615ULL
@@ -272,7 +276,7 @@ cdef inline bint should_use_dense_matmul(Py_ssize_t n_out) noexcept nogil:
 # Memory helpers
 
 cdef inline void safe_free(void* ptr) noexcept nogil:
-    """Free wrapper - free(NULL) is a no op per C standard."""
+    """Free wrapper: free(NULL) is a no op per C standard."""
     if ptr != NULL:
         free(ptr)
 
@@ -364,7 +368,7 @@ cdef inline double sqrt_clamp_min(double x) noexcept nogil:
 # Bit operations
 
 cdef inline int popcount_u64(uint64_t x) noexcept nogil:
-    """Population count for uint64 - portable implementation."""
+    """Population count for uint64: portable implementation."""
     cdef int count = 0
     while x:
         count += 1

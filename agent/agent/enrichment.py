@@ -175,7 +175,7 @@ def enrich(knowledge, study_set, *, universe=None, min_term_size: int = 1) -> di
     for term, ents in model.closed.items():
         annotated = ents & background
         K = len(annotated)
-        if K < min_term_size:            # noqa: SIM300 - K is the hypergeometric parameter, not a constant
+        if K < min_term_size:            # noqa: SIM300  # K is the hypergeometric parameter, not a constant
             continue
         overlap = annotated & study_in
         k = len(overlap)
@@ -237,7 +237,7 @@ def structural_reading(knowledge, study_set) -> dict:
                                  filt_f.astype(np.float64))
         barcodes = np.asarray(rex.persistence_barcodes(result))
         entropy = float(rex.persistence_entropy(barcodes))
-    except Exception as e:                       # noqa: BLE001 - reported, not raised
+    except Exception as e:                       # noqa: BLE001  # reported, not raised
         return {"available": False, "reason": str(e)[:200]}
 
     # The kernel classifies bars itself: `pairs` are the ones that die, `essential`

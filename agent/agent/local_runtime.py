@@ -35,6 +35,7 @@ from rexgraph.hardware import (  # noqa: F401
     gpu_probes,
     register_gpu_probe,
 )
+from rexgraph.gpu_access import probe_hip, probe_vulkan
 
 _PROC: subprocess.Popen | None = None
 _STATE: dict = {}
@@ -65,7 +66,7 @@ def _fa_value(fa) -> str:
     return "on" if fa else "off"
 
 # GENERAL, size tiered catalog (not machine specific). `recommend(budget_gb)` filters it
-# to what fits the detected hardware. Repo/file names drift - pass them explicitly to
+# to what fits the detected hardware. Repo/file names drift: pass them explicitly to
 # ``pull``; these are guidance + sizing (~Q4). MoE entries note that speed tracks active
 # params, so they punch above their memory footprint on any backend.
 # The BEEHIVE stack (2026): a queen (main driver, MoE first for unified memory) + focused worker
@@ -150,7 +151,7 @@ def _compute_gpu(gpus: list) -> dict | None:
 
 def detect_hardware() -> dict:
     """Detect available inference backends + memory so recommendations and launch args
-    adapt to the ACTUAL machine - CUDA/ROCm/Vulkan/Metal/CPU all first class. Returns
+    adapt to the ACTUAL machine: CUDA/ROCm/Vulkan/Metal/CPU all first class. Returns
     {os, backends, gpu, ram_gb, model_budget_gb, recommended_backend}."""
     import platform
     osname = platform.system()
@@ -162,12 +163,23 @@ def detect_hardware() -> dict:
         v = _nvidia_vram_gb()
         if v:
             gpu = {"vendor": "nvidia", "vram_gb": v, "unified": False}
-    if shutil.which("rocminfo") or shutil.which("rocm-smi"):
+    hip = probe_hip()
+    if hip["available"]:
         backends.append("rocm")
         gpu = gpu or _compute_gpu([g for g in gpus_all if g.get("vendor") == "amd"])
-        gpu = gpu or {"vendor": "amd", "vram_gb": None, "unified": None}
-    if shutil.which("vulkaninfo"):
+        gpu = gpu or {"vendor": "amd", "name": hip["devices"][0]["name"],
+                      "vram_gb": None, "unified": None, "probe": "hip"}
+    vulkan = probe_vulkan()
+    if vulkan["available"]:
         backends.append("vulkan")
+        gpu = gpu or _compute_gpu(gpus_all)
+        if gpu is None:
+            device = next(d for d in vulkan["devices"] if d["hardware_gpu"] and d["compute"])
+            local_bytes = device.get("device_local_bytes", 0)
+            gpu = {"vendor": {0x1002: "amd", 0x10de: "nvidia", 0x8086: "intel"}.get(device["vendor_id"], "unknown"),
+                   "name": device["name"], "vram_gb": local_bytes / 2**30 if local_bytes else None,
+                   "unified": None,
+                   "integrated": device["integrated"], "probe": "vulkan"}
     if osname == "Darwin":
         backends.append("metal")
         gpu = gpu or {"vendor": "apple", "vram_gb": None, "unified": True}
@@ -190,6 +202,8 @@ def detect_hardware() -> dict:
         gpu = _compute_gpu(gpus_all)
     return {"os": osname, "backends": backends, "gpu": gpu, "gpus": gpus_all,
             "ram_gb": ram, "model_budget_gb": budget,
+            "vulkan": vulkan,
+            "hip": hip,
             "recommended_backend": backends[0] if backends else "cpu"}
 
 
@@ -225,7 +239,7 @@ def find_binary(bin_path: str | None = None) -> str | None:
 
 def _auto_ngl(model_path: str) -> int:
     """Pick n_gpu_layers from detected hardware: full offload if the model fits VRAM (or
-    unified memory), CPU otherwise - the user can set --ngl for a manual GPU/CPU split.
+    unified memory), CPU otherwise: the user can set --ngl for a manual GPU/CPU split.
     Backend agnostic (CUDA/ROCm/Vulkan/Metal/CPU)."""
     hw = detect_hardware()
     gpu = hw.get("gpu")
@@ -330,8 +344,7 @@ def start(model_path: str, *, port: int | None = None, host: str | None = None,
     fa = DEFAULTS["flash_attn"] if flash_attn is None else flash_attn
     args = [binary, "-m", mp, "--host", host, "--port", str(port),
             "-ngl", str(ngl), "-c", str(ctx), "--jinja"]
-    # Current llama.cpp takes `--flash-attn on|off|auto`; a BARE flag is rejected
-    # ("unknown value for --flash-attn"), which used to abort every spawn on new builds.
+    # Pass the explicit flash attention value accepted by the server CLI.
     args.extend(["--flash-attn", _fa_value(fa)])
     if extra_args:
         args.extend(extra_args)
@@ -415,7 +428,7 @@ def spawn_server(model_path: str, *, port: int | None = None, host: str | None =
                  wait: float = 90.0):
     """Launch an INDEPENDENT llama server and return ``(Popen, state)`` WITHOUT touching the
     module singletons or the global chat backend registration. The primitive the hive uses for
-    its worker bees - the CALLER owns the process lifecycle. Ports default into a worker range
+    its worker bees: the CALLER owns the process lifecycle. Ports default into a worker range
     so bees don't collide with the managed chat (`start`) or embedder (`start_embedder`)."""
     binary = find_binary(bin_path)
     if not binary:
@@ -455,7 +468,7 @@ def spawn_server(model_path: str, *, port: int | None = None, host: str | None =
 
 def start_embedder(model_path: str, *, port: int | None = None, host: str | None = None,
                    wait: float = 90.0, bin_path: str | None = None) -> dict:
-    """Launch a DEDICATED embedding worker (`llama-server --embeddings`) - the beehive's
+    """Launch a DEDICATED embedding worker (`llama-server --embeddings`): the beehive's
     nomic embed text bee. It runs ALONGSIDE the chat model so the swarm's semantic
     alignment/hallucination signal (agent_complex.model_embed_fn) is always live, independent of
     which queen/model is chatting. Registers its URL as the embedding endpoint (`embed_url`)."""
@@ -512,7 +525,7 @@ def embed_status() -> dict:
 def status() -> dict:
     """Runtime status: whether a managed server is running, whether a llama.cpp binary is
     installed, the detected hardware (backends/VRAM/RAM), and the model recommendations
-    that fit THIS machine - so the UI/CLI adapt to any host (CUDA/ROCm/Vulkan/Metal/CPU),
+    that fit THIS machine: so the UI/CLI adapt to any host (CUDA/ROCm/Vulkan/Metal/CPU),
     not one laptop."""
     running = _PROC is not None and _PROC.poll() is None
     hw = detect_hardware()
@@ -527,7 +540,7 @@ def status() -> dict:
 
 def pull(repo: str, filename: str, dest_dir: str | None = None) -> str:
     """Download a GGUF from Hugging Face (needs huggingface_hub). Returns the local
-    path. Large files - check the catalog `approx_gb` first. Repo/file names drift, so
+    path. Large files: check the catalog `approx_gb` first. Repo/file names drift, so
     they are explicit here rather than hardcoded."""
     try:
         from huggingface_hub import hf_hub_download
@@ -570,7 +583,7 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
     common model locations (HF hub cache, ollama, LM Studio, ~/models, our pull() dir, plus
     REXGRAPH_MODEL_DIRS) and reports every GGUF file (llama.cpp-loadable, ready for start()),
     every ollama model (resolved via its manifest, since ollama's blobs are extension less and
-    content addressed - see `_source`), and every HF transformers snapshot
+    content addressed: see `_source`), and every HF transformers snapshot
     (vLLM/transformers-loadable). Each entry carries a `source` (hf-cache/ollama/lmstudio/
     rexgraph/dir), a `loadable` hint (gguf -> start() here; transformers -> serve via
     vLLM/transformers; anything else ollama can hold, e.g. an MLX model, llama.cpp cannot load -
@@ -620,10 +633,10 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
                                  "loadable": "llama.cpp", "source": _source(fp)}
                     n += 1
     # 2) Ollama models: stored as content addressed, EXTENSION LESS blobs under blobs/, named
-    # only by sha256 digest - so the real name has to come from the manifest at
+    # only by sha256 digest: so the real name has to come from the manifest at
     # manifests/<registry>/<namespace>/<name>/<tag>, which we parse to find the model weight
     # layer's digest and resolve it to a blob. Ollama can hold non GGUF models too (e.g. MLX),
-    # which llama.cpp cannot load - sniff the blob's magic bytes rather than trust the tag, so
+    # which llama.cpp cannot load: sniff the blob's magic bytes rather than trust the tag, so
     # `format`/`loadable` stay honest for plan_hive's `format == "gguf"` gate.
     for root in roots:
         manifests_dir = os.path.join(root, "manifests")
@@ -650,7 +663,7 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
                 layer = next((ly for ly in layers
                               if str(ly.get("mediaType", "")).endswith(".model")), None)
                 if layer is not None:
-                    # Classic shape: one blob IS the whole model - sniff it for GGUF's magic
+                    # Classic shape: one blob IS the whole model: sniff it for GGUF's magic
                     # bytes so `format`/`loadable` are honest rather than assumed from the tag.
                     digest = layer.get("digest", "")
                     if not digest.startswith("sha256:"):
@@ -673,7 +686,7 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
                     continue
 
                 # Newer shape (e.g. MLX format models pulled through ollama): no single
-                # "*.model" layer - the weights are split across many per tensor blobs, so
+                # "*.model" layer: the weights are split across many per tensor blobs, so
                 # there is no one file to hand llama server. Never gguf/llama.cpp: nothing here
                 # is a spawnable single blob regardless of what the tensors are encoded as.
                 tensor_layers = [ly for ly in layers
@@ -694,7 +707,7 @@ def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 
                 found[rp] = {"name": name, "path": manifest_fp, "size_gb": round(sz / 1e9, 2),
                              "format": "unknown", "loadable": "unsupported", "source": "ollama"}
                 n += 1
-    # 3) HF transformers snapshots (models--org--name/snapshots/<hash>) - vLLM/transformers.
+    # 3) HF transformers snapshots (models--org--name/snapshots/<hash>): vLLM/transformers.
     for root in roots:
         if not (os.sep + "hub" in root and "huggingface" in root):
             continue

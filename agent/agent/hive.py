@@ -42,7 +42,7 @@ def _budget_slot(identity: str):
     """
     try:
         from agent.server.budget import guard
-    except Exception:                            # noqa: BLE001 - headless: no ceiling
+    except Exception:                            # noqa: BLE001  # headless: no ceiling
         yield None
         return
     with guard(identity or "local") as deadline:
@@ -70,9 +70,7 @@ def _stem(token: str) -> set:
     nothing. No single stem is right for every word (classes wants two characters
     removed, bases wants one), so the token carries BOTH candidates and the overlap
     matches on either. Derivational pairs (annotate / annotation) are NOT unified: a
-    specialty meant to catch both declares both. Two- and three letter tokens pass
-    through, since the old three character floor is why a query about GO terms
-    matched no ontology bee at all."""
+    specialty meant to catch both declares both. Two and three letter tokens pass through unchanged."""
     out = {token}
     if len(token) <= 3:
         return out
@@ -159,7 +157,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
     added while the running footprint (file size * kv_factor, for KV cache overhead) stays under
     the usable budget (budget * (1 headroom)). The cheapest embedder is always included, even if
     that pushes the total past the usable budget (a hive with no embedder can't route to it at
-    all) - in that case the returned dict's `over_budget` flag is set so callers don't mistake
+    all): in that case the returned dict's `over_budget` flag is set so callers don't mistake
     the plan for one that fits.
 
     `rules` are the specialty rules used to label each bee; None loads them from config."""
@@ -191,7 +189,7 @@ def plan_hive(models, budget_gb: float, *, headroom: float = 0.15,
         nm = _worker_name(m["name"], taken, rules=rules); taken.add(nm)
         _, spec = _specialty_of(m["name"], rules=rules)
         # a generalist worker is not a specialist in anything, but an EMPTY list makes it score 0
-        # on every cold hive routing query - unreachable until it somehow accrues history. The
+        # on every cold hive routing query: unreachable until it somehow accrues history. The
         # queen already had this fallback; the worker branch did not.
         plan.append({"name": nm, "role": "worker", "path": m["path"], "model": m["name"],
                      "size_gb": m["size_gb"], "specialties": spec or list(GENERAL_SPECIALTIES)})
@@ -245,7 +243,7 @@ class Bee:
     _context: object = None
 
     def public(self) -> dict:
-        # `has_api_key` reports only the FACT that a credential is configured - never the key and
+        # `has_api_key` reports only the FACT that a credential is configured: never the key and
         # never the reference. Mirrors chat_model.status(). See api_key_ref above.
         return {"name": self.name, "role": self.role, "url": self.url, "model": self.model,
                 "specialties": self.specialties, "managed": self.managed, "pid": self.pid,
@@ -284,7 +282,7 @@ def _chat_full(url: str, model: str, prompt: str | None, system: str | None = No
     """Call one bee's OpenAI compatible /v1/chat/completions and return the FULL structured reply.
 
     `messages` sends a complete history verbatim (the assistant turn carrying tool_calls plus the
-    `role: tool` results) - a tool loop cannot be closed with a single prompt string, so this is
+    `role: tool` results): a tool loop cannot be closed with a single prompt string, so this is
     what makes the hive drivable by a tool calling harness. `prompt`/`system` remain the
     single turn convenience.
 
@@ -568,11 +566,9 @@ class Hive:
 
     @staticmethod
     def _device_of(n_gpu_layers) -> str:
-        """What `-ngl` actually pins the server to. 0 is CPU only; anything else puts at
-        least some layers on the accelerator, and a partial split is named as such because
-        it is measurably the worst of both: on this laptop every partial split of a 7B
-        was slower than pure CPU or pure iGPU (26.66 tok/s at the best split against 47.06
-        fully offloaded)."""
+        """Label layer placement: cpu for zero GPU layers, auto for None,
+        igpu for at least 999 layers, or split:<count> for a partial placement.
+        """
         if n_gpu_layers == 0:
             return "cpu"
         if n_gpu_layers is None:
@@ -780,7 +776,7 @@ class Hive:
                  chat_template_kwargs: dict | None = None,
                  record: bool = True) -> ChatResult | None:
         """Ask one bee and get its FULL reply (content + tool_calls + finish_reason +
-        reasoning_content) instead of just text - the path a tool calling harness drives.
+        reasoning_content) instead of just text: the path a tool calling harness drives.
 
         `tools`/`tool_choice` are forwarded to the backend; `messages` sends a complete history
         verbatim so the assistant's tool_calls turn and the `role: tool` results can be fed back
@@ -852,7 +848,7 @@ class Hive:
         """Route a query to the best bee and ask it, in one call. Returns {routed, bee, reply}.
 
         dispatch is the CHAT path (it calls ask()), so among the ranked bees it picks the
-        highest scoring GENERATE capable one - analyze/predict/score/embed/transform workers
+        highest scoring GENERATE capable one: analyze/predict/score/embed/transform workers
         are invoked with invoke(), not ask(), and a query can legitimately rank such a worker
         first (e.g. a topology question matching a rexgraph analyzer's specialties). The queen
         backs a query with no generate capable specialist match."""

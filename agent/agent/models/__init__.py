@@ -27,6 +27,7 @@ from . import (  # noqa: F401
     trustgraph,  # noqa: F401
 )
 from .archetypes import ARCHETYPES, get, merged_cfg, register_archetype  # noqa: F401
+from .data import load_mapped_table  # noqa: F401
 from .store import (  # noqa: F401  rexgraph IO bridge
     load_bundle,
     load_checkpoint,
@@ -56,7 +57,7 @@ def _load(archetype, source, params, seed):
         return get(archetype)["synth"](merged_cfg(archetype, params), seed)
     if hasattr(source, "kind"):
         return source
-    return store.load_bundle(source)
+    return store.load_bundle(source, task=merged_cfg(archetype, params).get("task", "classification"))
 
 
 def build(archetype, *, params=None, data=None, seed=0):
@@ -72,10 +73,12 @@ def run(archetype, *, params=None, data=None, mode="single", optimizer="auto", s
         lr=None, seed=0, stages=None, specs=None, fusion="ensemble", device="cpu",
         save_to=None, on_step=None, amp=False, schedule=None, warmup=0, grad_accum=1,
         resume=None) -> dict:
-    """Build and train an archetype. `mode` is one of {single, multistep, fusion}. Returns the run
-    result (metric trajectory / stages / fused metric). `data` may be a path or a DataBundle.
-    `device` defaults to 'cpu'; use 'cuda' for the non conv archetypes (mlp/lm/hgnn). Conv fails on
-    this box's ROCm build, so cnn stays on cpu."""
+    """Build and train an archetype in single, multistep or fusion mode.
+
+    data accepts a path or DataBundle. device defaults to cpu; auto uses the Core
+    compute recommendation. Explicit GPU training requires supported Torch kernels
+    for the selected archetype. Return the metric trajectory, stages or fused metric.
+    """
     from . import train
     if mode == "fusion":
         bundle = data if hasattr(data, "kind") else _load(archetype, data, params, seed)
@@ -106,7 +109,7 @@ def predict(checkpoint, data=None, *, split=None, device="cpu", save_to=None) ->
                    else store.load_checkpoint(checkpoint, device=dev))   # map_location -> picked device
     arch = conf["archetype"]
     kind = get(arch)["data_kind"]
-    bundle = data if hasattr(data, "kind") else _load(arch, data, None, 0)
+    bundle = data if hasattr(data, "kind") else _load(arch, data, conf.get("cfg"), 0)
     bundle.to(dev)
     model = model.to(dev)
     preds, metric = train.predict_on(model, bundle, kind, split=split)

@@ -21,7 +21,7 @@ def test_text_direct_and_stored_readings(filled, tmp_path):
     result = Executor(sources={"r": rex}).execute(q)
     assert result.values == expected
     assert all(e.value == "integer" for e in result.exactness)
-    store = rcdb.open_store(f"rex://{tmp_path / 'store'}")
+    store = rcdb.open_store(f"rex://{tmp_path / 'store'}", read_only=False)
     try:
         store.put("r", rex, analytics=False)
         before = store.read_record("r").record.version

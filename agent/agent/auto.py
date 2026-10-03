@@ -437,8 +437,10 @@ def auto_rex(
             edges = _fallback_text_or_raise(data, input_type, _csv_err, **kwargs)
     elif input_type == "correlation":
         adapter = CorrelationAdapter()
+        corr_sign = "matrix" if sign == "correlation" else sign
+        corr_typing = "spectral" if typing == "auto" else typing
         edges = adapter.build(data, labels=vertex_labels,
-                              threshold=threshold, sign=sign)
+                              threshold=threshold, sign=corr_sign, typing=corr_typing)
     elif input_type == "adjacency":
         adapter = AdjacencyAdapter()
         edges = adapter.build(data, labels=vertex_labels)
@@ -511,6 +513,13 @@ def auto_rex(
         typing=typing,
     )
 
+
+def auto_rex_text(text: str, **kwargs):
+    """Build from literal text without interpreting it as a filesystem path."""
+    if not isinstance(text, str):
+        raise TypeError("text must be a string")
+    return auto_rex([text], **kwargs)
+
 #: The face rule every path in the agent layer builds under.
 #:
 #: A face is a filled cycle: whatever satisfies B1 c_f = 0 on the relations it
@@ -527,16 +536,11 @@ FACE_WORDS = ("none", "auto", "all", "promote", "hyper", "typed")
 
 
 def attach_faces(rex, rule=FACE_RULE, *, type_labels=None):
-    """Attach faces to `rex` under `rule`, returning the complex.
+    """Attach faces to rex under the selected rule and return the complex.
 
-    `rule` is 'none', 'auto'/'all' (every gon the cycle basis contains), 'promote'
-    (fill the basis, beta_1 -> 0), 'hyper' (close branching relations), 'typed' (a
-    filter that keeps only same type triangles, which is not what a face is and is
-    kept for a caller who wants exactly that), or a gon: 3, 5, [3, 6].
-
-    Every path that used to call `typed_face_selection` directly goes through here,
-    so a document, a query and a chunk are built the same way rather than each
-    deciding for itself.
+    none adds no faces. auto/all fills cycles from the exact cycle basis. promote
+    fills the basis, hyper closes branching relations, and typed keeps same type
+    triangles. A gon or collection of gons selects boundary sizes.
     """
     if isinstance(rule, str) and rule not in FACE_WORDS:
         raise ValueError(
@@ -585,136 +589,36 @@ def build_rex_from_edges(
     This is the single place where an EdgeConstruction becomes a
     RexGraph, so adapters that run outside :func:`auto_rex` (OCR layout,
     single cell, L-R scoring) get the same face selection, weight/sign
-    handling and ``_agent_meta`` attachment.
+    handling and source provenance.
 
     Mirrors ``rexgraph.io.csv_loader.GraphData.to_rex()``: ``w_E`` is the
     magnitude only, signs are passed separately.
     """
     from rexgraph.graph import RexGraph
 
-    # Construction guard. The core's face finding / boundary kernels can segfault
-    # or exhaust memory on large, dense graphs (a real core limitation). Fail fast
-    # and clearly HERE, before the C code runs.
-    # guard on the PAIRWISE arrays, which is what this line reads. `edges.nE` counts
-    # relations at any arity, so a branching only construction makes it truthy while
-    # `sources` is empty and `.max()` has nothing to reduce.
-    _nV = (int(max(int(edges.sources.max()), int(edges.targets.max())) + 1)
-           if len(edges.sources) else 0)
-    for _support in getattr(edges, "branching", []) or []:
-        _nV = max(_nV, int(max(_support)) + 1)
-    check_analysis_size(_nV, edges.nE)
-
-    if edges.nE == 0:
+    relations = edges.to_relations()
+    check_analysis_size(len(relations.vertices), relations.n_relations)
+    if not relations.n_relations:
         import logging
         logging.getLogger(__name__).warning(
-            "Edge construction produced 0 edges from %s input. "
-            "For text/OCR: the document may be too short, contain only "
-            "stopwords, or the OCR backend returned unusable output. "
-            "The resulting RexGraph has no structure to analyze.",
-            input_type,
+            "Edge construction produced 0 edges from %s input; the resulting "
+            "RexGraph has no relations to analyze.", input_type,
         )
-
-    identity_args = {}
-    if getattr(edges, "relation_ids", None) is not None:
-        identity_args["relation_ids"] = edges.relation_ids
-
-    w_mag = edges.weights
-    w_E_arg = w_mag if len(w_mag) > 0 and not np.allclose(w_mag, 1.0) else None
-    signs_arg = (
-        edges.signs
-        if len(edges.signs) > 0 and np.any(edges.signs < 0)
-        else None
-    )
-
-    branching = [list(map(int, r)) for r in getattr(edges, "branching", []) or []]
-    if branching:
-        # a wider relation cannot be said in (sources, targets), so the whole complex is
-        # built from a boundary CSR instead: the 2 ary relations first, in their original
-        # order so every aligned array still lines up, then the k-ary ones.
-        supports = [[int(a), int(b)]
-                    for a, b in zip(edges.sources, edges.targets, strict=True)]
-        supports.extend(branching)
-        ptr = np.zeros(len(supports) + 1, dtype=np.int32)
-        for i, support in enumerate(supports):
-            ptr[i + 1] = ptr[i] + len(support)
-        idx = np.fromiter((v for support in supports for v in support),
-                          dtype=np.int32, count=int(ptr[-1]))
-        if w_E_arg is not None:
-            w_E_arg = np.concatenate([np.asarray(w_E_arg, dtype=float),
-                                      np.ones(len(branching))])
-        if signs_arg is not None:
-            signs_arg = np.concatenate([np.asarray(signs_arg),
-                                        np.ones(len(branching), dtype=signs_arg.dtype)])
-        rex = RexGraph(boundary_ptr=ptr, boundary_idx=idx,
-                       w_E=w_E_arg, signs=signs_arg, **identity_args)
-    else:
-        rex = RexGraph(
-            sources=edges.sources,
-            targets=edges.targets,
-            w_E=w_E_arg,
-            signs=signs_arg,
-            **identity_args,
-        )
+    rex = RexGraph.from_relations(relations)
 
     # Faces, on request.
     #
-    # A face is a filled cycle: whatever satisfies B1 c_f = 0 on the relations it
-    # spans. It is not triangles, and it is not conditioned on edge type, which is
-    # an attribute that weights the complex. `rexgraph.faces` already solves this
-    # exactly over the rationals and arity general, reading the gon off the cycle
-    # basis; this path used to ignore it for a triangle only, type gated rule, so no
-    # ring with a double bond could close and no 4 gon could close at all.
-    #
-    # Nothing is filled unless asked. Asserting a face is asserting that something
-    # is enclosed, and that is the caller's claim about their data, not a default.
+    # A face column satisfies B1 c_f = 0. Fill requested cycles using the
+    # exact arity general solver; no face is asserted by default.
     rex = attach_faces(rex, face_selection, type_labels=edges.type_labels)
 
-    # the embedding travels with the complex when the source carried one, because the
-    # lengths and angles taken against it are a different reading from the intrinsic ones
-    # and both are wanted: a ring's intrinsic quadrance is a function of arity whatever
-    # the conformation, and the embedded one moves when the ring puckers.
-    embedding = list(getattr(edges, "embedding", []) or [])
-    if embedding:
-        rex._embedding = embedding
-
-    # attributes the reader parsed, onto the cells they belong to. Same shape as the
-    # store, so this is a hand off rather than a translation.
-    for grade, cells in (getattr(edges, "attributes", None) or {}).items():
-        for index, values in cells.items():
-            for key, value in values.items():
-                rex.attach_metadata(int(grade), int(index), str(key), value)
-
-    # Honour the declared vertex count, AFTER faces: attaching them can rebuild the
-    # complex from its boundary arrays, which re derives nV from the edge supports
-    # and drops any vertex with no incident edge. Sizing from the supports alone
-    # loses only the TRAILING isolated ones, so the same records in a different
-    # order gave a different complex and a different beta_0. An interval that
-    # overlaps nothing, an atom that bonds to nothing and a gene nothing correlates
-    # with are all real 0 cells.
-    n_declared = len(edges.vertex_labels or ())
-    if n_declared > rex.nV:
-        rex._nV = n_declared
-
-    # Attach metadata for downstream use
-    rex._agent_meta = {
+    rex.set_provenance({
         "input_type": input_type,
-        "adapter": edges.__class__.__name__
-        if hasattr(edges, "__class__")
-        else "unknown",
-        "vertex_labels": edges.vertex_labels,
-        "type_names": edges.type_names,
-        "n_types": edges.n_types,
+        "adapter": type(edges).__name__,
         "threshold": threshold,
         "typing": typing,
         "face_selection": face_selection,
-    }
-    if getattr(edges, "source_manifest", None):
-        import copy
-        rex._agent_meta["source_manifest"] = copy.deepcopy(edges.source_manifest)
-
-    # Preserve text position mapping when present (OCR/text adapters)
-    if getattr(edges, "source_text", ""):
-        rex._agent_meta["source_text"] = edges.source_text
+    })
 
     return rex
 
@@ -819,11 +723,7 @@ def _build_edge_list_edges(data, **kwargs) -> EdgeConstruction:
     if isinstance(data, (str, Path)):
         return adapter.build(str(data), **kwargs)
     elif _is_dataframe(data):
-        # Save to temp CSV and load (reuse the classifier)
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
-            data.to_csv(f, index=False)
-            return adapter.build(f.name, **kwargs)
+        return adapter.build_dataframe(data, **kwargs)
     else:
         raise TypeError(f"EdgeListAdapter needs a file path or DataFrame, got {type(data)}")
 
@@ -842,40 +742,18 @@ def auto_analyze(
     data : any supported input (file path, array, DataFrame)
     depth : 'quick', 'standard', or 'full'
         'quick': topology + spectral (< 1 second)
-        'standard': full analyze() output
-        'full': analyze_all() with signal + quotient
+        'standard': the standard live Agent stages
+        'full': standard stages plus advanced/RCFE/continuum stages
     **kwargs
         Forwarded to auto_rex().
 
     Returns
 
     dict
-        Complete analysis results. Keys match rexgraph.analysis.analyze().
+        Live Agent stage results (construction, topology, spectral, and deeper stages).
     """
-    from rexgraph.analysis import analyze, analyze_all
+    from agent.analysis import analyze
 
     rex = auto_rex(data, **kwargs)
-
-    # Build vertex labels for the analysis
-    meta = getattr(rex, "_agent_meta", {})
-    vertex_labels = meta.get("vertex_labels")
-
-    if depth == "quick":
-        # Just trigger the cheap properties
-        result = {
-            "meta": {
-                "nV": rex.nV,
-                "nE": rex.nE,
-                "nF": rex.nF,
-            },
-            "topology": {
-                "betti": rex.betti,
-                "euler": rex.euler_characteristic,
-                "chain_valid": rex.chain_valid,
-            },
-        }
-        return result
-    elif depth == "full":
-        return analyze_all(rex, vertex_labels=vertex_labels)
-    else:
-        return analyze(rex, vertex_labels=vertex_labels)
+    meta = getattr(rex, "_agent_meta", {}) or {}
+    return analyze(rex, depth=depth, labels=meta.get("vertex_labels"))

@@ -19,7 +19,7 @@ cimport cython
 from rexgraph.core._common cimport i32, i64, f64, idx_t
 from rexgraph.core._linalg cimport (
     bl_gemm_nn, bl_gemm_nt, bl_dot, bl_nrm2,
-    spectral_pinv, spectral_pinv_matvec, lp_lstsq, lp_eigh,
+    spectral_pinv, spectral_pinv_matvec, lp_lstsq, lp_eigh, check_lapack_info,
 )
 
 np.import_array()
@@ -56,7 +56,7 @@ def compute_chi(np.ndarray[f64, ndim=2] RL, list hats, int nhats, int nE):
     return chi
 
 
-# Phi: vertex character (dense path - all BLAS)
+# Phi: vertex character (dense path: all BLAS)
 
 cdef void _compute_phi_core(const f64* B1, const f64* B1_RLp,
                              const f64* const* hat_data,
@@ -64,7 +64,7 @@ cdef void _compute_phi_core(const f64* B1, const f64* B1_RLp,
                              int nV, int nE, int nhats) noexcept nogil:
     """phi(v,k) = diag(B1_RLp @ hat_k @ B1_RLp^T)[v] / diag(B1_RLp @ B1^T)[v],
     given B1_RLp = B1 @ RL^+ (nV x nE). Shared by the dense pinv and SPD solve
-    paths - only the way B1_RLp is obtained differs. tmp_buf: pre alloc nV x nE."""
+    paths: only the way B1_RLp is obtained differs. tmp_buf: pre alloc nV x nE."""
     cdef int v, e, k
     cdef f64 s0_vv, phi_vk
     cdef f64 uniform = 1.0 / nhats if nhats > 0 else 0.0
@@ -140,7 +140,7 @@ def compute_phi_sparse_single(np.ndarray[f64, ndim=2] RL,
     else:
         A_F = np.asfortranarray(RL.copy())
         S = np.empty(nE, dtype=np.float64)
-        lp_lstsq(&A_F[0, 0], &rhs[0], nE, nE, 1, &S[0], &rank)
+        check_lapack_info(lp_lstsq(&A_F[0, 0], &rhs[0], nE, nE, 1, &S[0], &rank))
     # rhs is now x = RL^+ @ B1^T e_v
 
     cdef np.ndarray[f64, ndim=1] x = rhs
@@ -499,15 +499,6 @@ def derived_constants(int nV):
 # Per channel mixing time
 
 
-cdef f64 _lambda2_from_evals(const f64* evals, int n) noexcept nogil:
-    """Extract smallest positive eigenvalue (spectral gap) from sorted evals."""
-    cdef int k
-    for k in range(n):
-        if evals[k] > 1e-10:
-            return evals[k]
-    return 0.0
-
-
 def hat_eigen(np.ndarray[f64, ndim=2] hat, int nE):
     """Eigendecompose a single hat operator via LAPACK dsyev_.
 
@@ -528,7 +519,7 @@ def hat_eigen(np.ndarray[f64, ndim=2] hat, int nE):
     cdef np.ndarray[f64, ndim=2] A_F = np.asfortranarray(hat.copy())
     cdef np.ndarray[f64, ndim=1] evals = np.empty(nE, dtype=np.float64)
 
-    lp_eigh(&A_F[0, 0], &evals[0], nE)
+    check_lapack_info(lp_eigh(&A_F[0, 0], &evals[0], nE))
 
     cdef int i
     cdef f64[::1] ev = evals
@@ -756,7 +747,7 @@ def face_void_dipole(np.ndarray[f64, ndim=1] psi,
 
     face_affinity = sum_f |psi^T B2[:,f]|^2 / ||psi||^2
     void_affinity = sum_v |psi^T Bvoid[:,v]|^2 / ||psi||^2
-    dipole_ratio  = (face - void) / (face + void)
+    dipole_ratio  = (face: void) / (face + void)
 
     Parameters
 

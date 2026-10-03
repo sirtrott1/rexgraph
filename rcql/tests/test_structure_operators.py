@@ -104,7 +104,7 @@ def test_bottom_hyperslice_has_none_below_and_forbids_unlisted_members():
 
 def test_structural_reading_from_rcdb_changes_no_version(tmp_path):
     import rcdb
-    store = rcdb.open_store(f"rex://{tmp_path / 'db'}")
+    store = rcdb.open_store(f"rex://{tmp_path / 'db'}", read_only=False)
     try:
         store.put("r", fixture())
         before = store.read_record("r").record.version
