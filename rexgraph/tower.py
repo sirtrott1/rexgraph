@@ -123,8 +123,8 @@ def tower_law(rex) -> dict:
 def incidence_degrees(rex, grade: int) -> np.ndarray:
     """How many `grade`-cells each `(grade-1)`-cell bounds.
 
-    At grade 2 this is the number of faces on each edge, which is what the closed
-    2 manifold condition is actually about.
+    At grade 2 this counts incident faces on each edge. Surface manifold
+    certification also requires conditions on the local links.
     """
     bounds = _boundaries(rex)
     grade = int(grade)
@@ -282,20 +282,12 @@ def manifold_state(rex, grade: int = 2) -> dict:
 
 
 def closure_at(rex, grade: int = 2) -> dict:
-    """Whether the complex closes at `grade`, by two readings that are not the same.
+    """Report boundary masses and whether every lower cell has two cofaces.
 
-    `mass_equal` is `||B_{grade-1}||^2 == ||B_grade||^2`. It is cheap, exact and
-    grade general, and it is a statement about the MEAN incidence degree being 2, so it
-    is NECESSARY for closure and not sufficient. A boundary with degrees (1, 2, 2, 3)
-    satisfies it while being nothing of the kind.
-
-    `every_two` is the actual condition: every `(grade-1)`-cell bounds exactly two
-    `grade`-cells. Costs a pass over the stored pattern.
-
-    Both are returned because the first is the one worth computing on every complex and
-    the second is the one worth trusting. On the solid octahedron, square pyramid,
-    truncated icosahedron and closed tetrahedron they agree; on a tetrahedron missing a
-    face and on a single triangle they agree that it is open.
+    mass_equal compares squared coefficient masses with absolute tolerance 1e-9.
+    It depends on coefficient scale and need not hold when every_two is true.
+    every_two counts nonzero incidences independently of their magnitudes.
+    closed is an alias for every_two, not a full manifold certificate.
     """
     grade = int(grade)
     lower = boundary_mass(rex, grade - 1, exact=False) if grade >= 2 else 0.0
@@ -311,8 +303,8 @@ def closure_at(rex, grade: int = 2) -> dict:
                     zip(*np.unique(deg, return_counts=True), strict=True)} if deg.size
                    else {},
         "closed": every_two,
-        "reading": ("mass_equal is necessary and cheap; every_two is the condition. "
-                    "They can disagree, and where they do the second is right."),
+        "reading": ("mass_equal compares coefficient masses; every_two counts two "
+                    "cofaces per lower cell. closed records the coface condition."),
     }
 
 

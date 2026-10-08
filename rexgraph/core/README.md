@@ -1795,10 +1795,11 @@ degenerate channels).
 
 - `face_void_dipole(psi, B2, Bvoid, nE, nF)` -> dict
 
-  Projects an edge signal onto the realized face basis (B2 columns) and
-  the void basis (Bvoid columns). face_affinity = sum of squared
-  projections onto B2 columns, normalized by ||psi||^2. void_affinity
-  is the same for Bvoid. dipole_ratio = (face: void) / (face + void),
+  Contracts an edge signal against the realized face columns (B2) and
+  the void columns (Bvoid). face_affinity = sum of squared column
+  contractions, normalized by ||psi||^2. void_affinity is the same
+  for Bvoid. Column scale affects these affinities. dipole_ratio =
+  (face_affinity - void_affinity) / (face_affinity + void_affinity),
   in [-1, 1]. Returns dict with face_affinity (>= 0), void_affinity
   (>= 0), dipole_ratio, total_projection.
 
@@ -3157,8 +3158,9 @@ oracles to ~1e-10.
 
 - `lagrangian_step(amplitudes, prev_amplitudes, sources, targets, edge_weights, nV, nE, dt, H0=1.0)` -> dict
 
-  One step of Lagrangian dynamics. Returns kinetic energy T, coupling
-  potential V, and Lagrangian L = T - V.
+  Returns kinetic energy T, coupling
+  potential V = -H0 * sum_e w_e * a_i * a_j, and Lagrangian L = T - V.
+  dt must be positive and finite; the kinetic term uses the supplied dt.
 
 - `harmonic_basis_extract(evals, evecs, n, tol=1e-10)` -> f64[n_harm, n]
 
@@ -4735,8 +4737,8 @@ import or depend on RexGraph.
 These modules cover advanced structure beyond the core tower and were not listed above:
 
 - `_harmonic`: dense harmonic plane parity/oracle extension; production harmonic analysis lives in `rexgraph.harmonic_sparse`.
-- `_holomorphic`: holomorphic Lagrangian structure on RL_4. `relational_cr` /
-  `cr_saddle_score` compute the per edge Cauchy Riemann violation from the
+- `_holomorphic`: per relation Lagrangian fields on RL_4. `relational_cr` /
+  `cr_saddle_score` read the normalized channel product imbalance from the
   DIAGONALS of the hat products: diag(hat_T hat_S) and diag(hat_S hat_T) via
   `np.einsum('ek,ke->e', ...)`, O(nE^2), never forming the dense nE x nE
   products (which would be O(nE^3)).

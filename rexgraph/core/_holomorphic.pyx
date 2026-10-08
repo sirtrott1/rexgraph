@@ -1,33 +1,12 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 # cython: initializedcheck=False, nonecheck=False, embedsignature=True
 """
-rexgraph.core._holomorphic: Holomorphic Lagrangian structure on RL_4.
+rexgraph.core._holomorphic: diagonal and product readings of RL_4 channel hats.
 
-Implements the complex analytic structure of the time space Lagrangian
-decomposition on the RL_4 channel hats rather than on the graded Laplacian.
-Both are built on the same relational complex: the graded Laplacian comes
-straight from its boundary maps, the RL_4 hats from its four typed channels.
-
-Key mathematical facts:
-    - L_t (time, channel T = hat_0) and L_s (space, channels G+F+C)
-      satisfy Cauchy-Riemann conditions within a single analytic domain.
-    - f(e) = L_t(e) + i*L_s(e) is holomorphic per edge.
-    - On the graded Laplacian, [L_t, L_s] = 0 identically (algebraic
-      consequence of B_1 B_2 = 0). This is a tautology.
-    - On the RL_4 channel hats, [hat_T, hat_S] != 0. The relational
-      operators interact through overlap, frustration, and coupling
-      channels.
-    - The per-edge CR violation |dTdS(e) - dSdT(e)| on the relational
-      complex is a category-specific invariant: each topological regime
-      has its own characteristic CR value.
-    - At the boundary between two regimes, the CR violation of each
-      subcomplex converges to its category's characteristic value.
-      The boundary is the saddle point where CR_L = CR_R.
-
-Functions:
-    lagrangian_fields      Per-edge L_t(e), L_s(e), c^2(e), f(e).
-    relational_cr          Per-edge CR violation from RL_4 hat operators.
-    cr_saddle_score        Mean CR violation scalar (for boundary scans).
+L_t is the T diagonal and L_s is the G+F+C diagonal. Their complex pair and
+ratio describe each relation. relational_cr is the retained name for the
+absolute difference of two normalized product diagonals. It does not certify
+holomorphicity or operator commutation.
 """
 
 from __future__ import annotations
@@ -43,6 +22,19 @@ ctypedef double f64
 ctypedef int i32
 
 np.import_array()
+
+
+def _validated_channel_hats(list hats):
+    """Return the first four hats as finite square arrays on one carrier."""
+    if len(hats) < 4:
+        raise ValueError("requires 4 hat operators (RL_4)")
+    arrays = [np.ascontiguousarray(h, dtype=np.float64) for h in hats[:4]]
+    shape = arrays[0].shape
+    if len(shape) != 2 or shape[0] != shape[1]:
+        raise ValueError("channel hats must be square matrices")
+    if any(a.shape != shape or not np.all(np.isfinite(a)) for a in arrays):
+        raise ValueError("channel hats require one shape and finite coefficients")
+    return arrays
 
 
 def lagrangian_fields(list hats):
@@ -62,7 +54,7 @@ def lagrangian_fields(list hats):
     dict with keys:
         Lt : f64[nE]       per-edge time Lagrangian
         Ls : f64[nE]       per-edge space Lagrangian (action)
-        c2 : f64[nE]       per-edge speed of light squared, Ls/Lt
+        c2 : f64[nE]       per-edge ratio Ls/Lt, zero when Lt is negligible
         f_mag : f64[nE]    |f(e)| = sqrt(Lt^2 + Ls^2)
         f_arg : f64[nE]    arg(f(e)) = arctan(Ls/Lt)
     """
@@ -71,13 +63,7 @@ def lagrangian_fields(list hats):
     cdef np.ndarray[f64, ndim=1] Lt, Ls, c2, f_mag, f_arg
     cdef f64 lt_val, ls_val
 
-    if len(hats) < 4:
-        raise ValueError("lagrangian_fields requires 4 hat operators (RL_4)")
-
-    hat_T = np.ascontiguousarray(hats[0], dtype=np.float64)
-    hat_G = np.ascontiguousarray(hats[1], dtype=np.float64)
-    hat_F = np.ascontiguousarray(hats[2], dtype=np.float64)
-    hat_C = np.ascontiguousarray(hats[3], dtype=np.float64)
+    hat_T, hat_G, hat_F, hat_C = _validated_channel_hats(hats)
 
     nE = hat_T.shape[0]
     Lt = np.empty(nE, dtype=np.float64)
@@ -105,16 +91,13 @@ def lagrangian_fields(list hats):
 
 
 def relational_cr(list hats):
-    """Per edge Cauchy Riemann violation in the relational complex.
+    """Per relation imbalance of normalized channel product diagonals.
 
-    Computes the partial derivatives dTdS(e) = (hat_T @ hat_S)[e,e] / hat_S[e,e]
-    and dSdT(e) = (hat_S @ hat_T)[e,e] / hat_T[e,e] from the RL_4 hat operators.
-    The CR violation at each edge is |dTdS(e) - dSdT(e)|.
-
-    On the graded Laplacian (L_1 = L_t + L_s), these are identically equal
-    because B_1 B_2 = 0 forces [L_t, L_s] = 0.  On the RL_4 channel hats
-    (RL_4 = hat_T + hat_G + hat_F + hat_C), the channels interact and the
-    CR violation is nonzero and category specific.
+    dTdS(e) = (hat_T @ hat_S)[e,e] / hat_S[e,e] and
+    dSdT(e) = (hat_S @ hat_T)[e,e] / hat_T[e,e], with hat_S = hat_G+hat_F+hat_C.
+    A negligible denominator returns zero. cr is `abs(dTdS - dSdT)`.
+    For symmetric hats the two product diagonals agree, but their denominators
+    may differ. A nonzero cr can therefore occur for commuting operators.
 
     Parameters
 
@@ -124,27 +107,24 @@ def relational_cr(list hats):
     Returns
 
     dict with keys:
-        dTdS : f64[nE]         per-edge dL_t/dL_s
-        dSdT : f64[nE]         per-edge dL_s/dL_t
+        dTdS : f64[nE]         diag(T S) / diag(S)
+        dSdT : f64[nE]         diag(S T) / diag(T)
         cr   : f64[nE]         per-edge |dTdS - dSdT|
-        cr_mean : float        mean CR violation
-        cr_std  : float        std of CR violation
+        cr_mean : float        mean imbalance, zero on an empty carrier
+        cr_std  : float        standard deviation of the imbalance
     """
     cdef int nE, e
     cdef np.ndarray[f64, ndim=2] hat_T, hat_S, TS, ST
     cdef np.ndarray[f64, ndim=1] dTdS_arr, dSdT_arr, cr_arr
     cdef f64 ts_val, st_val, s_diag, t_diag
 
-    if len(hats) < 4:
-        raise ValueError("relational_cr requires 4 hat operators (RL_4)")
-
-    hat_T = np.ascontiguousarray(hats[0], dtype=np.float64)
+    checked = _validated_channel_hats(hats)
+    hat_T = checked[0]
     hat_S = np.ascontiguousarray(
-        hats[1] + hats[2] + hats[3], dtype=np.float64)
+        checked[1] + checked[2] + checked[3], dtype=np.float64)
 
     nE = hat_T.shape[0]
-    # Only the DIAGONALS of the products are used: diag(TS)_e = Σ_k T[e,k]S[k,e]
-    # (row·col), O(nE²) per edge total: never form the nE×nE products (O(nE³)).
+    # Product diagonals cost O(nE^2) for the full relation carrier.
     cdef np.ndarray[f64, ndim=1] TS_diag = np.einsum('ek,ke->e', hat_T, hat_S)
     cdef np.ndarray[f64, ndim=1] ST_diag = np.einsum('ek,ke->e', hat_S, hat_T)
 
@@ -167,11 +147,13 @@ def relational_cr(list hats):
     cdef f64 cr_var = 0.0
     for e in range(nE):
         cr_mean += cr_arr[e]
-    cr_mean /= nE
+    if nE:
+        cr_mean /= nE
 
     for e in range(nE):
         cr_var += (cr_arr[e] - cr_mean) * (cr_arr[e] - cr_mean)
-    cr_var /= nE
+    if nE:
+        cr_var /= nE
 
     return {
         'dTdS': dTdS_arr,
@@ -183,10 +165,7 @@ def relational_cr(list hats):
 
 
 def cr_saddle_score(list hats):
-    """Mean CR violation scalar for boundary scan use.
-
-    A thin wrapper around relational_cr that returns only the scalar
-    mean, avoiding dict overhead in tight scan loops.
+    """Mean normalized product imbalance for boundary scans.
 
     Parameters
 
@@ -195,11 +174,9 @@ def cr_saddle_score(list hats):
     Returns
 
     float
-        Mean per-edge CR violation in the relational complex.
+        Mean per relation imbalance in the relational complex.
     """
     if len(hats) < 4:
         return 0.0
-    # Reuse the (de densified) per edge CR: diag(TS)/diag(ST) are O(nE²) row·col
-    # dots, no nE×nE products.
     cr = relational_cr(hats)['cr']
     return float(np.mean(cr)) if cr.size > 0 else 0.0

@@ -909,7 +909,8 @@ def _lagrangian_curvature(B1, B2, w):
     |H_S - H_T| (direction free). When the topology overwhelms the geometry (heavy
     junctions, few cycles) the curvature is large, closing the gap the face bound
     curvatures leave on spans. The exact integer numerators tr(T²), tr(L₁²) are
-    returned as L_T_trace/L_S_trace (unweighted: also c2_exact). c2 is None on a
+    returned as L_T_trace/L_S_trace. Certified unweighted integer reductions
+    also return c2_exact. c2 is None on a
     pure span (no geometry, L_S = 0); curvature stays large/finite there.
     """
     # Math lives in the core: rexgraph.core._curvature computes the normalized IPR

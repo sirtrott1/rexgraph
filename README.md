@@ -33,7 +33,7 @@ The repository contains five packages:
 - [System](system/README.md): API and observatory over RCQL.
 - [Agent](agent/README.md): workers, orchestration, connectors and model tooling.
 
-The five packages share version `1.3.0` and sibling dependency floors. The
+The five packages share version `1.3.1` and sibling dependency floors. The
 [I/O contracts](rexgraph/io/README.md#current-native-contracts) describe current
 publication, integrity, exact SQL and legacy read behavior.
 
@@ -857,8 +857,8 @@ rexgraph/                     the relational complex library
         boundaries, Laplacians, relational/typed channels, structural character, Hodge, fiber and
         linkage, spectral layout, field, wave, Dirac, transition dynamics, perturbation signals,
         persistence, quotients and relative homology, voids, curvature, temporal lifecycle, standard
-        graph algorithms, joins, query, interfacing, cross-complex comparison, and holomorphic
-        structure. Kernels are independent (composed only in graph.py) and optimized for sparse
+        graph algorithms, joins, query, interfacing, cross-complex comparison, and channel
+        Lagrangian readings. Kernels are independent (composed only in graph.py) and optimized for sparse
         operators; the dense kernel path also serves as the exact reference for the eigen-free layer.
 
     io/                       storage and serialization

@@ -3827,11 +3827,11 @@ class RexGraph:
         return out
 
     def cr_violation(self) -> float | None:
-        """Mean Cauchy Riemann violation of the time/space Lagrangian pair.
+        """Mean normalized channel product imbalance under the retained CR name.
 
-        Zero identically on the graded Laplacian, where it is a tautology from
-        `B_1 B_2 = 0`; non zero on the RL_4 hats, where the channels interact through
-        overlap, frustration and co participation. That difference is the content.
+        Compares diag(T S)/diag(S) with diag(S T)/diag(T), where S=G+F+C.
+        This statistic can be nonzero for commuting operators. It does not
+        certify holomorphicity.
 
         The channels read the 1 skeleton. Attaching faces without changing B1
         does not change this reading.
@@ -4612,9 +4612,10 @@ class RexGraph:
     def face_void_dipole(self, psi: NDArray) -> dict:
         """Face void dipole of an edge signal.
 
-        Projects psi onto the realized face basis (B2) and the void
-        basis (Bvoid), returning face_affinity, void_affinity, and
-        dipole_ratio in [-1, 1].
+        Contracts psi against the face and void columns, returning squared
+        column affinities divided by signal quadrance and their dipole ratio.
+        Affinities depend on column scale and are not orthogonal projections.
+        dipole_ratio is in [-1, 1].
 
         Parameters
 

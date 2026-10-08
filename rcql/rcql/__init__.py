@@ -1,7 +1,7 @@
 """Relational Complex Query Language."""
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 def register_result_storage_codec():
     """Install native RCDB result storage only when explicitly requested."""

@@ -392,36 +392,30 @@ def _det_of(A_in):
     return bareiss_determinant(A_in)
 
 
-#: A rational p/q is uniquely determined by a double approximation only while
-#: q < sqrt(1 / (2 * eps)). Past that, some fraction with a large denominator matches
-#: any float to machine precision and recovering one proves nothing.
+#: Default candidate denominator cap. It does not certify the source rational.
 MAX_RECOVERABLE_DENOMINATOR = int((1.0 / (2.0 * np.finfo(np.float64).eps)) ** 0.5)
 
 
 def rational_reconstruct(values, *, max_denominator: int | None = None):
-    """Recover the exact rational a float array approximates, or refuse.
+    """Return bounded rational candidates matching a float array, or None.
 
-    The characters ARE rational: they come from integer boundary operators through
-    rational operations, and on a small complex they read as small fractions:
-    `1/4` on a triangle, `37/135` on K4, `220/969` on a five edge path. Stored as
-    float64 the fraction is still there and can be recovered.
+    Candidates match within 8*float64.eps*max(abs(x), 1). Neither this tolerance
+    nor the denominator cap certifies the original rational. For example, a
+    sufficiently small nonzero rational can yield the zero candidate.
+    Exact characters must be computed from the original boundary coefficients.
 
-    It does not survive size. The denominator grows with the complex, and past roughly
-    a few dozen cells it exceeds what a double can pin down: a random 20 vertex
-    complex needs a denominator near 1e9 to match its stored float, which is not the
-    true value but merely a fraction close to that float. Continued fractions will
-    always produce such a thing, so a reconstruction that does not check is a
-    reconstruction that always "succeeds".
-
-    The check is the classical bound: a rational is uniquely determined by a double
-    only while its denominator is below `sqrt(1/(2 eps))`, about 4.7e7. Above that
-    this returns None, and the exact value has to be computed in exact arithmetic from
-    the boundary operators rather than read back out of a float.
-
-    Returns a list of Fractions in the input's shape, or None.
+    Vectors return a list of Fractions. Higher dimensional arrays return rows
+    with trailing axes flattened. Nonfinite values return None.
     """
-    bound = int(max_denominator or MAX_RECOVERABLE_DENOMINATOR)
+    from operator import index
+    if isinstance(max_denominator, (bool, np.bool_)):
+        raise TypeError("max_denominator must be a positive integer")
+    bound = MAX_RECOVERABLE_DENOMINATOR if max_denominator is None else index(max_denominator)
+    if bound <= 0:
+        raise ValueError("max_denominator must be positive")
     arr = np.asarray(values, dtype=np.float64)
+    if not np.all(np.isfinite(arr)):
+        return None
     flat = arr.ravel()
     out = []
     tolerance = 8.0 * np.finfo(np.float64).eps
@@ -429,9 +423,9 @@ def rational_reconstruct(values, *, max_denominator: int | None = None):
         f = Fraction(float(x)).limit_denominator(bound)
         scale = max(abs(float(x)), 1.0)
         if abs(float(f) - float(x)) > tolerance * scale:
-            return None                       # not recoverable at this precision
+            return None
         if f.denominator > MAX_RECOVERABLE_DENOMINATOR:
-            return None                       # matched the float, not the value
+            return None
         out.append(f)
     if arr.ndim <= 1:
         return out

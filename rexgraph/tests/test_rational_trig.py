@@ -556,14 +556,8 @@ def test_the_denominator_is_recovered_exactly(name, src, tgt, denominator):
     assert max(x.denominator for row in got for x in row) == denominator
 
 
-def test_reconstruction_refuses_what_a_double_cannot_pin_down():
-    """The guard that makes this worth having.
-
-    Continued fractions will always find SOME fraction close to a float, so a
-    reconstruction that does not check always "succeeds" and returns a number that is
-    not the value. A rational is uniquely determined by a double only while its
-    denominator is under `sqrt(1/(2 eps))`, about 4.7e7; past that this refuses.
-    """
+def test_reconstruction_refuses_values_outside_candidate_tolerance():
+    """The chosen character has no accepted candidate within the default cap."""
     from rexgraph.rational_trig import rational_reconstruct
     rng = np.random.RandomState(1)
     src = rng.randint(0, 20, 40).astype(np.int32)
@@ -574,7 +568,7 @@ def test_reconstruction_refuses_what_a_double_cannot_pin_down():
         "one means accepting a fraction that merely matches the float")
 
 
-def test_the_bound_is_the_classical_one():
+def test_the_default_candidate_cap():
     from rexgraph.rational_trig import MAX_RECOVERABLE_DENOMINATOR
     expected = int((1.0 / (2.0 * np.finfo(np.float64).eps)) ** 0.5)
     assert expected == MAX_RECOVERABLE_DENOMINATOR
@@ -720,10 +714,9 @@ def test_the_exact_character_gives_the_true_small_denominator(name, src, tgt,
 def test_the_character_is_computable_where_it_is_not_recoverable():
     """The two paths are complementary, and they confirm each other.
 
-    `rational_reconstruct` reads a float and refuses past ~4.7e7 because a double
-    cannot pin down a larger denominator. `exact_character` never converts to float,
-    so it works at any size, and what it returns is why the refusal was right: at 20
-    vertices the true denominator already has 25 digits.
+    rational_reconstruct returns None for this float character and its default
+    candidate cap. exact_character computes from the retained coefficients;
+    its exact result has denominators larger than the candidate cap.
     """
     from rexgraph.rational_trig import exact_star_character, rational_reconstruct
     rng = np.random.RandomState(1)

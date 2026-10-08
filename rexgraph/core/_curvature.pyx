@@ -17,8 +17,9 @@ of the normalized spectrum, so the Lagrangians ARE the harmonic log machinery. O
 K_k, c2 = (k-2)/2 (1, 3/2, 2, 5/2). The trace identity tr((B^T B)^2) = ||B B^T||_F^2
 keeps the numerators sparse (L0 nnz ~ 2*nE; L2 is nF x nF). The bare integer tensors
 tr(T^2) = Sum deg^2 + 2*nE and tr(L1^2) are returned as L_T_trace/L_S_trace (still
-valid, reframed as the IPR numerators; exact via `lagrangian_L_T_integer`). Small/
-unweighted -> exact Fraction (c2_exact); large/weighted -> the normalized ratio stays
+valid, reframed as the IPR numerators; exact via `lagrangian_L_T_integer`).
+integral inputs with certified float64 integer reductions return c2_exact;
+fractional or weighted inputs return numerical moments. The normalized ratio stays
 O(1) so raw int64 tr(T^2) (~4e12 at weighted K20) never has to be formed. The bare
 L_S/L_T ratio (the pre correction form) is available via normalized=False for diffing;
 it coincides with the canonical L_T/L_S only on regular graphs.
@@ -65,6 +66,22 @@ cdef object _wdiag(w, Py_ssize_t nE):
     return _sp.diags(np.ascontiguousarray(w, dtype=np.float64).ravel(), format='csr')
 
 
+cdef bint _integer_moments_certified(B, double trace, double moment):
+    """Certify integer Gram reductions within float64's exact integer range.
+
+    The squared absolute coefficient sum bounds every partial Gram sum. The
+    second moment bounds its nonnegative squared products and their reductions.
+    """
+    if B is None:
+        return trace == 0.0 and moment == 0.0
+    data = np.asarray(B.data, dtype=np.float64)
+    if not np.all(np.isfinite(data)) or np.any(data != np.trunc(data)):
+        return False
+    return (float(np.abs(data).sum()) <= 2**26
+            and np.isfinite(trace) and np.isfinite(moment)
+            and 0.0 <= trace <= 2**52 and 0.0 <= moment <= 2**52)
+
+
 # Global Lagrangian curvature (sparse trace identities)
 
 def lagrangian_curvature(B1_in, B2_in, w=None, bint normalized=True):
@@ -73,10 +90,11 @@ def lagrangian_curvature(B1_in, B2_in, w=None, bint normalized=True):
     NORMALIZED inverse participation ratio Lagrangians:
         L_T = tr(T^2)/tr(T)^2, L_S = tr(L1^2)/tr(L1)^2, c2 = L_T/L_S,
         curvature = |log c2| = |H_S - H_T|  (direction-free; None when L_T == 0).
-    On K_k, c2 = (k-2)/2. The exact integer numerators tr(T^2), tr(L1^2) (and their
-    denominators tr(T), tr(L1)) are returned too; for unweighted inputs c2_exact is
-    the exact Fraction. `normalized=False` restores the legacy bare L_S/L_T ratio
-    (matches the canonical value only on regular graphs) for diffing.
+    On K_k, c2 = (k-2)/2. L_T_trace and L_S_trace contain the second moments.
+    c2_exact is present only for unweighted integral boundaries whose Gram and
+    moment reductions are certified within float64's exact integer range.
+    Fractional float coefficients do not certify the original rational source.
+    normalized=False returns the bare L_S_trace/L_T_trace ratio.
     """
     B1s = _as_scipy(B1_in)
     cdef Py_ssize_t nE = B1s.shape[1]
@@ -108,19 +126,18 @@ def lagrangian_curvature(B1_in, B2_in, w=None, bint normalized=True):
             curv = abs(float(np.log((L_T + eps) / (L_S + eps))))   # |log c2|, direction free
         out = {'L_T': L_T, 'L_S': L_S, 'c2': c2, 'curvature': curv,
                'tr_T': trT, 'tr_L1': trL}
-        if w is None:
-            # exact integer tensors + exact rational c2 (integer path, no overflow)
-            trT_i = int(round(trT)); trT2_i = int(round(trT2))
-            trL_i = int(round(trL)); trL2_i = int(round(trL2))
+        out['L_T_trace'] = trT2
+        out['L_S_trace'] = trL2
+        if (w is None and _integer_moments_certified(B1s, trT, trT2)
+                and _integer_moments_certified(B2s, trL, trL2)):
+            trT_i = int(trT); trT2_i = int(trT2)
+            trL_i = int(trL); trL2_i = int(trL2)
             out['L_T_trace'] = trT2_i
             out['L_S_trace'] = trL2_i
             if trT_i > 0 and trL_i > 0 and trL2_i > 0:
                 from fractions import Fraction as _Fr
                 out['c2_exact'] = str(_Fr(trT2_i, trT_i * trT_i)
                                       / _Fr(trL2_i, trL_i * trL_i))
-        else:
-            out['L_T_trace'] = trT2
-            out['L_S_trace'] = trL2
         return out
 
     # legacy bare ratio (pre correction), kept for diffing

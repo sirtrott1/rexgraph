@@ -34,7 +34,6 @@ from __future__ import annotations
 import numpy as np
 
 from rexgraph.compute import sparse_mm
-from rexgraph.rational_trig import CHANNEL_ORDER
 
 _f64 = np.float64
 
@@ -224,86 +223,15 @@ def _block_cg(apply_A, B, dinv, tol=1e-10, maxit=1000, *, return_info=False):
     return (X, {"iterations": iterations.tolist(), "relative_residuals": relative.tolist()}) if return_info else X
 
 
-# NOTE: the edge primacy MATRIX FREE RL operator (`build_factored_operator`) is the
-# native `channel_operator`. It is NOT bit identical to the assembled channels: it
-# applies through B1/|B1| rather than through an assembled Gram, so the summation
-# order differs and the last bits with it: relative 1.2e-16 on a k=2 path to
-# 1.4e-15 on a degree 6 hub, largest in C, which sums over deg(v) pairs. That is
-# reassociation, not a different operator.
-#
-# It was also overhead bound versus a single assembled `RL @ P` matmul at moderate
-# nE, so the default path below uses the assembled matvec. That figure is a statement
-# about Python call overhead, not about
-# the math. See _experimental.py for the rest.
-
-
 def factored_channel_actions(rex, names, traces):
-    """The four channel hats and their sum, applied through incidence.
+    """Return channel hat actions and their sum through the selected incidence profile.
 
-    `B_k^T(B_k x)` and nothing squared: the down action is two passes over the stored
-    incidence, so no relation pair matrix is built and the hub blocks an assembled
-    `B^T B` would materialise never exist. T and G are one such pair each; F is
-    arithmetic on their results, because raw `T - G` has zero diagonal (squaring an
-    incidence entry kills its sign, so diag T and diag G agree entry for entry) and
-    the F channel supplies its own diagonal; C is the unweighted participation pair
-    against its row mass.
-
-    Assembling RL costs `sum_v deg(v)^2` nonzeros; the action costs the stored
-    incidence. Returns `(apply_rl, apply_hat, rl_diag)`.
+    G follows the source's raw or normalized selection. F uses raw unsigned G
+    in either profile. Repeated slots follow the assembled numerical channel
+    reading. No relation pair matrix is formed.
     """
-    from rexgraph.core import _sparse
-    from rexgraph.native_sparse import NativeSparse
-    rex._ensure_clean()
-    B = NativeSparse(rex._B1_dual)
-    weight = _channel_metric(rex)
-    weight = np.ones(B.shape[1], dtype=_f64) if weight is None else np.asarray(weight, dtype=_f64)
-    cols = B.dual.col_idx
-    Bw = B.with_data(B.data * weight[cols])                    # W B W, signed
-    Aw = B.with_data(np.abs(B.data) * weight[cols])            # W |B| W, unsigned
-    share = rex.c_channel != "count"
-    Ac = B.with_data(np.abs(B.data) if share else np.ones_like(B.data))   # C carries no weight
-    diags = channel_diagonals(rex)
-    diagF = np.asarray(diags[CHANNEL_ORDER[2]], dtype=_f64)
-    row_mass = Ac.transpose_apply(Ac.apply(np.ones(Ac.shape[1], dtype=_f64)))
-
-    def _pair(M, P):
-        return _sparse.rspmm(M.dual, _sparse.spmm(M.dual, P))
-
-    def _block(P):
-        P = np.ascontiguousarray(P, dtype=_f64)
-        if P.ndim == 1:
-            return _pair, P.reshape(-1, 1), True
-        return _pair, P, False
-
-    def apply_hat(name, values):
-        _, P, flat = _block(values)
-        index = list(names).index(name)
-        trace = traces[index]
-        if not trace > 0:
-            out = np.zeros_like(P)
-            return out[:, 0] if flat else out
-        if name == CHANNEL_ORDER[0]:      out = _pair(Bw, P)
-        elif name == CHANNEL_ORDER[1]:    out = _pair(Aw, P)
-        elif name == CHANNEL_ORDER[2]:    out = _pair(Bw, P) - _pair(Aw, P) + diagF[:, None] * P
-        elif name == CHANNEL_ORDER[3]:    out = row_mass[:, None] * P - _pair(Ac, P)
-        else: raise KeyError(f"no factored action for channel {name!r}")
-        out = out / trace
-        return out[:, 0] if flat else out
-
-    def apply_rl(values):
-        _, P, flat = _block(values)
-        t1, t2 = _pair(Bw, P), _pair(Aw, P)           # T and G, one pair each
-        out = np.zeros_like(P)
-        for index, name in enumerate(names):
-            trace = traces[index]
-            if not trace > 0:
-                continue
-            if name == CHANNEL_ORDER[0]:   out += t1 / trace
-            elif name == CHANNEL_ORDER[1]: out += t2 / trace
-            elif name == CHANNEL_ORDER[2]: out += (t1 - t2 + diagF[:, None] * P) / trace
-            elif name == CHANNEL_ORDER[3]: out += (row_mass[:, None] * P - _pair(Ac, P)) / trace
-        return out[:, 0] if flat else out
-
+    from rexgraph.channel_operator import _build_numerical_factored_operator
+    apply_rl, apply_hat, _ = _build_numerical_factored_operator(rex, names, traces)
     return apply_rl, apply_hat
 
 
@@ -389,6 +317,8 @@ def closed_form_applies(rex) -> bool:
     if int(rex.nE) == 0:
         return False
     if _np.any(_np.diff(column_ptr) != 2):          # every relation binary
+        return False
+    if _np.any(B1.row_idx[column_ptr[:-1]] == B1.row_idx[column_ptr[:-1] + 1]):
         return False
     if not _np.all(_np.abs(_np.asarray(values)) == 1.0):
         return False
@@ -763,7 +693,10 @@ def channel_diagonals(rex):
     factor is |w_e| |c_e[v]|. T/G diagonals scale by w_e^2; C stays unweighted.
     The coefficient 2 comes from 1-(-1), not from arity. This identity assumes
     distinct participants within each relation; it does not resolve the separate
-    repeated-slot/self-loop conventions of the assembled readers.
+    repeated-slot/self-loop conventions of the assembled readers. Repeated raw
+    slots instead use the numerical incidence factors, accumulating signed
+    coefficients for T and unsigned magnitudes for G before reading quadrance.
+    Normalized character profiles require distinct participants.
 
     `core._channel_tower` evaluates that identity in float64, still O(nnz), and runs
     when the pairwise derivation does not. Rational arithmetic itself is provided by
@@ -778,6 +711,18 @@ def channel_diagonals(rex):
 
     Returns {name: diagonal} for the active channels, in the canonical channel order.
     """
+    supports = getattr(rex, 'relation_supports', None)
+    if supports is not None:
+        rex._ensure_clean()
+    if supports is not None and any(len(set(support)) != len(support) for support in supports()):
+        if getattr(rex, 'g_channel', 'raw') != 'raw':
+            _require_distinct_channel_participants(rex)
+        for attr in ('w_V', 'vertex_weights'):
+            weights = getattr(rex, attr, None)
+            if weights is not None and np.any(np.asarray(weights) != 1):
+                return None
+        from rexgraph.channel_operator import _numerical_channel_diagonals
+        return _numerical_channel_diagonals(rex)
     if getattr(rex, "g_channel", "raw") != "raw":
         return _any_arity_diagonals(rex)
     if not closed_form_applies(rex):
@@ -903,7 +848,8 @@ def _compute_sparse_phi_gpu(rex, cheap, chunk, device=None):
 
     RLt = _to_gpu(cheap['RL'])
     hats_t = [_to_gpu(h) for h in cheap['hats']]
-    dinv = np.where(np.abs(cheap['rl_diag']) > 1e-30, 1.0 / cheap['rl_diag'], 1.0)
+    dinv = np.ones_like(cheap['rl_diag'], dtype=_f64)
+    np.divide(1.0, cheap['rl_diag'], out=dinv, where=np.abs(cheap['rl_diag']) > 1e-30)
     dinv_t = torch.as_tensor(dinv, dtype=torch.float64, device=dev)
     Bs = _b1_csr(rex)
     from rexgraph.fiedler import solve_block_width
@@ -957,7 +903,8 @@ def compute_sparse_phi(rex, cheap, chunk=1024, backend=None, device=None):
             rex, list(cheap['hat_names']), list(np.asarray(cheap['trace_values'], dtype=_f64)))
         Bs = _b1_csr(rex)
         rl_diag = cheap['rl_diag']
-        dinv = np.where(np.abs(rl_diag) > 1e-30, 1.0 / rl_diag, 1.0)  # Jacobi precond
+        dinv = np.ones_like(rl_diag, dtype=_f64)
+        np.divide(1.0, rl_diag, out=dinv, where=np.abs(rl_diag) > 1e-30)
         from rexgraph.fiedler import solve_block_width
         safe_width = solve_block_width(nE, nV)
         step = max(1, min(nV, int(chunk), int(safe_width)))

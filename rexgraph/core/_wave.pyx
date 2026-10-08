@@ -1043,30 +1043,40 @@ def lagrangian_step(np.ndarray[f64, ndim=1] amplitudes,
                      np.ndarray[f64, ndim=1] edge_weights,
                      int nV, int nE,
                      f64 dt, f64 H0=1.0):
-    """One step of Lagrangian dynamics.
+    """Pairwise amplitude Lagrangian at a positive finite timestep.
 
     T = (1/2) sum_v (da_v/dt)^2     (kinetic energy)
-    V = -H0 * sum_e a_i * a_j       (coupling potential)
+    V = -H0 * sum_e w_e * a_i * a_j (coupling potential)
     L = T - V                        (Lagrangian)
 
     Returns dict with T, V, L.
     """
+    if nV < 0 or nE < 0 or amplitudes.shape[0] != nV or prev_amplitudes.shape[0] != nV:
+        raise ValueError("amplitude lengths must match nV")
+    if sources.shape[0] != nE or targets.shape[0] != nE or edge_weights.shape[0] != nE:
+        raise ValueError("relation lengths must match nE")
+    if not np.isfinite(dt) or dt <= 0 or not np.isfinite(H0):
+        raise ValueError("dt must be positive and finite; H0 must be finite")
+    if np.any(sources < 0) or np.any(sources >= nV) or np.any(targets < 0) or np.any(targets >= nV):
+        raise ValueError("relation endpoint outside the amplitude carrier")
+    if not np.all(np.isfinite(amplitudes)) or not np.all(np.isfinite(prev_amplitudes)) or not np.all(np.isfinite(edge_weights)):
+        raise ValueError("amplitudes and relation weights must be finite")
     cdef f64[::1] av = amplitudes, pv = prev_amplitudes, wv = edge_weights
     cdef i32[::1] sv = sources, tv = targets
     cdef int v, e
-    cdef f64 da, dt_safe, T_val, V_val
-
-    dt_safe = dt if dt > 0.001 else 0.001
+    cdef f64 da, T_val, V_val
 
     T_val = 0
     for v in range(nV):
-        da = (av[v] - pv[v]) / dt_safe
+        da = (av[v] - pv[v]) / dt
         T_val += 0.5 * da * da
 
     V_val = 0
     for e in range(nE):
-        V_val -= H0 * av[sv[e]] * av[tv[e]]
+        V_val -= H0 * wv[e] * av[sv[e]] * av[tv[e]]
 
+    if not np.isfinite(T_val) or not np.isfinite(V_val) or not np.isfinite(T_val - V_val):
+        raise FloatingPointError("pair Lagrangian is outside float64")
     return {'T': float(T_val), 'V': float(V_val), 'L': float(T_val - V_val)}
 
 

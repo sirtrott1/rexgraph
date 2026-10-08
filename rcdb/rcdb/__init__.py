@@ -91,7 +91,7 @@ from .migration import MigrationBatch, MigrationPlan, MigrationProgress, Migrati
 
 #: Kept here rather than read back from installed metadata, so a source checkout reports
 #: what it is. pyproject.toml has to match; a test enforces it.
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 __all__ = [
     "OrphanObject", "RetentionPlan", "RetentionPolicy",

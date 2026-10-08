@@ -739,15 +739,13 @@ def face_void_dipole(np.ndarray[f64, ndim=1] psi,
                       int nE, int nF):
     """Face void dipole of an edge signal.
 
-    Projects an edge signal onto the realized face basis (B2 columns)
-    and the void basis (Bvoid columns), measuring how much signal
-    energy flows through each. The dipole ratio separates signals
-    that operate through existing higher order structure (face mediated)
-    from those that operate through structural gaps (void mediated).
+    Computes squared contractions against the face and void columns, divided
+    by signal quadrance. These are column affinities, not orthogonal
+    projections. Rescaling or repeating a column changes its contribution.
 
     face_affinity = sum_f |psi^T B2[:,f]|^2 / ||psi||^2
     void_affinity = sum_v |psi^T Bvoid[:,v]|^2 / ||psi||^2
-    dipole_ratio  = (face: void) / (face + void)
+    dipole_ratio  = (face_affinity - void_affinity) / (face_affinity + void_affinity)
 
     Parameters
 
@@ -771,8 +769,14 @@ def face_void_dipole(np.ndarray[f64, ndim=1] psi,
             +1 = entirely face-mediated, -1 = entirely void-mediated,
             0 = balanced.
         total_projection : float
-            face_affinity + void_affinity.
+            Retained key for face_affinity + void_affinity.
     """
+    if nE < 0 or nF < 0 or psi.shape[0] != nE or B2.shape[0] != nE or B2.shape[1] != nF:
+        raise ValueError("dipole signal and boundary carrier shapes disagree")
+    psi = np.ascontiguousarray(psi, dtype=np.float64)
+    B2 = np.ascontiguousarray(B2, dtype=np.float64)
+    if not np.all(np.isfinite(psi)) or not np.all(np.isfinite(B2)):
+        raise ValueError("dipole coefficients must be finite")
     cdef f64[::1] pv = psi
     cdef f64 psi_norm_sq = 0.0
     cdef int e
@@ -783,19 +787,20 @@ def face_void_dipole(np.ndarray[f64, ndim=1] psi,
     cdef f64 fa = 0.0, va = 0.0
     cdef int n_voids = 0
     cdef np.ndarray[f64, ndim=2] Bvoid
+    if Bvoid_in is not None:
+        Bvoid = np.ascontiguousarray(Bvoid_in, dtype=np.float64)
+        if Bvoid.shape[0] != nE or not np.all(np.isfinite(Bvoid)):
+            raise ValueError("void boundary requires the signal carrier and finite coefficients")
+        n_voids = Bvoid.shape[1]
 
-    if nF > 0:
-        if Bvoid_in is not None:
-            Bvoid = np.ascontiguousarray(Bvoid_in, dtype=np.float64)
-            n_voids = Bvoid.shape[1]
+    if nE > 0 and nF > 0:
+        if n_voids > 0:
             _face_void_dipole(&pv[0], &B2[0, 0], &Bvoid[0, 0],
                                &fa, &va, nE, nF, n_voids, psi_norm_sq)
         else:
             _face_void_dipole(&pv[0], &B2[0, 0], NULL,
                                &fa, &va, nE, nF, 0, psi_norm_sq)
-    elif Bvoid_in is not None:
-        Bvoid = np.ascontiguousarray(Bvoid_in, dtype=np.float64)
-        n_voids = Bvoid.shape[1]
+    elif nE > 0 and n_voids > 0:
         if psi_norm_sq > 1e-30:
             _face_void_dipole(&pv[0], NULL, &Bvoid[0, 0],
                                &fa, &va, nE, 0, n_voids, psi_norm_sq)

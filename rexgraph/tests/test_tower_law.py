@@ -149,9 +149,8 @@ def test_an_open_complex_is_not_closed():
     assert c["every_two"] is False
 
 
-def test_mass_equality_is_necessary_but_not_sufficient():
-    """Recorded because it is the trap: the equality is a statement about the MEAN
-    incidence degree being two. Degrees (1, 2, 2, 3) satisfy it and are not a closure."""
+def test_unit_coefficient_mass_equality_does_not_imply_two_cofaces():
+    """Unit coefficient masses can agree while coface degrees differ from two."""
     import scipy.sparse as sp
 
     from rexgraph.graded_boundary import build_graded_boundaries
