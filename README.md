@@ -384,6 +384,17 @@ Report reproducible failures or request features through
 [GitHub Issues](https://github.com/sirtrott1/rexgraph/issues), including the
 installation profile, interpreter version and relevant error output.
 
+## Acknowledgements
+
+RexGraph integrations build on these open source projects:
+
+- [llama.cpp](https://github.com/ggml-org/llama.cpp): Local LLM inference; the agent's native runtime for running quantized models on CPU and GPU.
+- [TrustGraph](https://github.com/trustgraph-ai/trustgraph): Knowledge graph construction and management for RAG applications.
+- [Hugging Face Transformers](https://github.com/huggingface/transformers): Pre trained transformer models and inference.
+- [LangChain](https://github.com/langchain-ai/langchain): Framework for building applications with language models.
+- [LangGraph](https://github.com/langchain-ai/langgraph): Stateful agent orchestration with cyclic computation graphs.
+- [vLLM](https://github.com/vllm-project/vllm): High throughput LLM serving.
+
 ## License
 
 RexGraph is distributed under the [Apache License 2.0](LICENSE).

@@ -2010,7 +2010,8 @@ class FileStore(RCStore):
             return out
         import multiprocessing
         from concurrent.futures import ProcessPoolExecutor
-        ctx = multiprocessing.get_context("forkserver")
+        from rexgraph._threadpools import process_start_method
+        ctx = multiprocessing.get_context(process_start_method())
         with ProcessPoolExecutor(max_workers=int(workers), mp_context=ctx) as ex:
             for res in ex.map(_recompress_one, paths, [verify] * len(paths),
                               [force] * len(paths), chunksize=32):

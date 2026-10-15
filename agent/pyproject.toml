@@ -231,6 +231,7 @@ oidc = [
 # self sufficient for running `pytest`.
 dev = [
     "pytest>=7.0",
+    "tomli>=2.0; python_version < '3.11'",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.3",

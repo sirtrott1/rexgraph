@@ -23,7 +23,7 @@ scipy = ["scipy>=1.13"]
 sql = ["sqlalchemy>=2.0"]
 objectstore = ["fsspec>=2023.1"]
 crypto = ["cryptography>=42"]
-dev = ["pytest>=7.0", "rexgraph-rcdb[sql,objectstore,crypto,scipy]"]
+dev = ["pytest>=7.0", "tomli>=2.0; python_version < '3.11'", "rexgraph-rcdb[sql,objectstore,crypto,scipy]"]
 
 [tool.setuptools.packages.find]
 where = ["."]

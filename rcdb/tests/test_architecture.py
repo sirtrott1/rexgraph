@@ -130,7 +130,10 @@ def test_safetensors_is_a_base_dependency_not_an_extra():
     import re
     from pathlib import Path
 
-    import tomllib
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
 
     meta = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())
     project = meta["project"]

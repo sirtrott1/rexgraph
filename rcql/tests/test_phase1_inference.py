@@ -568,7 +568,10 @@ def test_declared_dependencies_match_what_the_package_actually_imports():
     import re
     import sys
 
-    import tomllib
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
 
     package = pathlib.Path(__file__).resolve().parents[1]
     meta = tomllib.loads((package / "pyproject.toml").read_text())["project"]

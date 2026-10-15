@@ -313,11 +313,25 @@ def test_a_blob_that_cannot_be_read_is_left_alone(tmp_path, corpus):
     assert not os.path.exists(f"{victim}.tmp")
 
 
-def test_recompress_gives_the_same_answer_on_a_worker_pool(tmp_path, corpus):
+@pytest.mark.parametrize("long_temp", [True, False])
+def test_recompress_gives_the_same_answer_on_a_worker_pool(tmp_path, corpus, monkeypatch,
+                                                         long_temp):
     """Only file CONTENTS change (no record, index or log entry is touched) so the
     parallel path must agree with the serial one exactly. Both arms have to start from
     byte identical input, so the store is COPIED rather than ingested twice."""
     import shutil
+    import tempfile
+
+    if long_temp:
+        from multiprocessing import current_process
+        from multiprocessing import util
+
+        temp = tmp_path / ("worker-temp-" + "x" * 112)
+        temp.mkdir()
+        monkeypatch.setenv("TMPDIR", str(temp))
+        monkeypatch.setattr(tempfile, "tempdir", str(temp))
+        monkeypatch.setattr(util, "abstract_sockets_supported", False)
+        monkeypatch.setitem(current_process()._config, "tempdir", str(temp))
 
     src = FileStore(str(tmp_path / "serial"), read_only=False)
     ingest_corpus(corpus, src, profile=ENGLISH_GUTENBERG, workers=2)

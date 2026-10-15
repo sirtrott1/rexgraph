@@ -9,7 +9,11 @@ import re
 from pathlib import Path
 
 import pytest
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
