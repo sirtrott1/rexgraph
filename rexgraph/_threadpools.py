@@ -1,4 +1,4 @@
-"""Coordinate native pool limits across overlapping RexGraph calls."""
+"""Coordinate native pool limits and process startup for RexGraph calls."""
 from __future__ import annotations
 
 from threading import RLock
@@ -11,6 +11,18 @@ _original = {}
 
 def configuration_lock():
     return _guard
+
+
+def process_start_method():
+    """Use forkserver when its generated Unix socket path fits, otherwise spawn."""
+    import multiprocessing
+    import tempfile
+    # Reserve space for Python's generated subdirectory and listener name.
+    # A sixty byte parent keeps the complete path below the Unix socket limit.
+    if ("forkserver" in multiprocessing.get_all_start_methods()
+            and len(os.fsencode(tempfile.gettempdir())) <= 60):
+        return "forkserver"
+    return "spawn"
 
 
 def _serial_blas(info):

@@ -22,7 +22,6 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer

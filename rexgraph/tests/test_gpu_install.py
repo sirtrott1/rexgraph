@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -195,7 +196,14 @@ def test_vulkan_verification_preserves_the_installed_rocm_selection(setup, monke
     assert saved["qualifications"]["vulkan"]["numerical_qualification"]
 
 
-def test_failed_dependency_setup_invalidates_an_earlier_passed_state(setup, monkeypatch, tmp_path):
+@pytest.mark.parametrize("environment", ("venv", "conda"))
+def test_failed_dependency_setup_invalidates_an_earlier_passed_state(setup, monkeypatch, tmp_path, environment):
+    prefix = tmp_path / "environment"
+    if environment == "conda":
+        (prefix / "conda-meta").mkdir(parents=True)
+    monkeypatch.setattr(setup, "sys", SimpleNamespace(
+        prefix=str(prefix), base_prefix=str(prefix if environment == "conda" else tmp_path / "base"),
+        stderr=sys.stderr))
     state_file = tmp_path / "gpu-install.json"
     state_file.write_text(json.dumps({"status": "passed", "numerical_qualification": True}))
     monkeypatch.setattr(setup, "state_path", lambda: state_file)
@@ -205,6 +213,17 @@ def test_failed_dependency_setup_invalidates_an_earlier_passed_state(setup, monk
     assert setup.main(["--backend", "rocm"]) == 1
     saved = json.loads(state_file.read_text())
     assert saved["status"] == "failed" and not saved["numerical_qualification"]
+
+
+def test_dependency_setup_refuses_a_base_interpreter_before_writing_state(setup, monkeypatch, tmp_path, capsys):
+    prefix = str(tmp_path / "base")
+    monkeypatch.setattr(setup, "sys", SimpleNamespace(prefix=prefix, base_prefix=prefix, stderr=sys.stderr))
+    state_file = tmp_path / "gpu-install.json"
+    monkeypatch.setattr(setup, "state_path", lambda: state_file)
+    monkeypatch.setattr(setup, "prepare", lambda *a: pytest.fail("base interpreter entered dependency installation"))
+    assert setup.main(["--backend", "rocm"]) == 1
+    assert not state_file.exists()
+    assert "virtual or conda environment" in capsys.readouterr().err
 
 
 def test_gpu_verification_cannot_pass_a_cpu_only_installation(setup, monkeypatch, tmp_path):

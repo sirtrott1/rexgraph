@@ -6,8 +6,6 @@ AND branching edges, a face) so the arity generality is exercised, not assumed.
 """
 
 import numpy as np
-import pytest
-import scipy.sparse as sp
 
 from rexgraph.core import _dirac
 from rexgraph.dirac_propagator import (

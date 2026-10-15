@@ -44,7 +44,8 @@ _ANALYSIS_CTX = None
 def _analysis_ctx():
     global _ANALYSIS_CTX
     if _ANALYSIS_CTX is None:
-        method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+        from rexgraph._threadpools import process_start_method
+        method = process_start_method()
         ctx = multiprocessing.get_context(method)
         if method == "forkserver":
             try:

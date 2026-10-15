@@ -112,3 +112,38 @@ def test_process_tasks_use_spawn_when_forkserver_is_unavailable(monkeypatch, war
             pools.shutdown()
     else:
         assert execute(units, {'power': 'proc'}) == {'power': 32}
+
+
+@pytest.mark.parametrize('warm', [False, True])
+def test_process_tasks_run_with_a_long_temporary_directory(monkeypatch, tmp_path, warm):
+    from functools import partial
+    import multiprocessing
+    import tempfile
+    from rexgraph.coordinator import LanePools, execute
+    directory = tmp_path / ('temporary_' * 15)
+    directory.mkdir()
+    monkeypatch.setattr(tempfile, 'tempdir', str(directory))
+    monkeypatch.setenv('TMPDIR', str(directory))
+    original = multiprocessing.get_context
+    def get_context(method):
+        assert method == 'spawn'
+        return original(method)
+    monkeypatch.setattr(multiprocessing, 'get_context', get_context)
+    units = [{'id': 'power', 'type': 'cpu', 'fn': partial(pow, 2, 5)}]
+    if warm:
+        pools = LanePools(cap={'proc': 1}, cores_budget=1)
+        try:
+            assert pools.run(units, {'power': 'proc'}) == {'power': 32}
+        finally:
+            pools.shutdown()
+    else:
+        assert execute(units, {'power': 'proc'}) == {'power': 32}
+
+
+def test_process_start_method_keeps_forkserver_for_a_short_temporary_directory(monkeypatch):
+    import multiprocessing
+    import tempfile
+    from rexgraph._threadpools import process_start_method
+    monkeypatch.setattr(multiprocessing, 'get_all_start_methods', lambda: ['spawn', 'forkserver'])
+    monkeypatch.setattr(tempfile, 'gettempdir', lambda: '/tmp')
+    assert process_start_method() == 'forkserver'

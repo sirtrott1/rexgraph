@@ -1,7 +1,6 @@
 """Complete state survives compositions of supported interchange containers."""
 from fractions import Fraction
 
-import numpy as np
 import pytest
 
 from rexgraph import Absent, Relations, TemporalRex, RexGraph, VertexTable

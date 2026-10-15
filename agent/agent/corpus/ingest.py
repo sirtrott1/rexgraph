@@ -145,7 +145,8 @@ def ingest_corpus(paths, store, *, profile=None, workers: int | None = None,
     n = min(n, total)
     t0 = time.perf_counter()
     # Keep workers independent of the parent's threads and native pools.
-    method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+    from rexgraph._threadpools import process_start_method
+    method = process_start_method()
     ctx = multiprocessing.get_context(method)
     # Bound pending work so completed blobs do not accumulate faster than
     # the parent can persist them. Keep several tasks per worker in flight.

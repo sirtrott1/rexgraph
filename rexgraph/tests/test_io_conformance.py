@@ -149,7 +149,10 @@ def test_unclaimed_physical_state_entries_are_refused(container, tmp_path):
     elif container == "zarr":
         import zarr
         g = zarr.open_group(str(path),mode="a")
-        g.create_array("unclaimed",data=np.zeros(1))
+        if hasattr(g, "create_array"):
+            g.create_array("unclaimed", data=np.zeros(1))
+        else:
+            g.create_dataset("unclaimed", data=np.zeros(1))
     else:
         from safetensors import safe_open
         import safetensors.numpy as st

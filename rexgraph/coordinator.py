@@ -606,7 +606,8 @@ def execute(units: list, assignment: dict, cost: CostModel|None = None) -> dict:
     if proc_units:
         # Forkserver avoids inheriting active native thread pools from the parent.
         import multiprocessing as _mp
-        method = "forkserver" if "forkserver" in _mp.get_all_start_methods() else "spawn"
+        from ._threadpools import process_start_method
+        method = process_start_method()
         ctx = _mp.get_context(method)
         with ProcessPoolExecutor(max_workers=min(os.cpu_count() or 8, len(proc_units)),
                                  mp_context=ctx) as ex:
@@ -691,7 +692,8 @@ class LanePools:
         if lane == "thread":
             return ThreadPoolExecutor(max_workers=32)
         import multiprocessing as _mp
-        method = "forkserver" if "forkserver" in _mp.get_all_start_methods() else "spawn"
+        from ._threadpools import process_start_method
+        method = process_start_method()
         ctx = _mp.get_context(method)
         workers = int((self._cap or capacity())["proc"]) if self._cap else (os.cpu_count() or 8)
         workers = max(1, workers)
