@@ -8,7 +8,7 @@ selected server; token metrics require support for log probabilities.
 """
 from __future__ import annotations
 
-from agent.data_paths import config_root, models_root, huggingface_cache_root
+from agent.data_paths import config_root, models_root
 
 import atexit
 import contextlib
@@ -209,22 +209,17 @@ def recommend(budget_gb: float | None = None) -> list[dict]:
 
 
 def find_binary(bin_path: str | None = None) -> str | None:
-    """Locate a llama.cpp-family OpenAI server binary (llama server or compatible).
-    Order: explicit arg -> LLAMA_SERVER_BIN env -> PATH -> common build locations."""
-    if bin_path and os.path.exists(os.path.expanduser(bin_path)):
-        return os.path.expanduser(bin_path)
+    """Resolve the server executable from an explicit path, environment or PATH."""
+    if bin_path:
+        path = os.path.expanduser(bin_path)
+        return path if os.path.isfile(path) else None
     env = os.environ.get("LLAMA_SERVER_BIN")
-    if env and os.path.exists(os.path.expanduser(env)):
-        return os.path.expanduser(env)
-    for name in ("llama-server", "llama-server.exe", "cortex", "server"):
+    if env:
+        path = os.path.expanduser(env)
+        return path if os.path.isfile(path) else None
+    for name in ("llama-server", "llama-server.exe"):
         p = shutil.which(name)
         if p:
-            return p
-    for cand in ("~/llama.cpp/build/bin/llama-server", "~/llama.cpp/llama-server",
-                 "~/.local/bin/llama-server", "/usr/local/bin/llama-server",
-                 "/opt/llama.cpp/llama-server"):
-        p = os.path.expanduser(cand)
-        if os.path.exists(p):
             return p
     return None
 
@@ -545,20 +540,9 @@ def pull(repo: str, filename: str, dest_dir: str | None = None) -> str:
 
 
 def _default_scan_dirs() -> list[str]:
-    """Where local models actually land, across the common toolchains. Extend with
-    REXGRAPH_MODEL_DIRS (os.pathsep-separated) for non standard locations."""
+    """Return configured model discovery directories, deduplicated by resolved path."""
     selected = os.environ.get("REXGRAPH_MODEL_SCAN_DIRS")
-    home = os.path.expanduser("~")
-    dirs = selected.split(os.pathsep) if selected else [
-        str(huggingface_cache_root()),
-        str(models_root()),
-        os.path.join(home, ".ollama", "models"),                 # ollama blobs
-        os.path.join(home, ".lmstudio", "models"),               # LM Studio
-        os.path.join(home, "models"),
-        os.path.join(home, "gguf"),
-        os.path.join(home, "llama.cpp", "models"),
-        "/models", "/opt/models",
-    ]
+    dirs = selected.split(os.pathsep) if selected else [str(models_root())]
     dirs += [d for d in os.environ.get("REXGRAPH_MODEL_DIRS", "").split(os.pathsep) if d]
     seen, out = set(), []
     for d in dirs:
@@ -570,15 +554,11 @@ def _default_scan_dirs() -> list[str]:
 
 
 def discover_local_models(extra_dirs: list[str] | None = None, max_files: int = 400) -> list[dict]:
-    """AUTO DETECT models already on disk: no curated registry, no manual paths. Walks the
-    common model locations (HF hub cache, ollama, LM Studio, ~/models, our pull() dir, plus
-    REXGRAPH_MODEL_DIRS) and reports every GGUF file (llama.cpp-loadable, ready for start()),
-    every ollama model (resolved via its manifest, since ollama's blobs are extension less and
-    content addressed: see `_source`), and every HF transformers snapshot
-    (vLLM/transformers-loadable). Each entry carries a `source` (hf-cache/ollama/lmstudio/
-    rexgraph/dir), a `loadable` hint (gguf -> start() here; transformers -> serve via
-    vLLM/transformers; anything else ollama can hold, e.g. an MLX model, llama.cpp cannot load -
-    reported but not loadable), and a size. De duped by real path."""
+    """Find model files under configured and explicitly supplied directories.
+
+    Entries include the format, source, size and compatible loader. GGUF files,
+    Hugging Face snapshots and Ollama manifests are recognized within those roots.
+    """
     roots = list(_default_scan_dirs())
     root_identities = {os.path.realpath(d) for d in roots}
     for d in (extra_dirs or []):

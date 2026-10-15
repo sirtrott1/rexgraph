@@ -4,8 +4,6 @@ Each answerer holds one structure, answers only the questions that structure sup
 and declines the rest with a reason. Results compose as a union: every answerer is asked
 and each keeps its own provenance.
 
-    lexical     WordNet definitions and typed relations
-    linkage     Roget categories and Wiktionary link kinds
     ontology    asserted subsumption and relations from a ParsedOntology
     passage     spans of a document corpus that hold the query terms
 
@@ -14,12 +12,10 @@ and each keeps its own provenance.
 """
 from __future__ import annotations
 
-from agent.answerers.lexical import LexicalAnswerer
-from agent.answerers.linkage import LinkageAnswerer
 from agent.answerers.ontology import OntologyAnswerer
 from agent.answerers.passage import PassageAnswerer
 
-__all__ = ["LexicalAnswerer", "LinkageAnswerer", "OntologyAnswerer",
+__all__ = ["OntologyAnswerer",
            "PassageAnswerer", "register", "exact_answers", "registered",
            "register_with_hive"]
 
@@ -45,17 +41,7 @@ def registered() -> dict:
 
 def _default_registry() -> dict:
     if not _REGISTRY:
-        register("lexical", LexicalAnswerer())
-        # an ontology is registered only when one is configured: there is no default
-        # ontology, and an answerer with nothing loaded declines every query, which is
-        # correct but is not worth a construction per process.
         import os
-        # Register available lexical sources; each contributes its supported answer kinds.
-        from agent.answerers.linkage import DEFAULT_ROGET, DEFAULT_WIKTIONARY
-        if os.path.exists(DEFAULT_ROGET):
-            register("roget", LinkageAnswerer.roget())
-        if os.path.exists(DEFAULT_WIKTIONARY):
-            register("wiktionary", LinkageAnswerer.wiktionary())
         path = os.environ.get("REXGRAPH_ONTOLOGY")
         if path and os.path.exists(path):
             register("ontology", OntologyAnswerer.from_file(path))

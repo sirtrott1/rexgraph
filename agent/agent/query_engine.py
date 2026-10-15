@@ -779,7 +779,7 @@ def answer_query(doc_rex, query: str, results: dict | None = None, *,
     Retrieval checks the supplied store, corpus and document in that order.
     Deterministic single document answers may be reused when document state and
     retrieval parameters match. Mutable stores, corpora, configured generation
-    models and lexical answers bypass this response cache.
+    models and registered structured answers bypass this response cache.
     """
     doc_meta = doc_meta or (getattr(doc_rex, "_agent_meta", {}) if doc_rex is not None else {})
     key = None

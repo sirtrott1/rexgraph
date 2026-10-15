@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 
 from .config import (
-    CACHE_DIR,
     MODELS_DIR,
     PlatformInfo,
     RexGraphConfig,
@@ -417,8 +416,6 @@ def auto_setup(
     cfg.last_setup = datetime.datetime.now().isoformat()[:10]
     cfg.platform_os = platform_info.os
     cfg.platform_gpu = platform_info.gpu
-    cfg.cache_dir = str(CACHE_DIR)
-    cfg.models_dir = str(MODELS_DIR)
     save_config(cfg)
 
     if interactive:

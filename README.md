@@ -316,29 +316,17 @@ make system ARGS='--source main=network.rcbd'
 Open [http://127.0.0.1:8010](http://127.0.0.1:8010). The
 [System guide](system/README.md) describes registered datasets and file catalogs.
 
-### Data and environment configuration
+### Configuration and storage
 
-Run `make doctor` to list optional Python dependencies, external executables
-and configured lexical resources. This reports installation status; `make verify`
+Run `make doctor` to list optional Python dependencies and external executables.
+This reports installation status; `make verify`
 checks compiled operators, packaged UI assets and dependency consistency.
 
-WordNet, Roget and Wiktionary are optional data sources for lexical answerers.
-Set `REXGRAPH_LEXICAL_DIR` to the directory containing those resources before
-starting Agent, or supply file paths directly to the answerer constructors.
-Individual overrides are `REXGRAPH_WORDNET`, `REXGRAPH_ROGET` and
-`REXGRAPH_WIKTIONARY`. The default location is
-`~/.local/share/rexgraph/lexical`, under `XDG_DATA_HOME` when configured.
-Existing data in the former checkout location remains addressable.
-
-Agent stores reusable analysis results under `~/.cache/rexgraph`, or under
-`XDG_CACHE_HOME` when configured. `REXGRAPH_CACHE_DIR` selects another directory,
-and `REXGRAPH_NO_CACHE=1` disables result caching. See the
-[Agent guide](agent/README.md#configuration-and-cache) for model locations,
-configuration files and cache retention settings.
-
-Application data, model files and live service credentials are supplied by the
-user. The installer installs software dependencies; it does not obtain datasets,
-load model weights or establish connections to databases.
+Set `REXGRAPH_CONFIG_DIR`, `REXGRAPH_CACHE_DIR`, `REXGRAPH_MODELS_DIR` and
+`REXGRAPH_SESSION_DIR` before starting Agent to choose its storage directories.
+File paths and database URLs passed to the APIs select application data sources
+and destinations. The [Agent guide](agent/README.md#configuration-and-cache)
+describes directory defaults, overrides and cache controls.
 
 ## Development and testing
 
@@ -349,8 +337,7 @@ make test
 ```
 
 Use `make install-dev-full` to exercise the optional CPU feature tests as well.
-Tests use generated graph, document and lexical fixtures in temporary storage.
-They do not require dictionaries or model files from a user's installation.
+Tests use synthetic inputs in temporary storage.
 GPU tests require compatible devices and runtimes. Read skipped tests alongside
 their reported reasons:
 

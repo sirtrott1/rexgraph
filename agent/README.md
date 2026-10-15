@@ -59,9 +59,9 @@ specify that mapping, source types, exact number conversion and provenance.
 
 The standard profile includes common file readers, PDF extraction and Python
 OCR bindings. Scanned documents also require the Tesseract executable. Model
-weights, database credentials and external datasets are supplied for the
-selected application. `make doctor` reports optional packages, external tools
-and configured lexical files; `make verify` checks the installed software.
+weights and database credentials are configured for the selected application.
+`make doctor` reports optional packages and external tools; `make verify`
+checks the installed software.
 
 PDF rendering rejects incomplete page sets and stops its worker if conversion
 exceeds five minutes. Temporary images are removed after processing or failure.
@@ -80,35 +80,17 @@ Install additional dependencies with `sh install.sh --extras analytics,molecules
 from the repository root. The [dependency guide](../DEPENDENCIES.md) lists the
 other extras and their requirements.
 
-Lexical answerers use optional WordNet, Roget and Wiktionary resources. Configure
-the data directory before starting Agent:
-
-```sh
-export REXGRAPH_LEXICAL_DIR=/path/to/lexical
-make doctor
-```
-
-| Resource | Relative path under that directory | Individual override |
-| --- | --- | --- |
-| WordNet | `wordnet/english-wordnet-2024.xml.gz` | `REXGRAPH_WORDNET` |
-| Roget | `thesaurus/rogets-pg22.txt` | `REXGRAPH_ROGET` |
-| Wiktionary | `wiktionary/wiktionary-en.rexidx` | `REXGRAPH_WIKTIONARY` |
-
-The default directory is `~/.local/share/rexgraph/lexical`, under `XDG_DATA_HOME`
-when configured. `REXGRAPH_DATA_DIR` selects a RexGraph data root containing a
-`lexical` directory. Existing data in the previous checkout location remains
-usable when no new location is selected. Answerer constructors also accept
-explicit paths. The Wiktionary file is the adapter's prepared index, rather
-than a raw dump; [its source module](agent/adapters/wiktionary.py) documents
-index construction. Installation does not download or convert these resources.
-
 ## Configuration and cache
 
-Configure directories before starting Agent or its command line tools. On Linux
-and macOS, configuration defaults to `~/.config/rexgraph` and the cache defaults
-to `~/.cache/rexgraph`. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` change the parent
-directories. Windows uses `APPDATA` for configuration and `LOCALAPPDATA` for
-the cache.
+Choose directories before starting Agent or its command line tools. For example:
+
+```sh
+export REXGRAPH_CONFIG_DIR=/path/to/settings
+export REXGRAPH_CACHE_DIR=/path/to/cache
+export REXGRAPH_MODELS_DIR=/path/to/models
+export REXGRAPH_SESSION_DIR=/path/to/sessions
+make serve
+```
 
 | Setting | Purpose |
 | --- | --- |
@@ -120,14 +102,15 @@ the cache.
 | `REXGRAPH_NO_CACHE=1` | Disable reusable analysis and JSON result caching |
 | `REXGRAPH_CACHE_MAX_ENTRIES` | Entries retained after pruning; defaults to 2000, with 0 disabling result caching |
 
-Sessions default to `sessions` under the configuration directory. An existing
-`~/.rexgraph-agent/sessions` directory remains the default when no configuration
-or session directory override is set. An explicit directory setting isolates
-session storage from that legacy location.
+Without overrides, Linux and macOS use `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`,
+falling back to `~/.config/rexgraph` and `~/.cache/rexgraph`. Windows uses
+`APPDATA` and `LOCALAPPDATA`. Sessions default to `sessions` under the
+configuration directory. Passing `storage_dir` to the session API selects
+a directory for that session.
 
-`REXGRAPH_MODEL_SCAN_DIRS` replaces the common model search locations. Additional
-directories supplied through `REXGRAPH_MODEL_DIRS` or an explicit discovery call
-are still included.
+Model discovery checks the configured model directory. Set
+`REXGRAPH_MODEL_SCAN_DIRS` to choose discovery roots. Additional directories
+supplied through `REXGRAPH_MODEL_DIRS` or an explicit discovery call are included.
 
 Session writes publish graph data before updating the history index. A failed
 write raises an error and retains the previous history. A session loaded before
@@ -140,7 +123,9 @@ Invalid or nonpositive values use the default. Uploaded temporary files are
 removed after processing, failed reads or cancellation.
 
 Explicit RexGraph settings take precedence over platform defaults and support
-`~` in paths. Hugging Face downloads use its separate cache settings,
+`~` in paths. The `cache_dir` and `models_dir` fields in `config.json` also
+select directories; environment overrides take precedence over saved values.
+Hugging Face downloads use its separate cache settings,
 including `HF_HOME` and `HF_HUB_CACHE`; model discovery reads those locations.
 
 Analysis cache keys include input content, analysis parameters and the cache
@@ -151,7 +136,7 @@ every 128 writes. The count can temporarily exceed the configured limit between
 sweeps. Pruning preserves model files and service configuration.
 
 Chat reuses deterministic single document answers only when document state and
-retrieval parameters match. Live model generation, lexical answers and queries
+retrieval parameters match. Live model generation and queries
 over mutable corpora or stores bypass the response cache.
 
 ## The Hive

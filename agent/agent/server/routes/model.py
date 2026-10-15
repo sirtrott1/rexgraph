@@ -420,9 +420,7 @@ async def local_runtime_status():
 
 @router.get("/model/local/discover")
 async def local_runtime_discover():
-    """Auto detect models already on disk: GGUF files (llama.cpp-loadable) and HF
-    transformers snapshots (vLLM/transformers) across the common toolchain locations
-    (HF cache, ollama, LM Studio, ~/models, our pull dir, + REXGRAPH_MODEL_DIRS)."""
+    """List model files within the configured discovery directories."""
     from agent import local_runtime
     return {"models": local_runtime.discover_local_models(),
             "searched": local_runtime._default_scan_dirs()}

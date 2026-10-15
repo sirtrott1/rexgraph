@@ -87,7 +87,7 @@ class CorpusProfile:
     #: ((name, pattern), ...) section conventions, tried in order
     headings: tuple = ()
     #: which participant HEADS a relation. Anything with `head_of(tokens) -> (index,
-    #: label) | None` implements it: WordNet's subcategorisation frames for English, a
+    #: label) | None` implements it: declared token frames, a
     #: parser for a programming language. None means orientation stays positional, which
     #: is the approximation the grammar exists to replace.
     grammar: object = None

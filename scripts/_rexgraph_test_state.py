@@ -24,7 +24,6 @@ def prepare_test_state() -> Path:
     settings = {
         "REXGRAPH_CONFIG_DIR": str(_root / "config"),
         "REXGRAPH_CACHE_DIR": str(_root / "cache"),
-        "REXGRAPH_DATA_DIR": str(_root / "data"),
         "REXGRAPH_SESSION_DIR": str(_root / "sessions"),
         "REXGRAPH_MODELS_DIR": str(_root / "models"),
         "REXGRAPH_MODEL_SCAN_DIRS": os.pathsep.join((str(_root / "models"),
@@ -46,8 +45,7 @@ def prepare_test_state() -> Path:
         "TRANSFORMERS_CACHE": str(_root / "huggingface" / "hub"),
         "TMPDIR": str(temporary), "TEMP": str(temporary), "TMP": str(temporary),
     }
-    cleared = ("REXGRAPH_LEXICAL_DIR", "REXGRAPH_WORDNET", "REXGRAPH_ROGET",
-               "REXGRAPH_WIKTIONARY", "REXGRAPH_SECRETS_URI", "REXGRAPH_NO_CACHE",
+    cleared = ("REXGRAPH_SECRETS_URI", "REXGRAPH_NO_CACHE",
                "REXGRAPH_NO_JOURNAL", "REXGRAPH_CACHE_MAX_ENTRIES",
                "REXGRAPH_TLS_CERT", "REXGRAPH_TLS_KEY", "REXGRAPH_ALLOWED_DIRS",
                "REXGRAPH_MODEL_DIRS", "REXGRAPH_ONTOLOGY")

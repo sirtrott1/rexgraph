@@ -3,16 +3,14 @@ from pathlib import Path
 
 import pytest
 from agent.data_paths import cache_root, config_root, models_root, huggingface_cache_root
-from agent.data_paths import lexical_path, lexical_root, lexical_status
 from agent.data_paths import sessions_root
 
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
-    for name in ("REXGRAPH_DATA_DIR", "REXGRAPH_LEXICAL_DIR", "XDG_DATA_HOME",
-                 "REXGRAPH_WORDNET", "REXGRAPH_ROGET", "REXGRAPH_WIKTIONARY",
+    for name in ("XDG_DATA_HOME",
                  "REXGRAPH_CACHE_DIR", "REXGRAPH_CONFIG_DIR", "REXGRAPH_MODELS_DIR",
-                 "REXGRAPH_MODEL_SCAN_DIRS",
+                 "REXGRAPH_MODEL_SCAN_DIRS", "REXGRAPH_MODEL_DIRS", "LLAMA_SERVER_BIN",
                  "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "HF_HOME", "HF_HUB_CACHE",
                  "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE", "APPDATA", "LOCALAPPDATA",
                  "REXGRAPH_SESSION_DIR"):
@@ -20,54 +18,6 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setattr("agent.data_paths.platform.system", lambda: "Linux")
     return tmp_path
-
-
-def test_new_user_data_location_is_not_a_source_checkout(home):
-    root = home / ".local" / "share" / "rexgraph" / "lexical"
-    assert lexical_root() == root
-    assert not root.exists()
-    assert not any(item["present"] for item in lexical_status().values())
-
-
-def test_explicit_lexical_root_takes_precedence(home, monkeypatch):
-    monkeypatch.setenv("REXGRAPH_LEXICAL_DIR", str(home / "explicit"))
-    monkeypatch.setenv("REXGRAPH_DATA_DIR", str(home / "data"))
-    assert lexical_root() == home / "explicit"
-    assert lexical_path("roget") == home / "explicit" / "thesaurus" / "rogets-pg22.txt"
-
-
-def test_data_root_contains_the_lexical_directory(home, monkeypatch):
-    monkeypatch.setenv("REXGRAPH_DATA_DIR", str(home / "data"))
-    assert lexical_root() == home / "data" / "lexical"
-
-
-def test_xdg_configuration_does_not_fall_back_to_another_root(home, monkeypatch):
-    legacy = home / "projects" / "rexgraph" / "data" / "lexical"
-    legacy.mkdir(parents=True)
-    monkeypatch.setenv("XDG_DATA_HOME", str(home / "configured"))
-    assert lexical_root() == home / "configured" / "rexgraph" / "lexical"
-
-
-def test_existing_legacy_data_remains_addressable(home):
-    legacy = home / "projects" / "rexgraph" / "data" / "lexical"
-    legacy.mkdir(parents=True)
-    assert lexical_root() == legacy
-    preferred = home / ".local" / "share" / "rexgraph" / "lexical"
-    preferred.mkdir(parents=True)
-    assert lexical_root() == preferred
-
-
-def test_explicit_resource_file_and_presence_are_reported(home, monkeypatch):
-    source = home / "custom-wordnet.xml"
-    source.write_text("<LexicalResource/>\n")
-    monkeypatch.setenv("REXGRAPH_WORDNET", str(source))
-    assert lexical_path("wordnet") == source
-    assert lexical_status()["wordnet"] == {"path": str(source), "present": True}
-
-
-def test_unknown_resource_is_refused(home):
-    with pytest.raises(KeyError):
-        lexical_path("unknown")
 
 
 def test_default_cache_and_configuration_do_not_create_directories(home):
@@ -107,7 +57,7 @@ def test_empty_directory_settings_use_defaults(home, monkeypatch):
 def test_sessions_use_configured_root_and_leave_existing_legacy_data_alone(home, monkeypatch):
     legacy = home / ".rexgraph-agent" / "sessions"
     legacy.mkdir(parents=True)
-    assert sessions_root() == legacy
+    assert sessions_root() == config_root() / "sessions"
     configured = home / "configured"
     monkeypatch.setenv("REXGRAPH_CONFIG_DIR", str(configured))
     assert sessions_root() == configured / "sessions"
@@ -235,11 +185,48 @@ def test_saved_directory_settings_remain_when_no_override_is_set(home, monkeypat
     assert saved.models_dir == "/saved/models"
 
 
-def test_store_uses_resource_overrides_unless_a_root_is_supplied(home, monkeypatch):
-    from agent.adapters.lexical_store import _paths
+def test_saved_directories_control_runtime_cache_and_model_discovery(home):
+    import json
+    from agent import cache, local_runtime
 
-    source = home / "custom-wordnet.xml"
-    monkeypatch.setenv("REXGRAPH_WORDNET", str(source))
-    assert _paths()["wordnet"] == str(source)
-    explicit = home / "store-resources"
-    assert _paths(explicit)["wordnet"] == str(explicit / "wordnet" / "english-wordnet-2024.xml.gz")
+    settings = config_root()
+    settings.mkdir(parents=True)
+    selected_cache = home / "selected-cache"
+    selected_models = home / "selected-models"
+    selected_models.mkdir()
+    (settings / "config.json").write_text(json.dumps({
+        "cache_dir": str(selected_cache), "models_dir": str(selected_models),
+    }))
+    assert cache.cache_dir(create=False) == selected_cache
+    assert models_root() == selected_models
+    assert local_runtime._default_scan_dirs() == [str(selected_models)]
+    assert not selected_cache.exists()
+    assert not (home / ".cache").exists()
+
+
+def test_default_model_discovery_excludes_unrequested_directories(home, monkeypatch):
+    from agent import local_runtime
+
+    selected = home / "selected-models"
+    selected.mkdir()
+    (home / "models").mkdir()
+    (home / ".ollama" / "models").mkdir(parents=True)
+    (huggingface_cache_root()).mkdir(parents=True)
+    monkeypatch.setenv("REXGRAPH_MODELS_DIR", str(selected))
+    assert local_runtime._default_scan_dirs() == [str(selected)]
+
+
+@pytest.mark.parametrize("selection", ["argument", "environment"])
+def test_missing_selected_binary_does_not_fall_back_to_another_program(home, monkeypatch,
+                                                                     selection):
+    from agent import local_runtime
+
+    def refuse(*args):
+        pytest.fail("an explicit binary selection fell back to PATH")
+    monkeypatch.setattr(local_runtime.shutil, "which", refuse)
+    path = str(home / "missing-server")
+    if selection == "environment":
+        monkeypatch.setenv("LLAMA_SERVER_BIN", path)
+        assert local_runtime.find_binary() is None
+    else:
+        assert local_runtime.find_binary(path) is None

@@ -635,8 +635,7 @@ def write(path, index: dict, *, extra: dict | None = None) -> None:
     save_file(t, str(path), metadata={
         "format": str(FORMAT_VERSION), "n": str(index["n"]),
         "n_terms": str(index["n_terms"]),
-        # see wiktionary.write_index: the digest framing has to travel with the file or
-        # anything written under the older one reads as corrupt
+        # Store the digest algorithm with the file so readers can verify older formats.
         "digest_algo": str(DIGEST_ALGO), "digest": state_digest(t)})
 
 

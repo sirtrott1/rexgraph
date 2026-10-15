@@ -571,7 +571,7 @@ function Models(){
           h("div",{className:"input-row"},h("input",{className:"input",style:{flex:1},value:lpath,onChange:function(ev){setLp(ev.target.value)},placeholder:"/path/to/model.gguf"}),h("button",{className:"primary",onClick:startLocal,disabled:lBusy||!lpath.trim()||!lrStat.binary_found},lBusy?"Starting…":"Start & use for chat")))),
       lrStat&&h(Card,{title:"Detected on disk. Models already installed on this machine"},
         (lrStat.detected&&lrStat.detected.length)?h("div",null,
-          h("p",{className:"muted",style:{fontSize:11,marginBottom:6}},"Auto-scanned ",h("strong",null,String(lrStat.detected.length))," model(s) across the HF cache, ollama, LM Studio, ~/models and ",h("code",null,"REXGRAPH_MODEL_DIRS"),". GGUF -> click ",h("strong",null,"Use"),". Transformers snapshots serve via vLLM/transformers."),
+          h("p",{className:"muted",style:{fontSize:11,marginBottom:6}},"Found ",h("strong",null,String(lrStat.detected.length))," model(s) in the configured directories. Set ",h("code",null,"REXGRAPH_MODEL_SCAN_DIRS")," to choose discovery roots. For a GGUF model, click ",h("strong",null,"Use"),". Transformers snapshots serve via vLLM/transformers."),
           h(Table,{cols:[
             {l:"Model",k:"name"},
             {l:"Format",r:function(x){return h(Badge,{type:x.format==="gguf"?"good":"neutral"},x.format)}},
@@ -582,7 +582,7 @@ function Models(){
               (/embed|nomic|bge|gte|e5/i.test(x.name)?h("button",{className:"sm",onClick:function(){setEp(x.path)},title:"load as the embedding worker"},"As embedder"):null)
             ):h("span",{className:"muted",style:{fontSize:11}},"vLLM/transformers")}}
           ],rows:lrStat.detected})
-        ):h("p",{className:"muted"},"No local models found. Put a .gguf under ~/models (or set ",h("code",null,"REXGRAPH_MODEL_DIRS"),"), or pull one from the model catalog below.")),
+        ):h("p",{className:"muted"},"No models found in the configured directories. Enter a model file path, set ",h("code",null,"REXGRAPH_MODEL_SCAN_DIRS"),", or download a model below.")),
       h(Card,{title:h("span",{className:"lbl-help"},"On disk",
       h(Help,null,"Scans for GGUF files and HuggingFace snapshots already present, so a model does not have to be registered by hand.")),
       actions:h("button",{className:"sm",onClick:discover},"Scan")},
@@ -628,7 +628,7 @@ function Models(){
             iEmb.bridges&&iEmb.bridges.length?h("div",null,h("strong",null,"load-bearing concept links (effective resistance):"),
               h("ul",{style:{margin:"4px 0"}},iEmb.bridges.slice(0,6).map(function(b,i){return h("li",{key:i},b.from," <-> ",b.to," (R=",b.effective_resistance,")")}))):null)),
         h(Card,{title:"Attention"},
-          iAvail===false&&h("p",{className:"muted",style:{fontSize:12}},"Tier-2 capture host not built. Build llama.cpp, then ",h("code",null,"LLAMA_DIR=~/llama.cpp bash agent/agent/native/build.sh"),"."),
+          iAvail===false&&h("p",{className:"muted",style:{fontSize:12}},"Tier-2 capture host not built. Build llama.cpp, then ",h("code",null,"LLAMA_DIR=/path/to/llama.cpp bash agent/agent/native/build.sh"),"."),
           h("div",{className:"input-row"},
             h("input",{className:"input",style:{flex:1},value:iPrompt,onChange:function(ev){setIPrompt(ev.target.value)},placeholder:"prompt to run the model on"}),
             h("button",{className:"primary",onClick:runAttn,disabled:iBusy||iAvail===false},iBusy?"…":"Capture & analyze")),

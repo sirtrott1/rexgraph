@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report optional Python dependencies, external tools and configured lexical data."""
+"""Report optional Python dependencies and external tools."""
 from __future__ import annotations
 
 import argparse
@@ -44,15 +44,12 @@ def dependency_status(packages):
 def report():
     features = {name: {"profile_or_extra": extra, **dependency_status(packages)}
                 for name, (extra, packages) in FEATURES.items()}
-    data = {}
     ocr = None
     try:
         version("rexgraph-agent")
     except PackageNotFoundError:
         pass
     else:
-        from agent.data_paths import lexical_status
-        data = lexical_status()
         from agent.cli.setup import has_tesseract
         ocr = {"english_ready": has_tesseract()}
     gpu_state = Path(sys.prefix) / "share/rexgraph/gpu-install.json"
@@ -63,7 +60,7 @@ def report():
     from rexgraph._hip_build import compiler_info
     return {"python_dependencies": features, "gpu_setup": gpu, "hip_toolchain": compiler_info(),
             "external_tools": {name: shutil.which(name) for name in ("tesseract", "llama-server", "node", "hipcc")},
-            "lexical_data": data, "local_ocr": ocr}
+            "local_ocr": ocr}
 
 
 def main():
@@ -87,10 +84,6 @@ def main():
     if result["local_ocr"] is not None:
         print("Local OCR: " + ("ready" if result["local_ocr"]["english_ready"]
                                else "requires Tesseract and English language data (eng.traineddata)"))
-    if result["lexical_data"]:
-        print("Optional lexical data:")
-        for name, status in result["lexical_data"].items():
-            print(f"  {name}: {'present' if status['present'] else 'not found'} at {status['path']}")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.adapters.grammar import FrameGrammar, wordnet_grammar
+from agent.adapters.grammar import FrameGrammar
 
 
 @pytest.fixture
@@ -98,15 +98,3 @@ def test_recorded_inflections_are_reachable():
     g = FrameGrammar(frames={"via": ("Somebody ----s", 2)},
                      word_frames={"sleep": {"via"}, "slept": {"via"}})
     assert g.head_of(["dog", "slept"]) == (1, "via")
-
-
-def test_wordnet_grammar_builds_from_a_loaded_lexicon():
-    wn = {"frames": {"via": "Somebody ----s"},
-          "frames_of": {"s1": ["via"]},
-          "sense_of": {"s1": ("e1", "ss1")},
-          "lemma_of": {"e1": "Sleep"},
-          "forms_of": {"e1": ["slept"]}}
-    g = wordnet_grammar(wn)
-    assert g.arity_of("via") == 2
-    assert "sleep" in g.word_frames and "slept" in g.word_frames, "lemma AND its forms"
-    assert g.head_of(["dog", "SLEPT"]) == (1, "via"), "the lookup is case-folded"

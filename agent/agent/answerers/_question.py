@@ -6,8 +6,6 @@ subject. Where a structural fact is available it is used instead, in `subject_by
 """
 from __future__ import annotations
 
-import os
-
 __all__ = ["tokens", "relation_asked", "subject_by_degree", "function_words",
            "interface_words",
            "FRAME", "NON_PREDICATIVE", "MENTION"]
@@ -26,23 +24,10 @@ _FUNCTION: frozenset | None = None
 
 
 def function_words() -> frozenset:
-    """The function words, as the lexicon's own recorded parts of speech define them.
-
-    Empty when no lexicon is on disk, and an empty gate excludes nothing.
-    """
+    """Return the exclusion set used by the question parser."""
     global _FUNCTION
     if _FUNCTION is None:
         _FUNCTION = frozenset()
-        try:
-            from agent.adapters import wiktionary as WK
-            from agent.answerers.linkage import DEFAULT_WIKTIONARY
-            if os.path.exists(DEFAULT_WIKTIONARY):
-                idx = WK.read_index(DEFAULT_WIKTIONARY, verify=False)
-                _FUNCTION = WK.function_words(idx, exclusive=False)
-        except Exception:
-            # The gate is an optional refinement: with no lexicon on disk it stays
-            # empty, and an empty gate excludes nothing.
-            pass
     return _FUNCTION
 
 
@@ -55,7 +40,7 @@ def interface_words() -> frozenset:
     if _INTERFACE_WORDS is None:
         import importlib
         words = set(FRAME) | set(NON_PREDICATIVE) | set(MENTION)
-        for mod in ("lexical", "linkage", "ontology"):
+        for mod in ("ontology",):
             try:
                 m = importlib.import_module(f"agent.answerers.{mod}")
             except Exception:

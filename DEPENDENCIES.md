@@ -121,16 +121,8 @@ vLLM installation can resolve a CUDA build on an incompatible Python or ROCm
 combination. Select a wheel or use an existing platform installation according
 to the [vLLM installation documentation](https://docs.vllm.ai/en/latest/getting_started/installation/gpu/).
 
-WordNet, Roget and Wiktionary are optional lexical resources. Configure their
-root with `REXGRAPH_LEXICAL_DIR` before starting Agent, or provide individual
-files through `REXGRAPH_WORDNET`, `REXGRAPH_ROGET` and `REXGRAPH_WIKTIONARY`.
-The default user data directory is `~/.local/share/rexgraph/lexical` and respects
-`XDG_DATA_HOME`. The previous checkout location is used when it exists and no
-new location was selected. Installation does not download or convert these data
-sources.
-
-`make doctor` reports the installed optional packages, external executables and
-configured resource paths. `make verify` checks the compiled library and packaged
+`make doctor` reports installed optional packages and external executables.
+`make verify` checks the compiled library and packaged
 applications. Use `make doctor ARGS=--json` for a machine readable inventory.
 
 ## Test coverage and skipped cases
@@ -155,13 +147,12 @@ that runtime can crash parallel triangular solves. Other BLAS libraries retain
 their selected widths. [OpenBLAS 0.3.29](https://github.com/OpenMathLib/OpenBLAS/releases/tag/v0.3.29)
 includes a fix for a null pointer failure in threaded builds.
 
-GPU, multiple GPU and native HIP tests still depend on actual hardware and a
-compatible compiled runtime. Regression tests generate their graph, document
-and lexical inputs in temporary storage and isolate user configuration, caches,
-models and sessions. Dictionaries and model downloads are not required for the
-suite. Tests for optional file formats skip at the format boundary when the
-corresponding extra is absent. Use the reported test name and skip reason to
-identify a missing device or Python dependency.
+GPU, multiple GPU and native HIP tests depend on actual hardware and a compatible
+compiled runtime. Regression tests generate graph and document inputs in temporary
+storage and isolate user configuration, caches, models and sessions. Tests for
+optional file formats skip at the format boundary when the corresponding extra
+is absent. Use the reported test name and skip reason to identify a missing device
+or Python dependency.
 
 For a Core installation that must exclude SciPy, the dedicated smoke test checks
 native operations and deliberate refusal of compatibility exports:

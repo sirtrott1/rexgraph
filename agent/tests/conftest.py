@@ -23,12 +23,6 @@ _TEST_HOME = prepare_test_state()
 import pytest
 
 
-@pytest.fixture(scope="module")
-def lexical_sources(tmp_path_factory):
-    from _rexgraph_agent_tests.lexical_fixtures import make_lexical_sources
-    return make_lexical_sources(tmp_path_factory.mktemp("lexical-sources"))
-
-
 # rexgraph-rcdb is a sibling distribution. Preferring an installed one and falling back
 # to the copy beside this checkout means the suite exercises the real package without
 # anything being installed into the caller's environment, which is the same rule the rcql

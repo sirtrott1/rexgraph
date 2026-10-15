@@ -60,7 +60,7 @@ def test_fixture_state_replaces_inherited_user_paths_before_import(tmp_path):
                 "REXGRAPH_CACHE_DIR": str(tmp_path / "user-cache"),
                 "REXGRAPH_SESSION_DIR": str(tmp_path / "user-sessions"),
                 "HF_HUB_CACHE": str(tmp_path / "user-models"),
-                "REXGRAPH_WORDNET": str(tmp_path / "user-wordnet")}
+                "REXGRAPH_MODELS_DIR": str(tmp_path / "user-models")}
     code = '''import os, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
@@ -68,8 +68,8 @@ from _rexgraph_test_state import prepare_test_state
 root = prepare_test_state()
 assert root == prepare_test_state()
 from agent.cli.config import CONFIG_FILE
-from agent.data_paths import cache_root, sessions_root, huggingface_cache_root, lexical_path
-for path in (CONFIG_FILE, cache_root(), sessions_root(), huggingface_cache_root(), lexical_path("wordnet")):
+from agent.data_paths import cache_root, sessions_root, huggingface_cache_root, models_root
+for path in (CONFIG_FILE, cache_root(), sessions_root(), huggingface_cache_root(), models_root()):
     assert Path(path).is_relative_to(root), path
 assert Path(tempfile.gettempdir()).is_relative_to(root)
 '''
